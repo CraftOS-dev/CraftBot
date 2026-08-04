@@ -291,7 +291,6 @@ class EventStreamManager:
         action_id: str | None = None,
         action_input: Optional[dict] = None,
         action_output: Optional[dict] = None,
-        task_status: Optional[str] = None,
         platform: Optional[str] = None,
         task_id: str | None = None,
     ) -> int:
@@ -341,7 +340,6 @@ class EventStreamManager:
             action_id=action_id,
             action_input=action_input,
             action_output=action_output,
-            task_status=task_status,
             platform=platform,
         )
 

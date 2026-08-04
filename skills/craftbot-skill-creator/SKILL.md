@@ -9,7 +9,7 @@ action-sets:
 
 # CraftBot Skill Creator
 
-Author a reusable skill from one completed task. The handler that spawned this task already gathered everything you need into a single markdown file — read it, generalise it, write the new skill, send the user a one-message summary, end the task. The handler has already posted "Creating skill `<name>`…" in chat for you, so do not duplicate that message. Your only chat message is the final presentation right before `task_end`. Do not iterate with test cases. Do not run subagents.
+Author a reusable skill from one completed task. The handler that spawned this task already gathered everything you need into a single markdown file — read it, generalise it, write the new skill, send the user a one-message summary, end the task. The handler has already posted "Creating skill `<name>`…" in chat for you, so do not duplicate that message. Your only chat message is the final presentation right before `end_turn`. Do not iterate with test cases. Do not run subagents.
 
 ## What you receive
 
@@ -39,7 +39,7 @@ The Task name and the action trace together are enough to reconstruct the workfl
 Two artefacts, in order:
 
 1. **One file** at the path given by `Target file:` in your task instruction (an absolute path under the project's `skills/` directory). Pass that path verbatim to `write_file` (or `create_file`). The directory does not exist yet; `write_file` creates the parent directory in the same call.
-2. **One presentation message** to the user via `send_message`, immediately after the file is written and immediately before `task_end`. See *Presentation message* below for the format.
+2. **One presentation message** to the user via `send_message`, immediately after the file is written and immediately before `end_turn`. See *Presentation message* below for the format.
 
 Do not write any other files. Do not send any chat message other than the single presentation one — the handler has already posted the "Creating skill …" acknowledgement.
 
@@ -116,7 +116,7 @@ Include these sections, in this order. Skip optional ones if they have nothing u
 
 1. **`# <Title-Case Name>` + one-paragraph overview.** What the skill enables. What kind of input it expects. What it produces.
 2. **`## When to use`** *(optional but recommended)*. Bullet list of trigger scenarios. The description already covers this; this section is for nuance — domains, adjacent cases, "use this instead of X when…".
-3. **`## Definition of Done`**. Numbered list of observable conditions that mark the task complete. Future agents will use this to decide whether to call `task_end`.
+3. **`## Definition of Done`**. Numbered list of observable conditions that mark the task complete. Future agents will use this to decide whether to call `end_turn`.
 4. **`## General Steps`**. Numbered list. The shortest happy path, derived from the source action trace. One imperative sentence per step. No specific values. No code.
 5. **`## Output Format`** *(if the skill produces structured output)*. The exact template the agent should write. Use a fenced code block.
 6. **`## Examples`** *(0–2 examples)*. Realistic input → output pairs. Strip identifying details. Each example should be ~5–15 lines, not pages.
@@ -168,11 +168,11 @@ You are done when all of these are true:
 5. No specific values from the source task leak into the skill (no concrete dates, names, IDs, URLs, paths, file contents).
 6. Total body length is reasonable for the workflow's complexity (~80–300 lines is the right ballpark).
 7. You have sent the presentation message via `send_message` (see below).
-8. You have called `task_end` with a one-line summary.
+8. You have called `end_turn` with a one-line summary.
 
 ## Presentation message — required, exactly once
 
-After writing the SKILL.md and immediately before `task_end`, call `send_message` once with a short summary the user can read at a glance. Aim for 3–6 short lines. Adapt this template — do not copy verbatim:
+After writing the SKILL.md and immediately before `end_turn`, call `send_message` once with a short summary the user can read at a glance. Aim for 3–6 short lines. Adapt this template — do not copy verbatim:
 
 ```
 ✨ Created the **<skill-name>** skill.
@@ -190,7 +190,7 @@ Rules:
 
 ## Allowed Actions
 
-`read_file`, `create_file` (or `write_file`), `stream_edit`, `send_message`, `task_update_todos`, `task_end`.
+`read_file`, `create_file` (or `write_file`), `stream_edit`, `send_message`, `update_todos`, `end_turn`.
 
 `stream_edit` is only needed if you want to refine the file you just created — write it correctly the first time and you won't need it.
 
@@ -240,7 +240,7 @@ Produce a markdown digest of recent pull requests in a GitHub repository, groupe
 3. Fetch merged PRs in the window with `web_search`. Always include the date filter in the first query — broad queries return too many results.
 4. Group PRs by author; within each group, order by merge date descending.
 5. Write the markdown digest with `create_file`.
-6. `task_end` with a one-line summary.
+6. `end_turn` with a one-line summary.
 
 ## Output Format
 
@@ -260,7 +260,7 @@ Produce a markdown digest of recent pull requests in a GitHub repository, groupe
 
 ## Allowed Actions
 
-`web_search`, `read_file`, `create_file`, `task_update_todos`, `task_end`.
+`web_search`, `read_file`, `create_file`, `update_todos`, `end_turn`.
 ```
 
 Notice what is *not* in this output: the specific repository name, the specific week, the count of PRs found, the actual author names, the path of the python script the source agent wrote. All of those would have rotted by the next invocation.

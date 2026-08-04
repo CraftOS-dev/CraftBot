@@ -1,8 +1,8 @@
 /* Timeline blocks for inline activity (reasoning + compact action rows)
    rendered in the session chat timeline. */
 
-/* Timeline row: icon gutter + content column. Each new item slides up + fades
-   in so streaming additions don't pop abruptly.
+/* Timeline row: icon gutter + content column. Each new item fades in so
+   streaming additions don't pop abruptly.
    Geometry: 32px gutter + 8px gap = text left edge at 40px, matching the
    agent chat bubble (32px avatar + --space-2 gap). Icons center under the
    avatar's center line. */
@@ -12,13 +12,16 @@
   align-items: flex-start;
   gap: var(--space-2);
   scroll-margin-top: var(--space-3);
-  z-index: 1;
   animation: transcriptItemAppear 180ms ease-out;
 }
 
+/* Opacity-only: an animated transform here (translateY) widens any
+   transient virtualizer measurement gap into a visible window instead of
+   a single imperceptible frame — same rule as the outer timeline rows
+   (see Chat.tsx). */
 @keyframes transcriptItemAppear {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -88,7 +91,6 @@
   color: var(--text-secondary);
   font-size: var(--text-sm);
   scroll-margin-top: var(--space-3);
-  z-index: 1;
   animation: transcriptItemAppear 180ms ease-out;
 }
 

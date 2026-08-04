@@ -151,7 +151,6 @@ class BrowserThemeAdapter(ThemeAdapter):
         self,
         name: str,
         status: str,
-        is_task: bool,
         indent: int = 0,
     ) -> Dict[str, Any]:
         """Format an action panel item for browser."""
@@ -163,7 +162,6 @@ class BrowserThemeAdapter(ThemeAdapter):
             "name": name,
             "status": status,
             "icon": icon,
-            "isTask": is_task,
             "indent": indent,
             "style": style.to_css(),
         }

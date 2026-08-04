@@ -64,15 +64,26 @@ const messagesSlice = createSlice({
       const incoming = action.payload
       if (!incoming.sessionId) return
       const bucket = bucketFor(state, incoming.sessionId)
+      // Carry the optimistic bubble's own timestamp forward rather than
+      // adopting the server's. The two are assigned by different clocks
+      // (client send-click time vs. server receipt time), so swapping to
+      // the server's value can shift this message's sort position past
+      // activity items that streamed in during the round trip — a
+      // mid-render reorder that the virtualizer renders as a transient
+      // overlap between rows.
+      let timestamp = incoming.timestamp
       if (incoming.clientId) {
         // Swap the pending optimistic entry (same clientId) for the
         // confirmed server message so no duplicate bubble appears.
         const tempIdx = bucket.items.findIndex(
           m => m.pending && m.clientId === incoming.clientId,
         )
-        if (tempIdx !== -1) bucket.items.splice(tempIdx, 1)
+        if (tempIdx !== -1) {
+          timestamp = bucket.items[tempIdx].timestamp
+          bucket.items.splice(tempIdx, 1)
+        }
       }
-      upsertMessage(bucket, { ...incoming, pending: false })
+      upsertMessage(bucket, { ...incoming, timestamp, pending: false })
     },
     addOptimistic(state, action: PayloadAction<ChatMessage>) {
       if (!action.payload.sessionId) return
