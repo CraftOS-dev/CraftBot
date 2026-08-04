@@ -12,6 +12,5 @@ extend-exclude = [
 "agents/dog_agent/data/action/dog_behaviour.py" = ["E402"]
 "app/action/action_framework/run_actions_tests.py" = ["E402"]
 "app/config.py" = ["E402"]
-"app/llm_interface.py" = ["E402"]
 "app/main.py" = ["E402"]
 "craftos_integrations/__init__.py" = ["E402"]

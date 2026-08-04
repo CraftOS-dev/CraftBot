@@ -313,8 +313,12 @@ class VLMInterface:
                 logger.info(f"[LLM RECV] {cleaned}")
             return cleaned
         except Exception as e:
-            logger.error(f"[ERROR] {e}")
-            raise
+            from agent_core.core.errors import ClassifiedError
+            from agent_core.core.impl.llm.errors import classify_llm_error
+
+            info = classify_llm_error(e, provider=self.provider, model=self.model)
+            logger.error(f"[VLM] {info.message}")
+            raise ClassifiedError(info) from e
 
     async def generate_response_async(
         self,

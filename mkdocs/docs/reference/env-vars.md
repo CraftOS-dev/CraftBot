@@ -102,13 +102,13 @@ CraftBot ships shared OAuth client credentials embedded in release builds. `get_
 
 ## Prompt cache tuning
 
-Read by the LLM cache config in `app/llm_interface.py` and `agent_core/core/llm/cache/config.py`. These are the effective values the cache layer uses. The `cache` block in `settings.json` documents the same defaults, but changing cache behavior requires setting these variables.
+Read by the LLM cache config in `agent_core/core/llm/cache/config.py`. These are the effective values the cache layer uses. The `cache` block in `settings.json` documents the same defaults, but changing cache behavior requires setting these variables.
 
 | Variable | Read by | Purpose / default |
 |---|---|---|
-| `CACHE_PREFIX_TTL` | app/llm_interface.py, cache/config.py | System-prompt prefix cache TTL in seconds. Default `3600`. |
-| `CACHE_SESSION_TTL` | app/llm_interface.py, cache/config.py | Per-session cache TTL in seconds. Default `7200`. |
-| `CACHE_MIN_TOKENS` | app/llm_interface.py, cache/config.py | Minimum prompt size to cache. Prompts below this skip caching. Default `500`. |
+| `CACHE_PREFIX_TTL` | cache/config.py | System-prompt prefix cache TTL in seconds. Default `3600`. |
+| `CACHE_SESSION_TTL` | cache/config.py | Per-session cache TTL in seconds. Default `7200`. |
+| `CACHE_MIN_TOKENS` | cache/config.py | Minimum prompt size to cache. Prompts below this skip caching. Default `500`. |
 
 ## Interface and launch
 

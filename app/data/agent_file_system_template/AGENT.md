@@ -462,10 +462,11 @@ The harness already handles certain failures so you do not have to. Recognizing 
 - Recovery: the timeout is final for that invocation. Either retry with smaller scope (fewer rows, narrower regex, smaller batch) or split the work into multiple actions.
 
 **LLM consecutive-failure circuit breaker** ([agent_core/core/impl/llm/errors.py](agent_core/core/impl/llm/errors.py), [agent_core/core/impl/llm/interface.py](agent_core/core/impl/llm/interface.py))
-- After repeated consecutive LLM failures (auth, network, etc.), the harness raises `LLMConsecutiveFailureError`.
-- `_handle_react_error` walks the exception chain (`__cause__`/`__context__`) to detect this and **automatically cancels the task** via `task_manager.mark_task_cancel(...)`. The agent's last instruction is cached in `_llm_retry_instructions[session_id]` for retry-after-fix.
-- A `LLM_FATAL_ERROR` UI event is emitted so the user sees a clear failure dialog.
-- **Implication:** if you see `MSG_CONSECUTIVE_FAILURE` ("LLM calls have failed N consecutive times. Task aborted to prevent infinite retries."), the task is already gone. Do NOT try to re-create it. The user must check their LLM configuration.
+- Non-transient categories (auth, credit, quota, model, blocked, bad request) raise `LLMConsecutiveFailureError` immediately on the first failure — retrying the same request can't fix them. Transient categories (rate-limit, server, connection, unclassified) get a 5-attempt retry budget before the same error is raised.
+- `_handle_react_error` walks the exception chain (`__cause__`/`__context__`) to detect this and **halts the run** (`_emit_run_state(session_id, False)`) rather than cancelling the task outright.
+- Presentation splits into two tiers: a recognized/classified failure (bad key, no credits, misconfigured provider — anything carrying an `ErrorInfo`, via `LLMConsecutiveFailureError.last_error_info` or a `ClassifiedError`) shows as a short, calm "system"-style message; anything unclassified shows as a red "error" message with full detail — see [agent_core/core/errors.py](agent_core/core/errors.py).
+- There is no Retry/Change Model button — the user resumes by sending a normal chat message (e.g. "continue"). `_handle_chat_message` resets the failure counter on any new message, so this just works.
+- **Implication:** if you see `MSG_CONSECUTIVE_FAILURE`/`MSG_FAILED_IMMEDIATELY`, the run has halted and is waiting on the user's next message. Do NOT try to keep working.
 
 **Action limit (`max_actions_per_task`, minimum 5)** ([agent_core/core/state/types.py](agent_core/core/state/types.py))
 - Tracked in `STATE.get_agent_property("action_count")` against `max_actions_per_task`.

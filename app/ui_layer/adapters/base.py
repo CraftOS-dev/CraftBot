@@ -215,9 +215,6 @@ class InterfaceAdapter(ABC):
             bus.subscribe(UIEventType.ERROR_MESSAGE, self._handle_error_message)
         )
         self._unsubscribers.append(
-            bus.subscribe(UIEventType.LLM_FATAL_ERROR, self._handle_llm_fatal_error)
-        )
-        self._unsubscribers.append(
             bus.subscribe(UIEventType.INFO_MESSAGE, self._handle_info_message)
         )
 
@@ -323,27 +320,6 @@ class InterfaceAdapter(ABC):
                 event.data.get("message", ""),
                 "error",
                 session_id=event.task_id,
-            )
-        )
-
-    def _handle_llm_fatal_error(self, event: UIEvent) -> None:
-        """Handle fatal LLM consecutive failure — show retry/change-model options."""
-        from app.ui_layer.components.types import ChatMessageOption
-
-        session_id = event.data.get("session_id")
-        options = [
-            ChatMessageOption(label="Retry", value="llm_retry", style="primary"),
-            ChatMessageOption(
-                label="Change Model", value="llm_change_model", style="default"
-            ),
-        ]
-        asyncio.create_task(
-            self._display_chat_message(
-                "System",
-                "What would you like to do?",
-                "system",
-                session_id=session_id,
-                options=options,
             )
         )
 

@@ -2990,10 +2990,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             response._zip_cleanup_path = zip_path
             return response
         except (ValueError, FileNotFoundError) as e:
-            return web.json_response({"error": str(e)}, status=404)
+            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
+            from app.errors.web import error_json_response
+
+            return error_json_response(
+                ErrorInfo(
+                    category=ErrorCategory.NOT_FOUND,
+                    code="LIVING_UI_EXPORT_NOT_FOUND",
+                    title="Export not found",
+                    message=redact(str(e)),
+                ),
+                status=404,
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Export error: {e}")
-            return web.json_response({"error": str(e)}, status=500)
+            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
+            from app.errors.web import error_json_response
+
+            return error_json_response(
+                ErrorInfo(
+                    category=ErrorCategory.INTERNAL,
+                    code="LIVING_UI_EXPORT_FAILED",
+                    title="Export failed",
+                    message=redact(str(e)),
+                ),
+                status=500,
+            )
 
     async def _living_ui_stage_handler(self, request: "web.Request") -> "web.Response":
         """Stage a reference file (sketch/screenshot/doc) for a NEW Living UI.
@@ -3644,16 +3666,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     if m.message_id == message_id:
                         m.option_selected = value
                         break
-
-            # Navigate to model settings page
-            if value == "llm_change_model":
-                await self._broadcast(
-                    {
-                        "type": "navigate",
-                        "data": {"path": "/settings"},
-                    }
-                )
-                return
 
             # Route to the controller
             await self._controller.handle_option_click(value, session_id)
