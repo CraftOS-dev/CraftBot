@@ -21,7 +21,7 @@ import { Button } from '../../components/ui/Button'
 import { IconButton } from '../../components/ui/IconButton'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { Chat } from '../../components/Chat'
-import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, getIframeWindow } from './iframePool'
+import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, ownsProjectWindow } from './iframePool'
 import { ConstructionDock } from './ConstructionDock'
 import { LivingUIThemeModal, DEFAULT_CUSTOM_COLORS } from './LivingUIThemeModal'
 import type { LivingUIThemeId, LivingUICustomColors } from './LivingUIThemeModal'
@@ -208,7 +208,7 @@ export function LivingUIPage() {
     if (!projectId) return
     const onIframeReady = (e: MessageEvent) => {
       if (e.data?.type !== 'craftbot-theme-request' || !e.source) return
-      if (e.source !== getIframeWindow(projectId)) return
+      if (!ownsProjectWindow(projectId, e.source)) return
       ;(e.source as Window).postMessage({
         type: 'livingui-theme',
         themeId: livingUITheme,
