@@ -163,13 +163,16 @@ export function DashboardPage() {
   // Total counts new tokens only. `token.total` from the API is
   // rawInput + output, so it double-counts cache reads — derive instead.
   const totalTokens = inputTokens + outputTokens
+  const totalTokensRatio = inputTokens + outputTokens + cachedTokens
 
   // Calculate token ratios
-  const inputRatio = totalTokens > 0 ? Math.round((inputTokens / totalTokens) * 100) : 0
-  const outputRatio = totalTokens > 0 ? Math.round((outputTokens / totalTokens) * 100) : 0
+  const inputRatio = totalTokensRatio > 0 ? Math.round((inputTokens / totalTokensRatio) * 100) : 0
+  const outputRatio = totalTokensRatio > 0 ? Math.round((outputTokens / totalTokensRatio) * 100) : 0
   // Cache hit rate — share of the prompt served from cache. Denominator is the
   // full prompt, not totalTokens: output tokens are never cacheable.
-  const cachedRatio = rawInputTokens > 0 ? Math.min(100, Math.round((cachedTokens / rawInputTokens) * 100)) : 0
+  //const cachedRatio = rawInputTokens > 0 ? Math.min(100, Math.round((cachedTokens / rawInputTokens) * 100)) : 0 <--- STORAGE ONLY, ABLE TO BE DELETED IF NEEDED
+  const cachedRatio = totalTokensRatio > 0 ? Math.min(100, Math.round((cachedTokens / totalTokensRatio) * 100)) : 0
+
 
   const cpuPercent = metrics?.system.cpuPercent ?? 0
   const memoryPercent = metrics?.system.memoryPercent ?? 0
@@ -311,6 +314,10 @@ export function DashboardPage() {
                 <div
                   className={styles.tokenOutputBar}
                   style={{ width: `${outputRatio}%` }}
+                />
+                <div
+                  className={styles.tokenCachedBar}
+                  style={{ width: `${cachedRatio}%` }}
                 />
               </div>
               <div className={styles.tokenRatioLabels}>
