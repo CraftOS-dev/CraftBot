@@ -922,7 +922,6 @@ class VLMInterface:
         usage = response.get("usage", {}) or {}
         token_count_input = int(usage.get("inputTokens", 0) or 0)
         token_count_output = int(usage.get("outputTokens", 0) or 0)
-        total_tokens = token_count_input + token_count_output
         cached_tokens = 0
 
         if self._bedrock_model_supports_caching():
@@ -940,7 +939,13 @@ class VLMInterface:
                 or usage.get("cacheWriteInputTokenCount")
                 or 0
             )
-            cached_tokens = cache_read + cache_write
+            # Bedrock's `inputTokens` EXCLUDES cache activity, unlike the
+            # Anthropic API where input covers the full prompt. Normalize to
+            # the Anthropic shape — input = full prompt, cached = reads only —
+            # so downstream `input - cached` display math holds for every
+            # provider.
+            token_count_input += cache_read + cache_write
+            cached_tokens = cache_read
 
             metrics = get_cache_metrics()
             if cache_read > 0:
@@ -964,6 +969,8 @@ class VLMInterface:
                 metrics.record_miss(
                     "bedrock", "cachepoint_vlm", total_tokens=token_count_input
                 )
+
+        total_tokens = token_count_input + token_count_output
 
         self._report_usage_async(
             "vlm_bedrock",

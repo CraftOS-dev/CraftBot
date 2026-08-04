@@ -61,6 +61,7 @@ def test_input_excludes_cached_and_total_excludes_both():
     d = _run(s).data
 
     assert d["input"] == 20  # 100 - 80
+    assert d["raw_input"] == 100  # full prompt, cache reads included
     assert d["cached"] == 80
     assert d["output"] == 20
     assert d["total"] == 40  # 20 + 20, cached excluded
@@ -86,13 +87,3 @@ def test_unsaved_session_reads_as_zero():
     assert result.data["cached"] == 0
     assert result.data["output"] == 0
     assert result.data["total"] == 0
-
-
-if __name__ == "__main__":
-    test_totals_survive_run_reset()
-    test_totals_round_trip_through_dict()
-    test_old_sessions_load_as_zero()
-    test_input_excludes_cached_and_total_excludes_both()
-    test_input_clamps_when_cached_exceeds_input()
-    test_unsaved_session_reads_as_zero()
-    print("ok")

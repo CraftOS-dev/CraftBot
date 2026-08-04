@@ -34,8 +34,9 @@ class TokensCommand(Command):
 
         # Providers report input as the full prompt, cache reads included, so
         # `cached` is a subset of `total_input_tokens` — never a sibling.
+        raw_input = getattr(session, "total_input_tokens", 0) or 0
         cached = getattr(session, "total_cache_tokens", 0) or 0
-        new_input = max(0, (getattr(session, "total_input_tokens", 0) or 0) - cached)
+        new_input = max(0, raw_input - cached)
         output = getattr(session, "total_output_tokens", 0) or 0
         total = new_input + output
 
@@ -52,6 +53,7 @@ class TokensCommand(Command):
             data={
                 "session_id": target,
                 "input": new_input,
+                "raw_input": raw_input,
                 "cached": cached,
                 "output": output,
                 "total": total,
