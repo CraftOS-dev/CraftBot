@@ -17,6 +17,7 @@ At a glance:
 | [`/skill <subcommand>`](#skill) | — | Manage skills |
 | [`/cred <subcommand>`](#cred) | — | Credentials and integration status |
 | [`/update [--check]`](#update) | `/upgrade` | Check for and install updates |
+| [`/tokens`](#tokens) | — | Show this session's token usage |
 
 Beyond these, the registry also holds [integration commands](#integration-commands) (`/gmail`, `/slack`, ...) and [skill commands](#skill-commands) (`/pdf`, `/docx`, ...), covered at the end.
 
@@ -140,6 +141,20 @@ Read-only overview of credentials and integrations. Connecting happens with the 
 ```
 
 An update pulls the latest code, installs dependencies, and restarts CraftBot automatically, streaming progress as system messages. If you're already current, it says so.
+
+## /tokens
+
+Prints the cumulative token usage of the chat it's typed in, as a system message:
+
+```
+Session token usage
+  Input:  79,022
+  Cached: 312,455
+  Output: 5,770
+  Total:  84,792
+```
+
+**Input** is genuinely new prompt tokens (cache reads excluded), **Cached** is prompt tokens served from the provider's cache, and **Total** is Input + Output. Totals accumulate across every run in the session and survive restarts and [`/clear`](#clear) (clearing wipes the conversation, not the session's lifetime counters). A brand-new chat that hasn't sent a message yet reports zeros. Sessions created before this command existed start counting from their next run.
 
 ## Integration commands
 

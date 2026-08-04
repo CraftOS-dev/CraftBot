@@ -58,6 +58,8 @@ class Session:
             (reset when a new run starts).
         input_tokens/output_tokens/cache_tokens: LLM usage breakdown for
             the current run.
+        total_input_tokens/total_output_tokens/total_cache_tokens: the same
+            breakdown accumulated across every run in this session.
     """
 
     id: str
@@ -83,6 +85,11 @@ class Session:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_tokens: int = 0
+    # Cumulative session totals — deliberately NOT cleared by
+    # reset_run_counters(); they span every run in this session.
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cache_tokens: int = 0
 
     def touch(self) -> None:
         """Update last_active_at to now."""
@@ -138,6 +145,9 @@ class Session:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cache_tokens": self.cache_tokens,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_cache_tokens": self.total_cache_tokens,
         }
 
     @classmethod
@@ -165,4 +175,7 @@ class Session:
             input_tokens=data.get("input_tokens", 0),
             output_tokens=data.get("output_tokens", 0),
             cache_tokens=data.get("cache_tokens", 0),
+            total_input_tokens=data.get("total_input_tokens", 0),
+            total_output_tokens=data.get("total_output_tokens", 0),
+            total_cache_tokens=data.get("total_cache_tokens", 0),
         )
