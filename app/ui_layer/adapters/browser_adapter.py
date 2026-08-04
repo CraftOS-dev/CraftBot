@@ -6887,6 +6887,42 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Clean up disconnected clients
         self._ws_clients -= disconnected
 
+    async def _broadcast_error(
+        self, msg_type: str, exc: BaseException, *, code: str, **identity: Any
+    ) -> None:
+        """Classify, log and broadcast a handler failure.
+
+        Replaces the repeated `except Exception as e: await self._broadcast(
+        {"type": X, "data": {"success": False, "error": str(e), ...}})` shape
+        (~83 sites). Always emits `error` — the key every frontend `d.error ||
+        d.message || 'fallback'` chain reads — alongside the snake_case
+        category/code/severity tags from `error_fields()`, so this stays
+        additive to the existing wire contract. `msg_type` should match the
+        handler's success-branch `type`, exactly as the hand-written except
+        blocks do today.
+
+        `identity` fields (e.g. `name=`, `path=`) are NOT redacted — only the
+        exception text is. Pass diagnostic values like a URL or file path as
+        an identity/semantic kwarg to the underlying error code, never folded
+        into `detail`, or `redact()` will strip it (see app/errors/codebook.py).
+        """
+        from app.errors.codebook import error_from_exception
+        from app.errors.envelope import error_fields
+
+        info = error_from_exception(exc, code=code, **identity)
+        logger.error(f"[{msg_type}] {info.message}")
+        await self._broadcast(
+            {
+                "type": msg_type,
+                "data": {
+                    "success": False,
+                    "error": info.message,
+                    **identity,
+                    **error_fields(info),
+                },
+            }
+        )
+
     async def _broadcast_error_to_chat(self, error_message: str) -> None:
         """Broadcast an error message to the chat panel for debugging."""
         import time
