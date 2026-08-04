@@ -96,6 +96,12 @@
   display: none;
 }
 
+/* No "…" button when collapsed, so don't apply the hover push either
+   (the hover rule below otherwise outranks the collapsed padding). */
+.collapsed .sessionRow:hover .sessionRowButton {
+  padding-right: 0;
+}
+
 .collapsed .navRight {
   padding-left: var(--space-1);
   padding-right: var(--space-1);
@@ -319,10 +325,11 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  /* Right padding reserves the space the absolutely-positioned "…" button
-     occupies on hover, so the title never runs underneath it and the button
-     appearing doesn't shift layout. */
-  padding: var(--space-2) 30px var(--space-2) var(--space-3);
+  /* Right padding matches .livingUITab so the status dot sits flush right
+     like the Living UI rows. On hover the row widens it to clear the
+     absolutely-positioned "…" button (see .sessionRow:hover below), which
+     visually pushes the dot left as the button fades in. */
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
@@ -339,6 +346,10 @@
 .sessionRow:hover .sessionRowButton {
   color: var(--text-primary);
   background: var(--bg-tertiary);
+  /* Clear the "…" button so the dot (and title truncation) is pushed left
+     instead of sitting underneath it. `transition: all` on the button
+     animates the shift. */
+  padding-right: 30px;
 }
 
 .sessionRowActive .sessionRowButton {
