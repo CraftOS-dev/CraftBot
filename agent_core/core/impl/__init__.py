@@ -14,5 +14,5 @@ Structure:
     ├── llm/            # LLMInterface and providers
     ├── memory/         # MemoryManager
     ├── state/          # StateManager (extends existing state module)
-    └── task/           # TaskManager (extends existing task module)
+    └── session/        # SessionManager (extends existing session module)
 """

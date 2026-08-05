@@ -1,8 +1,6 @@
-import React from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from './components/layout'
 import { ChatPage } from './pages/Chat'
-import { TasksPage } from './pages/Tasks'
 import { DashboardPage } from './pages/Dashboard'
 import { ScreenPage } from './pages/Screen'
 import { WorkspacePage } from './pages/Workspace'
@@ -16,6 +14,16 @@ import { useWebSocket } from './contexts/WebSocketContext'
 function LivingUIPageRoute() {
   const { projectId } = useParams<{ projectId: string }>()
   return <LivingUIPage key={projectId} />
+}
+
+// Per-session chat route. Deliberately NO key: /session/new ->
+// /session/{id} must keep the same mounted ChatPage so the draft input's
+// dock-to-bottom animation runs through the navigation. Chat resets its
+// own per-session UI state internally on real session switches.
+function SessionChatRoute() {
+  const { id } = useParams<{ id: string }>()
+  if (!id) return <Navigate to="/" replace />
+  return <ChatPage sessionId={id} />
 }
 
 function App() {
@@ -65,8 +73,8 @@ function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<ChatPage />} />
-        <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
+        <Route path="/session/:id" element={<SessionChatRoute />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/screen" element={<ScreenPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />

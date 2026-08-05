@@ -293,9 +293,7 @@ def list_google_calendar_events(input_data: dict) -> dict:
         if isinstance(items, list):
             res = {
                 **res,
-                "result": [
-                    _lean_gcal_event(e) for e in items if isinstance(e, dict)
-                ],
+                "result": [_lean_gcal_event(e) for e in items if isinstance(e, dict)],
             }
     return res
 

@@ -256,7 +256,10 @@ def _iter_files(root: str):
                                 # — comparing that against the real root_dev
                                 # would treat every subdirectory as a
                                 # different filesystem and skip it entirely.
-                                if os.stat(entry.path, follow_symlinks=False).st_dev != root_dev:
+                                if (
+                                    os.stat(entry.path, follow_symlinks=False).st_dev
+                                    != root_dev
+                                ):
                                     continue
                             except OSError:
                                 continue

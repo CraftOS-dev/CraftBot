@@ -1,7 +1,8 @@
 import { configureStore } from '@reduxjs/toolkit'
 import connectionReducer from './slices/connectionSlice'
 import messagesReducer from './slices/messagesSlice'
-import tasksReducer from './slices/tasksSlice'
+import activityReducer from './slices/activitySlice'
+import sessionsReducer from './slices/sessionsSlice'
 import dashboardReducer from './slices/dashboardSlice'
 import onboardingReducer from './slices/onboardingSlice'
 import localLlmReducer from './slices/localLlmSlice'
@@ -24,7 +25,8 @@ export const store = configureStore({
   reducer: {
     connection: connectionReducer,
     messages: messagesReducer,
-    tasks: tasksReducer,
+    activity: activityReducer,
+    sessions: sessionsReducer,
     dashboard: dashboardReducer,
     onboarding: onboardingReducer,
     localLlm: localLlmReducer,

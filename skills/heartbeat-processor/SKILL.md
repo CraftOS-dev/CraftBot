@@ -27,7 +27,7 @@ You receive a single heartbeat trigger with:
 
 - **NO acknowledgement**: Do NOT acknowledge task receipt to user
 - **NO confirmation**: Do NOT wait for user confirmation before ending
-- **MUST end silently**: Use `task_end` immediately after processing, without user interaction
+- **MUST end silently**: Use `end_turn` immediately after processing, without user interaction
 - **Can send messages**: You can use `send_message` for tier 1 notifications, but set `wait_for_user_reply=false`
 - **NEVER block on user**: Do not wait for user reply at any point
 
@@ -249,7 +249,7 @@ After processing all tasks, end the task silently.
 
 ## Rules
 
-- **END SILENTLY** - Always end with `task_end` without waiting for user confirmation
+- **END SILENTLY** - Always end with `end_turn` without waiting for user confirmation
 - **NEVER wait for user** - When sending messages, always set `wait_for_user_reply=false`
 - **NEVER spam users** - Batch notifications when possible
 - **Star emoji prefix** - Use for proactive notifications to user
@@ -306,7 +306,7 @@ All recurring proactive tasks use tier 0 or tier 1:
 
 `recurring_read`, `recurring_update_task`, `send_message`, `memory_search`,
 `read_file`, `web_search`, `web_fetch`, `schedule_task`,
-`task_update_todos`, `task_end`
+`update_todos`, `end_turn`
 
 ## Forbidden Actions
 

@@ -76,8 +76,7 @@ def get_google_doc(input_data: dict) -> dict:
             res = {
                 **res,
                 "result": {
-                    "document_id": doc.get("documentId")
-                    or input_data["document_id"],
+                    "document_id": doc.get("documentId") or input_data["document_id"],
                     "title": doc.get("title", ""),
                     "text": "".join(text_parts),
                 },

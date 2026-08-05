@@ -54,6 +54,16 @@ class SubAgentDefinition:
     actions: Tuple[str, ...]
     max_iterations: int
     max_wall_seconds: int
+    # Forced parameters per action: ((action_name, ((param, value), ...)), ...)
+    # e.g. scope shared-browser console reads to recent entries only.
+    param_overrides: Tuple[Tuple[str, Tuple[Tuple[str, object], ...]], ...] = ()
+
+    def overrides_for(self, action_name: str) -> Dict[str, object]:
+        """The forced parameters for one action ({} when none)."""
+        for name, pairs in self.param_overrides:
+            if name == action_name:
+                return dict(pairs)
+        return {}
 
     @property
     def compiled_actions(self) -> List[str]:
@@ -74,6 +84,7 @@ def register_subagent(
     actions: Iterable[str],
     max_iterations: int,
     max_wall_seconds: int,
+    param_overrides: Tuple[Tuple[str, Tuple[Tuple[str, object], ...]], ...] = (),
 ) -> None:
     """Register a sub-agent type.
 
@@ -135,6 +146,7 @@ def register_subagent(
         actions=tuple(cleaned),
         max_iterations=max_iterations,
         max_wall_seconds=max_wall_seconds,
+        param_overrides=param_overrides,
     )
     logger.debug(
         f"[SubAgentRegistry] Registered {name!r} "

@@ -7,7 +7,6 @@ shared components to customize their behavior. Each hook is an optional
 callback that components invoke at specific lifecycle points.
 
 Hook Categories:
-    - Task hooks: Task creation, completion, todo transitions
     - Action hooks: Action start, action end
     - Event hooks: Event logging, event filtering
     - Context hooks: Conversation history, user info
@@ -21,46 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agent_core import Task, TodoItem, Action
-
-
-# =============================================================================
-# Task Hooks
-# =============================================================================
-
-OnTaskCreatedHook = Callable[["Task"], Awaitable[None]]
-"""
-Called when a new task is created.
-
-Args:
-    task: The newly created Task object.
-
-Used by CraftBot to POST task to chatserver as a divisible action.
-"""
-
-OnTaskEndedHook = Callable[["Task", str, Optional[str]], Awaitable[None]]
-"""
-Called when a task ends (completed, error, or cancelled).
-
-Args:
-    task: The Task that ended.
-    status: The final status ("completed", "error", "cancelled").
-    summary: Optional summary message.
-
-Used by CraftBot to PUT final task status to chatserver.
-"""
-
-OnTodoTransitionHook = Callable[["TodoItem", str, str], Awaitable[None]]
-"""
-Called when a todo item transitions between statuses.
-
-Args:
-    todo: The TodoItem that transitioned.
-    old_status: Previous status ("pending", "in_progress", "completed").
-    new_status: New status.
-
-Used by CraftBot to POST/PUT todo transitions to chatserver.
-"""
+    from agent_core import Action
 
 
 # =============================================================================

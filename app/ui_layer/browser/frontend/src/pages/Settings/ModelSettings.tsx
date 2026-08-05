@@ -30,7 +30,6 @@ import {
   selectOllamaAvailable,
   selectAwsCredentials,
   selectModelHasLoadedProviders,
-  selectModelHasLoadedSettings,
   selectModelHasLoadedSlowMode,
   selectImageGenProvider,
   selectCurrentImageGenModel,
@@ -48,29 +47,6 @@ import {
 } from './OpenRouterModelPicker'
 
 // Types
-interface ProviderInfo {
-  id: string
-  name: string
-  requires_api_key: boolean
-  api_key_env?: string
-  base_url_env?: string
-  llm_model: string | null
-  vlm_model: string | null
-  image_gen_model: string | null
-  has_vlm: boolean
-  has_image_gen: boolean
-  supports_catalog?: boolean
-  is_bedrock?: boolean
-  supports_subscription_oauth?: boolean
-  subscription_label?: string | null
-  subscription_models?: string[]
-}
-
-interface ApiKeyStatus {
-  has_key: boolean
-  masked_key: string
-}
-
 interface TestResult {
   success: boolean
   message: string
@@ -107,7 +83,6 @@ export function ModelSettings() {
   const videoGenProvider = useAppSelector(selectVideoGenProvider)
   const currentVideoGenModel = useAppSelector(selectCurrentVideoGenModel)
   const hasLoadedProviders = useAppSelector(selectModelHasLoadedProviders)
-  const hasLoadedSettings = useAppSelector(selectModelHasLoadedSettings)
   const hasLoadedSlowMode = useAppSelector(selectModelHasLoadedSlowMode)
   const subscriptionOauth = useAppSelector(selectSubscriptionOauth)
   const subscriptionPending = useAppSelector(selectSubscriptionPending)
@@ -378,11 +353,6 @@ export function ModelSettings() {
   }, [provider, isConnected, send, baseUrls])
 
   const currentProvider = providers.find(p => p.id === provider)
-  // A connected subscription counts as credentials for save-button enablement —
-  // the factory will use the OAuth bearer instead of an API key.
-  const hasSubscription = !!subscriptionOauth[provider]?.connected
-  const hasKey = apiKeys[provider]?.has_key || newApiKey.length > 0 || hasSubscription
-  const needsKey = currentProvider?.requires_api_key && !hasKey
 
   // Update models when provider changes — only before settings have loaded (fallback to
   // registry defaults for the initial render).  After hasInitialized is true, provider

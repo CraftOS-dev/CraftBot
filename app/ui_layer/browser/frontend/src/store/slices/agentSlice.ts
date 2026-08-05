@@ -7,15 +7,23 @@ import type {
 } from '../../types'
 import { register } from '../socket/messageRegistry'
 
+/** A session's run lifecycle as the chat UI sees it. 'stopping' covers the
+ *  window between a user force-stop request and the backend confirming the
+ *  run is fully shut (turn cancelled, child processes killed). */
+export type SessionRunState = 'running' | 'stopping' | 'idle'
+
 interface AgentSliceState {
   name: string
   profilePictureUrl: string
   profilePictureHasCustom: boolean
   status: AgentStatus
-  currentTask: { id: string; name: string } | null
   guiMode: boolean
   footageUrl: string | null
   skillMeta: SkillMeta
+  /** Per-session run state (server-driven; optimistic on send/stop).
+   *  Absent = idle. Drives the chat's typing indicator and the send/stop
+   *  button without flickering between turns. */
+  runStateBySession: Record<string, Exclude<SessionRunState, 'idle'>>
 }
 
 const initialState: AgentSliceState = {
@@ -23,7 +31,6 @@ const initialState: AgentSliceState = {
   profilePictureUrl: '/api/agent-profile-picture',
   profilePictureHasCustom: false,
   status: { state: 'idle', message: 'Connecting...', loading: false },
-  currentTask: null,
   guiMode: false,
   footageUrl: null,
   skillMeta: {
@@ -31,6 +38,7 @@ const initialState: AgentSliceState = {
     internalSkillNames: [],
     reservedSkillNames: [],
   },
+  runStateBySession: {},
 }
 
 const agentSlice = createSlice({
@@ -43,9 +51,6 @@ const agentSlice = createSlice({
     },
     setStatusState(state, action: PayloadAction<AgentStatus['state']>) {
       state.status.state = action.payload
-    },
-    setCurrentTask(state, action: PayloadAction<{ id: string; name: string } | null>) {
-      state.currentTask = action.payload
     },
     setFootageUrl(state, action: PayloadAction<string | null>) {
       state.footageUrl = action.payload
@@ -63,18 +68,35 @@ const agentSlice = createSlice({
       state.profilePictureUrl = action.payload.url
       state.profilePictureHasCustom = action.payload.hasCustom
     },
+    setSessionRunState(
+      state,
+      action: PayloadAction<{ sessionId: string; state: SessionRunState }>,
+    ) {
+      const { sessionId, state: runState } = action.payload
+      if (runState === 'idle') {
+        delete state.runStateBySession[sessionId]
+      } else {
+        state.runStateBySession[sessionId] = runState
+      }
+    },
+    seedBusySessions(state, action: PayloadAction<string[]>) {
+      state.runStateBySession = Object.fromEntries(
+        action.payload.map(id => [id, 'running' as const]),
+      )
+    },
   },
 })
 
 export const {
   setStatus,
   setStatusState,
-  setCurrentTask,
   setFootageUrl,
   setGuiMode,
   setSkillMeta,
   setName,
   setProfilePicture,
+  setSessionRunState,
+  seedBusySessions,
 } = agentSlice.actions
 
 export default agentSlice.reducer
@@ -94,7 +116,24 @@ register('init', (data, dispatch) => {
   dispatch(setStatus({ message: d.status || 'Ready', loading: false }))
   dispatch(setStatusState(d.agentState || 'idle'))
   dispatch(setGuiMode(d.guiMode || false))
-  dispatch(setCurrentTask(d.currentTask || null))
+  dispatch(seedBusySessions((d as { busySessions?: string[] }).busySessions || []))
+})
+
+register('session_busy', (data, dispatch) => {
+  const d = data as { sessionId?: string; busy?: boolean; state?: SessionRunState }
+  if (d.sessionId) {
+    // `state` is authoritative; `busy` is the older boolean kept alongside.
+    const runState: SessionRunState = d.state ?? (d.busy ? 'running' : 'idle')
+    dispatch(setSessionRunState({ sessionId: d.sessionId, state: runState }))
+  }
+})
+
+register('agent_state', (data, dispatch) => {
+  const d = data as { state?: AgentStatus['state']; statusMessage?: string }
+  if (d.state) dispatch(setStatusState(d.state))
+  if (typeof d.statusMessage === 'string') {
+    dispatch(setStatus({ message: d.statusMessage, loading: d.state === 'working' || d.state === 'thinking' }))
+  }
 })
 
 register('status_update', (data, dispatch) => {

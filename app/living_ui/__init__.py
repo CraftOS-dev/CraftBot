@@ -7,7 +7,7 @@ Public surface (import from `app.living_ui`):
 - register_broadcast_callbacks              — wire up browser adapter callbacks
 - broadcast_living_ui_ready                 — async broadcast (agent actions)
 - broadcast_living_ui_progress              — async broadcast (agent actions)
-- make_todo_broadcast_hook                  — factory for TaskManager hook
+- make_todo_broadcast_hook                  — factory for SessionManager todo hook
 - restart_living_ui                         — async restart operation
 
 Internal (do not import from here): todo dispatch machinery lives in
@@ -21,7 +21,6 @@ from .broadcast import (
     broadcast_living_ui_ready,
     broadcast_living_ui_created,
     broadcast_living_ui_progress,
-    broadcast_living_ui_question,
     dispatch_living_ui_data_changed,
     make_todo_broadcast_hook,
 )
@@ -36,7 +35,6 @@ __all__ = [
     "broadcast_living_ui_ready",
     "broadcast_living_ui_created",
     "broadcast_living_ui_progress",
-    "broadcast_living_ui_question",
     "dispatch_living_ui_data_changed",
     "make_todo_broadcast_hook",
     "restart_living_ui",

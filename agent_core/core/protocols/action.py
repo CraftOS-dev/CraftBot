@@ -137,27 +137,6 @@ class ActionRouterProtocol(Protocol):
         """
         ...
 
-    async def select_action_in_GUI(
-        self,
-        query: str,
-        action_type: Optional[str] = None,
-        GUI_mode: bool = False,
-        reasoning: str = "",
-    ) -> Dict[str, Any]:
-        """
-        GUI-specific action selection.
-
-        Args:
-            query: Task-level instruction.
-            action_type: Optional action type hint.
-            GUI_mode: Whether in GUI mode.
-            reasoning: Pre-computed reasoning from VLM.
-
-        Returns:
-            Decision with action_name and parameters.
-        """
-        ...
-
 
 class ActionExecutorProtocol(Protocol):
     """

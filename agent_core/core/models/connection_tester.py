@@ -710,9 +710,7 @@ def _test_grok(
             # complaining about credentials.
             lower = response.text.lower()
             if not (
-                "api key" in lower
-                or "api_key" in lower
-                or "access token" in lower
+                "api key" in lower or "api_key" in lower or "access token" in lower
             ):
                 return _success("grok", None)
         response.raise_for_status()

@@ -15,7 +15,6 @@ import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
   setTaskEnabled,
-  type ScheduleConfig,
   type ProactiveTask,
 } from '../../store/slices/proactiveSettingsSlice'
 import {
@@ -292,7 +291,7 @@ export function ProactiveSettings() {
   const [showTaskForm, setShowTaskForm] = useState(false)
   const [editingTask, setEditingTask] = useState<ProactiveTask | null>(null)
   const [isResettingTasks, setIsResettingTasks] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()

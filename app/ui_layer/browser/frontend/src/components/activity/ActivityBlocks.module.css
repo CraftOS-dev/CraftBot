@@ -1,0 +1,207 @@
+/* Timeline blocks for inline activity (reasoning + compact action rows)
+   rendered in the session chat timeline. */
+
+/* Timeline row: icon gutter + content column. Each new item fades in so
+   streaming additions don't pop abruptly.
+   Geometry: 32px gutter + 8px gap = text left edge at 40px, matching the
+   agent chat bubble (32px avatar + --space-2 gap). Icons center under the
+   avatar's center line. */
+.transcriptItem {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  scroll-margin-top: var(--space-3);
+  animation: transcriptItemAppear 180ms ease-out;
+}
+
+/* Opacity-only: an animated transform here (translateY) widens any
+   transient virtualizer measurement gap into a visible window instead of
+   a single imperceptible frame — same rule as the outer timeline rows
+   (see Chat.tsx). */
+@keyframes transcriptItemAppear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcriptItem,
+  .actionRow {
+    animation: none;
+  }
+}
+
+.gutter {
+  width: 32px; /* matches the agent avatar width */
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* Icon wrapper — solid background so the icon reads cleanly */
+.gutterIcon {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: var(--bg-primary);
+}
+
+/* Hollow circle for reasoning items */
+.reasoningCircle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border-secondary);
+  flex-shrink: 0;
+}
+
+/* Reasoning content sits in the same column position as action-row text */
+.reasoningContent {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-top: 2px;
+}
+
+.reasoningPlaceholder {
+  opacity: 0.6;
+}
+
+/* ── Compact action row (Claude-Code-style tool line) ──────────────────
+   The ENTIRE rendering of an action item: a plain, non-interactive row.
+   The status icon sits in a 32px slot matching the reasoning gutter (and
+   the agent avatar) so every item type shares the chat bubble's left edge. */
+.actionRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 3px var(--space-1) 3px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  scroll-margin-top: var(--space-3);
+  animation: transcriptItemAppear 180ms ease-out;
+}
+
+/* 32px status slot — same width as .gutter so text edges align. */
+.actionRowStatus {
+  width: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionRowName {
+  flex-shrink: 0;
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* Muted one-line preview of the primary input; truncates with ellipsis. */
+.actionRowPreview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* Live timer, shown only while the action is running. */
+.actionRowDuration {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Errors: only the status icon signals the failure (it renders in the
+   error color already); name and preview keep their normal colors. The
+   preview still carries the error's first line as text. */
+
+/* ── "Working…" row (TypingIndicatorRow) ───────────────────────────────
+   Last timeline row while the agent is busy but no action is running:
+   the action spinner + "Working" with dots cycling 1 → 2 → 3. */
+.workingLabel {
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+.workingDot:nth-of-type(2) {
+  animation: workingDotStep2 1.2s steps(1, end) infinite;
+}
+
+.workingDot:nth-of-type(3) {
+  animation: workingDotStep3 1.2s steps(1, end) infinite;
+}
+
+@keyframes workingDotStep2 {
+  0%, 32%  { opacity: 0; }
+  33%, 100% { opacity: 1; }
+}
+
+@keyframes workingDotStep3 {
+  0%, 65%  { opacity: 0; }
+  66%, 100% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workingDot {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ── Chunk header row ─────────────────────────────────────────────────
+   Clickable stand-in for a collapsed reasoning+actions block. Same
+   geometry as .actionRow (32px icon slot + 8px gap) so its text shares
+   the 40px left edge. */
+.chunkHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 3px var(--space-1) 3px 0;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.chunkChevron {
+  color: var(--text-muted);
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.chunkChevronOpen {
+  transform: rotate(90deg);
+}
+
+.chunkLabel {
+  font-weight: var(--font-medium);
+  transition: color var(--transition-fast);
+}
+
+.chunkHeader:hover .chunkLabel,
+.chunkHeader:hover .chunkChevron {
+  color: var(--text-primary);
+}

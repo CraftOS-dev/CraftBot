@@ -182,7 +182,7 @@ Action surface in conversation mode is intentionally small ([agent_core/core/pro
 ```
 task_start(...)        begin a task — THE way user requests become work
 send_message(...)      reply without starting a task
-ignore                 user input needs no reply (e.g. emoji-only ack)
+end_turn               user input needs no reply (e.g. emoji-only ack)
 ```
 
 You CANNOT call file ops, web search, MCP tools, integrations, or skills directly from conversation mode. To unlock them, start a task first.
@@ -462,10 +462,11 @@ The harness already handles certain failures so you do not have to. Recognizing 
 - Recovery: the timeout is final for that invocation. Either retry with smaller scope (fewer rows, narrower regex, smaller batch) or split the work into multiple actions.
 
 **LLM consecutive-failure circuit breaker** ([agent_core/core/impl/llm/errors.py](agent_core/core/impl/llm/errors.py), [agent_core/core/impl/llm/interface.py](agent_core/core/impl/llm/interface.py))
-- After repeated consecutive LLM failures (auth, network, etc.), the harness raises `LLMConsecutiveFailureError`.
-- `_handle_react_error` walks the exception chain (`__cause__`/`__context__`) to detect this and **automatically cancels the task** via `task_manager.mark_task_cancel(...)`. The agent's last instruction is cached in `_llm_retry_instructions[session_id]` for retry-after-fix.
-- A `LLM_FATAL_ERROR` UI event is emitted so the user sees a clear failure dialog.
-- **Implication:** if you see `MSG_CONSECUTIVE_FAILURE` ("LLM calls have failed N consecutive times. Task aborted to prevent infinite retries."), the task is already gone. Do NOT try to re-create it. The user must check their LLM configuration.
+- Non-transient categories (auth, credit, quota, model, blocked, bad request) raise `LLMConsecutiveFailureError` immediately on the first failure — retrying the same request can't fix them. Transient categories (rate-limit, server, connection, unclassified) get a 5-attempt retry budget before the same error is raised.
+- `_handle_react_error` walks the exception chain (`__cause__`/`__context__`) to detect this and **halts the run** (`_emit_run_state(session_id, False)`) rather than cancelling the task outright.
+- Presentation splits into two tiers: a recognized/classified failure (bad key, no credits, misconfigured provider — anything carrying an `ErrorInfo`, via `LLMConsecutiveFailureError.last_error_info` or a `ClassifiedError`) shows as a short, calm "system"-style message; anything unclassified shows as a red "error" message with full detail — see [agent_core/core/errors.py](agent_core/core/errors.py).
+- There is no Retry/Change Model button — the user resumes by sending a normal chat message (e.g. "continue"). `_handle_chat_message` resets the failure counter on any new message, so this just works.
+- **Implication:** if you see `MSG_CONSECUTIVE_FAILURE`/`MSG_FAILED_IMMEDIATELY`, the run has halted and is waiting on the user's next message. Do NOT try to keep working.
 
 **Action limit (`max_actions_per_task`, minimum 5)** ([agent_core/core/state/types.py](agent_core/core/state/types.py))
 - Tracked in `STATE.get_agent_property("action_count")` against `max_actions_per_task`.
@@ -481,7 +482,7 @@ The harness already handles certain failures so you do not have to. Recognizing 
 - Your response at 80%: same as action warning — wrap up or summarize aggressively.
 
 **Parallel constraint violations**
-- The router may drop an action before it runs and surface a `"action_error"` event with `_error` describing the constraint (e.g., "ignore must run alone", "cannot run multiple send_message in parallel").
+- The router may drop an action before it runs and surface a `"action_error"` event with `_error` describing the constraint (e.g., "end_turn must run alone", "cannot run multiple send_message in parallel").
 - The action is not executed; subsequent actions in the same batch may still run.
 - Recovery: re-issue the action sequentially in the next turn, not in parallel.
 
@@ -1370,12 +1371,12 @@ Key implications when reading an action:
 - `mode="CLI"` actions exist (e.g. `read_file`, `task_start`). They are loaded by default.
 - `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `task_update_todos`, `add_action_sets`, `remove_action_sets`.
 - `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. Most actions are `internal` (run in-process).
-- `default=True` means the action is in the action list regardless of which sets are loaded. Common defaults: `task_start`, `send_message`, `ignore`. Prefer adding to an `action_sets` list over using `default=True`.
+- `default=True` means the action is in the action list regardless of which sets are loaded. Common defaults: `task_start`, `send_message`, `end_turn`. Prefer adding to an `action_sets` list over using `default=True`.
 
 ### Built-in action categories (orientation only — read source for current state)
 
 ```
-core                     send_message, task_start, task_end, task_update_todos, ignore, wait,
+core                     send_message, task_start, task_end, task_update_todos, end_turn, wait,
                          add_action_sets, remove_action_sets, list_action_sets,
                          list_skills, use_skill,
                          list_available_integrations, connect_integration,
@@ -1404,7 +1405,7 @@ clipboard                clipboard_read, clipboard_write
 
 comms                    send_message_with_attachment
 
-living_ui                living_ui_http, living_ui_import_external, living_ui_import_zip,
+- Importing external apps/ZIPs is temporarily unavailable (V1 import removed; V2 import workflow pending).
                          living_ui_notify_ready, living_ui_report_progress, living_ui_restart
 
 per-platform integrations  Discord, Slack, Telegram, Notion, LinkedIn, Jira, GitHub,
@@ -1499,7 +1500,7 @@ required_sets = set(selected_sets) | {"core"}
 You cannot opt out of `core`. Whatever else you pass to `task_start`, `core` is added. `core` includes (at minimum):
 
 ```
-send_message, task_start, task_end, task_update_todos, ignore, wait,
+send_message, task_start, task_end, task_update_todos, end_turn, wait,
 add_action_sets, remove_action_sets, list_action_sets,
 list_skills, use_skill,
 list_available_integrations, connect_integration,
@@ -4593,7 +4594,7 @@ complex task              multi-step task with todos + user-approval gate       
 ConfigWatcher             0.5s-debounced file watcher for app/config/ files                ## Configs
 connect_integration       action that connects an external service via credentials         ## Integrations
 CONVERSATION_HISTORY.md   rolling dialogue record (do not edit)                            ## File System
-conversation mode         workflow when no task is active; only task_start/send/ignore    ## Tasks / ## Runtime
+conversation mode         workflow when no task is active; only task_start/send/end_turn    ## Tasks / ## Runtime
 core (action set)         always-loaded set; cannot be opted out                            ## Action Sets
 Decision Rubric           proactive task scoring (Impact/Risk/Cost/Urgency/Confidence)     PROACTIVE.md, ## Proactive
 EVENT.md                  complete chronological event log (do not edit)                   ## File System

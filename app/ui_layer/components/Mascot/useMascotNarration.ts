@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useWebSocket } from '../../browser/frontend/src/contexts/WebSocketContext'
-import { parseDict } from '../../browser/frontend/src/pages/Tasks/actionRenderers/parse'
+import { parseDict } from '../../browser/frontend/src/components/activity/parse'
 import {
   getMascotFormatter,
   toMascotResultStatus,
   type MascotActionFormat,
   type MascotActionStatus,
-} from '../../browser/frontend/src/pages/Tasks/actionRenderers/mascotFormatters'
+} from '../../browser/frontend/src/components/activity/mascotFormatters'
 import type { ActionItem } from '../../browser/frontend/src/types'
 import { MESSAGE_ACTIONS, normalizeActionName } from './mascotEngine'
 import { formatMessage } from './narrationFormat'
@@ -33,10 +33,6 @@ const PHASE_DURATION_MS = 5000
 // parallel actions without revamping the agent base code.
 const PARALLEL_BATCH_MS = 1500
 
-// Action names that are never narrated as a normal running/result pair.
-// task_end is signaled by a celebrate/frustrate body reaction instead.
-const SKIP_ACTION_NAMES: ReadonlySet<string> = new Set(['task_end'])
-
 /** Discriminated union describing what the speech bubble should render.
  *  `null` (returned alongside in the snapshot) means "no bubble at all".
  *
@@ -60,7 +56,7 @@ interface NarrationSnapshot {
 // ─────────────────────────────────────────────────────────────────────
 //
 // Phases:
-//   - idle:     no current action narrated; no bubble (unless task active
+//   - idle:     no current action narrated; no bubble (unless agent busy
 //               and we're between actions → 'thinking' is chosen instead).
 //   - running:  showing "Running <name> with <params>". Held for at least
 //               PHASE_DURATION_MS, AND until the action itself completes
@@ -68,13 +64,12 @@ interface NarrationSnapshot {
 //   - result:   showing the action's output. Held for PHASE_DURATION_MS.
 //   - message:  alternate "single bubble" lane for send_message family —
 //               just the message text, held for PHASE_DURATION_MS.
-//   - thinking: between actions while a task is still running. Stays until
-//               a new narratable action appears or the task ends.
+//   - thinking: between actions while the agent is still busy. Stays until
+//               a new narratable action appears or the agent goes quiet.
 //
 // Selection rule: when a phase ends, we pick the EARLIEST (smallest
-// createdAt) action that hasn't been narrated yet AND isn't in
-// SKIP_ACTION_NAMES. send_message family routes into the 'message' phase;
-// everything else routes through 'running' → 'result'.
+// createdAt) action that hasn't been narrated yet. send_message family
+// routes into the 'message' phase; everything else through 'running' → 'result'.
 
 type InternalPhase = 'idle' | 'running' | 'result' | 'message' | 'thinking'
 
@@ -92,76 +87,29 @@ const INITIAL: InternalState = { phase: 'idle', actionId: null, enteredAt: 0 }
 // Pure helpers — operate on inputs, return next state or selection
 // ─────────────────────────────────────────────────────────────────────
 
-/** A task is "active" for narration purposes if it can still produce or
- *  hold actions — running/waiting/paused. Completed, cancelled, and
- *  errored tasks are terminal: their leftover actions should never be
- *  picked up by future narration cycles. */
-const ACTIVE_TASK_STATUSES: ReadonlySet<string> = new Set([
+/** The agent is "busy" for narration purposes if any activity item can
+ *  still produce output — running/waiting/paused/pending. Once everything
+ *  is terminal (completed / error / cancelled), leftover unnarrated actions
+ *  are stale and must never be picked up by future narration cycles. */
+const BUSY_STATUSES: ReadonlySet<string> = new Set([
   'running',
   'waiting',
   'paused',
+  'pending',
 ])
 
-/** Set of task IDs whose status is currently active. Used as the
- *  membership filter for action eligibility — an action is narratable
- *  only if its root task is in this set. */
-function activeTaskIds(actions: ActionItem[]): Set<string> {
-  const ids = new Set<string>()
-  for (const a of actions) {
-    if (a.itemType === 'task' && ACTIVE_TASK_STATUSES.has(a.status)) {
-      ids.add(a.id)
-    }
-  }
-  return ids
+function isAgentBusy(actions: ActionItem[]): boolean {
+  return actions.some(a => BUSY_STATUSES.has(a.status))
 }
 
-/** Walk parentId up to the root task. Actions are typically direct
- *  children of tasks (one hop), but the walk is bounded to handle any
- *  future nested-action structures defensively without risk of cycles. */
-function findRootTaskId(
-  itemMap: ReadonlyMap<string, ActionItem>,
-  start: ActionItem,
-): string | null {
-  let cur: ActionItem | undefined = start
-  for (let depth = 0; cur && depth < 16; depth++) {
-    if (cur.itemType === 'task') return cur.id
-    if (!cur.parentId) return null
-    cur = itemMap.get(cur.parentId)
-  }
-  return null
-}
-
-function isTaskActive(actions: ActionItem[]): boolean {
-  return activeTaskIds(actions).size > 0
-}
-
-/** Filter the action list down to narratable candidates and sort by
+/** Filter the activity list down to narratable candidates and sort by
  *  ascending createdAt. The earliest unnarrated one wins selection.
- *
- *  Eligibility rules:
- *    1. Item type is 'action' (not 'task' or 'reasoning').
- *    2. Name isn't in the always-skip set (task_end → body reaction
- *       instead of narration).
- *    3. The action's root task is in the active set. THIS IS THE KEY
- *       guard against stale narration: when a previous task ends with
- *       actions that were never narrated (because they piled up faster
- *       than the FSM could play them), those actions stay in the list
- *       forever — but their root task is terminal, so they're excluded.
- *       Only the currently-running task's actions survive the filter. */
+ *  Only 'action' items are narratable (reasoning is rendered inline in
+ *  the chat timeline, not spoken by the mascot). */
 function listNarratableActions(actions: ActionItem[]): ActionItem[] {
-  const activeIds = activeTaskIds(actions)
-  if (activeIds.size === 0) return []
-
-  const itemMap = new Map<string, ActionItem>()
-  for (const a of actions) itemMap.set(a.id, a)
-
+  if (!isAgentBusy(actions)) return []
   return actions
     .filter(a => a.itemType === 'action')
-    .filter(a => !SKIP_ACTION_NAMES.has(normalizeActionName(a.name)))
-    .filter(a => {
-      const rootId = findRootTaskId(itemMap, a)
-      return rootId !== null && activeIds.has(rootId)
-    })
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
 }
 
@@ -255,11 +203,11 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
   const actionsRef = useRef(actions)
   useEffect(() => { actionsRef.current = actions }, [actions])
 
-  // Prune the narrated set whenever the FSM lands in idle (= the task
-  // wrapped up). Past task action IDs would otherwise accumulate in
+  // Prune the narrated set whenever the FSM lands in idle (= the agent
+  // went quiet). Past action IDs would otherwise accumulate in
   // narratedRef for the lifetime of the page — they're filtered out
-  // by the terminal-task check in listNarratableActions anyway, so
-  // keeping them around just costs memory.
+  // by the busy check in listNarratableActions anyway, so keeping
+  // them around just costs memory.
   useEffect(() => {
     if (internal.phase === 'idle') narratedRef.current.clear()
   }, [internal.phase])
@@ -308,14 +256,14 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
     // to thinking/idle" helper. Used by every "phase ended, what now?"
     // codepath below. The `whenEmpty` argument decides what to do when
     // there's nothing queued — 'thinking' for between-action gaps,
-    // 'idle' for after-task cleanup.
+    // 'idle' for after-run cleanup.
     //
     // Recomputes the narratable list from actionsRef because this fires
     // out of setTimeout callbacks where the closure's `narratable` is
     // stale; sync callers above can reuse the top-of-effect snapshot.
     const promoteOrFallback = (whenEmpty: 'thinking' | 'idle') => {
       const list = actionsRef.current
-      if (!isTaskActive(list)) {
+      if (!isAgentBusy(list)) {
         setInternal(stateIdle())
         return
       }
@@ -334,18 +282,18 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
 
     switch (internal.phase) {
       case 'idle': {
-        // Don't start narrating anything if there's no active task —
+        // Don't start narrating anything while the agent is quiet —
         // even if unnarrated actions linger (they're stale leftovers
-        // from a previous task that already ended).
-        if (!isTaskActive(actions)) return
+        // from work that already finished).
+        if (!isAgentBusy(actions)) return
         const next = pickNextActionDeduped(narratable, narratedRef)
         setInternal(next ? stateForAction(next) : stateThinking())
         return
       }
 
       case 'thinking': {
-        // If task is done, drop the bubble — agent has nothing more to say.
-        if (!isTaskActive(actions)) {
+        // If the agent went quiet, drop the bubble — nothing more to say.
+        if (!isAgentBusy(actions)) {
           setInternal(stateIdle())
           return
         }

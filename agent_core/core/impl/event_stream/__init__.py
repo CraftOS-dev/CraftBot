@@ -21,7 +21,6 @@ from agent_core.core.impl.event_stream.event_stream import (
 )
 from agent_core.core.impl.event_stream.manager import (
     EventStreamManager,
-    SKIP_UNPROCESSED_TASK_NAMES,
     SKIP_UNPROCESSED_EVENT_TYPES,
 )
 
@@ -38,6 +37,5 @@ __all__ = [
     # Constants
     "SEVERITIES",
     "MAX_EVENT_INLINE_CHARS",
-    "SKIP_UNPROCESSED_TASK_NAMES",
     "SKIP_UNPROCESSED_EVENT_TYPES",
 ]

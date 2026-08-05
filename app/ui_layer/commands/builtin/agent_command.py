@@ -54,6 +54,7 @@ class AgentCommandWrapper(Command):
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """Execute the agent command."""
         if not self._handler:

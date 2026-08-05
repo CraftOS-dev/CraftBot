@@ -18,47 +18,105 @@ ACTION_DIR = REPO_ROOT / "app" / "data" / "action"
 # Actions found in source but not listed here are appended under "Other
 # actions" so the catalogue is always complete even when new actions land.
 DOMAINS = [
-    ("Task control", [
-        "task_start", "task_end", "task_update_todos", "set_requirement",
-        "send_message", "send_message_with_attachment", "ignore", "wait",
-        "spawn_subagent", "sub_task_end",
-    ]),
-    ("Files and search", [
-        "read_file", "write_file", "stream_edit", "find_files", "grep_files",
-        "list_folder",
-    ]),
+    (
+        "Task control",
+        [
+            "task_start",
+            "task_end",
+            "task_update_todos",
+            "set_requirement",
+            "send_message",
+            "send_message_with_attachment",
+            "end_turn",
+            "wait",
+            "spawn_subagent",
+            "sub_task_end",
+        ],
+    ),
+    (
+        "Files and search",
+        [
+            "read_file",
+            "write_file",
+            "stream_edit",
+            "find_files",
+            "grep_files",
+            "list_folder",
+        ],
+    ),
     ("Web research", ["web_search", "web_fetch"]),
     ("Shell and HTTP", ["run_shell", "http_request"]),
     ("Clipboard", ["clipboard_read", "clipboard_write"]),
-    ("Scheduling", [
-        "schedule_task", "scheduled_task_list", "schedule_task_toggle",
-        "remove_scheduled_task",
-    ]),
-    ("Recurring proactive tasks", [
-        "recurring_add", "recurring_read", "recurring_update_task",
-        "recurring_remove",
-    ]),
+    (
+        "Scheduling",
+        [
+            "schedule_task",
+            "scheduled_task_list",
+            "schedule_task_toggle",
+            "remove_scheduled_task",
+        ],
+    ),
+    (
+        "Recurring proactive tasks",
+        [
+            "recurring_add",
+            "recurring_read",
+            "recurring_update_task",
+            "recurring_remove",
+        ],
+    ),
     ("Memory", ["memory_search"]),
-    ("Skills and action sets", [
-        "list_skills", "use_skill", "list_action_sets", "add_action_sets",
-        "remove_action_sets",
-    ]),
-    ("Integration management", [
-        "list_available_integrations", "connect_integration",
-        "check_integration_status", "disconnect_integration",
-    ]),
-    ("Documents and PDF", [
-        "read_pdf", "edit_pdf", "convert_to_pdf", "convert_from_pdf",
-        "convert_to_markdown", "perform_ocr",
-    ]),
-    ("Media understanding and generation", [
-        "describe_image", "understand_video", "generate_image", "generate_video",
-    ]),
-    ("Living UI", [
-        "living_ui_scaffold", "living_ui_notify_ready", "living_ui_restart",
-        "living_ui_report_progress", "living_ui_import_external",
-        "living_ui_import_zip", "living_ui_http",
-    ]),
+    (
+        "Skills and action sets",
+        [
+            "list_skills",
+            "use_skill",
+            "list_action_sets",
+            "add_action_sets",
+            "remove_action_sets",
+        ],
+    ),
+    (
+        "Integration management",
+        [
+            "list_available_integrations",
+            "connect_integration",
+            "check_integration_status",
+            "disconnect_integration",
+        ],
+    ),
+    (
+        "Documents and PDF",
+        [
+            "read_pdf",
+            "edit_pdf",
+            "convert_to_pdf",
+            "convert_from_pdf",
+            "convert_to_markdown",
+            "perform_ocr",
+        ],
+    ),
+    (
+        "Media understanding and generation",
+        [
+            "describe_image",
+            "understand_video",
+            "generate_image",
+            "generate_video",
+        ],
+    ),
+    (
+        "Living UI",
+        [
+            "living_ui_scaffold",
+            "living_ui_notify_ready",
+            "living_ui_restart",
+            "living_ui_report_progress",
+            "living_ui_import_external",
+            "living_ui_import_zip",
+            "living_ui_http",
+        ],
+    ),
 ]
 
 
@@ -87,12 +145,19 @@ def extract_actions():
             for dec in node.decorator_list:
                 is_action = isinstance(dec, ast.Call) and (
                     (isinstance(dec.func, ast.Name) and dec.func.id == "action")
-                    or (isinstance(dec.func, ast.Attribute) and dec.func.attr == "action")
+                    or (
+                        isinstance(dec.func, ast.Attribute)
+                        and dec.func.attr == "action"
+                    )
                 )
                 if not is_action:
                     continue
-                meta = {"description": "", "params": [], "action_sets": [],
-                        "irreversible": False}
+                meta = {
+                    "description": "",
+                    "params": [],
+                    "action_sets": [],
+                    "irreversible": False,
+                }
                 if dec.args:
                     meta["name"] = _literal(dec.args[0])
                 for kw in dec.keywords:
@@ -167,16 +232,26 @@ def build_markdown():
                 used.add(name)
         if not rows:
             continue
-        lines += [f"## {title}", "",
-                  "| Action | Set | Parameters | What it does |",
-                  "|---|---|---|---|", *rows, ""]
+        lines += [
+            f"## {title}",
+            "",
+            "| Action | Set | Parameters | What it does |",
+            "|---|---|---|---|",
+            *rows,
+            "",
+        ]
     leftover = sorted(n for n in actions if n not in used)
     if leftover:
-        lines += ["## Other actions", "",
-                  "Actions present in the code that are not yet grouped above.", "",
-                  "| Action | Set | Parameters | What it does |",
-                  "|---|---|---|---|",
-                  *(render_row(n, actions[n]) for n in leftover), ""]
+        lines += [
+            "## Other actions",
+            "",
+            "Actions present in the code that are not yet grouped above.",
+            "",
+            "| Action | Set | Parameters | What it does |",
+            "|---|---|---|---|",
+            *(render_row(n, actions[n]) for n in leftover),
+            "",
+        ]
     lines += [
         "## Next",
         "",

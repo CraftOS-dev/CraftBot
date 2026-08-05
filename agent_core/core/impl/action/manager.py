@@ -159,35 +159,6 @@ class ActionManager:
         self._get_parent_id = get_parent_id
         self._idempotency_guard = idempotency_guard
 
-    def _generate_unique_session_id(self) -> str:
-        """Generate a unique 6-character session ID.
-
-        Creates a short session ID using the first 6 hex characters of a UUID4.
-        Checks for duplicates against active task IDs from state_manager.
-
-        Returns:
-            A unique 6-character hex string session ID.
-        """
-        max_attempts = 100
-        for _ in range(max_attempts):
-            candidate = uuid.uuid4().hex[:6]
-
-            # Check against active task IDs from state manager
-            try:
-                main_state = self.state_manager.get_main_state()
-                existing_ids = set(main_state.active_task_ids) if main_state else set()
-            except Exception:
-                existing_ids = set()
-
-            if candidate not in existing_ids:
-                return candidate
-
-        # Fallback to full UUID hex if somehow all short IDs are taken
-        logger.warning(
-            "Could not generate unique 6-char session ID after 100 attempts, using full UUID"
-        )
-        return uuid.uuid4().hex
-
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
@@ -235,7 +206,7 @@ class ActionManager:
             logger.error(f"Provided action input is not a dict. action={action.name}")
 
         # Inject session_id into input_data so actions can access it
-        # This allows task_start to use session_id as task_id for stream isolation
+        # (used for per-session stream isolation and outbound routing)
         if input_data is None:
             input_data = {}
         if session_id:
@@ -257,7 +228,10 @@ class ActionManager:
         # re-execute work the ledger shows as already completed (or as
         # interrupted mid-flight, where the effect may have happened).
         idem_key = None
-        if getattr(action, "irreversible", False) and self._idempotency_guard:
+        # if getattr(action, "irreversible", False) and self._idempotency_guard:
+
+        # TODO: Temporary turning idempotency guard off.
+        if 1 == 0:
             try:
                 decision = self._idempotency_guard.begin(
                     action.name, input_data, session_id
@@ -479,8 +453,9 @@ class ActionManager:
             session_id=session_id,
         )
 
-        # Emit waiting_for_user event if requested
-        if outputs and outputs.get("wait_for_user_reply", False):
+        # Emit waiting_for_user event when the action ends the run and the
+        # session goes back to waiting for the user's next input.
+        if outputs and outputs.get("end_turn", False):
             self._log_event_stream(
                 is_gui_task=is_gui_task,
                 event_kind="waiting_for_user",
@@ -599,24 +574,14 @@ class ActionManager:
                 input_data=input_data,
             )
 
-        # Build tasks with appropriate session_ids
-        # For task_start actions, each gets a unique session_id to prevent task overwriting
-        # For other actions, use the parent session_id
-        parallel_tasks = []
-        for action, input_data in actions:
-            if action.name == "task_start":
-                # Generate unique session_id for each task_start to prevent overwriting
-                action_session_id = self._generate_unique_session_id()
-                logger.info(
-                    f"[PARALLEL] Assigning unique session_id {action_session_id} to task_start"
-                )
-            else:
-                action_session_id = session_id
-            parallel_tasks.append(execute_single(action, input_data, action_session_id))
+        # All parallel actions run under the parent session_id.
+        parallel_tasks = [
+            execute_single(action, input_data, session_id)
+            for action, input_data in actions
+        ]
 
         # Execute all actions in parallel
-        tasks = parallel_tasks
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
 
         # Process results, converting exceptions to error dicts
         processed = []

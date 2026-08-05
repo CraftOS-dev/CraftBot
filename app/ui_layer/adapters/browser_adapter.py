@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from agent_core.utils.logger import logger
-from agent_core.core.event_stream.event import EventType
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
@@ -152,7 +151,6 @@ class BrowserThemeAdapter(ThemeAdapter):
         self,
         name: str,
         status: str,
-        is_task: bool,
         indent: int = 0,
     ) -> Dict[str, Any]:
         """Format an action panel item for browser."""
@@ -164,7 +162,6 @@ class BrowserThemeAdapter(ThemeAdapter):
             "name": name,
             "status": status,
             "icon": icon,
-            "isTask": is_task,
             "indent": indent,
             "style": style.to_css(),
         }
@@ -238,9 +235,10 @@ class BrowserChatComponent(ChatComponentProtocol):
                         timestamp=stored.timestamp,
                         message_id=stored.message_id,
                         attachments=attachments,
-                        task_session_id=stored.task_session_id,
+                        session_id=stored.session_id,
                         options=options,
                         option_selected=stored.option_selected,
+                        continue_work=stored.continue_work,
                     )
                 )
         except Exception:
@@ -282,75 +280,47 @@ class BrowserChatComponent(ChatComponentProtocol):
                     style=message.style,
                     timestamp=message.timestamp,
                     attachments=attachments_data,
-                    task_session_id=message.task_session_id,
+                    session_id=message.session_id,
                     options=options_data,
+                    continue_work=message.continue_work,
                 )
                 self._storage.insert_message(stored)
             except Exception:
                 pass
 
-        # Build message data with optional attachments
-        message_data: Dict[str, Any] = {
-            "sender": message.sender,
-            "content": message.content,
-            "style": message.style,
-            "timestamp": message.timestamp,
-            "messageId": message.message_id,
-        }
-
-        # Include client_id so the browser can reconcile its optimistic pending bubble
-        if message.client_id:
-            message_data["clientId"] = message.client_id
-
-        # Include attachments if present
-        if message.attachments:
-            message_data["attachments"] = [
-                {
-                    "name": att.name,
-                    "path": att.path,
-                    "type": att.type,
-                    "size": att.size,
-                    "url": att.url,
-                }
-                for att in message.attachments
-            ]
-
-        # Include task session ID for reply feature
-        if message.task_session_id:
-            message_data["taskSessionId"] = message.task_session_id
-
-        # Include options/buttons if present
-        if message.options:
-            message_data["options"] = [
-                {"label": o.label, "value": o.value, "style": o.style}
-                for o in message.options
-            ]
-        if message.option_selected:
-            message_data["optionSelected"] = message.option_selected
-
+        # ChatMessage.to_dict() is the WS wire format (always emits sessionId).
         await self._adapter._broadcast(
             {
                 "type": "chat_message",
-                "data": message_data,
+                "data": message.to_dict(),
             }
         )
 
-    async def clear(self) -> None:
-        """Clear messages and notify clients."""
-        self._messages.clear()
+    async def clear(self, session_id: Optional[str] = None) -> None:
+        """Clear messages (one session's, or all) and notify clients."""
+        if session_id:
+            self._messages = [m for m in self._messages if m.session_id != session_id]
+        else:
+            self._messages.clear()
 
         # Clear from storage
         if self._storage:
             try:
-                self._storage.clear_messages()
+                self._storage.clear_messages(session_id)
             except Exception:
                 pass
 
         await self._adapter._broadcast(
             {
                 "type": "chat_clear",
+                "data": {"sessionId": session_id},
             }
         )
+
+    def drop_session_messages(self, session_id: str) -> None:
+        """Drop a session's messages from memory only (storage already cleared
+        by the caller — e.g. the /clear command or session_clear handler)."""
+        self._messages = [m for m in self._messages if m.session_id != session_id]
 
     def scroll_to_bottom(self) -> None:
         """No-op - handled by frontend."""
@@ -361,13 +331,18 @@ class BrowserChatComponent(ChatComponentProtocol):
         return self._messages.copy()
 
     def get_messages_before(
-        self, before_timestamp: float, limit: int = 50
+        self,
+        before_timestamp: float,
+        session_id: Optional[str] = None,
+        limit: int = 50,
     ) -> List[ChatMessage]:
         """Get older messages from storage before a given timestamp."""
         if not self._storage:
             return []
         try:
-            stored = self._storage.get_messages_before(before_timestamp, limit=limit)
+            stored = self._storage.get_messages_before(
+                before_timestamp, session_id=session_id, limit=limit
+            )
             messages = []
             for s in stored:
                 attachments = None
@@ -402,98 +377,56 @@ class BrowserChatComponent(ChatComponentProtocol):
                         timestamp=s.timestamp,
                         message_id=s.message_id,
                         attachments=attachments,
+                        session_id=s.session_id,
                         options=options,
                         option_selected=s.option_selected,
+                        continue_work=s.continue_work,
                     )
                 )
             return messages
         except Exception:
             return []
 
-    def get_total_count(self) -> int:
+    def get_total_count(self, session_id: Optional[str] = None) -> int:
         """Get total message count from storage."""
         if not self._storage:
             return len(self._messages)
         try:
-            return self._storage.get_message_count()
+            return self._storage.get_message_count(session_id)
         except Exception:
             return len(self._messages)
 
 
 class BrowserActionPanelComponent(ActionPanelProtocol):
-    """Browser action panel component."""
+    """Browser activity feed component.
+
+    Holds the per-session activity items (actions and reasoning) rendered
+    inline in each session's chat. In-memory only: activity is ephemeral
+    run telemetry, the durable record is the session's event stream.
+    """
 
     def __init__(self, adapter: "BrowserAdapter") -> None:
         self._adapter = adapter
         self._items: List[ActionItem] = []
-        self._storage = None
-        self._init_storage()
 
-    def _init_storage(self) -> None:
-        """Initialize storage and load persisted actions."""
-        try:
-            from app.usage.action_storage import get_action_storage
-
-            self._storage = get_action_storage()
-
-            # Mark stale running items as cancelled, but exclude restored tasks
-            restored_ids = getattr(
-                self._adapter._controller.agent, "_restored_task_ids", set()
-            )
-            self._storage.mark_running_as_cancelled(exclude=restored_ids)
-
-            # Load recent tasks (and their child actions) from storage
-            stored_items = self._storage.get_recent_tasks_with_actions(task_limit=15)
-            for stored in stored_items:
-                self._items.append(
-                    ActionItem(
-                        id=stored.id,
-                        name=stored.name,
-                        status=stored.status,
-                        item_type=stored.item_type,
-                        parent_id=stored.parent_id,
-                        created_at=stored.created_at,
-                        completed_at=stored.completed_at,
-                        input_data=stored.input_data,
-                        output_data=stored.output_data,
-                        error_message=stored.error_message,
-                        selected_skills=list(stored.selected_skills or []),
-                        workflow_id=stored.workflow_id,
-                        input_tokens=stored.input_tokens,
-                        output_tokens=stored.output_tokens,
-                        cache_tokens=stored.cache_tokens,
-                    )
-                )
-        except Exception:
-            # Storage may not be available, continue without persistence
-            pass
-
-    def _persist_item(self, item: ActionItem) -> None:
-        """Persist an action item to storage."""
-        if self._storage:
-            try:
-                from app.usage.action_storage import StoredActionItem
-
-                stored = StoredActionItem(
-                    id=item.id,
-                    name=item.name,
-                    status=item.status,
-                    item_type=item.item_type,
-                    parent_id=item.parent_id,
-                    created_at=item.created_at,
-                    completed_at=item.completed_at,
-                    input_data=item.input_data,
-                    output_data=item.output_data,
-                    error_message=item.error_message,
-                    selected_skills=list(item.selected_skills or []),
-                    workflow_id=item.workflow_id,
-                    input_tokens=item.input_tokens,
-                    output_tokens=item.output_tokens,
-                    cache_tokens=item.cache_tokens,
-                )
-                self._storage.insert_item(stored)
-            except Exception:
-                pass
+    @staticmethod
+    def _item_payload(item: ActionItem) -> Dict[str, Any]:
+        """Wire payload for an activity item (always carries sessionId)."""
+        return {
+            "id": item.id,
+            "name": item.name,
+            "status": item.status,
+            "itemType": item.item_type,
+            "sessionId": item.session_id,
+            "createdAt": int(item.created_at * 1000),
+            "completedAt": (
+                int(item.completed_at * 1000) if item.completed_at else None
+            ),
+            "duration": item.duration,
+            "input": item.input_data,
+            "output": item.output_data,
+            "error": item.error_message,
+        }
 
     async def add_item(self, item: ActionItem) -> None:
         """Add item and broadcast. Prevents duplicates by ID."""
@@ -507,82 +440,53 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
 
         self._items.append(item)
 
-        # Persist to storage
-        self._persist_item(item)
-
         await self._adapter._broadcast(
             {
                 "type": "action_add",
+                "data": self._item_payload(item),
+            }
+        )
+
+    async def _broadcast_update(self, item: ActionItem) -> None:
+        """Broadcast an action_update for an item's current state."""
+        await self._adapter._broadcast(
+            {
+                "type": "action_update",
                 "data": {
                     "id": item.id,
-                    "name": item.name,
                     "status": item.status,
-                    "itemType": item.item_type,
-                    "parentId": item.parent_id,
-                    "createdAt": int(item.created_at * 1000),
+                    "sessionId": item.session_id,
                     "completedAt": (
                         int(item.completed_at * 1000) if item.completed_at else None
                     ),
                     "duration": item.duration,
-                    "input": item.input_data,
                     "output": item.output_data,
                     "error": item.error_message,
-                    "selectedSkills": list(item.selected_skills or []),
-                    "workflowId": item.workflow_id,
-                    "inputTokens": item.input_tokens,
-                    "outputTokens": item.output_tokens,
-                    "cacheTokens": item.cache_tokens,
                 },
             }
         )
 
     async def update_item(self, item_id: str, status: str) -> None:
         """Update item status by ID and broadcast."""
-        matched_item = None
         for item in self._items:
             if item.id == item_id:
                 item.status = status
-                # Record completion time for completed/error/cancelled status
-                if (
-                    status in ("completed", "error", "cancelled")
-                    and item.completed_at is None
-                ):
+                # Record completion time for terminal statuses
+                if status in ("completed", "error") and item.completed_at is None:
                     item.completed_at = time.time()
-                matched_item = item
-                break
-
-        if matched_item:
-            # Persist update to storage
-            self._persist_item(matched_item)
-
-            await self._adapter._broadcast(
-                {
-                    "type": "action_update",
-                    "data": {
-                        "id": item_id,
-                        "status": status,
-                        "completedAt": (
-                            int(matched_item.completed_at * 1000)
-                            if matched_item.completed_at
-                            else None
-                        ),
-                        "duration": matched_item.duration,
-                        "output": matched_item.output_data,
-                        "error": matched_item.error_message,
-                    },
-                }
-            )
+                await self._broadcast_update(item)
+                return
 
     async def update_item_by_name(
         self,
         action_name: str,
-        task_id: str,
+        session_id: str,
         status: str,
         action_id: str = "",
         output: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
-        """Update item status by matching name and task."""
+        """Update item status by matching name and session."""
         matched_item = None
 
         # First try exact ID match if provided
@@ -592,19 +496,19 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     matched_item = item
                     break
 
-        # Try matching by name + parent_id + running status
-        if not matched_item and task_id:
+        # Try matching by name + session + running status
+        if not matched_item and session_id:
             for item in reversed(self._items):
                 if (
                     item.item_type == "action"
                     and item.name == action_name
-                    and item.parent_id == task_id
+                    and item.session_id == session_id
                     and item.status == "running"
                 ):
                     matched_item = item
                     break
 
-        # Fallback: match by just name + running status (handles mismatched task_ids)
+        # Fallback: match by just name + running status
         if not matched_item:
             for item in reversed(self._items):
                 if (
@@ -617,11 +521,8 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
 
         if matched_item:
             matched_item.status = status
-            # Record completion time for completed/error/cancelled status
-            if (
-                status in ("completed", "error", "cancelled")
-                and matched_item.completed_at is None
-            ):
+            # Record completion time for terminal statuses
+            if status in ("completed", "error") and matched_item.completed_at is None:
                 matched_item.completed_at = time.time()
             # Set output and error data
             if output is not None:
@@ -629,71 +530,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             if error is not None:
                 matched_item.error_message = error
 
-            # Persist update to storage
-            self._persist_item(matched_item)
-
-            await self._adapter._broadcast(
-                {
-                    "type": "action_update",
-                    "data": {
-                        "id": matched_item.id,
-                        "status": status,
-                        "completedAt": (
-                            int(matched_item.completed_at * 1000)
-                            if matched_item.completed_at
-                            else None
-                        ),
-                        "duration": matched_item.duration,
-                        "output": matched_item.output_data,
-                        "error": matched_item.error_message,
-                    },
-                }
-            )
-
-    async def update_item_tokens(
-        self,
-        item_id: str,
-        input_tokens: int,
-        output_tokens: int,
-        cache_tokens: int,
-    ) -> None:
-        """Update a task item's cumulative token counters and broadcast."""
-        from app.logger import logger
-
-        matched_item = None
-        for item in self._items:
-            if item.id == item_id:
-                item.input_tokens = input_tokens
-                item.output_tokens = output_tokens
-                item.cache_tokens = cache_tokens
-                matched_item = item
-                break
-
-        if matched_item:
-            # Persist update to storage so totals survive a refresh/restart
-            self._persist_item(matched_item)
-
-            await self._adapter._broadcast(
-                {
-                    "type": "task_token_update",
-                    "data": {
-                        "id": item_id,
-                        "inputTokens": input_tokens,
-                        "outputTokens": output_tokens,
-                        "cacheTokens": cache_tokens,
-                    },
-                }
-            )
-            logger.debug(
-                f"[TOKEN_UI] broadcast task_token_update id={item_id} "
-                f"in={input_tokens} out={output_tokens} cache={cache_tokens}"
-            )
-        else:
-            logger.warning(
-                f"[TOKEN_UI] update_item_tokens: no ActionItem in panel for id={item_id} "
-                f"(panel has {len(self._items)} items). "
-                f"Token attribution will be invisible to the UI until the task is added."
-            )
+            await self._broadcast_update(matched_item)
 
     async def update_item_data(
         self,
@@ -702,53 +539,27 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         error: Optional[str] = None,
     ) -> None:
         """Update an item's output/error data."""
-        matched_item = None
         for item in self._items:
             if item.id == item_id:
                 if output is not None:
                     item.output_data = output
                 if error is not None:
                     item.error_message = error
-                matched_item = item
-                break
-
-        if matched_item:
-            # Persist update to storage
-            self._persist_item(matched_item)
-
-            await self._adapter._broadcast(
-                {
-                    "type": "action_update",
-                    "data": {
-                        "id": item_id,
-                        "status": matched_item.status,
-                        "completedAt": (
-                            int(matched_item.completed_at * 1000)
-                            if matched_item.completed_at
-                            else None
-                        ),
-                        "duration": matched_item.duration,
-                        "output": matched_item.output_data,
-                        "error": matched_item.error_message,
-                    },
-                }
-            )
+                await self._broadcast_update(item)
+                return
 
     async def remove_item(self, item_id: str) -> None:
         """Remove item and broadcast."""
+        removed = next((i for i in self._items if i.id == item_id), None)
         self._items = [i for i in self._items if i.id != item_id]
-
-        # Remove from storage
-        if self._storage:
-            try:
-                self._storage.delete_item(item_id)
-            except Exception:
-                pass
 
         await self._adapter._broadcast(
             {
                 "type": "action_remove",
-                "data": {"id": item_id},
+                "data": {
+                    "id": item_id,
+                    "sessionId": removed.session_id if removed else None,
+                },
             }
         )
 
@@ -756,164 +567,15 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         """Clear all items and broadcast."""
         self._items.clear()
 
-        # Clear from storage
-        if self._storage:
-            try:
-                self._storage.clear_items()
-            except Exception:
-                pass
-
         await self._adapter._broadcast(
             {
                 "type": "action_clear",
             }
         )
 
-    async def delete_terminal_task(self, task_id: str) -> List[str]:
-        """
-        Remove a single ended task (completed/error/cancelled) and its child
-        actions. Running/waiting tasks are refused so the user cannot
-        accidentally drop a live task by clicking the wrong icon.
-
-        Returns:
-            List of removed item IDs (task + child actions). Empty if the
-            task wasn't found or wasn't in a terminal state.
-        """
-        terminal_statuses = {"completed", "error", "cancelled"}
-
-        # Locate the task in memory and verify it's terminal
-        task_item = next(
-            (i for i in self._items if i.id == task_id and i.item_type == "task"),
-            None,
-        )
-        if not task_item or task_item.status not in terminal_statuses:
-            return []
-
-        removed_ids = [
-            item.id
-            for item in self._items
-            if item.id == task_id or item.parent_id == task_id
-        ]
-        self._items = [
-            item
-            for item in self._items
-            if item.id != task_id and item.parent_id != task_id
-        ]
-
-        if self._storage:
-            try:
-                self._storage.delete_task_with_actions(task_id)
-            except Exception:
-                pass
-
-        for item_id in removed_ids:
-            await self._adapter._broadcast(
-                {
-                    "type": "action_remove",
-                    "data": {"id": item_id},
-                }
-            )
-
-        return removed_ids
-
-    async def clear_terminal_tasks(self) -> int:
-        """
-        Remove tasks whose status is completed/error/cancelled, along with
-        their child actions. Running/waiting tasks remain visible.
-
-        Returns:
-            Number of tasks removed (does not count child actions).
-        """
-        terminal_statuses = {"completed", "error", "cancelled"}
-
-        # Find terminal task IDs in the in-memory list
-        terminal_task_ids = {
-            item.id
-            for item in self._items
-            if item.item_type == "task" and item.status in terminal_statuses
-        }
-
-        if not terminal_task_ids:
-            return 0
-
-        # Remove the tasks themselves and any actions that belong to them
-        removed_ids = [
-            item.id
-            for item in self._items
-            if item.id in terminal_task_ids or item.parent_id in terminal_task_ids
-        ]
-        self._items = [
-            item
-            for item in self._items
-            if item.id not in terminal_task_ids
-            and item.parent_id not in terminal_task_ids
-        ]
-
-        # Mirror in storage so a refresh doesn't bring them back. We let
-        # storage compute its own ID set rather than pass our list, since
-        # storage may carry tasks not currently loaded in memory.
-        if self._storage:
-            try:
-                self._storage.clear_terminal_tasks()
-            except Exception:
-                pass
-
-        # Tell each connected client to drop the removed items individually,
-        # so any other (running) tasks they're watching stay in place.
-        for item_id in removed_ids:
-            await self._adapter._broadcast(
-                {
-                    "type": "action_remove",
-                    "data": {"id": item_id},
-                }
-            )
-
-        return len(terminal_task_ids)
-
-    def select_task(self, task_id: Optional[str]) -> None:
-        """Select task - handled by frontend."""
-        pass
-
     def get_items(self) -> List[ActionItem]:
         """Get all loaded items."""
         return self._items.copy()
-
-    def get_tasks_before(
-        self, before_timestamp: float, task_limit: int = 15
-    ) -> List[ActionItem]:
-        """Get older tasks (and their child actions) from storage."""
-        if not self._storage:
-            return []
-        try:
-            stored = self._storage.get_tasks_before(
-                before_timestamp, task_limit=task_limit
-            )
-            return [
-                ActionItem(
-                    id=s.id,
-                    name=s.name,
-                    status=s.status,
-                    item_type=s.item_type,
-                    parent_id=s.parent_id,
-                    created_at=s.created_at,
-                    completed_at=s.completed_at,
-                    input_data=s.input_data,
-                    output_data=s.output_data,
-                    error_message=s.error_message,
-                )
-                for s in stored
-            ]
-        except Exception:
-            return []
-
-    def get_task_count(self) -> int:
-        """Get total task count (not actions) from storage."""
-        if not self._storage:
-            return len([i for i in self._items if i.item_type == "task"])
-        try:
-            return self._storage.get_task_count()
-        except Exception:
-            return len([i for i in self._items if i.item_type == "task"])
 
 
 class BrowserStatusBarComponent(StatusBarProtocol):
@@ -1017,6 +679,10 @@ class BrowserAdapter(InterfaceAdapter):
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
+        # One-shot flag: the activity feed is rebuilt from persisted event
+        # streams on the first init request after boot (see
+        # _restore_activity_items).
+        self._activity_restored = False
         self._status_bar = BrowserStatusBarComponent(self)
         self._footage = BrowserFootageComponent(self)
         self._app: Optional["web.Application"] = None
@@ -1037,16 +703,14 @@ class BrowserAdapter(InterfaceAdapter):
         self._staged_bundles: Dict[str, bytes] = {}
 
         # Living UI manager
-        template_path = (
-            Path(__file__).parent.parent.parent / "data" / "living_ui_template"
-        )
-        self._living_ui_manager = LivingUIManager(
-            workspace_root=AGENT_WORKSPACE_ROOT, template_path=template_path
-        )
-        # Bind task_manager and trigger_queue for task creation
+        self._living_ui_manager = LivingUIManager(workspace_root=AGENT_WORKSPACE_ROOT)
+        # Wizard: reference-image VLM notes cached between interview and
+        # finalize (keyed by wizardId) so images are described only once.
+        self._wizard_image_notes: Dict[str, List[str]] = {}
+        # Bind session manager and trigger service for project sessions
         agent = self._controller.agent
-        self._living_ui_manager.bind_task_manager(
-            agent.task_manager, agent.triggers, trigger_service=agent.trigger_service
+        self._living_ui_manager.bind_session_manager(
+            agent.session_manager, agent.trigger_service
         )
 
         # Clean up orphan processes and folders from previous sessions
@@ -1066,12 +730,27 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_todos=self.broadcast_living_ui_todos,
             broadcast_data_changed=self.broadcast_living_ui_data_changed,
             broadcast_created=self.broadcast_living_ui_created,
-            broadcast_question=self.broadcast_living_ui_question,
+            broadcast_build_event=self.broadcast_living_ui_build_event,
         )
 
-        # Subscribe the Living UI module to TaskManager todo updates so that
-        # the agent's task breakdown streams to the browser automatically.
-        agent.task_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
+        # Subscribe the Living UI module to SessionManager todo updates so
+        # that the agent's build breakdown streams to the browser automatically.
+        agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
+
+        # READ-ONLY build observer: derive construction-dock build events from
+        # the actions the agent already performs (write_file / stream_edit /
+        # living_ui_scaffold / living_ui_notify_ready). These hooks are
+        # single-callback and currently unset; the executor wraps them in
+        # try/except and the observer swallows all exceptions, so this can
+        # never affect a build. It reads inputs/outputs only, mutates nothing.
+        try:
+            from app.living_ui import construction_events
+
+            on_start, on_end = construction_events.make_action_hooks()
+            agent.action_manager._on_action_start = on_start
+            agent.action_manager._on_action_end = on_end
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] build-event observer not attached: {e}")
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -1101,37 +780,22 @@ class BrowserAdapter(InterfaceAdapter):
     async def submit_message(
         self,
         message: str,
-        reply_context: Optional[Dict[str, Any]] = None,
-        living_ui_id: Optional[str] = None,
+        session_id: Optional[str] = None,
         client_id: Optional[str] = None,
     ) -> None:
         """
-        Submit a message from the user with optional reply context.
-
-        Overrides base class to handle reply-to-chat/task feature.
-        Appends reply context to the message before routing to the agent.
+        Submit a message from the user.
 
         Args:
             message: The user's input message
-            reply_context: Optional dict with {sessionId?: str, originalMessage: str}
-            living_ui_id: Optional Living UI project ID if user is on a Living UI page
+            session_id: The session the message was typed in (main if omitted)
             client_id: Optional client-generated UUID for reconciling optimistic UI
         """
-        agent_context = message
-
-        # Add reply context note (similar to attachment_note pattern)
-        if reply_context and reply_context.get("originalMessage"):
-            reply_note = f"\n\n[REPLYING TO PREVIOUS AGENT MESSAGE]:\n{reply_context['originalMessage']}"
-            agent_context = message + reply_note
-
-        # Pass to controller with target session ID if replying
-        target_session_id = reply_context.get("sessionId") if reply_context else None
         await self._controller.submit_message(
-            agent_context,
+            message,
             self._adapter_id,
-            target_session_id=target_session_id,
+            session_id=session_id,
             client_id=client_id,
-            living_ui_id=living_ui_id,
         )
 
     async def _handle_enhance_prompt(self, content: str, ws) -> None:
@@ -1145,35 +809,9 @@ class BrowserAdapter(InterfaceAdapter):
         except Exception as e:
             logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
 
-    def _handle_task_start(self, event: UIEvent) -> None:
-        """Handle task start event with metrics tracking."""
-        # Call parent implementation
-        super()._handle_task_start(event)
-
-        # Track in metrics collector
-        task_id = event.data.get("task_id", "")
-        task_name = event.data.get("task_name", "Task")
-        if task_id:
-            self._metrics_collector.record_task_start(task_id, task_name)
-
-    def _handle_task_end(self, event: UIEvent) -> None:
-        """Handle task end event with metrics tracking."""
-        # Call parent implementation
-        super()._handle_task_end(event)
-
-        # Track in metrics collector
-        task_id = event.data.get("task_id", "")
-        task_name = event.data.get("task_name", "Task")
-        status = event.data.get("status", "completed")
-        if task_id:
-            self._metrics_collector.record_task_end(task_id, task_name, status)
-
     def _handle_reasoning(self, event: UIEvent) -> None:
-        """Handle reasoning event - display in Tasks page only."""
-        # Add reasoning as an action item with item_type="reasoning"
-        # This will be displayed in the Tasks page but filtered out of
-        # the Chat page's action panel
-        task_id = event.data.get("task_id") or self._controller.state.current_task_id
+        """Handle reasoning event — add it to the session's activity feed."""
+        session_id = event.data.get("session_id") or "main"
         reasoning_id = event.data.get("reasoning_id", "")
         content = event.data.get("content", "")
 
@@ -1184,9 +822,27 @@ class BrowserAdapter(InterfaceAdapter):
                     name="Reasoning",
                     status="completed",  # Reasoning is always complete
                     item_type="reasoning",
-                    parent_id=task_id,
+                    session_id=session_id,
                     output_data=content,  # Store reasoning content in output
                 )
+            )
+        )
+
+    def _handle_run_state_change(self, event: UIEvent) -> None:
+        """Broadcast a session's run state (typing indicator + stop button).
+
+        ``state`` is "running" | "stopping" | "idle"; ``busy`` is the
+        derived boolean kept alongside it for older consumers.
+        """
+        session_id = event.data.get("session_id") or "main"
+        busy = bool(event.data.get("busy", False))
+        state = event.data.get("state") or ("running" if busy else "idle")
+        asyncio.create_task(
+            self._broadcast(
+                {
+                    "type": "session_busy",
+                    "data": {"sessionId": session_id, "busy": busy, "state": state},
+                }
             )
         )
 
@@ -1232,6 +888,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
         self._app.router.add_post(
             "/api/living-ui/import", self._living_ui_import_handler
+        )
+        self._app.router.add_post("/api/living-ui/stage", self._living_ui_stage_handler)
+        self._app.router.add_get(
+            "/api/living-ui/icon/{project_id}", self._living_ui_icon_handler
         )
 
         # Workspace and chat HTTP upload routes
@@ -1398,7 +1058,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._ws_clients.add(ws)
 
         # Trigger soft onboarding on first client connection so the UI
-        # is ready to receive the task creation event.
+        # is ready to receive the onboarding messages.
         if is_first_client:
             from app.onboarding import onboarding_manager
 
@@ -1436,8 +1096,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": {
                         "success": True,
                         "projects": [
-                            p.to_dict()
-                            for p in self._living_ui_manager.list_projects()
+                            p.to_dict() for p in self._living_ui_manager.list_projects()
                         ],
                     },
                 }
@@ -1498,35 +1157,66 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         msg_type = data.get("type")
 
         if msg_type == "message":
-            # User sent a message (may include attachments and/or reply context)
+            # User sent a message (may include attachments)
             content = data.get("content", "")
             attachments = data.get("attachments", [])
-            reply_context = data.get(
-                "replyContext"
-            )  # {sessionId?: str, originalMessage: str}
-            living_ui_id = data.get(
-                "livingUIId"
-            )  # Set when user is on a Living UI page
+            session_id = data.get("sessionId") or "main"
             client_id = data.get("clientId")
-            if living_ui_id:
-                logger.info(
-                    f"[BROWSER ADAPTER] Message from Living UI page: {living_ui_id}"
+
+            # Reply-to-bubble: append the quoted agent message so both the
+            # stored user message and the agent's event stream record which
+            # message was replied to. No routing — the session is explicit.
+            reply_context = data.get("replyContext") or {}
+            original = (
+                (reply_context.get("originalMessage") or "").strip()
+                if isinstance(reply_context, dict)
+                else ""
+            )
+            if original and content:
+                content = (
+                    f"{content}\n\n[REPLYING TO PREVIOUS AGENT MESSAGE]:\n{original}"
+                )
+
+            # Draft chat: the sidebar's "New Chat" only opens an empty view —
+            # the session is created lazily here, on the FIRST message.
+            # session_created is broadcast (with the sender's clientId) before
+            # the message so the draft view can navigate to the real session.
+            if session_id == "new":
+                session = self._controller.agent.create_chat_session()
+                session_id = session.id
+                await self._broadcast(
+                    {
+                        "type": "session_created",
+                        "data": {
+                            "session": self._session_info(session),
+                            "clientId": client_id,
+                        },
+                    }
                 )
 
             # Dispatch chat submission as a background task so the WS message loop
             # can immediately read the next frame. Otherwise rapid-fire sends are
-            # serialised behind each message's routing-LLM call (~1s each), which
+            # serialised behind each message's per-session processing, which
             # makes optimistic bubbles un-gray one-by-one instead of all at once.
             if attachments:
                 asyncio.create_task(
                     self._handle_chat_message_with_attachments(
-                        content, attachments, reply_context, living_ui_id, client_id
+                        content, attachments, session_id, client_id
                     )
                 )
             elif content:
                 asyncio.create_task(
-                    self.submit_message(content, reply_context, living_ui_id, client_id)
+                    self.submit_message(
+                        content, session_id=session_id, client_id=client_id
+                    )
                 )
+
+        elif msg_type == "session_stop":
+            # User force-stops the session's in-flight run (the chat input's
+            # stop button). Runs as a background task: stopping awaits full
+            # settlement (process kills) and must not block the WS read loop.
+            session_id = data.get("sessionId") or "main"
+            asyncio.create_task(self._controller.stop_run(session_id))
 
         elif msg_type == "chat_attachment_upload":
             # Upload attachment for chat message
@@ -1535,8 +1225,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "command":
             # User sent a command
             command = data.get("command", "")
+            session_id = data.get("sessionId") or "main"
             if command:
-                await self.submit_message(command)
+                await self.submit_message(command, session_id=session_id)
 
         elif msg_type == "enhance_prompt":
             content = data.get("content", "")
@@ -1544,14 +1235,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 await self._handle_enhance_prompt(content, ws)
 
         elif msg_type == "chat_history":
+            session_id = data.get("sessionId") or "main"
             before_timestamp = data.get("beforeTimestamp")
             limit = data.get("limit", 50)
-            await self._handle_chat_history(before_timestamp, limit)
+            await self._handle_chat_history(session_id, before_timestamp, limit, ws)
 
-        elif msg_type == "action_history":
-            before_timestamp = data.get("beforeTimestamp")
-            limit = data.get("limit", 15)
-            await self._handle_action_history(before_timestamp, limit)
+        # Session management (creation is lazy — see the "message" branch)
+        elif msg_type == "session_delete":
+            await self._handle_session_delete(data)
+
+        elif msg_type == "session_rename":
+            await self._handle_session_rename(data)
+
+        elif msg_type == "session_clear":
+            await self._handle_session_clear(data)
+
+        elif msg_type == "session_list":
+            await self._handle_session_list(ws)
 
         # File operations
         elif msg_type == "file_list":
@@ -1617,24 +1317,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             file_path = data.get("path", "")
             await self._handle_open_folder(file_path)
 
-        # Task control
-        elif msg_type == "task_cancel":
-            task_id = data.get("taskId", "")
-            await self._handle_task_cancel(task_id)
-
-        elif msg_type == "task_complete":
-            task_id = data.get("taskId", "")
-            await self._handle_task_complete(task_id)
-
-        elif msg_type == "task_resume":
-            task_id = data.get("taskId", "")
-            message = data.get("message", "") or ""
-            await self._handle_task_resume(task_id, message)
-
-        elif msg_type == "task_delete":
-            task_id = data.get("taskId", "")
-            await self._handle_task_delete(task_id)
-
         elif msg_type == "option_click":
             value = data.get("value", "")
             session_id = data.get("sessionId", "")
@@ -1671,14 +1353,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "reset":
             await self._handle_reset(data)
 
-        elif msg_type == "clear_conversation":
-            await self._handle_clear_conversation()
-
-        elif msg_type == "clear_tasks":
-            await self._handle_clear_tasks()
-
-        elif msg_type == "create_skill_from_task":
-            await self._handle_create_skill_from_task(data)
+        elif msg_type == "create_skill_from_session":
+            await self._handle_create_skill_from_session(data)
 
         # Scheduler/Proactive operations
         elif msg_type == "scheduler_config_get":
@@ -1897,7 +1573,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "skill_run":
             name = data.get("name", "")
             args_text = data.get("args", "")
-            await self._handle_skill_run(name, args_text)
+            session_id = data.get("sessionId") or "main"
+            await self._handle_skill_run(name, args_text, session_id)
 
         # Integration handlers
         elif msg_type == "integration_list":
@@ -2032,6 +1709,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Living UI handlers
         elif msg_type == "living_ui_create":
             await self._handle_living_ui_create(data)
+
+        elif msg_type == "living_ui_wizard_interview":
+            await self._handle_living_ui_wizard_interview(data)
+
+        elif msg_type == "living_ui_wizard_finalize":
+            await self._handle_living_ui_wizard_finalize(data)
+
+        elif msg_type == "living_ui_theme_update":
+            await self._handle_living_ui_theme_update(data)
 
         elif msg_type == "living_ui_list":
             await self._handle_living_ui_list()
@@ -2791,6 +2477,241 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # Living UI Handlers
     # -------------------------------------------------------------------------
 
+    async def _handle_living_ui_wizard_interview(self, data: Dict[str, Any]) -> None:
+        """Wizard step 2: generate interview questions from the Step-1
+        configuration via a direct LLM call (no project/session exists yet)."""
+        from app.living_ui import wizard
+
+        wizard_id = str(data.get("wizardId", ""))
+        try:
+            config = data.get("config") or {}
+            living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
+            wizard.sweep_stale_staging(living_ui_dir)
+
+            # Reference images are described once and reused at finalize.
+            image_notes = await wizard.describe_staged_images(living_ui_dir, wizard_id)
+            self._wizard_image_notes[wizard_id] = image_notes
+
+            questions = await wizard.generate_interview(config, image_notes)
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_interview",
+                    "data": {
+                        "success": True,
+                        "wizardId": wizard_id,
+                        "questions": questions,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[LIVING_UI:WIZARD] interview failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_interview",
+                    "data": {
+                        "success": False,
+                        "wizardId": wizard_id,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_living_ui_wizard_finalize(self, data: Dict[str, Any]) -> None:
+        """Wizard step 3: synthesize the requirements document, create the
+        project, move staged attachments in, queue the build run in the
+        project's session, and hand the frontend its projectId to navigate to."""
+        from app.living_ui import wizard
+
+        wizard_id = str(data.get("wizardId", ""))
+        try:
+            config = data.get("config") or {}
+            answers = data.get("answers") or []
+            name = str(config.get("name", "")).strip()
+            description = str(config.get("description", "")).strip()
+            if not name or not description:
+                raise ValueError("Name and description are required")
+
+            living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
+            image_notes = self._wizard_image_notes.pop(wizard_id, None)
+            if image_notes is None:
+                image_notes = await wizard.describe_staged_images(
+                    living_ui_dir, wizard_id
+                )
+
+            # SECOND INTERVIEW ROUND (one, at most): with a marketplace
+            # match, round 1 collapses to the marketplace question — correct
+            # for the install path, but the other two answers need the real
+            # questions asked NOW (both observed live 2026-08-05):
+            #   adapt  → targeted "what should be different" follow-ups
+            #            (else synthesis fabricates the adaptation list);
+            #   fresh  → the standard requirement interview, catalogue
+            #            withheld (else the build synthesizes from a
+            #            one-line description with zero questions asked).
+            # Fail-open: no follow-ups → synthesize as before.
+            if not bool(data.get("followupDone")):
+                followups = []
+                try:
+                    if wizard.adapt_chosen(answers):
+                        followups = await wizard.generate_followup_questions(
+                            config, answers, image_notes
+                        )
+                    elif wizard.fresh_build_chosen(answers) and len(answers) <= 1:
+                        followups = await wizard.generate_interview(
+                            config, image_notes, include_marketplace=False
+                        )
+                except Exception as e:
+                    logger.warning(f"[LIVING_UI:WIZARD] round 2 skipped: {e}")
+                    followups = []
+                if followups:
+                    # Re-id: a model reusing "q1" would collide with the
+                    # marketplace question and overwrite its answer in the
+                    # frontend's answers map.
+                    for i, q in enumerate(followups):
+                        q["id"] = f"r2-{i + 1}"
+                    self._wizard_image_notes[wizard_id] = image_notes
+                    await self._broadcast(
+                        {
+                            "type": "living_ui_wizard_finalize",
+                            "data": {
+                                "success": True,
+                                "wizardId": wizard_id,
+                                "followupQuestions": followups,
+                            },
+                        }
+                    )
+                    return
+
+            requirements_doc = await wizard.synthesize_requirements(
+                config, answers, image_notes
+            )
+
+            auth_mode = str(config.get("authMode") or "none")
+            # stylePack is derived by the frontend from the theme catalog
+            # (style-bearing theme id, or "" for pinned color themes).
+            style_pack = str(config.get("stylePack") or "")
+            project = await self._living_ui_manager.create_project(
+                name=name,
+                description=description,
+                auth_mode=auth_mode,
+                style_pack=style_pack,
+            )
+
+            # Staged files: uploaded icon → app favicon, references →
+            # <project>/reference/. An uploaded icon wins over a lucide pick.
+            moved = wizard.move_staging_into_project(
+                living_ui_dir, wizard_id, Path(project.path)
+            )
+            if moved["icon"]:
+                project.icon = moved["icon"]
+                # Favicon injection edited the system-owned index.html —
+                # re-canonize hashes so the validation gate stays green.
+                try:
+                    await self._living_ui_manager.v2_runner.kit_sync(Path(project.path))
+                except Exception as e:
+                    logger.warning(f"[LIVING_UI:WIZARD] re-canon failed: {e}")
+            elif str(config.get("icon", "")).startswith("lucide:"):
+                project.icon = str(config.get("icon"))
+
+            # The wizard's theme pick becomes the project's default display
+            # theme — the Living UI page adopts it (absent a local override)
+            # and pushes it to the app via the livingui-theme protocol.
+            ui_theme = str(config.get("uiTheme") or "").strip()
+            if ui_theme:
+                project.ui_theme = {"themeId": ui_theme}
+            self._living_ui_manager._save_projects()
+
+            # The build's binding specification (walk-verify reads it too).
+            reference_dir = Path(project.path) / "reference"
+            reference_dir.mkdir(parents=True, exist_ok=True)
+            (reference_dir / "requirements.md").write_text(
+                requirements_doc, encoding="utf-8"
+            )
+
+            # Create the project's session BEFORE broadcasting so the project
+            # snapshot carries sessionId — the Living UI page keys its chat
+            # panel on project.sessionId, and nothing back-fills it later.
+            # (start_development_run reuses this session; ensure is idempotent.)
+            self._living_ui_manager.ensure_project_session(project)
+
+            # Same broadcast the plain create path uses — the store's
+            # living_ui_create handler adds the project tab.
+            await self._broadcast(
+                {
+                    "type": "living_ui_create",
+                    "data": {
+                        "success": True,
+                        "projectId": project.id,
+                        "project": project.to_dict(),
+                        "stylePack": style_pack,
+                    },
+                }
+            )
+
+            # Post the "what you asked for" summary as the first bubble in the
+            # PROJECT'S session (never main) — it heads the Living UI chat the
+            # user is auto-switched into, so the build has a visible cause.
+            try:
+                await self._display_chat_message(
+                    "System",
+                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    "Building your app now — follow the progress here.",
+                    "system",
+                    session_id=project.session_id,
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+
+            await self._broadcast(
+                {
+                    "type": "living_ui_status",
+                    "data": {
+                        "projectId": project.id,
+                        "phase": "initializing",
+                        "progress": 10,
+                        "message": "Project created, starting development...",
+                    },
+                }
+            )
+
+            # Queue the build run in the project's dedicated session.
+            session_id = await self._living_ui_manager.start_development_run(project.id)
+            if not session_id:
+                raise RuntimeError("Failed to start development run")
+
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_finalize",
+                    "data": {
+                        "success": True,
+                        "wizardId": wizard_id,
+                        "projectId": project.id,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[LIVING_UI:WIZARD] finalize failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_finalize",
+                    "data": {
+                        "success": False,
+                        "wizardId": wizard_id,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_living_ui_theme_update(self, data: Dict[str, Any]) -> None:
+        """Persist a project's display theme so it follows the user across
+        browsers ({"projectId", "theme": {"themeId", "customColors"}})."""
+        try:
+            project_id = str(data.get("projectId", ""))
+            theme = data.get("theme")
+            if project_id:
+                self._living_ui_manager.set_project_ui_theme(project_id, theme)
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] theme update failed: {e}")
+
     async def _handle_living_ui_create(self, data: Dict[str, Any]) -> None:
         """Create a new Living UI project."""
         try:
@@ -2813,13 +2734,53 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return
 
             # Create the project (directory/template)
+            auth_mode = data.get("authMode", "none")
+            layout = data.get("layout", "")
+            style_pack = data.get("stylePack", "")
+            ref_files = data.get("referenceFiles") or []
+
+            # Fold wizard choices into the build description so they land in
+            # the task instruction and reference/requirements.md.
+            extras = []
+            if layout and layout != "free":
+                extras.append(f"Layout preference: {layout}")
+            if style_pack:
+                extras.append(f"Style pack (visual theme): {style_pack}")
+            if ref_files:
+                names = ", ".join(Path(f).name for f in ref_files[:10])
+                extras.append(
+                    f"Reference files (design sketches/docs) in reference/: {names} — "
+                    "study them before designing the UI."
+                )
+            if extras:
+                description = description + "\n\n" + "\n".join(extras)
+
             project = await self._living_ui_manager.create_project(
                 name=name,
                 description=description,
                 features=features,
                 data_source=data_source,
                 theme=theme,
+                auth_mode=auth_mode,
+                style_pack=style_pack,
             )
+
+            # Move staged reference files into the project.
+            if ref_files:
+                ref_dir = Path(project.path) / "reference"
+                ref_dir.mkdir(parents=True, exist_ok=True)
+                for f in ref_files[:10]:
+                    src = Path(f)
+                    staging_root = (
+                        Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                    )
+                    if src.exists() and staging_root in src.parents:
+                        shutil.move(str(src), str(ref_dir / src.name))
+
+            # Create the session BEFORE broadcasting so the project snapshot
+            # carries sessionId (the Living UI page's chat panel keys on it;
+            # nothing back-fills it later). start_development_run reuses it.
+            self._living_ui_manager.ensure_project_session(project)
 
             # Broadcast project created
             await self._broadcast(
@@ -2829,18 +2790,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": True,
                         "projectId": project.id,
                         "project": project.to_dict(),
+                        "stylePack": style_pack,
                     },
                 }
             )
 
-            # Mirror the new project into chat as a system message so the
-            # request is visible in the conversation (not just the new tab).
+            # Post the "what you asked for" summary as the first bubble in the
+            # PROJECT'S session (never main) — it heads the Living UI chat the
+            # user is auto-switched into, so the build has a visible cause.
             try:
                 await self._display_chat_message(
                     "System",
                     f"**Living UI: {name}**\n\n{description}\n\n"
-                    "Building your app now — track progress in the new tab.",
+                    "Building your app now — follow the progress here.",
                     "system",
+                    session_id=project.session_id,
                 )
             except Exception as e:
                 logger.debug(f"[LIVING_UI] create chat message failed: {e}")
@@ -2858,24 +2822,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-            # Create task and fire trigger via manager
-            # The manager handles: task creation, status update, trigger firing
-            task_id = await self._living_ui_manager.create_development_task(project.id)
+            # Queue the build run in the project's dedicated session.
+            # The manager handles: session creation, status update, trigger firing.
+            session_id = await self._living_ui_manager.start_development_run(project.id)
 
-            if task_id:
+            if session_id:
                 logger.info(
-                    f"[LIVING_UI] Created and triggered task {task_id} for project {project.id}"
+                    f"[LIVING_UI] Queued build run in session {session_id} "
+                    f"for project {project.id}"
                 )
             else:
                 logger.error(
-                    f"[LIVING_UI] Failed to create task for project {project.id}"
+                    f"[LIVING_UI] Failed to start development run for project {project.id}"
                 )
                 await self._broadcast(
                     {
                         "type": "living_ui_error",
                         "data": {
                             "projectId": project.id,
-                            "error": "Failed to create development task",
+                            "error": "Failed to start development run",
                         },
                     }
                 )
@@ -2905,6 +2870,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+            # Replay buffered build events for any in-progress build so a
+            # reconnecting client repopulates the construction dock feed.
+            try:
+                from app.living_ui import construction_events
+
+                for p in projects:
+                    if getattr(p, "status", None) not in ("creating", "error"):
+                        continue
+                    events = construction_events.get_buffered_events(p.id)
+                    if events:
+                        await self._broadcast(
+                            {
+                                "type": "living_ui_build_events_replay",
+                                "data": {"projectId": p.id, "events": events},
+                            }
+                        )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] build-event replay skipped: {e}")
         except Exception as e:
             logger.error(f"[LIVING_UI] Error listing projects: {e}")
             await self._broadcast(
@@ -2986,9 +2969,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_living_ui_delete(self, project_id: str) -> None:
-        """Delete a Living UI project."""
+        """Delete a Living UI project (and its dedicated session)."""
         try:
+            project = self._living_ui_manager.get_project(project_id)
+            session_id = project.session_id if project else None
+
             success = await self._living_ui_manager.delete_project(project_id)
+            try:
+                from app.living_ui import construction_events
+
+                construction_events.clear_buffer(project_id)
+            except Exception:
+                pass
             await self._broadcast(
                 {
                     "type": "living_ui_delete",
@@ -2998,6 +2990,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+            # The manager deletes the project's session as part of
+            # delete_project — tell the sidebar to drop it too.
+            if success and session_id:
+                await self._broadcast(
+                    {
+                        "type": "session_deleted",
+                        "data": {"sessionId": session_id},
+                    }
+                )
         except Exception as e:
             logger.error(f"[LIVING_UI] Error deleting project: {e}")
             await self._broadcast(
@@ -3036,10 +3037,112 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             response._zip_cleanup_path = zip_path
             return response
         except (ValueError, FileNotFoundError) as e:
-            return web.json_response({"error": str(e)}, status=404)
+            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
+            from app.errors.web import error_json_response
+
+            return error_json_response(
+                ErrorInfo(
+                    category=ErrorCategory.NOT_FOUND,
+                    code="LIVING_UI_EXPORT_NOT_FOUND",
+                    title="Export not found",
+                    message=redact(str(e)),
+                ),
+                status=404,
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Export error: {e}")
+            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
+            from app.errors.web import error_json_response
+
+            return error_json_response(
+                ErrorInfo(
+                    category=ErrorCategory.INTERNAL,
+                    code="LIVING_UI_EXPORT_FAILED",
+                    title="Export failed",
+                    message=redact(str(e)),
+                ),
+                status=500,
+            )
+
+    async def _living_ui_stage_handler(self, request: "web.Request") -> "web.Response":
+        """Stage a reference file (sketch/screenshot/doc) for a NEW Living UI.
+
+        Saves under living_ui/_staging/refs/ and returns {"path": ...}. The
+        create flow moves staged files into the project's reference/ dir.
+
+        Wizard mode: with ?wizardId=<id> (and optional &kind=icon) the file
+        stages under living_ui/_staging/wizard/<id>/ instead; icons are
+        normalized to icon.<ext> so finalize can find them.
+        """
+        from aiohttp import web
+
+        from app.living_ui import wizard
+
+        wizard_id = request.query.get("wizardId", "")
+        kind = request.query.get("kind", "reference")
+        try:
+            reader = await request.multipart()
+            saved = None
+            async for part in reader:
+                if part.name == "file":
+                    filename = Path(part.filename or "reference.bin").name
+                    if wizard_id:
+                        staging = wizard.staging_dir(
+                            Path(self._living_ui_manager.living_ui_dir), wizard_id
+                        )
+                        if kind == "icon":
+                            filename = f"icon{Path(filename).suffix.lower() or '.png'}"
+                    else:
+                        staging = (
+                            Path(self._living_ui_manager.living_ui_dir)
+                            / "_staging"
+                            / "refs"
+                        )
+                    staging.mkdir(parents=True, exist_ok=True)
+                    target = staging / filename
+                    if wizard_id and kind == "icon":
+                        # Re-picking the icon replaces it (finalize looks
+                        # for exactly icon.<ext>); clear stale extensions.
+                        for old in staging.glob("icon.*"):
+                            old.unlink(missing_ok=True)
+                    else:
+                        i = 1
+                        while target.exists():
+                            target = (
+                                staging
+                                / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
+                            )
+                            i += 1
+                    with open(target, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                    saved = str(target)
+            if saved is None:
+                return web.json_response({"error": "no file"}, status=400)
+            return web.json_response({"path": saved})
+        except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _living_ui_icon_handler(
+        self, request: "web.Request"
+    ) -> "web.StreamResponse":
+        """Serve a project's uploaded icon (project.icon == "file:<relpath>")."""
+        from aiohttp import web
+
+        project = self._living_ui_manager.get_project(
+            request.match_info.get("project_id", "")
+        )
+        if project and (project.icon or "").startswith("file:"):
+            icon_path = (Path(project.path) / project.icon[5:]).resolve()
+            # The relpath is server-written, but never serve outside the project.
+            if icon_path.is_file() and str(icon_path).startswith(
+                str(Path(project.path).resolve())
+            ):
+                return web.FileResponse(icon_path)
+        return web.json_response({"error": "no icon"}, status=404)
 
     async def _living_ui_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
@@ -3473,17 +3576,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "living_ui_error",
                     "data": {
                         "projectId": project_id,
-                        "error": f"Project '{project_id}' not found. Check that the project_id matches the one from the task instruction.",
+                        "error": f"Project '{project_id}' not found. Check that the project_id matches the one from the build instruction.",
                     },
                 }
             )
             return False
 
-        # Update project status to "ready" (build complete, about to launch)
-        self._living_ui_manager.update_project_status(project_id, "ready")
+        # The delivery/deploy paths (finalize_first_delivery, finalize_modify)
+        # hand this method an app that is ALREADY running and healthy — the
+        # unconditional status-flip + launch_project below then killed the
+        # just-delivered app and re-ran the full pipeline a second time
+        # (observed 2026-08-04, kanban_board_1bb64990: every delivery and
+        # every modify-flip restarted the app twice, ~9 s of extra downtime
+        # right after the user was told "ready"). Launch only when the app
+        # is not actually up.
+        if (
+            project.status == "running"
+            and project.port
+            and self._living_ui_manager._is_port_in_use(project.port)
+        ):
+            success = True
+        else:
+            # Update project status to "ready" (build complete, about to launch)
+            self._living_ui_manager.update_project_status(project_id, "ready")
 
-        # Launch the project server via manager (centralizes process management)
-        success = await self._living_ui_manager.launch_project(project_id)
+            # Launch the project server via manager (centralizes process management)
+            success = await self._living_ui_manager.launch_project(project_id)
 
         if success:
             # Get updated project info with URL
@@ -3495,10 +3613,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "projectId": project_id,
                         "url": project.url if project else url,
                         "port": project.port if project else port,
+                        "sessionId": project.session_id if project else None,
                     },
                 }
             )
             logger.info(f"[LIVING_UI] Project {project_id} launched and ready")
+            # Build finished — drop the buffered construction-dock feed so a
+            # later rebuild of the same project starts from a clean slate.
+            try:
+                from app.living_ui import construction_events
+
+                construction_events.clear_buffer(project_id)
+            except Exception:
+                pass
             return True
         else:
             # Launch failed
@@ -3531,23 +3658,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_question(
-        self, project_id: str, session_id: str, message: str
-    ) -> None:
-        """Mirror an agent question onto the creation screen so the user can
-        answer from the Living UI page even when the chat panel is closed. The
-        on-screen answer is sent back as a reply targeting `session_id`."""
-        await self._broadcast(
-            {
-                "type": "living_ui_question",
-                "data": {
-                    "projectId": project_id,
-                    "sessionId": session_id,
-                    "message": message,
-                },
-            }
-        )
-
     async def broadcast_living_ui_progress(
         self, project_id: str, phase: str, progress: int, message: str
     ) -> None:
@@ -3569,10 +3679,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         project_id: str,
         todos: list,
     ) -> None:
-        """Broadcast the agent's current todo list for a Living UI task.
+        """Broadcast the agent's current todo list for a Living UI build.
 
-        Fired from the task manager's on_todo_transition hook whenever the
-        agent updates its todos during a Living UI creation task.
+        Fired from the SessionManager's post-update-todos hook whenever the
+        agent updates its todos during a Living UI build run.
         """
         await self._broadcast(
             {
@@ -3580,6 +3690,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "data": {
                     "projectId": project_id,
                     "todos": todos,
+                },
+            }
+        )
+
+    async def broadcast_living_ui_build_event(
+        self, project_id: str, event: dict
+    ) -> None:
+        """Broadcast one construction-dock build event (from the read-only
+        observer in construction_events). Fire-and-forget UI observation."""
+        await self._broadcast(
+            {
+                "type": "living_ui_build_event",
+                "data": {
+                    "projectId": project_id,
+                    "event": event,
                 },
             }
         )
@@ -3593,423 +3718,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "data": {"projectId": project_id},
             }
         )
-
-    async def _handle_task_cancel(self, task_id: str) -> None:
-        """Cancel a running task."""
-        try:
-            agent = self._controller.agent
-            task_manager = agent.task_manager
-
-            # Find the task
-            task = (
-                task_manager.get_task_by_id(task_id) if task_id else task_manager.active
-            )
-            if not task:
-                await self._broadcast(
-                    {
-                        "type": "task_cancel_response",
-                        "data": {
-                            "taskId": task_id,
-                            "success": False,
-                            "error": "Task not found",
-                        },
-                    }
-                )
-                return
-
-            # Cancel the task
-            await task_manager.mark_task_cancel(
-                reason="Aborted by user",
-                task_id=task.id,
-            )
-
-            await self._broadcast(
-                {
-                    "type": "task_cancel_response",
-                    "data": {
-                        "taskId": task.id,
-                        "success": True,
-                        "status": "cancelled",
-                    },
-                }
-            )
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "task_cancel_response",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_task_resume(self, task_id: str, message: str) -> None:
-        """Re-open a terminated task and continue execution.
-
-        Reads the task + persisted event stream from sessions.db (kept around
-        on task end specifically for this flow), reinstates them in memory,
-        flips the action panel row back to running, optionally injects a
-        continuation user message, and enqueues a trigger so the react loop
-        picks up where it left off. Token counters accumulate across resumes.
-        """
-        try:
-            if not task_id:
-                await self._broadcast(
-                    {
-                        "type": "task_resume_response",
-                        "data": {
-                            "taskId": task_id,
-                            "success": False,
-                            "error": "Missing taskId",
-                        },
-                    }
-                )
-                return
-
-            from app.usage.session_storage import get_session_storage
-            from agent_core.core.task import Task
-            from agent_core.core.impl.event_stream.event_stream import (
-                get_cached_token_count,
-            )
-            from app.state.agent_state import STATE
-
-            agent = self._controller.agent
-            task_manager = agent.task_manager
-
-            # Refuse if the task is still live (already in memory) — resume
-            # only applies to terminated tasks.
-            if task_id in task_manager.tasks:
-                live = task_manager.tasks[task_id]
-                if live.status not in ("completed", "error", "cancelled"):
-                    await self._broadcast(
-                        {
-                            "type": "task_resume_response",
-                            "data": {
-                                "taskId": task_id,
-                                "success": False,
-                                "error": "Task is already running",
-                            },
-                        }
-                    )
-                    return
-
-            storage = get_session_storage()
-            task_dict = storage.get_task(task_id)
-            if not task_dict:
-                await self._broadcast(
-                    {
-                        "type": "task_resume_response",
-                        "data": {
-                            "taskId": task_id,
-                            "success": False,
-                            "error": (
-                                "Task context is no longer available. It may "
-                                "have been purged after 24h — please start a "
-                                "new task."
-                            ),
-                        },
-                    }
-                )
-                return
-
-            # Reject internal/system workflows: their post-completion side
-            # effects already ran and resuming them produces inconsistent
-            # state. Mirrors the existing Create Skill gate.
-            wf_id = task_dict.get("workflow_id") or ""
-            selected_skills = task_dict.get("selected_skills") or []
-            if wf_id in self._INTERNAL_WORKFLOW_IDS or any(
-                s in self._INTERNAL_SKILL_NAMES for s in selected_skills
-            ):
-                await self._broadcast(
-                    {
-                        "type": "task_resume_response",
-                        "data": {
-                            "taskId": task_id,
-                            "success": False,
-                            "error": "Internal workflow tasks cannot be resumed",
-                        },
-                    }
-                )
-                return
-
-            # Rebuild the Task and reset terminal fields. Token counters and
-            # action_count stay as-is — a resume is a continuation, not a
-            # restart. Capture the prior terminal status BEFORE the reset so
-            # the resume system event can anchor the LLM with it.
-            task = Task.from_dict(task_dict)
-            prior_status = task.status
-            task.status = "running"
-            task.ended_at = None
-            task.final_summary = None
-            task.errors = []
-            task.waiting_for_user_reply = False
-
-            # Fresh empty temp dir (the old one was rmtree'd at task end).
-            temp_dir = task_manager._prepare_task_temp_dir(task_id)
-            task.temp_dir = str(temp_dir)
-
-            # Re-insert into the live task map BEFORE wiring up the event
-            # stream so subsequent log() calls route to the correct task.
-            task_manager.tasks[task_id] = task
-            task_manager._current_session_id = task_id
-
-            # Restore the persisted event stream so the LLM sees the full
-            # prior conversation. head_summary + tail_events were written
-            # by _make_on_task_remove_persist at task end.
-            stream = agent.event_stream_manager.create_stream(task_id, temp_dir)
-            t_head, t_records = storage.get_event_stream(task_id)
-            stream.head_summary = t_head
-            stream.tail_events = t_records
-            stream._total_tokens = sum(get_cached_token_count(r) for r in t_records)
-
-            # Mark restored events as already-seen by the UI controller's
-            # polling loop. Without this, `_watch_agent_events` treats every
-            # restored event as new and re-emits ACTION_START into the
-            # action panel — which flips pre-resume actions from 'completed'
-            # back to 'running'. The matching ACTION_END for terminal
-            # actions (paired with task_end) was never persisted to the
-            # stream in the first place, so the flip is never undone and
-            # the action stays stuck spinning. Same dedup key shape used by
-            # the bootstrap loop in UIController._watch_agent_events.
-            store = self._controller.state_store
-            for record in t_records:
-                ev = record.event
-                store.dispatch("MARK_EVENT_SEEN", (ev.iso_ts, ev.kind, ev.message))
-
-            # Sync with state_manager and rebuild session caches so the LLM
-            # is set up the same way create_task would set it up.
-            if agent.state_manager:
-                agent.state_manager.on_task_created(task)
-                agent.state_manager.add_to_active_task(task=task)
-            task_manager._create_session_caches(task_id)
-
-            # Mark as the current task on the global state property.
-            STATE.set_agent_property("current_task_id", task_id)
-
-            # Persist the now-running task back to sessions.db (status flip).
-            try:
-                if task_manager._on_task_persist:
-                    task_manager._on_task_persist(task)
-            except Exception:
-                pass
-
-            # Log a system event so the resumed transcript has a clear
-            # marker, then optionally log the user's continuation message
-            # so the next LLM call sees it.
-            #
-            # Two messages here, one event:
-            #   - `message` is what the LLM sees in the event stream — rich
-            #     framing that anchors it as a *continuation*. Without this
-            #     the model tends to re-execute the task from scratch
-            #     because the task name reads like an imperative.
-            #   - `display_message` is what the user sees in chat — the
-            #     short, friendly "Task '<name>' resumed by user." line.
-            llm_message = (
-                f"Task '{task.name}' was previously {prior_status} and the user "
-                f"has now reopened it to continue. Do NOT repeat this task's "
-                f"full prior history. Do NOT call task_end immediately. "
-                f"Review the history, decide whether the task is incomplete and "
-                f"requires continuation or whether the user's intent has shifted, "
-                f"and act on that. If the task was previously completed, you MUST "
-                f"ask the user for their intent FIRST before taking any action."
-            )
-            agent.event_stream_manager.log(
-                "system",
-                llm_message,
-                event_type=EventType.SYSTEM,
-                display_message=f"Task '{task.name}' resumed by user.",
-                task_id=task_id,
-            )
-            if message.strip():
-                agent.state_manager.record_user_message(
-                    message.strip(),
-                    session_id=task_id,
-                )
-
-            # Flip the action panel row back to running so the UI reflects
-            # the new state in both surfaces.
-            for item in self._action_panel._items:
-                if item.id == task_id:
-                    item.status = "running"
-                    item.completed_at = None
-                    item.error_message = None
-                    self._action_panel._persist_item(item)
-                    await self._broadcast(
-                        {
-                            "type": "action_update",
-                            "data": {
-                                "id": task_id,
-                                "status": "running",
-                                "duration": None,
-                                "error": None,
-                            },
-                        }
-                    )
-                    break
-
-            # Enqueue a trigger so the react loop picks up the task. We use
-            # complex-task priority (7) for non-simple tasks, matching what
-            # _create_new_trigger does post-action.
-            is_simple = getattr(task, "mode", "complex") == "simple"
-            resume_priority = 5 if is_simple else 7
-            from app.triggers import TriggerSource, TriggerSpec, resume_dedup_key
-
-            await agent.trigger_service.emit(
-                TriggerSpec(
-                    source=TriggerSource.RESUME,
-                    description=(
-                        "Task was resumed by the user. Review the event stream "
-                        "history. Do NOT call task_end immediately. If the task "
-                        "was previously completed, you MUST ask the user for "
-                        "their intent FIRST before taking any action."
-                    ),
-                    priority=resume_priority,
-                    session_id=task_id,
-                    payload={"gui_mode": STATE.gui_mode},
-                    dedup_key=resume_dedup_key(task_id),
-                    skip_merge=True,
-                )
-            )
-
-            await self._broadcast(
-                {
-                    "type": "task_resume_response",
-                    "data": {
-                        "taskId": task_id,
-                        "success": True,
-                        "status": "running",
-                    },
-                }
-            )
-        except Exception as e:
-            logger.warning(f"[task_resume] Failed to resume {task_id}: {e}")
-            await self._broadcast(
-                {
-                    "type": "task_resume_response",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_task_complete(self, task_id: str) -> None:
-        """Mark a running task as completed at the user's request."""
-        try:
-            agent = self._controller.agent
-            task_manager = agent.task_manager
-
-            task = (
-                task_manager.get_task_by_id(task_id) if task_id else task_manager.active
-            )
-            if not task:
-                await self._broadcast(
-                    {
-                        "type": "task_complete_response",
-                        "data": {
-                            "taskId": task_id,
-                            "success": False,
-                            "error": "Task not found",
-                        },
-                    }
-                )
-                return
-
-            await task_manager.mark_task_completed(
-                message="Marked completed by user",
-                task_id=task.id,
-            )
-
-            await self._broadcast(
-                {
-                    "type": "task_complete_response",
-                    "data": {
-                        "taskId": task.id,
-                        "success": True,
-                        "status": "completed",
-                    },
-                }
-            )
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "task_complete_response",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_task_delete(self, task_id: str) -> None:
-        """Delete an ended task and its child actions from the panel and
-        from persistence so it can't be resumed or resurrected on restart.
-        Only completed/error/cancelled tasks are eligible — running tasks
-        must be cancelled or completed first.
-        """
-        try:
-            if not task_id:
-                await self._broadcast(
-                    {
-                        "type": "task_delete_response",
-                        "data": {
-                            "taskId": task_id,
-                            "success": False,
-                            "error": "Missing taskId",
-                        },
-                    }
-                )
-                return
-
-            removed_ids = await self._action_panel.delete_terminal_task(task_id)
-            if not removed_ids:
-                await self._broadcast(
-                    {
-                        "type": "task_delete_response",
-                        "data": {
-                            "taskId": task_id,
-                            "success": False,
-                            "error": "Task not found or still active",
-                        },
-                    }
-                )
-                return
-
-            # Drop session_storage rows so a restart can't resurrect the
-            # event stream; mirrors clear_task_persistence used by /clear-tasks.
-            try:
-                self._controller.agent.clear_task_persistence([task_id])
-            except Exception as e:
-                logger.warning(
-                    f"[task_delete] Failed to clear task persistence for {task_id}: {e}"
-                )
-
-            await self._broadcast(
-                {
-                    "type": "task_delete_response",
-                    "data": {
-                        "taskId": task_id,
-                        "success": True,
-                        "removed": len(removed_ids),
-                    },
-                }
-            )
-        except Exception as e:
-            logger.warning(f"[task_delete] Failed to delete {task_id}: {e}")
-            await self._broadcast(
-                {
-                    "type": "task_delete_response",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
-            )
 
     async def _handle_option_click(
         self, value: str, session_id: str, message_id: str
@@ -4029,22 +3737,124 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         m.option_selected = value
                         break
 
-            # Navigate to model settings page
-            if value == "llm_change_model":
-                await self._broadcast(
-                    {
-                        "type": "navigate",
-                        "data": {"path": "/settings"},
-                    }
-                )
-                return
-
             # Route to the controller
             await self._controller.handle_option_click(value, session_id)
         except Exception as e:
             logger.error(
                 f"[OPTION_CLICK] Error handling option click: {e}", exc_info=True
             )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Session Handlers (sidebar surface)
+    # ─────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _session_info(session) -> Dict[str, Any]:
+        """SessionInfo wire shape for a Session."""
+        return {
+            "id": session.id,
+            "type": session.type,
+            "title": session.title,
+            "createdAt": session.created_at,
+            "lastActiveAt": session.last_active_at,
+            "livingUiProjectId": session.living_ui_project_id,
+        }
+
+    async def _handle_session_delete(self, data: Dict[str, Any]) -> None:
+        """Delete a session and its chat history. The main session is permanent."""
+        from agent_core.core.session import MAIN_SESSION_ID
+
+        session_id = (data.get("sessionId") or "").strip()
+        if not session_id or session_id == MAIN_SESSION_ID:
+            logger.warning(f"[SESSION] Refusing to delete session {session_id!r}")
+            return
+        try:
+            await self._controller.agent.delete_session(session_id)
+            self._chat.drop_session_messages(session_id)
+            if self._chat._storage:
+                try:
+                    self._chat._storage.clear_messages(session_id)
+                except Exception:
+                    pass
+            await self._broadcast(
+                {
+                    "type": "session_deleted",
+                    "data": {"sessionId": session_id},
+                }
+            )
+        except Exception as e:
+            logger.error(f"[SESSION] Delete failed for {session_id}: {e}")
+
+    async def _handle_session_rename(self, data: Dict[str, Any]) -> None:
+        """Rename a session's sidebar title."""
+        session_id = (data.get("sessionId") or "").strip()
+        title = (data.get("title") or "").strip()
+        if not session_id or not title:
+            return
+        try:
+            self._controller.agent.rename_session(session_id, title)
+            await self.broadcast_session_updated(session_id)
+        except Exception as e:
+            logger.error(f"[SESSION] Rename failed for {session_id}: {e}")
+
+    async def _handle_session_clear(self, data: Dict[str, Any]) -> None:
+        """Clear a session's conversation (chat rows + agent-side state)."""
+        session_id = (data.get("sessionId") or "").strip() or "main"
+        try:
+            if self._chat._storage:
+                try:
+                    self._chat._storage.clear_messages(session_id)
+                except Exception:
+                    pass
+            await self._controller.agent.clear_session(session_id)
+            await self.broadcast_session_cleared(session_id)
+        except Exception as e:
+            logger.error(f"[SESSION] Clear failed for {session_id}: {e}")
+
+    async def _handle_session_list(self, ws=None) -> None:
+        """Send the current session list."""
+        message = {
+            "type": "session_list",
+            "data": {
+                "sessions": [
+                    self._session_info(s)
+                    for s in self._controller.agent.session_manager.list_sessions()
+                ]
+            },
+        }
+        if ws is not None:
+            await ws.send_json(message)
+        else:
+            await self._broadcast(message)
+
+    async def broadcast_session_updated(self, session_id: str) -> None:
+        """Broadcast a session's refreshed metadata (title, last-active, ...).
+
+        Called by ui_controller.notify_session_updated and the rename handler.
+        """
+        session = self._controller.agent.session_manager.get(session_id)
+        if session is None:
+            return
+        await self._broadcast(
+            {
+                "type": "session_updated",
+                "data": {"session": self._session_info(session)},
+            }
+        )
+
+    async def broadcast_session_cleared(self, session_id: str) -> None:
+        """Drop a session's rendered conversation on every client.
+
+        Called by the /clear command (which has already cleared storage and
+        agent-side state) and by the session_clear handler.
+        """
+        self._chat.drop_session_messages(session_id)
+        await self._broadcast(
+            {
+                "type": "session_cleared",
+                "data": {"sessionId": session_id},
+            }
+        )
 
     # ─────────────────────────────────────────────────────────────────────
     # Settings Operation Handlers
@@ -4237,7 +4047,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # reset (components is None) clears both.
             if components is None or "conversation" in components:
                 await self._chat.clear()
-            if components is None or "tasks" in components:
+            if components is None or "sessions" in components:
                 await self._action_panel.clear()
 
             # If LivingUI apps were deleted, push refreshed (now-empty) lists so
@@ -4269,85 +4079,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_clear_conversation(self) -> None:
-        """
-        Clear the chat conversation log only.
-
-        Drops chat messages from the panel and from chat_storage, and
-        also drops the agent's persisted conversation memory so a
-        restart cannot resurrect cleared chat. The action panel
-        (tasks/actions), markdown files in agent_file_system, and the
-        Chroma memory index are left alone.
-        """
-        try:
-            await self._chat.clear()
-            await self._controller.agent.clear_conversation_persistence()
-            await self._broadcast(
-                {
-                    "type": "clear_conversation",
-                    "data": {"success": True},
-                }
-            )
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "clear_conversation",
-                    "data": {"success": False, "error": str(e)},
-                }
-            )
-
-    async def _handle_clear_tasks(self) -> None:
-        """
-        Clear only finished tasks (completed/error/cancelled) and their
-        child actions from the panel, and drop any leftover session_storage
-        rows for those task IDs so a restart cannot resurrect them.
-        Running/waiting tasks are preserved. Dashboard usage/task metrics,
-        markdown files, and the Chroma memory index are left alone.
-        """
-        try:
-            terminal_statuses = {"completed", "error", "cancelled"}
-            terminal_task_ids = [
-                item.id
-                for item in self._action_panel.get_items()
-                if item.item_type == "task" and item.status in terminal_statuses
-            ]
-
-            removed = await self._action_panel.clear_terminal_tasks()
-
-            if terminal_task_ids:
-                self._controller.agent.clear_task_persistence(terminal_task_ids)
-
-            await self._broadcast(
-                {
-                    "type": "clear_tasks",
-                    "data": {"success": True, "removed": removed},
-                }
-            )
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "clear_tasks",
-                    "data": {"success": False, "error": str(e)},
-                }
-            )
-
     # ─────────────────────────────────────────────────────────────────────
-    # Skill creation from a completed task
+    # Skill creation from a session
     # ─────────────────────────────────────────────────────────────────────
 
-    # `workflow_id` is functional infrastructure, NOT a "this task is
-    # internal" tag. It is set only on workflows that need:
-    #   1. WorkflowLockManager serialization (memory_processing — only
-    #      one memory pass at a time; the lock is auto-released in
-    #      TaskManager._end_task by keying off task.workflow_id).
-    #   2. Post-completion side effects (skill_creation / skill_improvement
-    #      trigger SkillManager.reload() and auto-enable the new skill in
-    #      TaskManager._end_task).
-    # Tasks tagged with one of these are internal by definition (they ARE
-    # the skill / memory infrastructure) and must never be eligible as
-    # source tasks for the "Create Skill" flow. Heartbeats, planners, and
-    # the onboarding interview don't need either of those two services, so
-    # they don't set workflow_id — _INTERNAL_SKILL_NAMES covers them.
+    # Workflow ids of CraftBot's internal skill/memory infrastructure runs.
+    # Exposed to the frontend via skill_meta so it can hide "Create Skill"
+    # affordances on internal workflow activity.
     _INTERNAL_WORKFLOW_IDS = frozenset(
         {
             "skill_creation",
@@ -4356,14 +4094,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         }
     )
 
-    # Detection of internal tasks via `selected_skills` — needed because
-    # most internal workflows (heartbeats, planners, soft onboarding) only
-    # set selected_skills, not workflow_id. This is the union of every
-    # skill in the repo with `user-invocable: false`. A task whose
-    # selected_skills intersects this set is system-spawned and the
-    # "Create Skill" button must not appear on it.
-    # Used together with _INTERNAL_WORKFLOW_IDS via OR — see the frontend
-    # `isInternalWorkflowTask` for the combined check.
+    # The union of every skill in the repo with `user-invocable: false`.
+    # A run whose loaded skills intersect this set is system-spawned;
+    # exposed to the frontend via skill_meta.
     _INTERNAL_SKILL_NAMES = frozenset(
         {
             "craftbot-skill-creator",
@@ -4378,10 +4111,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     )
 
     # Names the user may not type into the SkillCreatorModal (validated in
-    # _handle_create_skill_from_task). Kept separate from
+    # _handle_create_skill_from_session). Kept separate from
     # _INTERNAL_SKILL_NAMES because the two answer different questions:
-    #   _INTERNAL_SKILL_NAMES → "is this *task* a system task?" (hides the
-    #     Create Skill button on its detail panel)
+    #   _INTERNAL_SKILL_NAMES → "is this run a system workflow?" (hides the
+    #     Create Skill affordance)
     #   _RESERVED_SKILL_NAMES → "is this *name* one the user can claim?"
     #     (modal input validation)
     # The contents happen to coincide today, but a future user-invocable
@@ -4410,13 +4143,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "reservedSkillNames": sorted(self._RESERVED_SKILL_NAMES),
         }
 
-    async def _handle_create_skill_from_task(self, data: Dict[str, Any]) -> None:
+    async def _handle_create_skill_from_session(self, data: Dict[str, Any]) -> None:
         """
-        Spawn a workflow task that creates or improves a skill, using a
-        completed source task as evidence. Writes a per-task SKILL_SOURCE
-        markdown file before queueing the trigger.
+        Queue a skill-creation/improvement workflow run in the main session,
+        using a chat session's transcript as evidence. Writes a per-session
+        SKILL_SOURCE markdown file before emitting the trigger.
         """
-        response_type = "create_skill_from_task"
+        response_type = "create_skill_from_session"
 
         async def _err(msg: str) -> None:
             await self._broadcast(
@@ -4427,34 +4160,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
         # ---- Validate request shape ----------------------------------
-        source_task_id = (data.get("taskId") or "").strip()
+        source_session_id = (data.get("sessionId") or "").strip()
         mode = data.get("mode")
         skill_name_raw = (data.get("skillName") or "").strip()
         target_skill_raw = (data.get("targetSkill") or "").strip()
 
-        # `verb` is the imperative form used inside the agent's instruction
-        # string ("Create skill 'x'."). `task_title_verb` is the progressive
-        # form used in the user-facing task title shown in the action panel
-        # ("Creating skill: x") so users see what the agent is *doing*, not
-        # a command at them.
         if mode == "create":
             workflow_id = "skill_creation"
             workflow_skill = "craftbot-skill-creator"
             target = skill_name_raw
             verb = "Create"
-            task_title_verb = "Creating"
         elif mode == "improve":
             workflow_id = "skill_improvement"
             workflow_skill = "craftbot-skill-improve"
-            target = target_skill_raw
+            target = target_skill_raw or skill_name_raw
             verb = "Improve"
-            task_title_verb = "Improving"
         else:
             await _err("invalid_mode")
             return
 
-        if not source_task_id:
-            await _err("missing_task_id")
+        if not source_session_id:
+            await _err("missing_session_id")
             return
         if not target:
             await _err("missing_skill_name")
@@ -4466,43 +4192,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await _err("reserved_skill_name")
             return
 
-        # ---- Look up source task -------------------------------------
-        # The in-memory `task_manager.tasks` dict only holds RUNNING tasks —
-        # `_finalize_task` pops the entry when a task ends. So a completed
-        # source task is never resolvable via `get_task_by_id`. Source from
-        # the durable ActionItem record instead (in-memory panel first, then
-        # `actions.db` SQLite as fallback). Both paths carry `selected_skills`
-        # and `workflow_id` thanks to the earlier payload extension.
+        # ---- Look up source transcript -------------------------------
+        # The session's event stream is the durable record of what
+        # happened. Prefer the live stream; fall back to the persisted
+        # copy in session storage.
         agent = self._controller.agent
-        task_manager = getattr(agent, "task_manager", None)
-        if task_manager is None:
-            await _err("task_manager_unavailable")
-            return
+        session = agent.session_manager.get(source_session_id)
 
-        source_item = self._lookup_source_action_item(source_task_id)
-        if source_item is None:
-            await _err("source_task_not_found")
-            return
-        if source_item.item_type != "task":
-            await _err("source_task_not_found")
-            return
-        if source_item.status != "completed":
-            await _err("source_task_not_completed")
-            return
-        # Reject any task that is itself a CraftBot internal workflow.
-        # Two signals — either is sufficient:
-        #   1. `workflow_id` matches a known internal id (memory processing,
-        #      skill creation/improvement)
-        #   2. `selected_skills` intersects the user-invocable:false skill
-        #      set (soft onboarding, heartbeat, planners — these don't set
-        #      workflow_id, only selected_skills)
-        if (source_item.workflow_id or "") in self._INTERNAL_WORKFLOW_IDS:
-            await _err("source_task_is_internal_workflow")
-            return
-        if any(
-            s in self._INTERNAL_SKILL_NAMES for s in (source_item.selected_skills or [])
-        ):
-            await _err("source_task_is_internal_workflow")
+        head_summary: Optional[str] = None
+        records: List[Any] = []
+        if agent.event_stream_manager.has_stream(source_session_id):
+            stream = agent.event_stream_manager.get_stream_by_id(source_session_id)
+            head_summary = stream.head_summary
+            records = list(stream.tail_events)
+        else:
+            try:
+                from app.usage.session_storage import get_session_storage
+
+                head_summary, records = get_session_storage().get_event_stream(
+                    source_session_id
+                )
+            except Exception:
+                head_summary, records = None, []
+
+        if session is None and not records and not head_summary:
+            await _err("source_session_not_found")
             return
 
         # ---- Skill existence checks ----------------------------------
@@ -4527,23 +4241,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 await _err("skill_not_found")
                 return
 
-        # ---- Acquire workflow lock -----------------------------------
-        lock_manager = getattr(agent, "workflow_lock_manager", None)
-        if lock_manager is None:
-            await _err("workflow_lock_unavailable")
-            return
-        if not await lock_manager.try_acquire(workflow_id):
-            await _err("workflow_busy")
-            return
-
-        new_task_id = uuid.uuid4().hex
         source_md_path: Optional[Path] = None
         try:
-            # ---- Build SKILL_SOURCE_<id>.md --------------------------
+            # ---- Build SKILL_SOURCE_<session_id>.md ------------------
             from app.config import AGENT_FILE_SYSTEM_PATH
 
             source_md_path = (
-                Path(AGENT_FILE_SYSTEM_PATH) / f"SKILL_SOURCE_{new_task_id}.md"
+                Path(AGENT_FILE_SYSTEM_PATH) / f"SKILL_SOURCE_{source_session_id}.md"
             )
             source_md_path.parent.mkdir(parents=True, exist_ok=True)
             existing_skill_md = target_skill_md if mode == "improve" else None
@@ -4551,27 +4255,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 self._build_skill_source_md(
                     mode=mode,
                     target_skill=target,
-                    source_item=source_item,
+                    session_id=source_session_id,
+                    session_title=session.title if session else "",
+                    head_summary=head_summary,
+                    records=records,
                     existing_skill_md=existing_skill_md,
                 ),
                 encoding="utf-8",
             )
 
-            # ---- Ensure the workflow skill is enabled ----------------
-            try:
-                enable_skill(workflow_skill)
-            except Exception as e:
-                logger.debug(
-                    f"[SKILL_CREATOR] enable_skill({workflow_skill}) noop/failed: {e}"
-                )
-
-            # ---- Spawn the workflow task -----------------------------
+            # ---- Queue the workflow run ------------------------------
             # Use absolute paths in the instruction so the agent can pass
-            # them verbatim to read_file / stream_edit. With
-            # relative paths (e.g. "skills/<name>/SKILL.md") the agent has
-            # been observed mistakenly prepending the source-file's prefix
-            # (`agent_file_system/`), landing the new SKILL.md inside the
-            # agent file system instead of the project's `skills/` dir.
+            # them verbatim to read_file / stream_edit. With relative
+            # paths the agent has been observed mistakenly prepending the
+            # source-file's prefix (`agent_file_system/`), landing the new
+            # SKILL.md inside the agent file system instead of `skills/`.
             absolute_source_path = source_md_path.resolve()
             absolute_target_path = target_skill_md.resolve()
             instruction = (
@@ -4582,42 +4280,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 f"Mode: {mode}\n"
                 f"Skill name: {target}\n"
                 f"Read the source file, follow the {workflow_skill} skill instructions, "
-                f"write the new skill to the target file (use the absolute target path verbatim), "
-                f"and end the task with task_end."
-            )
-            # No colon in the title — EventTransformer._create_task_start_event
-            # splits on the first ":" and keeps only the suffix, which would
-            # otherwise leave the panel showing just the bare skill name.
-            task_name = f'{task_title_verb} skill "{target}"'
-            task_manager.create_task(
-                task_name=task_name,
-                task_instruction=instruction,
-                mode="complex",
-                action_sets=["file_operations"],
-                selected_skills=[workflow_skill],
-                session_id=new_task_id,
-                workflow_id=workflow_id,
+                f"and write the new skill to the target file (use the absolute target "
+                f"path verbatim)."
             )
 
-            # ---- Queue trigger so execution actually starts ---------
+            from agent_core.core.session import MAIN_SESSION_ID
             from app.triggers import TriggerSource, TriggerSpec
 
             await agent.trigger_service.emit(
                 TriggerSpec(
                     source=TriggerSource.SKILL_WORKFLOW,
-                    description=f"{verb} skill '{target}' from completed task",
+                    description=instruction,
                     priority=60,
-                    session_id=new_task_id,
+                    session_id=MAIN_SESSION_ID,
+                    payload={
+                        "workflow_skills": [workflow_skill],
+                        "workflow_action_sets": ["file_operations"],
+                        "skill_workflow": {
+                            "workflow": workflow_id,
+                            "skill_name": target,
+                        },
+                    },
                 )
             )
 
-            # Acknowledge in the chat immediately so the user sees the work
-            # being picked up. The agent will follow up with a presentation
-            # message when the workflow completes (see craftbot-skill-* SKILL.md).
+            # Acknowledge in the chat immediately so the user sees the
+            # work being picked up. The agent follows up when the workflow
+            # completes (see craftbot-skill-* SKILL.md).
             ack_text = (
-                f"Creating skill `{target}` from the completed task."
+                f"Creating skill `{target}` from this session."
                 if mode == "create"
-                else f"Improving skill `{target}` based on the recent task."
+                else f"Improving skill `{target}` based on this session."
             )
             try:
                 await self._display_chat_message("System", ack_text, "system")
@@ -4629,7 +4322,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": response_type,
                     "data": {
                         "success": True,
-                        "taskId": new_task_id,
+                        "sessionId": source_session_id,
                         "skillName": target,
                         "mode": mode,
                     },
@@ -4639,11 +4332,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         except Exception as e:
             logger.warning(f"[SKILL_CREATOR] handler failed: {e}", exc_info=True)
-            # Release the lock since the task never took ownership.
-            try:
-                await lock_manager.release(workflow_id)
-            except Exception:
-                pass
             # Best-effort cleanup of the source file we wrote.
             if source_md_path is not None:
                 try:
@@ -4653,124 +4341,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await _err(str(e) or "internal_error")
             return
 
-    def _lookup_source_action_item(self, item_id: str) -> Optional[ActionItem]:
-        """Find a task-level ActionItem by id.
-
-        Tries the in-memory action panel first (fastest, current session),
-        then falls back to ActionStorage (`actions.db`) so completed tasks
-        from previous sessions still resolve. Both sources carry
-        `selected_skills` and `workflow_id` after the payload extension.
-        """
-        # In-memory first
-        try:
-            for item in self._action_panel._items if self._action_panel else []:
-                if item.id == item_id:
-                    return item
-        except Exception:
-            pass
-
-        # SQLite fallback
-        try:
-            storage = (
-                getattr(self._action_panel, "_storage", None)
-                if self._action_panel
-                else None
-            )
-            if storage is not None:
-                stored = storage.get_item(item_id)
-                if stored is not None:
-                    return ActionItem(
-                        id=stored.id,
-                        name=stored.name,
-                        status=stored.status,
-                        item_type=stored.item_type,
-                        parent_id=stored.parent_id,
-                        created_at=stored.created_at,
-                        completed_at=stored.completed_at,
-                        input_data=stored.input_data,
-                        output_data=stored.output_data,
-                        error_message=stored.error_message,
-                        selected_skills=list(stored.selected_skills or []),
-                        workflow_id=stored.workflow_id,
-                    )
-        except Exception:
-            pass
-
-        return None
-
-    def _gather_child_action_items(self, parent_id: str) -> List[ActionItem]:
-        """Collect every child ActionItem under `parent_id`, deduped by id.
-
-        Pulls from in-memory first, then ActionStorage. Result is sorted by
-        creation time. The two sources usually overlap completely; the union
-        is the safe choice for a task that just completed (in-memory has the
-        absolute-latest state) or one that was loaded from disk after a
-        restart (storage is the only source).
-        """
-        seen_ids: Set[str] = set()
-        children: List[ActionItem] = []
-
-        try:
-            for item in self._action_panel._items if self._action_panel else []:
-                if item.parent_id == parent_id and item.id not in seen_ids:
-                    children.append(item)
-                    seen_ids.add(item.id)
-        except Exception:
-            pass
-
-        try:
-            storage = (
-                getattr(self._action_panel, "_storage", None)
-                if self._action_panel
-                else None
-            )
-            if storage is not None:
-                for sit in storage.get_items(limit=2000, include_running=True):
-                    if sit.parent_id == parent_id and sit.id not in seen_ids:
-                        children.append(
-                            ActionItem(
-                                id=sit.id,
-                                name=sit.name,
-                                status=sit.status,
-                                item_type=sit.item_type,
-                                parent_id=sit.parent_id,
-                                created_at=sit.created_at,
-                                completed_at=sit.completed_at,
-                                input_data=sit.input_data,
-                                output_data=sit.output_data,
-                                error_message=sit.error_message,
-                                selected_skills=list(sit.selected_skills or []),
-                                workflow_id=sit.workflow_id,
-                            )
-                        )
-                        seen_ids.add(sit.id)
-        except Exception:
-            pass
-
-        children.sort(key=lambda it: it.created_at or 0.0)
-        return children
-
     def _build_skill_source_md(
         self,
         *,
         mode: str,
         target_skill: str,
-        source_item: ActionItem,
+        session_id: str,
+        session_title: str,
+        head_summary: Optional[str],
+        records: List[Any],
         existing_skill_md: Optional[Path],
     ) -> str:
-        """Compose the per-task SKILL_SOURCE markdown file from durable
-        ActionItem records (the live `Task` object is gone by the time the
-        user clicks Create Skill — see _lookup_source_action_item).
+        """Compose the per-session SKILL_SOURCE markdown file from the
+        session's event stream (live or persisted).
 
         Sections:
-          frontmatter (mode, target_skill, source_task_id, generated_at)
-          ## Task name           — from ActionItem.name
-          ## Outcome             — status, created, ended, selected_skills, workflow_id
-          ## Action trace        — every child action+reasoning row from the DB
+          frontmatter (mode, target_skill, source_session_id, generated_at)
+          ## Session             — sidebar title
+          ## Earlier history     — head_summary, when the stream was rolled up
+          ## Event transcript    — every tail event (kind, timestamp, message)
           ## Existing SKILL.md   — verbatim, improve mode only
         """
         FIELD_CAP = 2048
-        ERROR_CAP = 300
+        SUMMARY_CAP = 8192
 
         def truncate(value: Optional[str], cap: int = FIELD_CAP) -> str:
             if value is None:
@@ -4780,58 +4373,40 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return text
             return text[:cap] + f"\n…[truncated {len(text) - cap} chars]"
 
-        def fmt_ts(ts: Optional[float]) -> str:
-            if not ts:
-                return "(unknown)"
-            try:
-                return datetime.fromtimestamp(ts).isoformat()
-            except Exception:
-                return str(ts)
-
-        child_items = self._gather_child_action_items(source_item.id)
-
-        selected_skills_str = ", ".join(source_item.selected_skills or []) or "(none)"
-        workflow_id_str = source_item.workflow_id or "(none)"
-
         lines: List[str] = [
             "---",
             f"mode: {mode}",
             f"target_skill: {target_skill}",
-            f"source_task_id: {source_item.id}",
+            f"source_session_id: {session_id}",
             f"generated_at: {datetime.utcnow().isoformat()}Z",
             "---",
             "",
-            "# Source Task Context",
+            "# Source Session Context",
             "",
-            "## Task name",
-            truncate(source_item.name),
-            "",
-            "## Outcome",
-            f"- Status: {source_item.status}",
-            f"- Created: {fmt_ts(source_item.created_at)}",
-            f"- Ended: {fmt_ts(source_item.completed_at)}",
-            f"- Selected skills: {selected_skills_str}",
-            f"- Workflow id: {workflow_id_str}",
-            "",
-            "## Action trace",
+            "## Session",
+            session_title or "(untitled)",
             "",
         ]
 
-        if not child_items:
-            lines.append("(no recorded actions)")
+        if head_summary:
+            lines.extend(
+                [
+                    "## Earlier history (summarized)",
+                    "",
+                    truncate(head_summary, SUMMARY_CAP),
+                    "",
+                ]
+            )
+
+        lines.extend(["## Event transcript", ""])
+
+        if not records:
+            lines.append("(no recorded events)")
         else:
-            for idx, item in enumerate(child_items, 1):
-                duration_ms = item.duration
-                duration_str = f"{duration_ms}ms" if duration_ms is not None else "—"
-                lines.append(
-                    f"### [{idx}] {item.name} — {item.status} ({duration_str}) [{item.item_type}]"
-                )
-                lines.append(f"- input: {truncate(item.input_data)}")
-                lines.append(f"- output: {truncate(item.output_data)}")
-                err_text = item.error_message
-                lines.append(
-                    f"- error: {truncate(err_text, ERROR_CAP) if err_text else '(none)'}"
-                )
+            for idx, record in enumerate(records, 1):
+                ev = record.event
+                lines.append(f"### [{idx}] {ev.kind} — {ev.iso_ts}")
+                lines.append(truncate(ev.message))
                 lines.append("")
 
         if existing_skill_md is not None:
@@ -5440,43 +5015,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 )
                 return
 
-            # Check if there's a create_process_memory_task method
-            if hasattr(agent, "create_process_memory_task"):
-                task_id = agent.create_process_memory_task()
+            # Queue a memory-processing run in the main session. The agent's
+            # MEMORY pre-check decides whether there is actually work to do.
+            from app.triggers import TriggerSource, TriggerSpec
 
-                if task_id:
-                    # Queue trigger to start the task (same as _handle_memory_processing_trigger)
-                    from app.triggers import TriggerSource, TriggerSpec
-
-                    await agent.trigger_service.emit(
-                        TriggerSpec(
-                            source=TriggerSource.TASK_CONTINUATION,
-                            description="Process unprocessed events into long-term memory",
-                            priority=60,
-                            session_id=task_id,
-                        )
-                    )
-
-                await self._broadcast(
-                    {
-                        "type": "memory_process_trigger",
-                        "data": {
-                            "success": True,
-                            "taskId": task_id,
-                            "message": "Memory processing task created",
-                        },
-                    }
+            await agent.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.MEMORY,
+                    description="Process unprocessed events into long-term memory",
+                    priority=60,
                 )
-            else:
-                await self._broadcast(
-                    {
-                        "type": "memory_process_trigger",
-                        "data": {
-                            "success": False,
-                            "error": "Memory processing not available",
-                        },
-                    }
-                )
+            )
+
+            await self._broadcast(
+                {
+                    "type": "memory_process_trigger",
+                    "data": {
+                        "success": True,
+                        "message": "Memory processing run queued",
+                    },
+                }
+            )
         except Exception as e:
             await self._broadcast(
                 {
@@ -6538,10 +6097,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_skill_run(self, name: str, args_text: str = "") -> None:
+    async def _handle_skill_run(
+        self, name: str, args_text: str = "", session_id: str = "main"
+    ) -> None:
         """Run a skill by invoking it through the controller."""
         try:
-            await self._controller.invoke_skill(name, args_text, self._adapter_id)
+            await self._controller.invoke_skill(
+                name, args_text, self._adapter_id, session_id=session_id
+            )
             await self._broadcast(
                 {
                     "type": "skill_run",
@@ -7233,6 +6796,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "projectId": project_id,
                         "url": result.get("url"),
                         "port": result["project"].get("port"),
+                        "sessionId": result["project"].get("sessionId"),
                     },
                 }
             )
@@ -7269,124 +6833,59 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
     async def _handle_living_ui_import(self, source: str, name: str) -> None:
-        """Handle import of an external app or ZIP — creates a task with the importer skill."""
+        """Import a Living UI from a ZIP, a local folder path, or a git URL
+        (one door — LIFECYCLE-PLAN Phase 4). After registering, a
+        launch-and-verify run is queued in the project's session so the
+        import finishes as a running, verified app without further clicks."""
         if not source:
             return
-
-        is_zip = source.lower().endswith(".zip")
-
-        # Spawn a placeholder tab immediately so the user sees the import is
-        # underway (mirrors the form-create flow). The importer skill adopts
-        # this project_id so the same tab transitions to the running app.
-        placeholder = self._living_ui_manager.create_placeholder_project(name)
-        project_id = placeholder.id
-        await self.broadcast_living_ui_created(placeholder.to_dict())
-        await self._broadcast(
-            {
-                "type": "living_ui_status",
-                "data": {
-                    "projectId": project_id,
-                    "phase": "initializing",
-                    "progress": 10,
-                    "message": "Importing project...",
-                },
-            }
-        )
-
-        adopt_note = (
-            f"A tab has already been created for this import with "
-            f'project_id="{project_id}". You MUST pass project_id="{project_id}" '
-            f"to the import action so it populates that existing tab instead of "
-            f"creating a duplicate.\n\n"
-        )
-
-        if is_zip:
-            task_instruction = (
-                f"Import this Living UI project from a ZIP file:\n"
-                f"ZIP path: {source}\n"
-                f"Name: {name}\n\n"
-                f"{adopt_note}"
-                f"Steps:\n"
-                f'1. Call living_ui_import_zip (project_id="{project_id}") to extract and register the project\n'
-                f"2. Review the project structure and manifest\n"
-                f"3. Install dependencies if needed\n"
-                f"4. Launch the app and verify it works\n"
-                f"5. Clean up the ZIP file after successful import"
+        # Every outcome is LOGGED and answered with living_ui_import_result:
+        # the first live test failed with no server log line and no UI
+        # feedback at all (2026-08-05 — "I paste the path and nothing
+        # happens"), because failures only broadcast a generic error the
+        # already-closed modal never saw.
+        logger.info(f"[LIVING_UI] import requested: {source!r} (name={name!r})")
+        try:
+            project = await self._living_ui_manager.import_project_source(
+                source, name or None
             )
-        else:
-            task_instruction = (
-                f"Import this external app as a Living UI:\n"
-                f"Source: {source}\n"
-                f"Name: {name}\n\n"
-                f"{adopt_note}"
-                f"Follow the living-ui-importer skill instructions:\n"
-                f"1. Clone/copy the source code\n"
-                f"2. Detect the app type (Go, Node, Python, etc.) — NEVER use Docker if native build is possible\n"
-                f"3. Determine build/install command, start command, port config, and health check\n"
-                f'4. Call living_ui_import_external with the detected configuration and project_id="{project_id}"\n'
-                f"5. Launch the app and verify it works\n"
-                f"6. Create LIVING_UI.md documenting the app"
+            await self.broadcast_living_ui_created(project.to_dict())
+            await self._broadcast(
+                {
+                    "type": "living_ui_import_result",
+                    "data": {"success": True, "projectId": project.id},
+                }
             )
+            try:
+                from app.triggers import TriggerSource
 
-        task_id = self._controller.agent.task_manager.create_task(
-            task_name=f"Import Living UI: {name}",
-            task_instruction=task_instruction,
-            mode="complex",
-            action_sets=["file_operations", "code_execution", "living_ui", "core"],
-            selected_skills=["living-ui-importer"],
-        )
-
-        if task_id:
-            from app.triggers import TriggerSource, TriggerSpec
-
-            # Link the task to the placeholder so question-mirroring and todo
-            # broadcasts (keyed by task id) target this tab.
-            self._living_ui_manager.set_project_task(project_id, task_id)
-
-            await self._controller.agent.trigger_service.emit(
-                TriggerSpec(
-                    source=TriggerSource.LIVING_UI_IMPORT,
-                    description=f"[Living UI] Import: {name}",
-                    priority=50,
-                    session_id=task_id,
-                    payload={"type": "living_ui_import", "source": source},
+                is_ext = getattr(project, "project_type", "native") == "external"
+                await self._living_ui_manager.start_development_run(
+                    project.id,
+                    brief=self._living_ui_manager.post_import_brief(project),
+                    trigger_source=TriggerSource.LIVING_UI_IMPORT,
+                    workflow_skill=(
+                        "living-ui-importer" if is_ext else "living-ui-modify"
+                    ),
+                    status=None,
                 )
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] import verify dispatch failed: {e}")
+        except Exception as e:
+            logger.error(f"[LIVING_UI] import failed for {source!r}: {e}")
+            await self._broadcast(
+                {
+                    "type": "living_ui_import_result",
+                    "data": {"success": False, "error": f"Import failed: {e}"},
+                }
             )
-        else:
-            # Couldn't create the task — don't leave a stuck "creating" tab.
             await self._broadcast(
                 {
                     "type": "living_ui_error",
-                    "data": {
-                        "projectId": project_id,
-                        "error": "Failed to create import task",
-                    },
+                    "data": {"projectId": "", "error": f"Import failed: {e}"},
                 }
             )
-
-        # Mirror the import into chat as a system message so the request is
-        # visible in the conversation (not just the new tab).
-        origin = "uploaded ZIP file" if is_zip else source
-        try:
-            await self._display_chat_message(
-                "System",
-                f"**Living UI: {name}**\n\nImporting from {origin}.\n\n"
-                "Setting up your app now — track progress in the new tab.",
-                "system",
-            )
-        except Exception as e:
-            logger.debug(f"[LIVING_UI] import chat message failed: {e}")
-
-        await self._broadcast(
-            {
-                "type": "living_ui_import",
-                "data": {"status": "started", "name": name, "source": source},
-            }
-        )
-
-    # =====================
-    # WhatsApp QR Code Flow
-    # =====================
+        return
 
     async def _handle_whatsapp_start_qr(self) -> None:
         """Start WhatsApp Web session and return QR code."""
@@ -7492,6 +6991,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "style": "error",
                         "timestamp": time.time(),
                         "messageId": f"error:{time.time()}",
+                        "sessionId": "main",
                     },
                 }
             )
@@ -8032,125 +7532,89 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_chat_history(
-        self, before_timestamp: float, limit: int = 50
+        self,
+        session_id: str,
+        before_timestamp: Optional[float] = None,
+        limit: int = 50,
+        ws=None,
     ) -> None:
-        """Load older chat messages for infinite scroll."""
+        """Load a session's chat messages (paged) for infinite scroll."""
+
+        async def _reply(payload: Dict[str, Any]) -> None:
+            message = {"type": "chat_history", "data": payload}
+            if ws is not None:
+                await ws.send_json(message)
+            else:
+                await self._broadcast(message)
+
         try:
-            older_messages = self._chat.get_messages_before(
-                before_timestamp, limit=limit
-            )
-            total = self._chat.get_total_count()
+            if before_timestamp is not None:
+                messages = self._chat.get_messages_before(
+                    before_timestamp, session_id=session_id, limit=limit
+                )
+            else:
+                # Initial page: most recent messages for the session.
+                storage = self._chat._storage
+                stored = (
+                    storage.get_recent_messages(session_id=session_id, limit=limit)
+                    if storage
+                    else []
+                )
+                messages = []
+                for s in stored:
+                    attachments = None
+                    if s.attachments:
+                        attachments = [
+                            Attachment(
+                                name=att.get("name", ""),
+                                path=att.get("path", ""),
+                                type=att.get("type", ""),
+                                size=att.get("size", 0),
+                                url=att.get("url", ""),
+                            )
+                            for att in s.attachments
+                        ]
+                    options = None
+                    if s.options:
+                        from app.ui_layer.components.types import ChatMessageOption
 
-            messages_data = []
-            for m in older_messages:
-                msg_data = {
-                    "sender": m.sender,
-                    "content": m.content,
-                    "style": m.style,
-                    "timestamp": m.timestamp,
-                    "messageId": m.message_id,
-                }
-                if m.attachments:
-                    msg_data["attachments"] = [
-                        {
-                            "name": att.name,
-                            "path": att.path,
-                            "type": att.type,
-                            "size": att.size,
-                            "url": att.url,
-                        }
-                        for att in m.attachments
-                    ]
-                if m.task_session_id:
-                    msg_data["taskSessionId"] = m.task_session_id
-                if m.options:
-                    msg_data["options"] = [
-                        {"label": o.label, "value": o.value, "style": o.style}
-                        for o in m.options
-                    ]
-                if m.option_selected:
-                    msg_data["optionSelected"] = m.option_selected
-                messages_data.append(msg_data)
+                        options = [
+                            ChatMessageOption(
+                                label=o.get("label", ""),
+                                value=o.get("value", ""),
+                                style=o.get("style", "default"),
+                            )
+                            for o in s.options
+                        ]
+                    messages.append(
+                        ChatMessage(
+                            sender=s.sender,
+                            content=s.content,
+                            style=s.style,
+                            timestamp=s.timestamp,
+                            message_id=s.message_id,
+                            attachments=attachments,
+                            session_id=s.session_id,
+                            options=options,
+                            option_selected=s.option_selected,
+                            continue_work=s.continue_work,
+                        )
+                    )
 
-            await self._broadcast(
+            await _reply(
                 {
-                    "type": "chat_history",
-                    "data": {
-                        "messages": messages_data,
-                        "hasMore": len(older_messages) == limit,
-                        "total": total,
-                    },
+                    "sessionId": session_id,
+                    "messages": [m.to_dict() for m in messages],
+                    "hasMore": len(messages) == limit,
                 }
             )
         except Exception as e:
-            await self._broadcast(
+            await _reply(
                 {
-                    "type": "chat_history",
-                    "data": {
-                        "messages": [],
-                        "hasMore": False,
-                        "total": 0,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_action_history(
-        self, before_timestamp: float, limit: int = 15
-    ) -> None:
-        """Load older tasks (and their actions) for pagination."""
-        try:
-            # before_timestamp is in milliseconds from frontend, convert to seconds
-            before_ts_seconds = before_timestamp / 1000.0
-            older_items = self._action_panel.get_tasks_before(
-                before_ts_seconds, task_limit=limit
-            )
-
-            # Count how many tasks were returned to determine hasMore
-            task_count = sum(1 for a in older_items if a.item_type == "task")
-
-            actions_data = [
-                {
-                    "id": a.id,
-                    "name": a.name,
-                    "status": a.status,
-                    "itemType": a.item_type,
-                    "parentId": a.parent_id,
-                    "createdAt": int(a.created_at * 1000),
-                    "completedAt": (
-                        int(a.completed_at * 1000) if a.completed_at else None
-                    ),
-                    "duration": a.duration,
-                    "input": a.input_data,
-                    "output": a.output_data,
-                    "error": a.error_message,
-                    "selectedSkills": list(a.selected_skills or []),
-                    "workflowId": a.workflow_id,
-                    "inputTokens": a.input_tokens,
-                    "outputTokens": a.output_tokens,
-                    "cacheTokens": a.cache_tokens,
-                }
-                for a in older_items
-            ]
-
-            await self._broadcast(
-                {
-                    "type": "action_history",
-                    "data": {
-                        "actions": actions_data,
-                        "hasMore": task_count == limit,
-                    },
-                }
-            )
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "action_history",
-                    "data": {
-                        "actions": [],
-                        "hasMore": False,
-                        "error": str(e),
-                    },
+                    "sessionId": session_id,
+                    "messages": [],
+                    "hasMore": False,
+                    "error": str(e),
                 }
             )
 
@@ -8158,11 +7622,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self,
         content: str,
         attachments: List[Dict[str, Any]],
-        reply_context: Optional[Dict[str, Any]] = None,
-        living_ui_id: Optional[str] = None,
+        session_id: str = "main",
         client_id: Optional[str] = None,
     ) -> None:
-        """Handle user chat message with attachments and optional reply context."""
+        """Handle user chat message with attachments."""
         import uuid
         from app.ui_layer.state.ui_state import AgentStateType
         from app.ui_layer.events import UIEvent, UIEventType
@@ -8240,6 +7703,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 style="user",
                 timestamp=time.time(),
                 attachments=processed_attachments if processed_attachments else None,
+                session_id=session_id,
                 client_id=client_id,
             )
             await self._chat.append_message(user_message)
@@ -8247,11 +7711,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Combine content with attachment info for agent context
             # (This is what the agent sees in the event stream - includes file paths)
             agent_context = content + attachment_note
-
-            # Add reply context note (similar to attachment_note pattern)
-            if reply_context and reply_context.get("originalMessage"):
-                reply_note = f"\n\n[REPLYING TO PREVIOUS AGENT MESSAGE]:\n{reply_context['originalMessage']}"
-                agent_context = agent_context + reply_note
 
             if not agent_context.strip():
                 return
@@ -8278,13 +7737,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             payload = {
                 "text": agent_context,
                 "sender": {"id": self._adapter_id or "user", "type": "user"},
-                "gui_mode": self._controller._state_store.state.gui_mode,
+                "session_id": session_id,
             }
-            # Include target session ID if replying to a specific session
-            if reply_context and reply_context.get("sessionId"):
-                payload["target_session_id"] = reply_context["sessionId"]
-            if living_ui_id:
-                payload["living_ui_id"] = living_ui_id
 
             await self._controller._agent._handle_chat_message(payload)
 
@@ -8301,6 +7755,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 content=f"Error processing attachment: {str(e)}",
                 style="error",
                 timestamp=time.time(),
+                session_id=session_id,
             )
             await self._chat.append_message(error_message)
 
@@ -8619,6 +8074,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         sender: Optional[str] = None,
         style: str = "agent",
         session_id: Optional[str] = None,
+        continue_work: bool = False,
     ) -> Dict[str, Any]:
         """
         Send a chat message with one or more attachments from the agent.
@@ -8631,7 +8087,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             file_paths: List of absolute paths or paths relative to workspace
             sender: Message sender (default: uses agent name from onboarding)
             style: Message style (default: "agent")
-            session_id: Optional task/session ID for multi-task isolation.
+            session_id: The chat session the message belongs to (main default).
 
         Returns:
             Dict with 'success' (bool), 'files_sent' (int), and optionally 'errors' (list of str)
@@ -8661,7 +8117,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     content=message,
                     style=style,
                     attachments=attachments,
-                    task_session_id=session_id,
+                    session_id=session_id or "main",
+                    continue_work=continue_work,
                 )
                 await self._chat.append_message(chat_message)
 
@@ -8674,6 +8131,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     sender="system",
                     content=error_content,
                     style="error",
+                    session_id=session_id or "main",
                 )
                 await self._chat.append_message(error_message)
 
@@ -8683,6 +8141,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     sender="system",
                     content="No files provided to attach.",
                     style="error",
+                    session_id=session_id or "main",
                 )
                 await self._chat.append_message(error_message)
                 return {
@@ -8704,9 +8163,102 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 sender="system",
                 content=f"Failed to send attachments: {str(e)}",
                 style="error",
+                session_id=session_id or "main",
             )
             await self._chat.append_message(error_message)
             return {"success": False, "files_sent": 0, "errors": [str(e)]}
+
+    def _restore_activity_items(self) -> None:
+        """Rebuild the in-memory activity feed from persisted event streams.
+
+        The action panel is a process-lifetime cache; the durable record of
+        actions + reasoning is each session's event stream. Replaying the
+        restored streams through the same EventTransformer used for live
+        events reconstructs the inline activity feed after a backend
+        restart. Runs once, lazily, on the first init request (streams are
+        guaranteed loaded by then).
+        """
+        if self._activity_restored:
+            return
+        self._activity_restored = True
+
+        from app.ui_layer.events.transformer import EventTransformer
+        from app.ui_layer.events import UIEventType
+
+        # Bound the restore so ancient sessions don't bloat the init payload.
+        PER_SESSION_ITEM_CAP = 100
+
+        try:
+            streams = (
+                self._controller.agent.event_stream_manager.get_all_streams_with_ids()
+            )
+        except Exception as e:
+            logger.warning(f"[ACTIVITY] Restore skipped — streams unavailable: {e}")
+            return
+
+        restored: List[ActionItem] = []
+        for session_id, stream in streams:
+            session_items: List[ActionItem] = []
+            by_action_id: Dict[str, ActionItem] = {}
+            for event in stream.as_list():
+                try:
+                    ui = EventTransformer.transform(event, session_id)
+                except Exception:
+                    continue
+                if ui is None:
+                    continue
+                ts = ui.timestamp.timestamp() if ui.timestamp else time.time()
+
+                if ui.type == UIEventType.REASONING:
+                    session_items.append(
+                        ActionItem(
+                            id=ui.data.get("reasoning_id", ""),
+                            name="Reasoning",
+                            status="completed",
+                            item_type="reasoning",
+                            session_id=session_id,
+                            created_at=ts,
+                            completed_at=ts,
+                            output_data=ui.data.get("content"),
+                        )
+                    )
+                elif ui.type == UIEventType.ACTION_START:
+                    item = ActionItem(
+                        id=ui.data.get("action_id", ""),
+                        name=ui.data.get("action_name", "Action"),
+                        status="running",
+                        item_type="action",
+                        session_id=session_id,
+                        created_at=ts,
+                        input_data=ui.data.get("input"),
+                    )
+                    session_items.append(item)
+                    by_action_id[item.id] = item
+                elif ui.type == UIEventType.ACTION_END:
+                    item = by_action_id.get(ui.data.get("action_id", ""))
+                    if item is None:
+                        continue  # start fell out of the stream head
+                    item.status = ui.data.get("status", "completed")
+                    item.completed_at = ts
+                    item.output_data = ui.data.get("output")
+                    item.error_message = ui.data.get("error_message")
+
+            # Anything still "running" died with the previous process.
+            for item in session_items:
+                if item.item_type == "action" and item.status == "running":
+                    item.status = "error"
+                    item.error_message = "Interrupted by restart"
+                    item.completed_at = item.created_at
+
+            restored.extend(session_items[-PER_SESSION_ITEM_CAP:])
+
+        if restored:
+            restored.sort(key=lambda i: i.created_at)
+            self._action_panel._items = restored + self._action_panel._items
+            logger.info(
+                f"[ACTIVITY] Restored {len(restored)} activity item(s) from "
+                f"{len(streams)} session stream(s)"
+            )
 
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
@@ -8714,6 +8266,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from app.ui_layer.settings.general_settings import (
             get_agent_profile_picture_info,
         )
+
+        # Rebuild the activity feed from persisted streams on first use so
+        # actions + reasoning survive backend restarts.
+        self._restore_activity_items()
 
         state = self._controller.state
         metrics = self._metrics_collector.get_metrics()
@@ -8730,79 +8286,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "agentName": onboarding_manager.state.agent_name or "Agent",
             "agentProfilePictureUrl": picture_info["url"],
             "agentProfilePictureHasCustom": picture_info["has_custom"],
-            "currentTask": {
-                "id": state.current_task_id,
-                "name": state.current_task_name,
-            }
-            if state.current_task_id
-            else None,
-            "messages": [
-                {
-                    "sender": m.sender,
-                    "content": m.content,
-                    "style": m.style,
-                    "timestamp": m.timestamp,
-                    "messageId": m.message_id,
-                    **(
-                        {
-                            "attachments": [
-                                {
-                                    "name": att.name,
-                                    "path": att.path,
-                                    "type": att.type,
-                                    "size": att.size,
-                                    "url": att.url,
-                                }
-                                for att in m.attachments
-                            ]
-                        }
-                        if m.attachments
-                        else {}
-                    ),
-                    **(
-                        {"taskSessionId": m.task_session_id}
-                        if m.task_session_id
-                        else {}
-                    ),
-                    **(
-                        {
-                            "options": [
-                                {"label": o.label, "value": o.value, "style": o.style}
-                                for o in m.options
-                            ]
-                        }
-                        if m.options
-                        else {}
-                    ),
-                    **(
-                        {"optionSelected": m.option_selected}
-                        if m.option_selected
-                        else {}
-                    ),
-                }
-                for m in self._chat.get_messages()
+            "sessions": [
+                self._session_info(s)
+                for s in self._controller.agent.session_manager.list_sessions()
             ],
+            # Sessions with a run currently in flight — seeds the per-session
+            # typing indicator on connect/reload.
+            "busySessions": sorted(self._controller.agent.busy_sessions),
+            # ChatMessage.to_dict() always carries sessionId.
+            "messages": [m.to_dict() for m in self._chat.get_messages()],
+            # Recent activity items (per-session inline feed); each carries sessionId.
             "actions": [
-                {
-                    "id": a.id,
-                    "name": a.name,
-                    "status": a.status,
-                    "itemType": a.item_type,
-                    "parentId": a.parent_id,
-                    "createdAt": int(a.created_at * 1000),
-                    "completedAt": (
-                        int(a.completed_at * 1000) if a.completed_at else None
-                    ),
-                    "duration": a.duration,
-                    "input": a.input_data,
-                    "output": a.output_data,
-                    "error": a.error_message,
-                    "selectedSkills": list(a.selected_skills or []),
-                    "workflowId": a.workflow_id,
-                    "inputTokens": a.input_tokens,
-                    "outputTokens": a.output_tokens,
-                    "cacheTokens": a.cache_tokens,
-                }
+                BrowserActionPanelComponent._item_payload(a)
                 for a in self._action_panel.get_items()
             ],
             "status": self._status_bar.get_status(),

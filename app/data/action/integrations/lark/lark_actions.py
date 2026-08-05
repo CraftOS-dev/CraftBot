@@ -487,9 +487,7 @@ async def list_lark_chat_messages(input_data: dict) -> dict:
             out["mentioned"] = mention_names
         return out
 
-    lean = {
-        "items": [_lean_message(m) for m in result["items"] if isinstance(m, dict)]
-    }
+    lean = {"items": [_lean_message(m) for m in result["items"] if isinstance(m, dict)]}
     for key in ("has_more", "page_token"):
         if result.get(key):
             lean[key] = result[key]

@@ -1,4 +1,3 @@
-import React from 'react'
 import { CheckCircle, XCircle, Loader, Clock, MessageCircle, PauseCircle } from 'lucide-react'
 import styles from './StatusIndicator.module.css'
 import type { ActionStatus, AgentState } from '../../types'

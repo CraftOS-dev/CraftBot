@@ -42,7 +42,7 @@ import {
   selectSubscriptionPasteback,
 } from '../../store/selectors/modelSettings'
 import { setSubscriptionPending, clearSubscriptionPasteback } from '../../store/slices/modelSettingsSlice'
-import type { OnboardingStep, OnboardingStepOption, OnboardingFormField } from '../../types'
+import type { OnboardingStepOption, OnboardingFormField } from '../../types'
 import styles from './OnboardingPage.module.css'
 
 // Icon mapping for dynamic rendering
@@ -425,9 +425,10 @@ export function OnboardingPage() {
       // Form step (e.g., user_profile, agent_name)
       // Preserve existing values when navigating back — only set defaults for missing fields
       if (onboardingStep.form_fields && onboardingStep.form_fields.length > 0) {
+        const formFields = onboardingStep.form_fields
         setFormValues(prev => {
           const defaults: Record<string, string | string[]> = {}
-          for (const field of onboardingStep.form_fields) {
+          for (const field of formFields) {
             defaults[field.name] = prev[field.name] ?? (field.default ?? '')
           }
           return defaults

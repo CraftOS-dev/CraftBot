@@ -2,7 +2,7 @@
 """
 Action Set Management Actions
 
-These actions allow the agent to dynamically manage action sets during task execution.
+These actions allow the agent to dynamically manage its session's action sets.
 All three actions belong to the 'core' set and are always available.
 """
 
@@ -12,9 +12,10 @@ from agent_core import action
 @action(
     name="add_action_sets",
     description=(
-        "Add additional action sets to expand available actions for the current task. "
-        "Use this when you need capabilities not currently available. "
-        "Use 'list_action_sets' first to see available options."
+        "Load additional action sets from the capability catalog to expand the "
+        "actions available in this session. Use this when you need capabilities "
+        "not currently loaded (e.g. document_processing, image, an integration). "
+        "The catalog in your system prompt lists every available set."
     ),
     default=False,
     mode="ALL",
@@ -80,7 +81,9 @@ def add_action_sets(input_data: dict) -> dict:
     import app.internal_action_interface as iai
 
     try:
-        result = iai.InternalActionInterface.add_action_sets(action_sets)
+        result = iai.InternalActionInterface.add_action_sets(
+            action_sets, session_id=input_data.get("_session_id")
+        )
         return result
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -89,7 +92,7 @@ def add_action_sets(input_data: dict) -> dict:
 @action(
     name="remove_action_sets",
     description=(
-        "Remove action sets from the current task to reduce available actions. "
+        "Unload action sets from this session to reduce available actions. "
         "Use this to clean up sets that are no longer needed. "
         "The 'core' set cannot be removed."
     ),
@@ -163,7 +166,9 @@ def remove_action_sets(input_data: dict) -> dict:
     import app.internal_action_interface as iai
 
     try:
-        result = iai.InternalActionInterface.remove_action_sets(action_sets)
+        result = iai.InternalActionInterface.remove_action_sets(
+            action_sets, session_id=input_data.get("_session_id")
+        )
         return result
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -173,7 +178,7 @@ def remove_action_sets(input_data: dict) -> dict:
     name="list_action_sets",
     description=(
         "List all available action sets and their descriptions. "
-        "Also shows which sets are currently active for this task."
+        "Also shows which sets are currently loaded in this session."
     ),
     default=False,
     mode="ALL",
@@ -213,7 +218,9 @@ def list_action_sets(input_data: dict) -> dict:
     import app.internal_action_interface as iai
 
     try:
-        result = iai.InternalActionInterface.list_action_sets()
+        result = iai.InternalActionInterface.list_action_sets(
+            session_id=input_data.get("_session_id")
+        )
         return result
     except Exception as e:
         return {"error": str(e)}

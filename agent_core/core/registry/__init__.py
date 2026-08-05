@@ -12,12 +12,12 @@ Each registry follows the same pattern:
 
 Example:
     # At startup (CraftBot or CraftBot):
-    from agent_core.core.registry import TaskManagerRegistry
-    TaskManagerRegistry.register(lambda: task_manager)
+    from agent_core.core.registry import SessionManagerRegistry
+    SessionManagerRegistry.register(lambda: session_manager)
 
     # In shared code:
-    from agent_core.core.registry import TaskManagerRegistry
-    task_manager = TaskManagerRegistry.get()
+    from agent_core.core.registry import SessionManagerRegistry
+    session_manager = SessionManagerRegistry.get()
 """
 
 from agent_core.core.registry.base import ComponentRegistry
@@ -66,11 +66,11 @@ from agent_core.core.registry.event_stream import (
     get_event_stream_manager_or_none,
 )
 
-# Task manager registry
-from agent_core.core.registry.task_manager import (
-    TaskManagerRegistry,
-    get_task_manager,
-    get_task_manager_or_none,
+# Session manager registry
+from agent_core.core.registry.session_manager import (
+    SessionManagerRegistry,
+    get_session_manager,
+    get_session_manager_or_none,
 )
 
 # State manager registry
@@ -85,13 +85,6 @@ from agent_core.core.registry.context import (
     ContextEngineRegistry,
     get_context_engine,
     get_context_engine_or_none,
-)
-
-# Trigger queue registry
-from agent_core.core.registry.trigger import (
-    TriggerQueueRegistry,
-    get_trigger_queue,
-    get_trigger_queue_or_none,
 )
 
 __all__ = [
@@ -120,16 +113,13 @@ __all__ = [
     "get_event_stream_or_none",
     "get_event_stream_manager",
     "get_event_stream_manager_or_none",
-    "TaskManagerRegistry",
-    "get_task_manager",
-    "get_task_manager_or_none",
+    "SessionManagerRegistry",
+    "get_session_manager",
+    "get_session_manager_or_none",
     "StateManagerRegistry",
     "get_state_manager",
     "get_state_manager_or_none",
     "ContextEngineRegistry",
     "get_context_engine",
     "get_context_engine_or_none",
-    "TriggerQueueRegistry",
-    "get_trigger_queue",
-    "get_trigger_queue_or_none",
 ]

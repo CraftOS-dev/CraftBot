@@ -59,11 +59,6 @@ from agent_core import action
             "description": "Trigger priority (lower = higher priority). Default is 50.",
             "example": 50,
         },
-        "mode": {
-            "type": "string",
-            "description": "Task mode: 'simple' for quick tasks, 'complex' for multi-step tasks. Default is 'simple'.",
-            "example": "complex",
-        },
         "enabled": {
             "type": "boolean",
             "description": "Whether to enable the schedule immediately. Default is true. Ignored for 'immediate' schedules.",
@@ -118,7 +113,6 @@ async def schedule_task(input_data: dict) -> dict:
         instruction = input_data.get("instruction")
         schedule_expr = input_data.get("schedule")
         priority = input_data.get("priority", 50)
-        mode = input_data.get("mode", "simple")
         enabled = input_data.get("enabled", True)
         action_sets = input_data.get("action_sets", [])
         skills = input_data.get("skills", [])
@@ -155,7 +149,6 @@ async def schedule_task(input_data: dict) -> dict:
                 name=name,
                 instruction=instruction,
                 priority=priority,
-                mode=mode,
                 action_sets=action_sets,
                 skills=skills,
                 payload=payload,
@@ -173,7 +166,6 @@ async def schedule_task(input_data: dict) -> dict:
             instruction=instruction,
             schedule_expression=schedule_expr,
             priority=priority,
-            mode=mode,
             enabled=enabled,
             recurring=is_recurring,
             action_sets=action_sets,

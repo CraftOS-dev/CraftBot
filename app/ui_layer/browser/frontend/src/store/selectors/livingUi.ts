@@ -9,11 +9,14 @@ export const selectLivingUiCreating = (state: RootState) =>
 export const selectLivingUiTodos = (state: RootState) =>
   state.livingUi.todos
 
+export const selectLivingUiBuildEvents = (state: RootState) =>
+  state.livingUi.buildEvents
+
+export const selectLivingUiSnapshots = (state: RootState) =>
+  state.livingUi.snapshots
+
 export const selectActiveLivingUiId = (state: RootState) =>
   state.livingUi.activeId
 
 export const selectLivingUiStates = (state: RootState) =>
   state.livingUi.states
-
-export const selectLivingUiPendingQuestions = (state: RootState) =>
-  state.livingUi.pendingQuestions

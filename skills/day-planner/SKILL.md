@@ -29,7 +29,7 @@ You receive a planner trigger with:
 
 - **NO acknowledgement**: Do NOT acknowledge task receipt to user
 - **NO confirmation**: Do NOT wait for user confirmation before ending
-- **MUST end silently**: Use `task_end` immediately after completing planning work
+- **MUST end silently**: Use `end_turn` immediately after completing planning work
 
 **EXCEPTION - Suggesting New Tasks:**
 When you want to suggest a new recurring or scheduled task:
@@ -476,7 +476,7 @@ schedule_task(
 
 **Core:** `recurring_read`, `recurring_add`, `recurring_update_task`, `scheduled_task_list`,
 `schedule_task`, `read_file`, `stream_edit`, `memory_search`,
-`send_message`, `task_update_todos`, `task_end`
+`send_message`, `update_todos`, `end_turn`
 
 **External Integrations (use selectively based on user):**
 - Calendar: `check_calendar_availability`

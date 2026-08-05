@@ -24,7 +24,7 @@ class ResetCommand(Command):
         return """Reset the agent to its initial state.
 
 This will:
-- Clear the current task
+- Delete all chat sessions and clear the main session
 - Clear action history
 - Reset the conversation context
 
@@ -34,16 +34,17 @@ Note: This does not affect saved settings or credentials."""
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """Execute the reset command."""
         # Show immediate feedback, then perform reset in background
-        self.emit_message("Resetting agent state...", "system")
+        self.emit_message("Resetting agent state...", "system", session_id=session_id)
 
-        asyncio.create_task(self._perform_reset())
+        asyncio.create_task(self._perform_reset(session_id))
 
         return CommandResult(success=True)
 
-    async def _perform_reset(self) -> None:
+    async def _perform_reset(self, session_id: str | None = None) -> None:
         """Perform the actual reset in the background."""
         try:
             # Reset UI state
@@ -59,6 +60,10 @@ Note: This does not affect saved settings or credentials."""
                 if adapter.action_panel:
                     await adapter.action_panel.clear()
 
-            self.emit_message("Agent state has been reset.", "system")
+            self.emit_message(
+                "Agent state has been reset.", "system", session_id=session_id
+            )
         except Exception as e:
-            self.emit_message(f"Failed to reset agent state: {e}", "error")
+            self.emit_message(
+                f"Failed to reset agent state: {e}", "error", session_id=session_id
+            )

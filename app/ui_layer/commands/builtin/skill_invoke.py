@@ -58,9 +58,12 @@ class SkillInvokeCommand(Command):
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """Execute the skill invocation command."""
         args_text = " ".join(args).strip()
-        await self._controller.invoke_skill(self._skill_name, args_text, adapter_id)
+        await self._controller.invoke_skill(
+            self._skill_name, args_text, adapter_id, session_id=session_id
+        )
         # System message is emitted by invoke_skill() directly
         return CommandResult(success=True, message=None)

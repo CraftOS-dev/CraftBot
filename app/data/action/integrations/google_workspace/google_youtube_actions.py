@@ -194,9 +194,7 @@ def list_my_youtube_playlists(input_data: dict) -> dict:
                     {
                         "id": it.get("id"),
                         "title": (it.get("snippet") or {}).get("title"),
-                        "itemCount": (it.get("contentDetails") or {}).get(
-                            "itemCount"
-                        ),
+                        "itemCount": (it.get("contentDetails") or {}).get("itemCount"),
                     }
                     for it in items
                     if isinstance(it, dict)

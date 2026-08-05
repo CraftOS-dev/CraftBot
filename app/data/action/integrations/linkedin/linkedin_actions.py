@@ -151,11 +151,7 @@ async def get_my_linkedin_posts(input_data: dict) -> dict:
         media = share.get("media")
         if media:
             p["media"] = [
-                {
-                    k: v
-                    for k, v in m.items()
-                    if k in ("media", "originalUrl", "status")
-                }
+                {k: v for k, v in m.items() if k in ("media", "originalUrl", "status")}
                 for m in media
                 if isinstance(m, dict)
             ]
@@ -221,11 +217,7 @@ def get_linkedin_organization_posts(input_data: dict) -> dict:
         media = share.get("media")
         if media:
             p["media"] = [
-                {
-                    k: v
-                    for k, v in m.items()
-                    if k in ("media", "originalUrl", "status")
-                }
+                {k: v for k, v in m.items() if k in ("media", "originalUrl", "status")}
                 for m in media
                 if isinstance(m, dict)
             ]

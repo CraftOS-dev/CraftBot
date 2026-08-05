@@ -1,16 +1,12 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
-  ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics,
+  ChatMessage, ActionItem, AgentStatus, SessionInfo, WSMessage, DashboardMetrics,
   FilteredDashboardMetrics, MetricsTimePeriod, OnboardingStep,
-  OnboardingStepResponse, OnboardingSubmitResponse, OnboardingCompleteResponse,
-  LocalLLMState, LocalLLMCheckResponse, LocalLLMTestResponse, LocalLLMInstallResponse,
-  LocalLLMProgressResponse, LocalLLMPullProgressResponse, SuggestedModel,
+  LocalLLMState,
   SkillMeta,
   // Living UI types
   LivingUIProject, LivingUICreateRequest, LivingUIStatusUpdate, LivingUIStateUpdate,
-  LivingUITodo, LivingUITodosUpdate,
-  LivingUICreateResponse, LivingUIListResponse, LivingUILaunchResponse, LivingUIStopResponse, LivingUIDeleteResponse
 } from '../types'
 import { scheduleRefreshIframe } from '../pages/LivingUI/iframePool'
 import { getSocketClient } from '../store/socket/socketInstance'
@@ -19,31 +15,15 @@ import {
   addOptimistic as messagesAddOptimistic,
   setLoadingOlder as messagesSetLoadingOlder,
   markOptionSelected as messagesMarkOptionSelected,
-  clear as messagesClear,
+  transferSession as messagesTransferSession,
 } from '../store/slices/messagesSlice'
+import { transferDraft as chatInputTransferDraft } from '../store/slices/chatInputSlice'
 import {
   selectAllMessages,
-  selectHasMoreMessages,
-  selectLoadingOlderMessages,
-  selectOldestMessageTimestamp,
+  selectLastMessageIdBySession,
 } from '../store/selectors/messages'
-import {
-  setLoadingOlder as tasksSetLoadingOlder,
-  setCancellingTaskId as tasksSetCancellingTaskId,
-  setCompletingTaskId as tasksSetCompletingTaskId,
-  setResumingTaskId as tasksSetResumingTaskId,
-  setDeletingTaskId as tasksSetDeletingTaskId,
-} from '../store/slices/tasksSlice'
-import {
-  selectAllActions,
-  selectHasMoreActions,
-  selectLoadingOlderActions,
-  selectCancellingTaskId,
-  selectCompletingTaskId,
-  selectResumingTaskId,
-  selectDeletingTaskId,
-  selectOldestTaskCreatedAt,
-} from '../store/selectors/tasks'
+import { selectAllActivity } from '../store/selectors/activity'
+import { selectSessions } from '../store/selectors/sessions'
 import {
   selectDashboardMetrics,
   selectFilteredMetricsCache,
@@ -69,6 +49,7 @@ import {
   setActiveId as livingUiSetActiveId,
   markLaunching as livingUiMarkLaunching,
   markStopping as livingUiMarkStopping,
+  type LivingUITodo,
 } from '../store/slices/livingUiSlice'
 import {
   selectLivingUiProjects,
@@ -82,12 +63,11 @@ import {
   selectAgentProfilePictureUrl,
   selectAgentProfilePictureHasCustom,
   selectAgentStatus,
-  selectCurrentTask,
   selectGuiMode,
   selectFootageUrl,
   selectSkillMeta,
 } from '../store/selectors/agent'
-import { setStatus } from '../store/slices/agentSlice'
+import { setStatus, setSessionRunState } from '../store/slices/agentSlice'
 
 // Module-level reference to the shared SocketClient. The transport (connect,
 // reconnect, outbox, message dispatch) lives there; this context now only
@@ -103,20 +83,6 @@ interface PendingAttachment {
   serverPath?: string   // pre-uploaded via HTTP (large files)
 }
 
-// Reply target for reply-to-chat/task feature
-interface ReplyTarget {
-  type: 'chat' | 'task'
-  sessionId?: string       // May be undefined for old messages without session tracking
-  displayName: string      // Truncated preview for UI display
-  originalContent: string  // Full content for agent context
-}
-
-// Reply context sent with message
-interface ReplyContext {
-  sessionId?: string
-  originalMessage: string
-}
-
 // Unique-ish id for client-originating artifacts (optimistic chat messages
 // awaiting server echo). Uses crypto.randomUUID when available, falls back
 // to a cheap timestamp+random id on older runtimes without the
@@ -126,35 +92,52 @@ const newClientId = (): string =>
     ? crypto.randomUUID()
     : `cid-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-// Local-only React state. Slice-backed fields (messages, actions, pagination,
-// cancellingTaskId) live in redux and are injected into the context value by
+// Per-session "last seen message" map, persisted so unread dots survive
+// reloads. Key: sessionId → messageId of the newest message seen.
+const LAST_SEEN_STORAGE_KEY = 'lastSeenMessageIdBySession'
+
+const loadLastSeenBySession = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(LAST_SEEN_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') return parsed as Record<string, string>
+  } catch {
+    // localStorage may be unavailable or corrupted
+  }
+  return {}
+}
+
+const persistLastSeenBySession = (map: Record<string, string>) => {
+  try {
+    localStorage.setItem(LAST_SEEN_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    // localStorage may be unavailable
+  }
+}
+
+// Local-only React state. Slice-backed fields (messages, activity, sessions,
+// living UI, ...) live in redux and are injected into the context value by
 // the provider via useAppSelector.
 interface WebSocketState {
   connected: boolean
   version: string
   // Whether the initial 'init' message has been received from the backend
   initReceived: boolean
-  // Unread message tracking
-  lastSeenMessageId: string | null
-  // Reply state for reply-to-chat/task feature
-  replyTarget: ReplyTarget | null
+  // Per-session unread tracking
+  lastSeenBySession: Record<string, string>
   // Enhanced prompt result from backend LLM
   enhancedPrompt: string | null
 }
 
 interface WebSocketContextType extends WebSocketState {
-  // Slice-backed (messagesSlice). Provider injects via useAppSelector.
+  // Slice-backed (messagesSlice/activitySlice) aggregates across every
+  // session — for global consumers (mascot, dashboard status). Per-session
+  // timelines are read via selectors with a sessionId.
   messages: ChatMessage[]
-  hasMoreMessages: boolean
-  loadingOlderMessages: boolean
-  // Slice-backed (tasksSlice).
   actions: ActionItem[]
-  hasMoreActions: boolean
-  loadingOlderActions: boolean
-  cancellingTaskId: string | null
-  completingTaskId: string | null
-  resumingTaskId: string | null
-  deletingTaskId: string | null
+  // Slice-backed (sessionsSlice).
+  sessions: SessionInfo[]
   // Slice-backed (dashboardSlice).
   dashboardMetrics: DashboardMetrics | null
   filteredMetricsCache: Record<MetricsTimePeriod, FilteredDashboardMetrics | null>
@@ -176,18 +159,27 @@ interface WebSocketContextType extends WebSocketState {
   agentProfilePictureUrl: string
   agentProfilePictureHasCustom: boolean
   status: AgentStatus
-  currentTask: { id: string; name: string } | null
   guiMode: boolean
   footageUrl: string | null
   skillMeta: SkillMeta
 
-  sendMessage: (content: string, attachments?: PendingAttachment[], replyContext?: ReplyContext, livingUIId?: string) => void
-  sendCommand: (command: string) => void
-  clearMessages: () => void
-  cancelTask: (taskId: string) => void
-  completeTask: (taskId: string) => void
-  resumeTask: (taskId: string, message?: string) => void
-  deleteTask: (taskId: string) => void
+  sendMessage: (
+    content: string,
+    attachments: PendingAttachment[] | undefined,
+    sessionId: string,
+    replyContext?: { originalMessage: string },
+  ) => void
+  sendCommand: (command: string, sessionId: string) => void
+  // Force-stop a session's in-flight run (send button ↔ stop button)
+  stopSession: (sessionId: string) => void
+  // Session management (sessions are created lazily by the backend on the
+  // first message sent with sessionId "new" — there is no create sender)
+  deleteSession: (sessionId: string) => void
+  renameSession: (sessionId: string, title: string) => void
+  clearSession: (sessionId: string) => void
+  requestChatHistory: (sessionId: string, beforeTimestamp?: number, limit?: number) => void
+  // Per-session unread tracking
+  markSessionSeen: (sessionId: string) => void
   openFile: (path: string) => void
   openFolder: (path: string) => void
   requestFilteredMetrics: (period: MetricsTimePeriod) => void
@@ -195,21 +187,12 @@ interface WebSocketContextType extends WebSocketState {
   unsubscribeDashboardMetrics: () => void
   // Onboarding methods
   requestOnboardingStep: () => void
-  submitOnboardingStep: (value: string | string[]) => void
+  submitOnboardingStep: (value: string | string[] | Record<string, unknown>) => void
   skipOnboardingStep: () => void
   goBackOnboardingStep: () => void
-  // Unread message tracking
-  markMessagesAsSeen: () => void
-  // Reply-to-chat/task methods
-  setReplyTarget: (target: ReplyTarget) => void
-  clearReplyTarget: () => void
   // Enhance prompt
   enhancePrompt: (content: string) => void
   clearEnhancedPrompt: () => void
-  // Chat pagination
-  loadOlderMessages: () => void
-  // Action pagination
-  loadOlderActions: () => void
   // Local LLM (Ollama) methods
   checkLocalLLM: () => void
   testLocalLLMConnection: (url: string) => void
@@ -218,7 +201,7 @@ interface WebSocketContextType extends WebSocketState {
   requestSuggestedModels: () => void
   pullOllamaModel: (model: string) => void
   // Option click (interactive buttons in chat)
-  sendOptionClick: (value: string, sessionId?: string, messageId?: string) => void
+  sendOptionClick: (value: string, messageId: string, sessionId: string) => void
   // Agent profile picture
   uploadAgentProfilePicture: (name: string, mimeType: string, contentBase64: string) => void
   removeAgentProfilePicture: () => void
@@ -229,26 +212,20 @@ interface WebSocketContextType extends WebSocketState {
   stopLivingUI: (projectId: string) => void
   deleteLivingUI: (projectId: string) => void
   setActiveLivingUI: (projectId: string | null) => void
-}
-
-// Initialize lastSeenMessageId from localStorage
-const getInitialLastSeenMessageId = (): string | null => {
-  try {
-    return localStorage.getItem('lastSeenMessageId')
-  } catch {
-    return null
-  }
+  updateLivingUITheme: (
+    projectId: string,
+    theme: {
+      themeId: string
+      customColors?: { bg: string; surface: string; text: string; accent: string }
+    },
+  ) => void
 }
 
 const defaultState: WebSocketState = {
   connected: false,
   version: '',
   initReceived: false,
-  // Unread message tracking
-  lastSeenMessageId: getInitialLastSeenMessageId(),
-  // Reply state
-  replyTarget: null,
-  // Enhance prompt result
+  lastSeenBySession: loadLastSeenBySession(),
   enhancedPrompt: null,
 }
 
@@ -260,22 +237,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const navigateRef = useRef(navigate)
   navigateRef.current = navigate
 
-  // Slice-backed fields. Source of truth lives in messagesSlice; the
-  // provider re-exposes them on the context so existing consumers keep
-  // working without code changes.
+  // Slice-backed fields. Source of truth lives in redux; the provider
+  // re-exposes them on the context so consumers keep a single hook.
   const dispatch = useAppDispatch()
   const messages = useAppSelector(selectAllMessages)
-  const hasMoreMessages = useAppSelector(selectHasMoreMessages)
-  const loadingOlderMessages = useAppSelector(selectLoadingOlderMessages)
-  const oldestMessageTimestamp = useAppSelector(selectOldestMessageTimestamp)
-  const actions = useAppSelector(selectAllActions)
-  const hasMoreActions = useAppSelector(selectHasMoreActions)
-  const loadingOlderActions = useAppSelector(selectLoadingOlderActions)
-  const cancellingTaskId = useAppSelector(selectCancellingTaskId)
-  const completingTaskId = useAppSelector(selectCompletingTaskId)
-  const resumingTaskId = useAppSelector(selectResumingTaskId)
-  const deletingTaskId = useAppSelector(selectDeletingTaskId)
-  const oldestTaskCreatedAt = useAppSelector(selectOldestTaskCreatedAt)
+  const actions = useAppSelector(selectAllActivity)
+  const sessions = useAppSelector(selectSessions)
+  const lastMessageIdBySession = useAppSelector(selectLastMessageIdBySession)
   const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   const filteredMetricsCache = useAppSelector(selectFilteredMetricsCache)
   const onboardingStep = useAppSelector(selectOnboardingStep)
@@ -292,14 +260,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const agentProfilePictureUrl = useAppSelector(selectAgentProfilePictureUrl)
   const agentProfilePictureHasCustom = useAppSelector(selectAgentProfilePictureHasCustom)
   const status = useAppSelector(selectAgentStatus)
-  const currentTask = useAppSelector(selectCurrentTask)
   const guiMode = useAppSelector(selectGuiMode)
   const footageUrl = useAppSelector(selectFootageUrl)
   const skillMeta = useAppSelector(selectSkillMeta)
 
+  // Ref mirror so markSessionSeen doesn't need the map in its dep list.
+  const lastMessageIdBySessionRef = useRef(lastMessageIdBySession)
+  lastMessageIdBySessionRef.current = lastMessageIdBySession
+
+  // clientIds of messages sent from the draft view (sessionId "new") that
+  // are still waiting for the backend to create their session. When a
+  // session_created arrives carrying one of these clientIds, this client is
+  // the sender and navigates from /session/new to the real session route.
+  const pendingDraftClientIdsRef = useRef<Set<string>>(new Set())
+
   // Send-or-queue: delegate to the shared SocketClient which owns the
-  // outbox and reconnect lifecycle. Kept as a hook-stable callback so the
-  // existing useCallback consumers don't need to be touched.
+  // outbox and reconnect lifecycle.
   const sendOrQueue = useCallback((payloadStr: string) => {
     client.sendString(payloadStr)
   }, [])
@@ -307,14 +283,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const handleMessage = useCallback((msg: WSMessage) => {
     switch (msg.type) {
       case 'init': {
-        // All init payload fields now flow through slice handlers in
+        // All init payload fields flow through slice handlers in
         // messageRegistry. The context only needs to flip the "we've seen
         // init" gate that App.tsx uses to unblock rendering.
         setState(prev => ({ ...prev, initReceived: true }))
         break
       }
 
-      // Almost all message handling now lives in slices via the registry.
+      // Almost all message handling lives in slices via the registry.
       // The two cases below are the residue: one needs the iframe pool
       // (a non-state side effect), the other needs react-router's navigate.
       case 'living_ui_data_changed': {
@@ -329,13 +305,43 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         break
       }
 
+      case 'session_created': {
+        // sessionsSlice already upserted the session via the registry; here
+        // we only handle the draft-view handoff. If this session was created
+        // by a message THIS client sent from /session/new, drop the draft
+        // bucket (the server echoes the user message into the real session)
+        // and replace the route with the real session's.
+        const { session, clientId } = (msg.data || {}) as {
+          session?: SessionInfo
+          clientId?: string | null
+        }
+        if (session && clientId && pendingDraftClientIdsRef.current.has(clientId)) {
+          pendingDraftClientIdsRef.current.delete(clientId)
+          // Move the draft bucket (the optimistic user bubble) into the
+          // real session so the message is on screen from the first frame
+          // after navigation — the server echo reconciles it by clientId
+          // later. Dropping it here instead caused the "Working…" row to
+          // appear before/without the user's message.
+          dispatch(messagesTransferSession({ from: 'new', to: session.id }))
+          // Carry over any composer text typed after the send but before
+          // this reply arrived, so it isn't lost when the route switches.
+          dispatch(chatInputTransferDraft({ from: 'new', to: session.id }))
+          // Transfer the optimistic busy flag from the draft to the real
+          // session so the typing indicator survives the handoff.
+          dispatch(setSessionRunState({ sessionId: 'new', state: 'idle' }))
+          dispatch(setSessionRunState({ sessionId: session.id, state: 'running' }))
+          navigateRef.current(`/session/${session.id}`, { replace: true })
+        }
+        break
+      }
+
       case 'prompt_enhanced': {
         const { content } = msg as unknown as { type: string; content: string }
         setState(prev => ({ ...prev, enhancedPrompt: content }))
         break
       }
     }
-  }, [])
+  }, [dispatch])
 
   useEffect(() => {
     const unsubOpen = client.onOpen(() => {
@@ -356,11 +362,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     client.connect()
 
     // If the singleton already opened before we subscribed (common: middleware
-    // boots earlier than React mounting), sync the initial state now. Our
-    // onOpen handler above never fired for this connection, so also request
-    // the Living UI list here — otherwise the side panel stays empty until
-    // the next reconnect. (The backend also pushes the list on connect; this
-    // covers older backends and doubles as a resync.)
+    // boots earlier than React mounting), sync the initial state now.
     if (client.isConnected) {
       setState(prev => ({ ...prev, connected: true }))
       client.sendString(JSON.stringify({ type: 'living_ui_list' }))
@@ -373,37 +375,20 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [handleMessage])
 
-  const loadOlderMessages = useCallback(() => {
-    if (!hasMoreMessages || loadingOlderMessages || oldestMessageTimestamp === undefined) return
-    if (!client.isConnected) return
-
-    dispatch(messagesSetLoadingOlder(true))
-    client.sendString(JSON.stringify({
-      type: 'chat_history',
-      beforeTimestamp: oldestMessageTimestamp,
-      limit: 50,
-    }))
-  }, [hasMoreMessages, loadingOlderMessages, oldestMessageTimestamp, dispatch])
-
-  const loadOlderActions = useCallback(() => {
-    if (!hasMoreActions || loadingOlderActions || oldestTaskCreatedAt === undefined) return
-    if (!client.isConnected) return
-
-    dispatch(tasksSetLoadingOlder(true))
-    client.sendString(JSON.stringify({
-      type: 'action_history',
-      beforeTimestamp: oldestTaskCreatedAt,
-      limit: 15,
-    }))
-  }, [hasMoreActions, loadingOlderActions, oldestTaskCreatedAt, dispatch])
-
   const sendMessage = useCallback((
     content: string,
-    attachments?: PendingAttachment[],
-    replyContext?: ReplyContext,
-    livingUIId?: string,
+    attachments: PendingAttachment[] | undefined,
+    sessionId: string,
+    replyContext?: { originalMessage: string },
   ) => {
     const clientId = newClientId()
+
+    // Draft view send: remember the clientId so the session_created
+    // broadcast (which precedes the chat_message echo) can be recognized as
+    // ours and trigger the /session/new -> /session/{id} navigation.
+    if (sessionId === 'new') {
+      pendingDraftClientIdsRef.current.add(clientId)
+    }
 
     // Slash commands are handled by the controller's command executor and
     // never produce a user chat bubble — skip the optimistic insert so a
@@ -411,15 +396,20 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     const isSlashCommand = content.trimStart().startsWith('/')
 
     if (!isSlashCommand) {
-      // Optimistic insert: show the user's bubble immediately at reduced opacity.
-      // The server echo (case 'chat_message') will replace this entry in place by
-      // matching on clientId, flipping `pending` -> false.
+      // Optimistic busy: show the typing indicator instantly; the server's
+      // session_busy events take over from the run's first trigger.
+      dispatch(setSessionRunState({ sessionId, state: 'running' }))
+
+      // Optimistic insert: show the user's bubble immediately at reduced
+      // opacity. The server echo (chat_message) replaces this entry in place
+      // by matching on clientId, flipping `pending` -> false.
       const optimistic: ChatMessage = {
         sender: 'You',
         content,
         style: 'user',
         timestamp: Date.now() / 1000,
         messageId: `pending:${clientId}`,
+        sessionId,
         clientId,
         pending: true,
       }
@@ -429,48 +419,69 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     sendOrQueue(JSON.stringify({
       type: 'message',
       content,
+      sessionId,
       attachments: (attachments || []).map(att => att.serverPath
         ? { name: att.name, type: att.type, size: att.size, serverPath: att.serverPath }
         : { name: att.name, type: att.type, size: att.size, content: att.content }
       ),
       replyContext: replyContext || null,
-      livingUIId: livingUIId || null,
       clientId,
     }))
   }, [sendOrQueue, dispatch])
 
-  const sendCommand = useCallback((command: string) => {
-    sendOrQueue(JSON.stringify({ type: 'command', command }))
+  const sendCommand = useCallback((command: string, sessionId: string) => {
+    sendOrQueue(JSON.stringify({ type: 'command', command, sessionId }))
   }, [sendOrQueue])
 
-  const clearMessages = useCallback(() => {
-    dispatch(messagesClear())
+  // Force-stop a session's in-flight run (chat input's stop button).
+  // Optimistically enters 'stopping' so the button spins instantly; the
+  // server's session_busy broadcasts ('stopping' then terminal 'idle')
+  // are authoritative from there.
+  const stopSession = useCallback((sessionId: string) => {
+    dispatch(setSessionRunState({ sessionId, state: 'stopping' }))
+    sendOrQueue(JSON.stringify({ type: 'session_stop', sessionId }))
+  }, [sendOrQueue, dispatch])
+
+  // ── Session management ────────────────────────────────────────────
+
+  const deleteSession = useCallback((sessionId: string) => {
+    sendOrQueue(JSON.stringify({ type: 'session_delete', sessionId }))
+  }, [sendOrQueue])
+
+  const renameSession = useCallback((sessionId: string, title: string) => {
+    sendOrQueue(JSON.stringify({ type: 'session_rename', sessionId, title }))
+  }, [sendOrQueue])
+
+  const clearSession = useCallback((sessionId: string) => {
+    sendOrQueue(JSON.stringify({ type: 'session_clear', sessionId }))
+  }, [sendOrQueue])
+
+  const requestChatHistory = useCallback((
+    sessionId: string,
+    beforeTimestamp?: number,
+    limit: number = 50,
+  ) => {
+    if (!client.isConnected) return
+    dispatch(messagesSetLoadingOlder({ sessionId, loading: true }))
+    client.sendString(JSON.stringify({
+      type: 'chat_history',
+      sessionId,
+      beforeTimestamp,
+      limit,
+    }))
   }, [dispatch])
 
-  const cancelTask = useCallback((taskId: string) => {
-    if (client.isConnected) {
-      dispatch(tasksSetCancellingTaskId(taskId))
-      client.sendString(JSON.stringify({ type: 'task_cancel', taskId }))
-    }
-  }, [dispatch])
-
-  const completeTask = useCallback((taskId: string) => {
-    if (client.isConnected) {
-      dispatch(tasksSetCompletingTaskId(taskId))
-      client.sendString(JSON.stringify({ type: 'task_complete', taskId }))
-    }
-  }, [dispatch])
-
-  const resumeTask = useCallback((taskId: string, message?: string) => {
-    if (client.isConnected) {
-      dispatch(tasksSetResumingTaskId(taskId))
-      client.sendString(JSON.stringify({
-        type: 'task_resume',
-        taskId,
-        message: message || '',
-      }))
-    }
-  }, [dispatch])
+  // Mark a session's newest message as seen (unread-dot bookkeeping).
+  const markSessionSeen = useCallback((sessionId: string) => {
+    const lastId = lastMessageIdBySessionRef.current[sessionId]
+    if (!lastId) return
+    setState(prev => {
+      if (prev.lastSeenBySession[sessionId] === lastId) return prev
+      const next = { ...prev.lastSeenBySession, [sessionId]: lastId }
+      persistLastSeenBySession(next)
+      return { ...prev, lastSeenBySession: next }
+    })
+  }, [])
 
   const enhancePrompt = useCallback((content: string) => {
     sendOrQueue(JSON.stringify({ type: 'enhance_prompt', content }))
@@ -479,24 +490,16 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const clearEnhancedPrompt = useCallback(() => {
     setState(prev => ({ ...prev, enhancedPrompt: null }))
   }, [])
-  const deleteTask = useCallback((taskId: string) => {
-    if (client.isConnected) {
-      dispatch(tasksSetDeletingTaskId(taskId))
-      client.sendString(JSON.stringify({ type: 'task_delete', taskId }))
-    }
-  }, [dispatch])
 
-  const sendOptionClick = useCallback((value: string, sessionId?: string, messageId?: string) => {
+  const sendOptionClick = useCallback((value: string, messageId: string, sessionId: string) => {
     // Optimistically record the selection in local state so the UI lock
     // survives virtualizer remounts, WS reconnects, and parent re-renders
     // without waiting for a backend round-trip or page refresh.
-    if (messageId) {
-      dispatch(messagesMarkOptionSelected({ messageId, value }))
-    }
+    dispatch(messagesMarkOptionSelected({ sessionId, messageId, value }))
     if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'option_click', value, sessionId, messageId }))
+      client.sendString(JSON.stringify({ type: 'option_click', messageId, value, sessionId }))
     }
-  }, [])
+  }, [dispatch])
 
   const uploadAgentProfilePicture = useCallback(
     (name: string, mimeType: string, contentBase64: string) => {
@@ -559,7 +562,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [dispatch])
 
-  const submitOnboardingStep = useCallback((value: string | string[]) => {
+  const submitOnboardingStep = useCallback((value: string | string[] | Record<string, unknown>) => {
     if (client.isConnected) {
       dispatch(onboardingSetLoading(true))
       client.sendString(JSON.stringify({ type: 'onboarding_step_submit', value }))
@@ -579,32 +582,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       client.sendString(JSON.stringify({ type: 'onboarding_back' }))
     }
   }, [dispatch])
-
-  // Mark all current messages as seen
-  const markMessagesAsSeen = useCallback(() => {
-    if (messages.length === 0) return
-    const lastId = messages[messages.length - 1].messageId
-    if (!lastId) return
-    setState(prev => {
-      if (lastId === prev.lastSeenMessageId) return prev
-      try {
-        localStorage.setItem('lastSeenMessageId', lastId)
-      } catch {
-        // localStorage may be unavailable
-      }
-      return { ...prev, lastSeenMessageId: lastId }
-    })
-  }, [messages])
-
-  // Set reply target for reply-to-chat/task feature
-  const setReplyTarget = useCallback((target: ReplyTarget) => {
-    setState(prev => ({ ...prev, replyTarget: target }))
-  }, [])
-
-  // Clear reply target
-  const clearReplyTarget = useCallback(() => {
-    setState(prev => ({ ...prev, replyTarget: null }))
-  }, [])
 
   // Local LLM (Ollama) methods. All state lives in localLlmSlice; these are
   // just send-helpers that also dispatch the optimistic pre-send transition.
@@ -704,22 +681,30 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     dispatch(livingUiSetActiveId(projectId))
   }, [dispatch])
 
+  const updateLivingUITheme = useCallback((
+    projectId: string,
+    theme: {
+      themeId: string
+      customColors?: { bg: string; surface: string; text: string; accent: string }
+    },
+  ) => {
+    if (client.isConnected) {
+      client.sendString(JSON.stringify({
+        type: 'living_ui_theme_update',
+        projectId,
+        theme,
+      }))
+    }
+  }, [])
+
   return (
     <WebSocketContext.Provider
       value={{
         ...state,
-        // Slice-backed fields injected here so existing consumers don't need
-        // to change their imports yet.
+        // Slice-backed fields injected here so consumers use a single hook.
         messages,
-        hasMoreMessages,
-        loadingOlderMessages,
         actions,
-        hasMoreActions,
-        loadingOlderActions,
-        cancellingTaskId,
-        completingTaskId,
-        resumingTaskId,
-        deletingTaskId,
+        sessions,
         dashboardMetrics,
         filteredMetricsCache,
         onboardingStep,
@@ -736,17 +721,17 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         agentProfilePictureUrl,
         agentProfilePictureHasCustom,
         status,
-        currentTask,
         guiMode,
         footageUrl,
         skillMeta,
         sendMessage,
         sendCommand,
-        clearMessages,
-        cancelTask,
-        completeTask,
-        resumeTask,
-        deleteTask,
+        stopSession,
+        deleteSession,
+        renameSession,
+        clearSession,
+        requestChatHistory,
+        markSessionSeen,
         openFile,
         openFolder,
         requestFilteredMetrics,
@@ -756,11 +741,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         submitOnboardingStep,
         skipOnboardingStep,
         goBackOnboardingStep,
-        markMessagesAsSeen,
-        setReplyTarget,
-        clearReplyTarget,
-        loadOlderMessages,
-        loadOlderActions,
         checkLocalLLM,
         testLocalLLMConnection,
         installLocalLLM,
@@ -780,6 +760,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         stopLivingUI,
         deleteLivingUI,
         setActiveLivingUI,
+        updateLivingUITheme,
       }}
     >
       {children}
@@ -795,4 +776,3 @@ export function useWebSocket() {
   }
   return context
 }
-  

@@ -103,7 +103,7 @@ Combine the usefulness explanation and task suggestions into **ONE message**:
    - Do NOT overwrite: Full Name, Preferred Name, Location, Timezone, Language, Preferred Tone, Preferred Messaging Platform, Prefer Proactive Assistance, Approval Required For
 4. Update `agent_file_system/AGENT.md` if user provided a name for the agent.
 5. Send your explanation of how CraftBot can help and your task suggestions.
-6. End the task with `task_end`. Do not wait for confirmation.
+6. End the task with `end_turn`. Do not wait for confirmation.
 
 ## USER.md Template Reference
 
@@ -147,7 +147,7 @@ and any context gathered from the conversation]
 
 ## Allowed Actions
 
-`send_message`, `read_file`, `stream_edit`, `task_update_todos`, `task_end`
+`send_message`, `read_file`, `stream_edit`, `update_todos`, `end_turn`
 
 ## FORBIDDEN Actions
 
