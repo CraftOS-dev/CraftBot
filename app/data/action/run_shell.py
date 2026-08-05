@@ -332,19 +332,6 @@ def shell_exec_windows(input_data: dict) -> dict:
     for k, v in env_input.items():
         env[str(k)] = str(v)
 
-    # cmd is dispatched differently from powershell/pwsh: passing a LIST to
-    # Popen on Windows runs it through list2cmdline(), which wraps `command`
-    # in an outer quote pair and backslash-escapes every inner `"`. cmd.exe's
-    # own /S quote-stripping does not understand backslash-escaped quotes, so
-    # any command containing an embedded quoted substring (e.g. `claude -p
-    # "<prompt>"`) gets corrupted — confirmed live: a real R8 handoff launch
-    # was reduced to a single word ("You" out of the whole prompt) by this
-    # exact path. Passing the raw string with shell=True instead lets Python
-    # hand it to `cmd.exe /c <string>` directly with no extra escaping layer,
-    # which round-trips embedded quotes correctly (verified, including an
-    # em-dash, byte-for-byte). powershell/pwsh are unaffected — they receive
-    # `command` as a single argv element via -Command either way.
-    use_shell = shell_choice == "cmd"
     if shell_choice == "powershell":
         args = [
             "powershell.exe",
@@ -366,7 +353,8 @@ def shell_exec_windows(input_data: dict) -> dict:
             command,
         ]
     else:
-        args = command
+        # Use /d and /s to ensure quoted commands (e.g., paths with spaces) are handled consistently.
+        args = ["cmd.exe", "/d", "/s", "/c", command]
 
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -377,7 +365,6 @@ def shell_exec_windows(input_data: dict) -> dict:
             bg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
             process = subprocess.Popen(
                 args,
-                shell=use_shell,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
@@ -409,7 +396,6 @@ def shell_exec_windows(input_data: dict) -> dict:
         fg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
         process = subprocess.Popen(
             args,
-            shell=use_shell,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,

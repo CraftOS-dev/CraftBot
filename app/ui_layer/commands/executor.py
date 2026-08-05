@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.errors.envelope import error_fields
 from app.ui_layer.commands.base import CommandResult
 from app.ui_layer.commands.registry import CommandRegistry
 from app.ui_layer.events import UIEvent, UIEventType
@@ -99,11 +98,6 @@ class CommandExecutor:
                 message=f"Command error: {str(e)}",
             )
 
-        # Additive snake_case category/code/severity tags when the command
-        # built its failure via CommandResult.failure(...). Untagged results
-        # (result.info is None) carry no extra keys, same as before this.
-        error_tags = error_fields(result.info) if result.info is not None else {}
-
         # Emit result event
         event_type = (
             UIEventType.COMMAND_EXECUTED
@@ -120,7 +114,6 @@ class CommandExecutor:
                         "success": result.success,
                         "message": result.message,
                         "data": result.data,
-                        **error_tags,
                     },
                 },
                 source_adapter=adapter_id,
@@ -139,7 +132,7 @@ class CommandExecutor:
             self._controller.event_bus.emit(
                 UIEvent(
                     type=msg_type,
-                    data={"message": result.message, **error_tags},
+                    data={"message": result.message},
                     source_adapter=adapter_id,
                     task_id=session_id,
                 )
