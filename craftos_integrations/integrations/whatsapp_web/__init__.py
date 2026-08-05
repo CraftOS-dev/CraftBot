@@ -777,6 +777,20 @@ class WhatsAppWebClient(BasePlatformClient):
             logger.warning(f"[WHATSAPP_WEB] Bridge stop error: {e}")
 
     async def _on_bridge_event(self, event: str, data: Dict[str, Any]) -> None:
+        if event in ("message", "message_sent"):
+            # Receipt is LOGGED: a message that dies in the filters below
+            # must be traceable (2026-08-05 — three debugging rounds because
+            # emitted events vanished without a line). Never log the body.
+            # f-string, NOT printf-style args: the host logger is loguru,
+            # which formats with str.format() — "%s" + positional args
+            # prints the literal placeholders (observed 2026-08-05).
+            logger.info(
+                f"[WhatsApp] {event} event:"
+                f" from={data.get('from', '?')}"
+                f" to={data.get('to', '?')}"
+                f" self_chat={data.get('is_self_chat', 'n/a')}"
+                f" body_len={len(data.get('body', '') or '')}"
+            )
         if event == "message":
             await self._handle_incoming_message(data)
         elif event == "message_sent":
@@ -797,6 +811,13 @@ class WhatsAppWebClient(BasePlatformClient):
             or WhatsAppWebConfig()
         )
         if cfg.self_messages_only:
+            # Deliberate drop, but never a SILENT one: an undocumented drop
+            # here cost a debugging session (2026-08-05 — bridge healthy,
+            # message emitted, agent never triggered).
+            logger.info(
+                f"[WhatsApp] dropping message from {data.get('from', '?')} — "
+                "self_messages_only is enabled (personal command channel mode)"
+            )
             return
 
         msg_id = data.get("id", "")
@@ -861,8 +882,13 @@ class WhatsAppWebClient(BasePlatformClient):
 
     async def _handle_sent_message(self, data: Dict[str, Any]) -> None:
         if not self._listening or not self._message_callback:
+            logger.info("[WhatsApp] sent-message dropped: not listening")
             return
         if not data.get("is_self_chat", False):
+            logger.info(
+                "[WhatsApp] sent-message dropped: not the self chat "
+                f"(to={data.get('to', '?')} from={data.get('from', '?')})"
+            )
             return
 
         msg_id = data.get("id", "")
@@ -876,6 +902,8 @@ class WhatsAppWebClient(BasePlatformClient):
 
         body = data.get("body", "")
         if not body or body.startswith(self._agent_prefix):
+            reason = "empty body" if not body else "agent echo (prefix match)"
+            logger.info(f"[WhatsApp] sent-message dropped: {reason}")
             return
 
         chat = data.get("chat", {})
