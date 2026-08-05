@@ -105,9 +105,7 @@ class SessionManager:
     def list_sessions(self, include_archived: bool = False) -> List[Session]:
         """All sessions: main first, then living_ui, then chats newest-first."""
         sessions = [
-            s
-            for s in self.sessions.values()
-            if include_archived or not s.archived
+            s for s in self.sessions.values() if include_archived or not s.archived
         ]
 
         type_rank = {SessionType.MAIN: 0, SessionType.LIVING_UI: 1, SessionType.CHAT: 2}

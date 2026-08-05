@@ -167,6 +167,9 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
   const [qIndex, setQIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
   const [freeText, setFreeText] = useState('')
+  // True once the backend has run its one adapt follow-up round — sent back
+  // on finalize so it never loops.
+  const [followupDone, setFollowupDone] = useState(false)
 
   // — creating state —
   const [createError, setCreateError] = useState<string | null>(null)
@@ -191,7 +194,15 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
       }),
       onMessage('living_ui_wizard_finalize', (data: any) => {
         if (data?.wizardId !== wid) return
-        if (data.success && data.projectId) {
+        if (data.success && Array.isArray(data.followupQuestions) && data.followupQuestions.length > 0) {
+          // Second interview round (user chose "install & adapt"): the
+          // backend wants to know WHAT to adapt. Finalize only fires after
+          // the last question, so qIndex sits on it — append and step in.
+          setFollowupDone(true)
+          setQuestions(prev => [...prev, ...data.followupQuestions])
+          setQIndex(i => i + 1)
+          setStep('interview')
+        } else if (data.success && data.projectId) {
           onCreated?.(data.projectId)
           onClose()
         } else {
@@ -310,6 +321,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
       wizardId: wizardIdRef.current,
       config: buildConfig(),
       answers: answerList,
+      followupDone,
     })
   }
 

@@ -36,7 +36,9 @@ def _info(category: ErrorCategory) -> LLMErrorInfo:
     return LLMErrorInfo(category=category, title="t", message="m", provider="test")
 
 
-@pytest.mark.parametrize("category", sorted(FAIL_FAST_CATEGORIES, key=lambda c: c.value))
+@pytest.mark.parametrize(
+    "category", sorted(FAIL_FAST_CATEGORIES, key=lambda c: c.value)
+)
 def test_fail_fast_categories_abort_on_first_failure(category):
     fake = _FakeInterface()
     with pytest.raises(LLMConsecutiveFailureError) as exc_info:
@@ -54,7 +56,9 @@ def test_fail_fast_categories_abort_on_first_failure(category):
 def test_transient_categories_keep_retry_budget(category):
     fake = _FakeInterface()
     for _ in range(4):
-        LLMInterface._register_failure(fake, error_info=_info(category))  # must not raise yet
+        LLMInterface._register_failure(
+            fake, error_info=_info(category)
+        )  # must not raise yet
     assert fake._consecutive_failures == 4
 
     with pytest.raises(LLMConsecutiveFailureError) as exc_info:

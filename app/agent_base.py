@@ -616,13 +616,19 @@ class AgentBase:
             # silently suppress redispatch (observed: done machine with
             # mission_id still set).
             try:
-                mission_id = (trigger.payload or {}).get("factory_mission_id") if trigger else None
+                mission_id = (
+                    (trigger.payload or {}).get("factory_mission_id")
+                    if trigger
+                    else None
+                )
                 if mission_id:
                     from app.factory.host_craftbot import get_factory_host
 
                     project_id = (trigger.payload or {}).get("project_id")
                     if project_id:
-                        get_factory_host().mission_run_started(str(project_id), str(mission_id))
+                        get_factory_host().mission_run_started(
+                            str(project_id), str(mission_id)
+                        )
             except Exception as e:
                 logger.debug(f"[FACTORY] mission-start marker failed: {e}")
 
@@ -867,9 +873,7 @@ class AgentBase:
                     continue
                 emoji, label = fmt
                 name = (cause.get("name") or "").strip()
-                lines.append(
-                    f"{emoji} {label}: {name}" if name else f"{emoji} {label}"
-                )
+                lines.append(f"{emoji} {label}: {name}" if name else f"{emoji} {label}")
 
             # Integration messages: user-message entries that arrived from
             # an external platform (typed `platform` field set at ingest;
@@ -1080,7 +1084,6 @@ class AgentBase:
         # actually landed. See spec/A2APP-PLAN.md Phase 1 B10/B11.
         self._report_living_ui_writes(session_id, actions_with_input, results)
 
-
         return self._merge_action_outputs(results)
 
     # Recognises a WRITE through the lui CLI. Reads (list/get) are ignored:
@@ -1142,7 +1145,11 @@ class AgentBase:
             return
 
         if self.event_stream_manager:
-            text = summaries[0] if len(summaries) == 1 else "\n".join(f"• {s}" for s in summaries)
+            text = (
+                summaries[0]
+                if len(summaries) == 1
+                else "\n".join(f"• {s}" for s in summaries)
+            )
             self.event_stream_manager.log(
                 kind="living_ui_write",
                 message=text,
@@ -1180,7 +1187,9 @@ class AgentBase:
         # (action_end carries the full stderr) and so does anyone who opens the
         # actions detail; the conversation stays about what the user asked for.
         if failed:
-            logger.info(f"[A2APP] {target} rejected: {(stderr or stdout).strip()[:200]}")
+            logger.info(
+                f"[A2APP] {target} rejected: {(stderr or stdout).strip()[:200]}"
+            )
             return None
 
         record = None
@@ -1208,7 +1217,12 @@ class AgentBase:
                 logger.debug(f"[A2APP] could not humanise receipt: {e}")
 
         self._lui_run_writes.setdefault(session_id, []).append(
-            {"collection": collection, "verb": verb, "record": record, "summary": summary}
+            {
+                "collection": collection,
+                "verb": verb,
+                "record": record,
+                "summary": summary,
+            }
         )
         return summary
 
@@ -1517,7 +1531,10 @@ class AgentBase:
         while exc is not None and id(exc) not in seen:
             seen.add(id(exc))
             if isinstance(exc, LLMConsecutiveFailureError):
-                info = exc.last_error_info or AgentBase._consecutive_failure_fallback_info(exc)
+                info = (
+                    exc.last_error_info
+                    or AgentBase._consecutive_failure_fallback_info(exc)
+                )
                 return True, exc, info
             if isinstance(exc, ClassifiedError):
                 return False, None, exc.info
@@ -1604,7 +1621,11 @@ class AgentBase:
             # captured, so it's worth the ERROR level here.
             tb = traceback.format_exc()
             logger.error(f"[REACT ERROR] {error}\n{tb}")
-            raw = str(fatal_exc) if fatal_exc is not None else (str(error) or "AI service error")
+            raw = (
+                str(fatal_exc)
+                if fatal_exc is not None
+                else (str(error) or "AI service error")
+            )
             info = self._critical_fallback_info(raw)
         else:
             # Already logged with good detail by whichever layer classified
@@ -1989,6 +2010,28 @@ class AgentBase:
             mgr = get_living_ui_manager()
             if mgr:
                 proj = mgr.get_project(living_ui_project_id)
+                if proj and getattr(proj, "project_type", "native") == "external":
+                    # EXTERNAL app: foreign code running as-is in its own
+                    # runtime — none of the V2 tooling below (lui CLI, PB
+                    # schema, bridge grants) applies to it.
+                    return (
+                        f"[Living UI context] This chat belongs to the "
+                        f"EXTERNAL app '{proj.name}' ({proj.id}) — foreign "
+                        f"code running AS-IS in its own runtime "
+                        f"({proj.app_runtime or 'unknown'}), at "
+                        f"{proj.url or 'not running'}.\n"
+                        f"- Project path: {proj.path}\n"
+                        f"- Run config: {proj.path}/craftbot.json (pipeline "
+                        f"verbs install/build/start/health; {{{{PORT}}}} = "
+                        f"{proj.port})\n"
+                        f"- Runtime log: {proj.path}/logs/app.log\n"
+                        f"- What it is / features: {proj.path}/LIVING_UI.md\n"
+                        f"To change its code or fix it, load the "
+                        f"living-ui-importer skill (use_skill) — edit, then "
+                        f'living_ui_notify_ready(project_id="{proj.id}") to '
+                        f"relaunch (changes apply LIVE — there is no staging "
+                        f"for external apps)."
+                    )
                 if proj:
                     # The DATA MODEL goes in the prompt, not behind a pointer.
                     # Twice now the agent has ignored "Read LIVING_UI.md", never
@@ -2030,7 +2073,7 @@ class AgentBase:
                         f"{model}"
                         f"{caps}"
                         f"Values: dates as ISO or 'tomorrow'/'next monday' (the CLI resolves them);\n"
-                        f"references by name, e.g. --list \"To Do\". Only set fields the user asked for.\n"
+                        f'references by name, e.g. --list "To Do". Only set fields the user asked for.\n'
                         f"AFTER A SUCCESSFUL WRITE the user is ALREADY shown exactly what changed, in\n"
                         f"your voice, generated from the stored record. Do NOT send a message repeating\n"
                         f"it — end the turn. Send a message only to add something that report does not\n"
@@ -2039,8 +2082,8 @@ class AgentBase:
                         f"To OPERATE the app, use the lui CLI via run_shell with ABSOLUTE paths\n"
                         f"(the shell's cwd is NOT the repo root):\n"
                         f'  node {_lui_cli} data {proj.path} <collection> create --field "value"\n'
-                        f'  ALWAYS quote values — an unquoted # starts a shell comment and\n'
-                        f'  silently drops the rest of the command.\n'
+                        f"  ALWAYS quote values — an unquoted # starts a shell comment and\n"
+                        f"  silently drops the rest of the command.\n"
                         f"  node {_lui_cli} data {proj.path} <collection> list --limit 20\n"
                         f"  node {_lui_cli} run {proj.path} <op-name> --param value\n"
                         f"If debugging, read {proj.path}/logs/pocketbase.log and logs/frontend_console.log.\n"
@@ -2301,7 +2344,9 @@ class AgentBase:
         except Exception as e:
             logger.error(
                 classify_provider_error(
-                    e, provider=self.llm.provider, model=getattr(self.llm, "model", "") or ""
+                    e,
+                    provider=self.llm.provider,
+                    model=getattr(self.llm, "model", "") or "",
                 )
             )
 
@@ -2957,7 +3002,9 @@ class AgentBase:
 
             for session_data in storage.get_all_sessions():
                 try:
-                    session = Session.from_dict(json.loads(session_data["session_json"]))
+                    session = Session.from_dict(
+                        json.loads(session_data["session_json"])
+                    )
                     self.session_manager.restore_session(session)
 
                     # Create and restore the session's event stream

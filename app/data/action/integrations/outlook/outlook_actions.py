@@ -1070,9 +1070,7 @@ def get_outlook_automatic_replies(input_data: dict) -> dict:
                     k: v
                     for k, v in {
                         "status": setting.get("status"),
-                        "scheduledStartDateTime": setting.get(
-                            "scheduledStartDateTime"
-                        ),
+                        "scheduledStartDateTime": setting.get("scheduledStartDateTime"),
                         "scheduledEndDateTime": setting.get("scheduledEndDateTime"),
                         "internalReplyMessage": _strip_html(
                             setting.get("internalReplyMessage")

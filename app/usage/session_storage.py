@@ -129,12 +129,8 @@ class SessionStorage:
         """Remove a session and its associated event stream from persistence."""
         with sqlite3.connect(self._db_path) as conn:
             conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
-            conn.execute(
-                "DELETE FROM event_records WHERE stream_id = ?", (session_id,)
-            )
-            conn.execute(
-                "DELETE FROM event_streams WHERE stream_id = ?", (session_id,)
-            )
+            conn.execute("DELETE FROM event_records WHERE stream_id = ?", (session_id,))
+            conn.execute("DELETE FROM event_streams WHERE stream_id = ?", (session_id,))
             conn.commit()
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -157,9 +153,7 @@ class SessionStorage:
         """Return all persisted sessions."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT session_id, session_json, updated_at FROM sessions"
-            )
+            cursor.execute("SELECT session_id, session_json, updated_at FROM sessions")
             rows = cursor.fetchall()
 
         return [

@@ -119,7 +119,9 @@ def _inject_favicon(project_path: Path, favicon_name: str, suffix: str) -> None:
             f'href="/{favicon_name}" />'
         )
         if '<link rel="icon"' in text:
-            text = re.sub(r'^\s*<link rel="icon"[^\n]*$', link, text, flags=re.MULTILINE)
+            text = re.sub(
+                r'^\s*<link rel="icon"[^\n]*$', link, text, flags=re.MULTILINE
+            )
         else:
             marker = "</title>"
             text = text.replace(marker, marker + "\n" + link, 1)
@@ -296,9 +298,7 @@ degrading gracefully offline."""
 
 _MARKETPLACE_CACHE: Dict[str, Any] = {}
 _MARKETPLACE_TTL_SECONDS = 3600
-_MARKETPLACE_RAW_URL = (
-    "https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/catalogue.json"
-)
+_MARKETPLACE_RAW_URL = "https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/catalogue.json"
 
 
 def _marketplace_catalogue() -> List[Dict[str, Any]]:
@@ -317,7 +317,9 @@ def _marketplace_catalogue() -> List[Dict[str, Any]]:
     apps: List[Dict[str, Any]] = []
     raw = None
     for local in (
-        Path(__file__).resolve().parents[2].parent / "living-ui-marketplace" / "catalogue.json",
+        Path(__file__).resolve().parents[2].parent
+        / "living-ui-marketplace"
+        / "catalogue.json",
     ):
         try:
             if local.exists():
@@ -351,10 +353,51 @@ def _marketplace_catalogue() -> List[Dict[str, Any]]:
     return apps
 
 
+def _tokens(text: str) -> set:
+    """Crude match tokens: lowercase alnum words, 3+ chars, plural-stripped."""
+    return {
+        w[:-1] if w.endswith("s") else w
+        for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(w) >= 3
+    }
+
+
+def _rank_marketplace(
+    apps: List[Dict[str, Any]], query: str, k: int = 6
+) -> List[Dict[str, Any]]:
+    """Top-k catalogue candidates for the user's description, scored by
+    lexical overlap (tags > name > description). The interview prompt only
+    ever sees these k — the LLM makes the final same-core-purpose judgment
+    among them, but it must never be handed the whole catalogue: matching
+    degrades and tokens explode as the marketplace grows (fine at 18 apps,
+    unworkable at thousands). Deterministic and in-process; swap for an
+    embedding index if lexical overlap ever proves too blunt."""
+    q = _tokens(query)
+    if not q:
+        return apps[:k]
+
+    def _score(app: Dict[str, Any]) -> int:
+        tag_tokens = _tokens(" ".join(app.get("tags") or []))
+        name_tokens = _tokens(str(app.get("name", "")) + " " + str(app.get("id", "")))
+        desc_tokens = _tokens(str(app.get("description", "")))
+        return 3 * len(q & tag_tokens) + 2 * len(q & name_tokens) + len(q & desc_tokens)
+
+    scored = sorted(
+        ((_score(a), i, a) for i, a in enumerate(apps)),
+        key=lambda t: (-t[0], t[1]),
+    )
+    hits = [a for s, _, a in scored if s > 0][:k]
+    # Nothing overlaps at all → offer nothing; the MARKETPLACE CHECK rule
+    # already says never to force the question without a genuine match.
+    return hits
+
+
 def _render_marketplace(apps: List[Dict[str, Any]]) -> str:
     if not apps:
         return ""
-    lines = ["\nMARKETPLACE — ready-made apps that can be installed instead of building:"]
+    lines = [
+        "\nMARKETPLACE — ready-made apps that can be installed instead of building:"
+    ]
     for a in apps:
         tags = (" [" + ", ".join(a["tags"][:4]) + "]") if a["tags"] else ""
         lines.append(f"- {a['id']}: {a['name']} — {a['description']}{tags}")
@@ -388,19 +431,195 @@ a shared word), your FIRST question must present it BY NAME and offer exactly: \
 "Install <name> as-is (ready now)", "Install <name> and adapt it to my needs", \
 "Build a fresh app from scratch". Reusing a finished app is the user's \
 decision — never silently rebuild what exists, and never force the question \
-when nothing genuinely matches.
+when nothing genuinely matches. When you DO ask it, it may be your only \
+question in this batch — the system runs a follow-up round with the detail \
+questions once the user's choice is known, so don't pad this batch with \
+questions that assume one branch.
 
 Respond with STRICT JSON only (no prose, no markdown fence):
 {{"questions": [{{"id": "q1", "question": "...", "why": "one short sentence on why this matters", "multiSelect": false, "options": ["...", "...", "...", "..."]}}]}}"""
 
 
-async def generate_interview(
-    config: Dict[str, Any], image_notes: List[str]
+# The MARKETPLACE CHECK option wordings are mandated by
+# INTERVIEW_SYSTEM_PROMPT, so both choices are detectable verbatim in the
+# answers.
+_ADAPT_MARKER = "adapt it to my needs"
+_FRESH_MARKER = "fresh app from scratch"
+
+
+def adapt_chosen(answers: List[Dict[str, Any]]) -> bool:
+    """True when the user answered the marketplace question with the
+    'Install <name> and adapt it to my needs' option."""
+    for a in answers or []:
+        if _ADAPT_MARKER in str(a.get("answer", "")).lower():
+            return True
+    return False
+
+
+def fresh_build_chosen(answers: List[Dict[str, Any]]) -> bool:
+    """True when the user answered the marketplace question with
+    'Build a fresh app from scratch'."""
+    for a in answers or []:
+        if _FRESH_MARKER in str(a.get("answer", "")).lower():
+            return True
+    return False
+
+
+FOLLOWUP_SYSTEM_PROMPT = """You are a requirements interviewer for a web-app \
+builder. The user chose to install an existing marketplace app but ADAPT it to \
+their needs — and has not yet said what those needs are. Generate 2-4 \
+follow-up questions that pin down EXACTLY what should be different from the \
+marketplace version.
+
+THE ONE RULE: every option must be a CONCRETE ADAPTATION the spec writer \
+could paste in verbatim — a statement of the change itself, never a category \
+of change. BANNED: "Change the board columns", "Modify fields on cards", \
+"Update look and feel" — picking one of those teaches the builder NOTHING. \
+GOOD: "Rename the columns to Backlog / In Progress / Done", "Remove the \
+checklists and due dates from cards", "Add an assignee field to each card", \
+"Keep it exactly as described". Never ask a single "what kind of change do \
+you want?" question — ask one question PER dimension the app's description \
+exposes (its stages/entities, its card/record fields, its extra features, \
+its look), each with concrete candidate changes for THAT dimension drawn \
+from the app's own described features. The user can always type a free \
+answer, so options are the most likely concrete choices — and every \
+question includes a "Keep this as the marketplace version has it" option.
+
+Ground everything in the app's description and the user's words; never \
+invent capabilities neither of them mentions.
+
+Respond with STRICT JSON only (no prose, no markdown fence):
+{"questions": [{"id": "f1", "question": "...", "why": "one short sentence", "multiSelect": false, "options": ["...", "..."]}]}"""
+
+
+def _adapt_target(answers: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The catalogue entry of the app the user chose to adapt, parsed from
+    the mandated option wording. None when unresolvable (fail-open)."""
+    chosen = ""
+    for a in answers or []:
+        m = re.search(
+            r"install\s+(.+?)\s+and adapt it to my needs",
+            str(a.get("answer", "")),
+            re.IGNORECASE,
+        )
+        if m:
+            chosen = m.group(1).strip().lower()
+            break
+    if not chosen:
+        return None
+    try:
+        for app in _marketplace_catalogue():
+            if chosen in (
+                str(app.get("id", "")).lower(),
+                str(app.get("name", "")).lower(),
+            ):
+                return app
+    except Exception:
+        return None
+    return None
+
+
+async def generate_followup_questions(
+    config: Dict[str, Any],
+    answers: List[Dict[str, Any]],
+    image_notes: List[str],
 ) -> List[Dict[str, Any]]:
-    """Generate interview questions from the wizard configuration."""
+    """Second interview round, run only when the user picked the marketplace
+    ADAPT option: ask what should actually be different. Observed live
+    (2026-08-05, kanban board): without this round the synthesis had no
+    material and fabricated the adaptation list. Returns [] on any failure —
+    the caller falls through to synthesis rather than blocking the wizard."""
+    answer_lines = [
+        f"Q: {str(a.get('question', '')).strip()}\nA: {str(a.get('answer', '')).strip()}"
+        for a in answers or []
+        if str(a.get("question", "")).strip() and str(a.get("answer", "")).strip()
+    ]
+    # The model can only propose CONCRETE deltas if it knows what the app
+    # HAS — without the catalogue entry it retreats to category options
+    # ("change the columns") that teach the spec writer nothing (observed
+    # live 2026-08-05, kanban-board adapt).
+    target = _adapt_target(answers)
+    target_part = (
+        (
+            f"\n\nThe marketplace app being adapted:\n"
+            f"{target['id']}: {target['name']} — {target['description']}"
+            + (
+                (" [" + ", ".join(target["tags"][:6]) + "]")
+                if target.get("tags")
+                else ""
+            )
+        )
+        if target
+        else ""
+    )
     user_prompt = (
         _render_config(config, image_notes)
-        + _render_marketplace(_marketplace_catalogue())
+        + target_part
+        + "\n\nAnswers so far:\n"
+        + ("\n\n".join(answer_lines) if answer_lines else "(none)")
+        + "\n\nGenerate the follow-up questions now (STRICT JSON)."
+    )
+    try:
+        raw = await _llm(
+            FOLLOWUP_SYSTEM_PROMPT,
+            user_prompt,
+            prompt_name="LIVING_UI_WIZARD_FOLLOWUP",
+        )
+        data = _parse_json(raw)
+        cleaned: List[Dict[str, Any]] = []
+        for i, q in enumerate(data.get("questions") or []):
+            text = str(q.get("question", "")).strip()
+            options = [
+                str(o).strip() for o in (q.get("options") or []) if str(o).strip()
+            ]
+            if not text or len(options) < 2:
+                continue
+            cleaned.append(
+                {
+                    "id": str(q.get("id") or f"f{i + 1}"),
+                    "question": text,
+                    "why": str(q.get("why", "")).strip(),
+                    "multiSelect": bool(q.get("multiSelect", False)),
+                    "options": options[:6],
+                }
+            )
+        return cleaned[:3]
+    except Exception as e:
+        logger.warning(f"[LIVING_UI:WIZARD] follow-up generation failed: {e}")
+        return []
+
+
+async def generate_interview(
+    config: Dict[str, Any],
+    image_notes: List[str],
+    include_marketplace: bool = True,
+) -> List[Dict[str, Any]]:
+    """Generate interview questions from the wizard configuration.
+
+    include_marketplace=False runs the SECOND round after the user chose
+    'Build a fresh app from scratch': with a marketplace match, models make
+    the marketplace question the ONLY round-1 question (observed live
+    2026-08-05, kanban board — the fresh build then synthesized from a
+    one-line description with zero requirement questions asked), so the real
+    interview happens now, with the catalogue withheld so it cannot re-ask.
+    """
+    marketplace_part = (
+        _render_marketplace(
+            _rank_marketplace(
+                _marketplace_catalogue(),
+                f"{config.get('name', '')} {config.get('description', '')}",
+            )
+        )
+        if include_marketplace
+        else (
+            "\n\nThe user already chose to BUILD FRESH FROM SCRATCH (the "
+            "marketplace was offered and declined) — ask the normal "
+            "requirement questions; never ask about installing existing apps."
+        )
+    )
+    user_prompt = (
+        _render_config(config, image_notes)
+        + marketplace_part
         + "\n\nGenerate the interview questions now (STRICT JSON)."
     )
     raw = await _llm(
@@ -440,31 +659,10 @@ async def generate_interview(
 
 # ── synthesis ───────────────────────────────────────────────────────────────
 
-SYNTHESIS_SYSTEM_PROMPT = f"""You write the requirements document for a web-app build. \
-You receive the user's app description, their configuration choices, descriptions of \
-their reference files, and their interview answers. Rewrite ALL of it into ONE \
-comprehensive, binding specification the builder agent will implement exactly.
-
-{_PLATFORM_REALITY}
-
-The spec is BINDING and the builder cannot question it, so it must be \
-implementable exactly as written. If an interview answer implies a mechanism \
-the platform cannot execute (inbound webhooks, OAuth, token entry), translate \
-the INTENT into the platform's equivalent (bridge pull on load/refresh plus a \
-scheduled sync operation) and write THAT.
-
-If an interview answer chose to INSTALL a marketplace app (as-is or adapted), \
-the document's FIRST line must be exactly: \
-`MARKETPLACE DECISION: install <app-id>; adapt: <yes|no>` followed by a short \
-list of requested adaptations (if any). The builder installs that app via \
-living_ui_marketplace_install and applies only the adaptations — it must NOT \
-build from scratch.
-
-NEVER weaken a user-stated deliverable when rewriting: "email me" means the \
-user RECEIVES an email (via the bridge's send_gmail action) — not "queues", \
-"logs", or "prepares" one. Preserve user-visible outcomes verbatim.
-
-The document is markdown with EXACTLY these sections:
+# The document template + rules shared by BOTH synthesis prompts (interview
+# and source-derived) — one definition so they can never drift apart, same
+# reasoning as _PLATFORM_REALITY.
+_REQUIREMENTS_TEMPLATE = """The document is markdown with EXACTLY these sections:
 
 # <App name> — Requirements
 
@@ -503,10 +701,142 @@ context menus, responsiveness) — concrete and scoped, not a generic checklist.
 Rules:
 - Every statement must be concrete and checkable; ban filler like "user-friendly", \
 "modern", "polished".
-- Preserve EVERY decision the user made in the configuration and interview — \
-nothing they chose may be dropped or diluted.
 - Where input is silent, decide — the builder must never need to ask.
 - Respond with the markdown document ONLY (no fence, no preamble)."""
+
+
+SYNTHESIS_SYSTEM_PROMPT = f"""You write the requirements document for a web-app build. \
+You receive the user's app description, their configuration choices, descriptions of \
+their reference files, and their interview answers. Rewrite ALL of it into ONE \
+comprehensive, binding specification the builder agent will implement exactly.
+
+{_PLATFORM_REALITY}
+
+The spec is BINDING and the builder cannot question it, so it must be \
+implementable exactly as written. If an interview answer implies a mechanism \
+the platform cannot execute (inbound webhooks, OAuth, token entry), translate \
+the INTENT into the platform's equivalent (bridge pull on load/refresh plus a \
+scheduled sync operation) and write THAT.
+
+If an interview answer chose to INSTALL a marketplace app (as-is or adapted), \
+the document is SHORT and different from the template below. Its FIRST line \
+must be exactly: `MARKETPLACE DECISION: install <app-id>; adapt: <yes|no>`, \
+then a `## Adaptations` list, then a `## User request` section quoting the \
+user's own description — and NOTHING else. Do NOT generate the Features/Data/\
+Design/Operations/Quality-of-Life sections for a marketplace install: the \
+installed app already IS the specification, and an invented spec misleads \
+verification. Adaptation bullets may ONLY restate changes the user explicitly \
+asked for (in their description or interview answers), phrased as checkable \
+"the user can ..." statements. If the user chose to adapt but stated no \
+concrete changes anywhere, write `adapt: yes` with the single bullet \
+`- none specified — ask the user before changing anything`; never invent \
+adaptations. The builder installs that app via living_ui_marketplace_install \
+and applies only the adaptations — it must NOT build from scratch.
+
+NEVER weaken a user-stated deliverable when rewriting: "email me" means the \
+user RECEIVES an email (via the bridge's send_gmail action) — not "queues", \
+"logs", or "prepares" one. Preserve user-visible outcomes verbatim.
+
+{_REQUIREMENTS_TEMPLATE}
+- Preserve EVERY decision the user made in the configuration and interview — \
+nothing they chose may be dropped or diluted."""
+
+
+SOURCE_SYNTHESIS_SYSTEM_PROMPT = f"""You write the requirements document for \
+REBUILDING an existing app on a new platform. You receive the app's source \
+code (README, dependency manifests, routes, models, UI files — possibly \
+truncated). The original runs on a DIFFERENT stack; only the BEHAVIOR is \
+being carried over, never the code. Describe what the app DOES for its user \
+— every capability you can actually evidence in the source — as a binding \
+specification the builder agent will implement from scratch.
+
+{_PLATFORM_REALITY}
+
+Ground every statement in the source: a feature you cannot point to in the \
+code does not go in the document. If the source integrates services this \
+platform reaches differently (its own SMTP, OAuth, webhooks), translate the \
+INTENT into the platform's equivalent (bridge actions, scheduled sync) — and \
+if the source's purpose for it is unclear, OMIT it rather than guess. Never \
+describe implementation details of the old stack (frameworks, file names, \
+endpoints) — describe user-visible behavior.
+
+{_REQUIREMENTS_TEMPLATE}"""
+
+
+def _render_source(source_dir: Path) -> str:
+    """Deterministic prompt rendering of a foreign app's source tree: the
+    file listing plus the contents of the most informative files (README
+    first, then dependency manifests, then route/model/schema/UI-looking
+    files), truncated per-file and capped overall. Pure, read-only."""
+    source_dir = Path(source_dir)
+    per_file_cap = 3000
+    total_cap = 24000
+    listing: List[str] = []
+    files: List[Path] = []
+    for f in sorted(source_dir.rglob("*")):
+        if not f.is_file():
+            continue
+        rel = f.relative_to(source_dir)
+        if len(listing) < 200:
+            listing.append(str(rel))
+        files.append(f)
+
+    def _score(f: Path) -> int:
+        name = f.name.lower()
+        rel = str(f.relative_to(source_dir)).lower()
+        if name.startswith("readme"):
+            return 0
+        if name in ("package.json", "pyproject.toml", "go.mod", "cargo.toml"):
+            return 1
+        if re.search(r"(route|model|schema|api|urls|views|controller)", rel):
+            return 2
+        if name.endswith((".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rb")):
+            return 3
+        return 4
+
+    parts = ["File tree:\n" + "\n".join(listing)]
+    used = len(parts[0])
+    for f in sorted(files, key=lambda f: (_score(f), str(f))):
+        if _score(f) >= 4 or used >= total_cap:
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")[:per_file_cap]
+        except Exception:
+            continue
+        if not text.strip():
+            continue
+        chunk = f"\n\n--- {f.relative_to(source_dir)} ---\n{text}"
+        if used + len(chunk) > total_cap:
+            continue
+        parts.append(chunk)
+        used += len(chunk)
+    return "".join(parts)
+
+
+async def synthesize_requirements_from_source(
+    source_dir: Path, app_name: str, user_hint: str = ""
+) -> str:
+    """Derive the requirements document from a foreign app's source code
+    (LIFECYCLE-PLAN Phase 4: conversion = rebuild with the source as
+    evidence). Same output contract as synthesize_requirements."""
+    user_prompt = (
+        f"App name: {app_name}\n"
+        + (f"User's note on what matters: {user_hint}\n" if user_hint else "")
+        + "\nThe app's source code:\n\n"
+        + _render_source(Path(source_dir))
+        + "\n\nWrite the requirements document now."
+    )
+    doc = await _llm(
+        SOURCE_SYNTHESIS_SYSTEM_PROMPT,
+        user_prompt,
+        prompt_name="LIVING_UI_SOURCE_SYNTHESIS",
+    )
+    doc = _unwrap_document(doc or "")
+    if len(doc) < 200:
+        raise ValueError(
+            "source-requirements synthesis returned an implausibly short document"
+        )
+    return doc
 
 
 async def synthesize_requirements(
@@ -533,10 +863,71 @@ async def synthesize_requirements(
     doc = await _llm(
         SYNTHESIS_SYSTEM_PROMPT, user_prompt, prompt_name="LIVING_UI_WIZARD_SYNTHESIS"
     )
-    doc = (doc or "").strip()
+    doc = _unwrap_document(doc or "")
+    # The short-document guard protects against a truncated/empty LLM
+    # response becoming the binding spec — but marketplace-decision documents
+    # are SHORT by mandate ("install X; adapt: no" + the user's one-liner is
+    # complete and correct at well under 200 chars). Observed live
+    # 2026-08-05: a valid as-is install doc tripped the guard and failed the
+    # whole wizard finalize. Exempt them; require only the decision line.
+    if doc.startswith("MARKETPLACE DECISION:"):
+        if not re.match(
+            r"^MARKETPLACE DECISION: install [A-Za-z0-9_-]+; adapt: (yes|no)\s*$",
+            doc.splitlines()[0],
+        ):
+            raise ValueError("marketplace decision line is malformed")
+        return doc
+    if len(doc) < 200:
+        raise ValueError(
+            "requirements synthesis returned an implausibly short document"
+        )
+    return doc
+
+
+def _unwrap_document(doc: str) -> str:
+    """Strip a code fence and/or JSON envelope off an LLM-written document.
+
+    Some providers return JSON even when told "markdown only". Observed live
+    (kanban_board_1bb64990, 2026-08-04): grok wrapped the whole requirements
+    document as {"document": "# kanban...\\n..."} — the file shipped as
+    escaped JSON and the verifier, unable to read it as markdown, collapsed
+    a 9-feature spec into "1 feature verified". And again 2026-08-05: a
+    SHORT-by-mandate marketplace-decision doc arrived in the same envelope,
+    slipped past the old ≥200-char unwrap heuristic, and tripped the
+    short-document guard while still wrapped. Unwrap: a decision-prefixed
+    value always wins; a dict with exactly one string value unwraps
+    regardless of length; multiple strings fall back to the single-long-one
+    rule; a bare JSON string unwraps. Everything else is untouched.
+    """
+    doc = doc.strip()
     if doc.startswith("```"):
         doc = re.sub(r"^```[a-zA-Z]*\s*", "", doc)
         doc = re.sub(r"\s*```$", "", doc)
-    if len(doc) < 200:
-        raise ValueError("requirements synthesis returned an implausibly short document")
+        doc = doc.strip()
+    if doc.startswith("{"):
+        try:
+            parsed = json.loads(doc)
+            if isinstance(parsed, dict):
+                strings = [
+                    v.strip()
+                    for v in parsed.values()
+                    if isinstance(v, str) and v.strip()
+                ]
+                decision = [s for s in strings if s.startswith("MARKETPLACE DECISION:")]
+                if decision:
+                    return decision[0]
+                if len(strings) == 1:
+                    return strings[0]
+                long_strings = [s for s in strings if len(s) >= 200]
+                if len(long_strings) == 1:
+                    return long_strings[0]
+        except Exception:
+            pass
+    elif doc.startswith('"'):
+        try:
+            parsed = json.loads(doc)
+            if isinstance(parsed, str):
+                return parsed.strip()
+        except Exception:
+            pass
     return doc

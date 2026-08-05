@@ -231,7 +231,7 @@ class ActionManager:
         # if getattr(action, "irreversible", False) and self._idempotency_guard:
 
         # TODO: Temporary turning idempotency guard off.
-        if 1==0:
+        if 1 == 0:
             try:
                 decision = self._idempotency_guard.begin(
                     action.name, input_data, session_id

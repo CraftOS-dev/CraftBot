@@ -48,8 +48,12 @@ def transition(state: str, outcome: Outcome) -> Decision:  # noqa: C901
         # is a STATE the machine enters, not a step the agent remembers.
         if outcome.payload.get("needs_research"):
             return Decision(
-                RESEARCHING, DISPATCH_MISSION,
-                payload={"mission": "research", "topics": outcome.payload.get("topics", [])},
+                RESEARCHING,
+                DISPATCH_MISSION,
+                payload={
+                    "mission": "research",
+                    "topics": outcome.payload.get("topics", []),
+                },
             )
         return Decision(GATING)
     if state == RESEARCHING and outcome.ok:
@@ -71,16 +75,28 @@ def transition(state: str, outcome: Outcome) -> Decision:  # noqa: C901
     if state == VERIFYING and outcome.payload.get("unknown_verdict"):
         # Fail closed: NEVER announce on an unparseable verdict (§3.3).
         if outcome.payload.get("already_retried"):
-            return Decision(STUCK, ANNOUNCE_STUCK, reason="verifier verdict unparseable twice")
-        return Decision(VERIFYING, NONE, reason="re-verify once", payload={"redo": "verify"})
-
-    if state in (GATING, LAUNCHING, VERIFYING, BUILDING, MODIFYING, FIXING) and not outcome.ok:
+            return Decision(
+                STUCK, ANNOUNCE_STUCK, reason="verifier verdict unparseable twice"
+            )
         return Decision(
-            FIXING, DISPATCH_MISSION,
+            VERIFYING, NONE, reason="re-verify once", payload={"redo": "verify"}
+        )
+
+    if (
+        state in (GATING, LAUNCHING, VERIFYING, BUILDING, MODIFYING, FIXING)
+        and not outcome.ok
+    ):
+        return Decision(
+            FIXING,
+            DISPATCH_MISSION,
             payload={"mission": "fix", "cards": outcome.payload.get("cards", [])},
         )
     if state in (INTERVIEWING, SPECIFYING, RESEARCHING) and not outcome.ok:
         # Pre-code states failing is a host/wizard problem, not a fix mission.
-        return Decision(STUCK, ANNOUNCE_STUCK, reason=f"{state} failed: {outcome.payload}")
+        return Decision(
+            STUCK, ANNOUNCE_STUCK, reason=f"{state} failed: {outcome.payload}"
+        )
 
-    return Decision(STUCK, ANNOUNCE_STUCK, reason=f"undefined transition: {state}/{outcome.ok}")
+    return Decision(
+        STUCK, ANNOUNCE_STUCK, reason=f"undefined transition: {state}/{outcome.ok}"
+    )

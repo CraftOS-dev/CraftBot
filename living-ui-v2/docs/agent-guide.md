@@ -80,7 +80,51 @@ const res = bridge.callIntegration('slack', 'POST', '/chat.postMessage', { ... }
 `callLLM` returns `''` and `callIntegration` returns `{status: 503, ...}` when
 the app runs outside CraftBot — degrade gracefully (skip the feature, never
 crash the route). Only integrations the user has connected in CraftBot work;
-treat non-2xx `status` as "not available".
+treat non-2xx `status` as "not available". The bridge fails closed on grants:
+the project's `manifest.json` (system-managed) must list the integration under
+`capabilities.integrations`.
+
+### 4.2 Third-party APIs (weather, stocks, anything public)
+
+The bridge is for CraftBot's connected services only. Everything else is a
+direct `$http.send` from a hook — apps stay self-contained and keep working
+when deployed outside CraftBot.
+
+**Handlers run in isolated VMs**: a `routerAdd`/`cronAdd` callback cannot see
+file-level `const`s or functions (`X is not defined` at request time, invisible
+to the gate). Put shared logic in a plain `.js` module and `require()` it
+INSIDE each callback:
+
+```js
+// pb/pb_hooks/weather.js (module — its own scope IS visible internally)
+const OPEN_METEO = 'https://api.open-meteo.com/v1/forecast'; // literal → recorded as egress
+function refreshAll(app) {
+  const res = $http.send({ url: OPEN_METEO + '?latitude=53.48&longitude=-2.24&current=temperature_2m', method: 'GET', timeout: 20 });
+  if (res.statusCode !== 200) throw new Error('source returned HTTP ' + res.statusCode);
+  const data = res.json; // pre-parsed. NEVER JSON.parse(String(res.body)) — body is a
+                         // Go byte slice; String() on it yields garbage and throws.
+  // …store via app.save(...) and return readings
+}
+module.exports = { refreshAll: refreshAll };
+
+// pb/pb_hooks/ops.pb.js
+routerAdd('POST', '/api/ops/weather-refresh', (e) => {
+  const weather = require(`${__hooks}/weather.js`);
+  try { return e.json(200, { updated: weather.refreshAll(e.app).length }); }
+  catch (err) {
+    console.error('weather-refresh failed:', err);  // → pocketbase.log: keep the cause visible
+    return e.json(502, { error: String(err) });
+  }
+});
+```
+
+Rules: hooks only (never frontend `fetch` — CORS breaks and keys would be
+public); always set `timeout`; research the API before writing the hook
+(endpoint, auth, response shape); keep base URLs as string literals — the
+gate derives `capabilities.external_hosts` from them. Periodic syncs:
+`cronAdd('jobId', '*/15 * * * *', () => { … })` calling the same module. An
+unreachable source means `console.error` + a clean error response and the
+UI's offline/empty state — never generated stand-in data.
 
 ## 5. Frontend
 

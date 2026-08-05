@@ -461,9 +461,7 @@ class ContextEngine:
                 lines.append(f"Session Title: {session.title}")
             if getattr(session, "living_ui_project_id", None):
                 lines.append(f"Living UI Project: {session.living_ui_project_id}")
-            lines.append(
-                f"Loaded Action Sets: {['core'] + list(session.action_sets)}"
-            )
+            lines.append(f"Loaded Action Sets: {['core'] + list(session.action_sets)}")
             if session.selected_skills:
                 lines.append(f"Loaded Skills: {list(session.selected_skills)}")
 

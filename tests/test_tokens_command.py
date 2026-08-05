@@ -11,9 +11,7 @@ from app.ui_layer.commands.builtin.tokens import TokensCommand
 def _run(session):
     """Execute /tokens against a stub controller holding `session`."""
     controller = SimpleNamespace(
-        agent=SimpleNamespace(
-            session_manager=SimpleNamespace(get=lambda _id: session)
-        )
+        agent=SimpleNamespace(session_manager=SimpleNamespace(get=lambda _id: session))
     )
     return asyncio.run(TokensCommand(controller).execute([], session_id="s1"))
 

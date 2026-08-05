@@ -1,7 +1,6 @@
 """Living UI actions for agent to notify UI status and progress."""
 
 import logging
-from pathlib import Path
 
 from agent_core import action
 
@@ -198,6 +197,9 @@ async def living_ui_scaffold(input_data: dict) -> dict:
     description=(
         "Launch or RELAUNCH a Living UI project: installs dependencies, runs the "
         "validation gate, restarts backend and frontend, notifies the browser. "
+        "On a DELIVERED app it instead gates and boots a STAGING copy (cloned "
+        "disposable data, hidden port) and returns its URL — the user's live "
+        "app keeps running the previous version until walk_verify passes. "
         "Call this ONLY after CREATING or CHANGING the app's CODE (migrations, "
         "hooks, frontend). An app that is already running does NOT need it — "
         "adding, editing or deleting DATA never requires a relaunch, and calling "
@@ -261,8 +263,32 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
                 "message": "Living UI manager not initialized. Browser adapter may not be running.",
             }
 
-        # Run the full pipeline: install → test → launch → verify
-        result = await manager.launch_and_verify(project_id)
+        # DELIVERED apps are gated and served in a STAGING copy: the gate's
+        # vite build overwrites the served pb_public in place, so running the
+        # normal pipeline on the real dir would blank the user's live UI —
+        # and testing against the real port would pollute real data. The
+        # live app keeps running the previous working version until
+        # walk_verify passes and flips it. EXTERNAL apps have no staging
+        # (nothing pb/-shaped to clone) — they always (re)launch live via
+        # their own pipeline.
+        _proj_pre = manager.get_project(project_id)
+        _is_external = (
+            _proj_pre is not None
+            and getattr(_proj_pre, "project_type", "native") == "external"
+        )
+        _is_delivered = False
+        try:
+            from app.factory.host_craftbot import get_factory_host as _gfh
+
+            _is_delivered = _gfh().is_delivered(project_id)
+        except Exception:
+            pass
+
+        if _is_delivered and not _is_external:
+            result = await manager.launch_staging(project_id)
+        else:
+            # Run the full pipeline: install → test → launch → verify
+            result = await manager.launch_and_verify(project_id)
 
         if result["status"] == "success":
             url = result.get("url", "")
@@ -281,11 +307,53 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
                 get_factory_host().report_launch_success(project_id)
             except Exception:
                 pass
+            staging_note = (
+                "This is a STAGING copy with a disposable clone of the data — "
+                "the user's live app is untouched and still runs the previous "
+                "version; a passing walk_verify deploys your change to it. "
+                "Test freely against the staging URL. "
+                if _is_delivered and not _is_external
+                else (
+                    "This EXTERNAL app runs live in its own runtime — changes "
+                    "apply directly; evidence is in logs/app.log. "
+                    if _is_external and _is_delivered
+                    else ""
+                )
+            )
+            # Warn-only spec belt (LIFECYCLE-PLAN Phase 1): a modify whose
+            # request never reached requirements.md gets verified against a
+            # stale contract — the verifier can't cover a change nobody
+            # recorded. Never blocks a launch; everything here fails open.
+            spec_note = ""
+            if _is_delivered and not _is_external and _proj_ok is not None:
+                try:
+                    from pathlib import Path as _Path
+
+                    from app.factory.host_craftbot import get_factory_host as _gfh3
+
+                    _req = _Path(str(_proj_ok.path)) / "reference" / "requirements.md"
+                    _delivered_ts = _gfh3().delivered_at(project_id)
+                    if (
+                        _req.exists()
+                        and _delivered_ts
+                        and _req.stat().st_mtime < _delivered_ts
+                        and "## Changes"
+                        not in _req.read_text(encoding="utf-8", errors="replace")
+                    ):
+                        spec_note = (
+                            "WARNING: reference/requirements.md has not been "
+                            "updated since delivery — append this change to "
+                            "its '## Changes' section (dated bullet) BEFORE "
+                            "verifying, or the verifier will check a stale "
+                            "spec and skip your change. "
+                        )
+                except Exception:
+                    spec_note = ""
             return {
                 "status": "success",
                 "message": (
                     f"App launched at {url} — gate, health and smoke checks "
-                    "passed. NOT VERIFIED YET: now call "
+                    f"passed. {staging_note}{spec_note}NOT VERIFIED YET: now call "
                     f'living_ui_walk_verify(project_id="{project_id}") to run '
                     "the independent verifier against the running app. The "
                     "build is complete ONLY when that returns success — do "
@@ -345,13 +413,15 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
         "UI project: a real browser (headless) drives the app "
         "feature-by-feature against reference/requirements.md. A clean "
         "verdict announces the app to the user — the ONLY way a Living UI "
-        "BUILD completes. Observed defects return the failure report: fix, "
+        "BUILD completes. On a DELIVERED app it verifies the STAGING copy "
+        "(disposable data clone) and a clean verdict DEPLOYS the change to "
+        "the live app. Observed defects return the failure report: fix, "
         "relaunch with living_ui_notify_ready, then call this again. "
-        "Requires the app to be running (living_ui_notify_ready first). "
-        "ONLY after building or modifying the app's CODE. NEVER after a data "
-        "change: it drives a real browser and CLICKS through the UI, including "
-        "buttons that create records, so running it against an app holding the "
-        "user's data can alter that data."
+        "Requires living_ui_notify_ready first (it boots the app — or, for "
+        "a delivered app, its staging copy). "
+        "ONLY after building or modifying the app's CODE, never after a "
+        "plain data change: it clicks through the UI creating test records "
+        "(isolated from the user's data, but pointless for data edits)."
     ),
     default=False,
     mode="CLI",
@@ -412,7 +482,34 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
         project = manager.get_project(project_id) if manager else None
         if project is None:
             return {"status": "error", "message": f"Unknown project: {project_id}"}
-        if project.status != "running":
+
+        # DELIVERED apps verify against their STAGING copy (disposable data
+        # clone on a hidden port) — never against the live app, whose DB
+        # holds real user data. `url` stays the REAL app's address: it is
+        # what gets announced after the flip. EXTERNAL apps have no staging
+        # (no pb_data to protect) — they always verify live and follow the
+        # build-mode branches (finalize is a safe no-op: no baseline).
+        _is_external = getattr(project, "project_type", "native") == "external"
+        _staging_record = None
+        try:
+            from app.factory.host_craftbot import get_factory_host as _gfh
+
+            if not _is_external and _gfh().is_delivered(project_id):
+                _staging_record = _gfh().get_staging_record(project_id)
+                if not _staging_record:
+                    return {
+                        "status": "error",
+                        "message": (
+                            "This app is delivered — verification runs against "
+                            "a staging copy, and none exists. Call "
+                            "living_ui_notify_ready first (it boots the "
+                            "staging copy), then verify."
+                        ),
+                    }
+        except Exception:
+            _staging_record = None
+
+        if _staging_record is None and project.status != "running":
             return {
                 "status": "error",
                 "message": (
@@ -421,6 +518,8 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
                 ),
             }
         url = f"http://127.0.0.1:{project.port}"
+        verify_url = str(_staging_record.get("url")) if _staging_record else url
+        verify_path = str(_staging_record.get("dir")) if _staging_record else None
 
         try:
             await broadcast_living_ui_progress(
@@ -436,13 +535,24 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             # Belt-and-suspenders ceiling above the runner's own 30-min wall
             # cap: even if the verifier wedges, the turn must end. Timeout =
             # tooling failure (blocked), never an app defect.
-            report = await _asyncio.wait_for(run_walk_verify(project), timeout=2100)
+            report = await _asyncio.wait_for(
+                run_walk_verify(project, base_url=verify_url, project_path=verify_path),
+                timeout=2100,
+            )
         except _asyncio.TimeoutError:
-            report = {"kind": "blocked", "passed": [], "defects": [],
-                      "raw": "walk_verify exceeded the 35-minute ceiling"}
+            report = {
+                "kind": "blocked",
+                "passed": [],
+                "defects": [],
+                "raw": "walk_verify exceeded the 35-minute ceiling",
+            }
         except Exception as verify_err:
-            report = {"kind": "blocked", "passed": [], "defects": [],
-                      "raw": f"walk_verify crashed: {verify_err}"}
+            report = {
+                "kind": "blocked",
+                "passed": [],
+                "defects": [],
+                "raw": f"walk_verify crashed: {verify_err}",
+            }
 
         kind = (report or {}).get("kind")
         passed_n = len((report or {}).get("passed") or [])
@@ -498,7 +608,11 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
 
         if kind == "defects":
             # Observed misbehavior — the only thing that blocks a launch.
-            await manager.stop_project(project_id)
+            # Staging mode: the LIVE app runs the previous working version
+            # and stays up — availability wins; only the broken change (in
+            # the staging copy) is withheld. Build mode: stop as before.
+            if _staging_record is None:
+                await manager.stop_project(project_id)
             defects = report.get("defects") or []
             raw = (report.get("raw") or "")[:2500]
             # The browser report says WHAT failed; the server log says WHY
@@ -515,7 +629,15 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             try:
                 from pathlib import Path as _Path
 
-                pb_log = _Path(str(project.path)) / "logs" / "pocketbase.log"
+                # In staging mode the app under test wrote ITS OWN log —
+                # quoting the live app's log here would attribute the old
+                # version's lines to the new code.
+                _log_root = str(verify_path or project.path)
+                pb_log = _Path(_log_root) / "logs" / "pocketbase.log"
+                # External apps log to app.log (their own runtime, no PB).
+                _app_log = _Path(_log_root) / "logs" / "app.log"
+                if not pb_log.exists() and _app_log.exists():
+                    pb_log = _app_log
                 if pb_log.exists():
                     lines = pb_log.read_text(
                         encoding="utf-8", errors="replace"
@@ -524,10 +646,14 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
                     # shipped realtime chatter while "cannot be blank" errors
                     # sat just above the 30-line window.
                     error_lines = [
-                        l for l in lines
-                        if any(k in l.lower() for k in ("error", "failed", "panic", "cannot be"))
+                        ln
+                        for ln in lines
+                        if any(
+                            k in ln.lower()
+                            for k in ("error", "failed", "panic", "cannot be")
+                        )
                     ][-25:]
-                    tail = [l for l in lines[-8:] if l not in error_lines]
+                    tail = [ln for ln in lines[-8:] if ln not in error_lines]
                     server_log = (
                         "\n\npocketbase.log (recent — the server-side causes):\n"
                         + "\n".join(error_lines + tail)
@@ -560,8 +686,12 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             from app.factory.host_craftbot import get_factory_host
 
             decision = get_factory_host().report_verify(
-                project_id, "defects", defects=defects, details=full_details,
-                walk_report=raw, server_log=server_log,
+                project_id,
+                "defects",
+                defects=defects,
+                details=full_details,
+                walk_report=raw,
+                server_log=server_log,
             )
             if decision is not None and decision.next_state == "stuck":
                 return {
@@ -575,11 +705,17 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
                     ),
                     "test_errors": defects[:10] or [raw],
                 }
+            _stopped_note = (
+                "The change was NOT deployed — the user's live app still "
+                "runs the previous working version. "
+                if _staging_record is not None
+                else "The app was stopped. "
+            )
             return {
                 "status": "error",
                 "message": (
                     f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
-                    "observed NOT working. The app was stopped. A FRESH fix "
+                    f"observed NOT working. {_stopped_note}A FRESH fix "
                     "mission carrying the full evidence has been queued by the "
                     "system — do NOT fix in this run and do NOT send a status "
                     "message. End the run now."
@@ -590,6 +726,59 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
         # Clean verdict (pass / incomplete / tooling-blocked): the MACHINE
         # announces to the user (FACTORY-PLAN §3.6 — no agent-authored
         # status); this run just ends.
+        #
+        # Data-safety finalization comes FIRST, before any user-facing
+        # signal (plans/quizzical-greeting-alpaca):
+        #   staging mode → FLIP: relaunch the real app with the verified
+        #     code (migrations apply to real data at boot), destroy the
+        #     staging copy and every test record in it.
+        #   build mode → restore the pristine pb_data baseline so the
+        #     user's first sight has no agent/verifier junk, then mark
+        #     the app delivered.
+        if _staging_record is not None:
+            flip = await manager.finalize_modify(project_id)
+            if flip.get("status") != "success":
+                _flip_errors = flip.get("errors", [])
+                return {
+                    "status": "error",
+                    "message": (
+                        "Verification PASSED in staging, but deploying the "
+                        "change to the live app failed at step "
+                        f"'{flip.get('step', 'unknown')}'. The staging copy "
+                        "was kept. Fix the errors below, then call "
+                        "living_ui_notify_ready and living_ui_walk_verify "
+                        "again."
+                    ),
+                    "test_errors": _flip_errors[:10],
+                }
+        else:
+            try:
+                from app.factory.host_craftbot import get_factory_host as _gfh2
+
+                _finalize = await manager.finalize_first_delivery(project_id)
+                if _finalize.get("status") != "success":
+                    return {
+                        "status": "error",
+                        "message": (
+                            "Verification passed, but restoring the app to a "
+                            "clean state for delivery failed at step "
+                            f"'{_finalize.get('step', 'unknown')}'. Fix the "
+                            "errors below, then call living_ui_notify_ready "
+                            "and living_ui_walk_verify again."
+                        ),
+                        "test_errors": _finalize.get("errors", [])[:10],
+                    }
+                _gfh2().mark_delivered(project_id)
+            except Exception as _fin_err:
+                # Delivery-state bookkeeping must never turn a verified app
+                # into a failure — worst case the app delivers as today
+                # (with test data) and stays in build mode.
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    f"[WALK_VERIFY] first-delivery finalize skipped: {_fin_err}"
+                )
+
         await broadcast_living_ui_ready(project_id, url, project.port)
         if kind == "pass":
             caveat = ""
@@ -611,8 +800,11 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
         from app.factory.host_craftbot import get_factory_host
 
         get_factory_host().report_verify(
-            project_id, kind if kind in ("pass", "incomplete", "blocked") else "blocked",
-            url=url, verified=report.get("passed") or [], caveat=caveat,
+            project_id,
+            kind if kind in ("pass", "incomplete", "blocked") else "blocked",
+            url=url,
+            verified=report.get("passed") or [],
+            caveat=caveat,
         )
         return {
             "status": "success",
@@ -808,8 +1000,6 @@ async def living_ui_report_progress(input_data: dict) -> dict:
             "status": "error",
             "message": f"Failed to report progress: {str(e)}",
         }
-
-
 
 
 @action(
@@ -1021,7 +1211,42 @@ def living_ui_http(input_data: dict) -> dict:
             "elapsed_ms": 0,
             "message": f"Project '{project_id}' not found.",
         }
-    if project.status != "running":
+    # DELIVERED apps: while a staging copy exists, ALL agent/verifier HTTP
+    # goes to it — this action resolves the REAL app's port on its own, and
+    # without the redirect a staging-mode verifier would write test records
+    # straight into real user data through this side door. When the app is
+    # delivered but no staging copy exists, mutating calls are refused:
+    # notify_ready is what boots the staging copy.
+    _staging_url = None
+    _is_delivered = False
+    try:
+        from app.factory.host_craftbot import get_factory_host as _gfh
+
+        _is_delivered = _gfh().is_delivered(project_id)
+        if _is_delivered:
+            _rec = _gfh().get_staging_record(project_id)
+            if _rec and _rec.get("url"):
+                _staging_url = str(_rec["url"])
+    except Exception:
+        _staging_url = None
+
+    if _is_delivered and not _staging_url and method != "GET":
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": (
+                f"Project '{project_id}' is delivered — its data is real user "
+                "data, and writes outside a staging copy are refused. Call "
+                "living_ui_notify_ready first (it boots the staging copy), "
+                "then retry against it."
+            ),
+        }
+
+    if _staging_url is None and project.status != "running":
         return {
             "status": "error",
             "status_code": 0,
@@ -1032,7 +1257,9 @@ def living_ui_http(input_data: dict) -> dict:
             "message": f"Project '{project_id}' is not running (status: {project.status}). Launch it first.",
         }
 
-    base_url = project.backend_url if target == "backend" else project.url
+    base_url = _staging_url or (
+        project.backend_url if target == "backend" else project.url
+    )
     if not base_url:
         # Fall back to constructing from port if URL field is missing
         port = project.backend_port if target == "backend" else project.port
@@ -1096,8 +1323,14 @@ def living_ui_http(input_data: dict) -> dict:
 
         # If the agent just mutated the Living UI's data, tell the browser so the
         # iframe reloads to show fresh state. The frontend debounces these so a
-        # burst of writes only triggers one reload.
-        if resp.ok and method in {"POST", "PUT", "PATCH", "DELETE"}:
+        # burst of writes only triggers one reload. Staging writes hit the
+        # disposable copy — the user's iframe shows the LIVE app, so a reload
+        # would be noise about data it can't even see.
+        if (
+            resp.ok
+            and method in {"POST", "PUT", "PATCH", "DELETE"}
+            and _staging_url is None
+        ):
             try:
                 from app.living_ui import dispatch_living_ui_data_changed
 
@@ -1131,10 +1364,20 @@ def living_ui_http(input_data: dict) -> dict:
     parallelizable=True,
     input_schema={},
     output_schema={
-        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' or 'error'.",
+        },
         "apps": {
             "type": "array",
-            "example": [{"id": "kanban-board", "name": "Kanban Board", "description": "Tasks in columns"}],
+            "example": [
+                {
+                    "id": "kanban-board",
+                    "name": "Kanban Board",
+                    "description": "Tasks in columns",
+                }
+            ],
             "description": "Catalogue entries (id, name, description, ...).",
         },
         "message": {"type": "string", "description": "Summary line."},
@@ -1181,7 +1424,11 @@ async def living_ui_marketplace_list(input_data: dict) -> dict:
             ),
         }
     except Exception as e:
-        return {"status": "error", "apps": [], "message": f"Could not fetch catalogue: {e}"}
+        return {
+            "status": "error",
+            "apps": [],
+            "message": f"Could not fetch catalogue: {e}",
+        }
 
 
 @action(
@@ -1190,8 +1437,11 @@ async def living_ui_marketplace_list(input_data: dict) -> dict:
         "Install a pre-built Living UI app from the marketplace by id "
         "(resolve ids with living_ui_marketplace_list). Downloads the app, "
         "registers it as a project, and runs the full launch pipeline. "
-        "Marketplace apps are pre-built — no walk-verify needed; report the "
-        "returned URL to the user."
+        "Inside a Living UI build session, the install ADOPTS the current "
+        "project (same tab/id/port) instead of creating a duplicate. "
+        "Pass will_adapt=true when the requirements say the installed app "
+        "must be adapted afterwards. Marketplace apps are pre-built — no "
+        "walk-verify needed for an as-is install; the system announces it."
     ),
     default=False,
     mode="CLI",
@@ -1214,11 +1464,30 @@ async def living_ui_marketplace_list(input_data: dict) -> dict:
             "example": "Team task board",
             "description": "Optional project description.",
         },
+        "will_adapt": {
+            "type": "boolean",
+            "example": False,
+            "description": (
+                "True when the requirements demand adaptations AFTER the "
+                "install (MARKETPLACE DECISION ... adapt: yes) — the build "
+                "then continues with the modify flow instead of completing."
+            ),
+        },
     },
     output_schema={
-        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
-        "message": {"type": "string", "description": "Outcome with the app URL on success."},
-        "project_id": {"type": "string", "description": "The new project id on success."},
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' or 'error'.",
+        },
+        "message": {
+            "type": "string",
+            "description": "Outcome with the app URL on success.",
+        },
+        "project_id": {
+            "type": "string",
+            "description": "The new project id on success.",
+        },
     },
     test_payload={"app_id": "test-app", "simulated_mode": True},
 )
@@ -1245,10 +1514,71 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
         if not manager:
             return {"status": "error", "message": "Living UI manager not initialized."}
 
+        will_adapt = bool(input_data.get("will_adapt"))
+
+        # ADOPT the current build session's project instead of minting a
+        # duplicate: a wizard-created project already owns the tab, port and
+        # session this run lives in. Only never-delivered scaffolds are
+        # adopted — a DELIVERED session project means the user is installing
+        # a separate new app, which stays a fresh project. (Observed live
+        # 2026-08-05: installing without adoption left an orphan project
+        # whose factory machine redispatched a from-scratch build of the
+        # same app.)
+        adopt_id = None
+        _sid = str(input_data.get("_session_id") or "")
+        if _sid.startswith("lui_"):
+            _candidate = _sid[4:]
+            _proj = manager.get_project(_candidate)
+            if _proj is not None and _proj.path:
+                _delivered = False
+                try:
+                    from app.factory.host_craftbot import get_factory_host as _gfh
+
+                    _delivered = _gfh().is_delivered(_candidate)
+                except Exception:
+                    _delivered = False
+                if not _delivered:
+                    adopt_id = _candidate
+                else:
+                    # IDEMPOTENCE: this project already holds an installed
+                    # marketplace app. If it is the SAME app, a resumed run
+                    # (crash between install and build completion → the
+                    # factory redispatches "continue build") must not mint a
+                    # duplicate through the fresh-install path — the work
+                    # left is the adaptations, not another install.
+                    try:
+                        import json as _json
+                        from pathlib import Path as _P
+
+                        _mf = _json.loads(
+                            (_P(str(_proj.path)) / "manifest.json").read_text(
+                                encoding="utf-8"
+                            )
+                        )
+                        if _mf.get("marketplaceAppId") == app_id:
+                            return {
+                                "status": "success",
+                                "project_id": _candidate,
+                                "already_installed": True,
+                                "message": (
+                                    f"Marketplace app '{app_id}' is ALREADY "
+                                    "installed in this project — do NOT "
+                                    "install again. If reference/"
+                                    "requirements.md lists adaptations, "
+                                    "apply them now (edit → "
+                                    "living_ui_notify_ready → "
+                                    "living_ui_walk_verify); otherwise the "
+                                    "app is done — end the run."
+                                ),
+                            }
+                    except Exception:
+                        pass
+
         result = await manager.install_from_marketplace(
             app_id=app_id,
             app_name=input_data.get("name") or app_id,
             app_description=input_data.get("description") or "",
+            project_id=adopt_id,
         )
         if result.get("status") != "success":
             return {
@@ -1267,6 +1597,47 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
                 await broadcast_living_ui_ready(project_id, url, live.port)
         except Exception:
             pass
+
+        if adopt_id and not will_adapt:
+            # As-is install completed THIS session's build: close the factory
+            # arc so the machine announces and never redispatches a ghost
+            # "continue build" for a project that is already done.
+            try:
+                from app.factory.host_craftbot import get_factory_host as _gfh2
+
+                _gfh2().report_verify(
+                    project_id,
+                    "pass",
+                    url=url,
+                    verified=[],
+                    caveat="Installed from the marketplace — pre-built and pre-verified.",
+                )
+            except Exception:
+                pass
+            return {
+                "status": "success",
+                "project_id": project_id,
+                "message": (
+                    f"Marketplace app '{app_id}' installed into this project "
+                    f"and running at {url}. The system has announced it to "
+                    "the user — do NOT send your own summary. End the run."
+                ),
+            }
+        if adopt_id and will_adapt:
+            return {
+                "status": "success",
+                "project_id": project_id,
+                "message": (
+                    f"Marketplace app '{app_id}' installed into this project "
+                    f"at {url}. NOT DONE: now apply ONLY the adaptations "
+                    "listed in reference/requirements.md (the app counts as "
+                    "delivered, so living_ui_notify_ready will boot a staging "
+                    "copy), then living_ui_walk_verify to deploy and "
+                    "announce. If the requirements list no concrete "
+                    "adaptations, ask the user what to change with a final "
+                    "send_message instead of guessing."
+                ),
+            }
         return {
             "status": "success",
             "project_id": project_id,
@@ -1307,7 +1678,11 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
         },
     },
     output_schema={
-        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' or 'error'.",
+        },
         "project_id": {"type": "string", "description": "The new project id."},
         "project_path": {"type": "string", "description": "Absolute project path."},
         "message": {"type": "string", "description": "Next steps."},
@@ -1352,11 +1727,255 @@ async def living_ui_import_zip(input_data: dict) -> dict:
             "project_path": project.path,
             "message": (
                 f"Imported as '{project.name}' ({project.id}) at {project.path}. "
-                f"Now launch it: living_ui_notify_ready(project_id=\"{project.id}\"), "
-                f"then living_ui_walk_verify(project_id=\"{project.id}\")."
+                f'Now launch it: living_ui_notify_ready(project_id="{project.id}"), '
+                f'then living_ui_walk_verify(project_id="{project.id}").'
             ),
         }
     except ValueError as e:
         return {"status": "error", "message": str(e)}
     except Exception as e:
         return {"status": "error", "message": f"Import failed: {str(e)}"}
+
+
+@action(
+    name="living_ui_import",
+    description=(
+        "Import a Living UI V2 project from ANY source: an exported ZIP "
+        "file, a local folder path, or a git URL (GitHub downloads fast; "
+        "other hosts are cloned depth-1). Registers it as a NEW delivered "
+        "project with fresh identity and port, strips shipped credentials, "
+        "re-vendors the kit, and queues a launch-and-verify run in the "
+        "project's own session — you normally do NOT need to launch it "
+        "yourself. Only V2 Living UI projects import (a foreign app/repo is "
+        "a REBUILD, not an import — say so instead of forcing it)."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    irreversible=True,
+    input_schema={
+        "source": {
+            "type": "string",
+            "example": "https://github.com/someone/my-lui-app",
+            "description": ("A .zip path, a local project folder path, or a git URL."),
+        },
+        "name": {
+            "type": "string",
+            "example": "My Imported App",
+            "description": "Optional display name (defaults to the app's name).",
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' or 'error'.",
+        },
+        "project_id": {"type": "string", "description": "The new project id."},
+        "project_path": {"type": "string", "description": "Absolute project path."},
+        "message": {"type": "string", "description": "Outcome and what happens next."},
+    },
+    test_payload={"source": "/tmp/test.zip", "simulated_mode": True},
+)
+async def living_ui_import(input_data: dict) -> dict:
+    """Import a V2 project from zip/folder/git and queue its verify run."""
+    source = (input_data.get("source") or "").strip()
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "project_id": "abc12345",
+            "project_path": "/workspace/living_ui/imported_abc12345",
+            "message": "Imported (simulated).",
+        }
+    if not source:
+        return {"status": "error", "message": "source is required"}
+
+    try:
+        from app.living_ui import broadcast_living_ui_created, get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {"status": "error", "message": "Living UI manager not initialized."}
+
+        project = await manager.import_project_source(
+            source, name=input_data.get("name")
+        )
+        try:
+            await broadcast_living_ui_created(project.to_dict())
+        except Exception:
+            pass
+
+        # The import is only DONE when the app runs and verifies — queue
+        # that run in the project's own session (LIFECYCLE-PLAN Phase 4)
+        # instead of hoping the current agent follows written instructions.
+        # Foreign sources register as EXTERNAL projects and get the ADOPTION
+        # brief (write the pipeline verbs, then launch+verify) — one
+        # composer in the manager so this and the UI path never drift.
+        _is_ext = getattr(project, "project_type", "native") == "external"
+        _dispatched = None
+        try:
+            from app.triggers import TriggerSource as _TS
+
+            _dispatched = await manager.start_development_run(
+                project.id,
+                brief=manager.post_import_brief(project),
+                trigger_source=_TS.LIVING_UI_IMPORT,
+                workflow_skill=(
+                    "living-ui-importer" if _is_ext else "living-ui-modify"
+                ),
+                status=None,
+            )
+        except Exception:
+            _dispatched = None
+
+        _what = (
+            "Registered EXTERNAL app (runs as-is in its own runtime)"
+            if _is_ext
+            else "Imported"
+        )
+        _next = (
+            (
+                "An adoption run has been queued in its session — the agent "
+                "is setting it up to run; the system will announce the "
+                "result."
+                if _is_ext
+                else "A launch-and-verify run has been queued in its session "
+                "— the system will announce the result; do not launch it "
+                "yourself."
+            )
+            if _dispatched
+            else (
+                "Now finish it yourself following this brief:\n"
+                + manager.post_import_brief(project)
+            )
+        )
+        return {
+            "status": "success",
+            "project_id": project.id,
+            "project_path": project.path,
+            "message": (
+                f"{_what}: '{project.name}' ({project.id}) at {project.path}. {_next}"
+            ),
+        }
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        return {"status": "error", "message": f"Import failed: {str(e)}"}
+
+
+@action(
+    name="living_ui_convert",
+    description=(
+        "REBUILD a foreign (non-Living-UI) app as a Living UI: scaffolds a "
+        "fresh V2 project, ships the original source (zip / folder / git "
+        "URL) as read-only reference material, synthesizes the requirements "
+        "FROM that source, and dispatches the standard supervised build to "
+        "the project's session. Use when the user wants an existing app "
+        "'imported' but living_ui_import rejected it as non-V2 — this is a "
+        "full rebuild (only the behavior carries over, never the code) and "
+        "costs a full build run; tell the user that before calling. For "
+        "actual Living UI V2 projects use living_ui_import instead."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    irreversible=True,
+    input_schema={
+        "source": {
+            "type": "string",
+            "example": "https://github.com/someone/express-todo-app",
+            "description": "A .zip path, a local folder path, or a git URL of the foreign app.",
+        },
+        "name": {
+            "type": "string",
+            "example": "My Todo Board",
+            "description": "Optional display name (defaults to the repo/folder name).",
+        },
+        "description": {
+            "type": "string",
+            "example": "Keep the kanban view, skip the admin panel",
+            "description": "Optional user note on what matters in the rebuild.",
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' or 'error'.",
+        },
+        "project_id": {"type": "string", "description": "The new project id."},
+        "project_path": {"type": "string", "description": "Absolute project path."},
+        "message": {"type": "string", "description": "Outcome and what happens next."},
+    },
+    test_payload={"source": "/tmp/foreign-app", "simulated_mode": True},
+)
+async def living_ui_convert(input_data: dict) -> dict:
+    """Scaffold + source-derived requirements + dispatch the supervised build."""
+    source = (input_data.get("source") or "").strip()
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "project_id": "abc12345",
+            "project_path": "/workspace/living_ui/converted_abc12345",
+            "message": "Conversion build dispatched (simulated).",
+        }
+    if not source:
+        return {"status": "error", "message": "source is required"}
+
+    try:
+        from app.living_ui import (
+            broadcast_living_ui_created,
+            broadcast_living_ui_progress,
+            get_living_ui_manager,
+        )
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {"status": "error", "message": "Living UI manager not initialized."}
+
+        project = await manager.convert_foreign_source(
+            source,
+            name=input_data.get("name"),
+            description=(input_data.get("description") or "").strip(),
+        )
+        try:
+            await broadcast_living_ui_created(project.to_dict())
+            await broadcast_living_ui_progress(
+                project.id,
+                "initializing",
+                10,
+                "Source analyzed — starting the rebuild...",
+            )
+        except Exception:
+            pass
+
+        # The conversion is a normal pre-delivery BUILD: classic instruction,
+        # creator skill, full factory supervision, baseline data-safety.
+        _dispatched = await manager.start_development_run(project.id)
+        _next = (
+            "The supervised rebuild has been dispatched to the project's "
+            "session — progress appears in its tab and the system announces "
+            "the result. Do not build it in this session."
+            if _dispatched
+            else (
+                "The session runtime is not bound — the rebuild was NOT "
+                "dispatched. Build it via the living-ui-creator workflow "
+                "against reference/requirements.md."
+            )
+        )
+        return {
+            "status": "success",
+            "project_id": project.id,
+            "project_path": project.path,
+            "message": (
+                f"Converted source registered as '{project.name}' "
+                f"({project.id}); requirements were synthesized from the "
+                f"original code (reference/source/). {_next}"
+            ),
+        }
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        return {"status": "error", "message": f"Conversion failed: {str(e)}"}

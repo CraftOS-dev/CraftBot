@@ -33,8 +33,18 @@ def test_error_info_to_dict_serializes_enums():
 
 
 def test_error_info_is_transient_property():
-    assert ErrorInfo(category=ErrorCategory.AUTH, code="c", title="t", message="m").is_transient is False
-    assert ErrorInfo(category=ErrorCategory.SERVER, code="c", title="t", message="m").is_transient is True
+    assert (
+        ErrorInfo(
+            category=ErrorCategory.AUTH, code="c", title="t", message="m"
+        ).is_transient
+        is False
+    )
+    assert (
+        ErrorInfo(
+            category=ErrorCategory.SERVER, code="c", title="t", message="m"
+        ).is_transient
+        is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -54,7 +64,12 @@ def test_fail_fast_categories_are_not_transient(category):
 
 @pytest.mark.parametrize(
     "category",
-    [ErrorCategory.RATE_LIMIT, ErrorCategory.SERVER, ErrorCategory.CONNECTION, ErrorCategory.UNKNOWN],
+    [
+        ErrorCategory.RATE_LIMIT,
+        ErrorCategory.SERVER,
+        ErrorCategory.CONNECTION,
+        ErrorCategory.UNKNOWN,
+    ],
 )
 def test_transient_categories_are_transient(category):
     assert is_transient(category) is True

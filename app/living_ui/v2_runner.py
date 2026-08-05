@@ -352,7 +352,9 @@ class V2Runner:
                 f"[LIVING_UI:V2] bridge env injected: URL=http://localhost:{bridge_port}, token={bridge_token[:8]}..."
             )
         else:
-            logger.warning("[LIVING_UI:V2] no bridge token provided; AI features will be unavailable")
+            logger.warning(
+                "[LIVING_UI:V2] no bridge token provided; AI features will be unavailable"
+            )
 
         process = subprocess.Popen(
             [

@@ -2279,9 +2279,7 @@ async def get_telegram_updates(input_data: dict) -> dict:
             frm = chat.get("title")
             if not frm:
                 frm = " ".join(
-                    p
-                    for p in (sender.get("first_name"), sender.get("last_name"))
-                    if p
+                    p for p in (sender.get("first_name"), sender.get("last_name")) if p
                 )
                 if sender.get("username"):
                     frm = (

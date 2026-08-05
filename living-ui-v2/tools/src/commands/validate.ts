@@ -6,7 +6,7 @@
  *   4. operations.json     (structural validation)
  * Machine-readable failures: one line per error, `step: message`.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -411,31 +411,119 @@ function annotateErrors(output: string, searchDirs: string[]): string {
     .join('\n');
 }
 
+function recordStepFailure(errors: GateError[], step: string, err: unknown): void {
+  // A spawned tool's failure can live in stdout OR stderr — PocketBase
+  // PANICS to stderr with an empty stdout (e.g. a bad migration at hook
+  // registration). Reading only stdout produced a blank error, and an agent
+  // told "step failed: <nothing>" retries blind until it gives up. Never
+  // emit an empty message.
+  let message = '';
+  if (err instanceof Error) {
+    const spawned = err as Error & { stdout?: unknown; stderr?: unknown };
+    message = [spawned.stdout, spawned.stderr]
+      .map((s) => String(s ?? '').trim())
+      .filter((s) => s !== '')
+      .join('\n');
+    if (message === '') message = err.message;
+  } else {
+    message = String(err);
+  }
+  if (message.trim() === '') message = `${step}: failed with no output (exit status only)`;
+  errors.push({ step, message: message.trim().slice(0, 4000) });
+  log.error(`${step} failed`);
+}
+
 function runStep(errors: GateError[], step: string, fn: () => void): void {
   try {
     fn();
     log.ok(step);
   } catch (err) {
-    // A spawned tool's failure can live in stdout OR stderr — PocketBase
-    // PANICS to stderr with an empty stdout (e.g. a bad migration at hook
-    // registration). Reading only stdout produced a blank error, and an agent
-    // told "step failed: <nothing>" retries blind until it gives up. Never
-    // emit an empty message.
-    let message = '';
-    if (err instanceof Error) {
-      const spawned = err as Error & { stdout?: unknown; stderr?: unknown };
-      message = [spawned.stdout, spawned.stderr]
-        .map((s) => String(s ?? '').trim())
-        .filter((s) => s !== '')
-        .join('\n');
-      if (message === '') message = err.message;
-    } else {
-      message = String(err);
-    }
-    if (message.trim() === '') message = `${step}: failed with no output (exit status only)`;
-    errors.push({ step, message: message.trim().slice(0, 4000) });
-    log.error(`${step} failed`);
+    recordStepFailure(errors, step, err);
   }
+}
+
+async function runStepAsync(
+  errors: GateError[],
+  step: string,
+  fn: () => Promise<void>,
+): Promise<void> {
+  try {
+    await fn();
+    log.ok(step);
+  } catch (err) {
+    recordStepFailure(errors, step, err);
+  }
+}
+
+/**
+ * Run `pocketbase migrate up` with the output WATCHED as it streams.
+ *
+ * A Go-side panic wedges PocketBase — alive, silent, never exiting — so the
+ * hard timeout stays as the backstop. But the panic announces itself in the
+ * FIRST lines of output ("RECOVERED FROM PANIC"), and waiting out the
+ * remaining ~118 s buys nothing: observed live (kanban_board_1bb64990,
+ * 2026-08-04), two wedged fix iterations cost 120 s each with the panic
+ * line already printed. Kill the moment it appears; the caller's panic scan
+ * turns the captured output into the agent-facing error.
+ *
+ * Resolves with combined stdout+stderr on exit or panic-kill; rejects only
+ * on the silent timeout (with partial output) or a spawn failure.
+ */
+function runMigrateWatched(
+  bin: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let settled = false;
+    let killedWhy: 'panic' | 'timeout' | null = null;
+
+    const timer = setTimeout(() => {
+      if (killedWhy === null) {
+        killedWhy = 'timeout';
+        child.kill('SIGKILL');
+      }
+    }, timeoutMs);
+
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+
+    const watch = (chunk: Buffer): void => {
+      out += chunk.toString('utf8');
+      if (killedWhy === null && /RECOVERED FROM PANIC|^panic:/m.test(out)) {
+        killedWhy = 'panic';
+        child.kill('SIGKILL');
+      }
+    };
+    child.stdout?.on('data', watch);
+    child.stderr?.on('data', watch);
+    child.on('error', (err) => finish(() => reject(err)));
+    child.on('close', () => {
+      finish(() => {
+        if (killedWhy === 'timeout') {
+          const partial = out.trim();
+          reject(
+            new Error(
+              `migrations ran for >${Math.round(timeoutMs / 1000)}s and were killed — ` +
+                'a migration or hook is blocking the process. Known cause: ' +
+                '`new Record(<id string>)` nil-panics PocketBase and WEDGES it ' +
+                'without exiting; the Record constructor needs the Collection ' +
+                "OBJECT (`new Record(app.findCollectionByNameOrId('name'))`)." +
+                (partial === '' ? '' : `\nlast output:\n${partial.slice(-2000)}`),
+            ),
+          );
+        } else {
+          resolve(out);
+        }
+      });
+    });
+  });
 }
 
 function validateOps(projectDir: string): void {
@@ -529,61 +617,28 @@ export async function run(args: string[]): Promise<number> {
   runStep(errors, 'build (vite)', () => npmRun('build'));
 
   const pbBin = await ensurePbBinary();
-  runStep(errors, 'migrations (fresh pb_data)', () => {
+  await runStepAsync(errors, 'migrations (fresh pb_data)', async () => {
     const tempData = mkdtempSync(join(tmpdir(), 'lui-migrate-'));
     try {
       // NOTE: `pocketbase migrate up` exits 0 even when a migration fails —
       // it only PRINTS the error. Scan output; never trust the exit code.
-      // NOTE: timeout is NOT optional. A Go-side nil panic (observed cause:
-      // `new Record('<collection id string>')` instead of the Collection
-      // object) leaves the process WEDGED — alive, silent, never exiting —
-      // and without a timeout this step blocks the whole gate forever.
-      let out = '';
-      try {
-        out = execFileSync(
-          pbBin,
-          [
-            'migrate',
-            'up',
-            '--dir',
-            tempData,
-            '--migrationsDir',
-            join(projectDir, 'pb', 'pb_migrations'),
-            '--hooksDir',
-            join(projectDir, 'pb', 'pb_hooks'),
-          ],
-          { stdio: 'pipe', encoding: 'utf8', timeout: 120_000, killSignal: 'SIGKILL' },
-        );
-      } catch (err) {
-        const spawned = err as Error & {
-          killed?: boolean;
-          signal?: string;
-          code?: string;
-          stdout?: unknown;
-          stderr?: unknown;
-        };
-        // Node's timeout error is inconsistent across versions: detect the
-        // kill by any of its three faces, not just `killed`.
-        const timedOut =
-          spawned.killed === true ||
-          spawned.signal === 'SIGKILL' ||
-          spawned.code === 'ETIMEDOUT';
-        if (timedOut) {
-          const partial = [spawned.stdout, spawned.stderr]
-            .map((s) => String(s ?? '').trim())
-            .filter((s) => s !== '')
-            .join('\n');
-          throw new Error(
-            'migrations ran for >120s and were killed — a migration or hook is ' +
-              'blocking the process. Known cause: `new Record(<id string>)` ' +
-              'nil-panics PocketBase and WEDGES it without exiting; the Record ' +
-              'constructor needs the Collection OBJECT ' +
-              '(`new Record(app.findCollectionByNameOrId(\'name\'))`).' +
-              (partial === '' ? '' : `\nlast output:\n${partial.slice(-2000)}`),
-          );
-        }
-        throw err;
-      }
+      // NOTE: the output is streamed and watched (runMigrateWatched): a
+      // recognized panic kills the process in ~seconds, the 120 s timeout
+      // remains the backstop for silent wedges.
+      const out = await runMigrateWatched(
+        pbBin,
+        [
+          'migrate',
+          'up',
+          '--dir',
+          tempData,
+          '--migrationsDir',
+          join(projectDir, 'pb', 'pb_migrations'),
+          '--hooksDir',
+          join(projectDir, 'pb', 'pb_hooks'),
+        ],
+        120_000,
+      );
       const failure = out.split('\n').find((l) => /^\s*Error[:\s]/.test(l));
       if (failure !== undefined) {
         throw new Error(

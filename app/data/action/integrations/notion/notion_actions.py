@@ -148,8 +148,7 @@ def get_notion_page(input_data: dict) -> dict:
         "url": body.get("url"),
         "archived": body.get("archived"),
         "properties": {
-            name: _prop_value(p)
-            for name, p in (body.get("properties") or {}).items()
+            name: _prop_value(p) for name, p in (body.get("properties") or {}).items()
         },
     }
     return {**res, "result": lean}

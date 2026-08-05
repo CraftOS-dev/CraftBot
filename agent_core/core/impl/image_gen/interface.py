@@ -13,6 +13,11 @@ so an in-flight generate_image() keeps using its old instance/client until done.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent_core.core.errors import ClassifiedError
+
 import asyncio
 import base64
 import io
@@ -67,7 +72,9 @@ def _classified_error(provider: str, exc: Exception, model: str) -> "ClassifiedE
     from agent_core.core.errors import ClassifiedError
     from app.i18n import classify_provider_error_info
 
-    return ClassifiedError(classify_provider_error_info(exc, provider=provider, model=model))
+    return ClassifiedError(
+        classify_provider_error_info(exc, provider=provider, model=model)
+    )
 
 
 # ── File-path helpers ─────────────────────────────────────────────────────────
@@ -503,7 +510,12 @@ class ImageGenInterface:
         if not images_data:
             block_reason = result.get("block_reason")
             if block_reason:
-                from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo, Severity
+                from agent_core.core.errors import (
+                    ClassifiedError,
+                    ErrorCategory,
+                    ErrorInfo,
+                    Severity,
+                )
 
                 raise ClassifiedError(
                     ErrorInfo(

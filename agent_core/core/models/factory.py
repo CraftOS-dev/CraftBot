@@ -395,7 +395,9 @@ class ModelFactory:
                     return empty_context
                 from app.errors import CatalogError, make_error
 
-                raise CatalogError(make_error("CONFIG_NO_API_KEY", provider="Anthropic"))
+                raise CatalogError(
+                    make_error("CONFIG_NO_API_KEY", provider="Anthropic")
+                )
 
             return {
                 "provider": provider,

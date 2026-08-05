@@ -24,6 +24,14 @@ this skill covers only what differs.
    `{project_path}/logs/pocketbase.log`.
 4. If the request is ambiguous, ask 1 batch of clarifying questions
    (a FINAL `send_message` (`continue_work=false` — the reply wakes the session)).
+5. **Record the request in the spec BEFORE editing code**: append a dated
+   entry to `reference/requirements.md` under a `## Changes` section (create
+   the section if absent):
+   `- 2026-08-05: <the user's request, stated as a checkable capability>`.
+   NEVER rewrite the existing sections — they are the delivered contract;
+   `## Changes` is append-only. The verifier checks every entry there, so an
+   unrecorded change is an unverified change (and a recorded one can never
+   be silently dropped by a later modify).
 
 ## Rules for changing a live app
 
@@ -43,14 +51,26 @@ this skill covers only what differs.
 ## Finish
 
 ```
-living_ui_notify_ready(project_id="<PROJECT_ID>")   # gate + relaunch
-living_ui_walk_verify(project_id="<PROJECT_ID>")    # verify + announce
+living_ui_notify_ready(project_id="<PROJECT_ID>")   # gate + boot STAGING copy
+living_ui_walk_verify(project_id="<PROJECT_ID>")    # verify staging + DEPLOY
 ```
 
-`notify_ready` runs the gate (types, build, migrations-on-fresh-db, ops,
-ownership), restarts the app, health-checks and smoke-verifies it — fix ALL
-returned errors and call again. `walk_verify` then drives the running app in
-a real (headless) browser; its success is what announces the app. HONESTY
-RULE: the change is live only when `living_ui_walk_verify` returns
-`status: success` — never tell the user a change is live when the relaunch
-or verification failed.
+On a delivered app these run in **staging mode**: `notify_ready` gates and
+boots a disposable COPY of the app (code + cloned data) on a hidden port —
+the user's live app keeps running the previous version, untouched. Test
+freely against the staging URL it returns: every record you create there is
+thrown away. `walk_verify` drives the staging copy in a real (headless)
+browser; a clean verdict is what DEPLOYS your change to the live app (new
+migrations apply to the real data at boot) and announces it.
+
+- **Never run `lui validate` or `lui dev` against the real project dir of a
+  delivered app** — the build overwrites the served frontend in place and
+  blanks the user's live UI. `notify_ready` gates the staging copy for you.
+- **Never write test data to the live app** (its DB is the user's real
+  data; writes outside staging are refused). Do all testing after
+  `notify_ready`, against the staging URL.
+
+HONESTY RULE: the change is live only when `living_ui_walk_verify` returns
+`status: success` — never tell the user a change is live when the relaunch,
+verification or deploy failed. On failure the user's app still runs the
+previous working version.

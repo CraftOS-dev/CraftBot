@@ -573,7 +573,9 @@ class LLMInterface:
         )
         if self._consecutive_failures >= self._max_consecutive_failures:
             raise LLMConsecutiveFailureError(
-                self._consecutive_failures, last_error=raw_error, last_error_info=error_info
+                self._consecutive_failures,
+                last_error=raw_error,
+                last_error_info=error_info,
             )
 
     def _generate_response_sync(
@@ -975,9 +977,7 @@ class LLMInterface:
             elif error_msg:
                 error_detail = f"LLM provider returned error: {error_msg}"
             else:
-                error_detail = _generic_empty_response_detail(
-                    self.provider, self.model
-                )
+                error_detail = _generic_empty_response_detail(self.provider, self.model)
             logger.error(f"[LLM ERROR] {error_detail}")
             # See _generate_response_sync's equivalent call for why
             # raw_error is always passed, even when error_info is None.

@@ -56,7 +56,9 @@ def test_catalog_error_is_a_classified_error():
 
 
 def test_classify_react_error_fatal_with_classified_info():
-    info = LLMErrorInfo(category=ErrorCategory.AUTH, title="t", message="m", provider="p")
+    info = LLMErrorInfo(
+        category=ErrorCategory.AUTH, title="t", message="m", provider="p"
+    )
     exc = LLMConsecutiveFailureError(1, last_error_info=info, is_immediate=True)
 
     is_fatal, fatal_exc, classified_info = AgentBase._classify_react_error(exc)
@@ -83,7 +85,9 @@ def test_classify_react_error_non_fatal_classified_error_in_chain():
     """A ClassifiedError raised (e.g. by the action router after its own
     retry budget is exhausted) must be recognized as minor-tier, not fatal —
     even when chained under an outer exception."""
-    info = ErrorInfo(category=ErrorCategory.UNKNOWN, code="X", title="t", message="clean message")
+    info = ErrorInfo(
+        category=ErrorCategory.UNKNOWN, code="X", title="t", message="clean message"
+    )
     try:
         try:
             raise ClassifiedError(info)
@@ -163,7 +167,9 @@ def test_classify_react_error_fatal_with_neither_info_nor_last_error_stays_criti
 
 
 def test_last_error_info_takes_priority_over_last_error():
-    info = ErrorInfo(category=ErrorCategory.AUTH, code="X", title="t", message="the real cause")
+    info = ErrorInfo(
+        category=ErrorCategory.AUTH, code="X", title="t", message="the real cause"
+    )
     exc = LLMConsecutiveFailureError(
         5, last_error=RuntimeError("raw text"), last_error_info=info
     )
@@ -222,7 +228,9 @@ class _FakeLLMInterface:
     provider = "anthropic"
     model = "test-model"
 
-    async def generate_response_async(self, system_prompt, user_prompt, prompt_name=None):
+    async def generate_response_async(
+        self, system_prompt, user_prompt, prompt_name=None
+    ):
         raise RuntimeError("Anthropic client was not initialised.")
 
 

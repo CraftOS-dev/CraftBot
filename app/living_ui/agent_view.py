@@ -104,11 +104,15 @@ def schema_block(base_url: str, max_chars: int = 2000) -> Optional[str]:
             # failed migration once (a weather app whose readings collection
             # held only `id` rendered 0° everywhere). Show the anomaly — the
             # agent can only reason about what it can see.
-            lines.append(f"  {name}: NO WRITABLE FIELDS — writes to it are silently dropped")
+            lines.append(
+                f"  {name}: NO WRITABLE FIELDS — writes to it are silently dropped"
+            )
 
     block = "\n".join(lines)
     if len(block) > max_chars:  # very large apps: names only, still better than nothing
-        block = "\n".join(f"  {n}: {len((e.get('fields') or {}))} fields" for n, e in entities.items())
+        block = "\n".join(
+            f"  {n}: {len((e.get('fields') or {}))} fields" for n, e in entities.items()
+        )
     return block
 
 
@@ -165,7 +169,9 @@ def capability_block() -> Optional[str]:
         for pid in sorted(connected):
             names = by_integration.get(pid) or []
             shown = ", ".join(names[:4]) + (", …" if len(names) > 4 else "")
-            lines.append(f"  connected: {pid} ({shown})" if names else f"  connected: {pid}")
+            lines.append(
+                f"  connected: {pid} ({shown})" if names else f"  connected: {pid}"
+            )
         if disconnected:
             lines.append(
                 "  NOT connected (user must connect in CraftBot first): "
@@ -220,7 +226,9 @@ def _humanise_date(value: str) -> str:
 _VERBS = {"create": "Added", "update": "Updated", "delete": "Removed"}
 
 
-def humanise_write(base_url: str, collection: str, op: str, record: Dict[str, Any]) -> str:
+def humanise_write(
+    base_url: str, collection: str, op: str, record: Dict[str, Any]
+) -> str:
     """One sentence a person can read, built from what was actually stored.
 
     Example: Added "Eat chicken" to To Do — due Fri 31 Jul, priority medium
@@ -248,13 +256,15 @@ def humanise_write(base_url: str, collection: str, op: str, record: Dict[str, An
         if kind == "ref" and spec.get("entity"):
             resolved = _resolve_ref(base_url, str(spec["entity"]), str(value))
             if resolved and not into:
-                into = f" to {resolved}"          # the containing thing reads best inline
+                into = f" to {resolved}"  # the containing thing reads best inline
                 continue
             details.append(f"{key.replace('_', ' ')} {resolved or value}")
         elif kind == "datetime":
-            details.append(f"{key.replace('_', ' ').replace(' date', '')} {_humanise_date(value)}")
+            details.append(
+                f"{key.replace('_', ' ').replace(' date', '')} {_humanise_date(value)}"
+            )
         elif kind in ("json", "binary", "list<ref>"):
-            continue                              # nothing a person wants to read
+            continue  # nothing a person wants to read
         else:
             details.append(f"{key.replace('_', ' ')} {value}")
 

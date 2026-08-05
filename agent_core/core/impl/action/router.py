@@ -68,7 +68,6 @@ class ActionRouter:
         self.llm_interface = llm_interface
         self.context_engine = context_engine
 
-
     @profile("action_router_select_action", OperationCategory.ACTION_ROUTING)
     async def select_action_in_session(
         self,

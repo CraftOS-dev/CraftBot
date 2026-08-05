@@ -19,6 +19,11 @@ DEFAULT_ACTION_TIMEOUT (6000s) is the real ceiling.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent_core.core.errors import ClassifiedError
+
 import asyncio
 import base64
 import json
@@ -88,7 +93,9 @@ def _classified_error(provider: str, exc: Exception, model: str) -> "ClassifiedE
     from agent_core.core.errors import ClassifiedError
     from app.i18n import classify_provider_error_info
 
-    return ClassifiedError(classify_provider_error_info(exc, provider=provider, model=model))
+    return ClassifiedError(
+        classify_provider_error_info(exc, provider=provider, model=model)
+    )
 
 
 # ── File / image helpers ─────────────────────────────────────────────────────
@@ -739,7 +746,12 @@ class VideoGenInterface:
                 or final.get("error", {}).get("message")
             )
             if block_reason:
-                from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo, Severity
+                from agent_core.core.errors import (
+                    ClassifiedError,
+                    ErrorCategory,
+                    ErrorInfo,
+                    Severity,
+                )
 
                 raise ClassifiedError(
                     ErrorInfo(

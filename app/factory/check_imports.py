@@ -40,7 +40,9 @@ def _violations(root: Path):
                 top = module.split(".")[0]
                 if top in stdlib:
                     continue
-                if any(module == p or module.startswith(p + ".") for p in allowed_prefixes):
+                if any(
+                    module == p or module.startswith(p + ".") for p in allowed_prefixes
+                ):
                     continue
                 yield f"{py.relative_to(root.parent.parent)}:{lineno}: {layer} imports '{module}'"
 

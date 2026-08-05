@@ -753,6 +753,10 @@ export interface LivingUIProject {
   stylePack?: string
   /** Server-persisted display theme; adopted when no local override exists. */
   uiTheme?: { themeId?: string; customColors?: Record<string, string> } | null
+  /** 'native' (V2 Living UI) | 'external' (foreign app running as-is). */
+  projectType?: 'native' | 'external'
+  /** External apps only: detected runtime (node/python/static/go/rust). */
+  appRuntime?: string | null
 }
 
 export interface LivingUICreateRequest {

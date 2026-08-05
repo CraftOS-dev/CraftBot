@@ -628,7 +628,6 @@ class InternalActionInterface:
         )
         cls.state_manager.bump_event_stream()
 
-
     @classmethod
     def _get_current_session_id(cls):
         """Get the current turn's session id from the global state mirror."""
@@ -654,9 +653,7 @@ class InternalActionInterface:
         try:
             # End old action selection caches (both CLI and GUI)
             cls.llm_interface.end_session_cache(sid, LLMCallType.ACTION_SELECTION)
-            cls.llm_interface.end_session_cache(
-                sid, LLMCallType.GUI_ACTION_SELECTION
-            )
+            cls.llm_interface.end_session_cache(sid, LLMCallType.GUI_ACTION_SELECTION)
 
             # Reset event stream sync points
             if cls.context_engine:

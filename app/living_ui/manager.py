@@ -143,6 +143,12 @@ class LivingUIManager:
 
         self.v2_runner = V2Runner(Path(PROJECT_ROOT) / "living-ui-v2")
 
+        # Staging copies of delivered apps (modify-era data safety). Composed
+        # like v2_runner: the supervisor never reaches back into the manager.
+        from app.living_ui.staging import StagingSupervisor
+
+        self.staging = StagingSupervisor(self.living_ui_dir, self.v2_runner)
+
         # Load existing projects
         self._load_projects()
 
@@ -323,18 +329,31 @@ class LivingUIManager:
 
                     await asyncio.sleep(delay)
 
-                    # Attempt restart (single PocketBase process)
+                    # Attempt restart — TYPE-dispatched: an external app must
+                    # restart via its own pipeline, not as PocketBase (the
+                    # orphaned V1 machinery's sharpest bug: this call used to
+                    # hardcode v2_runner.start for every project type).
                     restart_ok = True
                     project.process = None
                     try:
                         if not project.bridge_token:
                             project.bridge_token = secrets.token_urlsafe(32)
-                        project.process = await self.v2_runner.start(
-                            Path(project.path),
-                            project.port,
-                            bridge_token=project.bridge_token,
-                        )
-                        restart_ok = await self.v2_runner.wait_healthy(project.port)
+                        if getattr(project, "project_type", "native") == "external":
+                            _res = await self._run_external_pipeline(
+                                Path(project.path),
+                                project.port,
+                                project.bridge_token,
+                            )
+                            restart_ok = _res.get("status") == "success"
+                            if restart_ok:
+                                project.process = _res.pop("process")
+                        else:
+                            project.process = await self.v2_runner.start(
+                                Path(project.path),
+                                project.port,
+                                bridge_token=project.bridge_token,
+                            )
+                            restart_ok = await self.v2_runner.wait_healthy(project.port)
                     except Exception as e:
                         logger.error(
                             f"[LIVING_UI:WATCHDOG] restart failed for {project_id}: {e}"
@@ -760,21 +779,24 @@ UI in {project.path}/frontend/src/app/."""
             "migration file."
         )
 
-    async def _launch_v2(self, project: LivingUIProject) -> dict:
-        """V2 launch pipeline: install → validation gate → serve → health.
+    async def _run_launch_pipeline(
+        self, project_dir: Path, port: int, bridge_token: str
+    ) -> dict:
+        """The V2 launch pipeline against an ARBITRARY project directory:
+        install → validation gate → serve → health → hook-load scan → smoke.
 
-        One PocketBase process serves both the API and the built frontend
-        (living-ui-v2 spec D5); errors come back machine-readable so the
-        building agent can fix and retry.
+        Registry-free on purpose: `_launch_v2` runs it on the real project
+        and adds status/persistence around it; `launch_staging` runs the SAME
+        pipeline on a staging copy — one definition means fix missions get
+        identical evidence quality (boot-log excerpts, hook-load failures)
+        in both eras.
+
+        Returns {"status": "success", "process": Popen} — caller owns the
+        process — or {"status": "error", "step": ..., "errors": [...]}.
         """
         from app.living_ui.v2_runner import V2RunnerUnavailable
 
-        project_path = Path(project.path)
-
         def _fail(step: str, errors: list) -> dict:
-            project.status = "error"
-            project.error = "; ".join(str(e)[:500] for e in errors)
-            self._save_projects()
             return {"status": "error", "step": step, "errors": errors}
 
         try:
@@ -782,36 +804,27 @@ UI in {project.path}/frontend/src/app/."""
         except V2RunnerUnavailable as e:
             return _fail("setup", [str(e)])
 
-        # Clear any stale process/port before relaunching.
-        if project.process and project.process.poll() is None:
-            self._terminate_process(project.process)
-        project.process = None
-        if not project.port:
-            project.port = self._allocate_port()
-        else:
-            self._kill_process_on_port(project.port)
+        # Clear any stale listener before binding the port.
+        self._kill_process_on_port(port)
 
         # Renamed/deleted APPLIED migrations brick the boot with an error only
         # pocketbase.log ever sees — catch them here, before any process spawns.
-        divergence = self._check_migration_divergence(project_path)
+        divergence = self._check_migration_divergence(project_dir)
         if divergence:
             return _fail("validation", [divergence])
 
         try:
-            await self.v2_runner.install(project_path)
+            await self.v2_runner.install(project_dir)
         except Exception as e:
             return _fail("install", [str(e)])
 
-        gate = await self.v2_runner.gate(project_path)
+        gate = await self.v2_runner.gate(project_dir)
         if not gate.passed:
             return _fail("validation", [gate.output])
 
-        if not project.bridge_token:
-            project.bridge_token = secrets.token_urlsafe(32)
-
         # pocketbase.log is append-mode across launches: remember where THIS
         # boot starts so failures below can quote only their own boot's lines.
-        pb_log_path = project_path / "logs" / "pocketbase.log"
+        pb_log_path = project_dir / "logs" / "pocketbase.log"
         pb_log_offset = pb_log_path.stat().st_size if pb_log_path.exists() else 0
 
         def _pb_log_since_boot(limit_lines: int = 30) -> str:
@@ -823,29 +836,32 @@ UI in {project.path}/frontend/src/app/."""
                     f.seek(pb_log_offset)
                     lines = f.read().splitlines()
                 error_lines = [
-                    l for l in lines
-                    if any(k in l.lower() for k in ("error", "failed", "panic", "cannot be"))
+                    ln
+                    for ln in lines
+                    if any(
+                        k in ln.lower()
+                        for k in ("error", "failed", "panic", "cannot be")
+                    )
                 ][-limit_lines:]
-                tail = [l for l in lines[-10:] if l not in error_lines]
+                tail = [ln for ln in lines[-10:] if ln not in error_lines]
                 picked = error_lines + tail
-                return "\n".join(picked[-(limit_lines + 10):])
+                return "\n".join(picked[-(limit_lines + 10) :])
             except Exception:
                 return ""
 
         try:
-            project.process = await self.v2_runner.start(
-                project_path, project.port, bridge_token=project.bridge_token
+            process = await self.v2_runner.start(
+                project_dir, port, bridge_token=bridge_token
             )
         except Exception as e:
             return _fail("start", [str(e)])
 
-        if not await self.v2_runner.wait_healthy(project.port):
-            self._terminate_process(project.process)
-            project.process = None
+        if not await self.v2_runner.wait_healthy(port):
+            self._terminate_process(process)
             # A dead health check with no cause starved the agent before —
             # the boot abort (bad migration, hook panic) is in pocketbase.log
             # and nowhere else. Ship this boot's lines with the failure.
-            errors = [f"/api/health not responding on :{project.port}"]
+            errors = [f"/api/health not responding on :{port}"]
             boot_log = _pb_log_since_boot()
             if boot_log:
                 errors.append("pocketbase.log (this boot):\n" + boot_log)
@@ -860,8 +876,7 @@ UI in {project.path}/frontend/src/app/."""
             line for line in boot_log.splitlines() if "failed to execute" in line
         ]
         if load_failures:
-            self._terminate_process(project.process)
-            project.process = None
+            self._terminate_process(process)
             return _fail(
                 "hooks",
                 [
@@ -873,13 +888,10 @@ UI in {project.path}/frontend/src/app/."""
 
         # Walk-verify smoke pass (headless, invisible): app must mount with
         # zero console errors. 'skipped' (no browser) never blocks a launch.
-        url = f"http://127.0.0.1:{project.port}"
-        verify_status, verify_detail = await self.v2_runner.verify(
-            Path(project.path), url
-        )
+        url = f"http://127.0.0.1:{port}"
+        verify_status, verify_detail = await self.v2_runner.verify(project_dir, url)
         if verify_status == "fail":
-            self._terminate_process(project.process)
-            project.process = None
+            self._terminate_process(process)
             # The browser sees only status codes; the CAUSE (hook exception,
             # bad query) is server-side. Ship this boot's log lines so the
             # agent debugs evidence instead of inventing explanations.
@@ -890,14 +902,210 @@ UI in {project.path}/frontend/src/app/."""
             return _fail("verify", errors)
         if verify_status == "skipped":
             logger.warning(
-                f"[LIVING_UI:V2] verify skipped for {project.id}: {verify_detail}"
+                f"[LIVING_UI:V2] verify skipped for {project_dir.name}: {verify_detail}"
             )
+
+        return {"status": "success", "process": process}
+
+    def _external_config(self, project_dir: Path) -> Dict[str, Any]:
+        """craftbot.json for an external project ({} when unreadable)."""
+        try:
+            return json.loads(
+                (Path(project_dir) / "craftbot.json").read_text(encoding="utf-8")
+            )
+        except Exception:
+            return {}
+
+    async def _run_external_pipeline(
+        self, project_dir: Path, port: int, bridge_token: str
+    ) -> dict:
+        """Launch an EXTERNAL app via its craftbot.json pipeline verbs —
+        the first real consumer of the M3/M4 four-verb contract
+        (EXTERNAL-APPS-PLAN Phase A). Reduced gate per WORKFLOWS I-R2:
+        install/build (when declared) + start + health. No kit, no lui gate,
+        no PocketBase anything. Same result envelope as the V2 pipeline.
+        """
+        project_dir = Path(project_dir)
+
+        def _fail(step: str, errors: list) -> dict:
+            return {"status": "error", "step": step, "errors": errors}
+
+        pipeline = self._external_config(project_dir).get("pipeline") or {}
+        start_cmd = str(pipeline.get("start") or "").strip()
+        if not start_cmd:
+            return _fail(
+                "adopt",
+                [
+                    "No start command yet: write the pipeline verbs "
+                    '("install", "build", "start", "health") into '
+                    f"{project_dir}/craftbot.json for this app's stack — use "
+                    "{{PORT}} where the port belongs — then call "
+                    "living_ui_notify_ready again.",
+                ],
+            )
+
+        self._kill_process_on_port(port)
+
+        # app.log is append-mode across launches (same idiom as
+        # pocketbase.log): remember where THIS boot starts so failures quote
+        # only their own lines, errors first.
+        log_path = project_dir / "logs" / "app.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_offset = log_path.stat().st_size if log_path.exists() else 0
+
+        def _log_since_boot(limit_lines: int = 30) -> str:
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(log_offset)
+                    lines = f.read().splitlines()
+                error_lines = [
+                    ln
+                    for ln in lines
+                    if any(
+                        k in ln.lower()
+                        for k in ("error", "failed", "panic", "traceback", "cannot")
+                    )
+                ][-limit_lines:]
+                tail = [ln for ln in lines[-10:] if ln not in error_lines]
+                picked = error_lines + tail
+                return "\n".join(picked[-(limit_lines + 10) :])
+            except Exception:
+                return ""
+
+        bridge_env = {}
+        if bridge_token:
+            bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
+            bridge_env = {
+                "CRAFTBOT_BRIDGE_URL": f"http://localhost:{bridge_port}",
+                "CRAFTBOT_BRIDGE_TOKEN": bridge_token,
+            }
+
+        # install / build: declared-only, logged, hard-timeboxed.
+        for step in ("install", "build"):
+            cmd = str(pipeline.get(step) or "").strip()
+            if not cmd:
+                continue
+            cmd = self._resolve_python_in_command(cmd.replace("{{PORT}}", str(port)))
+            try:
+                with open(log_path, "a", encoding="utf-8") as lh:
+                    lh.write(f"\n[{step}] {cmd}\n")
+                    proc = await asyncio.create_subprocess_shell(
+                        cmd,
+                        cwd=str(project_dir),
+                        env={**os.environ, **bridge_env},
+                        stdout=lh,
+                        stderr=lh,
+                    )
+                    code = await asyncio.wait_for(proc.wait(), timeout=600)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                return _fail(step, [f"{step} timed out after 600s", _log_since_boot()])
+            except Exception as e:
+                return _fail(step, [f"{step} failed to run: {e}"])
+            if code != 0:
+                return _fail(
+                    step,
+                    [f"{step} exited with {code}", "app.log:\n" + _log_since_boot()],
+                )
+
+        start_cmd = start_cmd.replace("{{PORT}}", str(port))
+        try:
+            process = self._start_process(
+                cwd=project_dir,
+                command=start_cmd,
+                log_file=log_path,
+                port=port,
+                extra_env=bridge_env,
+            )
+        except Exception as e:
+            return _fail("start", [str(e)])
+
+        healthy = await self._check_health_with_strategy(
+            pipeline.get("health"), port, process, timeout=45
+        )
+        if not healthy:
+            self._terminate_process(process)
+            errors = [
+                f"App not healthy on :{port} (health config: "
+                f"{pipeline.get('health')!r})"
+            ]
+            boot_log = _log_since_boot()
+            if boot_log:
+                errors.append("app.log (this boot):\n" + boot_log)
+            return _fail("health", errors)
+
+        return {"status": "success", "process": process}
+
+    async def _launch_v2(self, project: LivingUIProject) -> dict:
+        """V2 launch of the REAL project: the shared pipeline plus registry
+        state (status, url, persistence) and the pristine-baseline hook.
+
+        One PocketBase process serves both the API and the built frontend
+        (living-ui-v2 spec D5); errors come back machine-readable so the
+        building agent can fix and retry. EXTERNAL projects dispatch to
+        their own pipeline executor — same registry handling around it.
+        """
+        project_path = Path(project.path)
+
+        # Clear any stale process before relaunching (the pipeline also kills
+        # by port — this drops our own stale handle).
+        if project.process and project.process.poll() is None:
+            self._terminate_process(project.process)
+        project.process = None
+        if not project.port:
+            project.port = self._allocate_port()
+
+        if not project.bridge_token:
+            project.bridge_token = secrets.token_urlsafe(32)
+
+        if getattr(project, "project_type", "native") == "external":
+            result = await self._run_external_pipeline(
+                project_path, project.port, project.bridge_token
+            )
+        else:
+            result = await self._run_launch_pipeline(
+                project_path, project.port, project.bridge_token
+            )
+        if result["status"] != "success":
+            project.status = "error"
+            project.error = "; ".join(str(e)[:500] for e in result["errors"])
+            self._save_projects()
+            return result
+
+        project.process = result.pop("process")
 
         project.status = "running"
         project.url = f"http://127.0.0.1:{project.port}"
         project.backend_url = project.url
         project.error = None
         self._save_projects()
+
+        # Pristine-baseline snapshot: taken ONCE, at the first successful
+        # launch of a never-delivered app — before the agent or verifier has
+        # created any test records. finalize_first_delivery() restores it
+        # right before the delivery announce so the user's first sight of the
+        # app is junk-free. Best-effort by design: a failed snapshot must
+        # never block a launch (worst case the app delivers with test data,
+        # which is today's behavior).
+        try:
+            from app.factory.host_craftbot import get_factory_host
+            from app.living_ui.pb_data_io import snapshot_pb_data
+
+            baseline = project_path / ".snapshots" / "baseline"
+            if (
+                getattr(project, "project_type", "native") != "external"
+                and not baseline.exists()
+                and not get_factory_host().is_delivered(project.id)
+            ):
+                snapshot_pb_data(
+                    project_path / "pb" / "pb_data", baseline, self.living_ui_dir
+                )
+        except Exception as e:
+            logger.warning(f"[LIVING_UI:V2] baseline snapshot skipped: {e}")
+
         logger.info(f"[LIVING_UI:V2] {project.name} running at {project.url}")
         return {
             "status": "success",
@@ -905,6 +1113,196 @@ UI in {project.path}/frontend/src/app/."""
             "backend_url": project.url,
             "port": project.port,
         }
+
+    async def finalize_first_delivery(self, project_id: str) -> dict:
+        """Restore the pristine pb_data baseline and relaunch, so the app the
+        user is about to be handed contains no agent/verifier test records.
+
+        Called from walk_verify's clean branch, on a never-delivered app,
+        AFTER the verifier passed against the live (junk-filled) DB and
+        BEFORE the delivery announce. Migration files written during the
+        build re-apply on the restored DB at boot (they are absent from its
+        _migrations table), so the delivered schema is current — the gate
+        proves the full migration chain replays cleanly on every validate.
+
+        A missing baseline (legacy project, snapshot failure at first launch)
+        is NOT an error: we skip the restore and deliver as today, never
+        guess-wipe. Returns {"status": "success"} or an error dict in the
+        _launch_v2 envelope.
+        """
+        project = self.projects.get(project_id)
+        if not project:
+            return {
+                "status": "error",
+                "step": "finalize",
+                "errors": [f"Unknown project: {project_id}"],
+            }
+        project_path = Path(project.path)
+        baseline = project_path / ".snapshots" / "baseline"
+        if not (baseline / "data.db").exists():
+            logger.info(
+                f"[LIVING_UI:V2] no baseline for {project_id} — delivering without restore"
+            )
+            return {"status": "success", "restored": False}
+
+        from app.living_ui.pb_data_io import restore_pb_data
+
+        # Stop the server before touching pb_data (a live writer during the
+        # restore corrupts both sides). Don't flip status mid-sequence — the
+        # watchdog restarts anything still marked "running" with a dead port,
+        # and a half-finalized app must not be relaunched under our feet.
+        project.status = "stopped"
+        if project.process:
+            self._terminate_process(project.process)
+            project.process = None
+        if project.port and self._is_port_in_use(project.port):
+            self._kill_process_on_port(project.port)
+
+        try:
+            restore_pb_data(
+                baseline, project_path / "pb" / "pb_data", self.living_ui_dir
+            )
+        except Exception as e:
+            # pb_data may now be gone/partial — a plain start would boot an
+            # empty DB. Fall through to the full pipeline, which re-applies
+            # migrations and re-verifies before anyone is told "ready".
+            logger.error(f"[LIVING_UI:V2] baseline restore failed: {e}")
+            return await self._launch_v2(project)
+
+        try:
+            project.process = await self.v2_runner.start(
+                project_path, project.port, bridge_token=project.bridge_token
+            )
+            if not await self.v2_runner.wait_healthy(project.port):
+                raise RuntimeError(f"/api/health not responding on :{project.port}")
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:V2] slim relaunch after restore failed ({e}) — "
+                "falling back to the full pipeline"
+            )
+            return await self._launch_v2(project)
+
+        project.status = "running"
+        project.url = f"http://127.0.0.1:{project.port}"
+        project.backend_url = project.url
+        project.error = None
+        self._save_projects()
+        logger.info(f"[LIVING_UI:V2] {project_id} finalized for first delivery")
+        return {"status": "success", "restored": True}
+
+    async def launch_staging(self, project_id: str) -> dict:
+        """Gate + boot the STAGING copy of a delivered app (creating or
+        refreshing it first). The real app is not rebuilt, restarted or
+        written to — it keeps serving the old working code while the change
+        is developed and verified in the copy.
+
+        Same result envelope as _launch_v2, plus url/port of the staging
+        instance on success.
+        """
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.staging import StagingInstance
+
+        project = self.projects.get(project_id)
+        if not project:
+            return {
+                "status": "error",
+                "step": "staging",
+                "errors": [f"Unknown project: {project_id}"],
+            }
+        if getattr(project, "project_type", "native") == "external":
+            # Staging is pb/-shaped; an external app has no clonable DB or
+            # gate. Changes to externals run live (EXTERNAL-APPS-PLAN v1).
+            return {
+                "status": "error",
+                "step": "staging",
+                "errors": [
+                    "External apps have no staging mode — relaunch live via "
+                    "living_ui_notify_ready (changes apply directly)."
+                ],
+            }
+
+        host = get_factory_host()
+        record = host.get_staging_record(project_id)
+        try:
+            if (
+                record
+                and Path(record.get("dir", "")).joinpath("manifest.json").exists()
+            ):
+                instance = StagingInstance.from_record(project_id, record)
+                self.staging.sync_code(project, instance.dir)
+            else:
+                instance = await self.staging.create_copy(project)
+        except Exception as e:
+            # Never fall back to gating/serving the real project dir — that
+            # is exactly the live-UI blanking this mode exists to prevent.
+            return {
+                "status": "error",
+                "step": "staging",
+                "errors": [f"Could not prepare the staging copy: {e}"],
+            }
+
+        # Reuse (never overwrite) the project's bridge token: the live app's
+        # running process carries it in its env, and validate_bridge_token
+        # checks the current in-memory value — re-minting would cut the live
+        # app off from the bridge mid-modify.
+        if not project.bridge_token:
+            project.bridge_token = secrets.token_urlsafe(32)
+
+        # Record BEFORE booting: a pipeline failure must still leave the
+        # record in place so living_ui_http redirects there and the next
+        # notify_ready reuses the copy instead of re-cloning.
+        host.set_staging_record(project_id, instance.to_record())
+
+        result = await self._run_launch_pipeline(
+            instance.dir, instance.port, project.bridge_token
+        )
+        if result["status"] != "success":
+            return result
+
+        self.staging.adopt_process(instance, result.pop("process"))
+        host.set_staging_record(project_id, instance.to_record())
+
+        # A modify is now demonstrably in progress (staging is up) — re-arm
+        # the factory machine so the modify gets the same supervision as a
+        # build: fix missions on defects, caps, machine announcements
+        # (LIFECYCLE-PLAN Phase 2). Deterministic here, never agent-driven;
+        # no-ops when a modify/fix arc is already in flight.
+        try:
+            host.begin_modify(project_id)
+        except Exception as e:
+            logger.warning(f"[LIVING_UI:STAGING] begin_modify failed: {e}")
+
+        logger.info(f"[LIVING_UI:STAGING] {project_id} staging up at {instance.url}")
+        return {
+            "status": "success",
+            "url": instance.url,
+            "backend_url": instance.url,
+            "port": instance.port,
+            "staging": True,
+        }
+
+    async def finalize_modify(self, project_id: str) -> dict:
+        """The flip, after a clean staging verify: relaunch the REAL project
+        (the gate rebuilds its pb_public; new migration files apply to the
+        real pb_data at boot — user data stays in place), then destroy the
+        staging copy and every test record with it.
+
+        On failure the staging copy and its record are KEPT — the real app
+        is the casualty being repaired, and the next fix iteration needs the
+        copy.
+        """
+        from app.factory.host_craftbot import get_factory_host
+
+        result = await self.launch_and_verify(project_id)
+        if result["status"] != "success":
+            return result
+
+        host = get_factory_host()
+        try:
+            self.staging.destroy(project_id, host.get_staging_record(project_id))
+        finally:
+            host.clear_staging_record(project_id)
+        return result
 
     async def launch_and_verify(self, project_id: str) -> dict:
         """
@@ -982,9 +1380,7 @@ UI in {project.path}/frontend/src/app/."""
             # shutil.which returns ONLY the first match. We want to walk
             # every PATH entry so a Store stub doesn't shadow a real Python.
             path_dirs = os.environ.get("PATH", "").split(os.pathsep)
-            exts = [""] + os.environ.get("PATHEXT", ".EXE;.BAT;.CMD").split(
-                os.pathsep
-            )
+            exts = [""] + os.environ.get("PATHEXT", ".EXE;.BAT;.CMD").split(os.pathsep)
             for d in path_dirs:
                 if not d:
                     continue
@@ -1284,6 +1680,27 @@ UI in {project.path}/frontend/src/app/."""
         if orphan_count > 0:
             logger.info(f"[LIVING_UI] Removed {orphan_count} orphan folder(s)")
 
+        # 2b. Reap staging copies. None is legitimately alive at boot (their
+        # modify missions died with the previous process), but their
+        # PocketBase instances outlive us — kill by recorded pid, delete the
+        # copies, clear the records so nothing redirects to a dead port.
+        try:
+            from app.factory.host_craftbot import get_factory_host
+
+            host = get_factory_host()
+            records = {}
+            for pid_ in list(self.projects):
+                record = host.get_staging_record(pid_)
+                if record:
+                    records[pid_] = record
+            reaped = self.staging.reap_all(records)
+            for pid_ in records:
+                host.clear_staging_record(pid_)
+            if reaped:
+                logger.info(f"[LIVING_UI] Reaped {reaped} staging leftover(s)")
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] staging reap failed: {e}")
+
         # 3. Reset all project statuses to 'stopped' and clear process references
         for project in self.projects.values():
             if project.status == "running":
@@ -1308,7 +1725,16 @@ UI in {project.path}/frontend/src/app/."""
         tracked_paths = {Path(p.path) for p in self.projects.values()}
         orphan_count = 0
 
+        # _staging is workspace infrastructure, not an orphan project: the
+        # wizard stages reference files under it (with its own age-based
+        # sweeper) and StagingSupervisor keeps modify-era app copies there
+        # (reaped deliberately — kill recorded pid, then delete — by
+        # reap_orphans(), not by this blind rmtree).
+        skip_names = {"_staging"}
+
         for folder in self.living_ui_dir.iterdir():
+            if folder.name in skip_names:
+                continue
             if folder.is_dir() and folder not in tracked_paths:
                 try:
                     shutil.rmtree(folder)
@@ -1393,44 +1819,505 @@ UI in {project.path}/frontend/src/app/."""
             theme=theme,
         )
 
-        self.projects[project_id] = project
-        self._save_projects()
-        try:
-            self.ensure_project_session(project)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] Could not ensure session for project {project_id}: {e}")
+        self._register_acquired(project, delivered=False)
 
         logger.info(f"[LIVING_UI] Created V2 project: {name} ({project_id})")
         return project
 
+    def _register_acquired(self, project: LivingUIProject, *, delivered: bool) -> None:
+        """Every entry point (scaffold / marketplace / import) lands here
+        after its starting state is on disk (LIFECYCLE-PLAN Phase 3):
+        registry + persistence + session, and — for sources that arrive as
+        finished apps — the delivered flag that keys every later data-safety
+        mode (staging verifies, no baseline restore)."""
+        self.projects[project.id] = project
+        self._save_projects()
+        try:
+            self.ensure_project_session(project)
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI] Could not ensure session for project {project.id}: {e}"
+            )
+        if delivered:
+            try:
+                from app.factory.host_craftbot import get_factory_host
+
+                get_factory_host().mark_delivered(project.id)
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI] mark_delivered failed for {project.id}: {e}"
+                )
+
+    # ── import (LIFECYCLE-PLAN Phase 4: one door, three sources) ────────────
+    @staticmethod
+    def detect_import_source(source: str) -> str:
+        """'zip' | 'folder' | 'git' — raises ValueError on anything else."""
+        s = (source or "").strip()
+        if not s:
+            raise ValueError("import source is required")
+        if s.startswith(("http://", "https://", "git@", "file://")) or s.endswith(
+            ".git"
+        ):
+            return "git"
+        p = Path(s).expanduser()
+        if p.is_file() and p.suffix.lower() == ".zip":
+            return "zip"
+        if p.is_dir():
+            return "folder"
+        raise ValueError(
+            f"Cannot import {source!r}: not a .zip file, a folder, or a git URL"
+        )
+
+    @staticmethod
+    def infer_app_runtime(src: Path) -> Optional[str]:
+        """Best-effort runtime detection for a foreign app tree
+        (EXTERNAL-APPS-PLAN Phase A). None = the adoption agent decides."""
+        src = Path(src)
+        if (src / "package.json").exists():
+            return "node"
+        if (src / "pyproject.toml").exists() or (src / "requirements.txt").exists():
+            return "python"
+        if (src / "go.mod").exists():
+            return "go"
+        if (src / "Cargo.toml").exists():
+            return "rust"
+        if (src / "index.html").exists():
+            return "static"
+        return None
+
+    @staticmethod
+    def _find_v2_root(root: Path) -> Optional[Path]:
+        """The V2 Living UI project dir inside a source tree (root or first
+        level), or None when the tree is a FOREIGN app."""
+        candidates = [root] + [d for d in sorted(root.iterdir()) if d.is_dir()]
+        for c in candidates:
+            mf = c / "manifest.json"
+            if not mf.exists():
+                continue
+            try:
+                if (
+                    json.loads(mf.read_text(encoding="utf-8")).get("livingUIVersion")
+                    == 2
+                ):
+                    return c
+            except Exception:
+                continue
+        return None
+
+    async def import_project_source(
+        self, source: str, name: Optional[str] = None
+    ) -> LivingUIProject:
+        """Import from a ZIP, a local folder, or a git URL — one door.
+
+        A V2 Living UI tree imports natively (identity rewrite, credential
+        strip, kit re-canon, delivered registration). A FOREIGN tree is
+        registered as an EXTERNAL project that will run AS-IS in its own
+        runtime, adopted by an agent mission (EXTERNAL-APPS-PLAN — the user
+        decided foreign apps run unchanged, never auto-rebuilt)."""
+        import tempfile
+        import zipfile
+
+        kind = self.detect_import_source(source)
+        if kind == "folder":
+            # Read-only: the user's folder is copied, never modified.
+            root = Path(source).expanduser()
+            if self._find_v2_root(root) is not None:
+                return await self._import_project_tree(root, name)
+            return await self._import_external_tree(root, name, origin=source)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            if kind == "zip":
+                with zipfile.ZipFile(source) as zf:
+                    zf.extractall(root)
+            else:
+                self._fetch_git_source(source, root)
+            if self._find_v2_root(root) is not None:
+                return await self._import_project_tree(root, name)
+            return await self._import_external_tree(root, name, origin=source)
+
+    async def _import_external_tree(
+        self, root: Path, name: Optional[str], origin: str
+    ) -> LivingUIProject:
+        """Register a foreign app to RUN AS-IS: copy the tree, allocate a
+        port, write the CraftBot pipeline config, register as an external
+        project (not delivered — delivery is its first verified launch).
+        The adoption mission fills in the pipeline verbs."""
+        # Unwrap the single wrapper dir git clones / GitHub zips create.
+        src = root
+        entries = [e for e in Path(root).iterdir() if e.name != "__MACOSX"]
+        if len(entries) == 1 and entries[0].is_dir():
+            src = entries[0]
+        if not any(f.is_file() for f in src.rglob("*")):
+            raise ValueError("Source tree is empty — nothing to import")
+
+        runtime = self.infer_app_runtime(src)
+        display = (name or src.name or "External App").strip() or "External App"
+        project_id = self._generate_id()
+        port = self._allocate_port()
+        dest = self.living_ui_dir / f"{self._sanitize_name(display)}_{project_id}"
+        # node_modules is rebuilt by the install verb; .git/logs never import.
+        shutil.copytree(
+            src,
+            dest,
+            ignore=shutil.ignore_patterns("node_modules", ".git", "logs"),
+        )
+        (dest / "logs").mkdir(exist_ok=True)
+
+        # CraftBot's config lives in craftbot.json — NEVER manifest.json,
+        # which a foreign app may legitimately own (Chrome extensions, PWAs).
+        # Same four pipeline verbs as V2 manifests (REQUIREMENTS M3/M4);
+        # start/health run through {{PORT}} substitution.
+        config = {
+            "id": project_id,
+            "name": display,
+            "external": True,
+            "origin": origin,
+            "appRuntime": runtime,
+            "port": port,
+            "pipeline": {
+                "install": "",
+                "build": "",
+                "start": "",
+                "health": {"strategy": "http_get", "url": "http://127.0.0.1:{{PORT}}/"},
+            },
+        }
+        (dest / "craftbot.json").write_text(
+            json.dumps(config, indent=2) + "\n", encoding="utf-8"
+        )
+
+        # The adoption SPEC is deterministic and small: the deliverable of an
+        # import is the MANIFEST, so verification covers launchability — not
+        # the foreign app's internal feature inventory. (Observed live
+        # 2026-08-05, chili3d: feature-level requirements written from the
+        # README made the verifier fail an optional plugin the adopter is
+        # forbidden to touch, spawning unfixable fix missions.)
+        ref = dest / "reference"
+        ref.mkdir(exist_ok=True)
+        (ref / "requirements.md").write_text(
+            f"# {display} — Adoption Requirements\n\n"
+            "This is an EXTERNAL app adopted to run AS-IS in its own runtime. "
+            "The deliverable is the run configuration (craftbot.json), not "
+            "the app's own features.\n\n"
+            "## Features\n"
+            "The user can open the app at its URL and its main screen "
+            "renders (not blank, not an error page).\n\n"
+            "## Scope\n"
+            "The app's INTERNAL features are NOT part of this verification — "
+            "they ship as-is. Console errors or 404s from the app's own "
+            "optional components (plugins, analytics, telemetry) are NOT "
+            "failures when the main screen works; mention anything visibly "
+            "broken as a caveat instead.\n",
+            encoding="utf-8",
+        )
+
+        project = LivingUIProject(
+            id=project_id,
+            name=display,
+            description=f"External app imported from {origin}",
+            path=str(dest),
+            status="stopped",
+            port=port,
+            project_type="external",
+            app_runtime=runtime,
+        )
+        self._register_acquired(project, delivered=False)
+        logger.info(
+            f"[LIVING_UI] Registered EXTERNAL app: {display} ({project_id}, "
+            f"runtime={runtime or 'unknown'})"
+        )
+        return project
+
+    def post_import_brief(self, project: LivingUIProject) -> str:
+        """The run brief that finishes an import — verify for natives,
+        ADOPTION for externals (write the pipeline verbs, then launch and
+        verify). One composer so the action and the UI path never drift."""
+        if getattr(project, "project_type", "native") == "external":
+            return (
+                f"ADOPT EXTERNAL APP '{project.name}' ({project.id}) at "
+                f"{project.path}.\n"
+                f"This is a foreign app that must RUN AS-IS in its own runtime "
+                f"(detected: {project.app_runtime or 'unknown'}). Do NOT "
+                f"rebuild it and do NOT edit its code except config needed to "
+                f"bind the assigned port. Your deliverable is the RUN CONFIG, "
+                f"not the app's features — reference/requirements.md already "
+                f"defines the verification scope (launches + main screen "
+                f"renders); do not rewrite it.\n"
+                f"1. Understand the app: how it installs, builds, starts and "
+                f"health-checks.\n"
+                f"2. Write the pipeline verbs into {project.path}/craftbot.json "
+                f'("install", "build", "start", "health") — use {{{{PORT}}}} '
+                f"where the port belongs; the app MUST bind "
+                f"127.0.0.1:{project.port}.\n"
+                f"3. Note what the app is in {project.path}/LIVING_UI.md (one "
+                f"short section — the user's reference, not a spec).\n"
+                f'4. living_ui_notify_ready(project_id="{project.id}") — fix '
+                f"any returned errors (evidence lands in logs/app.log) — then "
+                f'living_ui_walk_verify(project_id="{project.id}").\n'
+                f"The system announces the result — do not send status "
+                f"messages."
+            )
+        return (
+            f"IMPORT COMPLETE for Living UI '{project.name}' "
+            f"({project.id}) at {project.path}.\n"
+            f"Launch and verify it now:\n"
+            f'living_ui_notify_ready(project_id="{project.id}") then\n'
+            f'living_ui_walk_verify(project_id="{project.id}").\n'
+            f"Fix any returned errors and repeat. The system announces "
+            f"the result to the user — do not send status messages."
+        )
+
     async def import_project_zip(
         self, zip_path: str, name: Optional[str] = None
     ) -> LivingUIProject:
-        """Import a V2 Living UI project from an exported ZIP.
+        """Back-compat wrapper: ZIP import via the unified source door."""
+        import tempfile
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(root)
+            return await self._import_project_tree(root, name)
+
+    async def convert_foreign_source(
+        self, source: str, name: Optional[str] = None, description: str = ""
+    ) -> LivingUIProject:
+        """Conversion (LIFECYCLE-PLAN Phase 4B): a foreign (non-Living-UI)
+        app cannot be imported — its stack doesn't run here — so it is
+        REBUILT: scaffold a fresh V2 project, ship the original source as
+        read-only reference material, synthesize the requirements FROM that
+        source, and let the normal supervised build implement them. Only the
+        knowledge of what to build is imported; every delivered line is new.
+
+        Returns the scaffolded project (pre-delivery — the caller dispatches
+        the standard build run). Raises on a V2 source (that's an import)."""
+        import tempfile
+
+        kind = self.detect_import_source(source)
+        if kind == "folder":
+            return await self._convert_tree(
+                Path(source).expanduser(), name, description, origin=source
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            if kind == "zip":
+                import zipfile
+
+                with zipfile.ZipFile(source) as zf:
+                    zf.extractall(root)
+            else:
+                self._fetch_git_source(source, root)
+            return await self._convert_tree(root, name, description, origin=source)
+
+    async def _convert_tree(
+        self, root: Path, name: Optional[str], description: str, origin: str
+    ) -> LivingUIProject:
+        # A V2 Living UI must go through import — converting it would throw
+        # away a working app and rebuild it from prose.
+        candidates = [root] + [d for d in sorted(root.iterdir()) if d.is_dir()]
+        for c in candidates:
+            mf = c / "manifest.json"
+            if mf.exists():
+                try:
+                    if (
+                        json.loads(mf.read_text(encoding="utf-8")).get(
+                            "livingUIVersion"
+                        )
+                        == 2
+                    ):
+                        raise ValueError(
+                            "This source IS a Living UI V2 project — use "
+                            "living_ui_import, not conversion."
+                        )
+                except ValueError:
+                    raise
+                except Exception:
+                    pass
+
+        # Unwrap the single wrapper dir git clones / GitHub zips create.
+        src = root
+        entries = [e for e in root.iterdir() if e.name != "__MACOSX"]
+        if len(entries) == 1 and entries[0].is_dir():
+            src = entries[0]
+
+        display = (name or src.name or "Converted App").strip() or "Converted App"
+        project = await self.create_project(
+            name=display,
+            description=description or f"Rebuild of the app imported from {origin}",
+        )
+        try:
+            ref_source = Path(project.path) / "reference" / "source"
+            self._ingest_reference_source(src, ref_source)
+
+            from app.living_ui import wizard
+
+            doc = await wizard.synthesize_requirements_from_source(
+                ref_source, display, description
+            )
+            doc += (
+                "\n\n## Original source\n"
+                "This app is a REBUILD of an existing app whose source code "
+                "ships read-only at `reference/source/`. Consult it for exact "
+                "behaviors, field names, copy and edge cases — but never copy "
+                "code from it: the stack is different, and only the features "
+                "above are binding.\n"
+            )
+            req = Path(project.path) / "reference" / "requirements.md"
+            req.parent.mkdir(parents=True, exist_ok=True)
+            req.write_text(doc + "\n", encoding="utf-8")
+        except Exception:
+            # A conversion without requirements is a blank build with an
+            # orphan tab — remove the scaffold and surface the real error.
+            try:
+                await self.delete_project(project.id)
+            except Exception:
+                pass
+            raise
+        return project
+
+    # What never enters reference/source: runtime junk, dependency trees,
+    # and anything credential-shaped. Caps keep a huge repo from bloating
+    # the project (source is EVIDENCE for the synthesis + builder, not a
+    # working checkout).
+    _CONVERT_SKIP_DIRS = {
+        "node_modules",
+        ".git",
+        "logs",
+        "dist",
+        "build",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "pb_data",
+        ".next",
+        "target",
+    }
+    _CONVERT_SKIP_NAMES = {
+        "credentials.json",
+        "token.json",
+        ".superuser",
+        ".agent-token",
+        ".jwt_secret",
+        ".npmrc",
+        ".netrc",
+    }
+
+    def _ingest_reference_source(
+        self,
+        src: Path,
+        dest: Path,
+        max_file_bytes: int = 1_000_000,
+        max_total_bytes: int = 50_000_000,
+    ) -> None:
+        copied = 0
+        for f in sorted(Path(src).rglob("*")):
+            if not f.is_file():
+                continue
+            rel = f.relative_to(src)
+            if any(part in self._CONVERT_SKIP_DIRS for part in rel.parts):
+                continue
+            if f.name in self._CONVERT_SKIP_NAMES or f.name.startswith(".env"):
+                continue
+            try:
+                size = f.stat().st_size
+            except OSError:
+                continue
+            if size > max_file_bytes or copied + size > max_total_bytes:
+                continue
+            target = dest / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, target)
+            copied += size
+        logger.info(
+            f"[LIVING_UI] ingested reference source into {dest} ({copied} bytes)"
+        )
+
+    def _fetch_git_source(self, url: str, dest: Path) -> None:
+        """Land a git repo's tree under dest. GitHub gets the zip-download
+        fast path (no git binary, same mechanism as the marketplace
+        installer) with a main→master fallback; everything else (and
+        file:// URLs) is a depth-1 clone."""
+        import io
+        import subprocess
+        import urllib.request
+        import zipfile
+
+        m = re.match(r"^https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+        if m:
+            import ssl
+
+            import certifi
+
+            owner, repo = m.group(1), m.group(2)
+            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+            last_err: Optional[Exception] = None
+            for branch in ("main", "master"):
+                zip_url = (
+                    f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.zip"
+                )
+                try:
+                    req = urllib.request.Request(
+                        zip_url, headers={"User-Agent": "CraftBot"}
+                    )
+                    data = urllib.request.urlopen(
+                        req, timeout=60, context=ssl_ctx
+                    ).read()
+                    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                        zf.extractall(dest)
+                    return
+                except Exception as e:
+                    last_err = e
+            raise RuntimeError(f"GitHub download failed for {url}: {last_err}")
+
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", url, str(dest / "repo")],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"git clone failed: {(result.stderr or result.stdout).strip()[:400]}"
+            )
+
+    async def _import_project_tree(
+        self, root: Path, name: Optional[str] = None
+    ) -> LivingUIProject:
+        """The shared import pipeline: find the V2 project in the tree, copy
+        it in with a fresh identity + port, strip shipped credentials,
+        re-canonize, register delivered.
 
         Round-trip with export: new identity + port, shipped credentials
         stripped, kit re-vendored and hashes re-canonized via kit-sync.
         """
-        import tempfile
-        import zipfile
-
         project_id = self._generate_id()
-        with tempfile.TemporaryDirectory() as tmp:
-            with zipfile.ZipFile(zip_path) as zf:
-                zf.extractall(tmp)
-            root = Path(tmp)
-            candidates = [root] + [d for d in root.iterdir() if d.is_dir()]
-            src = next((c for c in candidates if (c / "manifest.json").exists()), None)
-            if src is None:
-                raise ValueError("ZIP does not contain a Living UI project (no manifest.json)")
-            manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
-            if manifest.get("livingUIVersion") != 2:
-                raise ValueError("Only Living UI V2 projects can be imported")
+        candidates = [root] + [d for d in sorted(root.iterdir()) if d.is_dir()]
+        src = next((c for c in candidates if (c / "manifest.json").exists()), None)
+        if src is None:
+            raise ValueError(
+                "Not a Living UI project (no manifest.json at its root or "
+                "first level). A regular app can't be imported — it can be "
+                "REBUILT as a Living UI instead: ask the agent to convert it."
+            )
+        raw_manifest = (src / "manifest.json").read_text(encoding="utf-8")
+        manifest = json.loads(raw_manifest)
+        if manifest.get("livingUIVersion") != 2:
+            raise ValueError(
+                "Only Living UI V2 projects can be imported (foreign apps need "
+                "the conversion flow)"
+            )
 
-            display = name or manifest.get("name") or "Imported App"
-            port = self._allocate_port()
-            dest = self.living_ui_dir / f"{self._sanitize_name(display)}_{project_id}"
-            shutil.copytree(src, dest)
+        display = name or manifest.get("name") or "Imported App"
+        port = self._allocate_port()
+        dest = self.living_ui_dir / f"{self._sanitize_name(display)}_{project_id}"
+        # Runtime junk never imports; node_modules is skipped because a
+        # foreign machine's install may not run here — the launch pipeline's
+        # install step rebuilds it from package.json.
+        shutil.copytree(
+            src,
+            dest,
+            ignore=shutil.ignore_patterns("node_modules", ".git", "logs"),
+        )
 
         # Never trust shipped credentials or runtime state.
         (dest / ".superuser").unlink(missing_ok=True)
@@ -1444,6 +2331,29 @@ UI in {project.path}/frontend/src/app/."""
             )
         (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
+        # A TEMPLATE tree (a marketplace checkout imported by path — the
+        # local living-ui-marketplace clone is full of them) still carries
+        # {{...}} tokens in its files; without substitution the app imports
+        # registered-but-broken. Same replacement map the marketplace
+        # installer uses.
+        if "{{" in raw_manifest:
+            _desc = str(manifest.get("description", "") or "")
+            if "{{" in _desc:  # the description itself may be the token
+                _desc = display
+            self._replace_placeholders(
+                dest,
+                {
+                    "{{PROJECT_ID}}": project_id,
+                    "{{PROJECT_NAME}}": display,
+                    "{{PROJECT_DESCRIPTION}}": _desc or display,
+                    "{{PORT}}": str(port),
+                    "{{BACKEND_PORT}}": str(port),
+                    "{{THEME}}": "system",
+                    "{{CREATED_AT}}": datetime.now().isoformat(),
+                    "{{FEATURES}}": "",
+                },
+            )
+
         # Kit re-vendor + hash re-canon (identity rewrite invalidated the canon).
         await self.v2_runner.kit_sync(dest)
 
@@ -1455,12 +2365,10 @@ UI in {project.path}/frontend/src/app/."""
             status="stopped",
             port=port,
         )
-        self.projects[project_id] = project
-        self._save_projects()
-        try:
-            self.ensure_project_session(project)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] Could not ensure session for project {project_id}: {e}")
+        # Delivered on arrival: an imported app may carry real data — later
+        # gates/verifies run in staging mode, never a baseline restore.
+        self._register_acquired(project, delivered=True)
+
         logger.info(f"[LIVING_UI] Imported V2 project: {display} ({project_id})")
         return project
 
@@ -1501,8 +2409,17 @@ UI in {project.path}/frontend/src/app/."""
         Values substituted into .json files are JSON-escaped (a description
         containing quotes/newlines must not break manifest.json)."""
         text_extensions = {
-            ".ts", ".tsx", ".js", ".jsx", ".json", ".html",
-            ".css", ".md", ".py", ".txt", ".env",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            ".json",
+            ".html",
+            ".css",
+            ".md",
+            ".py",
+            ".txt",
+            ".env",
         }
         for filepath in directory.rglob("*"):
             if not (filepath.is_file() and filepath.suffix in text_extensions):
@@ -1554,8 +2471,37 @@ UI in {project.path}/frontend/src/app/."""
         # at request time becomes this project), else allocate a fresh one.
         project_id = project_id or self._generate_id()
         sanitized_name = self._sanitize_name(app_name)
-        project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
 
+        # ADOPTION: when project_id names an EXISTING project with a real
+        # directory (the wizard scaffolds one before the build run starts),
+        # the install replaces that project in place — same id, port, session
+        # and tab — instead of minting a duplicate. Observed live (2026-08-05,
+        # kanban board): the build agent installed from the marketplace, a
+        # SECOND project appeared, and the factory then redispatched a
+        # "continue build" for the orphaned first one, which got built from
+        # scratch. Callers only pass an existing id for never-delivered
+        # scaffolds; delivered apps always install as a separate new project.
+        existing = self.projects.get(project_id)
+        adopting = existing is not None and bool(existing.path)
+        if adopting:
+            project_path = Path(existing.path)
+        else:
+            project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
+
+        if (
+            adopting
+            and self.living_ui_dir.resolve()
+            not in Path(existing.path).resolve().parents
+        ):
+            return {
+                "status": "error",
+                "error": (
+                    f"Refusing to replace {existing.path!r} — outside the "
+                    "Living UI workspace."
+                ),
+            }
+
+        preserved_hold: Optional[Path] = None
         try:
             # Download the repo as a zip
             # GitHub API: /{owner}/{repo}/zipball/main
@@ -1596,6 +2542,28 @@ UI in {project.path}/frontend/src/app/."""
                         "error": f"App '{app_id}' not found in marketplace repo",
                     }
 
+                # The app exists in the zip — NOW it is safe to clear an
+                # adopted scaffold, PRESERVING the wizard's requirements
+                # (reference/) and the factory's machine state (.factory/),
+                # which the continuing build run still needs. The extraction
+                # below writes file-by-file into an existing dir, and a plain
+                # overlay would leave scaffold leftovers behind (e.g. the
+                # starter migration, which would create a stray `items`
+                # collection in the installed app).
+                if adopting:
+                    if existing.process:
+                        self._terminate_process(existing.process)
+                        existing.process = None
+                    if existing.port and self._is_port_in_use(existing.port):
+                        self._kill_process_on_port(existing.port)
+                    if project_path.exists():
+                        preserved_hold = Path(tempfile.mkdtemp(prefix="lui-adopt-"))
+                        for rel in ("reference", ".factory"):
+                            keep = project_path / rel
+                            if keep.exists():
+                                shutil.move(str(keep), str(preserved_hold / rel))
+                        shutil.rmtree(project_path.resolve())
+
                 # Extract app files to project path
                 project_path.mkdir(parents=True, exist_ok=True)
                 for member in zf.namelist():
@@ -1623,6 +2591,16 @@ UI in {project.path}/frontend/src/app/."""
                     is_v2 = False
             if not is_v2:
                 shutil.rmtree(project_path, ignore_errors=True)
+                if preserved_hold is not None:
+                    # Adoption: give the scaffold its requirements/factory
+                    # state back before bailing out.
+                    project_path.mkdir(parents=True, exist_ok=True)
+                    for rel in ("reference", ".factory"):
+                        kept = preserved_hold / rel
+                        if kept.exists():
+                            shutil.move(str(kept), str(project_path / rel))
+                    shutil.rmtree(preserved_hold, ignore_errors=True)
+                    preserved_hold = None
                 return {
                     "status": "error",
                     "error": (
@@ -1633,9 +2611,14 @@ UI in {project.path}/frontend/src/app/."""
                     ),
                 }
 
-            # Allocate ports
-            frontend_port = self._allocate_port()
-            backend_port = self._allocate_port()
+            # Ports: an adopted project keeps its scaffold ports (the tab and
+            # session already reference them); fresh installs allocate.
+            if adopting and existing.port:
+                frontend_port = existing.port
+                backend_port = existing.backend_port or existing.port
+            else:
+                frontend_port = self._allocate_port()
+                backend_port = self._allocate_port()
 
             # Replace placeholders (marketplace apps use the same template placeholders)
             # Build replacements — system placeholders + custom fields
@@ -1656,6 +2639,29 @@ UI in {project.path}/frontend/src/app/."""
 
             self._replace_placeholders(project_path, replacements)
 
+            # Record WHICH marketplace app this project holds: a crash
+            # between install and build-completion redispatches a "continue
+            # build", and without this marker the resumed run cannot tell
+            # "already installed here" from "install a new separate app" —
+            # it would mint a duplicate through the fresh-install path.
+            try:
+                mf_path = project_path / "manifest.json"
+                mf_data = json.loads(mf_path.read_text(encoding="utf-8"))
+                mf_data["marketplaceAppId"] = app_id
+                mf_path.write_text(json.dumps(mf_data, indent=2) + "\n")
+            except Exception as e:
+                logger.warning(f"[LIVING_UI:MARKETPLACE] could not record app id: {e}")
+
+            # Adoption: put the wizard's requirements and the factory state
+            # back where the build run expects them.
+            if preserved_hold is not None:
+                for rel in ("reference", ".factory"):
+                    kept = preserved_hold / rel
+                    if kept.exists():
+                        shutil.move(str(kept), str(project_path / rel))
+                shutil.rmtree(preserved_hold, ignore_errors=True)
+                preserved_hold = None
+
             # Identity rewrite touched hash-canonized files (manifest.json):
             # re-vendor the kit and re-canonize hashes, as zip import does.
             await self.v2_runner.kit_sync(project_path)
@@ -1670,13 +2676,19 @@ UI in {project.path}/frontend/src/app/."""
                 port=frontend_port,
                 backend_port=backend_port,
             )
+            if adopting:
+                # Same tab, same session, same look — only the contents changed.
+                project.session_id = existing.session_id
+                project.icon = existing.icon
+                project.ui_theme = existing.ui_theme
+                project.style_pack = existing.style_pack
+                project.auto_launch = existing.auto_launch
 
-            self.projects[project_id] = project
-            self._save_projects()
-            try:
-                self.ensure_project_session(project)
-            except Exception as e:
-                logger.warning(f"[LIVING_UI] Could not ensure session for project {project_id}: {e}")
+            # Delivered on arrival (may ship with real data, never
+            # walk-verified): marked BEFORE the launch so the success path
+            # doesn't snapshot their pb_data as a "pristine" baseline and
+            # later verifies run in staging mode.
+            self._register_acquired(project, delivered=True)
 
             logger.info(
                 f"[LIVING_UI:MARKETPLACE] Created project: {app_name} ({project_id})"
@@ -1707,8 +2719,20 @@ UI in {project.path}/frontend/src/app/."""
             }
         except Exception as e:
             logger.error(f"[LIVING_UI:MARKETPLACE] Install failed: {e}")
-            # Clean up on failure
-            if project_path.exists():
+            # Clean up on failure. For an adopted project, put the preserved
+            # requirements/factory state back so a retry (or the continuing
+            # build run) still has them.
+            if preserved_hold is not None:
+                try:
+                    project_path.mkdir(parents=True, exist_ok=True)
+                    for rel in ("reference", ".factory"):
+                        kept = preserved_hold / rel
+                        if kept.exists():
+                            shutil.move(str(kept), str(project_path / rel))
+                    shutil.rmtree(preserved_hold, ignore_errors=True)
+                except Exception:
+                    pass
+            elif project_path.exists() and not adopting:
                 try:
                     shutil.rmtree(project_path)
                 except Exception:
@@ -1735,9 +2759,7 @@ UI in {project.path}/frontend/src/app/."""
         project.ui_theme = ui_theme or None
         self._save_projects()
 
-    def get_project_by_session_id(
-        self, session_id: str
-    ) -> Optional["LivingUIProject"]:
+    def get_project_by_session_id(self, session_id: str) -> Optional["LivingUIProject"]:
         """Return the Living UI project owning a given session_id, or None."""
         if not session_id:
             return None
@@ -1746,16 +2768,24 @@ UI in {project.path}/frontend/src/app/."""
                 return project
         return None
 
-    async def start_development_run(self, project_id: str) -> Optional[str]:
+    async def start_development_run(
+        self,
+        project_id: str,
+        *,
+        brief: Optional[str] = None,
+        trigger_source: Optional[str] = None,
+        workflow_skill: str = "living-ui-creator",
+        status: Optional[str] = "creating",
+    ) -> Optional[str]:
         """
-        Queue a build run in the project's session.
+        Queue a run in the project's session (LIFECYCLE-PLAN Phase 3: one
+        dispatcher for every entry point).
 
-        Ensures the project's dedicated session exists (with the Living UI
-        toolchain preloaded) and fires a trigger carrying the full build
-        instruction.
-
-        Args:
-            project_id: The Living UI project ID to develop
+        Defaults reproduce the classic build run (full task instruction,
+        LIVING_UI_DEV trigger, creator skill, status "creating"). Other
+        entries pass their own brief/source/skill — e.g. an import's
+        launch-and-verify run — and `status=None` to leave the project's
+        status untouched.
 
         Returns:
             The project's session ID if successful, None otherwise
@@ -1769,48 +2799,49 @@ UI in {project.path}/frontend/src/app/."""
             logger.error("[LIVING_UI] Session manager or trigger service not bound")
             return None
 
-        # Build the run instruction
-        features_str = (
-            ", ".join(project.features) if project.features else "None specified"
-        )
-        from agent_core.core.prompts.application import LIVING_UI_TASK_INSTRUCTION
+        if brief is None:
+            # The classic build instruction.
+            features_str = (
+                ", ".join(project.features) if project.features else "None specified"
+            )
+            from agent_core.core.prompts.application import LIVING_UI_TASK_INSTRUCTION
 
-        task_instruction = LIVING_UI_TASK_INSTRUCTION.format(
-            project_id=project.id,
-            project_name=project.name,
-            description=project.description,
-            features=features_str,
-            theme=project.theme,
-            project_path=project.path,
-        )
+            brief = LIVING_UI_TASK_INSTRUCTION.format(
+                project_id=project.id,
+                project_name=project.name,
+                description=project.description,
+                features=features_str,
+                theme=project.theme,
+                project_path=project.path,
+            )
 
         try:
             session = self.ensure_project_session(project)
             if not session:
                 raise RuntimeError("could not create project session")
 
-            # Update project status
-            self.update_project_status(project_id, "creating")
+            if status:
+                self.update_project_status(project_id, status)
 
             from app.triggers import TriggerSource, TriggerSpec
 
             await self._trigger_service.emit(
                 TriggerSpec(
-                    source=TriggerSource.LIVING_UI_DEV,
-                    description=task_instruction,
+                    source=trigger_source or TriggerSource.LIVING_UI_DEV,
+                    description=brief,
                     priority=50,
                     session_id=session.id,
                     payload={
                         "project_id": project_id,
-                        # This run writes code, so it needs the build skill —
+                        # This run writes code, so it needs a Living UI skill —
                         # loaded now, unloaded when the run ends.
-                        "workflow_skills": ["living-ui-creator"],
+                        "workflow_skills": [workflow_skill],
                     },
                 )
             )
 
             logger.info(
-                f"[LIVING_UI] Queued build run in session {session.id} "
+                f"[LIVING_UI] Queued {workflow_skill} run in session {session.id} "
                 f"for project {project_id}"
             )
             return session.id
@@ -2191,6 +3222,7 @@ UI in {project.path}/frontend/src/app/."""
             "logs",
             ".venv",
             "venv",
+            ".snapshots",  # pristine pb_data baseline — local delivery state
         }
         skip_suffixes = {".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3"}
         skip_names = {

@@ -218,7 +218,10 @@ async def get_stripe_customer(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_customer(input_data: dict) -> dict:
@@ -263,7 +266,10 @@ async def create_stripe_customer(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_customer(input_data: dict) -> dict:
@@ -559,7 +565,10 @@ async def get_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_payment_intent(input_data: dict) -> dict:
@@ -607,7 +616,10 @@ async def create_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_payment_intent(input_data: dict) -> dict:
@@ -659,7 +671,10 @@ async def update_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def confirm_stripe_payment_intent(input_data: dict) -> dict:
@@ -704,7 +719,10 @@ async def confirm_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def capture_stripe_payment_intent(input_data: dict) -> dict:
@@ -742,7 +760,10 @@ async def capture_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def cancel_stripe_payment_intent(input_data: dict) -> dict:
@@ -969,7 +990,10 @@ async def get_stripe_charge(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_refund(input_data: dict) -> dict:
@@ -1234,7 +1258,10 @@ async def get_stripe_payment_method(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def attach_stripe_payment_method(input_data: dict) -> dict:
@@ -1266,7 +1293,10 @@ async def attach_stripe_payment_method(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def detach_stripe_payment_method(input_data: dict) -> dict:
@@ -1305,7 +1335,10 @@ async def detach_stripe_payment_method(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_payment_method(input_data: dict) -> dict:
@@ -1502,7 +1535,10 @@ async def get_stripe_product(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_product(input_data: dict) -> dict:
@@ -1548,7 +1584,10 @@ async def create_stripe_product(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_product(input_data: dict) -> dict:
@@ -1782,7 +1821,10 @@ async def get_stripe_price(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_price(input_data: dict) -> dict:
@@ -1828,7 +1870,10 @@ async def create_stripe_price(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_price(input_data: dict) -> dict:
@@ -2049,7 +2094,10 @@ async def get_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_invoice(input_data: dict) -> dict:
@@ -2096,7 +2144,10 @@ async def create_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_invoice(input_data: dict) -> dict:
@@ -2157,7 +2208,13 @@ async def delete_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, hosted_invoice_url}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Only {id, status, hosted_invoice_url}.",
+        },
+    },
     parallelizable=False,
 )
 async def finalize_stripe_invoice(input_data: dict) -> dict:
@@ -2189,7 +2246,13 @@ async def finalize_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, hosted_invoice_url}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Only {id, status, hosted_invoice_url}.",
+        },
+    },
     parallelizable=False,
 )
 async def send_stripe_invoice(input_data: dict) -> dict:
@@ -2240,7 +2303,10 @@ async def send_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def pay_stripe_invoice(input_data: dict) -> dict:
@@ -2275,7 +2341,10 @@ async def pay_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def void_stripe_invoice(input_data: dict) -> dict:
@@ -2306,7 +2375,10 @@ async def void_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def mark_stripe_invoice_uncollectible(input_data: dict) -> dict:
@@ -2516,7 +2588,10 @@ async def list_stripe_invoice_items(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_invoice_item(input_data: dict) -> dict:
@@ -2772,7 +2847,10 @@ async def get_stripe_subscription(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_subscription(input_data: dict) -> dict:
@@ -2821,7 +2899,10 @@ async def create_stripe_subscription(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_subscription(input_data: dict) -> dict:
@@ -2868,7 +2949,10 @@ async def update_stripe_subscription(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def cancel_stripe_subscription(input_data: dict) -> dict:
@@ -2912,7 +2996,10 @@ async def cancel_stripe_subscription(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def resume_stripe_subscription(input_data: dict) -> dict:
@@ -3132,7 +3219,10 @@ async def get_stripe_checkout_session(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status, url}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_checkout_session(input_data: dict) -> dict:
@@ -3175,7 +3265,10 @@ async def create_stripe_checkout_session(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status, url}."},
+    },
     parallelizable=False,
 )
 async def expire_stripe_checkout_session(input_data: dict) -> dict:
@@ -3412,7 +3505,10 @@ async def get_stripe_payment_link(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status, url}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_payment_link(input_data: dict) -> dict:
@@ -3457,7 +3553,10 @@ async def create_stripe_payment_link(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status, url}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_payment_link(input_data: dict) -> dict:
@@ -3504,7 +3603,10 @@ async def update_stripe_payment_link(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status, url}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_billing_portal_session(input_data: dict) -> dict:
@@ -3686,7 +3788,10 @@ async def get_stripe_coupon(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_coupon(input_data: dict) -> dict:
@@ -3731,7 +3836,10 @@ async def create_stripe_coupon(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_coupon(input_data: dict) -> dict:
@@ -3893,7 +4001,10 @@ async def list_stripe_promotion_codes(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_promotion_code(input_data: dict) -> dict:
@@ -3936,7 +4047,10 @@ async def create_stripe_promotion_code(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_promotion_code(input_data: dict) -> dict:
@@ -4101,7 +4215,10 @@ async def get_stripe_dispute(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_dispute(input_data: dict) -> dict:
@@ -4135,7 +4252,10 @@ async def update_stripe_dispute(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def close_stripe_dispute(input_data: dict) -> dict:
@@ -4312,7 +4432,10 @@ async def get_stripe_payout(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_payout(input_data: dict) -> dict:
@@ -4346,7 +4469,10 @@ async def create_stripe_payout(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def cancel_stripe_payout(input_data: dict) -> dict:
@@ -4634,7 +4760,10 @@ async def get_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_quote(input_data: dict) -> dict:
@@ -4675,7 +4804,10 @@ async def create_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_quote(input_data: dict) -> dict:
@@ -4712,7 +4844,10 @@ async def update_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def finalize_stripe_quote(input_data: dict) -> dict:
@@ -4744,7 +4879,10 @@ async def finalize_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def accept_stripe_quote(input_data: dict) -> dict:
@@ -4771,7 +4909,10 @@ async def accept_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def cancel_stripe_quote(input_data: dict) -> dict:
@@ -4839,7 +4980,13 @@ async def cancel_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Lean events {id, type, created, data.object.id} + has_more unless include_metadata=true."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean events {id, type, created, data.object.id} + has_more unless include_metadata=true.",
+        },
+    },
 )
 async def list_stripe_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4903,7 +5050,13 @@ async def list_stripe_events(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Lean {id, type, created, data.object.id} unless include_metadata=true."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean {id, type, created, data.object.id} unless include_metadata=true.",
+        },
+    },
 )
 async def get_stripe_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -5074,7 +5227,10 @@ async def get_stripe_webhook_endpoint(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, secret}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status, secret}."},
+    },
     parallelizable=False,
 )
 async def create_stripe_webhook_endpoint(input_data: dict) -> dict:
@@ -5115,7 +5271,10 @@ async def create_stripe_webhook_endpoint(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def update_stripe_webhook_endpoint(input_data: dict) -> dict:
@@ -5142,7 +5301,10 @@ async def update_stripe_webhook_endpoint(input_data: dict) -> dict:
             "example": "we_…",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def delete_stripe_webhook_endpoint(input_data: dict) -> dict:
@@ -5187,7 +5349,10 @@ async def delete_stripe_webhook_endpoint(input_data: dict) -> dict:
             "example": 0,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, status}."},
+    },
     parallelizable=False,
 )
 async def upload_stripe_file(input_data: dict) -> dict:

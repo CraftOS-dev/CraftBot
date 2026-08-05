@@ -60,20 +60,36 @@ async def browser_probe(input_data: dict) -> dict:
     from pathlib import Path
 
     if input_data.get("simulated_mode", False):
-        return {"status": "success", "steps": [{"op": "goto", "ok": True, "detail": "/"}], "console_errors": []}
+        return {
+            "status": "success",
+            "steps": [{"op": "goto", "ok": True, "detail": "/"}],
+            "console_errors": [],
+        }
 
     url = (input_data.get("url") or "").strip()
     steps = input_data.get("steps") or []
     if not url or not isinstance(steps, list) or not steps:
-        return {"status": "error", "message": "url and a non-empty steps array are required"}
+        return {
+            "status": "error",
+            "message": "url and a non-empty steps array are required",
+        }
 
     from app.config import PROJECT_ROOT
 
     cli = Path(PROJECT_ROOT) / "living-ui-v2" / "tools" / "src" / "cli.ts"
     out_dir = str(Path(input_data.get("project_path") or "/tmp") / "logs" / "verify")
     proc = await asyncio.create_subprocess_exec(
-        "node", str(cli), "probe", "--url", url, "--steps", json.dumps(steps), "--out", out_dir,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        "node",
+        str(cli),
+        "probe",
+        "--url",
+        url,
+        "--steps",
+        json.dumps(steps),
+        "--out",
+        out_dir,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=180)
@@ -85,7 +101,10 @@ async def browser_probe(input_data: dict) -> dict:
     try:
         payload = json.loads(text.splitlines()[-1])
     except Exception:
-        return {"status": "error", "message": f"probe output unparseable: {text[-500:]}"}
+        return {
+            "status": "error",
+            "message": f"probe output unparseable: {text[-500:]}",
+        }
     if "error" in payload:
         return {"status": "error", "message": str(payload["error"])}
     return {

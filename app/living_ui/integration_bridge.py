@@ -34,8 +34,14 @@ except Exception:
 # definition — "you@example.com" compiles, validates, and mails nobody. A
 # standards-based check, not a per-integration rule.
 _PLACEHOLDER_DOMAINS = (
-    "example.com", "example.org", "example.net", "example.edu",
-    ".example", ".test", ".invalid", "@example.",
+    "example.com",
+    "example.org",
+    "example.net",
+    "example.edu",
+    ".example",
+    ".test",
+    ".invalid",
+    "@example.",
 )
 
 
@@ -222,7 +228,8 @@ class IntegrationBridge:
 
         except httpx.TimeoutException:
             return error_json_response(
-                make_error("CONNECTION_TIMEOUT", target="the integration API"), status=504
+                make_error("CONNECTION_TIMEOUT", target="the integration API"),
+                status=504,
             )
         except Exception as e:
             logger.error(f"[INTEGRATION_BRIDGE] Proxy error: {e}")
@@ -259,7 +266,9 @@ class IntegrationBridge:
         name = str(data.get("action") or "")
         params = data.get("params") or {}
         if not name:
-            return web.json_response({"error": "Missing required field: action"}, status=400)
+            return web.json_response(
+                {"error": "Missing required field: action"}, status=400
+            )
         if not isinstance(params, dict):
             return web.json_response({"error": "params must be an object"}, status=400)
 
@@ -277,15 +286,19 @@ class IntegrationBridge:
         # Only INTEGRATION actions are exposed: the action's action_sets carry
         # its integration id by convention (["gmail_mail", "gmail"] → gmail).
         sets = set(getattr(impl.metadata, "action_sets", None) or [])
-        integration = next((i for i in sorted(self.PROXY_DESTINATIONS) if i in sets), None)
+        integration = next(
+            (i for i in sorted(self.PROXY_DESTINATIONS) if i in sets), None
+        )
         if integration is None:
             logger.warning(
                 f"[INTEGRATION_BRIDGE] REFUSED (not an integration action) "
                 f"project={project_id} action={name!r}"
             )
             return web.json_response(
-                {"error": f"'{name}' is not an integration action — only integration "
-                          "actions are callable through the bridge"},
+                {
+                    "error": f"'{name}' is not an integration action — only integration "
+                    "actions are callable through the bridge"
+                },
                 status=403,
             )
 
@@ -300,7 +313,9 @@ class IntegrationBridge:
                 status=403,
             )
 
-        if getattr(impl.metadata, "irreversible", False) and not data.get("confirm_irreversible"):
+        if getattr(impl.metadata, "irreversible", False) and not data.get(
+            "confirm_irreversible"
+        ):
             # A refused send with no server-side log line is how an app once
             # shipped a cron that logged "sent" while nothing ever left.
             logger.warning(
@@ -308,8 +323,10 @@ class IntegrationBridge:
                 f"project={project_id} action={name!r}"
             )
             return web.json_response(
-                {"error": f"'{name}' is irreversible (it acts on the user's real "
-                          "account). Retry with \"confirm_irreversible\": true."},
+                {
+                    "error": f"'{name}' is irreversible (it acts on the user's real "
+                    'account). Retry with "confirm_irreversible": true.'
+                },
                 status=400,
             )
 
@@ -337,7 +354,7 @@ class IntegrationBridge:
                     "would_execute": name,
                     "integration": integration,
                     "note": "All checks passed (grant, params, confirmation). "
-                            "Nothing was executed.",
+                    "Nothing was executed.",
                 },
                 status=200,
             )
@@ -514,8 +531,14 @@ class IntegrationBridge:
         "stripe": ("https://api.stripe.com", ("api.stripe.com",)),
         "line": ("https://api.line.me", ("api.line.me",)),
         "lark": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
-        "lark_calendar": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
-        "lark_drive": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
+        "lark_calendar": (
+            "https://open.feishu.cn",
+            ("open.feishu.cn", "open.larksuite.com"),
+        ),
+        "lark_drive": (
+            "https://open.feishu.cn",
+            ("open.feishu.cn", "open.larksuite.com"),
+        ),
         "telegram_bot": ("https://api.telegram.org", ("api.telegram.org",)),
         "telegram_user": ("https://api.telegram.org", ("api.telegram.org",)),
         "twitter": ("https://api.twitter.com", ("api.twitter.com", "api.x.com")),

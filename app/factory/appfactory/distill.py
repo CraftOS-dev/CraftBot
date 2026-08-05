@@ -120,7 +120,8 @@ def distill(
                 candidate_cause=cause[:300],
                 suggested_direction=direction,
                 repro=repro,
-                evidence=([best] if best else []) + [e for e in evidence if e != best][:4],
+                evidence=([best] if best else [])
+                + [e for e in evidence if e != best][:4],
             )
         )
 

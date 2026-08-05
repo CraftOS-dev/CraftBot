@@ -182,9 +182,7 @@ class TestIntrospection:
             await q.put(trig("b", fire_at=time.time() + 60))
             assert q.has_pending()
             assert await q.size() == 2
-            descs = {
-                t.next_action_description for t in await q.list_triggers()
-            }
+            descs = {t.next_action_description for t in await q.list_triggers()}
             assert descs == {"a", "b"}
 
         run(scenario())

@@ -43,9 +43,7 @@ class StateManager:
 
     def log_to_main_stream(self, kind: str, message: str, **kwargs) -> None:
         """Log event to the main session's stream."""
-        self.event_stream_manager.log(
-            kind, message, task_id=MAIN_SESSION_ID, **kwargs
-        )
+        self.event_stream_manager.log(kind, message, task_id=MAIN_SESSION_ID, **kwargs)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Turn lifecycle
@@ -181,8 +179,6 @@ class StateManager:
     def bump_event_stream(self) -> None:
         current = STATE.get_agent_property("current_task_id", "") or MAIN_SESSION_ID
         try:
-            STATE.update_event_stream(
-                self.event_stream_manager.snapshot_by_id(current)
-            )
+            STATE.update_event_stream(self.event_stream_manager.snapshot_by_id(current))
         except Exception as e:
             logger.debug(f"[STATE] bump_event_stream failed for {current}: {e}")

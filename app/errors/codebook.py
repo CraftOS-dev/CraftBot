@@ -112,7 +112,9 @@ def make_error(code: str, **fmt_kwargs) -> ErrorInfo:
     """
     spec = _CODEBOOK.get(code)
     if spec is None:
-        raise KeyError(f"Unknown error code {code!r} — add it to app/errors/codebook.py")
+        raise KeyError(
+            f"Unknown error code {code!r} — add it to app/errors/codebook.py"
+        )
     if "detail" in fmt_kwargs:
         fmt_kwargs["detail"] = redact(str(fmt_kwargs["detail"]))
     message = spec.message_template.format(**fmt_kwargs)

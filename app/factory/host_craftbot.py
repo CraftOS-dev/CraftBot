@@ -28,6 +28,7 @@ from app.factory.appfactory import (
     FIXING,
     GATING,
     LAUNCHING,
+    MODIFYING,
     VERIFYING,
     transition,
 )
@@ -35,6 +36,7 @@ from app.factory.engine import (
     ANNOUNCE_READY,
     ANNOUNCE_STUCK,
     DISPATCH_MISSION,
+    DONE,
     Caps,
     Decision,
     Machine,
@@ -53,7 +55,9 @@ _REDISPATCH_MIN_INTERVAL_S = 20  # thrash guard on the run-end hook
 
 def _fingerprint(text: str) -> str:
     """Stable identity of a failure from its first meaningful line."""
-    first = next((l.strip() for l in (text or "").splitlines() if l.strip()), "unknown")
+    first = next(
+        (ln.strip() for ln in (text or "").splitlines() if ln.strip()), "unknown"
+    )
     return hashlib.sha1(first[:200].encode("utf-8")).hexdigest()[:12]
 
 
@@ -99,13 +103,88 @@ class FactoryHost:
         except Exception as e:
             logger.debug(f"[FACTORY] sidecar write failed: {e}")
 
+    # ── delivery lifecycle (sidecar-backed; see plans/quizzical-greeting) ──
+    # "delivered" picks the data-safety mode for every later gate/verify:
+    # not delivered → the DB is disposable (verify live, restore the pristine
+    # baseline before announcing); delivered → real user data, everything runs
+    # in a staging copy. machine.terminal is NOT a substitute predicate:
+    # STUCK is terminal too, and marketplace/ZIP installs never get a machine.
+    def is_delivered(self, project_id: str) -> bool:
+        return bool(self._sidecar_read(project_id).get("delivered"))
+
+    def mark_delivered(self, project_id: str) -> None:
+        side = self._sidecar_read(project_id)
+        if side.get("delivered"):
+            return
+        side["delivered"] = True
+        side["delivered_at"] = time.time()
+        self._sidecar_write(project_id, side)
+        logger.info(f"[FACTORY] {project_id} marked delivered")
+
+    def delivered_at(self, project_id: str) -> Optional[float]:
+        """Epoch time of first delivery (comparable to st_mtime), or None.
+        Backs the warn-only requirements-staleness belt — fail-open."""
+        value = self._sidecar_read(project_id).get("delivered_at")
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def begin_modify(self, project_id: str) -> None:
+        """A modify of a delivered app is starting (called from
+        launch_staging success — deterministic, never agent-dependent):
+        re-arm the machine into MODIFYING so the whole supervision apparatus
+        (fix missions, caps, stuck reports, announcements) applies to the
+        modify exactly as it did to the build (LIFECYCLE-PLAN Phase 2).
+
+        Reopen when the machine is TERMINAL (a finished build/modify arc) or
+        VIRGIN (no history — machine_for mints BUILDING for marketplace/
+        imported apps that never had an arc). A non-terminal machine WITH
+        history means a modify/fix arc is already in flight — a fix
+        mission's notify_ready re-enters launch_staging — so no-op.
+        """
+        machine = self.machine_for(project_id)
+        if machine is None:
+            return
+        if not machine.terminal and machine.history():
+            return
+        machine.reopen(MODIFYING)
+        # Build-era leftovers must not leak into the new arc: a stale
+        # last_brief would make on_run_end resume a build-era fix mission
+        # into this modify.
+        side = self._sidecar_read(project_id)
+        for key in ("last_brief", "verify_retried", "running_mission"):
+            side.pop(key, None)
+        self._sidecar_write(project_id, side)
+        logger.info(
+            f"[FACTORY] {project_id} reopened for modify "
+            f"(generation {machine.generation})"
+        )
+
+    # The staging record is the single source of truth for "a staging copy of
+    # this app exists": actions redirect to it, the reaper kills from it, and
+    # clearing it is what ends staging mode.
+    def get_staging_record(self, project_id: str) -> Optional[Dict[str, Any]]:
+        record = self._sidecar_read(project_id).get("staging")
+        return record if isinstance(record, dict) else None
+
+    def set_staging_record(self, project_id: str, record: Dict[str, Any]) -> None:
+        side = self._sidecar_read(project_id)
+        side["staging"] = record
+        self._sidecar_write(project_id, side)
+
+    def clear_staging_record(self, project_id: str) -> None:
+        side = self._sidecar_read(project_id)
+        if side.pop("staging", None) is not None:
+            self._sidecar_write(project_id, side)
+
     # ── outcome reporting (called by the pipeline actions) ─────────────────
     def _normalize_to(self, machine: Machine, target: str) -> None:
         """Advance through implicit-ok states so outcomes land on the right
         state (a mission that reaches walk_verify implicitly passed its
         earlier states). Never dispatches: BUILD/FIX ok and GATE/LAUNCH ok
         transitions carry no mission action."""
-        order = [BUILDING, FIXING, GATING, LAUNCHING, VERIFYING]
+        order = [BUILDING, MODIFYING, FIXING, GATING, LAUNCHING, VERIFYING]
         guard = 0
         while machine.state != target and machine.state in order and guard < 6:
             machine.advance(Outcome(machine.state, ok=True))
@@ -125,7 +204,7 @@ class FactoryHost:
     def report_verify(
         self,
         project_id: str,
-        kind: str,                      # pass | defects | incomplete | blocked | unparseable
+        kind: str,  # pass | defects | incomplete | blocked | unparseable
         defects: Optional[List[str]] = None,
         details: str = "",
         walk_report: str = "",
@@ -147,10 +226,25 @@ class FactoryHost:
 
         if kind in ("pass", "incomplete", "blocked"):
             decision = machine.advance(
-                Outcome(VERIFYING, ok=True, payload={"url": url, "verified": verified or []})
+                Outcome(
+                    VERIFYING, ok=True, payload={"url": url, "verified": verified or []}
+                )
             )
             if decision.action == ANNOUNCE_READY:
-                self._announce_ready(project_id, url, verified or [], caveat)
+                # "Your change is live" only when the PREVIOUS arc actually
+                # delivered (final_state done) — a virgin re-arm (adapt
+                # install, import verify) is still the app's first delivery.
+                # The staging record is already cleared by the flip, so the
+                # machine is the only witness either way.
+                generations = machine.generations()
+                self._announce_ready(
+                    project_id,
+                    url,
+                    verified or [],
+                    caveat,
+                    modify=bool(generations)
+                    and generations[-1].get("final_state") == DONE,
+                )
             return decision
 
         if kind == "unparseable":
@@ -160,7 +254,8 @@ class FactoryHost:
             self._sidecar_write(project_id, side)
             decision = machine.advance(
                 Outcome(
-                    VERIFYING, ok=False,
+                    VERIFYING,
+                    ok=False,
                     payload={"unknown_verdict": True, "already_retried": already},
                 )
             )
@@ -181,10 +276,15 @@ class FactoryHost:
             cli=cli,
         )
         # Fingerprint = the FIRST card's identity (stable across rounds).
-        fp = cards[0].fingerprint() if cards else _fingerprint(details or "verification failed")
+        fp = (
+            cards[0].fingerprint()
+            if cards
+            else _fingerprint(details or "verification failed")
+        )
         decision = machine.advance(
             Outcome(
-                VERIFYING, ok=False,
+                VERIFYING,
+                ok=False,
                 fingerprint=fp,
                 payload={"cards": [c.key for c in cards]},
             )
@@ -206,16 +306,51 @@ class FactoryHost:
         lowered = text.lower()
         picks = []
         rules = [
-            ("integration_actions.md", ("gmail", "email", "smtp", "mailer", "send_",
-                                      "callaction", "slack", "notion", "discord",
-                                      "not granted", "irreversible", "bridge")),
-            ("pocketbase_traps.md", ("cannot be blank", "not defined", "dao",
-                                     "404", "migration", "no rows", "panic",
-                                     "invalid sort", "record(")),
-            ("third_party_fetch.md", ("http.send", "502", "fetch failed",
-                                      "statuscode", "api.")),
-            ("frontend_rules.md", ("err_connection", "request failed",
-                                   "console error", "first paint", "mount")),
+            (
+                "integration_actions.md",
+                (
+                    "gmail",
+                    "email",
+                    "smtp",
+                    "mailer",
+                    "send_",
+                    "callaction",
+                    "slack",
+                    "notion",
+                    "discord",
+                    "not granted",
+                    "irreversible",
+                    "bridge",
+                ),
+            ),
+            (
+                "pocketbase_traps.md",
+                (
+                    "cannot be blank",
+                    "not defined",
+                    "dao",
+                    "404",
+                    "migration",
+                    "no rows",
+                    "panic",
+                    "invalid sort",
+                    "record(",
+                ),
+            ),
+            (
+                "third_party_fetch.md",
+                ("http.send", "502", "fetch failed", "statuscode", "api."),
+            ),
+            (
+                "frontend_rules.md",
+                (
+                    "err_connection",
+                    "request failed",
+                    "console error",
+                    "first paint",
+                    "mount",
+                ),
+            ),
         ]
         for name, keys in rules:
             if any(k in lowered for k in keys):
@@ -238,8 +373,14 @@ class FactoryHost:
         cli = "node /Users/ahmad/Work/CraftOS/CraftBot/living-ui-v2/tools/src/cli.ts"
         cards_text = "\n\n".join(c.render() for c in cards)[:6000]
         books = self._select_cookbooks(cards_text)
-        books_text = ("\n\n=== PROVEN PATTERNS (copy-adapt; do not invent) ===\n"
-                      + "\n---\n".join(books)) if books else ""
+        books_text = (
+            (
+                "\n\n=== PROVEN PATTERNS (copy-adapt; do not invent) ===\n"
+                + "\n---\n".join(books)
+            )
+            if books
+            else ""
+        )
         return f"""FIX MISSION {n} for Living UI '{project.name}' ({project.id}).
 
 The independent verifier drove the app in a real browser. Each DEFECT below
@@ -273,7 +414,9 @@ status messages; when verification passes the user is informed automatically."""
         self._sidecar_write(project_id, side)
         self._emit_mission(project, brief, mission_kind="fix", machine=machine)
 
-    def _emit_mission(self, project, brief: str, mission_kind: str, machine: Machine) -> None:
+    def _emit_mission(
+        self, project, brief: str, mission_kind: str, machine: Machine
+    ) -> None:
         from app.living_ui import get_living_ui_manager
 
         mgr = get_living_ui_manager()
@@ -285,6 +428,13 @@ status messages; when verification passes the user is informed automatically."""
             logger.error("[FACTORY] cannot dispatch mission — no project session")
             return
         mission_id = f"{mission_kind}-{int(time.time())}"
+
+        # Modify-era missions (a reopened machine) get the modify skill —
+        # staging semantics and the never-touch-pb_data rules live there;
+        # build-era missions keep the full creator workflow.
+        workflow_skill = (
+            "living-ui-modify" if machine.generation > 0 else "living-ui-creator"
+        )
 
         async def _emit() -> None:
             from app.triggers import TriggerSource, TriggerSpec
@@ -298,7 +448,7 @@ status messages; when verification passes the user is informed automatically."""
                     payload={
                         "project_id": project.id,
                         "factory_mission_id": mission_id,
-                        "workflow_skills": ["living-ui-creator"],
+                        "workflow_skills": [workflow_skill],
                     },
                 )
             )
@@ -332,8 +482,10 @@ status messages; when verification passes the user is informed automatically."""
                 return
             side = self._sidecar_read(project_id)
             mission_id = (trigger_payload or {}).get("factory_mission_id")
-            if not mission_id and machine.active_mission and (
-                side.get("running_mission") == machine.active_mission
+            if (
+                not mission_id
+                and machine.active_mission
+                and (side.get("running_mission") == machine.active_mission)
             ):
                 # This run belonged to the active mission (it started via the
                 # mission trigger; the FINAL trigger of the run was a
@@ -346,11 +498,27 @@ status messages; when verification passes the user is informed automatically."""
                     self._sidecar_write(project_id, side)
             if not machine.needs_redispatch():
                 return
+            # Thrash guard: history timestamps are UTC ("...Z"); parse them
+            # as UTC (calendar.timegm) — time.mktime read them as LOCAL time,
+            # skewing the guard by the UTC offset (never tripping in +offset
+            # zones). A freshly reopened machine has an empty history — fall
+            # back to the archived generation's closed_at so the first
+            # modify run-end can't redispatch instantly either.
+            import calendar as _calendar
+
+            last = ""
             history = machine.history()
             if history:
                 last = history[-1].get("at", "")
+            else:
+                generations = machine.generations()
+                if generations:
+                    last = generations[-1].get("closed_at", "")
+            if last:
                 try:
-                    last_ts = time.mktime(time.strptime(last, "%Y-%m-%dT%H:%M:%SZ"))
+                    last_ts = _calendar.timegm(
+                        time.strptime(last, "%Y-%m-%dT%H:%M:%SZ")
+                    )
                     if time.time() - last_ts < _REDISPATCH_MIN_INTERVAL_S:
                         return
                 except Exception:
@@ -358,10 +526,38 @@ status messages; when verification passes the user is informed automatically."""
             project = self._project(project_id)
             if project is None:
                 return
+
+            # A redispatch is a MACHINE event, not a free retry: feed the
+            # surrender through advance() so the existing caps apply — the
+            # stable fingerprint escalates at 2 and goes STUCK at 3, and the
+            # total mission budget counts every resume. Without this,
+            # resumes bypassed every cap: observed live (chili3d,
+            # 2026-08-05) a fix agent that correctly judged a defect
+            # unfixable end_turned into a 37-cycle redispatch loop, one LLM
+            # call every ~7s, until CraftBot was killed. The advance also
+            # writes a history entry, so the 20s thrash guard finally
+            # throttles consecutive resumes too.
+            decision = machine.advance(
+                Outcome(
+                    machine.state,
+                    ok=False,
+                    fingerprint="surrender-loop",
+                    payload={"reason": "run ended without completing the arc"},
+                )
+            )
+            if machine.terminal or decision.action == ANNOUNCE_STUCK:
+                self._announce_stuck(project_id, machine)
+                logger.warning(
+                    f"[FACTORY] surrender loop capped — {project_id} is stuck "
+                    f"(state {machine.state})"
+                )
+                return
+
             side = self._sidecar_read(project_id)
+            _verb = "MODIFY of" if machine.generation > 0 else "BUILD for"
             brief = side.get("last_brief") or (
-                f"CONTINUE BUILD for Living UI '{project.name}' ({project.id}).\n"
-                f"The previous run ended before the build was verified. Continue from "
+                f"CONTINUE {_verb} Living UI '{project.name}' ({project.id}).\n"
+                f"The previous run ended before the change was verified. Continue from "
                 f"the current state of {project.path}: finish the work, then\n"
                 f'living_ui_notify_ready(project_id="{project.id}") and\n'
                 f'living_ui_walk_verify(project_id="{project.id}").\n'
@@ -403,12 +599,20 @@ status messages; when verification passes the user is informed automatically."""
             logger.debug(f"[FACTORY] chat emit failed: {e}")
 
     def _announce_ready(
-        self, project_id: str, url: str, verified: List[str], caveat: str
+        self,
+        project_id: str,
+        url: str,
+        verified: List[str],
+        caveat: str,
+        modify: bool = False,
     ) -> None:
         n = len(verified)
-        text = f"✅ The app is ready at {url}" + (
-            f" — {n} feature(s) verified in a real browser." if n else "."
+        lead = (
+            f"✅ Your change is live at {url}"
+            if modify
+            else f"✅ The app is ready at {url}"
         )
+        text = lead + (f" — {n} feature(s) verified in a real browser." if n else ".")
         if caveat:
             text += f"\n⚠️ {caveat}"
         self._emit_chat(project_id, text)

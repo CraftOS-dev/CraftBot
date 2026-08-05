@@ -155,9 +155,7 @@ def _dispatch_todos(project_id: str, todos: List[Dict[str, Any]]) -> bool:
     return False
 
 
-async def _broadcast_build_event_async(
-    project_id: str, event: Dict[str, Any]
-) -> bool:
+async def _broadcast_build_event_async(project_id: str, event: Dict[str, Any]) -> bool:
     """Internal async broadcaster used by the sync dispatcher below."""
     if _broadcast_build_event_callback:
         await _broadcast_build_event_callback(project_id, event)

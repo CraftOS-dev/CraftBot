@@ -37,6 +37,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
   // Import tab state
   const [importSource, setImportSource] = useState('')
   const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
   const [dropActive, setDropActive] = useState(false)
 
   // Marketplace state
@@ -75,16 +76,17 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
       const resp = await fetch('/api/living-ui/import', { method: 'POST', body: formData })
       const result = await resp.json()
       if (result.success && result.path) {
+        // Stay open and importing until living_ui_import_result arrives —
+        // closing immediately hid every failure (nothing happened, no error).
+        setImportError(null)
         send('living_ui_import', { source: result.path, name: result.name || zipName })
-        onClose()
-      } else {
-        alert(result.error || 'Upload failed')
+        return
       }
+      setImportError(result.error || 'Upload failed')
     } catch (err) {
-      alert('Upload failed: ' + (err instanceof Error ? err.message : err))
-    } finally {
-      setImporting(false)
+      setImportError('Upload failed: ' + (err instanceof Error ? err.message : err))
     }
+    setImporting(false)
   }
 
   // Reset form fields on open — intentionally NOT resetting installingIds/completedIds
@@ -122,6 +124,19 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
           setMarketplaceError(null)
         } else {
           setMarketplaceError(data.error || 'Failed to load marketplace')
+        }
+      }),
+      onMessage('living_ui_import_result', (data: any) => {
+        setImporting(false)
+        if (data.success) {
+          setImportSource('')
+          setImportError(null)
+          if (data.projectId && onInstalledRef.current) {
+            onInstalledRef.current(data.projectId)
+          }
+          onCloseRef.current()
+        } else {
+          setImportError(data.error || 'Import failed')
         }
       }),
       onMessage('living_ui_marketplace_install', (data: any) => {
@@ -468,8 +483,14 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                     onChange={e => setImportSource(e.target.value)}
                   />
                   <span className={styles.hint}>
-                    Go · Node.js · Python · Rust · Docker · Static sites
+                    Living UI exports: ZIP, project folder, or git URL. Other
+                    apps are rebuilt — ask the agent to convert them.
                   </span>
+                  {importError && (
+                    <span className={styles.hint} style={{ color: 'var(--color-error, #e5484d)' }}>
+                      {importError}
+                    </span>
+                  )}
                 </div>
 
                 <div className={styles.orDivider}>
@@ -525,15 +546,16 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                 variant="primary"
                 icon={importing ? <Loader2 size={16} className={styles.spinner} /> : <FolderInput size={16} />}
                 disabled={!importSource.trim() || importing}
-                onClick={async () => {
+                onClick={() => {
+                  // Stay open until living_ui_import_result: closing right
+                  // after send() hid every failure — the first live test
+                  // read as "I paste the path and nothing happens".
                   setImporting(true)
+                  setImportError(null)
                   send('living_ui_import', {
                     source: importSource.trim(),
                     name: importSource.trim().split('/').pop()?.replace('.git', '') || 'External App',
                   })
-                  setImporting(false)
-                  setImportSource('')
-                  onClose()
                 }}
               >
                 {importing ? 'Importing...' : 'Import App'}

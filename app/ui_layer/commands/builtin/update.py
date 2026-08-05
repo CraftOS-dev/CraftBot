@@ -47,9 +47,7 @@ dependencies, and restart CraftBot automatically."""
         """Execute the update command."""
         from app.updater import check_for_update
 
-        self.emit_message(
-            "Checking for updates...", "system", session_id=session_id
-        )
+        self.emit_message("Checking for updates...", "system", session_id=session_id)
 
         try:
             update_available, current, latest = await check_for_update()

@@ -34,10 +34,10 @@ def _stub_common(iface) -> Dict[str, Any]:
     """Set the attributes the bedrock call paths touch; capture usage reports."""
     reported = {}
 
-    def _capture(call_kind, provider, model, input_tokens, output_tokens, cached, *a, **kw):
-        reported.update(
-            input=input_tokens, output=output_tokens, cached=cached
-        )
+    def _capture(
+        call_kind, provider, model, input_tokens, output_tokens, cached, *a, **kw
+    ):
+        reported.update(input=input_tokens, output=output_tokens, cached=cached)
 
     iface._bedrock_client = _StubBedrockClient()
     iface.model = "anthropic.claude-3-5-sonnet-20241022-v2:0"  # caching-capable

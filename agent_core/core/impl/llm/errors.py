@@ -88,7 +88,9 @@ class LLMErrorInfo:
     request_id: Optional[str] = None  # for support tickets
     # Appended fields (kept trailing/defaulted so existing positional/keyword
     # construction call sites don't break):
-    code: Optional[str] = None  # stable id, e.g. "LLM_AUTH" — auto-derived, see classify_llm_error()
+    code: Optional[str] = (
+        None  # stable id, e.g. "LLM_AUTH" — auto-derived, see classify_llm_error()
+    )
     severity: Severity = Severity.ERROR
 
     @property
@@ -200,7 +202,9 @@ class LLMConsecutiveFailureError(Exception):
         # per-call timeout raised directly with count=1, not routed through
         # LLMInterface._register_failure's fail-fast categorization).
         self.is_immediate = is_immediate or failure_count <= 1
-        message = MSG_FAILED_IMMEDIATELY if self.is_immediate else MSG_CONSECUTIVE_FAILURE
+        message = (
+            MSG_FAILED_IMMEDIATELY if self.is_immediate else MSG_CONSECUTIVE_FAILURE
+        )
         if last_error:
             message += f" Last error: {last_error}"
         super().__init__(message)
@@ -448,7 +452,14 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
         raw_lower = raw_message.lower()
         if any(
             k in raw_lower
-            for k in ("no credits", "out of credits", "insufficient_quota", "insufficient quota", "credit balance", "credits remaining")
+            for k in (
+                "no credits",
+                "out of credits",
+                "insufficient_quota",
+                "insufficient quota",
+                "credit balance",
+                "credits remaining",
+            )
         ):
             category = ErrorCategory.CREDIT
 
@@ -675,9 +686,7 @@ def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorI
         # body the same way the OpenAI-SDK path does for BadRequestError.
         lower = raw_message.lower()
         if status == 400 and (
-            "api key" in lower
-            or "api_key" in lower
-            or "access token" in lower
+            "api key" in lower or "api_key" in lower or "access token" in lower
         ):
             category = ErrorCategory.AUTH
 

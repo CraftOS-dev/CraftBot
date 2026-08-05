@@ -43,6 +43,10 @@ YOUR WALK:
    be able to do (one per capability). EVERY feature in the requirements MUST
    appear in your final FEATURES list — including ones a browser cannot
    exercise (scheduled emails, cron jobs, exports you can't download).
+   Entries under a `## Changes` section are features too — the NEWEST ones
+   are the very reason this verify is running, so they must each appear;
+   a walk that covers only the original feature list and skips the change
+   itself makes a broken modify look verified.
    Omitting a feature makes an incomplete walk look complete: an app once
    PASSED with its required daily-email feature silently unbuilt because the
    walk simply left it off the list. For unexercisable features, grep_files
@@ -58,7 +62,10 @@ YOUR WALK:
    first, then the flows that need that state). After each step, snapshot and
    confirm the app RESPONDED: data appeared, navigation happened, the value
    updated, it persisted. "The control exists" is NOT working — it must DO the
-   thing.
+   thing. Create test records without hesitation: the app you're driving is
+   isolated from the user (a pre-delivery build, or a staging copy with a
+   disposable data clone) — your writes never reach real data. Always use
+   the base_url you were GIVEN, never a port you derive yourself.
 4. After each flow, check mcp_playwright-mcp_browser_console_messages — a
    runtime error during normal use = FAIL for that feature. ONLY errors that
    appeared DURING YOUR OWN flows count: the browser is shared, so never

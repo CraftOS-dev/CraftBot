@@ -27,8 +27,17 @@ def _runtime():
     return None if any(p is None for p in parts) else parts
 
 
-async def run_walk_verify(project: Any) -> Optional[Dict[str, Any]]:
+async def run_walk_verify(
+    project: Any,
+    base_url: Optional[str] = None,
+    project_path: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Run the walk_verify sub-agent for a running project.
+
+    base_url/project_path override where the verifier drives and reads —
+    used by staging mode on delivered apps, where the app under test is a
+    disposable copy on a hidden port, never the user's live instance.
+    Defaults preserve the original behavior (the registered project).
 
     Returns the parsed verdict dict, or None when the sub-agent runtime is
     unavailable (headless/test contexts) — callers treat None as 'skipped',
@@ -41,13 +50,15 @@ async def run_walk_verify(project: Any) -> Optional[Dict[str, Any]]:
 
     from app.subagent.runner import SubAgentRunner
 
+    target_url = base_url or f"http://127.0.0.1:{project.port}"
+    target_path = project_path or project.path
     query = (
         f"Verify the Living UI project '{project.name}'.\n"
         f"project_id: {project.id}\n"
-        f"project_path: {project.path}\n"
-        f"base_url: http://127.0.0.1:{project.port}\n"
-        f"Requirements: read {project.path}/reference/requirements.md "
-        f"(fallback: the feature checklist in {project.path}/LIVING_UI.md)."
+        f"project_path: {target_path}\n"
+        f"base_url: {target_url}\n"
+        f"Requirements: read {target_path}/reference/requirements.md "
+        f"(fallback: the feature checklist in {target_path}/LIVING_UI.md)."
     )
 
     sub = mgr.spawn(

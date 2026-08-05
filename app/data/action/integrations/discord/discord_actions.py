@@ -288,7 +288,10 @@ def list_discord_pinned_messages(input_data: dict) -> dict:
         if atts:
             item["attachments"] = atts
         lean.append(item)
-    return {**res, "result": {"messages": lean, "count": result.get("count", len(lean))}}
+    return {
+        **res,
+        "result": {"messages": lean, "count": result.get("count", len(lean))},
+    }
 
 
 @action(
@@ -1143,9 +1146,7 @@ def create_discord_webhook(input_data: dict) -> dict:
 def get_discord_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    res = run_client_sync(
-        "discord", "get_webhook", webhook_id=input_data["webhook_id"]
-    )
+    res = run_client_sync("discord", "get_webhook", webhook_id=input_data["webhook_id"])
     if res.get("status") != "success":
         return res
     result = res.get("result")

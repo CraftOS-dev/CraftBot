@@ -193,7 +193,9 @@ def print_inconclusive_runtime_dependency_warning(
     print("\nWarning: CraftBot could not verify Python dependencies.")
     print(f"Runtime checked: {runtime_label}")
     print(f"Reason: {reason}")
-    print("Continuing startup. If imports fail, reinstall dependencies for this runtime:")
+    print(
+        "Continuing startup. If imports fail, reinstall dependencies for this runtime:"
+    )
     if use_conda and env_name:
         print("  python install.py --conda")
     else:

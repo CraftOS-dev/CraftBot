@@ -124,7 +124,10 @@ async def get_hubspot_contact(input_data: dict) -> dict:
             },
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_contact(input_data: dict) -> dict:
@@ -154,7 +157,10 @@ async def create_hubspot_contact(input_data: dict) -> dict:
             "example": {"phone": "+1-555-0100"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def update_hubspot_contact(input_data: dict) -> dict:
@@ -297,7 +303,10 @@ async def batch_get_hubspot_contacts(input_data: dict) -> dict:
             "example": [{"email": "a@x.com"}, {"email": "b@x.com"}],
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."},
+    },
     parallelizable=False,
 )
 async def batch_create_hubspot_contacts(input_data: dict) -> dict:
@@ -336,7 +345,10 @@ async def batch_create_hubspot_contacts(input_data: dict) -> dict:
             "example": "456",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def merge_hubspot_contacts(input_data: dict) -> dict:
@@ -453,7 +465,10 @@ async def get_hubspot_company(input_data: dict) -> dict:
             "example": {"name": "Acme Co", "domain": "acme.com"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_company(input_data: dict) -> dict:
@@ -481,7 +496,10 @@ async def create_hubspot_company(input_data: dict) -> dict:
             "example": {"industry": "Software"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def update_hubspot_company(input_data: dict) -> dict:
@@ -620,7 +638,10 @@ async def batch_get_hubspot_companies(input_data: dict) -> dict:
             "example": [{"name": "Acme"}, {"name": "Foo"}],
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."},
+    },
     parallelizable=False,
 )
 async def batch_create_hubspot_companies(input_data: dict) -> dict:
@@ -745,7 +766,10 @@ async def get_hubspot_deal(input_data: dict) -> dict:
             },
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_deal(input_data: dict) -> dict:
@@ -773,7 +797,10 @@ async def create_hubspot_deal(input_data: dict) -> dict:
             "example": {"amount": "75000"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def update_hubspot_deal(input_data: dict) -> dict:
@@ -880,7 +907,10 @@ async def search_hubspot_deals(input_data: dict) -> dict:
             "example": [{"dealname": "A"}, {"dealname": "B"}],
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."},
+    },
     parallelizable=False,
 )
 async def batch_create_hubspot_deals(input_data: dict) -> dict:
@@ -919,7 +949,10 @@ async def batch_create_hubspot_deals(input_data: dict) -> dict:
             "example": "closedwon",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def move_hubspot_deal_stage(input_data: dict) -> dict:
@@ -1074,7 +1107,10 @@ async def get_hubspot_ticket(input_data: dict) -> dict:
             },
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_ticket(input_data: dict) -> dict:
@@ -1102,7 +1138,10 @@ async def create_hubspot_ticket(input_data: dict) -> dict:
             "example": {"hs_ticket_priority": "URGENT"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def update_hubspot_ticket(input_data: dict) -> dict:
@@ -1216,7 +1255,10 @@ async def search_hubspot_tickets(input_data: dict) -> dict:
             "example": "4",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def close_hubspot_ticket(input_data: dict) -> dict:
@@ -1359,7 +1401,10 @@ async def list_hubspot_tasks(input_data: dict) -> dict:
             "example": "123456789",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_task(input_data: dict) -> dict:
@@ -1396,7 +1441,10 @@ async def create_hubspot_task(input_data: dict) -> dict:
             "example": {"hs_task_status": "COMPLETED"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def update_hubspot_task(input_data: dict) -> dict:
@@ -1492,7 +1540,10 @@ async def list_hubspot_notes(input_data: dict) -> dict:
             "example": "123456789",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_note(input_data: dict) -> dict:
@@ -1625,7 +1676,10 @@ async def list_hubspot_calls(input_data: dict) -> dict:
             "example": "123456789",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def log_hubspot_call(input_data: dict) -> dict:
@@ -1740,7 +1794,10 @@ async def list_hubspot_emails(input_data: dict) -> dict:
             "example": "123456789",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def log_hubspot_email(input_data: dict) -> dict:
@@ -1849,7 +1906,10 @@ async def list_hubspot_meetings(input_data: dict) -> dict:
             "example": "123456789",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_meeting(input_data: dict) -> dict:
@@ -1979,7 +2039,10 @@ async def get_hubspot_list(input_data: dict) -> dict:
             "example": {},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {listId}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {listId}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_list(input_data: dict) -> dict:
@@ -2164,7 +2227,10 @@ async def get_hubspot_pipeline(input_data: dict) -> dict:
             "example": 0,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_pipeline(input_data: dict) -> dict:
@@ -2247,7 +2313,10 @@ async def list_hubspot_pipeline_stages(input_data: dict) -> dict:
             "example": {"label": "Qualified — Buying"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def update_hubspot_pipeline_stage(input_data: dict) -> dict:
@@ -2412,7 +2481,10 @@ async def get_hubspot_property(input_data: dict) -> dict:
             },
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, name, type}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, name, type}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_property(input_data: dict) -> dict:
@@ -2448,7 +2520,10 @@ async def create_hubspot_property(input_data: dict) -> dict:
             "example": {"label": "Color preference"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, name, type}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, name, type}."},
+    },
     parallelizable=False,
 )
 async def update_hubspot_property(input_data: dict) -> dict:
@@ -2564,7 +2639,10 @@ async def list_hubspot_property_groups(input_data: dict) -> dict:
             "example": 0,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_association(input_data: dict) -> dict:
@@ -2803,7 +2881,10 @@ async def get_hubspot_form(input_data: dict) -> dict:
             "example": {"pageName": "Demo Request"},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def submit_hubspot_form(input_data: dict) -> dict:
@@ -2947,7 +3028,10 @@ async def get_hubspot_marketing_email(input_data: dict) -> dict:
             "example": {},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def send_hubspot_single_send(input_data: dict) -> dict:
@@ -3018,7 +3102,10 @@ async def get_hubspot_marketing_email_statistics(input_data: dict) -> dict:
             "example": False,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, url}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id, url}."},
+    },
     parallelizable=False,
 )
 async def upload_hubspot_file(input_data: dict) -> dict:
@@ -3247,7 +3334,10 @@ async def list_hubspot_conversation_messages(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def send_hubspot_conversation_message(input_data: dict) -> dict:
@@ -3331,7 +3421,10 @@ async def list_hubspot_webhook_subscriptions(input_data: dict) -> dict:
             "example": True,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "Only {id}."},
+    },
     parallelizable=False,
 )
 async def create_hubspot_webhook_subscription(input_data: dict) -> dict:

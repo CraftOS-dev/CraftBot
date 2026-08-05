@@ -538,7 +538,9 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return _bridge_result(await bridge.group_add_participants(group_id, participants))
+        return _bridge_result(
+            await bridge.group_add_participants(group_id, participants)
+        )
 
     async def group_remove_participants(
         self, group_id: str, participants: list
@@ -546,7 +548,9 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return _bridge_result(await bridge.group_remove_participants(group_id, participants))
+        return _bridge_result(
+            await bridge.group_remove_participants(group_id, participants)
+        )
 
     async def group_promote_participants(
         self, group_id: str, participants: list
@@ -554,7 +558,9 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return _bridge_result(await bridge.group_promote_participants(group_id, participants))
+        return _bridge_result(
+            await bridge.group_promote_participants(group_id, participants)
+        )
 
     async def group_demote_participants(
         self, group_id: str, participants: list
@@ -562,7 +568,9 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return _bridge_result(await bridge.group_demote_participants(group_id, participants))
+        return _bridge_result(
+            await bridge.group_demote_participants(group_id, participants)
+        )
 
     async def group_set_subject(self, group_id: str, subject: str) -> Dict[str, Any]:
         bridge = self._get_bridge()

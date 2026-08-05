@@ -52,9 +52,18 @@ export function DueBadge({ overdue }: { overdue: boolean }) { /* compose */ }
 
 0. **If `reference/requirements.md` starts with `MARKETPLACE DECISION: install
    <app-id>`** — do NOT build. Call
-   `living_ui_marketplace_install(app_id=..., name=..., description=...)`,
-   then apply only the listed adaptations (modify flow). The user explicitly
-   chose reuse over a fresh build.
+   `living_ui_marketplace_install(app_id=..., name=..., description=...,
+   will_adapt=<true if the decision line says adapt: yes>)`. It installs INTO
+   this project (same tab and id — never a duplicate).
+   - `adapt: no` — the install completes the build and the system announces
+     it; do NOT send your own summary and do NOT call notify_ready or
+     walk_verify. End the run.
+   - `adapt: yes` — after the install, apply ONLY the adaptations listed
+     under `## Adaptations` (modify flow: edit → `living_ui_notify_ready` →
+     `living_ui_walk_verify`). If the list says "none specified", ask the
+     user what to change (a FINAL `send_message`) instead of guessing.
+   The user explicitly chose reuse over a fresh build — never rebuild what
+   was just installed, even if a later trigger asks you to "continue" it.
 1. Read `agent_file_system/GLOBAL_LIVING_UI.md` — colors, fonts, enforced rules.
 2. Read `{project_path}/LIVING_UI.md` and `reference/requirements.md`. The
    creation wizard interviewed the user and synthesized `requirements.md` — it
@@ -271,6 +280,15 @@ Update `LIVING_UI.md` after each feature (entities table, ops list, checklist).
    `reference/requirements.md`. **Success announces the app to the user and
    completes the build.** Failing features come back as a report: fix them,
    then repeat step 1 and step 3.
+
+Test data is fine during the build: at delivery the platform resets the
+app's data to its pristine post-migration state, so records you or the
+verifier created never reach the user. Data your migrations SEED survives
+(they re-run on the clean DB) — put anything the user must see on first
+open in a migration, never insert it by hand. Externally-fetched data is
+reset too: an app that syncs from an API must self-populate on an empty
+DB (fetch at boot or when the collection is empty — never rely on a sync
+that happened during the build).
 
 **HONESTY RULE:** the app is ready ONLY when `living_ui_walk_verify` returns
 `status: success`. If you cannot make it pass, tell the user the build

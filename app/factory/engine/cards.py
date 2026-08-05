@@ -14,20 +14,29 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 # Required string fields, in brief-rendering order.
-_REQUIRED = ("key", "where", "observed", "expected", "candidate_cause",
-             "suggested_direction", "repro")
+_REQUIRED = (
+    "key",
+    "where",
+    "observed",
+    "expected",
+    "candidate_cause",
+    "suggested_direction",
+    "repro",
+)
 
 
 @dataclass
 class DefectCard:
-    key: str                      # stable fingerprint source, e.g. "verify.feature.refresh-502"
-    where: str                    # route/file:line — the location component
-    observed: str                 # what actually happened, with the quoted value
-    expected: str                 # what passing looks like
-    candidate_cause: str          # best supported theory ("unknown" is valid)
-    suggested_direction: str      # the +40pp component: how to approach the fix
-    repro: str                    # ready-made command (I2: agents execute pasted calls)
-    evidence: List[str] = field(default_factory=list)  # quoted log/console/request lines
+    key: str  # stable fingerprint source, e.g. "verify.feature.refresh-502"
+    where: str  # route/file:line — the location component
+    observed: str  # what actually happened, with the quoted value
+    expected: str  # what passing looks like
+    candidate_cause: str  # best supported theory ("unknown" is valid)
+    suggested_direction: str  # the +40pp component: how to approach the fix
+    repro: str  # ready-made command (I2: agents execute pasted calls)
+    evidence: List[str] = field(
+        default_factory=list
+    )  # quoted log/console/request lines
 
     def fingerprint(self) -> str:
         import hashlib
@@ -71,4 +80,6 @@ def card_from_dict(data: Dict[str, Any]) -> DefectCard:
     problems = validate_card(data)
     if problems:
         raise ValueError("; ".join(problems))
-    return DefectCard(**{k: data[k] for k in _REQUIRED}, evidence=list(data.get("evidence", [])))
+    return DefectCard(
+        **{k: data[k] for k in _REQUIRED}, evidence=list(data.get("evidence", []))
+    )

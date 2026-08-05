@@ -884,9 +884,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post(
             "/api/living-ui/import", self._living_ui_import_handler
         )
-        self._app.router.add_post(
-            "/api/living-ui/stage", self._living_ui_stage_handler
-        )
+        self._app.router.add_post("/api/living-ui/stage", self._living_ui_stage_handler)
         self._app.router.add_get(
             "/api/living-ui/icon/{project_id}", self._living_ui_icon_handler
         )
@@ -1093,8 +1091,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": {
                         "success": True,
                         "projects": [
-                            p.to_dict()
-                            for p in self._living_ui_manager.list_projects()
+                            p.to_dict() for p in self._living_ui_manager.list_projects()
                         ],
                     },
                 }
@@ -2480,9 +2477,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             wizard.sweep_stale_staging(living_ui_dir)
 
             # Reference images are described once and reused at finalize.
-            image_notes = await wizard.describe_staged_images(
-                living_ui_dir, wizard_id
-            )
+            image_notes = await wizard.describe_staged_images(living_ui_dir, wizard_id)
             self._wizard_image_notes[wizard_id] = image_notes
 
             questions = await wizard.generate_interview(config, image_notes)
@@ -2531,6 +2526,49 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     living_ui_dir, wizard_id
                 )
 
+            # SECOND INTERVIEW ROUND (one, at most): with a marketplace
+            # match, round 1 collapses to the marketplace question — correct
+            # for the install path, but the other two answers need the real
+            # questions asked NOW (both observed live 2026-08-05):
+            #   adapt  → targeted "what should be different" follow-ups
+            #            (else synthesis fabricates the adaptation list);
+            #   fresh  → the standard requirement interview, catalogue
+            #            withheld (else the build synthesizes from a
+            #            one-line description with zero questions asked).
+            # Fail-open: no follow-ups → synthesize as before.
+            if not bool(data.get("followupDone")):
+                followups = []
+                try:
+                    if wizard.adapt_chosen(answers):
+                        followups = await wizard.generate_followup_questions(
+                            config, answers, image_notes
+                        )
+                    elif wizard.fresh_build_chosen(answers) and len(answers) <= 1:
+                        followups = await wizard.generate_interview(
+                            config, image_notes, include_marketplace=False
+                        )
+                except Exception as e:
+                    logger.warning(f"[LIVING_UI:WIZARD] round 2 skipped: {e}")
+                    followups = []
+                if followups:
+                    # Re-id: a model reusing "q1" would collide with the
+                    # marketplace question and overwrite its answer in the
+                    # frontend's answers map.
+                    for i, q in enumerate(followups):
+                        q["id"] = f"r2-{i + 1}"
+                    self._wizard_image_notes[wizard_id] = image_notes
+                    await self._broadcast(
+                        {
+                            "type": "living_ui_wizard_finalize",
+                            "data": {
+                                "success": True,
+                                "wizardId": wizard_id,
+                                "followupQuestions": followups,
+                            },
+                        }
+                    )
+                    return
+
             requirements_doc = await wizard.synthesize_requirements(
                 config, answers, image_notes
             )
@@ -2556,9 +2594,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 # Favicon injection edited the system-owned index.html —
                 # re-canonize hashes so the validation gate stays green.
                 try:
-                    await self._living_ui_manager.v2_runner.kit_sync(
-                        Path(project.path)
-                    )
+                    await self._living_ui_manager.v2_runner.kit_sync(Path(project.path))
                 except Exception as e:
                     logger.warning(f"[LIVING_UI:WIZARD] re-canon failed: {e}")
             elif str(config.get("icon", "")).startswith("lucide:"):
@@ -2626,9 +2662,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # Queue the build run in the project's dedicated session.
-            session_id = await self._living_ui_manager.start_development_run(
-                project.id
-            )
+            session_id = await self._living_ui_manager.start_development_run(project.id)
             if not session_id:
                 raise RuntimeError("Failed to start development run")
 
@@ -2725,7 +2759,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 ref_dir.mkdir(parents=True, exist_ok=True)
                 for f in ref_files[:10]:
                     src = Path(f)
-                    staging_root = Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                    staging_root = (
+                        Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                    )
                     if src.exists() and staging_root in src.parents:
                         shutil.move(str(src), str(ref_dir / src.name))
 
@@ -2776,9 +2812,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Queue the build run in the project's dedicated session.
             # The manager handles: session creation, status update, trigger firing.
-            session_id = await self._living_ui_manager.start_development_run(
-                project.id
-            )
+            session_id = await self._living_ui_manager.start_development_run(project.id)
 
             if session_id:
                 logger.info(
@@ -3047,7 +3081,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         if kind == "icon":
                             filename = f"icon{Path(filename).suffix.lower() or '.png'}"
                     else:
-                        staging = Path(self._living_ui_manager.living_ui_dir) / "_staging" / "refs"
+                        staging = (
+                            Path(self._living_ui_manager.living_ui_dir)
+                            / "_staging"
+                            / "refs"
+                        )
                     staging.mkdir(parents=True, exist_ok=True)
                     target = staging / filename
                     if wizard_id and kind == "icon":
@@ -3058,7 +3096,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     else:
                         i = 1
                         while target.exists():
-                            target = staging / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
+                            target = (
+                                staging
+                                / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
+                            )
                             i += 1
                     with open(target, "wb") as f:
                         while True:
@@ -3073,7 +3114,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _living_ui_icon_handler(self, request: "web.Request") -> "web.StreamResponse":
+    async def _living_ui_icon_handler(
+        self, request: "web.Request"
+    ) -> "web.StreamResponse":
         """Serve a project's uploaded icon (project.icon == "file:<relpath>")."""
         from aiohttp import web
 
@@ -3083,9 +3126,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if project and (project.icon or "").startswith("file:"):
             icon_path = (Path(project.path) / project.icon[5:]).resolve()
             # The relpath is server-written, but never serve outside the project.
-            if (
-                icon_path.is_file()
-                and str(icon_path).startswith(str(Path(project.path).resolve()))
+            if icon_path.is_file() and str(icon_path).startswith(
+                str(Path(project.path).resolve())
             ):
                 return web.FileResponse(icon_path)
         return web.json_response({"error": "no icon"}, status=404)
@@ -3528,11 +3570,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return False
 
-        # Update project status to "ready" (build complete, about to launch)
-        self._living_ui_manager.update_project_status(project_id, "ready")
+        # The delivery/deploy paths (finalize_first_delivery, finalize_modify)
+        # hand this method an app that is ALREADY running and healthy — the
+        # unconditional status-flip + launch_project below then killed the
+        # just-delivered app and re-ran the full pipeline a second time
+        # (observed 2026-08-04, kanban_board_1bb64990: every delivery and
+        # every modify-flip restarted the app twice, ~9 s of extra downtime
+        # right after the user was told "ready"). Launch only when the app
+        # is not actually up.
+        if (
+            project.status == "running"
+            and project.port
+            and self._living_ui_manager._is_port_in_use(project.port)
+        ):
+            success = True
+        else:
+            # Update project status to "ready" (build complete, about to launch)
+            self._living_ui_manager.update_project_status(project_id, "ready")
 
-        # Launch the project server via manager (centralizes process management)
-        success = await self._living_ui_manager.launch_project(project_id)
+            # Launch the project server via manager (centralizes process management)
+            success = await self._living_ui_manager.launch_project(project_id)
 
         if success:
             # Get updated project info with URL
@@ -6764,32 +6821,52 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
     async def _handle_living_ui_import(self, source: str, name: str) -> None:
-        """Import a Living UI. V2 supports exported ZIPs (round-trip with
-        export); GitHub/path/foreign-app adoption returns with the V2 import
-        workflow (WORKFLOWS §7)."""
+        """Import a Living UI from a ZIP, a local folder path, or a git URL
+        (one door — LIFECYCLE-PLAN Phase 4). After registering, a
+        launch-and-verify run is queued in the project's session so the
+        import finishes as a running, verified app without further clicks."""
         if not source:
             return
-        if not source.lower().endswith(".zip"):
-            await self._broadcast(
-                {
-                    "type": "living_ui_error",
-                    "data": {
-                        "projectId": "",
-                        "error": (
-                            "Only exported Living UI ZIPs can be imported right "
-                            "now — GitHub/path import returns with the V2 "
-                            "import workflow."
-                        ),
-                    },
-                }
-            )
-            return
+        # Every outcome is LOGGED and answered with living_ui_import_result:
+        # the first live test failed with no server log line and no UI
+        # feedback at all (2026-08-05 — "I paste the path and nothing
+        # happens"), because failures only broadcast a generic error the
+        # already-closed modal never saw.
+        logger.info(f"[LIVING_UI] import requested: {source!r} (name={name!r})")
         try:
-            project = await self._living_ui_manager.import_project_zip(
+            project = await self._living_ui_manager.import_project_source(
                 source, name or None
             )
             await self.broadcast_living_ui_created(project.to_dict())
+            await self._broadcast(
+                {
+                    "type": "living_ui_import_result",
+                    "data": {"success": True, "projectId": project.id},
+                }
+            )
+            try:
+                from app.triggers import TriggerSource
+
+                is_ext = getattr(project, "project_type", "native") == "external"
+                await self._living_ui_manager.start_development_run(
+                    project.id,
+                    brief=self._living_ui_manager.post_import_brief(project),
+                    trigger_source=TriggerSource.LIVING_UI_IMPORT,
+                    workflow_skill=(
+                        "living-ui-importer" if is_ext else "living-ui-modify"
+                    ),
+                    status=None,
+                )
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] import verify dispatch failed: {e}")
         except Exception as e:
+            logger.error(f"[LIVING_UI] import failed for {source!r}: {e}")
+            await self._broadcast(
+                {
+                    "type": "living_ui_import_result",
+                    "data": {"success": False, "error": f"Import failed: {e}"},
+                }
+            )
             await self._broadcast(
                 {
                     "type": "living_ui_error",

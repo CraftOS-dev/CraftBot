@@ -51,8 +51,6 @@ class ClearCommand(Command):
 
         # Confirm in the now-empty conversation (emitted after the clear so
         # it survives instead of being wiped with the old rows).
-        self.emit_message(
-            "Conversation cleared.", "system", session_id=target
-        )
+        self.emit_message("Conversation cleared.", "system", session_id=target)
 
         return CommandResult(success=True)

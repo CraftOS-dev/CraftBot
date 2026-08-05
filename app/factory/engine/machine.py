@@ -35,9 +35,9 @@ class Outcome:
     """What just happened, reported by gate/verifier/mission — never by the
     model's self-assessment."""
 
-    state: str                       # state this outcome belongs to
+    state: str  # state this outcome belongs to
     ok: bool
-    fingerprint: Optional[str] = None   # stable failure identity (card fingerprint)
+    fingerprint: Optional[str] = None  # stable failure identity (card fingerprint)
     payload: Dict[str, Any] = field(default_factory=dict)  # cards, urls, reports
 
 
@@ -45,7 +45,7 @@ class Outcome:
 class Decision:
     next_state: str
     action: str = NONE
-    escalate: bool = False           # same fingerprint seen again → richer brief
+    escalate: bool = False  # same fingerprint seen again → richer brief
     reason: str = ""
     payload: Dict[str, Any] = field(default_factory=dict)
 
@@ -77,8 +77,10 @@ class Machine:
             "total_missions": 0,
             "defect_fingerprints": {},
             "history": [],
-            "caps": {"per_fingerprint": self._caps.per_fingerprint,
-                     "total_missions": self._caps.total_missions},
+            "caps": {
+                "per_fingerprint": self._caps.per_fingerprint,
+                "total_missions": self._caps.total_missions,
+            },
         }
         if self._store_path.exists():
             self._state.update(json.loads(self._store_path.read_text(encoding="utf-8")))
@@ -103,8 +105,57 @@ class Machine:
     def active_mission(self) -> Optional[str]:
         return self._state.get("mission_id")
 
+    @property
+    def generation(self) -> int:
+        """How many completed arcs precede the current one (0 = first build).
+        Hosts use this to flavor announcements (build ready vs change
+        deployed) — the staging record is gone by announce time."""
+        return len(self._state.get("generations") or [])
+
     def history(self) -> List[Dict[str, Any]]:
         return list(self._state["history"])
+
+    def generations(self) -> List[Dict[str, Any]]:
+        return list(self._state.get("generations") or [])
+
+    # ── lifecycle (LIFECYCLE-PLAN Phase 2 — engine amendment) ──────────────
+    def reopen(self, state: str) -> None:
+        """Re-arm a TERMINAL machine for a new arc (a modify of a delivered
+        app), archiving the finished arc as a generation and resetting the
+        caps counters — each modify gets a fresh budget.
+
+        Deliberately NOT a graph transition: reopening is a host-level
+        lifecycle event (nothing "happens" to cause it inside the arc), so
+        no DONE→MODIFYING edge exists. The terminal guard lives here, with
+        the state: callers that want to re-arm an in-flight machine are
+        holding it wrong. Virgin machines (no history — e.g. minted for a
+        marketplace-installed app that never had a build arc) may also
+        reopen: there is no arc to protect.
+        """
+        if not self.terminal and self._state["history"]:
+            raise ValueError(
+                f"refusing to reopen a machine mid-arc (state={self.state!r})"
+            )
+        # ALWAYS archive — even a virgin arc (empty history). generation > 0
+        # is the durable "this arc is a reopened one" signal hosts key
+        # announce flavor and mission skills on; an empty archived record is
+        # harmless, a missed one mislabels every modify of an app whose
+        # machine never ran a build arc (marketplace/imported installs).
+        self._state.setdefault("generations", []).append(
+            {
+                "closed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "final_state": self.state,
+                "total_missions": self._state["total_missions"],
+                "defect_fingerprints": dict(self._state["defect_fingerprints"]),
+                "history": list(self._state["history"]),
+            }
+        )
+        self._state["state"] = state
+        self._state["mission_id"] = None
+        self._state["total_missions"] = 0
+        self._state["defect_fingerprints"] = {}
+        self._state["history"] = []
+        self.save()
 
     # ── the arc ────────────────────────────────────────────────────────────
     def advance(self, outcome: Outcome) -> Decision:

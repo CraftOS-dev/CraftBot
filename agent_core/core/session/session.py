@@ -159,9 +159,7 @@ class Session:
             type=data.get("type", SessionType.CHAT),
             title=data.get("title", ""),
             created_at=data.get("created_at", datetime.utcnow().isoformat()),
-            last_active_at=data.get(
-                "last_active_at", datetime.utcnow().isoformat()
-            ),
+            last_active_at=data.get("last_active_at", datetime.utcnow().isoformat()),
             archived=data.get("archived", False),
             action_sets=data.get("action_sets", []),
             compiled_actions=data.get("compiled_actions", []),

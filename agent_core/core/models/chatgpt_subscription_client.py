@@ -599,7 +599,12 @@ def _translate_backend_error(exc: Exception, model: str) -> Exception:
     entitlement. Surface that as a plan-explanation rather than a
     model-config error so the user knows to upgrade or switch auth.
     """
-    from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo, Severity
+    from agent_core.core.errors import (
+        ClassifiedError,
+        ErrorCategory,
+        ErrorInfo,
+        Severity,
+    )
 
     text = str(exc)
     if "ChatGPT account" not in text and "not supported when using Codex" not in text:

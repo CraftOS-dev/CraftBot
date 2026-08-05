@@ -38,9 +38,7 @@ Note: This does not affect saved settings or credentials."""
     ) -> CommandResult:
         """Execute the reset command."""
         # Show immediate feedback, then perform reset in background
-        self.emit_message(
-            "Resetting agent state...", "system", session_id=session_id
-        )
+        self.emit_message("Resetting agent state...", "system", session_id=session_id)
 
         asyncio.create_task(self._perform_reset(session_id))
 

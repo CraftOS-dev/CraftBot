@@ -229,7 +229,7 @@ def _match_project_for_path(file_path: str) -> Optional[Tuple[Any, str]]:
     norm = _norm_path(file_path)
     for project in _building_projects():
         if _owns(project.path, norm):
-            rel = norm[len(_norm_path(project.path)):].lstrip("/")
+            rel = norm[len(_norm_path(project.path)) :].lstrip("/")
             return project, rel
     return None
 
@@ -449,14 +449,26 @@ def _classify_activity(
     if project is None:
         return None
     if name == "read_file":
-        kind, area, label = "read", "other", f"Read {_basename(inputs.get('file_path'))}"
+        kind, area, label = (
+            "read",
+            "other",
+            f"Read {_basename(inputs.get('file_path'))}",
+        )
     elif name == "list_folder":
-        kind, area, label = "read", "other", f"Explored {_basename(inputs.get('path') or inputs.get('folder') or '.')}/"
+        kind, area, label = (
+            "read",
+            "other",
+            f"Explored {_basename(inputs.get('path') or inputs.get('folder') or '.')}/",
+        )
     elif name == "find_files":
         kind, area, label = "search", "other", "Searched project files"
     elif name == "grep_files":
         term = _clip(inputs.get("pattern") or inputs.get("query"), 32)
-        kind, area, label = "search", "other", (f"Searched for “{term}”" if term else "Searched the code")
+        kind, area, label = (
+            "search",
+            "other",
+            (f"Searched for “{term}”" if term else "Searched the code"),
+        )
     elif name == "run_shell":
         kind, area, label = "run", "other", f"Ran {_clip(inputs.get('command'), 40)}"
     elif name == "browser_probe":
@@ -495,12 +507,16 @@ def record_todo_transitions(project_id: str, todos: List[Dict[str, Any]]) -> Non
             if status == "in_progress":
                 _record(
                     project_id,
-                    _build_event(f"todo-{tid}-start", "todo", f"▸ {content}", area="other"),
+                    _build_event(
+                        f"todo-{tid}-start", "todo", f"▸ {content}", area="other"
+                    ),
                 )
             elif status == "completed":
                 _record(
                     project_id,
-                    _build_event(f"todo-{tid}-done", "todo", f"✓ {content}", area="other"),
+                    _build_event(
+                        f"todo-{tid}-done", "todo", f"✓ {content}", area="other"
+                    ),
                 )
         _PREV_TODOS[project_id] = current
     except Exception as exc:

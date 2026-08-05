@@ -175,9 +175,7 @@ class SessionRuntimeManager:
         self._running = True
         for session_id in list(self._queues.keys()):
             self._ensure_loop(session_id)
-        logger.info(
-            f"[SessionRuntime] Started ({len(self._loops)} session loop(s))"
-        )
+        logger.info(f"[SessionRuntime] Started ({len(self._loops)} session loop(s))")
 
     async def stop(self) -> None:
         """Cancel all consumer loops (shutdown). Queued triggers stay durable."""

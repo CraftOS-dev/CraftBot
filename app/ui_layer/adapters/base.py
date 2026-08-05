@@ -234,9 +234,7 @@ class InterfaceAdapter(ABC):
             bus.subscribe(UIEventType.AGENT_STATE_CHANGED, self._handle_state_change)
         )
         self._unsubscribers.append(
-            bus.subscribe(
-                UIEventType.RUN_STATE_CHANGED, self._handle_run_state_change
-            )
+            bus.subscribe(UIEventType.RUN_STATE_CHANGED, self._handle_run_state_change)
         )
         self._unsubscribers.append(
             bus.subscribe(UIEventType.GUI_MODE_CHANGED, self._handle_gui_mode_change)

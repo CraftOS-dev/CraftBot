@@ -42,7 +42,9 @@ class ErrorCategory(str, Enum):
     # App-layer categories, not produced by the LLM classifier:
     VALIDATION = "validation"  # malformed input outside an LLM call
     NOT_FOUND = "not_found"
-    CONFIG = "config"  # local misconfiguration (e.g. no key set, before any network call)
+    CONFIG = (
+        "config"  # local misconfiguration (e.g. no key set, before any network call)
+    )
     PERMISSION = "permission"  # local/file/OS permission issues
     INTERNAL = "internal"  # unexpected/bug-shaped exception
 
