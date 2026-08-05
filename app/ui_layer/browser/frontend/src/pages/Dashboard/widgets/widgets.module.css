@@ -117,6 +117,13 @@
   transition: width 0.3s ease;
 }
 
+/* Matches .tokenCachedDot in the legend below — without this segment the bar
+   showed only input + output while still legending a Cached percentage. */
+.tokenCachedBar {
+  background: var(--color-success);
+  transition: width 0.3s ease;
+}
+
 /* The three legend entries need ~250px, which is about all the 3-column
    minimum gives them. Tighter gaps keep them on one line there, and wrapping
    (rather than clipping) is the graceful failure if they ever don't fit. */

@@ -7,14 +7,22 @@ export function TokenUsageWidget() {
   const { dashboardMetrics } = useWebSocket()
   const { period, onChange, filteredData } = useMetricsPeriod()
 
-  const inputTokens = filteredData?.token.input ?? (dashboardMetrics?.token.input ?? 0)
+  const rawInputTokens = filteredData?.token.input ?? (dashboardMetrics?.token.input ?? 0)
   const outputTokens = filteredData?.token.output ?? (dashboardMetrics?.token.output ?? 0)
-  const totalTokens = filteredData?.token.total ?? (dashboardMetrics?.token.total ?? 0)
   const cachedTokens = filteredData?.token.cached ?? (dashboardMetrics?.token.cached ?? 0)
 
-  const inputRatio = totalTokens > 0 ? Math.round((inputTokens / totalTokens) * 100) : 0
-  const outputRatio = totalTokens > 0 ? Math.round((outputTokens / totalTokens) * 100) : 0
-  const cachedRatio = inputTokens > 0 ? Math.min(100, Math.round((cachedTokens / inputTokens) * 100)) : 0
+  // `token.input` from the API is the full prompt size — cache reads included.
+  // The Input tile shows only the genuinely new tokens; Cached shows the rest.
+  const inputTokens = Math.max(0, rawInputTokens - cachedTokens)
+
+  // Denominator for all three ratios, so the segments of the bar sum to 100%.
+  // Deliberately not `token.total` from the API: that is rawInput + output, so
+  // it double-counts cache reads and made the three percentages sum past 100.
+  const ratioBase = inputTokens + outputTokens + cachedTokens
+
+  const inputRatio = ratioBase > 0 ? Math.round((inputTokens / ratioBase) * 100) : 0
+  const outputRatio = ratioBase > 0 ? Math.round((outputTokens / ratioBase) * 100) : 0
+  const cachedRatio = ratioBase > 0 ? Math.min(100, Math.round((cachedTokens / ratioBase) * 100)) : 0
 
   return (
     <>
@@ -23,6 +31,7 @@ export function TokenUsageWidget() {
         <div className={styles.tokenRatioBar}>
           <div className={styles.tokenInputBar} style={{ width: `${inputRatio}%` }} />
           <div className={styles.tokenOutputBar} style={{ width: `${outputRatio}%` }} />
+          <div className={styles.tokenCachedBar} style={{ width: `${cachedRatio}%` }} />
         </div>
         <div className={styles.tokenRatioLabels}>
           <div className={styles.tokenRatioItem}>
@@ -65,5 +74,11 @@ export function TokenUsageWidget() {
 // selected period.
 export function TokenUsageHeaderBadge() {
   const { dashboardMetrics } = useWebSocket()
-  return <Badge variant="default">{(dashboardMetrics?.token.total ?? 0).toLocaleString()} total</Badge>
+  // Derived rather than read from `token.total`, which is rawInput + output and
+  // so double-counts cache reads. Counts new tokens only, matching the tiles.
+  const rawInput = dashboardMetrics?.token.input ?? 0
+  const output = dashboardMetrics?.token.output ?? 0
+  const cached = dashboardMetrics?.token.cached ?? 0
+  const total = Math.max(0, rawInput - cached) + output
+  return <Badge variant="default">{total.toLocaleString()} total</Badge>
 }
