@@ -147,6 +147,14 @@ class V2Runner:
             args += ["--folder", folder]
         if style:
             args += ["--style", style]
+        # Provenance: stamp which CraftBot scaffolded this app into the
+        # manifest (before hashes are canonized, so the gate stays green).
+        try:
+            from app.config import get_app_version
+
+            args += ["--craftbot-version", get_app_version()]
+        except Exception:
+            pass
         code, out = await self._run(self._cli(*args), timeout=GATE_TIMEOUT_S)
         if code != 0:
             raise RuntimeError(f"scaffold failed:\n{out}")
@@ -272,13 +280,17 @@ class V2Runner:
             timeout=60,
         )
         if code != 0:
-            # Non-fatal: the app still serves; worst case PB shows its setup
-            # page. Never include the password in the log.
-            logger.warning(
-                f"[LIVING_UI:V2] superuser upsert failed for {project_dir.name}: "
-                f"{out[-300:]}"
+            # FAIL CLOSED. A serve without a superuser makes PocketBase pop
+            # the user's SYSTEM BROWSER with a one-time /_/#/pbinstall/…
+            # admin-installer token (observed live 2026-08-05, kanban_board
+            # marketplace install) — a jarring tab AND an unauthenticated
+            # admin takeover link. A failed launch with evidence beats that.
+            # Never include the password in the error.
+            raise RuntimeError(
+                f"superuser upsert failed for {project_dir.name} — refusing "
+                f"to serve without one (PocketBase would open its installer "
+                f"page in the user's browser): {out[-300:]}"
             )
-            return
         try:
             cred_file.write_text(
                 _json.dumps({"email": email, "password": password}) + "\n",

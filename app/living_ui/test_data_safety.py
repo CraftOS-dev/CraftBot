@@ -23,6 +23,8 @@ from pathlib import Path
 
 from agent_core.core.action_framework.registry import _strip_decorator
 
+from app.config import get_app_version
+
 import app.factory.host_craftbot as host_mod
 import app.living_ui as living_ui_mod
 import app.living_ui.walk_verify as wv_mod
@@ -31,6 +33,7 @@ from app.data.action import living_ui_actions as LA
 from app.living_ui.manager import LivingUIManager, LivingUIProject
 from app.living_ui.pb_data_io import restore_pb_data, snapshot_pb_data
 from app.living_ui.staging import STAGING_PORT_RANGE, StagingSupervisor
+from app.living_ui.v2_runner import V2Runner
 from app.living_ui.wizard import _unwrap_document, adapt_chosen, fresh_build_chosen
 
 
@@ -1532,5 +1535,86 @@ with tempfile.TemporaryDirectory() as tmp:
         "the cap must produce an honest machine-composed stuck report"
     )
 print("§21 surrender-loop cap: OK")
+
+
+# ── §22 CraftBot version provenance ────────────────────────────────────────
+_CB_V = get_app_version()
+assert _CB_V and _CB_V != "0.0.0"
+
+with tempfile.TemporaryDirectory() as tmp:
+    workspace = Path(tmp)
+    mgr = LivingUIManager(workspace_root=workspace)
+    mgr.v2_runner.kit_sync = _StubRunner().kit_sync
+    living_ui_mod.get_living_ui_manager = lambda: mgr
+    host_mod._HOST = None
+
+    # V2 import: registry stamped with the ACQUIRING version; manifest keeps
+    # the original creator's version when the export carried one.
+    src_dir = Path(tmp) / "exported22"
+    _make_project_dir(Path(tmp), "prov220001", 3156)
+    (Path(tmp) / "app_prov220001").rename(src_dir)
+    _mf = _json.loads((src_dir / "manifest.json").read_text())
+    _mf["craftbotVersion"] = "0.9.9"  # the original creator
+    (src_dir / "manifest.json").write_text(_json.dumps(_mf))
+    # donor lifecycle state must NOT travel with an import (a fresh sidecar
+    # IS created by the import's own mark_delivered — check donor CONTENT)
+    (src_dir / ".factory").mkdir()
+    (src_dir / ".factory" / "host.json").write_text(
+        '{"delivered": true, "donor_marker": 1}'
+    )
+    (src_dir / ".factory" / "state.json").write_text('{"state": "stuck"}')
+
+    project = asyncio.run(mgr.import_project_source(str(src_dir)))
+    assert project.craftbot_version == _CB_V, "registry records the acquirer"
+    _mf2 = _json.loads((Path(project.path) / "manifest.json").read_text())
+    assert _mf2["craftbotVersion"] == "0.9.9", "manifest keeps the creator"
+    _side = _json.loads((Path(project.path) / ".factory" / "host.json").read_text())
+    assert "donor_marker" not in _side, "donor lifecycle state must not travel"
+    assert not (Path(project.path) / ".factory" / "state.json").exists(), (
+        "donor machine state must not travel"
+    )
+    assert project.to_dict()["craftbotVersion"] == _CB_V
+
+    # manifest WITHOUT a version (older export) → stamped with the acquirer
+    _mf.pop("craftbotVersion")
+    (src_dir / "manifest.json").write_text(_json.dumps(_mf))
+    project2 = asyncio.run(mgr.import_project_source(str(src_dir)))
+    _mf3 = _json.loads((Path(project2.path) / "manifest.json").read_text())
+    assert _mf3["craftbotVersion"] == _CB_V
+
+    # external registration stamps craftbot.json + registry
+    site = Path(tmp) / "site22"
+    site.mkdir()
+    (site / "index.html").write_text("<h1>x</h1>")
+    ext = asyncio.run(mgr.import_project_source(str(site)))
+    _cfg = _json.loads((Path(ext.path) / "craftbot.json").read_text())
+    assert _cfg["craftbotVersion"] == _CB_V and ext.craftbot_version == _CB_V
+
+    # persistence round-trip (the 3-site trap)
+    mgr2 = LivingUIManager(workspace_root=workspace)
+    assert mgr2.projects[project.id].craftbot_version == _CB_V
+print("§22 craftbot version provenance: OK")
+
+
+# ── §23 superuser upsert failure FAILS the launch (no installer popup) ─────
+with tempfile.TemporaryDirectory() as tmp:
+    runner23 = V2Runner(Path(tmp))
+    proj23 = Path(tmp) / "proj"
+    proj23.mkdir()
+
+    async def _fake_pb_binary():
+        return Path("/usr/bin/false")
+
+    async def _fake_run(cmd, timeout, cwd=None):
+        return (1, "token=SECRET should never leak; some upsert error")
+
+    runner23.pb_binary = _fake_pb_binary
+    runner23._run = _fake_run
+    try:
+        asyncio.run(runner23.ensure_superuser(proj23))
+        raise AssertionError("failed upsert must refuse to serve")
+    except RuntimeError as e:
+        assert "refusing to serve" in str(e) and "installer" in str(e)
+print("§23 superuser fail-closed: OK")
 
 print("\nData-safety acceptance: ALL GREEN")

@@ -77,6 +77,9 @@ export async function run(args: string[]): Promise<number> {
   }
   const jsonOutput = args.includes('--json');
   const style = argValue(args, '--style');
+  // Provenance: which CraftBot created this app (empty when scaffolded
+  // outside CraftBot, e.g. by hand via the CLI).
+  const craftbotVersion = argValue(args, '--craftbot-version') ?? '';
 
   const slug = slugify(name);
   const id = argValue(args, '--id') ?? randomBytes(4).toString('hex');
@@ -102,6 +105,7 @@ export async function run(args: string[]): Promise<number> {
     '{{CREATED_AT}}': new Date().toISOString(),
     '{{PB_VERSION}}': pinnedPbVersion(),
     '{{KIT_VERSION}}': kitV,
+    '{{CRAFTBOT_VERSION}}': craftbotVersion,
     '{{AUTH_MODE}}': authMode,
     '{{AUTH_RULE}}': authMode === 'multi-user' ? '@request.auth.id != ""' : '',
   };

@@ -8,6 +8,7 @@
   "port": "{{PORT}}",
   "pbVersion": "{{PB_VERSION}}",
   "kitVersion": "{{KIT_VERSION}}",
+  "craftbotVersion": "{{CRAFTBOT_VERSION}}",
   "pipeline": {
     "install": "npm install --ignore-scripts --prefix frontend",
     "build": "npm run build --prefix frontend",

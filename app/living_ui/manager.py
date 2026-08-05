@@ -73,6 +73,9 @@ class LivingUIProject:
     app_runtime: Optional[str] = (
         None  # 'go', 'node', 'python', 'rust', 'docker', 'static'
     )
+    # Which CraftBot version acquired this project here (provenance; the
+    # manifest's craftbotVersion records the ORIGINAL creator's version).
+    craftbot_version: Optional[str] = None
     bridge_token: str = ""  # Ephemeral token for integration bridge (NOT serialized)
     tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
     tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
@@ -102,6 +105,7 @@ class LivingUIProject:
             "uiTheme": self.ui_theme,
             "projectType": self.project_type,
             "appRuntime": self.app_runtime,
+            "craftbotVersion": self.craftbot_version,
             "livingUIVersion": 2,
             "tunnelUrl": self.tunnel_url,
         }
@@ -539,6 +543,7 @@ UI in {project.path}/frontend/src/app/."""
                             ui_theme=project_data.get("uiTheme"),
                             project_type=project_data.get("projectType", "native"),
                             app_runtime=project_data.get("appRuntime"),
+                            craftbot_version=project_data.get("craftbotVersion"),
                         )
                         # Check if saved tunnel URL is still reachable
                         saved_tunnel = project_data.get("tunnelUrl")
@@ -1830,6 +1835,15 @@ UI in {project.path}/frontend/src/app/."""
         registry + persistence + session, and — for sources that arrive as
         finished apps — the delivered flag that keys every later data-safety
         mode (staging verifies, no baseline restore)."""
+        # Provenance: which CraftBot acquired this project (the manifest's
+        # craftbotVersion separately records the original creator's version).
+        if not project.craftbot_version:
+            try:
+                from app.config import get_app_version
+
+                project.craftbot_version = get_app_version()
+            except Exception:
+                pass
         self.projects[project.id] = project
         self._save_projects()
         try:
@@ -1967,12 +1981,19 @@ UI in {project.path}/frontend/src/app/."""
         # which a foreign app may legitimately own (Chrome extensions, PWAs).
         # Same four pipeline verbs as V2 manifests (REQUIREMENTS M3/M4);
         # start/health run through {{PORT}} substitution.
+        try:
+            from app.config import get_app_version
+
+            _cb_version = get_app_version()
+        except Exception:
+            _cb_version = ""
         config = {
             "id": project_id,
             "name": display,
             "external": True,
             "origin": origin,
             "appRuntime": runtime,
+            "craftbotVersion": _cb_version,
             "port": port,
             "pipeline": {
                 "install": "",
@@ -2312,11 +2333,15 @@ UI in {project.path}/frontend/src/app/."""
         dest = self.living_ui_dir / f"{self._sanitize_name(display)}_{project_id}"
         # Runtime junk never imports; node_modules is skipped because a
         # foreign machine's install may not run here — the launch pipeline's
-        # install step rebuilds it from package.json.
+        # install step rebuilds it from package.json. .factory/.snapshots are
+        # the DONOR's lifecycle state (machine history, delivered flag,
+        # baseline) — a fresh identity must start a fresh lifecycle.
         shutil.copytree(
             src,
             dest,
-            ignore=shutil.ignore_patterns("node_modules", ".git", "logs"),
+            ignore=shutil.ignore_patterns(
+                "node_modules", ".git", "logs", ".factory", ".snapshots"
+            ),
         )
 
         # Never trust shipped credentials or runtime state.
@@ -2329,6 +2354,19 @@ UI in {project.path}/frontend/src/app/."""
             manifest["pipeline"] = json.loads(
                 json.dumps(manifest["pipeline"]).replace(str(old_port), str(port))
             )
+        # Provenance: PRESERVE the original creator's craftbotVersion when it
+        # travelled with the export; only stamp when absent/unresolved (older
+        # exports, marketplace templates). The registry field records who
+        # imported it here either way.
+        if not str(manifest.get("craftbotVersion") or "").strip() or "{{" in str(
+            manifest.get("craftbotVersion") or ""
+        ):
+            try:
+                from app.config import get_app_version
+
+                manifest["craftbotVersion"] = get_app_version()
+            except Exception:
+                pass
         (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
         # A TEMPLATE tree (a marketplace checkout imported by path — the
@@ -2648,6 +2686,18 @@ UI in {project.path}/frontend/src/app/."""
                 mf_path = project_path / "manifest.json"
                 mf_data = json.loads(mf_path.read_text(encoding="utf-8"))
                 mf_data["marketplaceAppId"] = app_id
+                # Provenance: PRESERVE the publisher's craftbotVersion when
+                # the app ships one (same rule as import); stamp the
+                # installer's version only when it is absent or a leftover
+                # {{CRAFTBOT_VERSION}} template token.
+                _mf_v = str(mf_data.get("craftbotVersion") or "")
+                if not _mf_v.strip() or "{{" in _mf_v:
+                    try:
+                        from app.config import get_app_version
+
+                        mf_data["craftbotVersion"] = get_app_version()
+                    except Exception:
+                        pass
                 mf_path.write_text(json.dumps(mf_data, indent=2) + "\n")
             except Exception as e:
                 logger.warning(f"[LIVING_UI:MARKETPLACE] could not record app id: {e}")

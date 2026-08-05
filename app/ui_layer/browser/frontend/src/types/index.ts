@@ -758,6 +758,8 @@ export interface LivingUIProject {
   projectType?: 'native' | 'external'
   /** External apps only: detected runtime (node/python/static/go/rust). */
   appRuntime?: string | null
+  /** CraftBot version that acquired this project (provenance). */
+  craftbotVersion?: string | null
 }
 
 export interface LivingUICreateRequest {
