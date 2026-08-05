@@ -116,5 +116,5 @@ export function useDerivedAgentStatus(
 }
 
 // NOTE: the chat's typing indicator is NOT derived here — it is run-scoped
-// and driven by the backend's session_busy events (agentSlice.busyBySession),
-// so it stays steady across turn boundaries.
+// and driven by the backend's session_busy events
+// (agentSlice.runStateBySession), so it stays steady across turn boundaries.

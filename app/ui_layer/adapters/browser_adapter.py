@@ -829,14 +829,19 @@ class BrowserAdapter(InterfaceAdapter):
         )
 
     def _handle_run_state_change(self, event: UIEvent) -> None:
-        """Broadcast a session's run-in-flight flag (typing indicator)."""
+        """Broadcast a session's run state (typing indicator + stop button).
+
+        ``state`` is "running" | "stopping" | "idle"; ``busy`` is the
+        derived boolean kept alongside it for older consumers.
+        """
         session_id = event.data.get("session_id") or "main"
         busy = bool(event.data.get("busy", False))
+        state = event.data.get("state") or ("running" if busy else "idle")
         asyncio.create_task(
             self._broadcast(
                 {
                     "type": "session_busy",
-                    "data": {"sessionId": session_id, "busy": busy},
+                    "data": {"sessionId": session_id, "busy": busy, "state": state},
                 }
             )
         )
@@ -1208,6 +1213,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         content, session_id=session_id, client_id=client_id
                     )
                 )
+
+        elif msg_type == "session_stop":
+            # User force-stops the session's in-flight run (the chat input's
+            # stop button). Runs as a background task: stopping awaits full
+            # settlement (process kills) and must not block the WS read loop.
+            session_id = data.get("sessionId") or "main"
+            asyncio.create_task(self._controller.stop_run(session_id))
 
         elif msg_type == "chat_attachment_upload":
             # Upload attachment for chat message

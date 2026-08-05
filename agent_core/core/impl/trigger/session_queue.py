@@ -123,6 +123,27 @@ class SessionTriggerQueue:
                 batch.append(heapq.heappop(self._heap))
             return [entry[2] for entry in batch]
 
+    async def purge(self, predicate) -> int:
+        """Remove queued triggers matching ``predicate`` (a Trigger -> bool).
+
+        Used by user force-stop to drop a run's pending continuation rows
+        without touching unrelated triggers (user messages, schedules).
+        Removed triggers are reported to the lifecycle listener so their
+        durable rows settle instead of rehydrating next boot. Returns the
+        number of triggers removed.
+        """
+        async with self._cv:
+            if self._closed or not self._heap:
+                return 0
+            kept = [entry for entry in self._heap if not predicate(entry[2])]
+            removed = [entry[2] for entry in self._heap if predicate(entry[2])]
+            if not removed:
+                return 0
+            self._heap = kept
+            heapq.heapify(self._heap)
+            self._notify_evicted(removed)
+            return len(removed)
+
     async def close(self) -> List[Trigger]:
         """Close the queue (session deletion) and return discarded triggers.
 

@@ -154,11 +154,11 @@ class EventStream:
         self, *, folded_events: int, folded_tokens: int, summary: str | None
     ) -> None:
         """Append a SYSTEM event announcing that summarization ran, so the UI
-        surfaces it as a system message in the session's chat. The LLM-facing
-        `message` stays a one-liner (the summary itself already lives in
-        head_summary — repeating it in the tail would double its token cost);
-        the full summary rides on `display_message`, which only the UI reads.
-        Caller holds the lock."""
+        surfaces it as a system message in the session's chat. Both the
+        LLM-facing `message` and the UI-facing `display_message` are
+        one-liners: the summary text itself lives only in head_summary
+        (repeating it in the tail would double its token cost, and dumping
+        it into the chat drowns the conversation). Caller holds the lock."""
         line = (
             f"Summarized {folded_events} older events (~{folded_tokens} tokens) "
             "into the running head summary."
@@ -169,16 +169,13 @@ class EventStream:
                 f"(~{folded_tokens} tokens) without a summary."
             )
             display = (
-                "Context summarization was triggered but the summary could not "
-                f"be generated. The {folded_events} oldest events "
-                f"(~{folded_tokens} tokens) were pruned to keep the context lean."
+                f"Event stream summarization failed, {folded_tokens} tokens "
+                "were pruned without a summary"
             )
         else:
             display = (
-                f"Context summarization triggered: the {folded_events} oldest "
-                f"events (~{folded_tokens} tokens) were folded into a running "
-                "summary to keep the context lean.\n\n"
-                f"**Summary of folded events:**\n\n{summary}"
+                f"Summarized event stream, {folded_tokens} tokens were folded "
+                "into summary"
             )
         ev = Event(
             message=line,

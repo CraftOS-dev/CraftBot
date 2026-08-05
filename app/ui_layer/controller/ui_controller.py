@@ -290,6 +290,14 @@ class UIController:
 
         await self._agent._handle_chat_message(payload)
 
+    async def stop_run(self, session_id: Optional[str] = None) -> bool:
+        """Force-stop a session's in-flight run (chat stop button).
+
+        Returns True when a run was actually stopped. Run-state broadcasts
+        ("stopping" then "idle") come from the agent, not from here.
+        """
+        return await self._agent.request_run_stop(session_id or "main")
+
     async def notify_session_updated(self, session_id: str) -> None:
         """Tell the active adapter a session's metadata changed (e.g. title)."""
         adapter = self._adapter

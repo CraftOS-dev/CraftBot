@@ -310,6 +310,7 @@ class AgentBase:
 
         # Per-session runtime: one trigger queue + one serial loop per session.
         self.session_runtime = SessionRuntimeManager(react=self.react)
+        self.session_runtime.set_stop_finalizer(self._on_run_stopped)
         self.trigger_store = TriggerStore()
         self.trigger_service = TriggerService(self.trigger_store, self.session_runtime)
 
@@ -641,7 +642,7 @@ class AgentBase:
             # ----- Run-start bookkeeping -----
             if trigger.source in RUN_START_SOURCES:
                 self.session_manager.start_run(session_id)
-                self._emit_run_state(session_id, True)
+                self._emit_run_state(session_id, "running")
                 await self._apply_workflow_capabilities(session, trigger.payload)
 
             # Refresh per-turn state for this session
@@ -897,17 +898,20 @@ class AgentBase:
         except Exception as e:
             logger.debug(f"[REACT] Turn-cause announcement failed: {e}")
 
-    def _emit_run_state(self, session_id: str, busy: bool) -> None:
-        """Track and broadcast a session's run-in-flight state.
+    def _emit_run_state(self, session_id: str, state: str) -> None:
+        """Track and broadcast a session's run state.
 
-        The UI's typing indicator is driven ONLY by these transitions, so it
-        stays steady across turn boundaries instead of flickering whenever
-        no action happens to be executing.
+        ``state`` is one of ``"running"`` | ``"stopping"`` | ``"idle"``.
+        The UI's typing indicator and the send/stop button are driven ONLY
+        by these transitions, so they stay steady across turn boundaries
+        instead of flickering whenever no action happens to be executing.
+        ``"stopping"`` covers the window between a user force-stop request
+        and the run being fully shut (processes killed, turn settled).
         """
-        if busy:
-            self.busy_sessions.add(session_id)
-        else:
+        if state == "idle":
             self.busy_sessions.discard(session_id)
+        else:
+            self.busy_sessions.add(session_id)
         if self.ui_controller:
             try:
                 from app.ui_layer.events import UIEvent, UIEventType
@@ -915,7 +919,13 @@ class AgentBase:
                 self.ui_controller.event_bus.emit(
                     UIEvent(
                         type=UIEventType.RUN_STATE_CHANGED,
-                        data={"session_id": session_id, "busy": busy},
+                        data={
+                            "session_id": session_id,
+                            "state": state,
+                            # Derived boolean kept for consumers that only
+                            # care about in-flight vs idle.
+                            "busy": state != "idle",
+                        },
                     )
                 )
             except Exception:
@@ -1252,7 +1262,7 @@ class AgentBase:
 
         if not await self._check_agent_limits(session.id):
             # Run is paused on the Continue/Stop prompt — not busy anymore.
-            self._emit_run_state(session.id, False)
+            self._emit_run_state(session.id, "idle")
             return
 
         run_ends = bool(action_output.get("run_ends", False))
@@ -1318,7 +1328,7 @@ class AgentBase:
         """A run finished (no continuation): workflow cleanup + housekeeping."""
         run_source = run_payload.get("run_source", "")
 
-        self._emit_run_state(session.id, False)
+        self._emit_run_state(session.id, "idle")
 
         # Unload temporary workflow skills loaded at run start.
         self._remove_workflow_capabilities(session, run_payload)
@@ -1365,6 +1375,74 @@ class AgentBase:
                 pass
 
         logger.info(f"[RUN] Run ended for session {session.id} (source={run_source})")
+
+    # ----- User force-stop -----
+
+    async def request_run_stop(self, session_id: str) -> bool:
+        """Force-stop a session's in-flight run (the chat UI's stop button).
+
+        Broadcasts ``stopping`` immediately (the button's spinner state),
+        then delegates to the session runtime: kill registered child
+        processes, cancel the turn task, purge queued continuations. The
+        runtime calls :meth:`_on_run_stopped` once everything is shut, which
+        emits the terminal ``idle``.
+        """
+        logger.info(f"[RUN] User requested stop for session {session_id}")
+        self._emit_run_state(session_id, "stopping")
+        try:
+            stopped = await self.session_runtime.request_stop(session_id)
+        except Exception:
+            logger.error(
+                f"[RUN] request_stop failed for {session_id}", exc_info=True
+            )
+            stopped = False
+        if not stopped:
+            # Nothing was running (stale UI state) — settle the UI to idle.
+            self._emit_run_state(session_id, "idle")
+        return stopped
+
+    async def _on_run_stopped(self, session_id: str) -> None:
+        """A run was force-stopped by the user: settle state for the session.
+
+        Called by the session runtime after the turn task is cancelled and
+        queued continuations are purged. Deliberately does NOT run the
+        Living UI factory redispatch hook — the user just killed this work;
+        resurrecting it immediately would make the stop button a no-op.
+        """
+        self._lui_run_writes.pop(session_id, None)
+
+        # A force-stopped memory run must not leave the unprocessed buffer
+        # frozen forever.
+        if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
+            try:
+                self.event_stream_manager.set_skip_unprocessed_logging(False)
+            except Exception:
+                pass
+
+        # One event, two audiences: the SYSTEM bubble tells the user the stop
+        # landed; the stream copy tells the next turn's LLM why work halted
+        # mid-task so it doesn't assume completion.
+        if self.event_stream_manager:
+            msg = "User force-stopped the run. The work in progress was halted."
+            try:
+                self.event_stream_manager.log(
+                    "system",
+                    msg,
+                    event_type=EventType.SYSTEM,
+                    display_message="Run stopped.",
+                    task_id=session_id,
+                )
+                self.state_manager.bump_event_stream()
+            except Exception:
+                logger.warning("[RUN] Failed to log run-stopped event", exc_info=True)
+
+        try:
+            self.session_manager.persist(session_id)
+        except Exception:
+            pass
+
+        self._emit_run_state(session_id, "idle")
+        logger.info(f"[RUN] Run force-stopped for session {session_id}")
 
     async def _finish_skill_workflow(self, session: Session, meta: dict) -> None:
         """Post-run hook for skill creation/improvement runs."""
@@ -1644,7 +1722,7 @@ class AgentBase:
                     f"[REACT ERROR] LLMConsecutiveFailureError — halting run for "
                     f"session {session_id}."
                 )
-                self._emit_run_state(session_id, False)
+                self._emit_run_state(session_id, "idle")
                 await self._display_react_error(session_id, info, critical=is_critical)
             else:
                 # Recoverable turn error: still tell the user what happened,
@@ -1849,7 +1927,7 @@ class AgentBase:
                 )
             )
 
-        self._emit_run_state(session_id, True)
+        self._emit_run_state(session_id, "running")
         await self.trigger_service.emit(
             TriggerSpec(
                 source=TriggerSource.RUN_CONTINUATION,

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Send, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen, Reply } from 'lucide-react'
+import { Send, Square, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen, Reply } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
@@ -28,7 +28,7 @@ import {
   selectSessionOldestMessageTimestamp,
 } from '../../store/selectors/messages'
 import { selectSessionActivity } from '../../store/selectors/activity'
-import { selectSessionBusy } from '../../store/selectors/agent'
+import { selectSessionBusy, selectSessionRunState } from '../../store/selectors/agent'
 import type { ActionItem, ChatMessage } from '../../types'
 import styles from './Chat.module.css'
 
@@ -156,6 +156,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     connected,
     sendMessage,
     sendCommand,
+    stopSession,
     sendOptionClick,
     openFile,
     openFolder,
@@ -192,6 +193,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // send_message is excluded: it isn't rendered as an action row (the chat
   // bubble is its visible form), so "Working…" stays up while it runs.
   const busy = useAppSelector(state => selectSessionBusy(state, sessionId))
+  const runState = useAppSelector(state => selectSessionRunState(state, sessionId))
   const showLiveRow = busy && connected && (!isDraft || messages.length > 0)
   const { showToast } = useToast()
 
@@ -920,6 +922,17 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     }
   }
 
+  // Send ↔ stop button: pure derivation, no imperative toggling. Stop shows
+  // only while the run is in flight AND the composer is empty — typing flips
+  // it back to send so a message can still go out mid-run; clearing the
+  // input flips it back to stop. 'stopping' pins the button to a spinner
+  // until the backend confirms the run is fully shut (turn cancelled, child
+  // processes killed), which arrives as the terminal session_busy 'idle'.
+  const composerHasContent = !!input.trim() || pendingAttachments.length > 0
+  const stopping = runState === 'stopping'
+  const showStopButton =
+    !isDraft && (stopping || (runState === 'running' && !composerHasContent))
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Tab' && !e.shiftKey) {
       if (autocompleteRef.current?.handleTab()) {
@@ -1445,16 +1458,31 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                className={styles.sendBtn}
-                onClick={handleSend}
-                disabled={(!input.trim() && pendingAttachments.length === 0) || !attachmentValidation.valid}
-                title="Send"
-                aria-label="Send message"
-              >
-                <Send size={16} />
-              </button>
+              {showStopButton ? (
+                <button
+                  type="button"
+                  className={`${styles.sendBtn} ${styles.stopBtn}`}
+                  onClick={() => stopSession(sessionId)}
+                  disabled={stopping}
+                  title={stopping ? 'Stopping…' : 'Stop'}
+                  aria-label={stopping ? 'Stopping run' : 'Stop run'}
+                >
+                  {stopping
+                    ? <Loader2 size={16} className={styles.stopSpinner} />
+                    : <Square size={12} fill="currentColor" />}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.sendBtn}
+                  onClick={handleSend}
+                  disabled={(!input.trim() && pendingAttachments.length === 0) || !attachmentValidation.valid}
+                  title="Send"
+                  aria-label="Send message"
+                >
+                  <Send size={16} />
+                </button>
+              )}
             </div>
           </div>
         </div>

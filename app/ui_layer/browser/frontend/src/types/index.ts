@@ -116,6 +116,7 @@ export type WSMessageType =
   | 'session_deleted'
   | 'session_cleared'
   | 'session_busy'
+  | 'session_stop'
   | 'agent_state'
   | 'status_update'
   | 'navigate'

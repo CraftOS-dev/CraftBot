@@ -7,6 +7,11 @@ import type {
 } from '../../types'
 import { register } from '../socket/messageRegistry'
 
+/** A session's run lifecycle as the chat UI sees it. 'stopping' covers the
+ *  window between a user force-stop request and the backend confirming the
+ *  run is fully shut (turn cancelled, child processes killed). */
+export type SessionRunState = 'running' | 'stopping' | 'idle'
+
 interface AgentSliceState {
   name: string
   profilePictureUrl: string
@@ -15,9 +20,10 @@ interface AgentSliceState {
   guiMode: boolean
   footageUrl: string | null
   skillMeta: SkillMeta
-  /** Per-session run-in-flight flags (server-driven; optimistic on send).
-   *  Drives the chat's typing indicator without flickering between turns. */
-  busyBySession: Record<string, boolean>
+  /** Per-session run state (server-driven; optimistic on send/stop).
+   *  Absent = idle. Drives the chat's typing indicator and the send/stop
+   *  button without flickering between turns. */
+  runStateBySession: Record<string, Exclude<SessionRunState, 'idle'>>
 }
 
 const initialState: AgentSliceState = {
@@ -32,7 +38,7 @@ const initialState: AgentSliceState = {
     internalSkillNames: [],
     reservedSkillNames: [],
   },
-  busyBySession: {},
+  runStateBySession: {},
 }
 
 const agentSlice = createSlice({
@@ -62,16 +68,21 @@ const agentSlice = createSlice({
       state.profilePictureUrl = action.payload.url
       state.profilePictureHasCustom = action.payload.hasCustom
     },
-    setSessionBusy(state, action: PayloadAction<{ sessionId: string; busy: boolean }>) {
-      const { sessionId, busy } = action.payload
-      if (busy) {
-        state.busyBySession[sessionId] = true
+    setSessionRunState(
+      state,
+      action: PayloadAction<{ sessionId: string; state: SessionRunState }>,
+    ) {
+      const { sessionId, state: runState } = action.payload
+      if (runState === 'idle') {
+        delete state.runStateBySession[sessionId]
       } else {
-        delete state.busyBySession[sessionId]
+        state.runStateBySession[sessionId] = runState
       }
     },
     seedBusySessions(state, action: PayloadAction<string[]>) {
-      state.busyBySession = Object.fromEntries(action.payload.map(id => [id, true]))
+      state.runStateBySession = Object.fromEntries(
+        action.payload.map(id => [id, 'running' as const]),
+      )
     },
   },
 })
@@ -84,7 +95,7 @@ export const {
   setSkillMeta,
   setName,
   setProfilePicture,
-  setSessionBusy,
+  setSessionRunState,
   seedBusySessions,
 } = agentSlice.actions
 
@@ -109,9 +120,11 @@ register('init', (data, dispatch) => {
 })
 
 register('session_busy', (data, dispatch) => {
-  const d = data as { sessionId?: string; busy?: boolean }
+  const d = data as { sessionId?: string; busy?: boolean; state?: SessionRunState }
   if (d.sessionId) {
-    dispatch(setSessionBusy({ sessionId: d.sessionId, busy: !!d.busy }))
+    // `state` is authoritative; `busy` is the older boolean kept alongside.
+    const runState: SessionRunState = d.state ?? (d.busy ? 'running' : 'idle')
+    dispatch(setSessionRunState({ sessionId: d.sessionId, state: runState }))
   }
 })
 

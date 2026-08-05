@@ -53,7 +53,30 @@ except Exception:
 # cross-session parallelism (LLM rate limits, local resource pressure).
 DEFAULT_MAX_CONCURRENT_TURNS = 3
 
+# How long a user force-stop waits for the cancelled turn to settle before
+# finalizing anyway. Cancellation is normally near-instant (LLM HTTP calls
+# and async actions unwind at the next await); this guard only exists so a
+# stuck await can never leave the UI on "stopping" forever.
+STOP_SETTLE_TIMEOUT_S = 15.0
+
 ReactFn = Callable[[Trigger], Awaitable[None]]
+StopFinalizer = Callable[[str], Awaitable[None]]
+
+
+class _StopSignal:
+    """Marks a session whose in-flight run the user force-stopped.
+
+    ``requested`` distinguishes a user stop from process-shutdown
+    cancellation inside the consumer loop; ``settled`` is set once the
+    cancelled turn has been acked and finalized, so the stop caller can
+    await full shutdown (the UI's stop-spinner ends on this).
+    """
+
+    __slots__ = ("requested", "settled")
+
+    def __init__(self) -> None:
+        self.requested = False
+        self.settled = asyncio.Event()
 
 
 def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
@@ -160,6 +183,11 @@ class SessionRuntimeManager:
         self._react = react
         self._queues: Dict[str, SessionTriggerQueue] = {}
         self._loops: Dict[str, asyncio.Task] = {}
+        # In-flight turn task per session, so a user stop can cancel exactly
+        # the current turn without killing the session's consumer loop.
+        self._turns: Dict[str, asyncio.Task] = {}
+        self._stops: Dict[str, _StopSignal] = {}
+        self._on_stopped: Optional[StopFinalizer] = None
         self._turn_semaphore = asyncio.Semaphore(max_concurrent_turns)
         self._running = False
         self._service: Optional["TriggerService"] = None
@@ -167,6 +195,10 @@ class SessionRuntimeManager:
     def bind_service(self, service: "TriggerService") -> None:
         """Attach the durable TriggerService (claim/ack/nack + row settling)."""
         self._service = service
+
+    def set_stop_finalizer(self, finalizer: StopFinalizer) -> None:
+        """Register the run-stopped hook (AgentBase._on_run_stopped)."""
+        self._on_stopped = finalizer
 
     # ─────────────────────── Lifecycle ──────────────────────────────────────
 
@@ -217,6 +249,73 @@ class SessionRuntimeManager:
         queue = self._queues.get(session_id)
         return queue.has_pending() if queue else False
 
+    # ─────────────────────── User force-stop ─────────────────────────────────
+
+    async def request_stop(self, session_id: str) -> bool:
+        """Force-stop a session's in-flight run at the user's request.
+
+        Kills registered child processes, cancels the current turn task
+        (the loop settles it: rows acked, stop finalizer called), and drops
+        queued RUN_CONTINUATION triggers — a run between turns exists only
+        as those rows. User messages and scheduled triggers stay queued.
+
+        Returns True when there was a run to stop. Awaits full settlement
+        (bounded by STOP_SETTLE_TIMEOUT_S) before returning, so the caller
+        can treat the return as "everything is shut".
+        """
+        purged = await self._purge_continuations(session_id)
+        turn = self._turns.get(session_id)
+        turn_inflight = turn is not None and not turn.done()
+
+        if not turn_inflight:
+            if purged and self._on_stopped:
+                # The run lived only as queued continuation rows.
+                await self._on_stopped(session_id)
+            return bool(purged)
+
+        signal = self._stops.setdefault(session_id, _StopSignal())
+        signal.requested = True
+
+        # Kill real OS work first so pool threads blocked on a child process
+        # unblock, then cancel the turn's await chain. Blocking kill runs in
+        # a worker thread to keep the event loop free.
+        try:
+            from agent_core.core.impl.action.cancellation import (
+                kill_session_processes,
+            )
+
+            await asyncio.get_running_loop().run_in_executor(
+                None, kill_session_processes, session_id
+            )
+        except Exception as e:
+            logger.warning(f"[SessionRuntime] Process kill failed: {e}")
+
+        turn.cancel()
+        try:
+            await asyncio.wait_for(signal.settled.wait(), STOP_SETTLE_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            # The turn is stuck in a non-cancellable await. Finalize anyway:
+            # the UI must reach idle, and the abandoned coroutine can no
+            # longer enqueue continuations once its triggers settle.
+            logger.error(
+                f"[SessionRuntime] Stop settlement timed out for {session_id}; "
+                "finalizing forcefully."
+            )
+            self._stops.pop(session_id, None)
+            await self._purge_continuations(session_id)
+            if self._on_stopped:
+                await self._on_stopped(session_id)
+        return True
+
+    async def _purge_continuations(self, session_id: str) -> int:
+        """Drop a session's queued run-continuation triggers."""
+        queue = self._queues.get(session_id)
+        if queue is None:
+            return 0
+        return await queue.purge(
+            lambda t: t.source == TriggerSource.RUN_CONTINUATION.value
+        )
+
     async def remove_session(self, session_id: str) -> None:
         """Tear down a deleted session's queue and loop.
 
@@ -229,6 +328,8 @@ class SessionRuntimeManager:
         queue = self._queues.pop(session_id, None)
         if queue is not None:
             await queue.close()
+        self._turns.pop(session_id, None)
+        self._stops.pop(session_id, None)
         loop_task = self._loops.pop(session_id, None)
         if loop_task is not None:
             loop_task.cancel()
@@ -311,8 +412,47 @@ class SessionRuntimeManager:
 
                 try:
                     async with self._turn_semaphore:
-                        await self._react(trig)
+                        # The turn runs as its own task so request_stop can
+                        # cancel exactly this turn without tearing down the
+                        # session loop.
+                        turn = asyncio.create_task(
+                            self._react(trig), name=f"turn-{session_id}"
+                        )
+                        self._turns[session_id] = turn
+                        try:
+                            await turn
+                        finally:
+                            self._turns.pop(session_id, None)
                 except asyncio.CancelledError:
+                    signal = self._stops.get(session_id)
+                    if signal is not None and signal.requested and self._running:
+                        # User force-stop, not process shutdown: the rows were
+                        # consumed by user intent — ack them (nack would
+                        # redeliver and restart the very work the user
+                        # killed), drop any continuation the dying turn
+                        # managed to enqueue, finalize, and keep looping.
+                        if self._service:
+                            for t in group:
+                                try:
+                                    await self._service.ack(t)
+                                except Exception as e:
+                                    logger.warning(
+                                        f"[SessionRuntime] stop ack failed: {e}"
+                                    )
+                        try:
+                            await self._purge_continuations(session_id)
+                            if self._on_stopped:
+                                await self._on_stopped(session_id)
+                        except Exception as e:
+                            logger.error(
+                                f"[SessionRuntime] Stop finalize failed for "
+                                f"{session_id}: {e}",
+                                exc_info=True,
+                            )
+                        finally:
+                            self._stops.pop(session_id, None)
+                            signal.settled.set()
+                        continue
                     # Shutdown mid-turn: leave the rows CLAIMED — boot-time
                     # rehydration reclaims them (at-least-once delivery).
                     raise
