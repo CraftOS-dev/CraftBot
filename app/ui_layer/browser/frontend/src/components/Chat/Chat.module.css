@@ -295,6 +295,29 @@
   cursor: not-allowed;
 }
 
+/* Stop variant of the send button: shown while the session's run is in
+   flight and the composer is empty. Same footprint as .sendBtn so the
+   swap never shifts the layout. Background/icon use the text/bg token
+   PAIR so the contrast inverts correctly in both themes (text-primary is
+   near-white in dark mode — a hardcoded #fff icon would vanish on it). */
+.stopBtn {
+  background: var(--text-primary, #1a1a1a);
+  color: var(--bg-primary, #fff);
+}
+
+/* While the backend confirms the force-stop ("stopping" run state) the
+   button keeps the stop look and only spins — not the gray disabled
+   style, which would read as "nothing is happening". */
+.stopBtn:disabled {
+  background: var(--text-primary, #1a1a1a);
+  color: var(--bg-primary, #fff);
+  cursor: wait;
+}
+
+.stopSpinner {
+  animation: spin 1s linear infinite;
+}
+
 /* Reply bar inside the input shell — shows which agent message the next
    send will quote. */
 .replyBar {

@@ -146,6 +146,15 @@ def shell_exec(input_data: dict) -> dict:
 
     # Foreground mode with proper timeout handling
     try:
+        # Register with the run-cancel registry so a user force-stop can
+        # kill this process tree while communicate() blocks the pool thread.
+        from agent_core.core.impl.action.cancellation import (
+            register_process,
+            unregister_process,
+        )
+
+        run_session_id = input_data.get("_session_id") or ""
+
         process = subprocess.Popen(
             command,
             shell=True,
@@ -158,6 +167,7 @@ def shell_exec(input_data: dict) -> dict:
             errors="replace",
             start_new_session=True,  # Create new process group for proper cleanup
         )
+        register_process(run_session_id, process)
 
         try:
             stdout, stderr = process.communicate(timeout=timeout_seconds)
@@ -188,6 +198,8 @@ def shell_exec(input_data: dict) -> dict:
                 "message": f"Timed out after {timeout_seconds}s.",
                 "pid": None,
             }
+        finally:
+            unregister_process(run_session_id, process)
     except Exception as e:
         return {
             "status": "error",
@@ -392,6 +404,15 @@ def shell_exec_windows(input_data: dict) -> dict:
 
     # Foreground mode with proper timeout handling
     try:
+        # Register with the run-cancel registry so a user force-stop can
+        # kill this process tree while communicate() blocks the pool thread.
+        from agent_core.core.impl.action.cancellation import (
+            register_process,
+            unregister_process,
+        )
+
+        run_session_id = input_data.get("_session_id") or ""
+
         # Use CREATE_NEW_PROCESS_GROUP so we can kill the entire process tree
         fg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
         process = subprocess.Popen(
@@ -405,6 +426,7 @@ def shell_exec_windows(input_data: dict) -> dict:
             errors="replace",
             creationflags=fg_flags,
         )
+        register_process(run_session_id, process)
 
         try:
             stdout, stderr = process.communicate(timeout=timeout_seconds)
@@ -436,6 +458,8 @@ def shell_exec_windows(input_data: dict) -> dict:
                 "message": f"Timed out after {timeout_seconds}s.",
                 "pid": None,
             }
+        finally:
+            unregister_process(run_session_id, process)
     except Exception as e:
         return {
             "status": "error",
@@ -598,6 +622,15 @@ def shell_exec_darwin(input_data: dict) -> dict:
 
     # Foreground mode with proper timeout handling
     try:
+        # Register with the run-cancel registry so a user force-stop can
+        # kill this process tree while communicate() blocks the pool thread.
+        from agent_core.core.impl.action.cancellation import (
+            register_process,
+            unregister_process,
+        )
+
+        run_session_id = input_data.get("_session_id") or ""
+
         process = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -609,6 +642,7 @@ def shell_exec_darwin(input_data: dict) -> dict:
             errors="replace",
             start_new_session=True,  # Create new process group for proper cleanup
         )
+        register_process(run_session_id, process)
 
         try:
             stdout, stderr = process.communicate(timeout=timeout_seconds)
@@ -639,6 +673,8 @@ def shell_exec_darwin(input_data: dict) -> dict:
                 "message": f"Timed out after {timeout_seconds}s.",
                 "pid": None,
             }
+        finally:
+            unregister_process(run_session_id, process)
     except Exception as e:
         return {
             "status": "error",

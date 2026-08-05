@@ -150,7 +150,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const mainSession = useAppSelector(selectMainSession)
   const chatSessions = useAppSelector(selectChatSessions)
   const lastMessageIdBySession = useAppSelector(selectLastMessageIdBySession)
-  const busyBySession = useAppSelector(state => state.agent.busyBySession)
+  const runStateBySession = useAppSelector(state => state.agent.runStateBySession)
 
   const [chatsExpanded, setChatsExpanded] = useState(() => loadGroupExpanded('chats'))
   const [livingUIExpanded, setLivingUIExpanded] = useState(() => loadGroupExpanded('livingui'))
@@ -277,7 +277,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   type SessionDotKind = 'busy' | 'unread' | null
   const sessionDotKind = (sessionId: string | null | undefined): SessionDotKind => {
     if (!sessionId) return null
-    if (busyBySession[sessionId]) return 'busy'
+    if (runStateBySession[sessionId]) return 'busy'
     if (hasUnread(sessionId)) return 'unread'
     return null
   }

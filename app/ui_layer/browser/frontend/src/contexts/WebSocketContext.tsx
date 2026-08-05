@@ -67,7 +67,7 @@ import {
   selectFootageUrl,
   selectSkillMeta,
 } from '../store/selectors/agent'
-import { setStatus, setSessionBusy } from '../store/slices/agentSlice'
+import { setStatus, setSessionRunState } from '../store/slices/agentSlice'
 
 // Module-level reference to the shared SocketClient. The transport (connect,
 // reconnect, outbox, message dispatch) lives there; this context now only
@@ -170,6 +170,8 @@ interface WebSocketContextType extends WebSocketState {
     replyContext?: { originalMessage: string },
   ) => void
   sendCommand: (command: string, sessionId: string) => void
+  // Force-stop a session's in-flight run (send button ↔ stop button)
+  stopSession: (sessionId: string) => void
   // Session management (sessions are created lazily by the backend on the
   // first message sent with sessionId "new" — there is no create sender)
   deleteSession: (sessionId: string) => void
@@ -326,8 +328,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           dispatch(chatInputTransferDraft({ from: 'new', to: session.id }))
           // Transfer the optimistic busy flag from the draft to the real
           // session so the typing indicator survives the handoff.
-          dispatch(setSessionBusy({ sessionId: 'new', busy: false }))
-          dispatch(setSessionBusy({ sessionId: session.id, busy: true }))
+          dispatch(setSessionRunState({ sessionId: 'new', state: 'idle' }))
+          dispatch(setSessionRunState({ sessionId: session.id, state: 'running' }))
           navigateRef.current(`/session/${session.id}`, { replace: true })
         }
         break
@@ -396,7 +398,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     if (!isSlashCommand) {
       // Optimistic busy: show the typing indicator instantly; the server's
       // session_busy events take over from the run's first trigger.
-      dispatch(setSessionBusy({ sessionId, busy: true }))
+      dispatch(setSessionRunState({ sessionId, state: 'running' }))
 
       // Optimistic insert: show the user's bubble immediately at reduced
       // opacity. The server echo (chat_message) replaces this entry in place
@@ -430,6 +432,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const sendCommand = useCallback((command: string, sessionId: string) => {
     sendOrQueue(JSON.stringify({ type: 'command', command, sessionId }))
   }, [sendOrQueue])
+
+  // Force-stop a session's in-flight run (chat input's stop button).
+  // Optimistically enters 'stopping' so the button spins instantly; the
+  // server's session_busy broadcasts ('stopping' then terminal 'idle')
+  // are authoritative from there.
+  const stopSession = useCallback((sessionId: string) => {
+    dispatch(setSessionRunState({ sessionId, state: 'stopping' }))
+    sendOrQueue(JSON.stringify({ type: 'session_stop', sessionId }))
+  }, [sendOrQueue, dispatch])
 
   // ── Session management ────────────────────────────────────────────
 
@@ -715,6 +726,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         skillMeta,
         sendMessage,
         sendCommand,
+        stopSession,
         deleteSession,
         renameSession,
         clearSession,
