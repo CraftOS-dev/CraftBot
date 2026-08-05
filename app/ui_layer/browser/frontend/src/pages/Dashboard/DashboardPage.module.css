@@ -1,10 +1,26 @@
 /* DashboardPage Component Styles */
 
+/* A non-scrolling shell: the toolbar is a full-bleed surface, so it can't sit
+ * inside page padding, and it shouldn't scroll away with the grid. The page
+ * itself therefore has neither — .gridArea below is the scroll port.
+ *
+ * Deliberately not `position: sticky` on the toolbar: react-grid-layout
+ * translate()s its items, and sticky inside a transformed ancestor is a
+ * well-known source of glitches. A fixed shell plus a scrolling child is
+ * simpler and has no such failure mode. */
 .dashboard {
   height: 100%;
-  overflow-y: auto;
-  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  overflow: hidden;
+}
+
+/* No horizontal padding here on purpose. The grid's gutter comes from
+ * react-grid-layout's CONTAINER_PADDING, and RGL's WidthProvider only
+ * re-measures on window resize — padding added here would shift the available
+ * width without RGL noticing until the next resize. */
+.gridArea {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
 }
