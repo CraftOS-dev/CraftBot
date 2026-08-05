@@ -194,7 +194,7 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     # NB: LIVING_UI_DEV (creation build) is NOT here — the adapter posts a
     # richer "Living UI: <name> / <description> / Building your app now…"
     # summary into the project session at creation, which would duplicate.
-    TriggerSource.LIVING_UI_CRASH_FIX.value: ("🔧", "Fixing your Living UI"),
+    # LIVING_UI_CRASH_FIX is intentionally silent too.
 }
 
 
