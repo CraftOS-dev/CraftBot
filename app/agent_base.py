@@ -191,10 +191,6 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
     TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
-    # NB: LIVING_UI_DEV (creation build) is NOT here — the adapter posts a
-    # richer "Living UI: <name> / <description> / Building your app now…"
-    # summary into the project session at creation, which would duplicate.
-    # LIVING_UI_CRASH_FIX is intentionally silent too.
 }
 
 
@@ -1433,13 +1429,13 @@ class AgentBase:
             response = await self.llm.generate_response_async(
                 system_prompt=(
                     "Generate a concise 2-5 word title for a conversation "
-                    "that starts with the user request below. Reply with "
-                    "ONLY the title as plain text — no quotes, no JSON, no "
-                    "punctuation at the end, same language as the request."
+                    "that starts with the user request below. Reply with a "
+                    'JSON object: {"title": "<the title>"}. Same language '
+                    "as the request, no punctuation at the end."
                 ),
                 user_prompt=basis[:2000],
             )
-            title = self._sanitize_session_title(response)
+            title = self._parse_session_title(response)
         except Exception as e:
             logger.debug(f"[SESSION] Auto-title LLM call failed for {session_id}: {e}")
 
@@ -1474,42 +1470,26 @@ class AgentBase:
         return text
 
     @staticmethod
-    def _sanitize_session_title(response: Optional[str]) -> str:
-        """Normalize an LLM title reply to a plain sidebar title.
+    def _parse_session_title(response: Optional[str]) -> str:
+        """Parse the {"title": "..."} reply from the auto-title call.
 
-        Providers ignore "plain text only" often enough that this must cope
-        with code fences, JSON objects like {"title": "..."}, and stray
-        quotes. Returns "" when nothing usable survives.
+        The LLM request layer enforces response_format json_object, so the
+        reply is a JSON document with a "title" string. Anything else means
+        the call failed — return "" and let the deterministic fallback run.
         """
-        text = (response or "").strip()
-        if not text:
+        try:
+            parsed = json.loads((response or "").strip())
+        except (ValueError, TypeError):
             return ""
-
-        # Strip markdown code fences
-        if text.startswith("```"):
-            lines = [ln for ln in text.splitlines() if not ln.strip().startswith("```")]
-            text = "\n".join(lines).strip()
-
-        # Unwrap JSON replies: {"title": "..."} or a bare JSON string
-        if text.startswith("{") or text.startswith('"'):
-            try:
-                parsed = json.loads(text)
-                if isinstance(parsed, dict):
-                    text = str(
-                        parsed.get("title")
-                        or next(iter(parsed.values()), "")
-                    )
-                elif isinstance(parsed, str):
-                    text = parsed
-            except (ValueError, TypeError):
-                pass
-
-        # Single line, no wrapping quotes, no trailing punctuation
-        text = text.splitlines()[0].strip().strip("\"'").strip()
-        text = text.rstrip(".!,;:").strip()
-        if len(text) > 60:
-            text = text[:57].rstrip() + "..."
-        return text
+        if not isinstance(parsed, dict):
+            return ""
+        title = parsed.get("title")
+        if not isinstance(title, str):
+            return ""
+        title = " ".join(title.split())
+        if len(title) > 60:
+            title = title[:57].rstrip() + "..."
+        return title
 
     # ----- Error Handling -----
 
