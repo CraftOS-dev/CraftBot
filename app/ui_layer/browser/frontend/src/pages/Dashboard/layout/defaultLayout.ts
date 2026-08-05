@@ -23,6 +23,13 @@ const DEFAULT_ORDER = [
   'modelInfo',
 ]
 
+// DEFAULT_ORDER is a hand-maintained second copy of the registry's widget ids,
+// so a widget renamed or removed from the registry without updating it would
+// otherwise throw here — during a useState initializer, i.e. mid-render — and
+// white-screen the whole page. Degrade to the widgets that do exist instead,
+// matching the guard DashboardGrid already applies to stored layouts.
+const KNOWN_ORDER = () => DEFAULT_ORDER.filter(id => WIDGET_REGISTRY[id])
+
 // Simple left-to-right shelf packing using each widget's registry default
 // size, clamped to the breakpoint's column count. `compactType="vertical"`
 // on the grid self-corrects any minor gaps on first render, so this only
@@ -33,7 +40,7 @@ function buildBreakpointLayout(cols: number): Layout[] {
   let rowHeight = 0
   const items: Layout[] = []
 
-  for (const id of DEFAULT_ORDER) {
+  for (const id of KNOWN_ORDER()) {
     const def = WIDGET_REGISTRY[id].defaultLayout
     const w = Math.min(def.w, cols)
     if (x + w > cols) {
@@ -61,7 +68,7 @@ export function createDefaultLayout(now: number = Date.now()): NamedLayout {
   return {
     id: 'default',
     name: 'Default',
-    widgetIds: [...DEFAULT_ORDER],
+    widgetIds: KNOWN_ORDER(),
     layouts: buildDefaultLayouts(),
     createdAt: now,
     updatedAt: now,

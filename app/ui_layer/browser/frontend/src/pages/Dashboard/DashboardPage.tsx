@@ -15,12 +15,18 @@ export function DashboardPage() {
   } = useDashboardLayouts()
 
   // Subscribe to live metrics while on this page, unsubscribe on leave.
+  // Must depend on `connected`: the subscribe call is a no-op when the socket
+  // isn't up yet, and the server keys its subscriber set by the socket object
+  // and drops it on disconnect. Without this, a hard refresh straight to
+  // /dashboard (socket still handshaking) or any reconnect would leave the
+  // dashboard silently unsubscribed until the user navigated away and back.
   useEffect(() => {
+    if (!connected) return
     subscribeDashboardMetrics()
     return () => {
       unsubscribeDashboardMetrics()
     }
-  }, [subscribeDashboardMetrics, unsubscribeDashboardMetrics])
+  }, [connected, subscribeDashboardMetrics, unsubscribeDashboardMetrics])
 
   // Request 'total' metrics on initial load.
   useEffect(() => {
@@ -42,11 +48,14 @@ export function DashboardPage() {
         onAddWidget={addWidget}
       />
 
-      <DashboardGrid
-        activeLayout={activeLayout}
-        onLayoutsChange={updateActiveGridLayouts}
-        onRemoveWidget={removeWidget}
-      />
+      {/* The toolbar is full-bleed and stays put; only the grid scrolls. */}
+      <div className={styles.gridArea}>
+        <DashboardGrid
+          activeLayout={activeLayout}
+          onLayoutsChange={updateActiveGridLayouts}
+          onRemoveWidget={removeWidget}
+        />
+      </div>
     </div>
   )
 }
