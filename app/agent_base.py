@@ -2857,6 +2857,7 @@ class AgentBase:
 
         llm_provider = provider or get_llm_provider()
         vlm_provider = get_vlm_provider()
+        old_llm_provider = self.llm.provider
         llm_ok = self.llm.reinitialize(llm_provider)
         vlm_ok = self.vlm.reinitialize(vlm_provider)
 
@@ -2865,33 +2866,48 @@ class AgentBase:
                 f"[AGENT] LLM and VLM reinitialized with provider: {self.llm.provider}"
             )
 
-            # Rebuild session caches for every live session so the new
-            # provider sees the current compiled prompt, and reset the
-            # event-stream sync points so the next call re-establishes a
-            # fresh session-cache prefix.
-            try:
-                for session_id in list(self.session_manager.sessions.keys()):
-                    self.session_manager.rebuild_session_caches(session_id)
-                    if self.context_engine:
-                        for call_type in (
-                            LLMCallType.REASONING,
-                            LLMCallType.ACTION_SELECTION,
-                            LLMCallType.GUI_REASONING,
-                            LLMCallType.GUI_ACTION_SELECTION,
-                        ):
-                            self.context_engine.reset_event_stream_sync(
-                                call_type, session_id=session_id
-                            )
+            # Only rebuild session caches when the LLM provider actually
+            # changed. `LLMInterface.reinitialize()` only wipes
+            # `_session_system_prompts` and the per-provider message-history
+            # buffers on a real provider change; a model-only (or no-op)
+            # Settings save preserves them, so `has_session_cache()` still
+            # returns True and no rebuild is needed. Rebuilding anyway would
+            # force every live session's next call to resend the FULL event
+            # stream on top of the already-preserved history, duplicating
+            # context instead of protecting it.
+            if self.llm.provider == old_llm_provider:
                 logger.info(
-                    f"[AGENT] Rebuilt session caches for "
-                    f"{len(self.session_manager.sessions)} session(s) under "
-                    f"provider {self.llm.provider}"
+                    "[AGENT] Skipping session-cache rebuild: provider "
+                    "unchanged, session state preserved"
                 )
-            except Exception as e:
-                logger.warning(
-                    f"[AGENT] Failed to rebuild session caches after "
-                    f"provider switch: {e}"
-                )
+            else:
+                # Rebuild session caches for every live session so the new
+                # provider sees the current compiled prompt, and reset the
+                # event-stream sync points so the next call re-establishes a
+                # fresh session-cache prefix.
+                try:
+                    for session_id in list(self.session_manager.sessions.keys()):
+                        self.session_manager.rebuild_session_caches(session_id)
+                        if self.context_engine:
+                            for call_type in (
+                                LLMCallType.REASONING,
+                                LLMCallType.ACTION_SELECTION,
+                                LLMCallType.GUI_REASONING,
+                                LLMCallType.GUI_ACTION_SELECTION,
+                            ):
+                                self.context_engine.reset_event_stream_sync(
+                                    call_type, session_id=session_id
+                                )
+                    logger.info(
+                        f"[AGENT] Rebuilt session caches for "
+                        f"{len(self.session_manager.sessions)} session(s) under "
+                        f"provider {self.llm.provider}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[AGENT] Failed to rebuild session caches after "
+                        f"provider switch: {e}"
+                    )
 
         return llm_ok and vlm_ok
 
