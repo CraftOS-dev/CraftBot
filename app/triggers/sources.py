@@ -37,6 +37,10 @@ class TriggerSource(str, Enum):
     LIVING_UI_DEV = "living_ui_dev"
     LIVING_UI_CRASH_FIX = "living_ui_crash_fix"
     LIVING_UI_IMPORT = "living_ui_import"
+    # Lands in the ORIGIN session (the chat that ran living_ui_scaffold):
+    # tells that agent the wizard finalized and which project resulted, so
+    # later references ("add data to it") resolve without asking the user.
+    LIVING_UI_CREATED = "living_ui_created"
     # Catch-all for producers not yet migrated to TriggerService.
     LEGACY = "legacy"
 

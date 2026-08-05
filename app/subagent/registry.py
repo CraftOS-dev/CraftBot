@@ -15,7 +15,10 @@ listed by the definition itself.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, Iterable, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from app.subagent.types import SubAgent
 
 from app.logger import logger
 
@@ -57,6 +60,14 @@ class SubAgentDefinition:
     # Forced parameters per action: ((action_name, ((param, value), ...)), ...)
     # e.g. scope shared-browser console reads to recent entries only.
     param_overrides: Tuple[Tuple[str, Tuple[Tuple[str, object], ...]], ...] = ()
+    # Optional veto on premature sub_task_end calls: (sub, parameters) →
+    # rejection text, or None to allow the end. The runner logs the rejection
+    # into the sub's stream (costing one turn) and the loop continues —
+    # structural enforcement for types whose models surrender early (a
+    # verifier with 50 turns concluded at turn 8 citing "limited turns").
+    early_end_guard: Optional[
+        Callable[["SubAgent", Dict[str, object]], Optional[str]]
+    ] = None
 
     def overrides_for(self, action_name: str) -> Dict[str, object]:
         """The forced parameters for one action ({} when none)."""
@@ -85,6 +96,9 @@ def register_subagent(
     max_iterations: int,
     max_wall_seconds: int,
     param_overrides: Tuple[Tuple[str, Tuple[Tuple[str, object], ...]], ...] = (),
+    early_end_guard: Optional[
+        Callable[["SubAgent", Dict[str, object]], Optional[str]]
+    ] = None,
 ) -> None:
     """Register a sub-agent type.
 
@@ -147,6 +161,7 @@ def register_subagent(
         max_iterations=max_iterations,
         max_wall_seconds=max_wall_seconds,
         param_overrides=param_overrides,
+        early_end_guard=early_end_guard,
     )
     logger.debug(
         f"[SubAgentRegistry] Registered {name!r} "

@@ -62,6 +62,26 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
   useEffect(() => { onInstalledRef.current = onInstalled }, [onInstalled])
   useEffect(() => () => { installTimeoutsRef.current.forEach(t => clearTimeout(t)) }, [])
+
+  // Chat-path requirements phase: living_ui_scaffold generated setup
+  // questions (creating nothing yet) and the backend summons the SAME
+  // Create Custom wizard, pre-seeded and opened at the interview step
+  // (living_ui_wizard_open); its finalize creates the project as usual.
+  const [chatWizard, setChatWizard] = useState<{
+    wizardId: string
+    config: Record<string, any>
+    questions: any[]
+    originSessionId?: string
+  } | null>(null)
+  useEffect(
+    () =>
+      onMessage('living_ui_wizard_open', (data: any) => {
+        if (data?.wizardId && Array.isArray(data.questions) && data.questions.length > 0) {
+          setChatWizard(data)
+        }
+      }),
+    [onMessage]
+  )
   // Accumulate projectIds from completed installs — navigate only when all installs finish
   const pendingNavigationsRef = useRef<string[]>([])
 
@@ -265,8 +285,41 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
 
   // Escape key intentionally does NOT close this modal — user must use the X button
 
+  // Chat-summoned wizard: same component, entered at the interview step.
+  // Renders regardless of isOpen — the summons comes from the backend, not
+  // the "+" button. Closing it mid-interview leaves nothing behind (no
+  // project exists until finalize), same as cancelling the modal wizard.
+  if (chatWizard && !isOpen) {
+    return (
+      <Modal
+        isOpen={true}
+        onClose={() => setChatWizard(null)}
+        size="full"
+        closeOnOverlayClick={false}
+        closeOnEsc={false}
+        title={
+          <>
+            <Sparkles size={20} className={styles.headerIcon} />
+            {String(chatWizard.config?.name || 'Living UI')} — setup questions
+          </>
+        }
+      >
+        <CreateCustomWizard
+          send={send}
+          onMessage={onMessage}
+          initial={chatWizard}
+          onClose={() => setChatWizard(null)}
+          onCreated={(projectId: string) => {
+            setChatWizard(null)
+            onInstalledRef.current?.(projectId)
+          }}
+        />
+      </Modal>
+    )
+  }
+
   // Fully unmount when closed and no installs pending; stay mounted (invisible) while installs run
-  if (!isOpen && installingIds.size === 0) return null
+  if (!isOpen && installingIds.size === 0 && !chatWizard) return null
   if (!isOpen) return <></> // mounted but invisible — keeps onMessage listeners alive
 
   const tabsConfig = [

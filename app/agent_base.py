@@ -161,6 +161,7 @@ RUN_START_SOURCES = {
     TriggerSource.LIVING_UI_DEV.value,
     TriggerSource.LIVING_UI_CRASH_FIX.value,
     TriggerSource.LIVING_UI_IMPORT.value,
+    TriggerSource.LIVING_UI_CREATED.value,
 }
 
 # Payload keys propagated turn-to-turn across a run's continuation triggers.

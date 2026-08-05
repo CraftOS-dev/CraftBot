@@ -37,6 +37,7 @@ from app.factory.engine import (
     ANNOUNCE_STUCK,
     DISPATCH_MISSION,
     DONE,
+    STUCK,
     Caps,
     Decision,
     Machine,
@@ -120,6 +121,62 @@ class FactoryHost:
         side["delivered_at"] = time.time()
         self._sidecar_write(project_id, side)
         logger.info(f"[FACTORY] {project_id} marked delivered")
+
+    def set_origin_session(self, project_id: str, session_id: str) -> None:
+        """Remember the chat session that requested this build (chat-path
+        scaffold), so ready/stuck announcements can be mirrored there —
+        without it that agent's last knowledge is 'build is running' and it
+        answers later requests from stale state (observed live 2026-08-05)."""
+        if not session_id:
+            return
+        side = self._sidecar_read(project_id)
+        side["origin_session"] = session_id
+        self._sidecar_write(project_id, side)
+
+    def origin_session(self, project_id: str) -> Optional[str]:
+        value = self._sidecar_read(project_id).get("origin_session")
+        return str(value) if value else None
+
+    def _notify_origin(self, project_id: str, text: str) -> None:
+        """Trigger into the origin chat session (if any): the requesting
+        conversation relays the outcome to the user in one sentence and the
+        fact lands in that session's stream so later requests resolve against
+        current state. Best-effort — never breaks an announce."""
+        origin = self.origin_session(project_id)
+        if not origin:
+            return
+        try:
+            from app.living_ui import get_living_ui_manager
+            from app.triggers import TriggerSource, TriggerSpec
+
+            mgr = get_living_ui_manager()
+            if mgr is None or not getattr(mgr, "_trigger_service", None):
+                return
+            import asyncio
+
+            async def _emit() -> None:
+                await mgr._trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.LIVING_UI_CREATED,
+                        description=(
+                            f"{text} Relay this to the user in ONE short "
+                            "sentence (include the URL if one is present), "
+                            "then end the run — no summaries, no next-step "
+                            "suggestions. The user is in THIS chat and saw "
+                            "no other notification."
+                        ),
+                        priority=10,
+                        session_id=origin,
+                        payload={"project_id": project_id},
+                    )
+                )
+
+            try:
+                asyncio.get_running_loop().create_task(_emit())
+            except RuntimeError:
+                asyncio.run(_emit())
+        except Exception as e:
+            logger.debug(f"[FACTORY] origin notify failed: {e}")
 
     def delivered_at(self, project_id: str) -> Optional[float]:
         """Epoch time of first delivery (comparable to st_mtime), or None.
@@ -220,8 +277,27 @@ class FactoryHost:
         if machine is None:
             return None
         if machine.terminal:
-            # A re-verify after done (e.g. modify flows Phase 2+); ignore.
-            return None
+            if machine.state == STUCK:
+                # A fresh verify verdict on a stuck arc means someone (the
+                # user, via the agent) made a new fix attempt: re-arm with a
+                # fresh mission budget so the factory loop resumes. Ignoring
+                # the verdict here stranded the agent — no mission dispatched,
+                # while the walk_verify action still promised one.
+                machine.reopen(VERIFYING)
+                # Stuck-era leftovers must not leak into the new arc (same
+                # hygiene as begin_modify): a stale last_brief would make
+                # on_run_end resume a dead mission into this arc.
+                side = self._sidecar_read(project_id)
+                for key in ("last_brief", "verify_retried", "running_mission"):
+                    side.pop(key, None)
+                self._sidecar_write(project_id, side)
+                logger.info(
+                    f"[FACTORY] {project_id} stuck arc re-armed by fresh "
+                    f"verify (generation {machine.generation})"
+                )
+            else:
+                # A re-verify after done (e.g. modify flows Phase 2+); ignore.
+                return None
         self._normalize_to(machine, VERIFYING)
 
         if kind in ("pass", "incomplete", "blocked"):
@@ -431,9 +507,20 @@ status messages; when verification passes the user is informed automatically."""
 
         # Modify-era missions (a reopened machine) get the modify skill —
         # staging semantics and the never-touch-pb_data rules live there;
-        # build-era missions keep the full creator workflow.
+        # build-era missions keep the full creator workflow. A machine
+        # re-armed from a stuck BUILD (never delivered — no user data to
+        # protect) is still build-era despite generation > 0; a stuck
+        # MODIFY of a delivered app keeps the modify skill.
+        gens = machine.generations()
+        resumed_stuck_build = (
+            bool(gens)
+            and gens[-1].get("final_state") == STUCK
+            and not self.is_delivered(project.id)
+        )
         workflow_skill = (
-            "living-ui-modify" if machine.generation > 0 else "living-ui-creator"
+            "living-ui-modify"
+            if machine.generation > 0 and not resumed_stuck_build
+            else "living-ui-creator"
         )
 
         async def _emit() -> None:
@@ -519,7 +606,33 @@ status messages; when verification passes the user is informed automatically."""
                     last_ts = _calendar.timegm(
                         time.strptime(last, "%Y-%m-%dT%H:%M:%SZ")
                     )
-                    if time.time() - last_ts < _REDISPATCH_MIN_INTERVAL_S:
+                    elapsed = time.time() - last_ts
+                    if elapsed < _REDISPATCH_MIN_INTERVAL_S:
+                        # NEVER drop the wakeup. This suppression used to be a
+                        # bare return — and when the guard trips on the LAST
+                        # run's end there is nothing left to re-fire it:
+                        # observed live 2026-08-05 (Rock Bottom Outreach
+                        # Automator), a 5s surrender was suppressed and the
+                        # build sat stale at 'fixing' forever. Re-check after
+                        # the guard interval instead; idempotent — if a
+                        # mission became active meanwhile, needs_redispatch
+                        # is False and the re-check no-ops.
+                        delay = max(1.0, _REDISPATCH_MIN_INTERVAL_S - elapsed + 1.0)
+                        try:
+                            import asyncio as _asyncio
+
+                            _asyncio.get_running_loop().call_later(
+                                delay, self.on_run_end, project_id, {}
+                            )
+                            logger.info(
+                                f"[FACTORY] redispatch deferred {delay:.0f}s "
+                                f"(thrash guard) for {project_id}"
+                            )
+                        except RuntimeError:
+                            logger.warning(
+                                f"[FACTORY] thrash guard tripped with no event "
+                                f"loop — {project_id} may need a manual nudge"
+                            )
                         return
                 except Exception:
                     pass
@@ -616,9 +729,19 @@ status messages; when verification passes the user is informed automatically."""
         if caveat:
             text += f"\n⚠️ {caveat}"
         self._emit_chat(project_id, text)
+        self._notify_origin(
+            project_id,
+            f"FYI: the Living UI build for project {project_id} is COMPLETE. {text}",
+        )
 
     def _announce_stuck(self, project_id: str, machine: Machine) -> None:
         self._emit_chat(project_id, "❌ " + machine.stuck_report())
+        self._notify_origin(
+            project_id,
+            f"FYI: the Living UI build for project {project_id} is STUCK "
+            "(could not be completed automatically; the user has the full "
+            "report in the project tab).",
+        )
         try:
             import asyncio
 

@@ -1192,6 +1192,16 @@ UI in {project.path}/frontend/src/app/."""
         project.backend_url = project.url
         project.error = None
         self._save_projects()
+        # The user's tab may still render the verifier's test records from
+        # before the restore (realtime keeps old rows painted through a
+        # server restart) — tell the frontend to refetch so the first thing
+        # the user sees is the pristine state.
+        try:
+            from app.living_ui.broadcast import dispatch_living_ui_data_changed
+
+            dispatch_living_ui_data_changed(project_id)
+        except Exception:
+            pass
         logger.info(f"[LIVING_UI:V2] {project_id} finalized for first delivery")
         return {"status": "success", "restored": True}
 
@@ -1307,6 +1317,14 @@ UI in {project.path}/frontend/src/app/."""
             self.staging.destroy(project_id, host.get_staging_record(project_id))
         finally:
             host.clear_staging_record(project_id)
+        # A tab still showing the pre-flip app must refetch (same stale-view
+        # hazard as finalize_first_delivery's baseline restore).
+        try:
+            from app.living_ui.broadcast import dispatch_living_ui_data_changed
+
+            dispatch_living_ui_data_changed(project_id)
+        except Exception:
+            pass
         return result
 
     async def launch_and_verify(self, project_id: str) -> dict:

@@ -30,7 +30,13 @@ If any is missing, sub_task_end status="failed" naming what was missing.
 
 BROWSER RULES (violating these blinds you):
 - Call mcp_playwright-mcp_browser_snapshot / browser_take_screenshot with NO
-  filename — bare, the snapshot/console/network arrive INLINE in the result.
+  parameters at all — bare. NEVER pass depth/target/filename: a depth-limited
+  snapshot truncates the tree to empty containers and HIDES every form field
+  (observed live: a verifier with depth=3 never saw a single input and
+  verified nothing in 50 turns).
+- An interaction result (click/type) may end with a snapshot FILE link
+  ("[Snapshot](.playwright-mcp/…yml)") — you CANNOT read that file. To see
+  what the interaction did, take a bare browser_snapshot as your next action.
 - The snapshot is an accessibility tree with element refs — use those refs for
   browser_click / browser_type targets.
 - If the mcp_playwright browser tools are unavailable in this environment
@@ -75,21 +81,32 @@ YOUR WALK:
    record, browser_navigate to the app URL again (a full reload) and snapshot.
    If the data is gone, that feature is a FAIL ("saves" that vanish on reload
    are the most common way an app looks finished and isn't).
-6. LIVE DATA — when a feature claims live/external/synced data (weather,
-   prices, feeds, "pulled from", "real-time"): rendered data is NOT evidence.
-   The fetch happens server-side, so the browser cannot see it — instead
-   grep_files the project's pb/pb_hooks/*.js (excluding _*.js) for
-   "$http.send" or "callIntegration". Neither present = FAIL for that
-   feature: "displays data but the app fetches nothing — the data cannot be
-   live". If the serving hook instead generates values (Math.random,
-   hardcoded samples), FAIL it and quote the line. This rule exists because
-   an app once rendered Math.random() as "live weather" and passed review.
+6. LIVE DATA — when a feature claims live/external/synced/scheduled data
+   (weather, prices, feeds, "pulled from", "real-time", a scheduled sync):
+   rendered data and confirmation toasts are NOT evidence. The fetch happens
+   server-side, so the browser cannot see it — instead grep_files the
+   project's pb/pb_hooks/*.js (excluding _*.js) for "$http.send",
+   "callIntegration" or "cronAdd". Neither present = FAIL for that feature:
+   "displays data but the app fetches nothing — the data cannot be live".
+   If the serving hook instead generates values (Math.random, hardcoded
+   samples), FAIL it and quote the line. Your PASS/FAIL line for such a
+   feature MUST quote the hook evidence ("$http.send"/"callIntegration"/
+   "cronAdd" plus the line) — a verdict without the quote is rejected. This
+   rule exists because an app once rendered Math.random() as "live weather"
+   and passed review, and another passed a "scheduled daily pull" whose
+   hooks contained no fetch and no schedule at all.
 7. Decide each feature and end.
 
 VERDICTS (mechanical, not stylistic):
 V1. PASS a feature ONLY with concrete evidence from an action YOU ran: a
     snapshot showing the result, a value you read back. "The code looks right"
-    is not evidence.
+    is not evidence — and neither is the UI's EXISTENCE or its PROMISES:
+    "nav present", "UI ready", "button visible", "described in overview",
+    "tab shows the form" are all NON-evidence (a delivered app once passed
+    9/9 features on exactly such lines while its core feature had no
+    implementation at all). Evidence names the flow you RAN and the state
+    CHANGE you observed. A confirmation toast alone is not a state change —
+    read the data back.
 V2. A feature you could not exercise (control missing/unreachable, flow blocked,
     placeholder / "coming soon" / dead button) = FAIL, with what you observed.
 V3. No minor category: one console error during normal use = FAIL; a feature
@@ -111,10 +128,15 @@ V4. FAIL means YOU SAW THE APP MISBEHAVE. If you could not exercise the app at
     unreachable — that is NOT the app's fault and NOT a FAIL: end with
     VERDICT: BLOCKED and say what stopped you. Reporting "all features FAIL —
     could not connect" sends engineers to fix features that may be fine.
-V5. BUDGET YOUR TURNS. Your verdict must be DELIVERED before the iteration
-    cap — a walk that dies at the cap reports nothing. If you cannot cover
-    everything, report what you verified and mark the rest '— NOT REACHED'
-    (never FAIL): honest partial coverage beats fabricated completeness.
+V5. BUDGET YOUR TURNS BY THE NUMBERS. Every turn's prompt begins with a
+    TURN BUDGET line stating exactly which turn you are on and how many
+    remain — pace yourself by IT, never by a guessed limit. The budget is
+    large; a full walk is EXPECTED to use most of it. While many turns
+    remain, '— NOT REACHED' means KEEP WALKING (a premature conclusion is
+    rejected and just costs you a turn). Only when the TURN BUDGET line
+    shows the cap is near, deliver what you verified and mark the rest
+    '— NOT REACHED' (never FAIL): honest partial coverage beats a walk
+    that dies at the cap reporting nothing.
 
 OUTPUT — end with ONE sub_task_end call, status="completed", and this in
 `result` (plain text, NOT JSON):
@@ -137,6 +159,104 @@ observed; use BLOCKED when you never got to observe any. There is NO
 "INCOMPLETE" or "PARTIAL" verdict — an unfinished walk is FAIL with
 '— NOT REACHED' entries for whatever you did not exercise.
 """
+
+
+_MAX_ITERATIONS = 50
+# Below this fraction of the budget, a partial conclusion is premature.
+_EARLY_END_FRACTION = 0.7
+
+
+def _early_end_guard(sub, parameters):
+    """Veto a premature partial verdict (runner hook, see registry).
+
+    Observed live 2026-08-05: with 50 turns available the verifier concluded
+    at turn 15, then turn 8, citing 'limited turns' — features untested, the
+    report degraded to BLOCKED, and a working app went stuck. The model
+    cannot be trusted to know its own budget; this guard enforces it.
+
+    Allowed to end early at ANY turn: failed status (missing inputs),
+    genuine tooling blockage (browser markers), and complete walks — where
+    every NOT REACHED entry carries the '(code present…' qualifier for
+    features a browser cannot exercise.
+    """
+    import re as _re
+
+    if str(parameters.get("status") or "") != "completed":
+        return None
+    result = str(parameters.get("result") or "")
+
+    # ── verdict QUALITY gates (any turn — a bad verdict is bad at turn 49
+    # too; the model can always comply immediately by fixing the verdict) ──
+
+    # Cosmetic-evidence PASS: the UI's existence or promises are not
+    # evidence (observed live: 9/9 features passed on "nav present" /
+    # "described in overview" while the core feature had no implementation).
+    cosmetic = _re.search(
+        r"^-\s[^\n]*—\s*PASS\s*—[^\n]*"
+        r"\b(nav present|ui ready|described in|button visible|"
+        r"present in (the )?(ui|sidebar|nav)|no errors\b[^\n]*$)",
+        result,
+        _re.MULTILINE | _re.IGNORECASE,
+    )
+    if cosmetic:
+        return (
+            "Verdict REJECTED — cosmetic evidence: a PASS line cites the "
+            f"UI's existence, not a flow you ran ('{cosmetic.group(0)[:120]}"
+            "'). Per V1, PASS needs an action you ran and the state change "
+            "you observed (data read back after the interaction). Exercise "
+            "those features now, or mark them NOT REACHED / FAIL honestly."
+        )
+
+    # Live/external/scheduled-data PASS without quoted hook evidence: the
+    # browser cannot see server-side fetches — the report must quote the
+    # grep result ($http.send / callIntegration / cronAdd), per step 6.
+    live_pass = _re.search(
+        r"^-\s[^\n]*\b(pull|sync|fetch|live|real-?time|bridge|external|"
+        r"scheduled|refresh)\b[^\n]*—\s*PASS\b",
+        result,
+        _re.MULTILINE | _re.IGNORECASE,
+    )
+    if live_pass and not _re.search(
+        r"\$http\.send|callIntegration|cronAdd", result
+    ):
+        return (
+            "Verdict REJECTED — a live/external/scheduled-data feature is "
+            f"marked PASS ('{live_pass.group(0)[:120]}') with no quoted "
+            "hook evidence. Per step 6: grep_files the project's "
+            "pb/pb_hooks/*.js (excluding _*.js) for $http.send / "
+            "callIntegration / cronAdd and QUOTE the line in your verdict. "
+            "No implementing code found = that feature is FAIL."
+        )
+
+    # ── premature-conclusion gate (early turns only) ──
+    if sub.iterations >= int(_MAX_ITERATIONS * _EARLY_END_FRACTION):
+        return None
+
+    # Genuine tooling blockage may conclude whenever it occurs.
+    from app.living_ui.walk_verify import _reads_as_blocked
+
+    if _reads_as_blocked(result):
+        return None
+
+    # Premature = a bare NOT REACHED (one WITHOUT the code-present
+    # qualifier), or a BLOCKED verdict with no tooling evidence.
+    bare_not_reached = _re.search(
+        r"NOT REACHED(?!\s*\(code present)", result, _re.IGNORECASE
+    )
+    fake_blocked = _re.search(r"VERDICT:\s*BLOCKED", result, _re.IGNORECASE)
+    if not (bare_not_reached or fake_blocked):
+        return None
+
+    remaining = _MAX_ITERATIONS - sub.iterations
+    return (
+        f"Early conclusion REJECTED: you are on turn {sub.iterations} of "
+        f"{_MAX_ITERATIONS} — {remaining} turns remain, which is plenty. "
+        "The budget concern in your report is unfounded (see the TURN "
+        "BUDGET line each turn). Continue the walk NOW: exercise every "
+        "feature currently marked NOT REACHED, one flow per turn. Conclude "
+        "only when every feature has real evidence, or when the TURN "
+        "BUDGET line shows the cap is actually near."
+    )
 
 
 register_subagent(
@@ -167,13 +287,18 @@ register_subagent(
         "grep_files",
         "list_folder",
     ],
-    max_iterations=50,
+    max_iterations=_MAX_ITERATIONS,
     max_wall_seconds=1800,
+    early_end_guard=_early_end_guard,
     # The MCP browser is SHARED and long-lived: its console history contains
     # other agents' visits to OLD builds. all=False scopes every console read
     # to recent entries so a walk can't condemn a fresh build with a dead
     # build's crashes.
     param_overrides=(
         ("mcp_playwright-mcp_browser_console_messages", (("all", False),)),
+        # Snapshots must never be depth-truncated: depth=3 renders forms as
+        # empty generic containers and blinds the whole walk (observed live
+        # 2026-08-05 — 0/12 features exercised in 50 turns).
+        ("mcp_playwright-mcp_browser_snapshot", (("depth", 20), ("boxes", False))),
     ),
 )

@@ -254,6 +254,12 @@ def _render_config(config: Dict[str, Any], image_notes: List[str]) -> str:
     if attachments:
         names = ", ".join(str(a.get("name", "?")) for a in attachments)
         lines.append(f"User-provided reference files: {names}")
+    # Chat-path extra context (features + the user's verbatim words) — prompt
+    # material only, never stored as the project description.
+    context = str(config.get("context") or "").strip()
+    if context:
+        lines.append("")
+        lines.append(context)
     if image_notes:
         lines.append("")
         lines.append("Reference image contents (described by a vision model):")
@@ -424,6 +430,15 @@ already fixed.
 padding; each option is a real, distinct choice a user could want). The user can \
 always type a free answer instead, so options should capture the most likely \
 answers.
+- DATA-SOURCE OPTIONS MUST BE REAL: an option describing where data comes from \
+must name a mechanism that actually exists on this platform — user forms, \
+CSV/file import, a NAMED connected-integration action, or a NAMED keyless \
+public API (e.g. Open-Meteo). NEVER offer "the backend pulls/finds/verifies X" \
+when no such source exists here: there is no web scraping, no lead database, \
+no email-verification service, no business-directory search. An impossible \
+option the user picks becomes a spec the builder cannot implement (observed \
+live: "scheduled daily pull of 20-30 verified business emails" shipped as a \
+button wired to nothing).
 - Mark a question multiSelect when several options can genuinely combine.
 - MARKETPLACE CHECK: when the input includes a MARKETPLACE list and one app \
 on it clearly matches what the user described (same core purpose, not merely \
@@ -593,6 +608,7 @@ async def generate_interview(
     config: Dict[str, Any],
     image_notes: List[str],
     include_marketplace: bool = True,
+    allow_empty: bool = False,
 ) -> List[Dict[str, Any]]:
     """Generate interview questions from the wizard configuration.
 
@@ -602,6 +618,12 @@ async def generate_interview(
     2026-08-05, kanban board — the fresh build then synthesized from a
     one-line description with zero requirement questions asked), so the real
     interview happens now, with the catalogue withheld so it cannot re-ask.
+
+    allow_empty=True is the CHAT path: the description was distilled from a
+    conversation that may already answer everything, so "no questions" is a
+    valid outcome (build proceeds without a user round-trip). The modal
+    wizard keeps allow_empty=False — there the user typed one description
+    line and an empty interview means generation failed, not completeness.
     """
     marketplace_part = (
         _render_marketplace(
@@ -617,9 +639,20 @@ async def generate_interview(
             "requirement questions; never ask about installing existing apps."
         )
     )
+    empty_part = (
+        (
+            "\n\nThe description above was distilled from a chat conversation "
+            "and may already be complete. If it (plus the marketplace check) "
+            'leaves NOTHING genuinely open, respond {"questions": []} — do '
+            "not invent questions the input already answers."
+        )
+        if allow_empty
+        else ""
+    )
     user_prompt = (
         _render_config(config, image_notes)
         + marketplace_part
+        + empty_part
         + "\n\nGenerate the interview questions now (STRICT JSON)."
     )
     raw = await _llm(
@@ -652,7 +685,7 @@ async def generate_interview(
                 "options": options[:6],
             }
         )
-    if not cleaned:
+    if not cleaned and not allow_empty:
         raise ValueError("interview generation returned no usable questions")
     return cleaned
 
@@ -716,7 +749,13 @@ The spec is BINDING and the builder cannot question it, so it must be \
 implementable exactly as written. If an interview answer implies a mechanism \
 the platform cannot execute (inbound webhooks, OAuth, token entry), translate \
 the INTENT into the platform's equivalent (bridge pull on load/refresh plus a \
-scheduled sync operation) and write THAT.
+scheduled sync operation) and write THAT. If an answer promises DATA the \
+platform has no source for (found/verified/scraped business contacts, any \
+"the backend pulls X" with no named connected integration or keyless public \
+API behind it), do NOT write the impossible ingress: specify the nearest \
+real one (user entry, CSV import, records the user's agent adds via the \
+operations surface) and state the limitation plainly in the Overview. A spec \
+whose ingress cannot run ships as a dead button and fails verification.
 
 If an interview answer chose to INSTALL a marketplace app (as-is or adapted), \
 the document is SHORT and different from the template below. Its FIRST line \
@@ -930,4 +969,26 @@ def _unwrap_document(doc: str) -> str:
                 return parsed.strip()
         except Exception:
             pass
+    return doc
+
+
+# ── chat-path requirements phase ────────────────────────────────────────────
+# A build started from chat (living_ui_scaffold) runs the SAME interview →
+# synthesis → finalize pipeline as the modal wizard: with open questions the
+# scaffold action creates NOTHING and summons the wizard UI instead
+# (living_ui_wizard_open); the wizard's finalize creates the project exactly
+# as the modal path does. Only the zero-questions shortcut below runs in the
+# action itself. These helpers live here and not in the actions file because
+# action handlers execute from registry-extracted source (no module globals).
+
+
+async def synthesize_to_project(
+    project_path: Path, config: Dict[str, Any], answers: List[Dict[str, Any]]
+) -> str:
+    """Synthesize the binding spec and write it where the build and
+    walk-verify read it. Returns the document."""
+    doc = await synthesize_requirements(config, answers, [])
+    reference_dir = Path(project_path) / "reference"
+    reference_dir.mkdir(parents=True, exist_ok=True)
+    (reference_dir / "requirements.md").write_text(doc, encoding="utf-8")
     return doc

@@ -140,6 +140,20 @@ def parse_check_report(text: str) -> Dict[str, Any]:
     if verdict == "FAIL" and _reads_as_blocked(text):
         verdict = "BLOCKED"
 
+    # The mirror image: a BLOCKED verdict with NO tooling evidence but real
+    # per-feature lines is a partial walk wearing a BLOCKED costume (observed
+    # live 2026-08-05: "BLOCKED BY: limited turns" with 1 PASS + 6 NOT
+    # REACHED — it was classified unparseable and a working app went stuck
+    # with 0 missions). Route it through the FAIL branch so the FEATURES
+    # evidence decides: FAIL lines → defects, NOT-REACHED-only → incomplete
+    # (delivered with the coverage caveat). Evidence-free BLOCKED stays
+    # blocked — the caller's no-markers second-guess makes it unparseable.
+    if verdict == "BLOCKED" and not _reads_as_blocked(text):
+        if re.search(
+            r"^-\s+.*\b(?:FAIL|NOT REACHED)\b", text, re.MULTILINE | re.IGNORECASE
+        ):
+            verdict = "FAIL"
+
     if verdict == "PASS":
         return {"kind": "pass", "passed": _passed(text), "defects": [], "raw": text}
 

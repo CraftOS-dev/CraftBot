@@ -731,6 +731,7 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_data_changed=self.broadcast_living_ui_data_changed,
             broadcast_created=self.broadcast_living_ui_created,
             broadcast_build_event=self.broadcast_living_ui_build_event,
+            broadcast_wizard_open=self.broadcast_living_ui_wizard_open,
         )
 
         # Subscribe the Living UI module to SessionManager todo updates so
@@ -2678,6 +2679,52 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not session_id:
                 raise RuntimeError("Failed to start development run")
 
+            # CHAT-PATH tail: tell the session that ran living_ui_scaffold
+            # which project resulted. Without this the origin agent's last
+            # knowledge is "no project created yet" — observed live
+            # 2026-08-05: asked to "add data to it", it searched the
+            # filesystem and then asked the user for the project id.
+            origin_session = str(data.get("originSessionId") or "").strip()
+            if origin_session:
+                # Persist for the machine's ready/stuck announcements — the
+                # created-trigger below only covers build START.
+                try:
+                    from app.factory.host_craftbot import get_factory_host
+
+                    get_factory_host().set_origin_session(
+                        project.id, origin_session
+                    )
+                except Exception as e:
+                    logger.debug(
+                        f"[LIVING_UI:WIZARD] origin persist failed: {e}"
+                    )
+                try:
+                    from app.triggers import TriggerSource, TriggerSpec
+
+                    await self._living_ui_manager._trigger_service.emit(
+                        TriggerSpec(
+                            source=TriggerSource.LIVING_UI_CREATED,
+                            description=(
+                                f"FYI: the setup questions were answered — "
+                                f"Living UI '{project.name}' (project_id "
+                                f"{project.id}) has been created and its "
+                                "build is running in its own session. No "
+                                "action and no message needed: acknowledge "
+                                "silently with end_turn unless the user has "
+                                "asked for something. Remember the "
+                                "project_id for future requests about this "
+                                "app."
+                            ),
+                            priority=10,
+                            session_id=origin_session,
+                            payload={"project_id": project.id},
+                        )
+                    )
+                except Exception as e:
+                    logger.debug(
+                        f"[LIVING_UI:WIZARD] origin-session notify failed: {e}"
+                    )
+
             await self._broadcast(
                 {
                     "type": "living_ui_wizard_finalize",
@@ -3640,6 +3687,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             logger.error(f"[LIVING_UI] Failed to launch project {project_id}")
             return False
+
+    async def broadcast_living_ui_wizard_open(self, payload: Dict[str, Any]) -> None:
+        """Open the Create Custom wizard at the interview step (chat-path
+        requirements phase: living_ui_scaffold has questions for the user)."""
+        await self._broadcast({"type": "living_ui_wizard_open", "data": payload})
 
     async def broadcast_living_ui_created(self, project: Dict[str, Any]) -> None:
         """Broadcast that a Living UI project was created (called from agent action).

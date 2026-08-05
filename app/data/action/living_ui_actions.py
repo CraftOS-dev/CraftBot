@@ -17,9 +17,13 @@ logger = logging.getLogger(__name__)
         "Path' (those come pre-scaffolded from the Create Living UI modal). "
         "This copies the project template (backend/, frontend/, config/), "
         "allocates ports, registers the project in the user's Living UI list, "
-        "and queues the build run in the project's own session. After it "
-        "returns, inform the user the build has started and end your turn — "
-        "do NOT write project files or call living_ui_notify_ready yourself."
+        "and runs a requirements check: if the chat already answers everything "
+        "a builder needs, the build is dispatched immediately — otherwise "
+        "setup questions open in a popup in the user's browser (the same "
+        "interview the Create Living UI wizard uses) and the build starts "
+        "automatically when the user answers them. Follow the returned "
+        "message either way. Do NOT write project files or call "
+        "living_ui_notify_ready yourself."
     ),
     default=False,
     mode="CLI",
@@ -44,6 +48,20 @@ logger = logging.getLogger(__name__)
             "type": "array",
             "example": ["watchlist", "forecasts", "alerts"],
             "description": "Optional list of high-level features requested by the user.",
+        },
+        "chat_context": {
+            "type": "string",
+            "example": (
+                'User: "I run a small pottery studio" / User: "no existing '
+                'tools, maybe a marketplace app could help"'
+            ),
+            "description": (
+                "The user's OWN words from the conversation that led here — "
+                "verbatim quotes of what they asked for, constraints they "
+                "stated, and hints they dropped. The requirements interviewer "
+                "reads this to avoid asking what the user already answered; "
+                "your description alone is a summary and loses their intent."
+            ),
         },
         "theme": {
             "type": "string",
@@ -70,7 +88,11 @@ logger = logging.getLogger(__name__)
         "project_id": {
             "type": "string",
             "example": "abc12345",
-            "description": "The created project ID.",
+            "description": (
+                "The created project ID. ABSENT when setup questions opened "
+                "in the user's browser instead — the project is created when "
+                "they answer."
+            ),
         },
         "project_path": {
             "type": "string",
@@ -132,6 +154,85 @@ async def living_ui_scaffold(input_data: dict) -> dict:
         if isinstance(features, str):
             features = [f.strip() for f in features.split(",") if f.strip()]
 
+        # Requirements phase FIRST — modal parity end to end (Chat →
+        # Interview → Finalize → Scaffold). The chat path used to skip the
+        # interview entirely: the agent authored the binding spec from its
+        # own summary, and infeasible features like "search Google for
+        # leads" sailed into walk-verify unchallenged. The interviewer asks
+        # ONLY what the chat left genuinely open (marketplace reuse check
+        # included). Open questions → NO project is created here; the
+        # wizard UI is summoned and its finalize creates the project
+        # exactly as the Add Living UI modal does. A cancelled popup, like
+        # a cancelled modal wizard, leaves nothing behind.
+        from app.living_ui import wizard
+
+        chat_context = str(input_data.get("chat_context") or "").strip()
+        wizard_config = {
+            "name": name,
+            "description": description,
+            # Prompt-only material (never stored as the project description).
+            "context": (
+                ("Requested features: " + ", ".join(map(str, features)) + "\n\n")
+                if features
+                else ""
+            )
+            + (
+                "From the chat (user's own words):\n" + chat_context
+                if chat_context
+                else ""
+            ),
+            "layout": "free",
+            "authMode": input_data.get("auth_mode", "none"),
+        }
+        try:
+            questions = await wizard.generate_interview(
+                wizard_config, [], allow_empty=True
+            )
+        except Exception:
+            # Fail-open: the interviewer must never block creation.
+            questions = []
+
+        if questions:
+            # Summon the SAME Create Custom wizard UI the Add Living UI
+            # modal uses, opened at the interview step. Fail-open: no
+            # browser to show the popup (headless) → fall through and
+            # build without questions.
+            import uuid as _uuid
+
+            from app.living_ui import broadcast_living_ui_wizard_open
+
+            _opened = False
+            try:
+                _opened = await broadcast_living_ui_wizard_open(
+                    {
+                        "wizardId": f"chat_{_uuid.uuid4().hex[:12]}",
+                        "config": wizard_config,
+                        "questions": questions,
+                        # Round-tripped through the wizard to finalize, which
+                        # notifies this session of the created project.
+                        "originSessionId": input_data.get("_session_id") or "",
+                    }
+                )
+            except Exception:
+                _opened = False
+            if _opened:
+                return {
+                    "status": "success",
+                    "message": (
+                        f"No project created yet: {len(questions)} setup "
+                        "question(s) just opened in a popup in the user's "
+                        "browser. The project is created and the build "
+                        "starts automatically when the user answers them — "
+                        "you will be notified with the project_id then "
+                        "(and living_ui_list_projects finds any project "
+                        "later). Tell the user to answer the setup "
+                        "questions that just appeared, then end your turn. "
+                        "Do NOT relay the questions in chat, do NOT build "
+                        "anything, and do NOT call this action again for "
+                        "the same app."
+                    ),
+                }
+
         project = await manager.create_project(
             name=name,
             description=description,
@@ -140,9 +241,33 @@ async def living_ui_scaffold(input_data: dict) -> dict:
             auth_mode=input_data.get("auth_mode", "none"),
         )
 
+        # Remember which chat asked for this app. The wizard-finalize path
+        # records this via originSessionId; without it here the delivery
+        # announce has no origin chat to notify and the requesting
+        # conversation never learns the build finished (observed live
+        # 2026-08-05, Rock Bottom Outreach).
+        try:
+            from app.factory.host_craftbot import get_factory_host
+
+            _origin = str(input_data.get("_session_id") or "").strip()
+            if _origin:
+                get_factory_host().set_origin_session(project.id, _origin)
+        except Exception:
+            pass
+
         # Register it in the browser's project list immediately and show the
         # creation screen (modal-parity).
         await broadcast_living_ui_created(project.to_dict())
+
+        # Nothing open — synthesize the binding spec now so the build and
+        # walk-verify work from a platform-aware document instead of the
+        # agent's prose. Fail-open: a synthesis error falls back to the
+        # legacy description-only build rather than blocking creation.
+        try:
+            await wizard.synthesize_to_project(project.path, wizard_config, [])
+        except Exception:
+            pass
+
         await broadcast_living_ui_progress(
             project.id, "initializing", 10, "Project created, starting development..."
         )
@@ -190,6 +315,80 @@ async def living_ui_scaffold(input_data: dict) -> dict:
         }
     except Exception as e:
         return {"status": "error", "message": f"Failed to scaffold project: {str(e)}"}
+
+
+@action(
+    name="living_ui_list_projects",
+    description=(
+        "List the user's Living UI projects: id, name, status, URL, path, "
+        "and whether the app is delivered. Call this FIRST whenever the "
+        "user refers to a Living UI you don't have a project_id for ('the "
+        "app', 'my tracker', 'add it to the living UI') — never ask the "
+        "user for a project id or path, and never search the filesystem "
+        "for projects."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=True,
+    input_schema={},
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "Result: 'success' or 'error'.",
+        },
+        "projects": {
+            "type": "array",
+            "description": (
+                "One entry per project: {id, name, description, status, "
+                "url, path, delivered}."
+            ),
+        },
+        "message": {"type": "string", "description": "Summary line."},
+    },
+    test_payload={"simulated_mode": True},
+)
+async def living_ui_list_projects(input_data: dict) -> dict:
+    """Compact registry listing so any session can resolve 'the app' to a
+    project_id instead of asking the user or grepping the workspace."""
+    if input_data.get("simulated_mode", False):
+        return {"status": "success", "projects": [], "message": "0 project(s)."}
+    try:
+        from app.living_ui import get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {"status": "error", "message": "Living UI manager not initialized"}
+
+        def _delivered(project_id: str) -> bool:
+            try:
+                from app.factory.host_craftbot import get_factory_host as _gfh
+
+                return bool(_gfh().is_delivered(project_id))
+            except Exception:
+                return False
+
+        projects = []
+        for p in manager.projects.values():
+            projects.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "description": (p.description or "")[:160],
+                    "status": p.status,
+                    "url": p.url or (f"http://127.0.0.1:{p.port}" if p.port else ""),
+                    "path": p.path,
+                    "delivered": _delivered(p.id),
+                }
+            )
+        return {
+            "status": "success",
+            "projects": projects,
+            "message": f"{len(projects)} Living UI project(s).",
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to list projects: {str(e)}"}
 
 
 @action(
@@ -586,23 +785,35 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             if raw_text.strip() and not _reads_as_blocked(raw_text):
                 kind = "unparseable"
 
+        # An "incomplete" with ZERO passed features is not a coverage
+        # caveat — nothing at all stands behind "ready" but smoke checks
+        # (observed live 2026-08-05: "✅ ready — ⚠️ 0 feature(s) verified").
+        # Route it through the same one-retry-then-stuck belt as
+        # unparseable, with its own honest message.
+        _zero_verified = kind == "incomplete" and passed_n == 0
+        if _zero_verified:
+            kind = "unparseable"
+
         if kind == "unparseable":
             from app.factory.host_craftbot import get_factory_host
 
             decision = get_factory_host().report_verify(project_id, "unparseable")
+            _what = (
+                "The verifier finished with ZERO features verified (all NOT "
+                "REACHED) — that is not deliverable"
+                if _zero_verified
+                else "The verifier's report was unparseable (not a browser failure)"
+            )
             if decision is not None and decision.payload.get("redo") == "verify":
                 return {
                     "status": "error",
-                    "message": (
-                        "The verifier's report was unparseable (not a browser "
-                        "failure). Call living_ui_walk_verify once more."
-                    ),
+                    "message": f"{_what}. Call living_ui_walk_verify once more.",
                 }
             return {
                 "status": "error",
                 "message": (
-                    "The verifier's report was unparseable twice. The system has "
-                    "reported the build as stuck to the user. End the run."
+                    f"{_what} — twice. The system has reported the build as "
+                    "stuck to the user. End the run."
                 ),
             }
 
@@ -693,7 +904,33 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
                 walk_report=raw,
                 server_log=server_log,
             )
-            if decision is not None and decision.next_state == "stuck":
+            _stopped_note = (
+                "The change was NOT deployed — the user's live app still "
+                "runs the previous working version. "
+                if _staging_record is not None
+                else "The app was stopped. "
+            )
+            if decision is None:
+                # Machine done (a re-verify after delivery, outside a modify
+                # arc): report_verify ignored the verdict and dispatched
+                # NOTHING. Falling through to the "mission queued" text here
+                # made the agent end the run waiting for a mission that
+                # never comes. (Stuck machines no longer land here — a fresh
+                # verify re-arms them and dispatches a real mission.)
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Walk-verify FAILED: {len(defects) or 'some'} "
+                        f"feature(s) observed NOT working. {_stopped_note}"
+                        "The build machine is not tracking this arc, so the "
+                        "system did NOT queue a fix mission and will NOT "
+                        "retry on its own — do not claim otherwise. Report "
+                        "the remaining failures (test_errors below) to the "
+                        "user honestly, then end the run."
+                    ),
+                    "test_errors": defects[:10] or [raw],
+                }
+            if decision.next_state == "stuck":
                 return {
                     "status": "error",
                     "message": (
@@ -705,12 +942,6 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
                     ),
                     "test_errors": defects[:10] or [raw],
                 }
-            _stopped_note = (
-                "The change was NOT deployed — the user's live app still "
-                "runs the previous working version. "
-                if _staging_record is not None
-                else "The app was stopped. "
-            )
             return {
                 "status": "error",
                 "message": (
@@ -799,13 +1030,28 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
 
         from app.factory.host_craftbot import get_factory_host
 
-        get_factory_host().report_verify(
+        _pass_decision = get_factory_host().report_verify(
             project_id,
             kind if kind in ("pass", "incomplete", "blocked") else "blocked",
             url=url,
             verified=report.get("passed") or [],
             caveat=caveat,
         )
+        if _pass_decision is None:
+            # Machine done (re-verify after delivery, outside a modify arc):
+            # report_verify ignored the verdict, so no ready announcement
+            # went out — telling the agent "the system has announced this"
+            # would swallow a successful fix silently.
+            return {
+                "status": "success",
+                "message": (
+                    f"Living UI {project_id} is ready at {url}, but the "
+                    "build machine is already in a terminal state, so the "
+                    "system did NOT announce it. Send the user a short "
+                    "ready message yourself (include the caveat, if any), "
+                    "then end the run." + (f" Caveat: {caveat}" if caveat else "")
+                ),
+            }
         return {
             "status": "success",
             "message": (
@@ -1006,7 +1252,7 @@ async def living_ui_report_progress(input_data: dict) -> dict:
     name="living_ui_http",
     description=(
         "FALLBACK ONLY — prefer the lui CLI via run_shell "
-        "(node <craftbot-root>/living-ui-v2/tools/src/cli.ts ops|run|data <project_path> — ABSOLUTE path; the exact commands are in the [INTERACTING WITH LIVING UI] note) to "
+        "(node <craftbot-root>/living-ui-v2/tools/src/cli.ts ops|run|data <project_path> — ABSOLUTE path; call living_ui_usage(project_id) for the exact commands and the data schema) to "
         "operate a Living UI. Use this action only when the shell is "
         "unavailable. Sends an HTTP request to a running Living UI project's "
         "backend to read or modify data (e.g., add a card to a kanban, fetch a list). "
@@ -1214,11 +1460,17 @@ def living_ui_http(input_data: dict) -> dict:
     # DELIVERED apps: while a staging copy exists, ALL agent/verifier HTTP
     # goes to it — this action resolves the REAL app's port on its own, and
     # without the redirect a staging-mode verifier would write test records
-    # straight into real user data through this side door. When the app is
-    # delivered but no staging copy exists, mutating calls are refused:
-    # notify_ready is what boots the staging copy.
+    # straight into real user data through this side door. With NO staging
+    # copy, intent decides: mid-arc (factory machine non-terminal — a code
+    # change is being built) a mutating call is agent test traffic and is
+    # refused toward staging; arc closed (machine terminal) it is normal
+    # OPERATION of the delivered app — the write IS user data ("add this
+    # lead for me") and belongs in the live app. Refusing those too routed
+    # real records into the disposable staging clone, where the deploy flip
+    # destroys them (observed live 2026-08-05, RBS Leads Tracker).
     _staging_url = None
     _is_delivered = False
+    _mid_arc = False
     try:
         from app.factory.host_craftbot import get_factory_host as _gfh
 
@@ -1227,10 +1479,12 @@ def living_ui_http(input_data: dict) -> dict:
             _rec = _gfh().get_staging_record(project_id)
             if _rec and _rec.get("url"):
                 _staging_url = str(_rec["url"])
+            _machine = _gfh().machine_for(project_id)
+            _mid_arc = _machine is not None and not _machine.terminal
     except Exception:
         _staging_url = None
 
-    if _is_delivered and not _staging_url and method != "GET":
+    if _is_delivered and not _staging_url and _mid_arc and method != "GET":
         return {
             "status": "error",
             "status_code": 0,
@@ -1239,10 +1493,13 @@ def living_ui_http(input_data: dict) -> dict:
             "final_url": "",
             "elapsed_ms": 0,
             "message": (
-                f"Project '{project_id}' is delivered — its data is real user "
-                "data, and writes outside a staging copy are refused. Call "
-                "living_ui_notify_ready first (it boots the staging copy), "
-                "then retry against it."
+                f"Project '{project_id}' is delivered and a code change is in "
+                "progress — its data is real user data, and agent test writes "
+                "outside a staging copy are refused. For the code change, "
+                "call living_ui_notify_ready first (it boots the staging "
+                "copy), then retry against it. If you meant to store REAL "
+                "data the user asked for, wait until the change arc finishes "
+                "— live data writes resume then."
             ),
         }
 
@@ -1318,6 +1575,19 @@ def living_ui_http(input_data: dict) -> dict:
             "elapsed_ms": elapsed_ms,
             "message": "" if resp.ok else f"HTTP {resp.status_code}",
         }
+        if resp.status_code in (401, 403):
+            # Observed live 2026-08-05: the chat agent probed the superuser-only
+            # /api/collections, read the 401 as "the app's API is closed", and
+            # downgraded a data-import request to a CSV file. The recovery path
+            # must ride in the error itself.
+            out["message"] += (
+                " — this action sends no auth, and PocketBase admin endpoints "
+                "(e.g. /api/collections) are superuser-only on every app, even "
+                "authMode 'none'. Do not conclude the app's data is locked: "
+                "use the lui CLI instead — call living_ui_usage(project_id) "
+                "for the exact run_shell commands, or target the app's record "
+                "endpoints (/api/collections/<name>/records)."
+            )
         if parsed_json is not None:
             out["response_json"] = parsed_json
 
@@ -1348,6 +1618,79 @@ def living_ui_http(input_data: dict) -> dict:
             "final_url": url,
             "elapsed_ms": 0,
             "message": str(e),
+        }
+
+
+@action(
+    name="living_ui_usage",
+    description=(
+        "Get the operating manual for a Living UI project: its path, data "
+        "schema, and the exact lui CLI commands (run via run_shell) to read/"
+        "write its data and run its operations. Call this FIRST whenever a "
+        "chat request involves an existing Living UI's data (add/change/"
+        "fetch records) — the manual is not in your prompt outside the "
+        "project's own session."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=True,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "84d93cca",
+            "description": "The Living UI project ID (living_ui_list_projects resolves names to ids).",
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "usage": {
+            "type": "string",
+            "description": "Project path, data model, and CLI commands to operate the app.",
+        },
+        "message": {"type": "string", "example": ""},
+    },
+    test_payload={"project_id": "test123", "simulated_mode": True},
+)
+def living_ui_usage(input_data: dict) -> dict:
+    """Return the same operating note the project's dedicated session gets."""
+    if input_data.get("simulated_mode", False):
+        return {
+            "status": "success",
+            "usage": "[INTERACTING WITH LIVING UI: test123]",
+            "message": "",
+        }
+
+    project_id = str(input_data.get("project_id", "")).strip()
+    if not project_id:
+        return {"status": "error", "usage": "", "message": "project_id is required."}
+
+    try:
+        from app.living_ui import get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        if not manager or not manager.get_project(project_id):
+            return {
+                "status": "error",
+                "usage": "",
+                "message": (
+                    f"Project '{project_id}' not found. Use "
+                    "living_ui_list_projects to resolve the id."
+                ),
+            }
+
+        from app.agent_base import AgentBase
+
+        return {
+            "status": "success",
+            "usage": AgentBase._build_living_ui_note(project_id),
+            "message": "",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "usage": "",
+            "message": f"Failed to build usage note: {e}",
         }
 
 

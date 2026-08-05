@@ -1617,4 +1617,40 @@ with tempfile.TemporaryDirectory() as tmp:
         assert "refusing to serve" in str(e) and "installer" in str(e)
 print("§23 superuser fail-closed: OK")
 
+
+# ── §24 thrash-guard suppression must NOT lose the wakeup (stale build) ────
+with tempfile.TemporaryDirectory() as tmp:
+    living = Path(tmp) / "living_ui"
+    proj = _make_project_dir(living, "wakeup0001", 3157)
+    project = _Project("wakeup0001", proj, 3157)
+
+    class _MgrWake:
+        def get_project(self, pid):
+            return project if pid == "wakeup0001" else None
+
+    living_ui_mod.get_living_ui_manager = lambda: _MgrWake()
+    host_mod._HOST = None
+    host_mod._REDISPATCH_MIN_INTERVAL_S = 2  # shrink the guard for the test
+    host = host_mod.get_factory_host()
+    WAKE_DISPATCHES = []
+    host._emit_mission = lambda p, b, mission_kind, machine: WAKE_DISPATCHES.append(
+        mission_kind
+    )
+    host._emit_chat = lambda pid, text: None
+
+    async def _scenario():
+        machine = host.machine_for("wakeup0001")
+        # A run just ended and advanced the machine (fresh history entry),
+        # then a 5s surrender ends another run — the guard trips.
+        machine.advance(host_mod.Outcome("building", ok=True))  # fresh timestamp
+        host.on_run_end("wakeup0001", {})  # guard trips → must DEFER, not drop
+        assert WAKE_DISPATCHES == [], "guard should suppress the immediate dispatch"
+        # The deferred re-check must fire on its own after the interval.
+        await asyncio.sleep(3.5)
+        assert WAKE_DISPATCHES, "the deferred wakeup was LOST — stale build bug"
+
+    asyncio.run(_scenario())
+    host_mod._REDISPATCH_MIN_INTERVAL_S = 20
+print("§24 deferred redispatch wakeup: OK")
+
 print("\nData-safety acceptance: ALL GREEN")

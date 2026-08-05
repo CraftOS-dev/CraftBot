@@ -27,6 +27,19 @@ interface CreateCustomWizardProps {
   onMessage: (type: string, handler: (data: any) => void) => () => void
   onClose: () => void
   onCreated?: (projectId: string) => void
+  /** Chat-path entry (living_ui_wizard_open broadcast): the scaffold action
+   *  generated round-1 questions without creating anything — open at the
+   *  interview step with config pre-seeded. Finalize then creates the
+   *  project exactly as the modal path does (Chat → Interview → Finalize →
+   *  Scaffold); a cancelled popup leaves nothing behind. */
+  initial?: {
+    wizardId: string
+    config: Record<string, any>
+    questions: InterviewQuestion[]
+    /** Session that ran living_ui_scaffold — round-tripped to finalize so
+     *  the backend can tell that agent which project was created. */
+    originSessionId?: string
+  }
 }
 
 interface InterviewQuestion {
@@ -138,18 +151,20 @@ function newWizardId(): string {
 
 // ── component ───────────────────────────────────────────────────────────────
 
-export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: CreateCustomWizardProps) {
-  const wizardIdRef = useRef(newWizardId())
+export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initial }: CreateCustomWizardProps) {
+  const wizardIdRef = useRef(initial?.wizardId || newWizardId())
 
-  const [step, setStep] = useState<'configure' | 'interview' | 'creating'>('configure')
+  const [step, setStep] = useState<'configure' | 'interview' | 'creating'>(initial ? 'interview' : 'configure')
 
   // — configure state —
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
+  const [name, setName] = useState(String(initial?.config?.name || ''))
+  const [description, setDescription] = useState(String(initial?.config?.description || ''))
   const [errors, setErrors] = useState<{ name?: string; description?: string }>({})
-  const [layout, setLayout] = useState('free')
+  const [layout, setLayout] = useState(String(initial?.config?.layout || 'free'))
   const [uiTheme, setUiTheme] = useState('craftbot')
-  const [authMode, setAuthMode] = useState<'none' | 'multi-user'>('none')
+  const [authMode, setAuthMode] = useState<'none' | 'multi-user'>(
+    initial?.config?.authMode === 'multi-user' ? 'multi-user' : 'none'
+  )
   const [iconChoice, setIconChoice] = useState<string | null>(null)
   const [iconFile, setIconFile] = useState<File | null>(null)
   const [iconPreview, setIconPreview] = useState<string | null>(null)
@@ -163,7 +178,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
   // — interview state —
   const [interviewLoading, setInterviewLoading] = useState(false)
   const [interviewError, setInterviewError] = useState<string | null>(null)
-  const [questions, setQuestions] = useState<InterviewQuestion[]>([])
+  const [questions, setQuestions] = useState<InterviewQuestion[]>(initial?.questions || [])
   const [qIndex, setQIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
   const [freeText, setFreeText] = useState('')
@@ -262,6 +277,9 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
     authMode,
     icon: iconFile ? null : iconChoice, // an uploaded icon wins server-side
     attachments: files.map(f => ({ name: f.name, kind: 'reference' })),
+    // Chat-path prompt material (features + the user's verbatim words) —
+    // must round-trip to finalize so synthesis sees what the interview saw.
+    ...(initial?.config?.context ? { context: initial.config.context } : {}),
   })
 
   const uploadStaged = async (): Promise<boolean> => {
@@ -322,6 +340,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
       config: buildConfig(),
       answers: answerList,
       followupDone,
+      ...(initial?.originSessionId ? { originSessionId: initial.originSessionId } : {}),
     })
   }
 

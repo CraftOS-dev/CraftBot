@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 from agent_core.core.impl.llm import LLMCallType, LLMConsecutiveFailureError
 from app.logger import logger
 from app.subagent.context_engine import SubAgentContextEngine
-from app.subagent.registry import get_subagent_definition
+from app.subagent.registry import SUB_TASK_END_ACTION, get_subagent_definition
 from app.subagent.types import SubAgent
 
 if TYPE_CHECKING:
@@ -288,9 +288,40 @@ class SubAgentRunner:
             )
             return
 
-        # Apply registry-forced parameters (e.g. shared-browser hygiene).
-        from app.subagent.registry import get_subagent_definition
+        # Definition-level veto on premature conclusions: the guard sees the
+        # sub_task_end parameters and may reject them with an instruction
+        # that lands in the sub's stream — the loop then continues and the
+        # model reads why. Guard errors fail open (the end proceeds); the
+        # guard itself must stand down near the caps so it can never trap a
+        # sub-agent into dying at the iteration cap with no verdict.
+        if action_name == SUB_TASK_END_ACTION:
+            try:
+                guard = get_subagent_definition(sub.agent_type).early_end_guard
+            except Exception:
+                guard = None
+            if guard is not None:
+                try:
+                    rejection = guard(sub, parameters)
+                except Exception as e:
+                    logger.warning(
+                        f"[SubAgentRunner] {sub.id} early_end_guard crashed "
+                        f"(allowing end): {e}"
+                    )
+                    rejection = None
+                if rejection:
+                    logger.info(
+                        f"[SubAgentRunner] {sub.id} early sub_task_end "
+                        f"rejected at iteration {sub.iterations}"
+                    )
+                    self.event_stream_manager.log(
+                        kind="action_blocked",
+                        message=rejection,
+                        display_message="early conclusion rejected — continuing",
+                        task_id=sub.id,
+                    )
+                    return
 
+        # Apply registry-forced parameters (e.g. shared-browser hygiene).
         try:
             forced = get_subagent_definition(sub.agent_type).overrides_for(action_name)
         except Exception:
@@ -486,7 +517,8 @@ class SubAgentRunner:
         model after the cached history vanishes.
         """
         if not stream.has_session_sync(_SUBAGENT_CALL_TYPE):
-            return self.context_engine.make_first_turn_user_prompt(sub), True
+            prompt = self.context_engine.make_first_turn_user_prompt(sub)
+            return self._with_turn_budget(sub, prompt), True
 
         delta_str, has_delta = stream.get_delta_events(_SUBAGENT_CALL_TYPE)
         if not has_delta:
@@ -495,9 +527,29 @@ class SubAgentRunner:
                 "detected — resetting session and resending full prompt"
             )
             self._reset_session(sub, stream)
-            return self.context_engine.make_first_turn_user_prompt(sub), True
+            prompt = self.context_engine.make_first_turn_user_prompt(sub)
+            return self._with_turn_budget(sub, prompt), True
 
-        return self.context_engine.make_delta_user_prompt(delta_str), False
+        prompt = self.context_engine.make_delta_user_prompt(delta_str)
+        return self._with_turn_budget(sub, prompt), False
+
+    def _with_turn_budget(self, sub: SubAgent, prompt: str) -> str:
+        """Prefix every turn with the sub-agent's real position in its
+        iteration budget. Without it, models invent scarcity: a verifier
+        with 50 turns concluded at turn 8 citing 'limited turns' (observed
+        live 2026-08-05). System prompt stays untouched — a moving number
+        there would break prefix caching; user prompts change every turn
+        anyway."""
+        try:
+            cap = get_subagent_definition(sub.agent_type).max_iterations
+        except Exception:
+            return prompt
+        remaining = max(0, cap - sub.iterations)
+        return (
+            f"TURN BUDGET: this is turn {sub.iterations} of {cap} — "
+            f"{remaining} remain. Pace yourself by these numbers, not by "
+            "guesswork.\n\n" + prompt
+        )
 
     # ------------------------------------------------------------------
     # JSON parsing

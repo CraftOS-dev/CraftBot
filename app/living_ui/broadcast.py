@@ -34,6 +34,9 @@ _broadcast_data_changed_callback: Optional[Callable[[str], Awaitable[None]]] = N
 _broadcast_build_event_callback: Optional[
     Callable[[str, Dict[str, Any]], Awaitable[None]]
 ] = None
+_broadcast_wizard_open_callback: Optional[
+    Callable[[Dict[str, Any]], Awaitable[None]]
+] = None
 
 # Captured at register time so cross-thread dispatchers (action handlers
 # running on a worker thread pool) can schedule coroutines onto the main loop.
@@ -51,6 +54,9 @@ def register_broadcast_callbacks(
     broadcast_build_event: Optional[
         Callable[[str, Dict[str, Any]], Awaitable[None]]
     ] = None,
+    broadcast_wizard_open: Optional[
+        Callable[[Dict[str, Any]], Awaitable[None]]
+    ] = None,
 ) -> None:
     """Register broadcast callbacks for Living UI actions to use.
 
@@ -62,13 +68,14 @@ def register_broadcast_callbacks(
         _broadcast_progress_callback, \
         _broadcast_todos_callback
     global _broadcast_data_changed_callback, _main_loop
-    global _broadcast_build_event_callback
+    global _broadcast_build_event_callback, _broadcast_wizard_open_callback
     _broadcast_ready_callback = broadcast_ready
     _broadcast_created_callback = broadcast_created
     _broadcast_progress_callback = broadcast_progress
     _broadcast_todos_callback = broadcast_todos
     _broadcast_data_changed_callback = broadcast_data_changed
     _broadcast_build_event_callback = broadcast_build_event
+    _broadcast_wizard_open_callback = broadcast_wizard_open
     try:
         _main_loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -87,6 +94,16 @@ async def broadcast_living_ui_ready(project_id: str, url: str, port: int) -> boo
         f"[LIVING_UI] broadcast_living_ui_ready called but callback is None "
         f"(manager={get_living_ui_manager() is not None})"
     )
+    return False
+
+
+async def broadcast_living_ui_wizard_open(payload: Dict[str, Any]) -> bool:
+    """Open the Create Custom wizard in the browser at the interview step
+    (chat-path requirements phase). Returns False when no browser adapter is
+    registered — callers fail open (build proceeds without questions)."""
+    if _broadcast_wizard_open_callback:
+        await _broadcast_wizard_open_callback(payload)
+        return True
     return False
 
 
