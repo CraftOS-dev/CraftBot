@@ -313,7 +313,31 @@ class InterfaceAdapter(ABC):
         )
 
     def _handle_error_message(self, event: UIEvent) -> None:
-        """Handle error message event."""
+        """Handle error message event.
+
+        When `event.data` carries `error_category` (set by CommandExecutor
+        via `error_fields()` — app/ui_layer/commands/executor.py — for a
+        `CommandResult.failure(...)`), route through the shared
+        `build_error_chat_message` factory so the bubble gets the same
+        category icon, code and severity a classified LLM/provider error
+        does. Untagged events (the common case — plain `{"message": ...}`)
+        fall through to the pre-existing rendering unchanged. This is the
+        only place this needs handling: both CLI and browser adapters
+        inherit `_handle_error_message`/`_display_chat_message` from this
+        base class rather than overriding them.
+        """
+        from app.errors.envelope import error_info_from_fields
+
+        info = error_info_from_fields(event.data)
+        if info is not None:
+            from app.ui_layer.components.error_message import build_error_chat_message
+
+            message = build_error_chat_message(
+                info, sender="Error", session_id=event.task_id or "main"
+            )
+            asyncio.create_task(self.chat_component.append_message(message))
+            return
+
         asyncio.create_task(
             self._display_chat_message(
                 "Error",

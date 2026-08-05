@@ -207,7 +207,19 @@ class EventTransformer:
         action_id = (
             event.action_id or f"{session_id or 'main'}:{canonical}:{ts.timestamp()}"
         )
-        error_message = output.get("error") if is_error and output else None
+        # The dominant/documented action contract writes "message", not
+        # "error" (see CUSTOM_ACTION_GUIDE.md) — "error" alone left this None
+        # for most action failures, so the panel fell back to dumping raw
+        # output JSON. Prefer "error" when a handler does set it explicitly.
+        error_message = (output.get("error") or output.get("message")) if is_error and output else None
+        # Ported actions (app/errors/actions.py::action_error) additively tag
+        # their output dict with error_category/error_code/error_severity;
+        # unported actions simply don't have these keys.
+        error_tags = (
+            {k: output[k] for k in ("error_category", "error_code", "error_severity") if output.get(k)}
+            if is_error and output
+            else {}
+        )
 
         return UIEvent(
             type=UIEventType.ACTION_END,
@@ -222,6 +234,7 @@ class EventTransformer:
                 # Frontend `ActionItem.output` is typed `string`; serialize
                 # the structured dict to JSON for `parseDict` compatibility.
                 "output": _to_wire_json(output),
+                **error_tags,
             },
             timestamp=ts,
             task_id=session_id,

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
+    from agent_core.core.errors import ErrorInfoLike
 
 
 @dataclass
@@ -19,11 +20,27 @@ class CommandResult:
         success: Whether the command executed successfully
         message: Optional message to display to the user
         data: Optional additional data from the command
+        info: Optional classified error (category/code/severity) when
+            `success` is False. `message` stays populated independently —
+            existing consumers that only read `.message` (the COMMAND_ERROR
+            event payload, the terminal renderer) are unaffected by this
+            field's presence or absence. Use `CommandResult.failure()` to
+            build both from one `ErrorInfo` at once.
     """
 
     success: bool
     message: Optional[str] = None
     data: Optional[Dict[str, Any]] = field(default_factory=dict)
+    info: Optional["ErrorInfoLike"] = None
+
+    @classmethod
+    def failure(cls, info: "ErrorInfoLike", **data: Any) -> "CommandResult":
+        """Build a failed `CommandResult` from a classified error.
+
+        `data` is passed straight through as the result's `data` dict, same
+        as constructing `CommandResult(success=False, ...)` by hand.
+        """
+        return cls(success=False, message=info.message, info=info, data=data or {})
 
 
 class Command(ABC):

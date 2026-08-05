@@ -87,12 +87,30 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   }
 
   const isAgent = message.style === 'agent'
-  const errorStyle = message.style === 'error' ? getErrorCategoryStyle(message.errorCategory) : null
+  // 'system'-styled messages can carry a category too: build_error_chat_message
+  // (app/ui_layer/components/error_message.py) sends style="system" for the
+  // "minor" presentation tier — recognized, actionable errors (bad key, no
+  // credits) that have action buttons — reserving style="error" for the
+  // critical/unclassified tier. Gating on 'error' alone meant the tier with
+  // actions never got a category icon. Plain (non-error) system messages
+  // have no errorCategory, so getErrorCategoryStyle is only reached when one
+  // is actually present.
+  const errorStyle =
+    message.style === 'error' || (message.style === 'system' && message.errorCategory)
+      ? getErrorCategoryStyle(message.errorCategory)
+      : null
   const ErrorIcon = errorStyle?.icon
 
   const bubbleContainer = (
     <div className={styles.messageBubbleContainer}>
-      <div className={`${styles.message} ${styles[message.style]} ${message.pending ? styles.pending : ''}`}>
+      <div
+        className={`${styles.message} ${styles[message.style]} ${message.pending ? styles.pending : ''}`}
+        // No CSS currently keys off this — it's a hook for later severity
+        // styling (e.g. a distinct treatment for 'critical'), not a rendered
+        // effect today. Kept deliberately narrow: see the errorSeverity note
+        // in ToastContext.tsx for the sibling job this field was given.
+        data-severity={message.errorSeverity}
+      >
         <div className={styles.messageHeader}>
           <span className={styles.sender}>
             {ErrorIcon && (
