@@ -27,6 +27,16 @@ import { RecentActivityWidget } from './RecentActivityWidget'
 // One entry per widget type. Phase 2 widgets (Agent Status, Living UI,
 // Recent Activity, Logs, ...) are added here later — no other file in
 // `layout/` needs to change to support a new widget.
+//
+// Every widget shares the same resize floor — `minW: 3, minH: 5` — so the grid
+// has one consistent smallest tile rather than a different one per widget. Keep
+// it that way when adding widgets: make the content fit 3x5 (see the density
+// rules in widgets.module.css) instead of raising the minimum for one widget.
+// `w`/`h` are just starting sizes and are free to vary.
+//
+// These minima are authoritative at runtime, not only at seed time — layout/
+// normalizeLayouts.ts re-applies them to stored layouts on every read, so
+// editing them here does reach people who already have a saved dashboard.
 export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
   taskStats: {
     id: 'taskStats',
@@ -35,7 +45,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     description: 'Completed, failed, running tasks and success rate.',
     component: TaskStatsWidget,
     headerBadge: TaskStatsHeaderBadge,
-    defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
+    defaultLayout: { w: 4, h: 8, minW: 3, minH: 5 },
     singleton: true,
   },
   tokenUsage: {
@@ -45,7 +55,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     description: 'Input/output/cached token totals and ratios.',
     component: TokenUsageWidget,
     headerBadge: TokenUsageHeaderBadge,
-    defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
+    defaultLayout: { w: 4, h: 8, minW: 3, minH: 5 },
     singleton: true,
   },
   systemResources: {
@@ -64,7 +74,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     description: 'Hourly request distribution and peak usage.',
     component: UsagePatternsWidget,
     headerBadge: UsagePatternsHeaderBadge,
-    defaultLayout: { w: 6, h: 9, minW: 3, minH: 7 },
+    defaultLayout: { w: 6, h: 9, minW: 3, minH: 5 },
     singleton: true,
   },
   mcpServers: {
@@ -100,7 +110,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Bot,
     description: 'Active provider, model name and model ID.',
     component: ModelInfoWidget,
-    defaultLayout: { w: 4, h: 6, minW: 3, minH: 4 },
+    defaultLayout: { w: 4, h: 6, minW: 3, minH: 5 },
     singleton: true,
   },
   mascot: {
@@ -109,7 +119,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Bot,
     description: 'The CraftBot mascot — reacts to agent activity.',
     component: MascotWidget,
-    defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
+    defaultLayout: { w: 4, h: 8, minW: 3, minH: 5 },
     singleton: true,
   },
   agentStatus: {
@@ -118,7 +128,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Activity,
     description: 'Live status, uptime, currently running tasks, last error.',
     component: AgentStatusWidget,
-    defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
+    defaultLayout: { w: 4, h: 8, minW: 3, minH: 5 },
     singleton: true,
   },
   livingUi: {
@@ -136,7 +146,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: History,
     description: 'Most recent actions across all sessions, with timing and tokens.',
     component: RecentActivityWidget,
-    defaultLayout: { w: 6, h: 10, minW: 3, minH: 6 },
+    defaultLayout: { w: 6, h: 10, minW: 3, minH: 5 },
     singleton: true,
   },
 }

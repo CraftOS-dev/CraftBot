@@ -1,7 +1,10 @@
+/* The margin stands in for react-grid-layout's CONTAINER_PADDING, which the
+   grid supplies for itself but this placeholder renders instead of. */
 .emptyState {
   display: flex;
   align-items: center;
   justify-content: center;
+  margin: var(--space-3);
   padding: var(--space-8);
   font-size: var(--text-sm);
   color: var(--text-muted);

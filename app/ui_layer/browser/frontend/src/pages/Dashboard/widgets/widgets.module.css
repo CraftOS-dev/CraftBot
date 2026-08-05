@@ -10,7 +10,7 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   padding: 3px;
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
   width: 100%;
 }
 
@@ -117,10 +117,15 @@
   transition: width 0.3s ease;
 }
 
+/* The three legend entries need ~250px, which is about all the 3-column
+   minimum gives them. Tighter gaps keep them on one line there, and wrapping
+   (rather than clipping) is the graceful failure if they ever don't fit. */
 .tokenRatioLabels {
   display: flex;
   justify-content: center;
-  gap: var(--space-4);
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  row-gap: var(--space-1);
   margin-top: var(--space-1);
 }
 
@@ -130,6 +135,7 @@
   gap: var(--space-1);
   font-size: var(--text-xs);
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .tokenInputDot {
@@ -192,7 +198,12 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: var(--space-2);
+  /* Tight gap + tight leading so the four bars and the network row fit the
+     shared 5-row minimum. `justify-content: space-between` re-expands the
+     spacing whenever the widget is taller than that, so this costs nothing
+     at the default size. */
+  gap: var(--space-1);
+  line-height: var(--leading-tight);
   flex: 1;
 }
 
@@ -238,12 +249,17 @@
 /* Network Row (inside System Resources) */
 .networkRow {
   display: flex;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  line-height: var(--leading-tight);
   margin-top: var(--space-2);
   padding-top: var(--space-2);
   border-top: 1px solid var(--border-primary);
 }
 
+/* Both stats together need ~256px, which is just past what the 3-column
+   minimum gives them. Without these guards the row wraps, turning width
+   pressure into an extra line of height and overflowing the widget. Clipping
+   keeps the row exactly one line tall at any width. */
 .networkStat {
   flex: 1;
   min-width: 0;
@@ -251,15 +267,26 @@
   align-items: center;
   gap: var(--space-1);
   font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
+.networkStat svg {
+  flex-shrink: 0;
+}
+
+/* The label yields first so the rate itself is never truncated. */
 .networkLabel {
   color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .networkValue {
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  flex-shrink: 0;
 }
 
 .uploadIcon {
@@ -275,7 +302,7 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-1);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
 }
 
 .usageStat {
@@ -285,6 +312,7 @@
   padding: var(--space-1);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
+  line-height: var(--leading-tight);
   min-width: 0;
 }
 
@@ -301,19 +329,26 @@
 
 /* Hourly Chart */
 .hourlyChart {
-  padding: var(--space-2);
+  padding: var(--space-1);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
+  line-height: var(--leading-tight);
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
+/* The period sub-label can be long; wrapping it would cost a line of height
+   the widget doesn't have at its minimum. */
 .chartLabel {
   font-size: var(--text-xs);
   color: var(--text-secondary);
   margin-bottom: var(--space-1);
   font-weight: var(--font-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chartSubLabel {
@@ -321,11 +356,15 @@
   color: var(--text-muted);
 }
 
+/* No pixel floor: the chart is the only flexible block in the widget, so it
+   absorbs whatever height is left over. That's ~30px at the shared 5-row
+   minimum and ~200px at the default size, instead of a hard 36px that used to
+   push the widget past its own minimum. */
 .chartBars {
   display: flex;
   gap: 1px;
   flex: 1;
-  min-height: 36px;
+  min-height: 0;
   align-items: flex-end;
 }
 

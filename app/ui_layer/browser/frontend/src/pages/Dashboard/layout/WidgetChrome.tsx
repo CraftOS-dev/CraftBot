@@ -2,6 +2,7 @@ import type { ComponentType, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { GripVertical, X } from 'lucide-react'
 import { IconButton } from '../../../components/ui'
+import { WidgetErrorBoundary } from './WidgetErrorBoundary'
 import styles from './WidgetChrome.module.css'
 
 interface WidgetChromeProps {
@@ -34,7 +35,9 @@ export function WidgetChrome({ title, icon: Icon, headerBadge: HeaderBadge, onRe
           onClick={onRemove}
         />
       </div>
-      <div className={styles.body}>{children}</div>
+      <div className={styles.body}>
+        <WidgetErrorBoundary title={title}>{children}</WidgetErrorBoundary>
+      </div>
     </div>
   )
 }

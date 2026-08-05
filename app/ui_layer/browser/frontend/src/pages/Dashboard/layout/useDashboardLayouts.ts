@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS } from './constants'
+import { COLS, STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS } from './constants'
 import { createDefaultLayout } from './defaultLayout'
+import { normalizeLayouts } from './normalizeLayouts'
 import type { BreakpointLayouts, DashboardLayoutsStorage, NamedLayout } from './types'
 import { WIDGET_REGISTRY } from '../widgets/registry'
 
@@ -18,7 +19,12 @@ function readLayouts(): NamedLayout[] {
     const raw = localStorage.getItem(STORAGE_KEY_LAYOUTS)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (isValidStorage(parsed)) return parsed.layouts
+      if (isValidStorage(parsed)) {
+        // Sizing constraints live in the registry, not in storage — see
+        // normalizeLayouts. Stored minW/minH are stale snapshots.
+        const normalized = normalizeLayouts(parsed.layouts)
+        if (normalized.length > 0) return normalized
+      }
     }
   } catch {
     // Corrupt/unavailable storage — fall through to a fresh seed layout.
@@ -57,9 +63,19 @@ function makeLayoutId(): string {
   return `layout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function emptyItemFor(widgetId: string) {
+// `cols` is per-breakpoint: a default width of 6 would overflow the sm grid's
+// 4 columns, and a minW wider than the grid is unsatisfiable.
+function emptyItemFor(widgetId: string, cols: number) {
   const def = WIDGET_REGISTRY[widgetId].defaultLayout
-  return { i: widgetId, x: 0, y: Infinity, w: def.w, h: def.h, minW: def.minW, minH: def.minH }
+  return {
+    i: widgetId,
+    x: 0,
+    y: Infinity,
+    w: Math.min(def.w, cols),
+    h: def.h,
+    minW: Math.min(def.minW ?? 1, cols),
+    minH: def.minH ?? 1,
+  }
 }
 
 export function useDashboardLayouts() {
@@ -101,9 +117,9 @@ export function useDashboardLayouts() {
         ...l,
         widgetIds: [...l.widgetIds, widgetId],
         layouts: {
-          lg: [...l.layouts.lg, emptyItemFor(widgetId)],
-          md: [...l.layouts.md, emptyItemFor(widgetId)],
-          sm: [...l.layouts.sm, emptyItemFor(widgetId)],
+          lg: [...l.layouts.lg, emptyItemFor(widgetId, COLS.lg)],
+          md: [...l.layouts.md, emptyItemFor(widgetId, COLS.md)],
+          sm: [...l.layouts.sm, emptyItemFor(widgetId, COLS.sm)],
         },
         updatedAt: Date.now(),
       }
