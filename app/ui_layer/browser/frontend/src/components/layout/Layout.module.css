@@ -4,6 +4,9 @@
   display: flex;
   flex-direction: row;
   height: 100vh;
+  /* iOS Safari: 100vh is the bars-hidden height, so the bottom of the app
+   * sits behind the URL bar. dvh tracks the actually visible viewport. */
+  height: 100dvh;
   overflow: hidden;
   position: relative;
 }
