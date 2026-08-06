@@ -118,8 +118,18 @@ def _reads_as_blocked(result_text: str) -> bool:
 
 def parse_check_report(text: str) -> Dict[str, Any]:
     """Classify a walk_verify result. kinds:
-    pass | defects | incomplete (NOT REACHED, defect-free) | blocked."""
+    pass | defects | incomplete (NOT REACHED, defect-free) | blocked |
+    throttled (the verifier's own LLM died — not the app, not the report)."""
     text = text or ""
+
+    # A sub the runner aborted on consecutive LLM failures returns
+    # "(sub-agent aborted — LLM unavailable: …)". That is neither an app
+    # verdict nor an unparseable report: retrying LATER can succeed, and
+    # counting it toward stuck punishes the app for the provider (observed
+    # live 2026-08-06: two walkers died on rate limits 4 seconds apart and a
+    # healthy modify went STUCK).
+    if "sub-agent aborted" in text and "LLM unavailable" in text:
+        return {"kind": "throttled", "passed": [], "defects": [], "raw": text}
     # The contract allows PASS|FAIL|BLOCKED, but sub-agents invent softeners —
     # "VERDICT: INCOMPLETE" and "VERDICT: PARTIAL VERIFICATION" both observed
     # live. An unknown word must NOT fall through to "blocked" (which

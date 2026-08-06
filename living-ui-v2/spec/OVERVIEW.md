@@ -4,7 +4,8 @@
 program against it, how each kind of app flows through it, and how the parts
 that are not built yet attach to the parts that are.
 
-Status: adapter **1.6.0**. §11 states exactly what is built and what is not.
+Status: adapter **1.7.0** (adds the trigger plane, §6.2). §11 states exactly
+what is built and what is not.
 
 Contents — §1 Why · §2 What · §3 How it works · §4 **The interface** (program
 against this) · §5 App pipelines · §6 Any agent, and two-way · §7 Phase 4 ·
@@ -496,11 +497,13 @@ an app can be driven end to end with `curl` and one token. **Anything CraftBot
 can do, an external agent can do**, which is what makes the surface real rather
 than a description of CraftBot's private path.
 
-### 6.2 Later — app drives agent (Phase 5)
+### 6.2 App drives agent (Phase 5 — built; spec TRIGGERS-PLAN)
 
 Two-way means a button in the app can ask *an* agent to do something. The
-mechanism is deliberately boring: **a queue collection**, because any agent can
-poll REST and almost none can receive a webhook or hold a socket open.
+mechanism is deliberately boring: **a queue collection** (`agent_requests` —
+one collection, not a request/result pair: a request has exactly one result,
+and one realtime subscription then covers both directions), because any agent
+can poll REST and almost none can receive a webhook or hold a socket open.
 
 ```mermaid
 sequenceDiagram
@@ -508,24 +511,38 @@ sequenceDiagram
     participant App as Living UI
     participant Ag as Any linked agent
 
-    UI->>App: user clicks "Summarise this board"
-    App->>App: insert into _agent_requests
-    Note over App,Ag: PocketBase realtime for fast agents,<br/>plain polling for simple ones
-    Ag->>App: claim the request
+    UI->>App: user clicks "Ask the agent to restock"
+    App->>App: guard validates vs triggers.json,<br/>insert into agent_requests (pending)
+    Note over App,Ag: PocketBase realtime for fast agents,<br/>plain polling for simple ones,<br/>a loopback nudge for the CraftBot host
+    Ag->>App: claim the request (status=claimed)
     Ag->>Ag: do the work
-    Ag->>App: write _agent_results
-    App->>UI: result appears
+    Ag->>App: write result + status=done
+    App->>UI: result appears (realtime)
 ```
+
+The declaration is `triggers.json` (agent-authored at build time): name →
+description, a **trusted instruction**, a param spec, a cooldown. A fire
+carries only the name and validated params — the instruction is read from
+disk by whoever reacts, never from the request, so a compromised app process
+can fire nothing its author did not declare. The in-app guard rejects
+undeclared names, bad params, and rate abuse (10s floor, 30/hour cap) before
+anything reaches any agent, and the queue is append-only — rows are the
+audit trail.
 
 **The security shape is the point, not the transport.** An app that can ask an
 agent to act, combined with third-party apps, means an app someone else wrote
 could drive the user's agent — which holds their email, calendar and payment
-integrations. So Phase 5 requires, from day one:
+integrations. So Phase 5 shipped with, from day one:
 
-- a **declared capability vocabulary** in the manifest — exactly which agent
-  actions this app may request
-- **consent at install**, per capability, in words the user can evaluate
-- **no arbitrary passthrough**, ever
+- a **declared capability vocabulary** — the gate derives
+  `capabilities.triggers` from triggers.json into the canon-hashed manifest;
+  the host's fire gate fails closed on it
+- **consent** — apps built here are pre-approved (the user asked for them);
+  marketplace/imported apps' fires are refused until the user approves the
+  listed triggers (`living_ui_approve_triggers`)
+- **no arbitrary passthrough**, ever — params are data, instructions live on
+  disk, and fires during a build/modify arc (verifier click-throughs) are
+  refused at the host
 
 That last rule is not theoretical: the existing CraftBot integration bridge had
 exactly that shape — caller-controlled destination with the user's real
@@ -844,7 +861,7 @@ promising is the one you built.
 | Bulk writes across many turns produce many receipt lines | **known** |
 | Registry + MCP gateway (one install, every agent) | **parked** |
 | Any-technology mapping + runtime | **parked** (Phase 4) |
-| App → agent, capabilities, consent | **parked** (Phase 5) |
+| App → agent (triggers.json, agent_requests queue, capabilities, consent) | **built** — see §6.2 / TRIGGERS-PLAN |
 
 ---
 
@@ -859,5 +876,7 @@ promising is the one you built.
 | CLI commands | `tools/src/commands/` |
 | receipts, false-claim gate | `app/agent_base.py` |
 | adapter delivery, token, launch | `app/living_ui/v2_runner.py` |
+| trigger plane (guard, queue, nudge) | `blueprint/pb/pb_hooks/_triggers*.js` |
+| trigger fire gates (capability, consent, era) | `app/living_ui/integration_bridge.py` |
 | session + skill selection | `app/living_ui/manager.py` |
 | a runnable check of every guarantee | `scripts/a2app-selfcheck.sh` |

@@ -16,6 +16,8 @@ const COMMANDS: Record<string, { summary: string }> = {
   ops: { summary: "List a project's declared operations (its agent-facing verbs)" },
   run: { summary: 'Execute a declared operation against the RUNNING app' },
   data: { summary: 'Read/write collection records of the RUNNING app (list/get/create/update/delete)' },
+  trigger: { summary: 'Fire a declared trigger of the RUNNING app (tests the app→agent plane)' },
+  requests: { summary: "Inspect the RUNNING app's agent_requests queue (fires and their outcomes)" },
   probe: { summary: 'Scripted headless-browser walk of the RUNNING app (goto/click/type/read/screenshot)' },
   'kit-sync': { summary: 'Re-vendor the kit into a project (wholesale replace)' },
   'adapter-sync': { summary: 'Re-vendor only the system pb_hooks (A2APP adapter) — no rebuild' },

@@ -785,6 +785,33 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             if raw_text.strip() and not _reads_as_blocked(raw_text):
                 kind = "unparseable"
 
+        # The verifier's own LLM was throttled/unavailable — the app was
+        # never judged. Say so and have the agent retry after a pause,
+        # WITHOUT advancing the machine: burning the one unparseable retry
+        # on a provider rate limit stuck a healthy modify (observed live
+        # 2026-08-06, two walkers dead 4s apart). Bounded: after 3 throttled
+        # deaths in an hour it falls through to the stuck belt for real.
+        if kind == "throttled":
+            from app.factory.host_craftbot import get_factory_host
+
+            _throttles = get_factory_host().bump_throttle_retry(project_id)
+            if _throttles <= 3:
+                return {
+                    "status": "error",
+                    "message": (
+                        "The verifier could not run: its LLM provider is "
+                        "rate-limiting (NOT an app defect — nothing was "
+                        "judged). Do other useful work for at least a minute "
+                        "(re-read the requirements, check the server log), "
+                        "then call living_ui_walk_verify again. Do NOT "
+                        "change app code because of this error."
+                    ),
+                }
+            _throttle_exhausted = True
+            kind = "unparseable"  # provider stayed down — escalate honestly
+        else:
+            _throttle_exhausted = False
+
         # An "incomplete" with ZERO passed features is not a coverage
         # caveat — nothing at all stands behind "ready" but smoke checks
         # (observed live 2026-08-05: "✅ ready — ⚠️ 0 feature(s) verified").
@@ -798,12 +825,18 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             from app.factory.host_craftbot import get_factory_host
 
             decision = get_factory_host().report_verify(project_id, "unparseable")
-            _what = (
-                "The verifier finished with ZERO features verified (all NOT "
-                "REACHED) — that is not deliverable"
-                if _zero_verified
-                else "The verifier's report was unparseable (not a browser failure)"
-            )
+            if _throttle_exhausted:
+                _what = (
+                    "The verifier's LLM provider stayed rate-limited across "
+                    "repeated attempts (the app itself was never judged)"
+                )
+            elif _zero_verified:
+                _what = (
+                    "The verifier finished with ZERO features verified (all "
+                    "NOT REACHED) — that is not deliverable"
+                )
+            else:
+                _what = "The verifier's report was unparseable (not a browser failure)"
             if decision is not None and decision.payload.get("redo") == "verify":
                 return {
                     "status": "error",
@@ -1775,6 +1808,105 @@ async def living_ui_marketplace_list(input_data: dict) -> dict:
 
 
 @action(
+    name="living_ui_approve_triggers",
+    description=(
+        "Approve a Living UI app's declared agent triggers (its triggers.json "
+        "— requests the app may fire at the agent). Call this ONLY after the "
+        "user has explicitly agreed to the listed triggers in chat: it is the "
+        "user's consent being recorded, not yours to infer. Apps built here "
+        "are pre-approved; this is for marketplace/imported apps, whose fires "
+        "are refused until approved."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "84d93cca",
+            "description": "The Living UI project whose triggers the user approved.",
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "approved": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "The trigger names now allowed to fire.",
+        },
+        "message": {"type": "string", "example": ""},
+    },
+    test_payload={"project_id": "test123", "simulated_mode": True},
+)
+def living_ui_approve_triggers(input_data: dict) -> dict:
+    """Record the user's consent for an app's declared agent triggers."""
+    if input_data.get("simulated_mode", False):
+        return {"status": "success", "approved": ["restock_needed"], "message": ""}
+
+    project_id = str(input_data.get("project_id", "")).strip()
+    if not project_id:
+        return {"status": "error", "approved": [], "message": "project_id is required."}
+
+    try:
+        import json as _json
+        from pathlib import Path
+
+        from app.living_ui import get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        project = manager.get_project(project_id) if manager else None
+        if project is None:
+            return {
+                "status": "error",
+                "approved": [],
+                "message": f"Project '{project_id}' not found.",
+            }
+
+        try:
+            declared = (
+                _json.loads(
+                    (Path(project.path) / "triggers.json").read_text(encoding="utf-8")
+                ).get("triggers")
+                or {}
+            )
+        except FileNotFoundError:
+            declared = {}
+        except Exception as e:
+            return {
+                "status": "error",
+                "approved": [],
+                "message": f"triggers.json unreadable: {e}",
+            }
+        if not declared:
+            return {
+                "status": "error",
+                "approved": [],
+                "message": (
+                    "This app declares no triggers — nothing to approve. "
+                    "(Approval is per-app and covers its triggers.json.)"
+                ),
+            }
+
+        from app.factory.host_craftbot import get_factory_host
+
+        get_factory_host().set_triggers_approved(project_id)
+        names = sorted(declared.keys())
+        return {
+            "status": "success",
+            "approved": names,
+            "message": (
+                f"Approved {len(names)} trigger(s) for '{project.name}': "
+                + ", ".join(names)
+                + ". Fires now reach the agent (the app's own cooldowns and "
+                "rate caps still apply)."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "approved": [], "message": f"Approval failed: {e}"}
+
+
+@action(
     name="living_ui_marketplace_install",
     description=(
         "Install a pre-built Living UI app from the marketplace by id "
@@ -1932,6 +2064,15 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
         project = result.get("project") or {}
         project_id = project.get("id", "")
         url = result.get("url") or project.get("url") or ""
+        # Consent surfacing (spec TRIGGERS-PLAN): marketplace apps arrive
+        # third-party — their declared agent triggers need the user's yes.
+        _triggers_brief = ""
+        try:
+            _live = manager.get_project(project_id)
+            if _live is not None:
+                _triggers_brief = manager.declared_triggers_brief(_live)
+        except Exception:
+            _triggers_brief = ""
         # Surface it in the sidebar + viewport like the UI-driven install.
         try:
             await broadcast_living_ui_created(project)
@@ -1964,6 +2105,7 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
                     f"Marketplace app '{app_id}' installed into this project "
                     f"and running at {url}. The system has announced it to "
                     "the user — do NOT send your own summary. End the run."
+                    + _triggers_brief
                 ),
             }
         if adopt_id and will_adapt:
@@ -1978,7 +2120,7 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
                     "copy), then living_ui_walk_verify to deploy and "
                     "announce. If the requirements list no concrete "
                     "adaptations, ask the user what to change with a final "
-                    "send_message instead of guessing."
+                    "send_message instead of guessing." + _triggers_brief
                 ),
             }
         return {
@@ -1986,7 +2128,7 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
             "project_id": project_id,
             "message": (
                 f"Marketplace app '{app_id}' installed and running at {url}. "
-                "Tell the user it is ready."
+                "Tell the user it is ready." + _triggers_brief
             ),
         }
     except Exception as e:

@@ -32,6 +32,16 @@ this skill covers only what differs.
    `## Changes` is append-only. The verifier checks every entry there, so an
    unrecorded change is an unverified change (and a recorded one can never
    be silently dropped by a later modify).
+   **SUPERSESSION — the one permitted edit to old entries**: when the new
+   request REVERSES or REPLACES an earlier `## Changes` entry (the user
+   changed their mind, or the old entry demanded an approach the platform
+   now rejects), wrap the stale entry in `~~strikethrough~~` — do not delete
+   it (it stays as history) and do not leave it live (the verifier enforces
+   every unstruck line, and contradictory live entries make the spec
+   unsatisfiable: an app once went STUCK three times because old entries
+   demanded a handler the validation gate forbids while the new entry
+   forbade it — no code could satisfy both). Strike ONLY entries the new
+   request genuinely contradicts, never entries you merely failed to build.
 
 ## Rules for changing a live app
 
@@ -39,7 +49,11 @@ this skill covers only what differs.
   (NEW files only — never edit, rename, or delete an applied migration: the
   filename is its identity in the live DB, and a renamed one makes the app
   unable to boot), `pb/pb_hooks/ops.pb.js` (+ new `*.pb.js` / `*.js` helper
-  modules), `operations.json` (non-system), `LIVING_UI.md`.
+  modules), `operations.json` (non-system), `triggers.json`, `LIVING_UI.md`.
+  Adding/changing an agent trigger (app fires the agent): declare it in
+  `triggers.json` first — see the creator skill's `references/TRIGGERS.md`;
+  the gate re-derives `capabilities.triggers` on relaunch, and fires of
+  undeclared names are refused in-app.
 - **Schema changes are additive migrations.** The user's data lives in
   `pb/pb_data/` — never delete it, never drop-and-recreate collections that
   hold data. To alter a collection, write a new migration that loads and

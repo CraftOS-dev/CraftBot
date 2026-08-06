@@ -41,6 +41,10 @@ class TriggerSource(str, Enum):
     # tells that agent the wizard finalized and which project resulted, so
     # later references ("add data to it") resolve without asking the user.
     LIVING_UI_CREATED = "living_ui_created"
+    # A Living UI app fired a declared trigger at the agent (spec
+    # TRIGGERS-PLAN): a validated agent_requests row exists and the bridge's
+    # capability/consent/era gates all passed. Lands in the project's session.
+    LIVING_UI_APP_REQUEST = "living_ui_app_request"
     # Catch-all for producers not yet migrated to TriggerService.
     LEGACY = "legacy"
 
