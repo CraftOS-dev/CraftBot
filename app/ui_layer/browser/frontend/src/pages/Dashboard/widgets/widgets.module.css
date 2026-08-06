@@ -7,8 +7,10 @@
  * 1. Nothing here is sized in fixed pixels. Every font size, gap, pad, bar and
  *    icon comes from the --w-* ramp declared on .body in WidgetChrome.module.css,
  *    which is driven by the widget's own size via container query units. A
- *    widget at the 5x5 ceiling is a genuinely bigger widget, not a small one
- *    with more padding around it.
+ *    widget at its ceiling is a genuinely bigger widget, not a small one with
+ *    more padding around it. (Widgets capped at their minimum height don't
+ *    scale at all in practice — the ramp is on cqmin, and their short axis
+ *    never changes.)
  * 2. Nothing leaves vertical slack lying around. Blocks take `flex` shares of
  *    the body so growing a widget grows its content, rather than pushing
  *    fixed-height rows apart (`justify-content: space-between`, which this file
@@ -16,7 +18,16 @@
  *    Information look broken).
  *
  * Spacing between a widget's top-level blocks comes from .body's `gap` — don't
- * add margins for it here or it doubles up. */
+ * add margins for it here or it doubles up.
+ *
+ * ONE DELIBERATE EXCEPTION to rule 1 and 2 both: the gray stat tiles —
+ * `.tokenDetail` (Input/Output/Cached), `.compactStatItem` (Connected/Calls and
+ * friends) and `.usageStat` (Requests/Peak Hour/Peak Count). Those are labels on
+ * a number, not content that benefits from room, so they keep fixed type and
+ * fixed vertical padding and their rows are `flex: 0 0 auto`: they widen with
+ * the widget and never get taller. Everything below them absorbs the height
+ * instead. Each is marked FIXED-HEIGHT TILE below — including the icon pin,
+ * without which a growing --w-icon would grow the tile it sits in. */
 
 /* Time Period Selector */
 .periodSelector {
@@ -143,13 +154,17 @@
   min-height: 0;
 }
 
+/* Takes the height the three fixed tiles no longer claim, up to a point: this
+   widget caps at its minimum height, so the leftover is a fixed amount and a
+   hairline bar floating in it would read as a mistake. Grows from the --w-bar
+   basis to a chunky-but-still-a-bar 48px. */
 .tokenRatioBar {
   display: flex;
-  height: var(--w-bar);
+  flex: 1 1 var(--w-bar);
+  max-height: 48px;
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--bg-tertiary);
-  flex-shrink: 0;
 }
 
 .tokenInputBar {
@@ -215,20 +230,20 @@
   color: var(--text-primary);
 }
 
+/* FIXED-HEIGHT TILE — Input/Output/Cached. The ratio bar above takes the height
+   these three give up. */
 .tokenDetails {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: 1fr;
   gap: var(--w-gap);
-  flex: 2;
-  min-height: 0;
+  flex: 0 0 auto;
 }
 
 .tokenDetail {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: var(--w-pad);
+  padding: var(--space-1) var(--space-2);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   text-align: center;
@@ -236,12 +251,12 @@
 }
 
 .tokenDetailLabel {
-  font-size: var(--w-text-xs);
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .tokenDetailValue {
-  font-size: var(--w-value);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   line-height: var(--leading-tight);
@@ -354,16 +369,13 @@
   color: var(--color-info);
 }
 
-/* Usage Stats (Usage Patterns) */
+/* FIXED-HEIGHT TILE — Requests/Peak Hour/Peak Count (Usage Patterns). All the
+   height goes to the chart below, which is what the widget is actually for. */
 .usageStats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: 1fr;
   gap: var(--w-gap);
-  /* A third of the chart's share: the tiles grow with the widget, but the
-     chart stays the thing the widget is mostly about. */
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
 }
 
 .usageStat {
@@ -371,7 +383,7 @@
   flex-direction: column;
   justify-content: center;
   text-align: center;
-  padding: var(--w-pad);
+  padding: var(--space-1) var(--space-2);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   line-height: var(--leading-tight);
@@ -379,12 +391,12 @@
 }
 
 .usageLabel {
-  font-size: var(--w-text-xs);
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .usageValue {
-  font-size: var(--w-value);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   overflow: hidden;
@@ -398,7 +410,7 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   line-height: var(--leading-tight);
-  flex: 3;
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -471,12 +483,12 @@
   min-width: 0;
 }
 
-/* Compact Stats (MCP/Skills/Integrations/Living UI/Agent Status) */
+/* FIXED-HEIGHT TILE — Connected/Calls and friends (MCP/Skills/Integrations/
+   Living UI/Agent Status). The list below takes the height. */
 .compactStats {
   display: flex;
   gap: var(--w-gap);
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
 }
 
 .compactStatItem {
@@ -485,21 +497,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: calc(var(--w-gap) * 0.5);
-  padding: var(--w-pad);
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
 }
 
+/* Pins the tile's icons against the global --w-icon rule further up: they're
+   the tallest thing in the row, so a scaling icon would scale the tile. The
+   descendant selector outranks the .successIcon/.primaryIcon classes. */
+.compactStatItem svg {
+  width: 14px;
+  height: 14px;
+}
+
 .compactStatValue {
-  font-size: var(--w-value);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   line-height: var(--leading-tight);
 }
 
 .compactStatLabel {
-  font-size: var(--w-text-xs);
+  font-size: var(--text-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -508,14 +528,15 @@
 
 /* Usage Section (Top Tools/Skills/Integrations/Living UI projects) —
  * top-anchored rather than vertical-centered: list content shouldn't
- * drift position as the widget is resized. Twice the share of the stat
- * tiles above it, since the list is the substance of these widgets. */
+ * drift position as the widget is resized. The only flexible block in
+ * these widgets now that the stat tiles are fixed, so it absorbs all the
+ * height (Agent Status has two, which split it evenly). */
 .usageSection {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   gap: calc(var(--w-gap) * 0.5);
-  flex: 2;
+  flex: 1;
   min-height: 0;
 }
 

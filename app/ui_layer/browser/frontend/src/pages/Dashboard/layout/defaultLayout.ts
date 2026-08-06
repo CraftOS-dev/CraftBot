@@ -37,7 +37,6 @@ const KNOWN_ORDER = () => DEFAULT_ORDER.filter(id => WIDGET_REGISTRY[id])
 // render, so this only needs to produce a reasonable, non-overlapping
 // starting arrangement.
 function buildBreakpointLayout(bp: Breakpoint): Layout[] {
-  const bounds = boundsFor(bp)
   const cols = COLS[bp]
   let x = 0
   let rowY = 0
@@ -45,7 +44,7 @@ function buildBreakpointLayout(bp: Breakpoint): Layout[] {
   const items: Layout[] = []
 
   for (const id of KNOWN_ORDER()) {
-    const item = seedItem(id, bounds, cols)
+    const item = seedItem(id, boundsFor(bp, id))
     if (x + item.w > cols) {
       x = 0
       rowY += rowHeight

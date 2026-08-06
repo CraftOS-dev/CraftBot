@@ -72,18 +72,16 @@
   min-width: 0;
 }
 
-.layoutIcon {
-  color: var(--text-muted);
-  margin-right: var(--space-1);
-  flex-shrink: 0;
-}
-
 /* --radius-md, not --radius-sm, to match the icon buttons sitting next to it.
  * Hover mirrors the .secondary IconButton treatment so the whole row responds
  * the same way. Focus is already covered by the global `select:focus` rule,
- * which outspecifies this class. */
+ * which outspecifies this class.
+ *
+ * The asymmetric padding is for the native dropdown arrow: the UA draws it
+ * inset from the right edge by padding-right, so --space-2 there left it
+ * almost touching the border. */
 .layoutSelect {
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-2);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);

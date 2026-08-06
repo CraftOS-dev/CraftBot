@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { COLS, STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS } from './constants'
+import { STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS } from './constants'
 import { createDefaultLayout } from './defaultLayout'
 import { STORAGE_VERSION, migrateV1 } from './migrateLayouts'
 import { boundsFor, normalizeLayouts, seedItem } from './normalizeLayouts'
@@ -75,7 +75,7 @@ function makeLayoutId(): string {
 // unsatisfiable. Same seeding the grid itself uses, so a widget added to a
 // layout is indistinguishable from one that shipped on it.
 function emptyItemFor(widgetId: string, bp: Breakpoint) {
-  return seedItem(widgetId, boundsFor(bp), COLS[bp])
+  return seedItem(widgetId, boundsFor(bp, widgetId))
 }
 
 export function useDashboardLayouts() {

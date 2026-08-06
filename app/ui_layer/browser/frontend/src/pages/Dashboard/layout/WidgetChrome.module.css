@@ -99,3 +99,10 @@
   padding: clamp(8px, calc(4.8px + 1.6cqmin), 20px);
   gap: var(--w-gap);
 }
+
+/* For widgets that draw their own full-bleed surface — the Mascot's scene —
+   where the shared padding reads as a band of card background framing it
+   rather than as breathing room. The --w-* ramp above still applies. */
+.bodyBleed {
+  padding: 0;
+}

@@ -17,6 +17,20 @@ export function formatUptime(seconds: number): string {
   return `${mins}m`
 }
 
+/**
+ * Token counts, abbreviated once they stop being readable: 1,532,532 → "1.5M".
+ * Below a million the exact figure still scans, and the tiles showing these are
+ * fixed-height, so a long number would have to ellipsize instead.
+ *
+ * The B branch isn't reachable today but keeps a long-lived agent from
+ * rendering "1532.5M".
+ */
+export function formatTokenCount(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  return n.toLocaleString()
+}
+
 export function formatBytes(mb: number): string {
   if (mb >= 1024) {
     return `${(mb / 1024).toFixed(1)} GB`

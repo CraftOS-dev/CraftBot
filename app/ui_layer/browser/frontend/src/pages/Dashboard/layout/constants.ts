@@ -13,18 +13,22 @@ export const CONTAINER_PADDING: [number, number] = [12, 12]
 // width. DashboardGrid measures and derives it — see `columnWidth` below.
 
 /**
- * The one resize floor and ceiling every widget shares, in grid cells.
+ * The resize floor every widget shares, in grid cells — square, and since cells
+ * are square pixels, a widget at its minimum is a square on screen at any window
+ * size. `lg` is 10 columns precisely so this comes out whole: 5 minimum widgets
+ * per row. Narrower breakpoints keep the same floor and give up per-row density
+ * rather than shrinking the tile below what its content can use.
  *
- * Both bounds are square *numbers*, and cells are square *pixels*, so a widget
- * at either bound is a square on screen at any window size. `lg` is 10 columns
- * precisely so the ratios come out whole: 5 minimum widgets per row, 2 maximum
- * ones. Narrower breakpoints keep the same floor and give up per-row density
- * instead of shrinking the tile below what its content can use.
+ * It's also the *unit* widget sizes are written in. `widgets/registry.ts` states
+ * every size as a multiple of this tile — `{ w: 1.5, h: 1 }` is "half again as
+ * wide as the minimum, exactly as tall" — because that's how the sizes are
+ * specified in review, and one conversion here beats twelve mental ones there.
+ * Ceilings are per-widget and, unlike the floor, need not be square.
  */
-export const SIZE_BOUNDS: Record<Breakpoint, { min: number; max: number }> = {
-  lg: { min: 2, max: 5 }, // 10 cols → 5 per row at min, 2 per row at max
-  md: { min: 2, max: 4 }, //  8 cols → 4 per row at min, 2 per row at max
-  sm: { min: 2, max: 4 }, //  4 cols → 2 per row at min, 1 per row at max
+export const WIDGET_MIN_CELLS = 2
+
+export function unitsToCells(units: number): number {
+  return Math.max(WIDGET_MIN_CELLS, Math.round(units * WIDGET_MIN_CELLS))
 }
 
 /** Width of one grid column — and therefore the height of one grid row. */

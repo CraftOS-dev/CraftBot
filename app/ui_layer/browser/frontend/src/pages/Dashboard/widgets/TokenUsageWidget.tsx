@@ -1,6 +1,6 @@
 import { useWebSocket } from '../../../contexts/WebSocketContext'
 import { Badge } from '../../../components/ui'
-import { TimePeriodSelector, useMetricsPeriod } from './shared'
+import { TimePeriodSelector, formatTokenCount, useMetricsPeriod } from './shared'
 import styles from './widgets.module.css'
 
 export function TokenUsageWidget() {
@@ -27,6 +27,20 @@ export function TokenUsageWidget() {
   return (
     <>
       <TimePeriodSelector selected={period} onChange={onChange} />
+      <div className={styles.tokenDetails}>
+        <div className={styles.tokenDetail}>
+          <span className={styles.tokenDetailLabel}>Input</span>
+          <span className={styles.tokenDetailValue}>{formatTokenCount(inputTokens)}</span>
+        </div>
+        <div className={styles.tokenDetail}>
+          <span className={styles.tokenDetailLabel}>Output</span>
+          <span className={styles.tokenDetailValue}>{formatTokenCount(outputTokens)}</span>
+        </div>
+        <div className={styles.tokenDetail}>
+          <span className={styles.tokenDetailLabel}>Cached</span>
+          <span className={styles.tokenDetailValue}>{formatTokenCount(cachedTokens)}</span>
+        </div>
+      </div>
       <div className={styles.tokenRatioDisplay}>
         <div className={styles.tokenRatioBar}>
           <div className={styles.tokenInputBar} style={{ width: `${inputRatio}%` }} />
@@ -51,20 +65,7 @@ export function TokenUsageWidget() {
           </div>
         </div>
       </div>
-      <div className={styles.tokenDetails}>
-        <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Input</span>
-          <span className={styles.tokenDetailValue}>{inputTokens.toLocaleString()}</span>
-        </div>
-        <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Output</span>
-          <span className={styles.tokenDetailValue}>{outputTokens.toLocaleString()}</span>
-        </div>
-        <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Cached</span>
-          <span className={styles.tokenDetailValue}>{cachedTokens.toLocaleString()}</span>
-        </div>
-      </div>
+      
     </>
   )
 }
@@ -80,5 +81,7 @@ export function TokenUsageHeaderBadge() {
   const output = dashboardMetrics?.token.output ?? 0
   const cached = dashboardMetrics?.token.cached ?? 0
   const total = Math.max(0, rawInput - cached) + output
-  return <Badge variant="default">{total.toLocaleString()} total</Badge>
+  // Same abbreviation as the tiles — the badge is the same quantity and
+  // shouldn't disagree with them about how it's written.
+  return <Badge variant="default">{formatTokenCount(total)} total</Badge>
 }

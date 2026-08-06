@@ -8,11 +8,12 @@ import { useStageMeasure } from './useStageMeasure'
 import { useMascotBehavior } from './useMascotBehavior'
 import { useCursorEyeTracking } from './useCursorEyeTracking'
 import { useWheelZoom } from './useWheelZoom'
-import { computeMaxAmplitude } from './mascotEngine'
+import { computeMascotSize, computeMaxAmplitude } from './mascotEngine'
 import styles from './Mascot.module.css'
 
 interface Props {
-  /** Optional pixel size for the mascot SVG. Defaults to 120. */
+  /** Pixel size for the mascot SVG. Omit to size it from the stage — see
+   *  computeMascotSize; an explicit value pins it and stops it scaling. */
   mascotSize?: number
 }
 
@@ -29,7 +30,7 @@ const STAGE_ZOOM = {
   initial: 0.8,
 } as const
 
-export function MascotDisplay({ mascotSize = 80 }: Props) {
+export function MascotDisplay({ mascotSize: mascotSizeOverride }: Props) {
   const {
     state,
     completedCount,
@@ -44,10 +45,15 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
   const isSleeping = state === 'idle' || state === 'stopped' || state === 'error'
   const canBeWoken = state === 'idle'
 
-  // ── Stage measurement → wander amplitude ───────────────────────────
+  // ── Stage measurement → mascot size + wander amplitude ─────────────
+  // The mascot is sized from the stage's HEIGHT, the same dimension the
+  // background scene is anchored to, so the character keeps its scale
+  // relative to the world as the widget is resized. Amplitude then follows
+  // from both: a bigger mascot has correspondingly less room to wander.
   const stageRef = useRef<HTMLDivElement>(null)
-  const stageContentWidth = useStageMeasure(stageRef)
-  const maxAmplitude = computeMaxAmplitude(stageContentWidth, mascotSize)
+  const stage = useStageMeasure(stageRef)
+  const mascotSize = mascotSizeOverride ?? computeMascotSize(stage.height)
+  const maxAmplitude = computeMaxAmplitude(stage.width, mascotSize)
 
   // ── Stage scroll-to-zoom ───────────────────────────────────────────
   // useWheelZoom binds the wheel listener (non-passive) and clamps the

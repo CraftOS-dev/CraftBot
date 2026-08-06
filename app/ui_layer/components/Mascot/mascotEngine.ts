@@ -69,6 +69,27 @@ export const STAGE_EDGE_PADDING_PX = 12
 export const MIN_HOP_STEP_PX = 20
 export const MAX_HOP_STEP_PX = 80
 
+/** The mascot's size as a fraction of the stage's content HEIGHT.
+ *
+ *  Height, not width, because that's what the scene is anchored to:
+ *  .bgDay/.bgNight are sized `height: var(--bg-zoom) * 100%` and the grass
+ *  line lands at a fixed percentage of stage height, so the mascot has to
+ *  track the same dimension to keep its scale relative to the scene fixed.
+ *  Before this existed the size was a hard 80px, so resizing the widget grew
+ *  the world around a mascot that stayed put — the resize bug.
+ *
+ *  0.18 is back-solved from the old constant at the default widget size, so a
+ *  default-size Mascot widget still renders at roughly 80px. Retune by eye. */
+export const MASCOT_SIZE_RATIO = 0.18
+export const MASCOT_SIZE_MIN_PX = 44
+export const MASCOT_SIZE_MAX_PX = 200
+
+/** The mascot's rendered size for a given stage height. */
+export function computeMascotSize(stageContentHeight: number): number {
+  const scaled = stageContentHeight * MASCOT_SIZE_RATIO
+  return Math.round(Math.min(Math.max(scaled, MASCOT_SIZE_MIN_PX), MASCOT_SIZE_MAX_PX))
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Action name handling
 // ─────────────────────────────────────────────────────────────────────

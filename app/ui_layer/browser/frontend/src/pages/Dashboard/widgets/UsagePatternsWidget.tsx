@@ -1,5 +1,4 @@
 import { useWebSocket } from '../../../contexts/WebSocketContext'
-import { Badge } from '../../../components/ui'
 import { TimePeriodSelector, formatHour, getChartLabels, useMetricsPeriod } from './shared'
 import styles from './widgets.module.css'
 
@@ -56,11 +55,6 @@ export function UsagePatternsWidget() {
   )
 }
 
-// Rendered separately, in WidgetChrome's title bar — see TaskStatsHeaderBadge
-// for why this always shows the all-time request count rather than the
-// currently selected period.
-export function UsagePatternsHeaderBadge() {
-  const { dashboardMetrics } = useWebSocket()
-  const total = (dashboardMetrics?.usage.hourlyDistribution ?? []).reduce((sum, count) => sum + count, 0)
-  return <Badge variant="default">{total} requests</Badge>
-}
+// No title-bar badge here on purpose: the request count it showed is already
+// the first of the three tiles in the body, and the all-time figure disagreed
+// with them whenever a period other than All was selected.

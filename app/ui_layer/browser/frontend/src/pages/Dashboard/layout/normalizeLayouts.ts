@@ -1,5 +1,5 @@
 import type { Layout } from 'react-grid-layout'
-import { COLS, SIZE_BOUNDS } from './constants'
+import { COLS, WIDGET_MIN_CELLS, unitsToCells } from './constants'
 import type { Breakpoint, BreakpointLayouts, NamedLayout } from './types'
 import { WIDGET_REGISTRY } from '../widgets/registry'
 
@@ -14,46 +14,51 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * The four constraint fields every grid item carries, for one breakpoint.
- * Square by construction — see SIZE_BOUNDS. A minimum wider than the grid is
+ * The four constraint fields a widget's grid item carries, for one breakpoint.
+ *
+ * The floor is shared and square (WIDGET_MIN_CELLS); the ceiling comes from the
+ * widget's own `sizing.max` and need not be square — several widgets cap at
+ * their minimum height, i.e. resize width-only. A bound wider than the grid is
  * unsatisfiable and RGL will fight itself trying to honor both it and the
- * column count, so both bounds are capped at the column count.
+ * column count, so both are capped at the column count.
  */
-export function boundsFor(bp: Breakpoint) {
+export function boundsFor(bp: Breakpoint, widgetId: string) {
   const cols = COLS[bp]
-  const { min, max } = SIZE_BOUNDS[bp]
+  const { max } = WIDGET_REGISTRY[widgetId].sizing
+  const minW = Math.min(WIDGET_MIN_CELLS, cols)
   return {
-    minW: Math.min(min, cols),
-    minH: min,
-    maxW: Math.min(max, cols),
-    maxH: max,
+    minW,
+    minH: WIDGET_MIN_CELLS,
+    maxW: Math.max(minW, Math.min(unitsToCells(max.w), cols)),
+    maxH: Math.max(WIDGET_MIN_CELLS, unitsToCells(max.h)),
   }
 }
 
 type ItemBounds = ReturnType<typeof boundsFor>
 
 /** A grid item at its registry starting size, clamped into the bounds. */
-export function seedItem(widgetId: string, bounds: ItemBounds, cols: number): Layout {
-  const def = WIDGET_REGISTRY[widgetId].defaultLayout
+export function seedItem(widgetId: string, bounds: ItemBounds): Layout {
+  const { default: start } = WIDGET_REGISTRY[widgetId].sizing
   return {
     i: widgetId,
     x: 0,
     y: Infinity,
-    w: clamp(def.w, bounds.minW, Math.min(bounds.maxW, cols)),
-    h: clamp(def.h, bounds.minH, bounds.maxH),
+    w: clamp(unitsToCells(start.w), bounds.minW, bounds.maxW),
+    h: clamp(unitsToCells(start.h), bounds.minH, bounds.maxH),
     ...bounds,
   }
 }
 
-function normalizeItem(item: Layout, bounds: ItemBounds, cols: number): Layout | null {
+function normalizeItem(item: Layout, bp: Breakpoint): Layout | null {
   if (!item || typeof item !== 'object' || typeof item.i !== 'string') return null
+  if (!WIDGET_REGISTRY[item.i]) return null // widget no longer exists in the registry
 
-  const def = WIDGET_REGISTRY[item.i]?.defaultLayout
-  if (!def) return null // widget no longer exists in the registry
+  const bounds = boundsFor(bp, item.i)
+  const seed = seedItem(item.i, bounds)
 
-  const w = clamp(num(item.w, def.w), bounds.minW, Math.min(bounds.maxW, cols))
-  const h = clamp(num(item.h, def.h), bounds.minH, bounds.maxH)
-  const x = clamp(num(item.x, 0), 0, cols - w)
+  const w = clamp(num(item.w, seed.w), bounds.minW, bounds.maxW)
+  const h = clamp(num(item.h, seed.h), bounds.minH, bounds.maxH)
+  const x = clamp(num(item.x, 0), 0, COLS[bp] - w)
   // `y: Infinity` means "append at the bottom" and comes back from JSON as
   // null. Restore that intent rather than silently pinning the item to row 0.
   const y = num(item.y, Infinity)
@@ -62,23 +67,21 @@ function normalizeItem(item: Layout, bounds: ItemBounds, cols: number): Layout |
 }
 
 function normalizeBreakpoint(items: unknown, widgetIds: string[], bp: Breakpoint): Layout[] {
-  const bounds = boundsFor(bp)
-  const cols = COLS[bp]
   const out: Layout[] = []
   const seen = new Set<string>()
 
   for (const item of Array.isArray(items) ? (items as Layout[]) : []) {
-    const next = normalizeItem(item, bounds, cols)
+    const next = normalizeItem(item, bp)
     if (!next || seen.has(next.i)) continue
     seen.add(next.i)
     out.push(next)
   }
 
   // A widget on the layout but absent from this breakpoint would otherwise get
-  // RGL's 1x1 fallback — below every registry minimum. Seed it instead.
+  // RGL's 1x1 fallback — below every widget's minimum. Seed it instead.
   for (const id of widgetIds) {
     if (seen.has(id)) continue
-    out.push(seedItem(id, bounds, cols))
+    out.push(seedItem(id, boundsFor(bp, id)))
   }
 
   return out
@@ -88,12 +91,12 @@ function normalizeBreakpoint(items: unknown, widgetIds: string[], bp: Breakpoint
  * Re-applies the current sizing constraints to a stored layout.
  *
  * Stored grid items are snapshots: `minW`/`minH`/`maxW`/`maxH` are copied out
- * of the constants once, at seed time (defaultLayout.ts / useDashboardLayouts'
+ * of the registry once, at seed time (defaultLayout.ts / useDashboardLayouts'
  * emptyItemFor), and then round-tripped forever through react-grid-layout's
- * `onLayoutChange`. Editing SIZE_BOUNDS would therefore never reach anyone who
- * already has a stored layout. Running this on every read keeps the constants
- * the single source of truth, with no migration to remember to write — a
- * versioned one-shot would fix today's drift and reintroduce the same bug on
+ * `onLayoutChange`. Editing a widget's `sizing` would therefore never reach
+ * anyone who already has a stored layout. Running this on every read keeps the
+ * registry the single source of truth, with no migration to remember to write —
+ * a versioned one-shot would fix today's drift and reintroduce the same bug on
  * the next edit. `version` stays reserved for a genuine change of storage
  * *shape*, which is what migrateLayouts.ts handles.
  *

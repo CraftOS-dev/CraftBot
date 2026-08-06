@@ -14,7 +14,7 @@ import type { WidgetDefinition } from './types'
 import { TaskStatsWidget, TaskStatsHeaderBadge } from './TaskStatsWidget'
 import { TokenUsageWidget, TokenUsageHeaderBadge } from './TokenUsageWidget'
 import { SystemResourcesWidget } from './SystemResourcesWidget'
-import { UsagePatternsWidget, UsagePatternsHeaderBadge } from './UsagePatternsWidget'
+import { UsagePatternsWidget } from './UsagePatternsWidget'
 import { McpServersWidget } from './McpServersWidget'
 import { SkillsWidget } from './SkillsWidget'
 import { IntegrationsWidget } from './IntegrationsWidget'
@@ -28,15 +28,17 @@ import { RecentActivityWidget } from './RecentActivityWidget'
 // Recent Activity, Logs, ...) are added here later — no other file in
 // `layout/` needs to change to support a new widget.
 //
-// `defaultLayout` is a *starting* size only, in grid cells. The resize floor
-// and ceiling are not per-widget: every widget shares one square pair, defined
-// once as SIZE_BOUNDS in layout/constants.ts (2x2 up to 5x5 at lg). Don't
-// reintroduce a per-widget minimum when adding a widget — make the content work
-// at 2x2 instead; widgets.module.css scales it with the widget's own size.
+// `sizing` is in minimum units, not grid cells: 1 = the shared minimum tile
+// (see WIDGET_MIN_CELLS in layout/constants.ts), so `{ w: 1.5, h: 1 }` is half
+// again as wide as the minimum and exactly as tall. The floor is shared and
+// square; the ceiling is per-widget and need not be, because a widget with two
+// stat tiles and three list rows goes empty long before one with a chart does.
+// `max.h: 1` is deliberate where it appears — that widget resizes width-only.
 //
-// Those bounds are authoritative at runtime, not only at seed time — layout/
+// Both bounds are authoritative at runtime, not only at seed time — layout/
 // normalizeLayouts.ts re-applies them to stored layouts on every read, so
-// editing them does reach people who already have a saved dashboard.
+// editing them does reach people who already have a saved dashboard, with no
+// migration to write.
 export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
   taskStats: {
     id: 'taskStats',
@@ -45,7 +47,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     description: 'Completed, failed, running tasks and success rate.',
     component: TaskStatsWidget,
     headerBadge: TaskStatsHeaderBadge,
-    defaultLayout: { w: 3, h: 3 },
+    sizing: { default: { w: 1.5, h: 1 }, max: { w: 1.5, h: 1 } },
     singleton: true,
   },
   tokenUsage: {
@@ -55,7 +57,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     description: 'Input/output/cached token totals and ratios.',
     component: TokenUsageWidget,
     headerBadge: TokenUsageHeaderBadge,
-    defaultLayout: { w: 4, h: 3 },
+    sizing: { default: { w: 1.5, h: 1 }, max: { w: 1.5, h: 1 } },
     singleton: true,
   },
   systemResources: {
@@ -64,7 +66,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Cpu,
     description: 'CPU, memory, disk, thread pool and network I/O.',
     component: SystemResourcesWidget,
-    defaultLayout: { w: 4, h: 3 },
+    sizing: { default: { w: 1.5, h: 1 }, max: { w: 1.5, h: 1 } },
     singleton: true,
   },
   usagePatterns: {
@@ -73,8 +75,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: BarChart3,
     description: 'Hourly request distribution and peak usage.',
     component: UsagePatternsWidget,
-    headerBadge: UsagePatternsHeaderBadge,
-    defaultLayout: { w: 4, h: 4 },
+    sizing: { default: { w: 2, h: 1.5 }, max: { w: 2, h: 2 } },
     singleton: true,
   },
   mcpServers: {
@@ -83,7 +84,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Hammer,
     description: 'Connected servers, call volume, top tools.',
     component: McpServersWidget,
-    defaultLayout: { w: 3, h: 3 },
+    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2, h: 2 } },
     singleton: true,
   },
   skills: {
@@ -92,7 +93,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Package,
     description: 'Enabled skills, invocation counts, top skills.',
     component: SkillsWidget,
-    defaultLayout: { w: 3, h: 3 },
+    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2, h: 2 } },
     singleton: true,
   },
   integrations: {
@@ -101,7 +102,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Globe,
     description: 'Connected integrations and call volume.',
     component: IntegrationsWidget,
-    defaultLayout: { w: 3, h: 3 },
+    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2, h: 2 } },
     singleton: true,
   },
   modelInfo: {
@@ -110,7 +111,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Bot,
     description: 'Active provider, model name and model ID.',
     component: ModelInfoWidget,
-    defaultLayout: { w: 3, h: 2 },
+    sizing: { default: { w: 1.5, h: 1 }, max: { w: 1.5, h: 1 } },
     singleton: true,
   },
   mascot: {
@@ -119,7 +120,10 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Bot,
     description: 'The CraftBot mascot — reacts to agent activity.',
     component: MascotWidget,
-    defaultLayout: { w: 3, h: 3 },
+    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2, h: 2.5 } },
+    // The mascot draws its own scene edge to edge; the shared body padding
+    // would show as a band of card background around it.
+    bleed: true,
     singleton: true,
   },
   agentStatus: {
@@ -128,7 +132,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Activity,
     description: 'Currently running tasks and the last error.',
     component: AgentStatusWidget,
-    defaultLayout: { w: 3, h: 3 },
+    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2, h: 2 } },
     singleton: true,
   },
   livingUi: {
@@ -137,7 +141,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Layers,
     description: 'Installed and running Living UIs.',
     component: LivingUIWidget,
-    defaultLayout: { w: 3, h: 3 },
+    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2, h: 2 } },
     singleton: true,
   },
   recentActivity: {
@@ -146,7 +150,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: History,
     description: 'Most recent actions across all sessions, with timing and tokens.',
     component: RecentActivityWidget,
-    defaultLayout: { w: 4, h: 5 },
+    sizing: { default: { w: 2, h: 2 }, max: { w: 2, h: 2 } },
     singleton: true,
   },
 }

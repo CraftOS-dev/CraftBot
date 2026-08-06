@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LayoutGrid, Pencil, Plus, Timer, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Timer, Trash2 } from 'lucide-react'
 import { Button, ConfirmModal, IconButton, StatusIndicator } from '../../../components/ui'
 import { useConfirmModal, useDerivedAgentStatus } from '../../../hooks'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
@@ -67,7 +67,6 @@ export function DashboardHeader({
       </div>
 
       <div className={styles.controls}>
-        <LayoutGrid size={14} className={styles.layoutIcon} />
         <select
           className={styles.layoutSelect}
           value={activeLayoutId}
