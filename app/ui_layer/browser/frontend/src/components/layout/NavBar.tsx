@@ -542,12 +542,20 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         {onToggleCollapsed && (
           <div className={styles.collapseRow}>
             {!collapsed && (
-              <img
-                src={logoSrc}
-                alt="CraftBot"
-                className={styles.logo}
-                draggable={false}
-              />
+              <a
+                href="https://craftbot.live"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.logoLink}
+                aria-label="CraftBot website"
+              >
+                <img
+                  src={logoSrc}
+                  alt="CraftBot"
+                  className={styles.logo}
+                  draggable={false}
+                />
+              </a>
             )}
             <button
               type="button"

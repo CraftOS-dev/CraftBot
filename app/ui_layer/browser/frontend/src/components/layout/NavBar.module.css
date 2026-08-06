@@ -23,6 +23,13 @@
   min-height: 32px;
 }
 
+.logoLink {
+  display: block;
+  min-width: 0;
+  line-height: 0;
+  cursor: pointer;
+}
+
 .logo {
   display: block;
   height: 20px;
