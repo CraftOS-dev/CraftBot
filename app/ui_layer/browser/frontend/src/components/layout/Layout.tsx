@@ -65,7 +65,7 @@ export function Layout({ children }: LayoutProps) {
             aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={mobileOpen}
           >
-            {mobileOpen ? <X size={18} /> : <Menu size={18} />}
+            {mobileOpen ? <X size={16} /> : <Menu size={16} />}
           </button>
           <div
             className={`${styles.backdrop} ${mobileOpen ? styles.backdropVisible : ''}`}
