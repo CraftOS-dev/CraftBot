@@ -15,6 +15,14 @@ export interface NamedLayout {
 }
 
 export interface DashboardLayoutsStorage {
-  version: 1
+  /**
+   * Storage *shape* version — bumped only when existing numbers change
+   * meaning, which needs a real conversion (see migrateLayouts.ts). Constraint
+   * drift is not a shape change; normalizeLayouts re-applies bounds on every
+   * read instead.
+   *
+   * 1 → 2: 12 columns and fixed 32px rows became 10 columns and square cells.
+   */
+  version: number
   layouts: NamedLayout[]
 }

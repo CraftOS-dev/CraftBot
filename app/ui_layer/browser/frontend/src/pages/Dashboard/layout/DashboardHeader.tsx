@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { LayoutGrid, Pencil, Plus, Trash2 } from 'lucide-react'
-import { Button, ConfirmModal, IconButton } from '../../../components/ui'
-import { useConfirmModal } from '../../../hooks'
+import { LayoutGrid, Pencil, Plus, Timer, Trash2 } from 'lucide-react'
+import { Button, ConfirmModal, IconButton, StatusIndicator } from '../../../components/ui'
+import { useConfirmModal, useDerivedAgentStatus } from '../../../hooks'
+import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { formatUptime } from '../widgets/shared'
 import { AddWidgetModal } from './AddWidgetModal'
 import { LayoutNameModal } from './LayoutNameModal'
 import type { NamedLayout } from './types'
-import styles from './DashboardToolbar.module.css'
+import styles from './DashboardHeader.module.css'
 
-interface DashboardToolbarProps {
+interface DashboardHeaderProps {
   layouts: NamedLayout[]
   activeLayout: NamedLayout
   activeLayoutId: string
@@ -18,7 +20,7 @@ interface DashboardToolbarProps {
   onAddWidget: (widgetId: string) => void
 }
 
-export function DashboardToolbar({
+export function DashboardHeader({
   layouts,
   activeLayout,
   activeLayoutId,
@@ -27,10 +29,16 @@ export function DashboardToolbar({
   onRenameLayout,
   onDeleteLayout,
   onAddWidget,
-}: DashboardToolbarProps) {
+}: DashboardHeaderProps) {
   const [nameModal, setNameModal] = useState<'create' | 'rename' | null>(null)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
+
+  // The header pulls its own data, the way every widget does — nothing about
+  // agent status belongs in DashboardPage's props.
+  const { connected, actions, messages, dashboardMetrics } = useWebSocket()
+  const status = useDerivedAgentStatus({ actions, messages, connected })
+  const uptime = dashboardMetrics?.uptimeSeconds ? formatUptime(dashboardMetrics.uptimeSeconds) : '0m'
 
   const handleDelete = () => {
     confirm(
@@ -45,8 +53,20 @@ export function DashboardToolbar({
   }
 
   return (
-    <div className={styles.toolbar}>
-      <div className={styles.left}>
+    <div className={styles.header}>
+      <div className={styles.status}>
+        <StatusIndicator status={status.state} size="lg" variant="dot" />
+        <div className={styles.statusText}>
+          <h2>Agent Status</h2>
+          <p>{status.message}</p>
+        </div>
+        <div className={styles.uptime}>
+          <Timer size={12} />
+          <span>Uptime: {uptime}</span>
+        </div>
+      </div>
+
+      <div className={styles.controls}>
         <LayoutGrid size={14} className={styles.layoutIcon} />
         <select
           className={styles.layoutSelect}
@@ -65,10 +85,10 @@ export function DashboardToolbar({
           disabled={layouts.length <= 1}
           onClick={handleDelete}
         />
+        <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setAddWidgetOpen(true)}>
+          Add Widget
+        </Button>
       </div>
-      <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setAddWidgetOpen(true)}>
-        Add Widget
-      </Button>
 
       <LayoutNameModal
         isOpen={nameModal !== null}

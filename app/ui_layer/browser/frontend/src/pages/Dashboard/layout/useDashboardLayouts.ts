@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { COLS, STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS } from './constants'
 import { createDefaultLayout } from './defaultLayout'
-import { normalizeLayouts } from './normalizeLayouts'
-import type { BreakpointLayouts, DashboardLayoutsStorage, NamedLayout } from './types'
+import { STORAGE_VERSION, migrateV1 } from './migrateLayouts'
+import { boundsFor, normalizeLayouts, seedItem } from './normalizeLayouts'
+import type { Breakpoint, BreakpointLayouts, DashboardLayoutsStorage, NamedLayout } from './types'
 import { WIDGET_REGISTRY } from '../widgets/registry'
 
 function isValidStorage(value: unknown): value is DashboardLayoutsStorage {
@@ -20,9 +21,15 @@ function readLayouts(): NamedLayout[] {
     if (raw) {
       const parsed = JSON.parse(raw)
       if (isValidStorage(parsed)) {
-        // Sizing constraints live in the registry, not in storage — see
-        // normalizeLayouts. Stored minW/minH are stale snapshots.
-        const normalized = normalizeLayouts(parsed.layouts)
+        // Two different corrections, in order. First: a shape change, where
+        // stored numbers mean something different than they do now — a real
+        // conversion, run once. Then: sizing constraints, which live in the
+        // constants and not in storage, so stored min/max are stale snapshots
+        // and get re-applied on every read.
+        const current = parsed.version === STORAGE_VERSION
+          ? parsed.layouts
+          : migrateV1(parsed.layouts)
+        const normalized = normalizeLayouts(current)
         if (normalized.length > 0) return normalized
       }
     }
@@ -44,7 +51,7 @@ function readActiveId(layouts: NamedLayout[]): string {
 
 function writeLayouts(layouts: NamedLayout[]) {
   try {
-    const payload: DashboardLayoutsStorage = { version: 1, layouts }
+    const payload: DashboardLayoutsStorage = { version: STORAGE_VERSION, layouts }
     localStorage.setItem(STORAGE_KEY_LAYOUTS, JSON.stringify(payload))
   } catch {
     // localStorage unavailable/full — layout just won't persist this session.
@@ -63,19 +70,12 @@ function makeLayoutId(): string {
   return `layout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-// `cols` is per-breakpoint: a default width of 6 would overflow the sm grid's
-// 4 columns, and a minW wider than the grid is unsatisfiable.
-function emptyItemFor(widgetId: string, cols: number) {
-  const def = WIDGET_REGISTRY[widgetId].defaultLayout
-  return {
-    i: widgetId,
-    x: 0,
-    y: Infinity,
-    w: Math.min(def.w, cols),
-    h: def.h,
-    minW: Math.min(def.minW ?? 1, cols),
-    minH: def.minH ?? 1,
-  }
+// Per-breakpoint, because the bounds and the column count both are: a starting
+// width of 4 would overflow the sm grid, and a minimum wider than the grid is
+// unsatisfiable. Same seeding the grid itself uses, so a widget added to a
+// layout is indistinguishable from one that shipped on it.
+function emptyItemFor(widgetId: string, bp: Breakpoint) {
+  return seedItem(widgetId, boundsFor(bp), COLS[bp])
 }
 
 export function useDashboardLayouts() {
@@ -117,9 +117,9 @@ export function useDashboardLayouts() {
         ...l,
         widgetIds: [...l.widgetIds, widgetId],
         layouts: {
-          lg: [...l.layouts.lg, emptyItemFor(widgetId, COLS.lg)],
-          md: [...l.layouts.md, emptyItemFor(widgetId, COLS.md)],
-          sm: [...l.layouts.sm, emptyItemFor(widgetId, COLS.sm)],
+          lg: [...l.layouts.lg, emptyItemFor(widgetId, 'lg')],
+          md: [...l.layouts.md, emptyItemFor(widgetId, 'md')],
+          sm: [...l.layouts.sm, emptyItemFor(widgetId, 'sm')],
         },
         updatedAt: Date.now(),
       }

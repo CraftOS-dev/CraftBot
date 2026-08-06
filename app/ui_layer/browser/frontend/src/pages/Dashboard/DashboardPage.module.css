@@ -1,10 +1,12 @@
 /* DashboardPage Component Styles */
 
-/* A non-scrolling shell: the toolbar is a full-bleed surface, so it can't sit
- * inside page padding, and it shouldn't scroll away with the grid. The page
- * itself therefore has neither — .gridArea below is the scroll port.
+/* A non-scrolling shell: the header is a card that shouldn't scroll away with
+ * the grid, so the page itself doesn't scroll — .gridArea below is the scroll
+ * port. The header carries its own margin rather than taking padding from
+ * here, so that margin can be kept equal to the grid's CONTAINER_PADDING and
+ * the two stay aligned.
  *
- * Deliberately not `position: sticky` on the toolbar: react-grid-layout
+ * Deliberately not `position: sticky` on the header: react-grid-layout
  * translate()s its items, and sticky inside a transformed ancestor is a
  * well-known source of glitches. A fixed shell plus a scrolling child is
  * simpler and has no such failure mode. */
@@ -15,12 +17,18 @@
   overflow: hidden;
 }
 
-/* No horizontal padding here on purpose. The grid's gutter comes from
- * react-grid-layout's CONTAINER_PADDING, and RGL's WidthProvider only
- * re-measures on window resize — padding added here would shift the available
- * width without RGL noticing until the next resize. */
+/* No horizontal padding here on purpose: the grid's gutter is
+ * react-grid-layout's CONTAINER_PADDING, and DashboardGrid derives both the
+ * column width and the (square) row height from the measured width of its own
+ * host inside this box. Padding here would be measured out correctly, but the
+ * header's margin would no longer line up with the widget columns. */
 .gridArea {
   flex: 1;
   min-height: 0;
   overflow: hidden auto;
+  /* Reserve the scrollbar's width whether or not one is showing. Without this
+   * the grid can oscillate: cells are square, so a scrollbar appearing narrows
+   * the columns, which shortens every row, which can remove the overflow that
+   * summoned the scrollbar in the first place. */
+  scrollbar-gutter: stable;
 }

@@ -3,7 +3,6 @@ import { AlertTriangle, Timer } from 'lucide-react'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
 import { StatusIndicator } from '../../../components/ui'
 import { useDerivedAgentStatus } from '../../../hooks'
-import { formatUptime } from './shared'
 import styles from './widgets.module.css'
 
 function formatDuration(ms: number): string {
@@ -20,7 +19,7 @@ function displayActionName(name: string): string {
 }
 
 export function AgentStatusWidget() {
-  const { connected, actions, messages, dashboardMetrics } = useWebSocket()
+  const { connected, actions, messages } = useWebSocket()
   const status = useDerivedAgentStatus({ actions, messages, connected })
 
   const runningActions = actions.filter(a => a.itemType === 'action' && a.status === 'running')
@@ -44,8 +43,6 @@ export function AgentStatusWidget() {
     .filter(a => a.status === 'error')
     .sort((a, b) => (b.completedAt ?? b.createdAt ?? 0) - (a.completedAt ?? a.createdAt ?? 0))[0]
 
-  const uptime = dashboardMetrics?.uptimeSeconds ? formatUptime(dashboardMetrics.uptimeSeconds) : '0m'
-
   return (
     <>
       <div className={styles.agentStatusHeader}>
@@ -53,20 +50,18 @@ export function AgentStatusWidget() {
         <span className={styles.agentStatusMessage}>{status.message}</span>
       </div>
 
-      <div className={styles.compactStats}>
-        <div className={styles.compactStatItem}>
-          <Timer size={14} className={styles.primaryIcon} />
-          <span className={styles.compactStatValue}>{uptime}</span>
-          <span className={styles.compactStatLabel}>Uptime</span>
-        </div>
-        {taskElapsed && (
+      {/* Uptime lives in the dashboard header now — this widget carries only
+          what the header has no room for. The row is conditional because
+          there'd otherwise be an empty tile strip whenever nothing is running. */}
+      {taskElapsed && (
+        <div className={styles.compactStats}>
           <div className={styles.compactStatItem}>
             <Timer size={14} className={styles.successIcon} />
             <span className={styles.compactStatValue}>{taskElapsed}</span>
             <span className={styles.compactStatLabel}>Task time</span>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className={styles.usageSection}>
         <div className={styles.usageSectionHeader}>Running</div>

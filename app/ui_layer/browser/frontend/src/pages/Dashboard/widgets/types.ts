@@ -1,11 +1,14 @@
 import type { ComponentType } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
+/**
+ * Starting size only, in grid cells. There are no per-widget minimums or
+ * maximums: every widget shares one square floor and ceiling, which lives in
+ * `layout/constants.ts` as SIZE_BOUNDS.
+ */
 export interface WidgetDefaultLayout {
   w: number
   h: number
-  minW?: number
-  minH?: number
 }
 
 export interface WidgetDefinition {

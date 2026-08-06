@@ -1,6 +1,22 @@
 /* Shared styles for dashboard widget content — extracted from the
  * pre-refactor DashboardPage.module.css. Widget chrome (card
- * background/border/title-bar) lives separately in layout/WidgetChrome. */
+ * background/border/title-bar) lives separately in layout/WidgetChrome.
+ *
+ * Two rules run through this whole file:
+ *
+ * 1. Nothing here is sized in fixed pixels. Every font size, gap, pad, bar and
+ *    icon comes from the --w-* ramp declared on .body in WidgetChrome.module.css,
+ *    which is driven by the widget's own size via container query units. A
+ *    widget at the 5x5 ceiling is a genuinely bigger widget, not a small one
+ *    with more padding around it.
+ * 2. Nothing leaves vertical slack lying around. Blocks take `flex` shares of
+ *    the body so growing a widget grows its content, rather than pushing
+ *    fixed-height rows apart (`justify-content: space-between`, which this file
+ *    used to lean on, does the latter and is what made a stretched Model
+ *    Information look broken).
+ *
+ * Spacing between a widget's top-level blocks comes from .body's `gap` — don't
+ * add margins for it here or it doubles up. */
 
 /* Time Period Selector */
 .periodSelector {
@@ -10,14 +26,15 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   padding: 3px;
-  margin-bottom: var(--space-1);
   width: 100%;
+  /* A control, not content: it keeps its natural height at every widget size. */
+  flex-shrink: 0;
 }
 
 .periodButton {
   flex: 1;
-  padding: 4px 0;
-  font-size: 10px;
+  padding: calc(var(--w-gap) * 0.4) 0;
+  font-size: calc(var(--w-text-xs) * 0.85);
   font-weight: var(--font-medium);
   color: var(--text-muted);
   background: transparent;
@@ -45,8 +62,9 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(2, 1fr);
-  gap: var(--space-1);
+  gap: var(--w-gap);
   flex: 1;
+  min-height: 0;
 }
 
 .statItem {
@@ -54,7 +72,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--space-1);
+  gap: calc(var(--w-gap) * 0.3);
+  padding: var(--w-pad);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   min-width: 0;
@@ -64,18 +83,38 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: calc(var(--w-gap) * 0.5);
+  min-width: 0;
 }
 
 .statValue {
-  font-size: var(--text-sm);
+  font-size: var(--w-value);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  line-height: var(--leading-tight);
 }
 
 .statLabel {
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Icons scale with the widget too. These classes are already on the lucide
+   elements, and a CSS width/height outranks the width/height attributes lucide
+   renders from its `size` prop — so this reaches every widget icon without
+   touching a single .tsx. */
+.successIcon,
+.errorIcon,
+.primaryIcon,
+.mutedIcon,
+.uploadIcon,
+.downloadIcon {
+  width: var(--w-icon);
+  height: var(--w-icon);
+  flex-shrink: 0;
 }
 
 .successIcon {
@@ -96,15 +135,21 @@
 
 /* Token Ratio Display */
 .tokenRatioDisplay {
-  margin-bottom: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--w-gap);
+  flex: 1;
+  min-height: 0;
 }
 
 .tokenRatioBar {
   display: flex;
-  height: 14px;
+  height: var(--w-bar);
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--bg-tertiary);
+  flex-shrink: 0;
 }
 
 .tokenInputBar {
@@ -124,45 +169,44 @@
   transition: width 0.3s ease;
 }
 
-/* The three legend entries need ~250px, which is about all the 3-column
-   minimum gives them. Tighter gaps keep them on one line there, and wrapping
-   (rather than clipping) is the graceful failure if they ever don't fit. */
+/* Wrapping (rather than clipping) is the graceful failure if the three entries
+   ever don't fit; below the narrow threshold at the bottom of this file they
+   drop their word labels instead. */
 .tokenRatioLabels {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  row-gap: var(--space-1);
-  margin-top: var(--space-1);
+  gap: var(--w-gap);
+  row-gap: calc(var(--w-gap) * 0.5);
 }
 
 .tokenRatioItem {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-xs);
+  gap: calc(var(--w-gap) * 0.5);
+  font-size: var(--w-text-xs);
   color: var(--text-secondary);
   white-space: nowrap;
 }
 
-.tokenInputDot {
-  width: 6px;
-  height: 6px;
+.tokenInputDot,
+.tokenOutputDot,
+.tokenCachedDot {
+  width: var(--w-dot);
+  height: var(--w-dot);
   border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.tokenInputDot {
   background: var(--color-info);
 }
 
 .tokenOutputDot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
   background: var(--color-primary);
 }
 
 .tokenCachedDot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
   background: var(--color-success);
 }
 
@@ -174,15 +218,17 @@
 .tokenDetails {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-1);
-  flex: 1;
-  align-content: center;
+  grid-template-rows: 1fr;
+  gap: var(--w-gap);
+  flex: 2;
+  min-height: 0;
 }
 
 .tokenDetail {
   display: flex;
   flex-direction: column;
-  padding: var(--space-1);
+  justify-content: center;
+  padding: var(--w-pad);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   text-align: center;
@@ -190,52 +236,61 @@
 }
 
 .tokenDetailLabel {
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   color: var(--text-muted);
 }
 
 .tokenDetailValue {
-  font-size: var(--text-sm);
+  font-size: var(--w-value);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  line-height: var(--leading-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Resource Grid (System Resources) */
 .resourceGrid {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  /* Tight gap + tight leading so the four bars and the network row fit the
-     shared 5-row minimum. `justify-content: space-between` re-expands the
-     spacing whenever the widget is taller than that, so this costs nothing
-     at the default size. */
-  gap: var(--space-1);
+  gap: var(--w-gap);
   line-height: var(--leading-tight);
   flex: 1;
+  min-height: 0;
 }
 
+/* Each bar block takes an equal share of the height and centres itself in it,
+   so the four of them grow with the widget instead of drifting apart. */
 .resourceItem {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  justify-content: center;
+  gap: calc(var(--w-gap) * 0.4);
+  flex: 1;
+  min-height: 0;
 }
 
 .resourceHeader {
   display: flex;
   justify-content: space-between;
-  font-size: var(--text-xs);
+  gap: var(--w-gap);
+  font-size: var(--w-text-xs);
   color: var(--text-secondary);
 }
 
 .resourceHeader span {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .resourceBar {
-  height: 4px;
+  height: var(--w-bar-thin);
   background: var(--bg-tertiary);
   border-radius: var(--radius-full);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .resourceFill {
@@ -256,30 +311,25 @@
 /* Network Row (inside System Resources) */
 .networkRow {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--w-gap);
   line-height: var(--leading-tight);
-  margin-top: var(--space-2);
-  padding-top: var(--space-2);
+  padding-top: var(--w-gap);
   border-top: 1px solid var(--border-primary);
+  flex-shrink: 0;
 }
 
-/* Both stats together need ~256px, which is just past what the 3-column
-   minimum gives them. Without these guards the row wraps, turning width
-   pressure into an extra line of height and overflowing the widget. Clipping
-   keeps the row exactly one line tall at any width. */
+/* Both stats together need roughly 256px. Wrapping would turn width pressure
+   into an extra line of height, so at normal widths the row clips to exactly
+   one line; the narrow query at the bottom of this file stacks them instead. */
 .networkStat {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-xs);
+  gap: calc(var(--w-gap) * 0.5);
+  font-size: var(--w-text-xs);
   white-space: nowrap;
   overflow: hidden;
-}
-
-.networkStat svg {
-  flex-shrink: 0;
 }
 
 /* The label yields first so the rate itself is never truncated. */
@@ -308,15 +358,20 @@
 .usageStats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-1);
-  margin-bottom: var(--space-1);
+  grid-template-rows: 1fr;
+  gap: var(--w-gap);
+  /* A third of the chart's share: the tiles grow with the widget, but the
+     chart stays the thing the widget is mostly about. */
+  flex: 1;
+  min-height: 0;
 }
 
 .usageStat {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   text-align: center;
-  padding: var(--space-1);
+  padding: var(--w-pad);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   line-height: var(--leading-tight);
@@ -324,23 +379,26 @@
 }
 
 .usageLabel {
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   color: var(--text-muted);
 }
 
 .usageValue {
-  font-size: var(--text-sm);
+  font-size: var(--w-value);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Hourly Chart */
 .hourlyChart {
-  padding: var(--space-1);
+  padding: var(--w-pad);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   line-height: var(--leading-tight);
-  flex: 1;
+  flex: 3;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -349,13 +407,14 @@
 /* The period sub-label can be long; wrapping it would cost a line of height
    the widget doesn't have at its minimum. */
 .chartLabel {
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   color: var(--text-secondary);
-  margin-bottom: var(--space-1);
+  margin-bottom: calc(var(--w-gap) * 0.5);
   font-weight: var(--font-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .chartSubLabel {
@@ -363,10 +422,9 @@
   color: var(--text-muted);
 }
 
-/* No pixel floor: the chart is the only flexible block in the widget, so it
-   absorbs whatever height is left over. That's ~30px at the shared 5-row
-   minimum and ~200px at the default size, instead of a hard 36px that used to
-   push the widget past its own minimum. */
+/* No pixel floor: the chart is the only flexible block inside .hourlyChart, so
+   it absorbs whatever height is left over — a little at the 2x2 floor, most of
+   the widget at the 5x5 ceiling. */
 .chartBars {
   display: flex;
   gap: 1px;
@@ -403,20 +461,22 @@
 .chartTimeLabels {
   display: flex;
   justify-content: space-between;
-  margin-top: var(--space-1);
-  font-size: var(--text-xs);
+  margin-top: calc(var(--w-gap) * 0.5);
+  font-size: var(--w-text-xs);
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .chartTimeLabels span {
   min-width: 0;
 }
 
-/* Compact Stats (MCP/Skills/Integrations panels) */
+/* Compact Stats (MCP/Skills/Integrations/Living UI/Agent Status) */
 .compactStats {
   display: flex;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  gap: var(--w-gap);
+  flex: 1;
+  min-height: 0;
 }
 
 .compactStatItem {
@@ -424,62 +484,79 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
+  justify-content: center;
+  gap: calc(var(--w-gap) * 0.5);
+  padding: var(--w-pad);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
 }
 
 .compactStatValue {
-  font-size: var(--text-sm);
+  font-size: var(--w-value);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  line-height: var(--leading-tight);
 }
 
 .compactStatLabel {
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Usage Section (Top Tools/Skills/Integrations/Living UI projects) —
  * top-anchored rather than vertical-centered: list content shouldn't
- * drift position as the widget is resized. */
+ * drift position as the widget is resized. Twice the share of the stat
+ * tiles above it, since the list is the substance of these widgets. */
 .usageSection {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: var(--space-1);
-  flex: 1;
+  gap: calc(var(--w-gap) * 0.5);
+  flex: 2;
+  min-height: 0;
 }
 
 .usageSectionHeader {
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   font-weight: var(--font-semibold);
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  flex-shrink: 0;
 }
 
 .usageList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: calc(var(--w-gap) * 0.3);
+  flex: 1;
+  min-height: 0;
 }
 
+/* Rows share the list's height so they grow with the widget, but only up to a
+   few times their own line height — the cap is in `em`, so it scales with the
+   fluid font rather than pinning the row at a fixed pixel size. Without it a
+   one-item list would render as a single enormous pill. */
 .usageItem {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  gap: var(--w-gap);
+  flex: 1;
+  max-height: 2.8em;
+  padding: calc(var(--w-pad) * 0.5) var(--w-pad);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
 }
 
 .usageRank {
   color: var(--text-muted);
   font-weight: var(--font-semibold);
-  min-width: 20px;
+  min-width: 1.8em;
+  flex-shrink: 0;
 }
 
 .usageName {
@@ -493,11 +570,19 @@
 .usageCount {
   color: var(--color-primary);
   font-weight: var(--font-semibold);
+  flex-shrink: 0;
 }
 
+/* Fills the space the list would have taken rather than sitting as a short bar
+   with a gap under it. */
 .emptyUsage {
-  padding: var(--space-2);
-  font-size: var(--text-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  padding: var(--w-pad);
+  font-size: var(--w-text-xs);
   color: var(--text-muted);
   text-align: center;
   background: var(--bg-tertiary);
@@ -506,8 +591,9 @@
 
 .viewAllButton {
   width: 100%;
-  padding: var(--space-1) 0;
-  font-size: var(--text-xs);
+  flex-shrink: 0;
+  padding: calc(var(--w-gap) * 0.5) 0;
+  font-size: var(--w-text-xs);
   color: var(--text-primary);
   background: none;
   border: none;
@@ -523,29 +609,35 @@
 .modelInfo {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--w-gap);
   flex: 1;
+  min-height: 0;
 }
 
+/* `flex: 1` on the rows, not `justify-content: space-between` on the parent:
+   the three rows are the content, so extra height belongs inside them, not in
+   the gaps between them. */
 .modelItem {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2);
+  gap: var(--w-gap);
+  flex: 1;
+  min-height: 0;
+  padding: var(--w-pad);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
 }
 
 .modelLabel {
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   color: var(--text-muted);
-  min-width: 60px;
+  min-width: 4.5em;
+  flex-shrink: 0;
 }
 
 .modelValue {
   flex: 1;
-  font-size: var(--text-sm);
+  font-size: var(--w-text-sm);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -560,7 +652,7 @@
 
 .modelValueSmall {
   flex: 1;
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -571,35 +663,40 @@
 .agentStatusHeader {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  gap: var(--w-gap);
+  flex-shrink: 0;
 }
 
 .agentStatusMessage {
-  font-size: var(--text-sm);
+  font-size: var(--w-text-sm);
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .errorBox {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-2);
+  gap: calc(var(--w-gap) * 0.5);
+  padding: var(--w-pad);
   background: var(--color-error-bg);
   border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
+  font-size: var(--w-text-xs);
   color: var(--text-primary);
 }
 
-/* Recent Activity Widget */
+/* Recent Activity Widget — the one list whose rows keep their natural height.
+ * It's a feed of variable-length entries, so a taller widget correctly means
+ * more entries visible, not taller ones. */
 .activityList {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--w-gap);
 }
 
 .activityRow {
-  padding-bottom: var(--space-1);
+  padding-bottom: calc(var(--w-gap) * 0.5);
   border-bottom: 1px solid var(--border-primary);
 }
 
@@ -609,8 +706,31 @@
 
 .activityMeta {
   display: flex;
-  gap: var(--space-2);
-  padding-left: 40px;
-  font-size: var(--text-xs);
+  gap: var(--w-gap);
+  padding-left: 3em;
+  font-size: var(--w-text-xs);
   color: var(--text-muted);
+}
+
+/* The narrow end.
+ *
+ * A widget at the 2x2 floor is ~322px wide at lg but only ~210px at the md
+ * breakpoint, which is under what a couple of these rows need. This is where
+ * that gets paid for — once, at the sizes that actually need it — instead of
+ * every widget carrying permanently tighter spacing for the worst case. */
+@container widget (max-width: 260px) {
+  /* Two lines beats clipping "Download:" down to "Dow…". */
+  .networkRow {
+    flex-direction: column;
+    gap: calc(var(--w-gap) * 0.4);
+  }
+
+  /* Dot and percentage carry the meaning; the word is what goes. */
+  .tokenRatioItem > span:nth-child(2) {
+    display: none;
+  }
+
+  .modelLabel {
+    min-width: 0;
+  }
 }

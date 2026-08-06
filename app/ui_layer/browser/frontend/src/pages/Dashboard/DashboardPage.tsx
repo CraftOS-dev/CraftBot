@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { DashboardGrid } from './layout/DashboardGrid'
-import { DashboardToolbar } from './layout/DashboardToolbar'
+import { DashboardHeader } from './layout/DashboardHeader'
 import { useDashboardLayouts } from './layout/useDashboardLayouts'
 import styles from './DashboardPage.module.css'
 
@@ -37,7 +37,7 @@ export function DashboardPage() {
 
   return (
     <div className={styles.dashboard}>
-      <DashboardToolbar
+      <DashboardHeader
         layouts={layouts}
         activeLayout={activeLayout}
         activeLayoutId={activeLayoutId}
@@ -48,7 +48,7 @@ export function DashboardPage() {
         onAddWidget={addWidget}
       />
 
-      {/* The toolbar is full-bleed and stays put; only the grid scrolls. */}
+      {/* The header stays put; only the grid scrolls. */}
       <div className={styles.gridArea}>
         <DashboardGrid
           activeLayout={activeLayout}
