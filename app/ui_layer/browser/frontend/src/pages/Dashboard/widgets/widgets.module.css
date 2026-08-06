@@ -161,7 +161,7 @@
 .tokenRatioBar {
   display: flex;
   flex: 1 1 var(--w-bar);
-  max-height: 48px;
+  max-height: 12px;
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--bg-tertiary);

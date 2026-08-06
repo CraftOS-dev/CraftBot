@@ -27,20 +27,6 @@ export function TokenUsageWidget() {
   return (
     <>
       <TimePeriodSelector selected={period} onChange={onChange} />
-      <div className={styles.tokenDetails}>
-        <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Input</span>
-          <span className={styles.tokenDetailValue}>{formatTokenCount(inputTokens)}</span>
-        </div>
-        <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Output</span>
-          <span className={styles.tokenDetailValue}>{formatTokenCount(outputTokens)}</span>
-        </div>
-        <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Cached</span>
-          <span className={styles.tokenDetailValue}>{formatTokenCount(cachedTokens)}</span>
-        </div>
-      </div>
       <div className={styles.tokenRatioDisplay}>
         <div className={styles.tokenRatioBar}>
           <div className={styles.tokenInputBar} style={{ width: `${inputRatio}%` }} />
@@ -64,6 +50,20 @@ export function TokenUsageWidget() {
             <span className={styles.tokenRatioValue}>{cachedRatio}%</span>
           </div>
         </div>
+        <div className={styles.tokenDetails}>
+        <div className={styles.tokenDetail}>
+          <span className={styles.tokenDetailLabel}>Input</span>
+          <span className={styles.tokenDetailValue}>{formatTokenCount(inputTokens)}</span>
+        </div>
+        <div className={styles.tokenDetail}>
+          <span className={styles.tokenDetailLabel}>Output</span>
+          <span className={styles.tokenDetailValue}>{formatTokenCount(outputTokens)}</span>
+        </div>
+        <div className={styles.tokenDetail}>
+          <span className={styles.tokenDetailLabel}>Cached</span>
+          <span className={styles.tokenDetailValue}>{formatTokenCount(cachedTokens)}</span>
+        </div>
+      </div>
       </div>
       
     </>
