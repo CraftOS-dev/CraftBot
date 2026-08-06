@@ -20,13 +20,14 @@ import { SkillsWidget } from './SkillsWidget'
 import { IntegrationsWidget } from './IntegrationsWidget'
 import { ModelInfoWidget } from './ModelInfoWidget'
 import { MascotWidget } from './MascotWidget'
-import { AgentStatusWidget } from './AgentStatusWidget'
 import { LivingUIWidget } from './LivingUIWidget'
 import { RecentActivityWidget } from './RecentActivityWidget'
 
-// One entry per widget type. Phase 2 widgets (Agent Status, Living UI,
-// Recent Activity, Logs, ...) are added here later — no other file in
-// `layout/` needs to change to support a new widget.
+// One entry per widget type. Adding or removing a widget is this file plus
+// (if it should ship pre-placed) DEFAULT_ORDER in layout/defaultLayout.ts —
+// no other file in `layout/` needs to change. A widget dropped from here also
+// disappears from anyone's stored layout: normalizeLayouts discards grid items
+// whose id the registry no longer knows.
 //
 // `sizing` is in minimum units, not grid cells: 1 = the shared minimum tile
 // (see WIDGET_MIN_CELLS in layout/constants.ts), so `{ w: 1.5, h: 1 }` is half
@@ -120,19 +121,10 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Bot,
     description: 'The CraftBot mascot — reacts to agent activity.',
     component: MascotWidget,
-    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2, h: 2.5 } },
+    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2.5, h: 2 } },
     // The mascot draws its own scene edge to edge; the shared body padding
     // would show as a band of card background around it.
     bleed: true,
-    singleton: true,
-  },
-  agentStatus: {
-    id: 'agentStatus',
-    title: 'Agent Status',
-    icon: Activity,
-    description: 'Currently running tasks and the last error.',
-    component: AgentStatusWidget,
-    sizing: { default: { w: 1.5, h: 1.5 }, max: { w: 2, h: 2 } },
     singleton: true,
   },
   livingUi: {

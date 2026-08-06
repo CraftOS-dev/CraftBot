@@ -148,7 +148,7 @@
 .tokenRatioDisplay {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  margin-top: var(--space-2);
   gap: var(--w-gap);
   flex: 1;
   min-height: 0;
@@ -161,7 +161,7 @@
 .tokenRatioBar {
   display: flex;
   flex: 1 1 var(--w-bar);
-  max-height: 12px;
+  max-height: 14px;
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--bg-tertiary);
@@ -680,32 +680,6 @@
   white-space: nowrap;
 }
 
-/* Agent Status Widget */
-.agentStatusHeader {
-  display: flex;
-  align-items: center;
-  gap: var(--w-gap);
-  flex-shrink: 0;
-}
-
-.agentStatusMessage {
-  font-size: var(--w-text-sm);
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.errorBox {
-  display: flex;
-  align-items: flex-start;
-  gap: calc(var(--w-gap) * 0.5);
-  padding: var(--w-pad);
-  background: var(--color-error-bg);
-  border-radius: var(--radius-sm);
-  font-size: var(--w-text-xs);
-  color: var(--text-primary);
-}
 
 /* Recent Activity Widget — the one list whose rows keep their natural height.
  * It's a feed of variable-length entries, so a taller widget correctly means
