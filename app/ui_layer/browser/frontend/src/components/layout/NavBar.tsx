@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Plus,
   MoreHorizontal,
+  Info,
   Pencil,
   SquarePen,
   Eraser,
@@ -480,6 +481,27 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               <span className={styles.label}>
                 {opts.isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
               </span>
+              {opts.isMain && (
+                <span className={styles.mainInfo} aria-label="About the Main chat" title="">
+                  <Info size={12} />
+                  <span className={styles.mainInfoTooltip} role="tooltip">
+                    <strong>Why is Main different?</strong>
+                    <span className={styles.mainInfoLine}>
+                      Main is the agent's home chat, so it can't be deleted or renamed.
+                    </span>
+                    <span className={styles.mainInfoLine}>
+                      Anything that happens on its own, like scheduled tasks and
+                      updates from connected apps, arrives here.
+                    </span>
+                    <span className={styles.mainInfoLine}>
+                      All chats share one memory: what the agent learns about you
+                      in any chat, it remembers everywhere. But each chat keeps its
+                      own conversation, so messages in one chat aren't visible from
+                      another.
+                    </span>
+                  </span>
+                </span>
+              )}
               {renderSessionDot(session.id)}
             </button>
             <button
