@@ -1,4 +1,4 @@
-name: living-ui-v2
+name: living-ui
 
 # Self-test for the Living UI TEMPLATE code (kit/blueprint/tools) in this repo.
 # Scaffolds a throwaway project and runs the local validation gate on it.
@@ -7,16 +7,16 @@ name: living-ui-v2
 on:
   push:
     paths:
-      - 'living-ui-v2/**'
-      - '.github/workflows/living-ui-v2.yml'
+      - 'living-ui/**'
+      - '.github/workflows/living-ui.yml'
   pull_request:
     paths:
-      - 'living-ui-v2/**'
-      - '.github/workflows/living-ui-v2.yml'
+      - 'living-ui/**'
+      - '.github/workflows/living-ui.yml'
 
 defaults:
   run:
-    working-directory: living-ui-v2
+    working-directory: living-ui
 
 jobs:
   gate:
@@ -40,7 +40,7 @@ jobs:
             ~/Library/Caches/craftos-living-ui/pb
             ~/.cache/craftos-living-ui/pb
             ~\AppData\Local\craftos-living-ui\pb
-          key: pb-${{ runner.os }}-${{ hashFiles('living-ui-v2/spec/pocketbase.version') }}
+          key: pb-${{ runner.os }}-${{ hashFiles('living-ui/spec/pocketbase.version') }}
 
       - name: Install workspace
         run: npm install
