@@ -33,12 +33,12 @@ You receive a planner trigger with:
 
 **EXCEPTION - Suggesting New Tasks:**
 When you want to suggest a new recurring or scheduled task:
-1. Send the suggestion to user with `send_message` and `wait_for_user_reply=true`
-2. If user approves → add the task, then end silently
-3. If user rejects → end silently without adding
-4. If user does not reply within 20 hours → end task silently WITHOUT adding the suggested task
+1. Send the suggestion as your FINAL `send_message` (no `continue_work`) — the run ends on that question
+2. The user's reply arrives as a new run: if they approve → add the task, then end silently
+3. If they reject → end silently without adding
+4. If no reply ever comes, nothing is added — the suggestion simply lapses
 
-**Why?** Planner tasks run automatically. Waiting for confirmation would cause tasks to pile up.
+**Why?** Planner runs happen automatically. Waiting for confirmation would cause work to pile up.
 
 ---
 
@@ -56,12 +56,12 @@ Focus only on what can realistically be accomplished in a single week. Leave lon
 
 1. **Check existing scheduled tasks**: Use `scheduled_task_list` to see what's already scheduled
 2. **Read PROACTIVE.md**: Check existing recurring tasks and the Goals, Plan, and Status section
-3. **Read TASK_HISTORY.md**: See what tasks have already been completed this week
+3. **Check past work**: `memory_search` and grep `agent_file_system/EVENT.md` for what has already been done this week
 4. **Read MEMORY.md**: Understand user context, preferences, and patterns
 
 ### Duplicate Prevention (EXTREMELY IMPORTANT)
 
-- **NEVER suggest a task the user has already performed** (check TASK_HISTORY.md)
+- **NEVER suggest a task the user has already performed** (check EVENT.md / memory_search)
 - **NEVER suggest a task that already exists** as a recurring or scheduled task
 - **NEVER add a recurring task that duplicates an existing one**
 - If user performed a one-time task before and you suggest it again = **VERY BAD**
@@ -147,12 +147,12 @@ Before suggesting ANY proactive task, you must have OVERWHELMING evidence. Most 
 - No clear evidence user wants this help
 - You're assuming user needs something they never mentioned
 - **User only did this task 1-2 times** (NOT ENOUGH)
-- **You cannot cite 3+ specific instances from TASK_HISTORY.md**
+- **You cannot cite 3+ specific instances from past work (EVENT.md / memory)**
 
 ### Green Flags - May Consider If:
 
 - User explicitly asked for proactive help with this area and it is not processed yet
-- User has done this exact task **3+ times** manually (with evidence in TASK_HISTORY.md)
+- User has done this exact task **3+ times** manually (with evidence in EVENT.md / memory)
 - User **explicitly said** "I want this automated" or "Can you do this regularly"
 - Task is tier 0 (silent, no interruption)
 
@@ -247,7 +247,7 @@ Use Layer 1 + Layer 2 to determine which external sources to check in Layer 3.
 
 Gather and analyze the week's data:
 
-1. **TASK_HISTORY.md** - Tasks completed this week
+1. **EVENT.md** (grep this week's entries) - Work completed this week
 2. **MEMORY.md** - Learnings and facts recorded this week
 3. **PROACTIVE.md** - Recurring task execution history and Goals/Plan/Status
 4. **USER.md** - User preferences and context
@@ -329,7 +329,7 @@ If a task is consistently ignored or disabled, consider suggesting to disable it
 ### Step 5: Prepare Weekly Summary
 
 Create summary including:
-- Tasks completed this week (from TASK_HISTORY.md)
+- Work completed this week (from EVENT.md)
 - Progress toward goals (from Goals section)
 - Recurring task performance (if any)
 - External context (calendar load, task backlog, relevant events)
@@ -412,7 +412,7 @@ Update MEMORY.md with:
 | User's stated preferences | Your assumptions |
 | Facts user shared | Daily minutiae |
 | Patterns you observed | Temporary states |
-| Important deadlines | Already in TASK_HISTORY |
+| Important deadlines | Already in EVENT.md |
 | Context for future help | Duplicate information |
 
 ### Format

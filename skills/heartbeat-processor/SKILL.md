@@ -28,8 +28,8 @@ You receive a single heartbeat trigger with:
 - **NO acknowledgement**: Do NOT acknowledge task receipt to user
 - **NO confirmation**: Do NOT wait for user confirmation before ending
 - **MUST end silently**: Use `end_turn` immediately after processing, without user interaction
-- **Can send messages**: You can use `send_message` for tier 1 notifications, but set `wait_for_user_reply=false`
-- **NEVER block on user**: Do not wait for user reply at any point
+- **Can send messages**: You can use `send_message` for tier 1 notifications — notify only, never phrase it as a question that expects an answer
+- **NEVER block on user**: Do not end the run on a question at any point
 
 **Why?** Heartbeat tasks run automatically at regular intervals. Waiting for user confirmation would cause tasks to pile up indefinitely.
 
@@ -68,7 +68,6 @@ schedule_task(
   name="[Task Name]",
   instruction="Execute [task description]. IMPORTANT: Before ending, call recurring_update_task(task_id='[proactive_task_id]', add_outcome={'result': '[description of what was done]', 'success': true/false}) to record the outcome.",
   schedule="immediate",
-  mode="complex",
   action_sets=["required", "action", "sets"],
   skills=["relevant-skills"],
   payload={"source": "proactive", "task_id": "[proactive_task_id]"}
@@ -161,7 +160,6 @@ schedule_task(
   name="[Task Name]",
   instruction="Execute recurring task: [task_id]. [original instruction]. IMPORTANT: Before ending, call recurring_update_task(task_id='[task_id]', add_outcome={'result': '[what was done]', 'success': true/false}).",
   schedule="at [task_time]",
-  mode="complex",
   action_sets=["proactive", "file_operations"],
   payload={"source": "proactive", "task_id": "[task_id]"}
 )
@@ -228,7 +226,6 @@ For each task that passes evaluation, determine HOW to execute it:
      name="Weekly Code Review",
      instruction="Perform weekly code review. IMPORTANT: Before ending this task, you MUST call recurring_update_task(task_id='weekly_code_review', add_outcome={'result': '[what was done]', 'success': true/false}) to record the outcome.",
      schedule="immediate",
-     mode="complex",
      action_sets=["code_analysis", "file_operations"],
      skills=[],
      payload={"source": "proactive", "task_id": "weekly_code_review"}
@@ -250,7 +247,7 @@ After processing all tasks, end the task silently.
 ## Rules
 
 - **END SILENTLY** - Always end with `end_turn` without waiting for user confirmation
-- **NEVER wait for user** - When sending messages, always set `wait_for_user_reply=false`
+- **NEVER wait for user** - Notifications only; never end the run on a question that expects an answer
 - **NEVER spam users** - Batch notifications when possible
 - **Star emoji prefix** - Use for proactive notifications to user
 - **Silent on no tasks** - If no tasks match the frequency, end silently
@@ -294,7 +291,6 @@ All recurring proactive tasks use tier 0 or tier 1:
      name="Weekly Code Review",
      instruction="Review code changes from the past week. Analyze for patterns, issues, and improvements. IMPORTANT: Before ending, call recurring_update_task(task_id='weekly_code_review', add_outcome={'result': '[summary of findings]', 'success': true/false}).",
      schedule="immediate",
-     mode="complex",
      action_sets=["code_analysis", "file_operations"],
      payload={"source": "proactive", "task_id": "weekly_code_review"}
    )
