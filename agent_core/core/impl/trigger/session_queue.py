@@ -67,6 +67,7 @@ class SessionTriggerQueue:
         async with self._cv:
             if self._closed:
                 raise QueueClosed(self.session_id)
+            print(f"Trigger added: {trig.source}")
             heapq.heappush(self._heap, (trig.fire_at, next(self._seq), trig))
             self._cv.notify()
 
@@ -120,7 +121,12 @@ class SessionTriggerQueue:
             now = time.time()
             batch: List[tuple] = []
             while self._heap and self._heap[0][0] <= now:
-                batch.append(heapq.heappop(self._heap))
+                entry = heapq.heappop(self._heap) #Storing the heappop
+                trigger = entry[2] #find the trigger
+
+                print(f"popping trigger: {trigger.source}")
+                print(f"trigger={trigger}")
+                batch.append(entry)
             return [entry[2] for entry in batch]
 
     async def purge(self, predicate) -> int:
@@ -135,11 +141,17 @@ class SessionTriggerQueue:
         async with self._cv:
             if self._closed or not self._heap:
                 return 0
+            print("\n===== QUEUE BEFORE PURGE =====")
+            for _, _, trigger in self._heap:
+                print(trigger)
             kept = [entry for entry in self._heap if not predicate(entry[2])]
             removed = [entry[2] for entry in self._heap if predicate(entry[2])]
             if not removed:
                 return 0
             self._heap = kept
+            print("\n===== QUEUE AFTERRR PURGE =====")
+            for _, _, trigger in self._heap:
+                print(trigger)
             heapq.heapify(self._heap)
             self._notify_evicted(removed)
             return len(removed)
