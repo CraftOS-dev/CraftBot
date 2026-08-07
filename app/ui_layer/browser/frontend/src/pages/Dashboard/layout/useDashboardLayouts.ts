@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS } from './constants'
+import { STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS, STORAGE_VERSION } from './constants'
 import { createDefaultLayout } from './defaultLayout'
-import { STORAGE_VERSION, migrateV1 } from './migrateLayouts'
 import { boundsFor, normalizeLayouts, seedItem } from './normalizeLayouts'
 import type { Breakpoint, BreakpointLayouts, DashboardLayoutsStorage, NamedLayout } from './types'
 import { WIDGET_REGISTRY } from '../widgets/registry'
@@ -20,16 +19,12 @@ function readLayouts(): NamedLayout[] {
     const raw = localStorage.getItem(STORAGE_KEY_LAYOUTS)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (isValidStorage(parsed)) {
-        // Two different corrections, in order. First: a shape change, where
-        // stored numbers mean something different than they do now — a real
-        // conversion, run once. Then: sizing constraints, which live in the
-        // constants and not in storage, so stored min/max are stale snapshots
-        // and get re-applied on every read.
-        const current = parsed.version === STORAGE_VERSION
-          ? parsed.layouts
-          : migrateV1(parsed.layouts)
-        const normalized = normalizeLayouts(current)
+      // One schema, the current one. A version mismatch means the stored
+      // numbers describe a grid that no longer exists — discard and reseed.
+      // normalizeLayouts then re-applies sizing constraints, which live in
+      // the constants and not in storage.
+      if (isValidStorage(parsed) && parsed.version === STORAGE_VERSION) {
+        const normalized = normalizeLayouts(parsed.layouts)
         if (normalized.length > 0) return normalized
       }
     }
@@ -142,6 +137,29 @@ export function useDashboardLayouts() {
     }))
   }, [activeLayoutId])
 
+  // Restores the seed arrangement on the active layout: default widgets return
+  // to their original positions and sizes, and any removed ones come back.
+  // Widgets the user added that aren't part of the default set are kept,
+  // re-seeded at the bottom (y: Infinity) for the vertical compactor to pack.
+  const resetLayout = useCallback(() => {
+    const now = Date.now()
+    const seed = createDefaultLayout(now)
+    setLayouts(prev => prev.map(l => {
+      if (l.id !== activeLayoutId) return l
+      const extras = l.widgetIds.filter(id => !seed.widgetIds.includes(id))
+      return {
+        ...l,
+        widgetIds: [...seed.widgetIds, ...extras],
+        layouts: {
+          lg: [...seed.layouts.lg, ...extras.map(id => emptyItemFor(id, 'lg'))],
+          md: [...seed.layouts.md, ...extras.map(id => emptyItemFor(id, 'md'))],
+          sm: [...seed.layouts.sm, ...extras.map(id => emptyItemFor(id, 'sm'))],
+        },
+        updatedAt: now,
+      }
+    }))
+  }, [activeLayoutId])
+
   const createLayout = useCallback((name: string) => {
     const now = Date.now()
     const seed = createDefaultLayout(now)
@@ -179,6 +197,7 @@ export function useDashboardLayouts() {
     updateActiveGridLayouts,
     addWidget,
     removeWidget,
+    resetLayout,
     createLayout,
     renameLayout,
     deleteLayout,

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pencil, Plus, Timer, Trash2 } from 'lucide-react'
+import { ChevronDown, Pencil, Plus, RotateCcw, Timer, Trash2 } from 'lucide-react'
 import { Button, ConfirmModal, IconButton, StatusIndicator } from '../../../components/ui'
 import { useConfirmModal, useDerivedAgentStatus } from '../../../hooks'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
@@ -17,6 +17,7 @@ interface DashboardHeaderProps {
   onCreateLayout: (name: string) => void
   onRenameLayout: (id: string, name: string) => void
   onDeleteLayout: (id: string) => void
+  onResetLayout: () => void
   onAddWidget: (widgetId: string) => void
 }
 
@@ -28,6 +29,7 @@ export function DashboardHeader({
   onCreateLayout,
   onRenameLayout,
   onDeleteLayout,
+  onResetLayout,
   onAddWidget,
 }: DashboardHeaderProps) {
   const [nameModal, setNameModal] = useState<'create' | 'rename' | null>(null)
@@ -52,6 +54,17 @@ export function DashboardHeader({
     )
   }
 
+  const handleReset = () => {
+    confirm(
+      {
+        title: 'Reset layout',
+        message: `Reset "${activeLayout.name}" to the default arrangement? Widgets you've added that aren't part of the default layout are kept.`,
+        confirmText: 'Reset',
+      },
+      onResetLayout
+    )
+  }
+
   return (
     <div className={styles.header}>
       <div className={styles.status}>
@@ -67,17 +80,21 @@ export function DashboardHeader({
       </div>
 
       <div className={styles.controls}>
-        <select
-          className={styles.layoutSelect}
-          value={activeLayoutId}
-          onChange={e => onSelectLayout(e.target.value)}
-        >
-          {layouts.map(l => (
-            <option key={l.id} value={l.id}>{l.name}</option>
-          ))}
-        </select>
+        <span className={styles.selectWrap}>
+          <select
+            className={styles.layoutSelect}
+            value={activeLayoutId}
+            onChange={e => onSelectLayout(e.target.value)}
+          >
+            {layouts.map(l => (
+              <option key={l.id} value={l.id}>{l.name}</option>
+            ))}
+          </select>
+          <ChevronDown size={14} className={styles.selectChevron} />
+        </span>
         <IconButton icon={<Pencil size={14} />} tooltip="Rename layout" onClick={() => setNameModal('rename')} />
         <IconButton icon={<Plus size={14} />} tooltip="New layout" onClick={() => setNameModal('create')} />
+        <IconButton icon={<RotateCcw size={14} />} tooltip="Reset layout" onClick={handleReset} />
         <IconButton
           icon={<Trash2 size={14} />}
           tooltip="Delete layout"

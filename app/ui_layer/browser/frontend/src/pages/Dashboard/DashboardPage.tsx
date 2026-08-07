@@ -10,7 +10,7 @@ export function DashboardPage() {
 
   const {
     layouts, activeLayout, activeLayoutId, setActiveLayoutId,
-    updateActiveGridLayouts, addWidget, removeWidget,
+    updateActiveGridLayouts, addWidget, removeWidget, resetLayout,
     createLayout, renameLayout, deleteLayout,
   } = useDashboardLayouts()
 
@@ -45,6 +45,7 @@ export function DashboardPage() {
         onCreateLayout={createLayout}
         onRenameLayout={renameLayout}
         onDeleteLayout={deleteLayout}
+        onResetLayout={resetLayout}
         onAddWidget={addWidget}
       />
 

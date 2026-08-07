@@ -72,16 +72,36 @@
   min-width: 0;
 }
 
+/* The native UA arrow sits at its own fixed inset from the border and ignores
+ * padding-right entirely, so no amount of padding could give it breathing
+ * room. `appearance: none` drops it and .selectChevron overlays a lucide
+ * chevron at a controlled inset instead; it's pointer-events: none, so clicks
+ * on it fall through to the select. */
+.selectWrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.selectChevron {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-secondary);
+}
+
 /* --radius-md, not --radius-sm, to match the icon buttons sitting next to it.
  * Hover mirrors the .secondary IconButton treatment so the whole row responds
  * the same way. Focus is already covered by the global `select:focus` rule,
  * which outspecifies this class.
  *
- * The asymmetric padding is for the native dropdown arrow: the UA draws it
- * inset from the right edge by padding-right, so --space-2 there left it
- * almost touching the border. */
+ * padding-right clears the overlaid chevron (14px icon + --space-2 inset)
+ * so long layout names ellipsize before running underneath it. */
 .layoutSelect {
-  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-2);
+  appearance: none;
+  padding: var(--space-1) var(--space-6) var(--space-1) var(--space-2);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
@@ -89,6 +109,7 @@
   font-size: var(--text-sm);
   max-width: 200px;
   min-width: 0;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition: all var(--transition-fast);
 }

@@ -11,8 +11,7 @@ import {
   COLS,
   CONTAINER_PADDING,
   MARGIN,
-  breakpointFromWidth,
-  columnWidth,
+  ROW_HEIGHT,
 } from './constants'
 import type { BreakpointLayouts, NamedLayout } from './types'
 import styles from './DashboardGrid.module.css'
@@ -24,11 +23,10 @@ interface DashboardGridProps {
 }
 
 export function DashboardGrid({ activeLayout, onLayoutsChange, onRemoveWidget }: DashboardGridProps) {
-  // Measured rather than taken from RGL's WidthProvider, for two reasons: the
-  // row height has to be derived from this same number to keep cells square,
-  // and WidthProvider only re-measures on *window* resize — so anything that
-  // changes the dashboard's width without resizing the window (collapsing the
-  // sidebar, a scrollbar appearing) left it stale.
+  // Measured rather than taken from RGL's WidthProvider because WidthProvider
+  // only re-measures on *window* resize — so anything that changes the
+  // dashboard's width without resizing the window (collapsing the sidebar, a
+  // scrollbar appearing) left it stale.
   const hostRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
 
@@ -47,12 +45,6 @@ export function DashboardGrid({ activeLayout, onLayoutsChange, onRemoveWidget }:
   // Guard against stale/corrupted storage referencing a widget id that no
   // longer exists in the registry.
   const widgetIds = activeLayout.widgetIds.filter(id => WIDGET_REGISTRY[id])
-
-  const cols = COLS[breakpointFromWidth(width)]
-  // Square cells: one row is exactly as tall as one column is wide, which is
-  // what makes a 2x2 or 5x5 widget an actual square. RGL takes a fractional
-  // rowHeight fine, and rounding here would compound across five rows.
-  const rowHeight = columnWidth(width, cols)
 
   // One host element for every state — empty layout included. The observer is
   // attached once, so the node it holds must never be swapped out from under
@@ -74,7 +66,7 @@ export function DashboardGrid({ activeLayout, onLayoutsChange, onRemoveWidget }:
           layouts={activeLayout.layouts as unknown as Layouts}
           breakpoints={BREAKPOINTS}
           cols={COLS}
-          rowHeight={rowHeight}
+          rowHeight={ROW_HEIGHT}
           margin={MARGIN}
           containerPadding={CONTAINER_PADDING}
           compactType="vertical"

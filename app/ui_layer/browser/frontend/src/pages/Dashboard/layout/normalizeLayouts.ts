@@ -95,10 +95,9 @@ function normalizeBreakpoint(items: unknown, widgetIds: string[], bp: Breakpoint
  * emptyItemFor), and then round-tripped forever through react-grid-layout's
  * `onLayoutChange`. Editing a widget's `sizing` would therefore never reach
  * anyone who already has a stored layout. Running this on every read keeps the
- * registry the single source of truth, with no migration to remember to write —
- * a versioned one-shot would fix today's drift and reintroduce the same bug on
- * the next edit. `version` stays reserved for a genuine change of storage
- * *shape*, which is what migrateLayouts.ts handles.
+ * registry the single source of truth. `version` stays reserved for a genuine
+ * change of storage *shape*, which invalidates the stored layouts wholesale —
+ * readLayouts discards them and reseeds; there is no migration.
  *
  * Pure and idempotent: normalize(normalize(x)) deep-equals normalize(x).
  *
