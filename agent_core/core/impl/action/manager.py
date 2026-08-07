@@ -53,7 +53,26 @@ try:
             if timeout is None:
                 return await fut
             task = asyncio.ensure_future(fut)
-            _done, pending = await asyncio.wait({task}, timeout=timeout)
+            try:
+                _done, pending = await asyncio.wait({task}, timeout=timeout)
+            except asyncio.CancelledError:
+                # Real wait_for GUARANTEES the wrapped future is cancelled
+                # when the outer await is cancelled; asyncio.wait does NOT
+                # cancel its input tasks, so without this branch a user
+                # force-stop unwound the turn while the executing ACTION
+                # kept running as an orphaned task — its message/file output
+                # landed seconds after "Run stopped." (PR #410). Cancel the
+                # inner task and AWAIT its unwind before re-raising: that
+                # wait is what keeps the stop spinner honest — an action
+                # whose sync body is mid-flight in a worker thread only
+                # unwinds when the thread finishes, so settlement (and the
+                # "Run stopped." bubble) waits for the last real work.
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+                raise
             if task in pending:
                 task.cancel()
                 try:
@@ -328,6 +347,7 @@ class ActionManager:
 
         logger.debug(f"Starting execution of action {action.name}...")
 
+        was_cancelled = False
         try:
             # ────────────────────────────────────────────────────────────
             # 2. Execute
@@ -398,8 +418,19 @@ class ActionManager:
                     status = "success"
 
         except asyncio.CancelledError:
+            # A user force-stop cancelled the turn mid-action. Record the
+            # outcome (the event stream and idempotency ledger must show the
+            # action was cancelled), but DO NOT swallow the cancellation:
+            # catching CancelledError without re-raising un-cancels the task,
+            # and the react loop then treated "Action cancelled" as an
+            # ordinary failed action and started the NEXT LLM call — a zombie
+            # turn the stop's settlement wait could never catch, surfacing as
+            # "Stop settlement timed out" + forceful finalize (observed live
+            # 2026-08-07, PR #410). The re-raise happens AFTER persistence,
+            # at the end of this method.
             status = "error"
             outputs = {"error": "Action cancelled", "error_code": "cancelled"}
+            was_cancelled = True
         except Exception as e:
             status = "error"
             outputs = {"error": str(e)}
@@ -503,6 +534,11 @@ class ActionManager:
 
         logger.debug(f"Action {action.name} removed from in-flight tracking.")
 
+        if was_cancelled:
+            # Bookkeeping is done (event stream + ledger show the cancelled
+            # outcome); now let the stop actually stop the turn.
+            raise asyncio.CancelledError()
+
         return outputs
 
     @profile(
@@ -574,19 +610,33 @@ class ActionManager:
                 input_data=input_data,
             )
 
-        # All parallel actions run under the parent session_id.
+        # All parallel actions run under the parent session_id. Real tasks
+        # (not bare coroutines) so a cancelled batch can be awaited below.
         parallel_tasks = [
-            execute_single(action, input_data, session_id)
+            asyncio.ensure_future(execute_single(action, input_data, session_id))
             for action, input_data in actions
         ]
 
         # Execute all actions in parallel
-        results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+        try:
+            results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            # User force-stop: gather cancels the children but raises without
+            # waiting for their unwind — which includes each action's
+            # cancelled-outcome bookkeeping and the wait for uninterruptible
+            # thread bodies. Settling here keeps the stop contract (spinner
+            # until the last in-flight action finalizes) for parallel batches
+            # exactly as execute_action keeps it for single ones (PR #410).
+            await asyncio.wait(parallel_tasks)
+            raise
 
-        # Process results, converting exceptions to error dicts
+        # Process results, converting exceptions to error dicts.
+        # BaseException, not Exception: a child's CancelledError would
+        # otherwise pass isinstance() and leak an exception OBJECT into the
+        # results list, crashing the status tally below.
         processed = []
         for i, result in enumerate(results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.error(f"[PARALLEL] Action {actions[i][0].name} failed: {result}")
                 processed.append(
                     {
