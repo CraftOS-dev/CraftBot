@@ -4,11 +4,13 @@ export const STORAGE_KEY_LAYOUTS = 'craftbot.dashboard.layouts'
 export const STORAGE_KEY_ACTIVE_ID = 'craftbot.dashboard.activeLayoutId'
 
 /**
- * Storage schema version. There is exactly one valid schema — this one.
+ * Storage version. There is exactly one valid standard — the current one.
  * Stored layouts under any other version are discarded on read and the
- * dashboard reseeds from the default; there is no migration code.
+ * dashboard reseeds from the default; there is no migration code. Bumped
+ * for grid-unit changes AND for changes to the shipped default (v4 hid
+ * Recent Activity by default).
  */
-export const STORAGE_VERSION = 3
+export const STORAGE_VERSION = 4
 
 /**
  * One grid cell IS one original dashboard card.

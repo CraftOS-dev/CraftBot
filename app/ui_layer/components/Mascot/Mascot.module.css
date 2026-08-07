@@ -253,7 +253,10 @@
        --bg-zoom            baseline scale of the scene (higher =
                             more zoomed-in mountains/clouds, AND
                             wider safety margin against side gaps
-                            at low user zoom).
+                            at low user zoom). MUST match
+                            BG_SCENE_ZOOM in mascotEngine.ts — the
+                            wheel-zoom's dynamic floor
+                            (computeMinCoverZoom) is derived from it.
        --bg-image-grass-y   the grass line's vertical position
                             inside the image file, as % of image
                             height from top. (Adjust per-image.)
@@ -290,11 +293,11 @@
      of panel resize (the "ground level invariant under aspect
      change" rule).
      --bg-zoom × 100% is the baseline scale (default 4× stage
-     height). The high baseline is what keeps the image wide enough
-     to fill the panel even at minimum user zoom (0.5×): natural
-     image width = aspect × 4 × stage_h ≈ 8 × stage_h, scaled by
-     0.5 → ~4× stage_h, which covers up to max panel width 800px
-     with no side gaps. */
+     height). Horizontal coverage at low user zoom is NOT guaranteed
+     by this baseline alone — wide, short widgets can outrun it — so
+     MascotDisplay raises the wheel-zoom's floor per stage size via
+     computeMinCoverZoom (mascotEngine.ts), keeping the scaled image
+     at least as wide as the stage. */
   height: calc(var(--bg-zoom) * 100%);
   width: auto;
   /* Vertical alignment math (all % of stage height):

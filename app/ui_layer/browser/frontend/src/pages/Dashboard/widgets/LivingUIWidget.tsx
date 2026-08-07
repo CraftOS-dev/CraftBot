@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle, Layers } from 'lucide-react'
+import { Box, CheckCircle } from 'lucide-react'
 import { useAppSelector } from '../../../store/hooks'
 import { selectLivingUiProjects } from '../../../store/selectors/livingUi'
 import styles from './widgets.module.css'
@@ -14,7 +14,7 @@ export function LivingUIWidget() {
     <>
       <div className={styles.compactStats}>
         <div className={styles.compactStatItem}>
-          <Layers size={14} className={styles.primaryIcon} />
+          <Box size={14} className={styles.primaryIcon} />
           <span className={styles.compactStatValue}>{projects.length}</span>
           <span className={styles.compactStatLabel}>Installed</span>
         </div>

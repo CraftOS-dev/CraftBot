@@ -1,13 +1,18 @@
+// Widget icons mirror the Settings page's category icons (Settings/types.ts)
+// where a matching category exists — Cpu for Model, Plug for MCPs, Package
+// for Skills, Globe for Integrations, Box for Living UI — and every icon is
+// used by exactly one widget, so no two headers ever read as the same thing.
 import {
   Activity,
   Bot,
   BarChart3,
+  Box,
   Cpu,
+  Gauge,
   Globe,
-  Hammer,
   History,
-  Layers,
   Package,
+  Plug,
   TrendingUp,
 } from 'lucide-react'
 import type { WidgetDefinition } from './types'
@@ -64,7 +69,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
   systemResources: {
     id: 'systemResources',
     title: 'System Resources',
-    icon: Cpu,
+    icon: Gauge,
     description: 'CPU, memory, disk, thread pool and network I/O.',
     component: SystemResourcesWidget,
     sizing: { default: { w: 1, h: 1 }, max: { w: 2, h: 1 } },
@@ -82,7 +87,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
   mcpServers: {
     id: 'mcpServers',
     title: 'MCP Servers',
-    icon: Hammer,
+    icon: Plug,
     description: 'Connected servers, call volume, top tools.',
     component: McpServersWidget,
     sizing: { default: { w: 1, h: 1 }, max: { w: 2, h: 2 } },
@@ -109,7 +114,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
   modelInfo: {
     id: 'modelInfo',
     title: 'Model Information',
-    icon: Bot,
+    icon: Cpu,
     description: 'Active provider, model name and model ID.',
     component: ModelInfoWidget,
     sizing: { default: { w: 1, h: 1 }, max: { w: 2, h: 1 } },
@@ -130,7 +135,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
   livingUi: {
     id: 'livingUi',
     title: 'Living UI',
-    icon: Layers,
+    icon: Box,
     description: 'Installed and running Living UIs.',
     component: LivingUIWidget,
     sizing: { default: { w: 1, h: 1 }, max: { w: 2, h: 2 } },

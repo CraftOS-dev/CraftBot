@@ -588,8 +588,11 @@
   white-space: nowrap;
 }
 
+/* Neutral, not accent — counts and statuses are data, and orange text made
+ * every list row read as a warning (user pref: icons may carry the accent
+ * color, text may not). */
 .usageCount {
-  color: var(--color-primary);
+  color: var(--text-primary);
   font-weight: var(--font-semibold);
   flex-shrink: 0;
 }
@@ -626,24 +629,21 @@
   text-decoration: underline;
 }
 
-/* Model Information Panel */
+/* Model Information Panel.
+ *
+ * Rows keep their natural height, exactly like the original panel — three
+ * compact label/value strips with any spare card height left below them.
+ * Stretching them to fill (flex: 1) reads as three bloated empty boxes. */
 .modelInfo {
   display: flex;
   flex-direction: column;
   gap: var(--w-gap);
-  flex: 1;
-  min-height: 0;
 }
 
-/* `flex: 1` on the rows, not `justify-content: space-between` on the parent:
-   the three rows are the content, so extra height belongs inside them, not in
-   the gaps between them. */
 .modelItem {
   display: flex;
   align-items: center;
   gap: var(--w-gap);
-  flex: 1;
-  min-height: 0;
   padding: var(--w-pad);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
@@ -663,12 +663,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Model name row only — scoped via the primaryIcon sibling so Provider
- * and Model ID stay neutral. */
-.modelItem:has(.primaryIcon) .modelValue {
-  color: var(--color-primary);
 }
 
 .modelValueSmall {

@@ -1,4 +1,4 @@
-import { Bot, Building2, Hash } from 'lucide-react'
+import { Building2, Cpu, Hash } from 'lucide-react'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
 import styles from './widgets.module.css'
 
@@ -17,7 +17,7 @@ export function ModelInfoWidget() {
         <span className={styles.modelValue}>{modelProvider || 'Not configured'}</span>
       </div>
       <div className={styles.modelItem}>
-        <Bot size={14} className={styles.primaryIcon} />
+        <Cpu size={14} className={styles.mutedIcon} />
         <span className={styles.modelLabel}>Model</span>
         <span className={styles.modelValue}>{modelName || 'Not configured'}</span>
       </div>

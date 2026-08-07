@@ -36,7 +36,10 @@ const ORIGINAL_ORDER = [
   'modelInfo',
 ]
 
-const REVAMP_EXTRAS = ['mascot', 'recentActivity', 'livingUi']
+// Recent Activity deliberately isn't here: it's hidden by default and only
+// appears when added via the Add Widget modal. Living UI takes the slot it
+// used to occupy.
+const REVAMP_EXTRAS = ['mascot', 'livingUi']
 
 // Uniform 1x1 cards flowed left-to-right, one per column — the same reflow
 // the old dashboard's repeat(5, 1fr) / 4 / 2 container queries produced.
