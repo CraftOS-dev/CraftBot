@@ -92,6 +92,7 @@ class IntegrationBridge:
         app.router.add_post("/api/integrations/action", self._handle_action)
         app.router.add_post("/api/bridge/llm", self._handle_llm)
         app.router.add_post("/api/bridge/vlm", self._handle_vlm)
+        app.router.add_post("/api/bridge/agent_request", self._handle_agent_request)
         logger.info("[INTEGRATION_BRIDGE] Routes registered")
 
     async def cleanup(self) -> None:
@@ -395,6 +396,149 @@ class IntegrationBridge:
                 f"'{action_name}' is not in capabilities.actions. The gate derives "
                 "the list from callAction literals in your hooks — call "
                 f"bridge.callAction('{action_name}', {{…}}) with a literal name and "
+                "relaunch with living_ui_notify_ready."
+            )
+        return True, ""
+
+    async def _handle_agent_request(self, request: web.Request) -> web.Response:
+        """A Living UI's nudge hook reports a new agent_requests row (spec
+        TRIGGERS-PLAN). The payload carries ONLY {request_id, trigger} — the
+        instruction the agent will execute is read from the project's
+        triggers.json on disk by the manager, so nothing app-controlled can
+        steer the agent beyond what its author declared at build time.
+
+        Gate order: token → capability → consent → era. Every refusal fails
+        closed and leaves the queue row pending (harmless, inspectable)."""
+        project_id = self._validate_token(request)
+        if not project_id:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+        trigger = str(data.get("trigger") or "").strip()
+        request_id = str(data.get("request_id") or "").strip()
+        if not trigger or not request_id:
+            return web.json_response(
+                {"error": "Missing required fields: trigger, request_id"}, status=400
+            )
+
+        # Gate 2 — capability. Mirror of the integrations gate: an app may
+        # only fire triggers its manifest declares. The gate derives
+        # capabilities.triggers from triggers.json, so an undeclared name
+        # cannot acquire the capability by being sent.
+        granted, why = self._project_trigger_grants(project_id, trigger)
+        if not granted:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED (capability) project={project_id} "
+                f"trigger={trigger!r}: {why}"
+            )
+            return web.json_response(
+                {"error": f"This app may not fire '{trigger}': {why}"}, status=403
+            )
+
+        # Gate 3 — consent. First-party builds are approved at creation;
+        # marketplace/imported apps need the user's explicit yes.
+        try:
+            from app.factory.host_craftbot import get_factory_host
+
+            host = get_factory_host()
+            if not host.is_triggers_approved(project_id):
+                logger.warning(
+                    f"[INTEGRATION_BRIDGE] BLOCKED (consent) project={project_id} "
+                    f"trigger={trigger!r}"
+                )
+                # A silent refusal reads as a broken button (observed live
+                # 2026-08-06: three consent-blocks, user saw nothing). Ask
+                # the user via the project session — at most once an hour,
+                # never letting the ask fail the refusal response, and never
+                # consuming the hourly slot on a FAILED ask (a silent
+                # failure once suppressed every retry for an hour).
+                try:
+                    if host.consent_nudge_due(project_id):
+                        ask = await self._manager.notify_trigger_consent_needed(
+                            project_id, trigger
+                        )
+                        if ask.get("status") == "success":
+                            host.mark_consent_nudged(project_id)
+                        else:
+                            logger.warning(
+                                f"[INTEGRATION_BRIDGE] consent ask failed for "
+                                f"{project_id}: {ask.get('message')}"
+                            )
+                except Exception as e:
+                    logger.warning(f"[INTEGRATION_BRIDGE] consent ask failed: {e}")
+                return web.json_response(
+                    {
+                        "error": (
+                            "The user has not approved this app's agent triggers. "
+                            "Ask them to approve via living_ui_approve_triggers."
+                        )
+                    },
+                    status=403,
+                )
+
+            # Gate 4 — era. Pre-delivery fires are agent/verifier test
+            # traffic (the walk verifier clicks ⚡ buttons), and a staging
+            # copy aliases to the real project id through the shared bridge
+            # token. Neither may start real agent runs — pre-delivery rows
+            # are wiped by the baseline restore anyway. NOT keyed on the
+            # factory machine: machine_for lazily creates a BUILDING machine
+            # for any project, so a marketplace install (which never builds
+            # here) would read as mid-arc forever.
+            delivered = host.is_delivered(project_id)
+            staging = host.get_staging_record(project_id)
+            if not delivered or staging:
+                logger.info(
+                    f"[INTEGRATION_BRIDGE] trigger fire deferred (era) "
+                    f"project={project_id} trigger={trigger!r} "
+                    f"delivered={delivered} staging={bool(staging)}"
+                )
+                return web.json_response(
+                    {
+                        "status": "deferred",
+                        "message": (
+                            "A build/modify is in progress — fires do not start "
+                            "agent runs until the app is delivered and live."
+                        ),
+                    }
+                )
+        except Exception as e:
+            # Fail closed: if the gates cannot be evaluated, no agent run.
+            logger.warning(f"[INTEGRATION_BRIDGE] trigger gates unavailable: {e}")
+            return web.json_response({"error": "Trigger gates unavailable"}, status=503)
+
+        result = await self._manager.notify_app_trigger(project_id, trigger, request_id)
+        if result.get("status") != "success":
+            return web.json_response(
+                {"error": result.get("message", "dispatch failed")}, status=422
+            )
+        return web.json_response({"status": "ok"})
+
+    def _project_trigger_grants(self, project_id: str, trigger: str) -> tuple:
+        """(ok, reason) — does this project declare `trigger` in its
+        manifest's `capabilities.triggers`? Fails closed, mirror of
+        _project_grants."""
+        import json as _json
+
+        try:
+            project = self._manager.get_project(project_id)
+        except Exception as e:
+            return False, f"unknown project ({e})"
+        if project is None:
+            return False, "unknown project"
+        try:
+            manifest_path = Path(project.path) / "manifest.json"
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"manifest unreadable ({e})"
+
+        declared = (manifest.get("capabilities") or {}).get("triggers")
+        if not isinstance(declared, list) or trigger not in declared:
+            return False, (
+                f"'{trigger}' is not in capabilities.triggers. The gate derives "
+                "the list from triggers.json — declare the trigger there and "
                 "relaunch with living_ui_notify_ready."
             )
         return True, ""

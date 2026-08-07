@@ -192,6 +192,12 @@ with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "living_ui"
     proj = _make_project_dir(living, "stage0001", 3125)
     project = _Project("stage0001", proj, 3125)
+    # Trigger declaration MUST travel to staging: without it the copy's guard
+    # declares nothing, every ⚡ fire 400s, and the walker fails an
+    # unfixable "defect" (observed live 2026-08-06 — three identical STUCKs).
+    (proj / "triggers.json").write_text(
+        '{"triggers": {"ping": {"instruction": "reply", "description": "d"}}}'
+    )
     runner = _StubRunner()
     sup = StagingSupervisor(living, runner)
 
@@ -211,6 +217,9 @@ with tempfile.TemporaryDirectory() as tmp:
         "node_modules rides along"
     )
     assert (sdir / ".superuser").exists() and (sdir / ".lui").exists()
+    assert (sdir / "triggers.json").exists(), (
+        "triggers.json must travel to staging — its absence 400s every fire"
+    )
 
     # DB isolation: staging writes never reach the original.
     assert _count(sdir / "pb" / "pb_data" / "data.db") == 2
@@ -222,8 +231,14 @@ with tempfile.TemporaryDirectory() as tmp:
     (proj / "frontend" / "package.json").write_text(
         '{"name": "app", "dependencies": {"x": "1.0.0"}}'
     )
+    (proj / "triggers.json").write_text(
+        '{"triggers": {"pong": {"instruction": "reply", "description": "d"}}}'
+    )
     sup.sync_code(project, sdir)
     assert "A = 2" in (sdir / "frontend" / "src" / "App.tsx").read_text()
+    assert "pong" in (sdir / "triggers.json").read_text(), (
+        "fix-iteration edits to triggers.json must reach staging"
+    )
     assert not (sdir / "frontend" / "node_modules").exists(), (
         "changed package.json must clear node_modules so install runs"
     )
@@ -1224,6 +1239,8 @@ with tempfile.TemporaryDirectory() as tmp:
     stub.import_project_source = _imp_source
     stub.start_development_run = _sdr
     stub.post_import_brief = LivingUIManager.post_import_brief.__get__(stub)
+    # post_import_brief now appends the trigger-consent ask (TRIGGERS-PLAN).
+    stub.declared_triggers_brief = LivingUIManager.declared_triggers_brief.__get__(stub)
 
     out = _run_action(LA.living_ui_import, {"source": "/tmp/whatever.zip"})
     assert out["status"] == "success" and out["project_id"] == "impact0001"

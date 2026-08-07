@@ -56,7 +56,11 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 # What a staging copy takes from the real project. pb_data arrives via the
 # sqlite backup API (never a file copy of a live WAL DB); pb_public is
 # deliberately absent — the gate's build step recreates it inside the copy.
-_COPY_FILES = ("manifest.json", "operations.json", "LIVING_UI.md")
+# triggers.json MUST travel: without it the copy's trigger guard declares
+# nothing, every ⚡ fire 400s, the walker fails an unfixable "defect", and
+# the arc sticks (observed live 2026-08-06, kanban board — three identical
+# STUCKs on one missing file).
+_COPY_FILES = ("manifest.json", "operations.json", "triggers.json", "LIVING_UI.md")
 _COPY_CREDS = (".superuser", ".agent-token")
 _COPY_DIRS = ("frontend", "pb/pb_hooks", "pb/pb_migrations", ".lui", "reference")
 
@@ -64,7 +68,7 @@ _COPY_DIRS = ("frontend", "pb/pb_hooks", "pb/pb_migrations", ".lui", "reference"
 # paths (ownership rule, agent-guide §1) — never manifest.json (the copy's
 # port rewrite must survive) and never pb/pb_data (the agent's in-app test
 # data persists across iterations).
-_SYNC_FILES = ("operations.json", "LIVING_UI.md")
+_SYNC_FILES = ("operations.json", "triggers.json", "LIVING_UI.md")
 _SYNC_DIRS = ("frontend/src", "pb/pb_hooks", "pb/pb_migrations", "reference")
 _SYNC_PKG = ("frontend/package.json", "frontend/package-lock.json")
 

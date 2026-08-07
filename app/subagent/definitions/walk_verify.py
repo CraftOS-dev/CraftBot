@@ -53,6 +53,11 @@ YOUR WALK:
    are the very reason this verify is running, so they must each appear;
    a walk that covers only the original feature list and skips the change
    itself makes a broken modify look verified.
+   EXCEPTION: a `## Changes` entry wrapped in ~~strikethrough~~ is
+   SUPERSEDED history — the user changed their mind, or the approach was
+   retired. Skip it entirely: do not list it, do not verify it, and never
+   FAIL the app for not doing it (contradictory live entries once made a
+   spec unsatisfiable and stuck a healthy app three times).
    Omitting a feature makes an incomplete walk look complete: an app once
    PASSED with its required daily-email feature silently unbuilt because the
    walk simply left it off the list. For unexercisable features, grep_files
@@ -82,19 +87,24 @@ YOUR WALK:
    If the data is gone, that feature is a FAIL ("saves" that vanish on reload
    are the most common way an app looks finished and isn't).
 6. LIVE DATA — when a feature claims live/external/synced/scheduled data
-   (weather, prices, feeds, "pulled from", "real-time", a scheduled sync):
-   rendered data and confirmation toasts are NOT evidence. The fetch happens
-   server-side, so the browser cannot see it — instead grep_files the
-   project's pb/pb_hooks/*.js (excluding _*.js) for "$http.send",
-   "callIntegration" or "cronAdd". Neither present = FAIL for that feature:
-   "displays data but the app fetches nothing — the data cannot be live".
-   If the serving hook instead generates values (Math.random, hardcoded
-   samples), FAIL it and quote the line. Your PASS/FAIL line for such a
-   feature MUST quote the hook evidence ("$http.send"/"callIntegration"/
-   "cronAdd" plus the line) — a verdict without the quote is rejected. This
-   rule exists because an app once rendered Math.random() as "live weather"
-   and passed review, and another passed a "scheduled daily pull" whose
-   hooks contained no fetch and no schedule at all.
+   (weather, prices, feeds, "pulled from", "real-time", a scheduled sync)
+   OR AI-generated content (an "AI summary", anything the app "generates"
+   with a model): rendered data and confirmation toasts are NOT evidence.
+   The fetch happens server-side, so the browser cannot see it — instead
+   grep_files the project's pb/pb_hooks/*.js (excluding _*.js) for
+   "$http.send", "callIntegration", "callLLM" or "cronAdd". Neither present
+   = FAIL for that feature: "displays data but the app fetches nothing —
+   the data cannot be live". An "AI" feature specifically needs "callLLM"
+   (the bridge's LLM helper) or an external LLM call — string-joining
+   records is not AI. If the serving hook instead generates values
+   (Math.random, hardcoded samples), FAIL it and quote the line. Your
+   PASS/FAIL line for such a feature MUST quote the hook evidence
+   ("$http.send"/"callIntegration"/"callLLM"/"cronAdd" plus the line) — a
+   verdict without the quote is rejected. This rule exists because an app
+   once rendered Math.random() as "live weather" and passed review, another
+   passed a "scheduled daily pull" whose hooks contained no fetch, and a
+   third passed an "AI summary" that just listed the items (observed live
+   2026-08-06).
 7. Decide each feature and end.
 
 VERDICTS (mechanical, not stylistic):
@@ -107,8 +117,14 @@ V1. PASS a feature ONLY with concrete evidence from an action YOU ran: a
     implementation at all). Evidence names the flow you RAN and the state
     CHANGE you observed. A confirmation toast alone is not a state change —
     read the data back.
-V2. A feature you could not exercise (control missing/unreachable, flow blocked,
-    placeholder / "coming soon" / dead button) = FAIL, with what you observed.
+V2. A feature you could not exercise because of the APP (control missing/
+    unreachable, flow blocked, placeholder / "coming soon" / dead button)
+    = FAIL, with what you observed. But a feature YOUR TOOLS cannot perform
+    (drag-and-drop is browser_drag — use it; anything genuinely absent from
+    your action list) is NOT the app's fault: mark it
+    '— NOT REACHED (tooling: <what you lack>)', never FAIL — a FAIL here
+    dispatches engineers to fix a feature that may be fine (observed live
+    2026-08-06: drag-and-drop failed every walk on "no drag tool").
 V3. No minor category: one console error during normal use = FAIL; a feature
     that "mostly" works = FAIL.
 V3b. JUDGE THE VALUES LIKE A HUMAN USER, not just the rendering. Data that
@@ -176,7 +192,8 @@ def _early_end_guard(sub, parameters):
 
     Allowed to end early at ANY turn: failed status (missing inputs),
     genuine tooling blockage (browser markers), and complete walks — where
-    every NOT REACHED entry carries the '(code present…' qualifier for
+    every NOT REACHED entry carries the '(code present…' or '(tooling…'
+    qualifier for
     features a browser cannot exercise.
     """
     import re as _re
@@ -212,20 +229,20 @@ def _early_end_guard(sub, parameters):
     # grep result ($http.send / callIntegration / cronAdd), per step 6.
     live_pass = _re.search(
         r"^-\s[^\n]*\b(pull|sync|fetch|live|real-?time|bridge|external|"
-        r"scheduled|refresh)\b[^\n]*—\s*PASS\b",
+        r"scheduled|refresh|ai|llm)\b[^\n]*—\s*PASS\b",
         result,
         _re.MULTILINE | _re.IGNORECASE,
     )
     if live_pass and not _re.search(
-        r"\$http\.send|callIntegration|cronAdd", result
+        r"\$http\.send|callIntegration|callLLM|cronAdd", result
     ):
         return (
-            "Verdict REJECTED — a live/external/scheduled-data feature is "
-            f"marked PASS ('{live_pass.group(0)[:120]}') with no quoted "
-            "hook evidence. Per step 6: grep_files the project's "
+            "Verdict REJECTED — a live/external/scheduled/AI-generated "
+            f"feature is marked PASS ('{live_pass.group(0)[:120]}') with no "
+            "quoted hook evidence. Per step 6: grep_files the project's "
             "pb/pb_hooks/*.js (excluding _*.js) for $http.send / "
-            "callIntegration / cronAdd and QUOTE the line in your verdict. "
-            "No implementing code found = that feature is FAIL."
+            "callIntegration / callLLM / cronAdd and QUOTE the line in your "
+            "verdict. No implementing code found = that feature is FAIL."
         )
 
     # ── premature-conclusion gate (early turns only) ──
@@ -241,7 +258,7 @@ def _early_end_guard(sub, parameters):
     # Premature = a bare NOT REACHED (one WITHOUT the code-present
     # qualifier), or a BLOCKED verdict with no tooling evidence.
     bare_not_reached = _re.search(
-        r"NOT REACHED(?!\s*\(code present)", result, _re.IGNORECASE
+        r"NOT REACHED(?!\s*\((?:code present|tooling))", result, _re.IGNORECASE
     )
     fake_blocked = _re.search(r"VERDICT:\s*BLOCKED", result, _re.IGNORECASE)
     if not (bare_not_reached or fake_blocked):
@@ -271,6 +288,7 @@ register_subagent(
         "mcp_playwright-mcp_browser_navigate",
         "mcp_playwright-mcp_browser_snapshot",
         "mcp_playwright-mcp_browser_click",
+        "mcp_playwright-mcp_browser_drag",
         "mcp_playwright-mcp_browser_type",
         "mcp_playwright-mcp_browser_fill_form",
         "mcp_playwright-mcp_browser_press_key",

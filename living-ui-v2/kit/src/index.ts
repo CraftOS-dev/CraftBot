@@ -14,6 +14,10 @@ export type { NormalizedPbError } from './pb/client.ts';
 export { useCollection, useRecord } from './pb/hooks.ts';
 export type { CollectionQuery, CollectionState, RecordState } from './pb/hooks.ts';
 
+// App→agent trigger plane (spec TRIGGERS-PLAN)
+export { fireAgentTrigger, useAgentRequest } from './pb/agent.ts';
+export type { AgentRequestRecord, AgentRequestState, FireResult } from './pb/agent.ts';
+
 // Auth (multi-user mode)
 export { useAuth } from './pb/auth.ts';
 export type { AuthState } from './pb/auth.ts';

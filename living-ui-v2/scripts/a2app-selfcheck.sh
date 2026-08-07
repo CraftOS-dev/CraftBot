@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # A2APP self-check — exercises every guarantee against a RUNNING app.
 #
-#   ./a2app-selfcheck.sh <project-dir> [base-url]
+#   ./a2app-selfcheck.sh <project-dir> [base-url] [--fire]
 #
 # Creates and deletes its own records; leaves the app as it found it.
 # Exits non-zero if any check fails. Safe to re-run.
+#
+# --fire additionally performs a REAL trigger fire (plus a cooldown check).
+# Off by default because queue rows are append-only by design — a test fire
+# leaves a rejected row in agent_requests and, on an app connected to a live
+# CraftBot, may nudge the agent.
 set -uo pipefail
 
 PROJ="${1:?usage: a2app-selfcheck.sh <project-dir> [base-url]}"
@@ -115,7 +120,57 @@ print(next((k for k,v in f.items() if v.get('type')=='datetime' and not v.get('r
   check "unknown collection named"   'No collection' "$OUT"
 fi
 
-head "8. Attribution log"
+head "8. Trigger plane"
+check "describe lists triggers"      '"triggers"' "$DESC"
+R="$(body -X POST "$BASE/api/collections/agent_requests/records" "${W[@]}" -d '{"trigger":"__selfcheck_nosuch","fired_by":"cli"}')"
+check "undeclared trigger rejected"  'undeclared_trigger' "$R"
+check "queue is append-only"         'append_only' \
+  "$(body -X DELETE "$BASE/api/collections/agent_requests/records/nonexistent0123" "${W[@]}")"
+
+TRIG="$(python3 -c "
+import json
+try:
+    t = json.load(open('$PROJ/triggers.json')).get('triggers', {})
+    print(sorted(t.keys())[0] if t else '')
+except Exception:
+    print('')")"
+if [ -n "$TRIG" ]; then
+  # The a2app write guard (registered first) rejects the bad enum before the
+  # trigger guard sees it — either rejection is correct; match on the field.
+  R="$(body -X POST "$BASE/api/collections/agent_requests/records" "${W[@]}" -d "{\"trigger\":\"$TRIG\",\"fired_by\":\"bogus\",\"status\":\"pending\"}")"
+  check "invalid fired_by rejected"  '"field":"fired_by"' "$R"
+
+  if [ "${3:-}" = "--fire" ]; then
+    PARAMS="$(python3 -c "
+import json
+spec = json.load(open('$PROJ/triggers.json'))['triggers']['$TRIG'].get('params', {}) or {}
+out = {}
+for name, p in spec.items():
+    if not p.get('required') and 'default' not in p: continue
+    if 'default' in p: out[name] = p['default']
+    elif p.get('enum'): out[name] = p['enum'][0]
+    else: out[name] = {'string': 'selfcheck', 'number': 1, 'boolean': True}[p.get('type', 'string')]
+print(json.dumps(out))")"
+    R1="$(body -X POST "$BASE/api/collections/agent_requests/records" "${W[@]}" -d "{\"trigger\":\"$TRIG\",\"fired_by\":\"cli\",\"status\":\"pending\",\"params\":$PARAMS}")"
+    FID="$(echo "$R1" | json 'id')"
+    [ -n "$FID" ] && ok "valid fire lands a pending row" || bad "valid fire lands a pending row" "an id" "${R1:0:120}"
+    R2="$(body -X POST "$BASE/api/collections/agent_requests/records" "${W[@]}" -d "{\"trigger\":\"$TRIG\",\"fired_by\":\"cli\",\"status\":\"pending\",\"params\":$PARAMS}")"
+    check "cooldown enforced"        'cooldown' "$R2"
+    if [ -n "$FID" ]; then
+      R3="$(body -X PATCH "$BASE/api/collections/agent_requests/records/$FID" "${W[@]}" -d '{"status":"done"}')"
+      check "pending→done refused"   'invalid_transition' "$R3"
+      body -X PATCH "$BASE/api/collections/agent_requests/records/$FID" "${W[@]}" \
+        -d '{"status":"rejected","error":"a2app-selfcheck test fire"}' -o /dev/null
+      printf '     test fire %s left as status=rejected (queue is append-only)\n' "$FID"
+    fi
+  else
+    echo "     (pass --fire to exercise a real fire + cooldown; leaves a rejected row)"
+  fi
+else
+  echo "     (no triggers.json — declared-trigger checks skipped)"
+fi
+
+head "9. Attribution log"
 if [ -f "$PROJ/logs/agent-actions.jsonl" ]; then
   ok "agent-actions.jsonl exists ($(wc -l < "$PROJ/logs/agent-actions.jsonl" | tr -d ' ') entries)"
 else

@@ -284,6 +284,133 @@ export function collectEgressHosts(projectDir: string): EgressScan {
   };
 }
 
+/**
+ * Agent-owned hooks must not touch the trigger queue (spec TRIGGERS-PLAN).
+ * Observed live 2026-08-06: a fix iteration wired a hook that self-claimed
+ * `chat.summary` requests and wrote a board-dump as the "result" — an
+ * in-process hook beats the session-dispatched agent every time, so the app
+ * permanently shadowed the real agent while every walk passed. The queue is
+ * the REACTING agent's surface: apps fire via `_triggers_lib.fire()` (which
+ * never names the collection) and render results via frontend realtime —
+ * they never read, claim, or answer their own requests. The state-machine
+ * guard cannot enforce this (hooks use e.app.save(), which bypasses router
+ * middleware), so the gate must.
+ */
+export function checkTriggerQueueOwnership(projectDir: string): string[] {
+  const hooksDir = join(projectDir, 'pb', 'pb_hooks');
+  if (!existsSync(hooksDir)) return [];
+  const problems: string[] = [];
+  for (const name of readdirSync(hooksDir)) {
+    if (!name.endsWith('.js') || name.startsWith('_')) continue;
+    const source = readFileSync(join(hooksDir, name), 'utf8');
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const m of code.matchAll(/agent_requests/g)) {
+      const line = code.slice(0, m.index ?? 0).split('\n').length;
+      problems.push(
+        `${name}:${line}: agent hooks must not touch the agent_requests queue — ` +
+          `it is the reacting AGENT's surface. Fire with ` +
+          "require(`${__hooks}/_triggers_lib.js`).fire(e.app, '<name>', {…}, 'hook') " +
+          `and render results via the frontend's realtime subscription. An app ` +
+          `that claims or answers its own requests shadows the real agent.`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * triggers.json (spec TRIGGERS-PLAN): the app→agent declaration. Structure
+ * errors here are protocol errors — a trigger with no instruction can never
+ * be reacted to, and a bad param spec makes every fire unvalidatable. The
+ * declared names are the source `capabilities.triggers` is derived from, so
+ * this must be strict: the bridge fails closed on the derived list.
+ */
+export function validateTriggersManifest(projectDir: string): string[] {
+  const file = join(projectDir, 'triggers.json');
+  if (!existsSync(file)) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err) {
+    return [`triggers.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`];
+  }
+  const triggers = (parsed as { triggers?: unknown }).triggers;
+  if (triggers === undefined) return ['triggers.json must have a top-level "triggers" object'];
+  if (typeof triggers !== 'object' || triggers === null || Array.isArray(triggers)) {
+    return ['"triggers" must be an object keyed by trigger name'];
+  }
+  const problems: string[] = [];
+  const NAME = /^[a-z][a-z0-9._-]{0,63}$/;
+  const PARAM_TYPES = new Set(['string', 'number', 'boolean']);
+  for (const [name, def] of Object.entries(triggers as Record<string, unknown>)) {
+    const at = `triggers.${name}`;
+    if (!NAME.test(name)) {
+      problems.push(`${at}: name must match ${NAME} (lowercase, like operation names)`);
+    }
+    if (typeof def !== 'object' || def === null || Array.isArray(def)) {
+      problems.push(`${at}: must be an object`);
+      continue;
+    }
+    const d = def as Record<string, unknown>;
+    if (typeof d.instruction !== 'string' || d.instruction.trim() === '') {
+      problems.push(`${at}: "instruction" (non-empty string) is required — it is what the agent executes`);
+    }
+    if (d.description !== undefined && typeof d.description !== 'string') {
+      problems.push(`${at}: "description" must be a string`);
+    }
+    if (d.cooldown_seconds !== undefined) {
+      const cd = d.cooldown_seconds;
+      if (typeof cd !== 'number' || !Number.isInteger(cd) || cd < 0) {
+        problems.push(`${at}: "cooldown_seconds" must be a non-negative integer`);
+      }
+    }
+    if (d.params !== undefined) {
+      if (typeof d.params !== 'object' || d.params === null || Array.isArray(d.params)) {
+        problems.push(`${at}: "params" must be an object keyed by param name`);
+      } else {
+        for (const [pname, pspec] of Object.entries(d.params as Record<string, unknown>)) {
+          if (typeof pspec !== 'object' || pspec === null || Array.isArray(pspec)) {
+            problems.push(`${at}.params.${pname}: must be an object with a "type"`);
+            continue;
+          }
+          const p = pspec as Record<string, unknown>;
+          if (!PARAM_TYPES.has(String(p.type))) {
+            problems.push(
+              `${at}.params.${pname}: "type" must be one of string|number|boolean (operations.json param shape)`,
+            );
+          }
+          if (p.enum !== undefined && !Array.isArray(p.enum)) {
+            problems.push(`${at}.params.${pname}: "enum" must be an array`);
+          }
+        }
+      }
+    }
+    const known = new Set(['description', 'instruction', 'params', 'cooldown_seconds']);
+    for (const key of Object.keys(d)) {
+      if (!known.has(key)) problems.push(`${at}: unknown key "${key}"`);
+    }
+  }
+  return problems;
+}
+
+/** Declared trigger names — what `capabilities.triggers` is derived from.
+ *  Empty on a missing or STRUCTURALLY INVALID manifest: a declaration the
+ *  structure step rejects must not mint capability entries (the fire gate
+ *  fails closed on this list, so over-minting would be the actual hole). */
+export function collectDeclaredTriggers(projectDir: string): string[] {
+  const file = join(projectDir, 'triggers.json');
+  if (!existsSync(file)) return [];
+  if (validateTriggersManifest(projectDir).length > 0) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { triggers?: Record<string, unknown> };
+    const triggers = parsed.triggers;
+    if (typeof triggers !== 'object' || triggers === null || Array.isArray(triggers)) return [];
+    return Object.keys(triggers).sort();
+  } catch {
+    return [];
+  }
+}
+
 /** Frontend must not call external hosts directly (CORS breaks standalone
  *  deploys; anything secret would be public). Warning-only: matches only
  *  fetch('https://… — plain href links in JSX are legitimate. */
@@ -319,6 +446,7 @@ function syncEgressManifest(
   hosts: string[],
   integrations: string[],
   actions: string[],
+  triggers: string[],
 ): void {
   const manifestPath = join(projectDir, 'manifest.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
@@ -330,7 +458,8 @@ function syncEgressManifest(
   if (
     same('external_hosts', hosts) &&
     same('integrations', integrations) &&
-    same('actions', actions)
+    same('actions', actions) &&
+    same('triggers', triggers)
   ) {
     return;
   }
@@ -351,6 +480,11 @@ function syncEgressManifest(
   else capabilities.integrations = integrations;
   if (actions.length === 0) delete capabilities.actions;
   else capabilities.actions = actions;
+  // The bridge's fire gate fails closed on this list; deriving it from
+  // triggers.json (agent-owned) into the manifest (canon-hashed) is what
+  // makes "declared at build time" enforceable at fire time.
+  if (triggers.length === 0) delete capabilities.triggers;
+  else capabilities.triggers = triggers;
   if (Object.keys(capabilities).length === 0) delete manifest.capabilities;
   else manifest.capabilities = capabilities;
 
@@ -663,6 +797,16 @@ export async function run(args: string[]): Promise<number> {
 
   runStep(errors, 'operations.json (structure)', () => validateOps(projectDir));
 
+  runStep(errors, 'triggers.json (structure)', () => {
+    const problems = validateTriggersManifest(projectDir);
+    if (problems.length > 0) throw new Error(problems.join('\n'));
+  });
+
+  runStep(errors, 'trigger queue ownership (hooks)', () => {
+    const problems = checkTriggerQueueOwnership(projectDir);
+    if (problems.length > 0) throw new Error(problems.join('\n'));
+  });
+
   runStep(errors, 'hooks (transaction handles)', () =>
     checkTransactionHandles(projectDir)
   );
@@ -682,13 +826,17 @@ export async function run(args: string[]): Promise<number> {
           `anything secret would be public)`,
       );
     }
-    syncEgressManifest(projectDir, scan.hosts, scan.integrations, scan.actions);
+    const triggers = collectDeclaredTriggers(projectDir);
+    syncEgressManifest(projectDir, scan.hosts, scan.integrations, scan.actions, triggers);
     log.info(scan.hosts.length === 0 ? 'no external hosts' : `talks to: ${scan.hosts.join(', ')}`);
     if (scan.integrations.length > 0) {
       log.info(`uses integrations: ${scan.integrations.join(', ')}`);
     }
     if (scan.actions.length > 0) {
       log.info(`uses actions: ${scan.actions.join(', ')}`);
+    }
+    if (triggers.length > 0) {
+      log.info(`declares agent triggers: ${triggers.join(', ')}`);
     }
   });
 

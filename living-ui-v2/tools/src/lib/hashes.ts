@@ -26,6 +26,8 @@ export const SYSTEM_PATHS = [
   'pb/pb_hooks/_a2app.pb.js',
   'pb/pb_hooks/_a2app_lib.js',
   'pb/pb_hooks/_a2app_rules.js',
+  'pb/pb_hooks/_triggers.pb.js',
+  'pb/pb_hooks/_triggers_lib.js',
   'manifest.json',
 ];
 

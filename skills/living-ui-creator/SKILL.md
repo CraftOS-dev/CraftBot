@@ -249,6 +249,14 @@ cronAdd('weatherSync', '*/15 * * * *', () => {
 
 Update `LIVING_UI.md` after each feature (entities table, ops list, checklist).
 
+**App→agent triggers** — when a feature needs the AGENT to react to something
+happening in the app (a button that asks the agent to act, backend logic that
+crossed a threshold), declare it in `triggers.json` and fire it via the kit's
+`fireAgentTrigger` (frontend) or `_triggers_lib.js`'s `fire()` (hooks) — see
+`references/TRIGGERS.md` for the manifest format, the trust rules, and the
+design rules (idempotent instructions, generous cooldowns). Declare a trigger
+only where agent judgment adds value — plain code handles plain events.
+
 ## Finish: launch, then verify
 
 1. `living_ui_notify_ready(project_id="<PROJECT_ID>")` — runs the gate

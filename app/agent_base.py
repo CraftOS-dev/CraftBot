@@ -162,6 +162,7 @@ RUN_START_SOURCES = {
     TriggerSource.LIVING_UI_CRASH_FIX.value,
     TriggerSource.LIVING_UI_IMPORT.value,
     TriggerSource.LIVING_UI_CREATED.value,
+    TriggerSource.LIVING_UI_APP_REQUEST.value,
 }
 
 # Payload keys propagated turn-to-turn across a run's continuation triggers.
@@ -1146,6 +1147,15 @@ class AgentBase:
                 match = self._LUI_WRITE.search(command)
                 if match is None:
                     continue
+                # Trigger-plane bookkeeping is not user data: claim/done
+                # updates on agent_requests already have their user-facing
+                # output — the ⚡ fired event and the agent's final message.
+                # Receipting them produced three noise bubbles per fire
+                # ("claimed by craftbot… status claimed", then "…status
+                # done") between the ⚡ and the actual answer (observed live
+                # 2026-08-06, user: "bad UX to get so many status messages").
+                if match.group("collection") == "agent_requests":
+                    continue
                 summary = self._describe_write(session_id, project_id, match, result)
                 if summary:
                     summaries.append(summary)
@@ -1407,9 +1417,7 @@ class AgentBase:
         try:
             stopped = await self.session_runtime.request_stop(session_id)
         except Exception:
-            logger.error(
-                f"[RUN] request_stop failed for {session_id}", exc_info=True
-            )
+            logger.error(f"[RUN] request_stop failed for {session_id}", exc_info=True)
             stopped = False
         if not stopped:
             # Nothing was running (stale UI state) — settle the UI to idle.
