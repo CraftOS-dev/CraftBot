@@ -1,0 +1,5 @@
+mkdocs>=1.5
+mkdocs-material>=9.5
+pymdown-extensions>=10.7
+mkdocs-gen-files>=0.5
+mkdocs-llmstxt>=0.1

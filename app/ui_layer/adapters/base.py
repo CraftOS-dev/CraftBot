@@ -215,19 +215,10 @@ class InterfaceAdapter(ABC):
             bus.subscribe(UIEventType.ERROR_MESSAGE, self._handle_error_message)
         )
         self._unsubscribers.append(
-            bus.subscribe(UIEventType.LLM_FATAL_ERROR, self._handle_llm_fatal_error)
-        )
-        self._unsubscribers.append(
             bus.subscribe(UIEventType.INFO_MESSAGE, self._handle_info_message)
         )
 
-        # Task/action events
-        self._unsubscribers.append(
-            bus.subscribe(UIEventType.TASK_START, self._handle_task_start)
-        )
-        self._unsubscribers.append(
-            bus.subscribe(UIEventType.TASK_END, self._handle_task_end)
-        )
+        # Action events (per-session activity feed)
         self._unsubscribers.append(
             bus.subscribe(UIEventType.ACTION_START, self._handle_action_start)
         )
@@ -243,16 +234,10 @@ class InterfaceAdapter(ABC):
             bus.subscribe(UIEventType.AGENT_STATE_CHANGED, self._handle_state_change)
         )
         self._unsubscribers.append(
+            bus.subscribe(UIEventType.RUN_STATE_CHANGED, self._handle_run_state_change)
+        )
+        self._unsubscribers.append(
             bus.subscribe(UIEventType.GUI_MODE_CHANGED, self._handle_gui_mode_change)
-        )
-        self._unsubscribers.append(
-            bus.subscribe(UIEventType.WAITING_FOR_USER, self._handle_waiting_for_user)
-        )
-        self._unsubscribers.append(
-            bus.subscribe(UIEventType.TASK_UPDATE, self._handle_task_update)
-        )
-        self._unsubscribers.append(
-            bus.subscribe(UIEventType.TASK_TOKEN_UPDATE, self._handle_task_token_update)
         )
 
         # Footage events
@@ -282,6 +267,7 @@ class InterfaceAdapter(ABC):
                 "You",
                 event.data.get("message", ""),
                 "user",
+                session_id=event.data.get("session_id"),
                 client_id=event.data.get("client_id"),
             )
         )
@@ -308,8 +294,9 @@ class InterfaceAdapter(ABC):
                 agent_name,
                 event.data.get("message", ""),
                 "agent",
-                task_session_id=event.task_id,
+                session_id=event.task_id,
                 options=options,
+                continue_work=bool(event.data.get("continue_work", False)),
             )
         )
 
@@ -317,100 +304,39 @@ class InterfaceAdapter(ABC):
         """Handle system message event."""
         asyncio.create_task(
             self._display_chat_message(
-                "System", event.data.get("message", ""), "system"
+                "System",
+                event.data.get("message", ""),
+                "system",
+                session_id=event.task_id,
             )
         )
 
     def _handle_error_message(self, event: UIEvent) -> None:
         """Handle error message event."""
         asyncio.create_task(
-            self._display_chat_message("Error", event.data.get("message", ""), "error")
-        )
-
-    def _handle_llm_fatal_error(self, event: UIEvent) -> None:
-        """Handle fatal LLM consecutive failure — show retry/change-model options."""
-        from app.ui_layer.components.types import ChatMessageOption
-
-        session_id = event.data.get("session_id")
-        options = [
-            ChatMessageOption(label="Retry", value="llm_retry", style="primary"),
-            ChatMessageOption(
-                label="Change Model", value="llm_change_model", style="default"
-            ),
-        ]
-        asyncio.create_task(
             self._display_chat_message(
-                "System",
-                "What would you like to do?",
-                "system",
-                task_session_id=session_id,
-                options=options,
+                "Error",
+                event.data.get("message", ""),
+                "error",
+                session_id=event.task_id,
             )
         )
 
     def _handle_info_message(self, event: UIEvent) -> None:
         """Handle info message event."""
         asyncio.create_task(
-            self._display_chat_message("Info", event.data.get("message", ""), "info")
-        )
-
-    def _handle_task_start(self, event: UIEvent) -> None:
-        """Handle task start event."""
-        # Skip task events from main stream (empty task_id).
-        # Main stream's task_started events are for conversation history,
-        # not for UI task panels.
-        task_id = event.data.get("task_id", "")
-        if not task_id:
-            return
-
-        # Look up the source Task to capture skill/workflow context for the UI
-        selected_skills: List[str] = []
-        workflow_id: Optional[str] = None
-        try:
-            agent = getattr(self._controller, "agent", None)
-            task_manager = getattr(agent, "task_manager", None) if agent else None
-            if task_manager is not None:
-                task = task_manager.get_task_by_id(task_id)
-                if task is not None:
-                    selected_skills = list(task.selected_skills or [])
-                    workflow_id = task.workflow_id
-        except Exception:
-            pass
-
-        if self.action_panel:
-            asyncio.create_task(
-                self.action_panel.add_item(
-                    ActionItem(
-                        id=task_id,
-                        name=event.data.get("task_name", "Task"),
-                        status="running",
-                        item_type="task",
-                        selected_skills=selected_skills,
-                        workflow_id=workflow_id,
-                    )
-                )
+            self._display_chat_message(
+                "Info",
+                event.data.get("message", ""),
+                "info",
+                session_id=event.task_id,
             )
-
-    def _handle_task_end(self, event: UIEvent) -> None:
-        """Handle task end event."""
-        # Skip task events from main stream (empty task_id).
-        task_id = event.data.get("task_id", "")
-        if not task_id:
-            return
-
-        if self.action_panel:
-            status = event.data.get("status", "completed")
-            asyncio.create_task(self.action_panel.update_item(task_id, status))
+        )
 
     def _handle_action_start(self, event: UIEvent) -> None:
         """Handle action start event."""
         if self.action_panel:
-            # Use event's task_id if available, otherwise fall back to current task
-            # This handles cases where action events go to main stream (task_id="")
-            # but should still be associated with the running task
-            task_id = (
-                event.data.get("task_id") or self._controller.state.current_task_id
-            )
+            session_id = event.data.get("session_id") or "main"
             asyncio.create_task(
                 self.action_panel.add_item(
                     ActionItem(
@@ -418,7 +344,7 @@ class InterfaceAdapter(ABC):
                         name=event.data.get("action_name", "Action"),
                         status="running",
                         item_type="action",
-                        parent_id=task_id,
+                        session_id=session_id,
                         input_data=event.data.get("input"),
                     )
                 )
@@ -428,22 +354,17 @@ class InterfaceAdapter(ABC):
         """Handle action end event."""
         if self.action_panel:
             status = "error" if event.data.get("error") else "completed"
-            # Try to match by action_id first, then fall back to action_name + task_id
+            # Try to match by action_id first, then fall back to name + session
             action_id = event.data.get("action_id", "")
             action_name = event.data.get("action_name", "")
-            # Use event's task_id if available, otherwise fall back to current task
-            task_id = (
-                event.data.get("task_id")
-                or self._controller.state.current_task_id
-                or ""
-            )
+            session_id = event.data.get("session_id") or "main"
             # Get output and error data
             output = event.data.get("output")
             error_message = event.data.get("error_message")
             asyncio.create_task(
                 self.action_panel.update_item_by_name(
                     action_name=action_name,
-                    task_id=task_id,
+                    session_id=session_id,
                     status=status,
                     action_id=action_id,
                     output=output,
@@ -452,9 +373,8 @@ class InterfaceAdapter(ABC):
             )
 
     def _handle_reasoning(self, event: UIEvent) -> None:
-        """Handle reasoning event. Override in browser adapter for Tasks page."""
-        # Base implementation does nothing - reasoning is only shown in Tasks page
-        # Chat page's action panel should not display reasoning items
+        """Handle reasoning event. Override in browser adapter to broadcast
+        it into the session's inline activity feed."""
         pass
 
     def _handle_state_change(self, event: UIEvent) -> None:
@@ -464,57 +384,16 @@ class InterfaceAdapter(ABC):
                 self.status_bar.set_status(event.data.get("status_message", ""))
             )
 
+    def _handle_run_state_change(self, event: UIEvent) -> None:
+        """Handle a session's run-in-flight state transition. Override in
+        the browser adapter to broadcast the per-session busy flag that
+        drives the chat's typing indicator."""
+        pass
+
     def _handle_gui_mode_change(self, event: UIEvent) -> None:
         """Handle GUI mode change event."""
         if self.footage_component:
             self.footage_component.set_visible(event.data.get("gui_mode", False))
-
-    def _handle_waiting_for_user(self, event: UIEvent) -> None:
-        """Handle waiting for user event - update task status to waiting."""
-        task_id = event.data.get("task_id", "")
-        if task_id and self.action_panel:
-            asyncio.create_task(self.action_panel.update_item(task_id, "waiting"))
-
-    def _handle_task_update(self, event: UIEvent) -> None:
-        """Handle task update event - update task status."""
-        task_id = event.data.get("task_id", "")
-        status = event.data.get("status", "running")
-        if task_id and self.action_panel:
-            asyncio.create_task(self.action_panel.update_item(task_id, status))
-
-    def _handle_task_token_update(self, event: UIEvent) -> None:
-        """Handle per-task token-usage tick - push running totals to the panel.
-
-        This handler can be invoked from a worker thread (LLM calls run via
-        asyncio.to_thread, so _report_usage_async fires off-loop). On a
-        worker thread asyncio.create_task raises RuntimeError because there
-        is no running loop, so we must dispatch to the main loop explicitly.
-        """
-        task_id = event.data.get("task_id", "")
-        if not (task_id and self.action_panel):
-            return
-
-        coro = self.action_panel.update_item_tokens(
-            task_id,
-            int(event.data.get("input_tokens", 0)),
-            int(event.data.get("output_tokens", 0)),
-            int(event.data.get("cache_tokens", 0)),
-        )
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(coro)
-        except RuntimeError:
-            # Called from a worker thread (typical for LLM result reporting).
-            # Schedule onto the main loop captured at adapter start.
-            from app.state.agent_state import STATE
-
-            main_loop = STATE.main_loop
-            if main_loop is not None and not main_loop.is_closed():
-                asyncio.run_coroutine_threadsafe(coro, main_loop)
-            else:
-                # Avoid "coroutine was never awaited" warning if we can't dispatch
-                coro.close()
 
     def _handle_footage_update(self, event: UIEvent) -> None:
         """Handle footage update event."""
@@ -545,9 +424,10 @@ class InterfaceAdapter(ABC):
         label: str,
         message: str,
         style: str,
-        task_session_id: Optional[str] = None,
+        session_id: Optional[str] = None,
         options: Optional[List[ChatMessageOption]] = None,
         client_id: Optional[str] = None,
+        continue_work: bool = False,
     ) -> None:
         """
         Display a chat message.
@@ -556,9 +436,11 @@ class InterfaceAdapter(ABC):
             label: Message sender label
             message: Message content
             style: Style identifier
-            task_session_id: Optional task session ID for reply feature
+            session_id: The chat session the message belongs to (main default)
             options: Optional list of interactive options/buttons
             client_id: Optional client-generated UUID for reconciling with optimistic UI
+            continue_work: True when this is a mid-run agent progress update
+                (the run keeps going after this message)
         """
         import time
 
@@ -568,13 +450,16 @@ class InterfaceAdapter(ABC):
                 content=message,
                 style=style,
                 timestamp=time.time(),
-                task_session_id=task_session_id,
+                session_id=session_id or "main",
                 options=options,
                 client_id=client_id,
+                continue_work=continue_work,
             )
         )
 
-    async def submit_message(self, message: str) -> None:
+    async def submit_message(
+        self, message: str, session_id: Optional[str] = None
+    ) -> None:
         """
         Submit a message from the user.
 
@@ -582,5 +467,8 @@ class InterfaceAdapter(ABC):
 
         Args:
             message: The user's input message
+            session_id: The session the message was typed in (main if omitted)
         """
-        await self._controller.submit_message(message, self._adapter_id)
+        await self._controller.submit_message(
+            message, self._adapter_id, session_id=session_id
+        )

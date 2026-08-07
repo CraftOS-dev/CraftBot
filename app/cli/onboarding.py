@@ -375,8 +375,8 @@ class CLIHardOnboarding(OnboardingInterface):
         """
         Async helper to trigger soft onboarding after hard onboarding completes.
 
-        Uses the agent's trigger_soft_onboarding method which properly creates
-        the task and fires a trigger to start it.
+        Uses the agent's trigger_soft_onboarding method which fires the
+        ONBOARDING trigger in the main session.
         """
         if not self._cli._agent:
             logger.warning(
@@ -392,18 +392,16 @@ class CLIHardOnboarding(OnboardingInterface):
             )
 
     async def trigger_soft_onboarding(self) -> Optional[str]:
-        """Trigger soft onboarding by creating the interview task."""
+        """Trigger the soft onboarding interview run in the main session."""
         if not self._cli._agent:
             logger.warning(
                 "[CLI ONBOARDING] Cannot trigger soft onboarding: no agent reference"
             )
             return None
 
-        from app.onboarding.soft.task_creator import create_soft_onboarding_task
-
-        task_id = create_soft_onboarding_task(self._cli._agent.task_manager)
-        logger.info(f"[CLI ONBOARDING] Created soft onboarding task: {task_id}")
-        return task_id
+        session_id = await self._cli._agent.trigger_soft_onboarding()
+        logger.info(f"[CLI ONBOARDING] Triggered soft onboarding: {session_id}")
+        return session_id
 
     def is_hard_onboarding_complete(self) -> bool:
         """Check if hard onboarding is complete."""

@@ -6,8 +6,8 @@ This module contains types that are used by both CraftBot and CraftBot
 state implementations.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, NamedTuple, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, NamedTuple, Optional
 import logging
 
 # Default configuration values - can be overridden at runtime
@@ -158,128 +158,16 @@ class ReasoningResult(NamedTuple):
 
 
 @dataclass
-class TaskSummary:
-    """Lightweight task summary for main state tracking.
-
-    Used by MainState to track task history without storing full Task objects.
-
-    Attributes:
-        id: Task identifier
-        name: Human-readable task name
-        status: running, completed, error, cancelled
-        created_at: ISO timestamp when task was created
-        ended_at: ISO timestamp when task ended (optional)
-        final_summary: Brief summary of task outcome (optional)
-        conversation_id: CraftBot conversation ID (optional)
-    """
-
-    id: str
-    name: str
-    status: str
-    created_at: str
-    ended_at: Optional[str] = None
-    final_summary: Optional[str] = None
-    conversation_id: Optional[str] = None  # CraftBot only
-
-
-@dataclass
 class MainState:
-    """Main-level state for conversation mode.
+    """Cross-session runtime state.
 
-    This state is not task-specific and persists across task boundaries.
-    It tracks what tasks have been started/completed and stores the main
-    event stream for conversation history.
-
-    Used when the agent is in "conversation mode" (no active task) to provide
-    context about recent task activity and conversation history.
+    Holds process-wide context that is not owned by any single session,
+    such as the main event stream snapshot and the GUI flag.
 
     Attributes:
-        task_summaries: List of all task summaries (running and completed)
-        active_task_ids: IDs of currently running tasks
         main_event_stream: Snapshot of main event stream for context
         gui_mode: Whether running in GUI mode
     """
 
-    task_summaries: List[TaskSummary] = field(default_factory=list)
-    active_task_ids: List[str] = field(default_factory=list)
     main_event_stream: str = ""
     gui_mode: bool = False
-
-    def add_task_started(
-        self,
-        task_id: str,
-        task_name: str,
-        created_at: str,
-        conversation_id: Optional[str] = None,
-    ) -> None:
-        """Record that a task was started.
-
-        Args:
-            task_id: Unique task identifier
-            task_name: Human-readable task name
-            created_at: ISO timestamp
-            conversation_id: CraftBot conversation ID (optional)
-        """
-        self.active_task_ids.append(task_id)
-        self.task_summaries.append(
-            TaskSummary(
-                id=task_id,
-                name=task_name,
-                status="running",
-                created_at=created_at,
-                conversation_id=conversation_id,
-            )
-        )
-
-    def mark_task_ended(
-        self,
-        task_id: str,
-        status: str,
-        ended_at: str,
-        final_summary: Optional[str] = None,
-    ) -> None:
-        """Record that a task ended.
-
-        Args:
-            task_id: Task identifier
-            status: Final status (completed, error, cancelled)
-            ended_at: ISO timestamp
-            final_summary: Brief summary of outcome (optional)
-        """
-        if task_id in self.active_task_ids:
-            self.active_task_ids.remove(task_id)
-        for summary in self.task_summaries:
-            if summary.id == task_id:
-                summary.status = status
-                summary.ended_at = ended_at
-                summary.final_summary = final_summary
-                break
-
-    def get_active_tasks_summary(self) -> str:
-        """Format active tasks for prompt inclusion.
-
-        Returns:
-            Formatted string listing active tasks, or "(no active tasks)"
-        """
-        if not self.active_task_ids:
-            return "(no active tasks)"
-        lines = [
-            f"- [{s.id}] {s.name}"
-            for s in self.task_summaries
-            if s.id in self.active_task_ids
-        ]
-        return "\n".join(lines) or "(no active tasks)"
-
-    def get_recent_history(self, limit: int = 5) -> str:
-        """Format recent task history for prompt inclusion.
-
-        Args:
-            limit: Maximum number of completed tasks to include
-
-        Returns:
-            Formatted string listing recent completed tasks
-        """
-        completed = [s for s in self.task_summaries if s.status != "running"][-limit:]
-        if not completed:
-            return "(no task history)"
-        return "\n".join(f"- {s.name}: {s.status}" for s in completed)

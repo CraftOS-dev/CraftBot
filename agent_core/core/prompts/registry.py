@@ -18,12 +18,12 @@ class PromptRegistry:
 
     Usage:
         # In CraftBot startup:
-        from agent_core.core.prompts import prompt_registry, ROUTE_TO_SESSION_PROMPT_WCA
-        prompt_registry.register("ROUTE_TO_SESSION_PROMPT", ROUTE_TO_SESSION_PROMPT_WCA)
+        from agent_core.core.prompts import prompt_registry
+        prompt_registry.register("SELECT_ACTION_PROMPT", my_custom_prompt)
 
         # When accessing prompts:
         from agent_core.core.prompts import get_prompt
-        prompt = get_prompt("ROUTE_TO_SESSION_PROMPT")  # Returns override if registered
+        prompt = get_prompt("SELECT_ACTION_PROMPT")  # Returns override if registered
     """
 
     _instance: Optional["PromptRegistry"] = None
@@ -41,7 +41,7 @@ class PromptRegistry:
         """Register a prompt override.
 
         Args:
-            name: The prompt name (e.g., "ROUTE_TO_SESSION_PROMPT")
+            name: The prompt name (e.g., "SELECT_ACTION_PROMPT")
             prompt: The prompt string to use instead of the default
         """
         self._overrides[name] = prompt

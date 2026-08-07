@@ -1,0 +1,247 @@
+# -*- coding: utf-8 -*-
+"""Runtime dependency checks that can run before dependency-heavy imports."""
+
+from dataclasses import dataclass
+import json
+import os
+import subprocess
+import sys
+from typing import Dict, List, Optional, Tuple
+
+
+_PREFLIGHT_OK_ENV = "CRAFTBOT_RUNTIME_PREFLIGHT_OK"
+_MISSING_SENTINEL = "__CRAFTBOT_MISSING_RUNTIME_IMPORTS__"
+# Conservative upper bound for slower conda environment startup. A timeout is
+# inconclusive and warns/continues; it is not treated as missing dependencies.
+RUNTIME_PROBE_TIMEOUT_SECONDS = 60
+
+RUNTIME_IMPORT_CHECKS = {
+    # Packages imported during backend startup. Provider SDKs stay deferred so
+    # unused providers are not forced through unrelated SDK imports at startup.
+    "requests": "requests",
+    "pyyaml": "yaml",
+    "loguru": "loguru",
+    "nest-asyncio": "nest_asyncio",
+    "pymongo": "pymongo",
+    "tzlocal": "tzlocal",
+    "aiohttp": "aiohttp",
+    "chromadb": "chromadb",
+    "tiktoken": "tiktoken",
+    "mss": "mss",
+    "httpx": "httpx",
+    "websockets": "websockets",
+    "tenacity": "tenacity",
+    "gradio_client": "gradio_client",
+    "python-dotenv": "dotenv",
+    "scikit-learn": "sklearn",
+    "watchdog": "watchdog",
+    "croniter": "croniter",
+}
+
+
+@dataclass(frozen=True)
+class RuntimeDependencyResult:
+    missing: List[str]
+    runtime_label: str
+    inconclusive_reason: Optional[str] = None
+
+    @property
+    def is_inconclusive(self) -> bool:
+        return self.inconclusive_reason is not None
+
+
+def _runtime_import_script(checks: Dict[str, str]) -> str:
+    return (
+        "import importlib\n"
+        "import json\n"
+        f"checks = {list(checks.items())!r}\n"
+        "missing = []\n"
+        "for package_name, import_name in checks:\n"
+        "    try:\n"
+        "        importlib.import_module(import_name)\n"
+        "    except Exception:\n"
+        "        missing.append(package_name)\n"
+        f"print({_MISSING_SENTINEL!r} + json.dumps(missing))\n"
+    )
+
+
+def _runtime_import_command(
+    use_conda: bool,
+    env_name: Optional[str],
+    checks: Dict[str, str],
+    conda_command: str,
+) -> Tuple[List[str], str]:
+    script = _runtime_import_script(checks)
+    if use_conda and env_name:
+        return (
+            [
+                conda_command,
+                "run",
+                "-n",
+                env_name,
+                "python",
+                "-c",
+                script,
+            ],
+            f"conda environment '{env_name}'",
+        )
+    return ([sys.executable, "-c", script], sys.executable)
+
+
+def check_runtime_dependencies(
+    *,
+    use_conda: bool,
+    env_name: Optional[str],
+    checks: Optional[Dict[str, str]] = None,
+    conda_command: str = "conda",
+    timeout: int = RUNTIME_PROBE_TIMEOUT_SECONDS,
+) -> RuntimeDependencyResult:
+    """Probe imports for the Python runtime that will run the agent.
+
+    Only a successful probe with valid sentinel JSON is treated as conclusive.
+    Probe infrastructure failures are warnings, not startup blockers.
+    """
+    if checks is None:
+        checks = RUNTIME_IMPORT_CHECKS
+    cmd, runtime_label = _runtime_import_command(
+        use_conda, env_name, checks, conda_command
+    )
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return RuntimeDependencyResult(
+            [],
+            runtime_label,
+            f"dependency probe timed out after {timeout}s",
+        )
+    except Exception as exc:
+        return RuntimeDependencyResult(
+            [],
+            runtime_label,
+            f"dependency probe could not run: {exc}",
+        )
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        reason = "dependency probe exited before reporting imports"
+        if detail:
+            reason = f"{reason}: {detail.splitlines()[-1]}"
+        return RuntimeDependencyResult([], runtime_label, reason)
+
+    for line in reversed(result.stdout.splitlines()):
+        if line.startswith(_MISSING_SENTINEL):
+            try:
+                missing = json.loads(line[len(_MISSING_SENTINEL) :])
+            except json.JSONDecodeError:
+                return RuntimeDependencyResult(
+                    [],
+                    runtime_label,
+                    "unexpected probe output: malformed dependency JSON",
+                )
+            if not isinstance(missing, list) or not all(
+                isinstance(item, str) for item in missing
+            ):
+                return RuntimeDependencyResult(
+                    [],
+                    runtime_label,
+                    "unexpected probe output: dependency JSON was not a string list",
+                )
+            return RuntimeDependencyResult(missing, runtime_label)
+
+    return RuntimeDependencyResult(
+        [],
+        runtime_label,
+        "unexpected probe output: missing dependency sentinel",
+    )
+
+
+def print_missing_runtime_dependencies(
+    *,
+    missing: List[str],
+    runtime_label: str,
+    use_conda: bool,
+    env_name: Optional[str],
+) -> None:
+    print("\nError: CraftBot Python dependencies are missing.")
+    print(f"Runtime checked: {runtime_label}")
+    print("\nMissing imports:")
+    for package_name in missing:
+        print(f"  - {package_name}")
+
+    print(
+        "\nThis usually means CraftBot is running with a different Python "
+        "than the one used during install."
+    )
+    print("\nFix:")
+    if use_conda and env_name:
+        print("  python install.py --conda")
+        print(f"  conda run -n {env_name} python run.py")
+    else:
+        print(f"  {sys.executable} install.py")
+        print(f"  {sys.executable} run.py")
+    print("\nIf you installed CraftBot with another Python, start it with that Python.")
+
+
+def print_inconclusive_runtime_dependency_warning(
+    *,
+    reason: str,
+    runtime_label: str,
+    use_conda: bool,
+    env_name: Optional[str],
+) -> None:
+    print("\nWarning: CraftBot could not verify Python dependencies.")
+    print(f"Runtime checked: {runtime_label}")
+    print(f"Reason: {reason}")
+    print(
+        "Continuing startup. If imports fail, reinstall dependencies for this runtime:"
+    )
+    if use_conda and env_name:
+        print("  python install.py --conda")
+    else:
+        print(f"  {sys.executable} install.py")
+
+
+def ensure_runtime_dependencies(
+    *,
+    use_conda: bool,
+    env_name: Optional[str],
+    conda_command: str = "conda",
+    checks: Optional[Dict[str, str]] = None,
+) -> None:
+    if getattr(sys, "frozen", False):
+        return
+
+    result = check_runtime_dependencies(
+        use_conda=use_conda,
+        env_name=env_name,
+        conda_command=conda_command,
+        checks=checks,
+    )
+    if result.is_inconclusive:
+        print_inconclusive_runtime_dependency_warning(
+            reason=result.inconclusive_reason or "unknown probe failure",
+            runtime_label=result.runtime_label,
+            use_conda=use_conda,
+            env_name=env_name,
+        )
+        return
+    if result.missing:
+        print_missing_runtime_dependencies(
+            missing=result.missing,
+            runtime_label=result.runtime_label,
+            use_conda=use_conda,
+            env_name=env_name,
+        )
+        sys.exit(1)
+
+
+def mark_runtime_dependencies_checked() -> None:
+    os.environ[_PREFLIGHT_OK_ENV] = "1"
+
+
+def ensure_current_runtime_dependencies() -> None:
+    """Check imports for direct app.main usage with the current interpreter."""
+    if os.environ.get(_PREFLIGHT_OK_ENV) == "1":
+        return
+    ensure_runtime_dependencies(use_conda=False, env_name=None)

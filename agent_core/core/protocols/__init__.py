@@ -11,10 +11,10 @@ to be usable by shared code. Agent-specific implementations can add additional
 methods as needed.
 
 Example:
-    from agent_core.core.protocols import TaskManagerProtocol
+    from agent_core.core.protocols import SessionManagerProtocol
 
-    def shared_function(task_manager: TaskManagerProtocol) -> None:
-        task = task_manager.create_task("My Task", "Do something")
+    def shared_function(session_manager: SessionManagerProtocol) -> None:
+        session = session_manager.get(session_id)
         # ...
 """
 
@@ -33,10 +33,9 @@ from agent_core.core.protocols.event_stream import (
     EventStreamProtocol,
     EventStreamManagerProtocol,
 )
-from agent_core.core.protocols.task_manager import TaskManagerProtocol
+from agent_core.core.protocols.session_manager import SessionManagerProtocol
 from agent_core.core.protocols.state import StateManagerProtocol
 from agent_core.core.protocols.context import ContextEngineProtocol
-from agent_core.core.protocols.trigger import TriggerQueueProtocol
 
 __all__ = [
     "StateProvider",
@@ -49,8 +48,7 @@ __all__ = [
     "LLMInterfaceProtocol",
     "EventStreamProtocol",
     "EventStreamManagerProtocol",
-    "TaskManagerProtocol",
+    "SessionManagerProtocol",
     "StateManagerProtocol",
     "ContextEngineProtocol",
-    "TriggerQueueProtocol",
 ]

@@ -19,7 +19,6 @@ from agent_core.core.state.session import StateSession
 from agent_core.core.state.types import (
     AgentProperties,
     ReasoningResult,
-    TaskSummary,
     MainState,
     DEFAULT_MAX_ACTIONS_PER_TASK,
     DEFAULT_MAX_TOKEN_PER_TASK,
@@ -35,7 +34,6 @@ __all__ = [
     "StateSession",
     "AgentProperties",
     "ReasoningResult",
-    "TaskSummary",
     "MainState",
     "DEFAULT_MAX_ACTIONS_PER_TASK",
     "DEFAULT_MAX_TOKEN_PER_TASK",

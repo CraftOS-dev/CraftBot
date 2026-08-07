@@ -242,6 +242,22 @@ class WhatsAppWebHandler(IntegrationHandler):
 # ════════════════════════════════════════════════════════════════════════
 
 
+def _bridge_result(result: Dict[str, Any], ok: Optional[bool] = None) -> Dict[str, Any]:
+    """Wrap a bridge response for return: derive ``status`` and drop the
+    bridge's redundant ``success`` bool — ``status`` already carries it, and
+    shipping both doubled the envelope on every WhatsApp action result.
+
+    ``ok`` overrides the derived status; when omitted, a missing ``success``
+    key counts as success (matching the call sites that hard-coded it).
+    """
+    if ok is None:
+        ok = bool(result.get("success", True))
+    return {
+        "status": "success" if ok else "error",
+        **{k: v for k, v in result.items() if k != "success"},
+    }
+
+
 @register_client
 class WhatsAppWebClient(BasePlatformClient):
     spec = WHATSAPP_WEB
@@ -320,7 +336,7 @@ class WhatsAppWebClient(BasePlatformClient):
         msg_id = result.get("message_id")
         if msg_id:
             self._agent_sent_ids.add(msg_id)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def send_media(
         self,
@@ -348,7 +364,7 @@ class WhatsAppWebClient(BasePlatformClient):
         msg_id = result.get("message_id")
         if msg_id:
             self._agent_sent_ids.add(msg_id)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def send_location(
         self, recipient: str, latitude: float, longitude: float, description: str = ""
@@ -358,7 +374,7 @@ class WhatsAppWebClient(BasePlatformClient):
             return {"status": "error", "error": "Bridge not ready"}
         resolved = self._resolve_recipient(recipient)
         result = await bridge.send_location(resolved, latitude, longitude, description)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def send_reply(
         self, recipient: str, text: str, quoted_message_id: str
@@ -372,14 +388,14 @@ class WhatsAppWebClient(BasePlatformClient):
         msg_id = result.get("message_id")
         if msg_id:
             self._agent_sent_ids.add(msg_id)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def edit_message(self, message_id: str, new_body: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
         result = await bridge.edit_message(message_id, new_body)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def delete_message(
         self, message_id: str, everyone: bool = False
@@ -388,7 +404,7 @@ class WhatsAppWebClient(BasePlatformClient):
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
         result = await bridge.delete_message(message_id, everyone)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def forward_message(self, message_id: str, recipient: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
@@ -396,14 +412,14 @@ class WhatsAppWebClient(BasePlatformClient):
             return {"status": "error", "error": "Bridge not ready"}
         resolved = self._resolve_recipient(recipient)
         result = await bridge.forward_message(message_id, resolved)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def react_message(self, message_id: str, emoji: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
         result = await bridge.react_message(message_id, emoji)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def star_message(
         self, message_id: str, starred: bool = True
@@ -412,7 +428,7 @@ class WhatsAppWebClient(BasePlatformClient):
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
         result = await bridge.star_message(message_id, starred)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def download_message_media(
         self, message_id: str, dest_path: str
@@ -425,7 +441,7 @@ class WhatsAppWebClient(BasePlatformClient):
             return {"status": "error", "error": "Bridge not ready"}
         result = await bridge.download_message_media(message_id)
         if not result.get("success"):
-            return {"status": "error", **result}
+            return _bridge_result(result, ok=False)
         data_b64 = result.get("data_b64", "")
         if not data_b64:
             return {"status": "error", "error": "No media data returned"}
@@ -451,7 +467,7 @@ class WhatsAppWebClient(BasePlatformClient):
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
         result = await bridge.get_quoted_message(message_id)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     # ----- Chat operations -----
 
@@ -459,25 +475,25 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.mark_chat_read(chat_id))}
+        return _bridge_result(await bridge.mark_chat_read(chat_id))
 
     async def mark_chat_unread(self, chat_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.mark_chat_unread(chat_id))}
+        return _bridge_result(await bridge.mark_chat_unread(chat_id))
 
     async def archive_chat(self, chat_id: str, archive: bool = True) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.archive_chat(chat_id, archive))}
+        return _bridge_result(await bridge.archive_chat(chat_id, archive))
 
     async def pin_chat(self, chat_id: str, pin: bool = True) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.pin_chat(chat_id, pin))}
+        return _bridge_result(await bridge.pin_chat(chat_id, pin))
 
     async def mute_chat(
         self, chat_id: str, mute: bool = True, unmute_date: Optional[int] = None
@@ -485,22 +501,19 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {
-            "status": "success",
-            **(await bridge.mute_chat(chat_id, mute, unmute_date)),
-        }
+        return _bridge_result(await bridge.mute_chat(chat_id, mute, unmute_date))
 
     async def clear_chat_messages(self, chat_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.clear_chat_messages(chat_id))}
+        return _bridge_result(await bridge.clear_chat_messages(chat_id))
 
     async def delete_chat(self, chat_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.delete_chat(chat_id))}
+        return _bridge_result(await bridge.delete_chat(chat_id))
 
     async def send_typing_state(
         self, chat_id: str, state: str = "typing"
@@ -508,7 +521,7 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.send_typing_state(chat_id, state))}
+        return _bridge_result(await bridge.send_typing_state(chat_id, state))
 
     # ----- Groups -----
 
@@ -517,7 +530,7 @@ class WhatsAppWebClient(BasePlatformClient):
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
         result = await bridge.create_group(name, participants)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def group_add_participants(
         self, group_id: str, participants: list
@@ -525,10 +538,9 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {
-            "status": "success",
-            **(await bridge.group_add_participants(group_id, participants)),
-        }
+        return _bridge_result(
+            await bridge.group_add_participants(group_id, participants)
+        )
 
     async def group_remove_participants(
         self, group_id: str, participants: list
@@ -536,10 +548,9 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {
-            "status": "success",
-            **(await bridge.group_remove_participants(group_id, participants)),
-        }
+        return _bridge_result(
+            await bridge.group_remove_participants(group_id, participants)
+        )
 
     async def group_promote_participants(
         self, group_id: str, participants: list
@@ -547,10 +558,9 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {
-            "status": "success",
-            **(await bridge.group_promote_participants(group_id, participants)),
-        }
+        return _bridge_result(
+            await bridge.group_promote_participants(group_id, participants)
+        )
 
     async def group_demote_participants(
         self, group_id: str, participants: list
@@ -558,19 +568,15 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {
-            "status": "success",
-            **(await bridge.group_demote_participants(group_id, participants)),
-        }
+        return _bridge_result(
+            await bridge.group_demote_participants(group_id, participants)
+        )
 
     async def group_set_subject(self, group_id: str, subject: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {
-            "status": "success",
-            **(await bridge.group_set_subject(group_id, subject)),
-        }
+        return _bridge_result(await bridge.group_set_subject(group_id, subject))
 
     async def group_set_description(
         self, group_id: str, description: str
@@ -578,40 +584,37 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {
-            "status": "success",
-            **(await bridge.group_set_description(group_id, description)),
-        }
+        return _bridge_result(await bridge.group_set_description(group_id, description))
 
     async def group_get_info(self, group_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.group_get_info(group_id))}
+        return _bridge_result(await bridge.group_get_info(group_id))
 
     async def group_leave(self, group_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.group_leave(group_id))}
+        return _bridge_result(await bridge.group_leave(group_id))
 
     async def group_invite_code(self, group_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.group_invite_code(group_id))}
+        return _bridge_result(await bridge.group_invite_code(group_id))
 
     async def group_revoke_invite(self, group_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.group_revoke_invite(group_id))}
+        return _bridge_result(await bridge.group_revoke_invite(group_id))
 
     async def accept_group_invite(self, invite_code: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.accept_group_invite(invite_code))}
+        return _bridge_result(await bridge.accept_group_invite(invite_code))
 
     # ----- Contacts -----
 
@@ -621,19 +624,19 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.block_contact(contact_id, block))}
+        return _bridge_result(await bridge.block_contact(contact_id, block))
 
     async def get_profile_pic_url(self, contact_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.get_profile_pic_url(contact_id))}
+        return _bridge_result(await bridge.get_profile_pic_url(contact_id))
 
     async def get_contact(self, contact_id: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.get_contact(contact_id))}
+        return _bridge_result(await bridge.get_contact(contact_id))
 
     async def get_all_contacts(
         self, my_contacts_only: bool = True, limit: int = 500
@@ -641,16 +644,13 @@ class WhatsAppWebClient(BasePlatformClient):
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {
-            "status": "success",
-            **(await bridge.get_all_contacts(my_contacts_only, limit)),
-        }
+        return _bridge_result(await bridge.get_all_contacts(my_contacts_only, limit))
 
     async def check_number_on_whatsapp(self, number: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
-        return {"status": "success", **(await bridge.check_number_on_whatsapp(number))}
+        return _bridge_result(await bridge.check_number_on_whatsapp(number))
 
     async def get_chat_messages(
         self, phone_number: str, limit: int = 50
@@ -659,21 +659,21 @@ class WhatsAppWebClient(BasePlatformClient):
         if not bridge.is_ready:
             return {"success": False, "error": "Bridge not ready"}
         result = await bridge.get_chat_messages(chat_id=phone_number, limit=limit)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def get_unread_chats(self) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"success": False, "error": "Bridge not ready"}
         result = await bridge.get_unread_chats()
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def search_contact(self, name: str) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"success": False, "error": "Bridge not ready"}
         result = await bridge.search_contact(name=name)
-        return {"status": "success" if result.get("success") else "error", **result}
+        return _bridge_result(result)
 
     async def get_session_status(self) -> Optional[Dict[str, Any]]:
         bridge = self._get_bridge()
@@ -777,6 +777,20 @@ class WhatsAppWebClient(BasePlatformClient):
             logger.warning(f"[WHATSAPP_WEB] Bridge stop error: {e}")
 
     async def _on_bridge_event(self, event: str, data: Dict[str, Any]) -> None:
+        if event in ("message", "message_sent"):
+            # Receipt is LOGGED: a message that dies in the filters below
+            # must be traceable (2026-08-05 — three debugging rounds because
+            # emitted events vanished without a line). Never log the body.
+            # f-string, NOT printf-style args: the host logger is loguru,
+            # which formats with str.format() — "%s" + positional args
+            # prints the literal placeholders (observed 2026-08-05).
+            logger.info(
+                f"[WhatsApp] {event} event:"
+                f" from={data.get('from', '?')}"
+                f" to={data.get('to', '?')}"
+                f" self_chat={data.get('is_self_chat', 'n/a')}"
+                f" body_len={len(data.get('body', '') or '')}"
+            )
         if event == "message":
             await self._handle_incoming_message(data)
         elif event == "message_sent":
@@ -797,6 +811,13 @@ class WhatsAppWebClient(BasePlatformClient):
             or WhatsAppWebConfig()
         )
         if cfg.self_messages_only:
+            # Deliberate drop, but never a SILENT one: an undocumented drop
+            # here cost a debugging session (2026-08-05 — bridge healthy,
+            # message emitted, agent never triggered).
+            logger.info(
+                f"[WhatsApp] dropping message from {data.get('from', '?')} — "
+                "self_messages_only is enabled (personal command channel mode)"
+            )
             return
 
         msg_id = data.get("id", "")
@@ -861,8 +882,13 @@ class WhatsAppWebClient(BasePlatformClient):
 
     async def _handle_sent_message(self, data: Dict[str, Any]) -> None:
         if not self._listening or not self._message_callback:
+            logger.info("[WhatsApp] sent-message dropped: not listening")
             return
         if not data.get("is_self_chat", False):
+            logger.info(
+                "[WhatsApp] sent-message dropped: not the self chat "
+                f"(to={data.get('to', '?')} from={data.get('from', '?')})"
+            )
             return
 
         msg_id = data.get("id", "")
@@ -876,6 +902,8 @@ class WhatsAppWebClient(BasePlatformClient):
 
         body = data.get("body", "")
         if not body or body.startswith(self._agent_prefix):
+            reason = "empty body" if not body else "agent echo (prefix match)"
+            logger.info(f"[WhatsApp] sent-message dropped: {reason}")
             return
 
         chat = data.get("chat", {})

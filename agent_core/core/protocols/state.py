@@ -6,81 +6,62 @@ This module defines the StateManagerProtocol that specifies the
 interface for state management operations.
 """
 
-from typing import Optional, Protocol, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from agent_core import Task
+from typing import Optional, Protocol
 
 
 class StateManagerProtocol(Protocol):
     """
     Protocol for state management.
 
-    This defines the minimal interface for managing agent state,
-    including task state and session state.
+    This defines the minimal interface for managing per-session runtime
+    state (turn lifecycle, message recording, event stream refresh).
     """
 
-    async def start_session(
-        self,
-        gui_mode: bool = False,
-        conversation_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-    ) -> None:
+    async def start_turn(self, session_id: str) -> None:
         """
-        Initialize session state.
+        Refresh per-session state at the start of a turn.
 
         Args:
-            gui_mode: Whether in GUI mode.
-            conversation_id: Optional conversation identifier.
-            session_id: Optional session identifier.
+            session_id: The session the turn runs in.
         """
         ...
 
     def clean_state(self) -> None:
-        """End current session."""
+        """End the turn, clearing the global state mirror."""
         ...
 
-    def is_running_task(self, session_id: Optional[str] = None) -> bool:
-        """
-        Check if task is running.
-
-        Args:
-            session_id: Optional session to check.
-
-        Returns:
-            True if a task is running.
-        """
-        ...
-
-    def on_task_created(self, task: "Task") -> None:
-        """
-        Handle task creation.
-
-        Args:
-            task: The created Task.
-        """
-        ...
-
-    def on_task_ended(
+    def record_user_message(
         self,
-        task: "Task",
-        status: str,
-        summary: Optional[str] = None,
+        content: str,
+        session_id: Optional[str] = None,
+        platform: Optional[str] = None,
     ) -> None:
         """
-        Handle task completion.
+        Record a user message to a session's event stream.
 
         Args:
-            task: The completed Task.
-            status: Final status.
-            summary: Optional summary.
+            content: The message content.
+            session_id: The session the message belongs to (main if omitted).
+            platform: Optional platform identifier.
+        """
+        ...
+
+    def record_agent_message(
+        self,
+        content: str,
+        session_id: Optional[str] = None,
+        platform: Optional[str] = None,
+    ) -> None:
+        """
+        Record an agent message to a session's event stream.
+
+        Args:
+            content: The message content.
+            session_id: The session the message belongs to (main if omitted).
+            platform: Optional platform identifier.
         """
         ...
 
     def bump_event_stream(self) -> None:
-        """Refresh event stream in session."""
-        ...
-
-    def bump_task_state(self) -> None:
-        """Refresh task state in session."""
+        """Refresh the event stream snapshot in state."""
         ...

@@ -25,11 +25,14 @@ body {
   color: var(--text-primary);
   background-color: var(--bg-primary);
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
 }
 
 #root {
+  /* dvh with vh fallback — on iOS Safari 100vh overflows behind the URL bar */
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }

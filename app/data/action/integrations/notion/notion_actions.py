@@ -8,7 +8,7 @@ from agent_core import action
 
 @action(
     name="search_notion",
-    description="Search Notion workspace for pages and databases.",
+    description="Search Notion workspace for pages and databases. Lean results ({id, object, title, url}) by default; include_metadata=true returns the full raw objects (properties, timestamps, parents, ...).",
     action_sets=["notion"],
     input_schema={
         "query": {
@@ -21,18 +21,56 @@ from agent_core import action
             "description": "Optional: 'page' or 'database'.",
             "example": "page",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean {id, object, title, url} per result. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def search_notion(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion",
         "search",
         query=input_data["query"],
         filter_type=input_data.get("filter_type"),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    items = res.get("result")
+    if not isinstance(items, list):
+        return res
+
+    def _plain(rt) -> str:
+        return "".join(
+            x.get("plain_text", "") for x in (rt or []) if isinstance(x, dict)
+        )
+
+    lean = []
+    for it in items:
+        if not isinstance(it, dict) or "error" in it:
+            lean.append(it)
+            continue
+        if isinstance(it.get("title"), list):  # database object
+            title = _plain(it["title"])
+        else:  # page object — title lives in the title-type property
+            title = ""
+            for p in (it.get("properties") or {}).values():
+                if isinstance(p, dict) and p.get("type") == "title":
+                    title = _plain(p.get("title"))
+                    break
+        lean.append(
+            {
+                "id": it.get("id"),
+                "object": it.get("object"),
+                "title": title,
+                "url": it.get("url"),
+            }
+        )
+    return {**res, "result": lean}
 
 
 # ------------------------------------------------------------------
@@ -42,7 +80,7 @@ def search_notion(input_data: dict) -> dict:
 
 @action(
     name="get_notion_page",
-    description="Get a Notion page by ID (returns metadata + properties, not block content).",
+    description="Get a Notion page by ID (returns metadata + properties, not block content). Lean {id, url, archived, properties: {name: plain value}} by default; include_metadata=true returns the full raw page object.",
     action_sets=["notion_pages", "notion"],
     input_schema={
         "page_id": {
@@ -50,13 +88,70 @@ def search_notion(input_data: dict) -> dict:
             "description": "Notion page ID.",
             "example": "abc123",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean page with plain property values. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_notion_page(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("notion", "get_page", page_id=input_data["page_id"])
+    res = run_client_sync("notion", "get_page", page_id=input_data["page_id"])
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict):
+        return res
+
+    def _plain(rt) -> str:
+        return "".join(
+            x.get("plain_text", "") for x in (rt or []) if isinstance(x, dict)
+        )
+
+    def _prop_value(p):
+        if not isinstance(p, dict):
+            return p
+        t = p.get("type")
+        v = p.get(t)
+        if t in ("title", "rich_text"):
+            return _plain(v)
+        if t in ("select", "status"):
+            return (v or {}).get("name")
+        if t == "multi_select":
+            return [o.get("name") for o in (v or []) if isinstance(o, dict)]
+        if t == "date":
+            return (
+                {"start": v.get("start"), "end": v.get("end")}
+                if isinstance(v, dict)
+                else None
+            )
+        if t == "people":
+            return [
+                u.get("name") or u.get("id") for u in (v or []) if isinstance(u, dict)
+            ]
+        if t == "relation":
+            return [r.get("id") for r in (v or []) if isinstance(r, dict)]
+        if t in ("formula", "rollup"):
+            inner = (v or {}).get("type")
+            return (v or {}).get(inner)
+        if t in ("created_by", "last_edited_by"):
+            return (v or {}).get("name") or (v or {}).get("id")
+        if t == "files":
+            return [f.get("name") for f in (v or []) if isinstance(f, dict)]
+        return v
+
+    lean = {
+        "id": body.get("id"),
+        "url": body.get("url"),
+        "archived": body.get("archived"),
+        "properties": {
+            name: _prop_value(p) for name, p in (body.get("properties") or {}).items()
+        },
+    }
+    return {**res, "result": lean}
 
 
 @action(
@@ -85,13 +180,16 @@ def get_notion_page(input_data: dict) -> dict:
             "example": [],
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "{id, url} of the new page."},
+    },
     parallelizable=False,
 )
 def create_notion_page(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion",
         "create_page",
         parent_id=input_data["parent_id"],
@@ -99,6 +197,7 @@ def create_notion_page(input_data: dict) -> dict:
         properties=input_data["properties"],
         children=input_data.get("children"),
     )
+    return pick_result(res, ["id", "url"])
 
 
 @action(
@@ -117,18 +216,22 @@ def create_notion_page(input_data: dict) -> dict:
             "example": {},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "{id, url} of the updated page."},
+    },
     parallelizable=False,
 )
 def update_notion_page(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion",
         "update_page",
         page_id=input_data["page_id"],
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id", "url"])
 
 
 @action(
@@ -201,13 +304,18 @@ def get_notion_page_property(input_data: dict) -> dict:
 
 @action(
     name="get_notion_database_schema",
-    description="Get a Notion database schema by ID.",
+    description="Get a Notion database schema by ID. Lean {id, title, url, properties: {name: type (+options for select/multi_select/status)}} by default; include_metadata=true returns the full raw database object.",
     action_sets=["notion_databases", "notion"],
     input_schema={
         "database_id": {
             "type": "string",
             "description": "Database ID.",
             "example": "abc123",
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean schema (property name -> type). True: full raw.",
+            "example": False,
         },
     },
     output_schema={
@@ -218,14 +326,45 @@ def get_notion_page_property(input_data: dict) -> dict:
 def get_notion_database_schema(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion", "get_database", database_id=input_data["database_id"]
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict):
+        return res
+
+    def _plain(rt) -> str:
+        return "".join(
+            x.get("plain_text", "") for x in (rt or []) if isinstance(x, dict)
+        )
+
+    props = {}
+    for name, p in (body.get("properties") or {}).items():
+        if not isinstance(p, dict):
+            continue
+        t = p.get("type")
+        if t in ("select", "multi_select", "status"):
+            options = (p.get(t) or {}).get("options") or []
+            props[name] = {
+                "type": t,
+                "options": [o.get("name") for o in options if isinstance(o, dict)],
+            }
+        else:
+            props[name] = t
+    lean = {
+        "id": body.get("id"),
+        "title": _plain(body.get("title")),
+        "url": body.get("url"),
+        "properties": props,
+    }
+    return {**res, "result": lean}
 
 
 @action(
     name="query_notion_database",
-    description="Query a Notion database with optional filters and sorts.",
+    description="Query a Notion database with optional filters and sorts. Lean rows ({id, url, properties: {name: plain value}}) by default; include_metadata=true returns the full raw page objects.",
     action_sets=["notion_databases", "notion"],
     input_schema={
         "database_id": {
@@ -243,19 +382,84 @@ def get_notion_database_schema(input_data: dict) -> dict:
             "description": "Optional sort array.",
             "example": [],
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean rows with plain property values. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def query_notion_database(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion",
         "query_database",
         database_id=input_data["database_id"],
         filter_obj=input_data.get("filter"),
         sorts=input_data.get("sorts"),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict):
+        return res
+
+    def _plain(rt) -> str:
+        return "".join(
+            x.get("plain_text", "") for x in (rt or []) if isinstance(x, dict)
+        )
+
+    def _prop_value(p):
+        if not isinstance(p, dict):
+            return p
+        t = p.get("type")
+        v = p.get(t)
+        if t in ("title", "rich_text"):
+            return _plain(v)
+        if t in ("select", "status"):
+            return (v or {}).get("name")
+        if t == "multi_select":
+            return [o.get("name") for o in (v or []) if isinstance(o, dict)]
+        if t == "date":
+            return (
+                {"start": v.get("start"), "end": v.get("end")}
+                if isinstance(v, dict)
+                else None
+            )
+        if t == "people":
+            return [
+                u.get("name") or u.get("id") for u in (v or []) if isinstance(u, dict)
+            ]
+        if t == "relation":
+            return [r.get("id") for r in (v or []) if isinstance(r, dict)]
+        if t in ("formula", "rollup"):
+            inner = (v or {}).get("type")
+            return (v or {}).get(inner)
+        if t in ("created_by", "last_edited_by"):
+            return (v or {}).get("name") or (v or {}).get("id")
+        if t == "files":
+            return [f.get("name") for f in (v or []) if isinstance(f, dict)]
+        return v
+
+    lean = {
+        "results": [
+            {
+                "id": row.get("id"),
+                "url": row.get("url"),
+                "properties": {
+                    name: _prop_value(p)
+                    for name, p in (row.get("properties") or {}).items()
+                },
+            }
+            for row in body.get("results", []) or []
+            if isinstance(row, dict)
+        ],
+        "has_more": body.get("has_more"),
+        "next_cursor": body.get("next_cursor"),
+    }
+    return {**res, "result": lean}
 
 
 @action(
@@ -295,13 +499,16 @@ def query_notion_database(input_data: dict) -> dict:
         },
         "cover": {"type": "object", "description": "Cover (optional).", "example": {}},
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "{id, url} of the new database."},
+    },
     parallelizable=False,
 )
 def create_notion_database(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion",
         "create_database",
         parent_page_id=input_data["parent_page_id"],
@@ -312,6 +519,7 @@ def create_notion_database(input_data: dict) -> dict:
         icon=input_data.get("icon") or None,
         cover=input_data.get("cover") or None,
     )
+    return pick_result(res, ["id", "url"])
 
 
 @action(
@@ -341,13 +549,19 @@ def create_notion_database(input_data: dict) -> dict:
             "example": False,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "{id, url} of the updated database.",
+        },
+    },
     parallelizable=False,
 )
 def update_notion_database(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion",
         "update_database",
         database_id=input_data["database_id"],
@@ -356,6 +570,7 @@ def update_notion_database(input_data: dict) -> dict:
         properties=input_data.get("properties"),
         is_inline=input_data["is_inline"] if "is_inline" in input_data else None,
     )
+    return pick_result(res, ["id", "url"])
 
 
 @action(
@@ -471,7 +686,7 @@ def get_notion_page_content(input_data: dict) -> dict:
 
 @action(
     name="append_notion_page_content",
-    description="Append content blocks to a Notion page (or any block).",
+    description="Append content blocks to a Notion page (or any block). Returns {appended: count, ids: [block ids]}.",
     action_sets=["notion_blocks", "notion"],
     input_schema={
         "page_id": {
@@ -485,18 +700,28 @@ def get_notion_page_content(input_data: dict) -> dict:
             "example": [],
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "{appended, ids}."},
+    },
     parallelizable=False,
 )
 def append_notion_page_content(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion",
         "append_block_children",
         block_id=input_data["page_id"],
         children=input_data["children"],
     )
+    if res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict) or not isinstance(body.get("results"), list):
+        return res
+    ids = [b.get("id") for b in body["results"] if isinstance(b, dict)]
+    return {**res, "result": {"appended": len(ids), "ids": ids}}
 
 
 @action(
@@ -526,18 +751,22 @@ def get_notion_block(input_data: dict) -> dict:
             "example": {"paragraph": {"rich_text": [{"text": {"content": "Updated"}}]}},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "description": "{id} of the updated block."},
+    },
     parallelizable=False,
 )
 def update_notion_block(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "notion",
         "update_block",
         block_id=input_data["block_id"],
         block_update=input_data["block_update"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(

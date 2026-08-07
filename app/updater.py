@@ -245,12 +245,20 @@ async def _run_git(
     env = os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
 
+    kwargs = {}
+    if sys.platform == "win32":
+        # Without this, spawning git.exe from this windowless process makes
+        # Windows flash a new console window per invocation (visible to the
+        # user every time an update check runs, e.g. on Settings page load).
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=cwd,
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **kwargs,
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)

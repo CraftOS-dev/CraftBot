@@ -8,17 +8,26 @@ import { useStageMeasure } from './useStageMeasure'
 import { useMascotBehavior } from './useMascotBehavior'
 import { useCursorEyeTracking } from './useCursorEyeTracking'
 import { useWheelZoom } from './useWheelZoom'
-import { computeMaxAmplitude } from './mascotEngine'
+import {
+  STAGE_EDGE_PADDING_PX,
+  computeMascotSize,
+  computeMaxAmplitude,
+  computeMinCoverZoom,
+} from './mascotEngine'
 import styles from './Mascot.module.css'
 
 interface Props {
-  /** Optional pixel size for the mascot SVG. Defaults to 120. */
+  /** Pixel size for the mascot SVG. Omit to size it from the stage — see
+   *  computeMascotSize; an explicit value pins it and stops it scaling. */
   mascotSize?: number
 }
 
 // Zoom configuration for the stage's scroll-to-zoom interaction.
 //   - max=1 caps zoom-in at the design baseline (user can only scroll
 //     to shrink, not enlarge past the intended scene scale).
+//   - min is only the ABSOLUTE floor — the effective floor is raised per
+//     stage size by computeMinCoverZoom so zooming out can never shrink
+//     the scene below stage coverage (empty stage showing around it).
 //   - initial < max so the scene starts slightly pulled-back, giving
 //     the mascot some breathing room against the background on first
 //     paint. The user can still wheel up to max=1 for the baseline view.
@@ -29,7 +38,7 @@ const STAGE_ZOOM = {
   initial: 0.8,
 } as const
 
-export function MascotDisplay({ mascotSize = 80 }: Props) {
+export function MascotDisplay({ mascotSize: mascotSizeOverride }: Props) {
   const {
     state,
     completedCount,
@@ -44,16 +53,34 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
   const isSleeping = state === 'idle' || state === 'stopped' || state === 'error'
   const canBeWoken = state === 'idle'
 
-  // ── Stage measurement → wander amplitude ───────────────────────────
+  // ── Stage measurement → mascot size + wander amplitude ─────────────
+  // The mascot is sized from the stage's HEIGHT, the same dimension the
+  // background scene is anchored to, so the character keeps its scale
+  // relative to the world as the widget is resized. Amplitude then follows
+  // from both: a bigger mascot has correspondingly less room to wander.
   const stageRef = useRef<HTMLDivElement>(null)
-  const stageContentWidth = useStageMeasure(stageRef)
-  const maxAmplitude = computeMaxAmplitude(stageContentWidth, mascotSize)
+  const stage = useStageMeasure(stageRef)
+  const mascotSize = mascotSizeOverride ?? computeMascotSize(stage.height)
+  const maxAmplitude = computeMaxAmplitude(stage.width, mascotSize)
 
   // ── Stage scroll-to-zoom ───────────────────────────────────────────
   // useWheelZoom binds the wheel listener (non-passive) and clamps the
-  // returned zoom value to STAGE_ZOOM's bounds. Multiplicative stepping
-  // and bound enforcement live inside the hook.
-  const zoom = useWheelZoom(stageRef, STAGE_ZOOM)
+  // returned zoom value. The floor is dynamic: never below what keeps
+  // the scene covering the stage at its current measured size (the
+  // measure hook returns the content box, so the padding is added back
+  // to get the client box the scene actually spans). The hook re-clamps
+  // whenever the bounds change, so widening the widget while zoomed out
+  // pushes the zoom back up instead of exposing empty stage.
+  const coverZoom = computeMinCoverZoom(
+    stage.width + 2 * STAGE_EDGE_PADDING_PX,
+    stage.height + 2 * STAGE_EDGE_PADDING_PX,
+  )
+  const minZoom = Math.min(STAGE_ZOOM.max, Math.max(STAGE_ZOOM.min, coverZoom))
+  const zoom = useWheelZoom(stageRef, {
+    ...STAGE_ZOOM,
+    min: minZoom,
+    initial: Math.min(Math.max(STAGE_ZOOM.initial, minZoom), STAGE_ZOOM.max),
+  })
 
   // ── Behavior FSM ───────────────────────────────────────────────────
   // The mascot is free to wander any time the agent isn't sleeping;

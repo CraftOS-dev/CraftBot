@@ -21,6 +21,10 @@ Beyond that, CraftBot has all the core capabilities of a general-purpose agent h
   <a href="https://discord.gg/ZN9YHc37HG">
     <img src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&logoColor=white" alt="Discord">
   </a>
+
+  <a href="https://deepwiki.com/CraftOS-dev/CraftBot">
+    <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
+  </a>
 </p>
 
 <div align="center">

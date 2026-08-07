@@ -9,7 +9,7 @@ store/
 ├── index.ts          configureStore, RootState, AppDispatch
 ├── hooks.ts          useAppSelector, useAppDispatch (typed)
 ├── socket/           transport layer (middleware-owned; not for component consumption)
-├── slices/           one file per domain (connection, messages, tasks, agent, ...)
+├── slices/           one file per domain (connection, messages, sessions, activity, agent, ...)
 ├── selectors/        memoized read API; one file per slice
 └── thunks/           async/multi-step orchestration when reducers aren't enough
 ```
@@ -20,7 +20,7 @@ store/
 2. **Slices** are pure: they never import from `store/socket/*`. To send something over the wire, attach `meta.socket` to an action. The socket middleware handles the I/O.
 3. **One slice = one domain.** Resist sharing files. If two slices need to coordinate, use a thunk.
 4. **Every slice gets selectors.** Create `selectors/<name>.ts` the same day you create the slice — even if it's three one-liners. Components depend on the selector layer for memoization stability and so we can refactor slice shape later.
-5. **Normalize collections.** Use `createEntityAdapter` for any list of entities with IDs (messages, tasks, projects, files). Don't store as plain arrays.
+5. **Normalize collections.** Use `createEntityAdapter` for any list of entities with IDs (messages, sessions, projects, files). Don't store as plain arrays.
 6. **Cache aggressively, invalidate on push.** Static-during-session data (skill meta, model providers, living-ui list) is fetched once and reused. Server push events trigger invalidations.
 
 ## Adding a new slice

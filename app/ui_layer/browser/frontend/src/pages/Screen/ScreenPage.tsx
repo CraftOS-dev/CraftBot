@@ -1,4 +1,3 @@
-import React from 'react'
 import { Monitor, RefreshCw, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { IconButton, Badge } from '../../components/ui'

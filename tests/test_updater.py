@@ -159,6 +159,9 @@ def test_perform_update_launches_posix_script_with_current_python(monkeypatch):
     updater_script = project_root / "scripts" / "updater.sh"
 
     monkeypatch.setattr(updater.sys, "platform", "linux")
+    # _updater_script_path binds its `platform` default at import time, so
+    # patching sys.platform alone is not enough on a win32 test host.
+    monkeypatch.setattr(updater._updater_script_path, "__defaults__", ("linux",))
     monkeypatch.setattr(updater.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(updater.asyncio, "sleep", no_sleep)
     monkeypatch.setattr(updater.os, "_exit", fake_exit)

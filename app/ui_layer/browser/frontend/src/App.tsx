@@ -1,8 +1,6 @@
-import React from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from './components/layout'
 import { ChatPage } from './pages/Chat'
-import { TasksPage } from './pages/Tasks'
 import { DashboardPage } from './pages/Dashboard'
 import { ScreenPage } from './pages/Screen'
 import { WorkspacePage } from './pages/Workspace'
@@ -18,6 +16,16 @@ function LivingUIPageRoute() {
   return <LivingUIPage key={projectId} />
 }
 
+// Per-session chat route. Deliberately NO key: /session/new ->
+// /session/{id} must keep the same mounted ChatPage so the draft input's
+// dock-to-bottom animation runs through the navigation. Chat resets its
+// own per-session UI state internally on real session switches.
+function SessionChatRoute() {
+  const { id } = useParams<{ id: string }>()
+  if (!id) return <Navigate to="/" replace />
+  return <ChatPage sessionId={id} />
+}
+
 function App() {
   const { initReceived, needsHardOnboarding } = useWebSocket()
 
@@ -26,17 +34,18 @@ function App() {
   // flashes briefly before the onboarding page appears on first install.
   if (!initReceived) {
     return (
-      <div style={{
+      <div className="cb-splash" style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        height: '100vh',
         background: '#191919',
         flexDirection: 'column',
         gap: '48px',
         userSelect: 'none',
       }}>
         <style>{`
+          /* dvh with vh fallback (inline styles can't express the pair) */
+          .cb-splash { height: 100vh; height: 100dvh; }
           @keyframes cb-dot {
             0%, 80%, 100% { transform: scale(0.45); opacity: 0.25; }
             40%            { transform: scale(1);    opacity: 1;    }
@@ -65,8 +74,8 @@ function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<ChatPage />} />
-        <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
+        <Route path="/session/:id" element={<SessionChatRoute />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/screen" element={<ScreenPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />

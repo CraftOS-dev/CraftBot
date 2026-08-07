@@ -104,14 +104,14 @@ class LLMInterface(_LLMInterface):
         output_tokens: int,
         cached_tokens: int = 0,
     ) -> None:
-        """Override: attribute to the active task SYNCHRONOUSLY at the call
+        """Override: attribute to the active session SYNCHRONOUSLY at the call
         site, then defer to the base for the async storage report.
 
         The base implementation schedules the report hook as an asyncio task,
-        which means by the time the hook runs, STATE.current_task may have
-        already been swapped to a different task (or cleared) by a subsequent
-        trigger. Doing attribution synchronously here guarantees the counters
-        land on the task that actually made the LLM call.
+        which means by the time the hook runs, STATE.current_session may have
+        already been swapped to a different session (or cleared) by a
+        subsequent trigger. Doing attribution synchronously here guarantees
+        the counters land on the session that actually made the LLM call.
         """
         from app.usage.task_attribution import attribute_usage_to_current_task
 

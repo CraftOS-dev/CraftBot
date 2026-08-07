@@ -1,95 +1,413 @@
 /* docs/stylesheets/extra.css
+   CraftBot docs theme — matches https://craftbot.live/
    Brand:
-   - coal black: #141517
-   - orange:     #ff4f18
+   - orange:       #ff4f18
+   - coal black:   #141517
+   Light mode: white surfaces, near-black text, white header.
+   Dark mode:  near-black surfaces, off-white text, near-black header.
+   Compact layout with a smaller base font.
 */
 
-/* ---------------- Light mode (white UI, black text) ---------------- */
-/* docs/stylesheets/extra.css
-   Fix: force LIGHT mode top bar (header + tabs) to coal black (#141517)
-   Keep highlights/links orange (#ff4f18)
-*/
+/* ============================================================
+   1. Color scheme
+   ============================================================ */
 
-/* ---------------- Light mode ---------------- */
-:root {
-  /* Header + tabs background */
-  --md-primary-fg-color: #141517 !important; /* header/tabs background */
-  --md-primary-bg-color: #ffffff !important; /* header/tabs text/icons */
+/* ---- Light mode (default) ---- */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: #ffffff;
+  --md-default-fg-color: #141517;
+  --md-default-fg-color--light: #5b5d63;
+  --md-default-fg-color--lighter: #8a8c92;
+  --md-default-fg-color--lightest: #ededf0;
 
-  /* Orange accents everywhere */
-  --md-accent-fg-color: #ff4f18 !important;
-  --md-typeset-a-color: #ff4f18 !important;
-  --md-typeset-mark-color: #ff4f1840;
+  /* Header + tabs: white bar, dark text */
+  --md-primary-fg-color: #ffffff;
+  --md-primary-bg-color: #141517;
+  --md-primary-bg-color--light: #5b5d63;
+
+  /* Orange accents */
+  --md-accent-fg-color: #ff4f18;
+  --md-accent-fg-color--transparent: rgba(255, 79, 24, 0.1);
+  --md-typeset-a-color: #e8450f;
+  --md-typeset-mark-color: rgba(255, 79, 24, 0.25);
+
+  --md-code-bg-color: #f6f6f7;
+  --md-code-fg-color: #34363c;
 }
 
-/* Hard-force the actual elements (prevents any leftover blue) */
-.md-header,
+/* ---- Dark mode (slate) ---- */
+[data-md-color-scheme="slate"] {
+  --md-hue: 232;
+  --md-default-bg-color: #0b0b0d;
+  --md-default-fg-color: #f2f2f3;
+  --md-default-fg-color--light: #a6a7ac;
+  --md-default-fg-color--lighter: #74757b;
+  --md-default-fg-color--lightest: #26272b;
+
+  /* Header + tabs: near-black bar, off-white text */
+  --md-primary-fg-color: #0b0b0d;
+  --md-primary-bg-color: #f2f2f3;
+  --md-primary-bg-color--light: #a6a7ac;
+
+  --md-accent-fg-color: #ff5f2e;
+  --md-accent-fg-color--transparent: rgba(255, 95, 46, 0.14);
+  --md-typeset-a-color: #ff7043;
+  --md-typeset-mark-color: rgba(255, 95, 46, 0.3);
+
+  --md-code-bg-color: #17181b;
+  --md-code-fg-color: #d6d7db;
+}
+
+/* ============================================================
+   2. Header, tabs, and search (scheme-adaptive)
+   ============================================================ */
+
+.md-header {
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  box-shadow: none;
+}
+.md-header--shadow {
+  box-shadow: 0 0 0.2rem rgba(0, 0, 0, 0.05), 0 0.2rem 0.4rem rgba(0, 0, 0, 0.05);
+}
 .md-tabs {
-  background-color: #141517 !important;
-  color: #ffffff !important;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
 }
 
-/* Tabs text */
+/* Tab links: muted, orange when active/hovered */
 .md-tabs__link {
-  color: #ffffffcc !important;
+  color: var(--md-primary-bg-color--light);
+  opacity: 1;
+  font-weight: 500;
 }
 .md-tabs__link--active,
 .md-tabs__link:hover {
-  color: #ffffff !important;
+  color: var(--md-accent-fg-color);
 }
-
-/* Orange underline/indicator for active tab */
 .md-tabs__link--active {
-  border-bottom: 2px solid #ff4f18 !important;
+  border-bottom: 2px solid var(--md-accent-fg-color);
 }
 
-/* Active/hover nav links should be orange */
+/* Search box tuned to the surface color */
+.md-search__form {
+  background-color: var(--md-default-fg-color--lightest);
+  border-radius: 0.4rem;
+}
+.md-search__form:hover {
+  background-color: var(--md-default-fg-color--lightest);
+}
+.md-search__input {
+  color: var(--md-primary-bg-color);
+}
+.md-search__input::placeholder,
+.md-search__icon {
+  color: var(--md-primary-bg-color--light);
+}
+/* Search results panel on the light surface */
+[data-md-color-scheme="default"] .md-search__output {
+  background-color: var(--md-default-bg-color);
+}
+
+/* Header height and inner alignment (compact) */
+.md-header__inner {
+  height: 2.6rem;
+}
+
+/* Top-bar layout at desktop width: logo far left, search centered, then the
+   theme toggle and GitHub on the right (theme to the left of GitHub). The site
+   title (Material's flex spacer) is hidden, so the auto margins on the search
+   box center it and push the right cluster to the edge. */
+@media screen and (min-width: 76.25em) {
+  .md-header__inner > .md-logo {
+    order: 0;
+    margin-right: 0.4rem;
+  }
+  .md-header .md-search {
+    order: 2;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .md-header__option {
+    order: 3;
+    margin-left: 0.4rem;
+  }
+  /* GitHub block sits right next to the theme toggle (no gap) and is wide
+     enough to show the full repository name without truncating. The
+     [dir=ltr] prefix matches Material's own margin rule so this wins. */
+  .md-header__source {
+    order: 4;
+    width: auto;
+    max-width: none;
+  }
+  [dir=ltr] .md-header__source {
+    margin-left: 0;
+  }
+  [dir=rtl] .md-header__source {
+    margin-right: 0;
+  }
+}
+
+/* Let the repository name show in full instead of ellipsizing */
+.md-source__repository {
+  max-width: none;
+}
+.md-header__button {
+  color: var(--md-primary-bg-color);
+}
+.md-header__button:hover {
+  opacity: 1;
+  color: var(--md-accent-fg-color);
+}
+
+/* GitHub repo block: smaller, legible in both schemes */
+.md-header__source {
+  color: var(--md-primary-bg-color);
+}
+.md-source {
+  font-size: 0.62rem;
+}
+.md-source__repository {
+  color: var(--md-primary-bg-color);
+}
+.md-source__facts {
+  color: var(--md-primary-bg-color--light);
+  font-size: 0.55rem;
+}
+.md-source__icon svg {
+  fill: var(--md-primary-bg-color);
+}
+
+/* ============================================================
+   3. Header logo (CraftBot wordmark, swapped per scheme)
+   ============================================================ */
+
+/* The wordmark already contains "CraftBot", so hide the site-name text. */
+.md-header__title {
+  display: none;
+}
+.md-header__button.md-logo {
+  padding: 0.2rem 0.4rem 0.2rem 0;
+}
+.md-header__button.md-logo img.cb-logo {
+  height: 1.5rem;
+  width: auto;
+}
+/* Show the dark-ink logo on the light header, white-ink on the dark header.
+   Selector is scoped through .md-logo img so it outranks Material's own
+   `.md-header__button.md-logo img { display: block }` rule. */
+[data-md-color-scheme="default"] .md-logo img.cb-logo--dark {
+  display: none;
+}
+[data-md-color-scheme="slate"] .md-logo img.cb-logo--light {
+  display: none;
+}
+
+/* ============================================================
+   4. Compact layout + smaller base font
+   ============================================================ */
+
+.md-typeset {
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+.md-typeset h1 {
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.6rem;
+}
+.md-typeset h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 1.4em 0 0.6em;
+}
+.md-typeset h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 1.2em 0 0.5em;
+}
+.md-typeset h4 {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.md-typeset p,
+.md-typeset ul,
+.md-typeset ol {
+  margin: 0.5em 0;
+}
+
+/* Tighter tables with a smaller font */
+.md-typeset table:not([class]) {
+  font-size: 0.68rem;
+}
+.md-typeset table:not([class]) th,
+.md-typeset table:not([class]) td {
+  padding: 0.4em 0.7em;
+}
+
+/* Denser navigation sidebars */
+.md-nav {
+  font-size: 0.66rem;
+}
+.md-nav__title {
+  font-size: 0.66rem;
+}
+.md-nav__item {
+  padding-top: 0;
+}
+.md-nav__link {
+  margin-top: 0.3em;
+}
+
+/* Slightly wider content column, tighter top padding */
+.md-grid {
+  max-width: 62rem;
+}
+.md-content {
+  padding-bottom: 1rem;
+}
+.md-main__inner {
+  margin-top: 0.9rem;
+}
+
+/* Compact code blocks */
+.md-typeset pre > code {
+  font-size: 0.68rem;
+}
+.md-typeset code {
+  font-size: 0.9em;
+  border-radius: 0.2rem;
+}
+
+/* Active/hover nav links use the accent */
 .md-nav__link--active,
 .md-nav__link:hover,
 .md-typeset a:hover {
-  color: #ff4f18 !important;
+  color: var(--md-accent-fg-color);
 }
 
-/* Search box styling in header */
-.md-search__form {
-  background-color: #1c1d20 !important;
-}
-.md-search__input,
-.md-search__input::placeholder {
-  color: #ffffff !important;
-}
-
-/* Text selection highlight */
-::selection { background: #ff4f1840; }
-::-moz-selection { background: #ff4f1840; }
-
-/* ---------------- Dark mode (keep as you already wanted) ---------------- */
-[data-md-color-scheme="slate"] {
-  --md-primary-fg-color: #141517 !important;
-  --md-primary-bg-color: #ffffff !important;
-  --md-accent-fg-color: #ff4f18 !important;
-  --md-typeset-a-color: #ff4f18 !important;
-  --md-typeset-mark-color: #ff4f1840;
+/* Remove the white glow the sticky section title casts onto the first nav
+   item. With the tabs feature the sidebar is a "lifted" nav, so the glow lives
+   on the active tab link, not only on .md-nav__title. Override all three, at
+   matching specificity so these later rules win. Each keeps its opaque
+   background, so items still hide behind it when scrolling. */
+.md-nav--secondary .md-nav__title,
+.md-nav--primary .md-nav__title,
+.md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link {
+  box-shadow: none;
 }
 
+/* ============================================================
+   5. Selection, scrollbars
+   ============================================================ */
+
+::selection { background: var(--md-accent-fg-color--transparent); }
+::-moz-selection { background: var(--md-accent-fg-color--transparent); }
+
+::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
 ::-webkit-scrollbar-thumb {
-  background: #ddd !important;
+  background: var(--md-default-fg-color--lighter);
+  border-radius: 0.5rem;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #eee !important;
+  background: var(--md-accent-fg-color);
 }
-
-/* When dragging / active (this is the "highlighted" blue state) */
-::-webkit-scrollbar-thumb:active {
-  background: #ddd !important;
-}
-
-/* Firefox */
 * {
-  scrollbar-color: #ddd transparent !important;
-}
-
-/* Optional: prevent blue tap highlight on some browsers */
-* {
+  scrollbar-color: var(--md-default-fg-color--lighter) transparent;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================================================
+   6. Card grids (.grid.cards)
+   ============================================================ */
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid > .card:hover {
+  border-color: var(--md-accent-fg-color);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(20, 21, 23, 0.08);
+}
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li:hover,
+[data-md-color-scheme="slate"] .md-typeset .grid > .card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+/* Icons stay orange */
+.md-typeset .grid.cards .twemoji,
+.md-typeset .grid.cards .lg {
+  color: var(--md-accent-fg-color);
+}
+/* Card title links use the default text color, not the orange link color */
+.md-typeset .grid.cards > ul > li > p:first-of-type strong a,
+.md-typeset .grid.cards > ul > li > p:first-of-type > a:first-child {
+  color: var(--md-default-fg-color);
+  font-weight: 700;
+}
+.md-typeset .grid.cards > ul > li > p:first-of-type strong a:hover,
+.md-typeset .grid.cards > ul > li > p:first-of-type > a:first-child:hover {
+  color: var(--md-accent-fg-color);
+}
+
+/* ============================================================
+   7. Admonitions — orange tip accent
+   ============================================================ */
+
+.md-typeset .admonition,
+.md-typeset details {
+  font-size: 0.7rem;
+  border-radius: 0.4rem;
+}
+.md-typeset .admonition.tip,
+.md-typeset details.tip {
+  border-color: var(--md-accent-fg-color);
+}
+.md-typeset .tip > .admonition-title,
+.md-typeset .tip > summary {
+  background-color: var(--md-accent-fg-color--transparent);
+}
+.md-typeset .tip > .admonition-title::before,
+.md-typeset .tip > summary::before {
+  background-color: var(--md-accent-fg-color);
+}
+
+/* ============================================================
+   8. Buttons and misc accents
+   ============================================================ */
+
+.md-typeset .md-button--primary {
+  background-color: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  color: #ffffff;
+}
+.md-typeset .md-button--primary:hover {
+  background-color: #ff6b3d;
+  border-color: #ff6b3d;
+}
+.md-clipboard:hover:after {
+  color: var(--md-accent-fg-color);
+}
+
+/* Center every social link's contents so the raster image and the SVG icons
+   share the same vertical alignment. */
+.md-social__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* The craftbot.live icon is a padded tile (the robot fills only ~65% of the
+   image), so scale it up to nearly the full 1.6rem link box. That makes the
+   robot glyph read at roughly the same size as the 0.8rem SVG icons. */
+.md-social__link .md-social__image {
+  height: 1.5rem;
+  width: 1.5rem;
+  border-radius: 0.25rem;
 }

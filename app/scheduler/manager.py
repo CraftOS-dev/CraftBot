@@ -3,7 +3,7 @@
 Scheduler Manager
 
 Manages scheduled tasks with background asyncio loops.
-Fires triggers into the TriggerQueue when schedules are due.
+Fires durable triggers into the MAIN session when schedules are due.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agent_core import Trigger, TriggerQueue
+from agent_core import MAIN_SESSION_ID
 from agent_core.utils.logger import logger
 
 from .parser import ScheduleParser, ScheduleParseError
@@ -26,7 +26,7 @@ class SchedulerManager:
     Manager for scheduled tasks.
 
     Creates background asyncio tasks for each enabled schedule.
-    Fires triggers into the TriggerQueue when schedules are due.
+    Fires durable triggers into the MAIN session when schedules are due.
     """
 
     # A one-time task firing more than this many seconds after its scheduled
@@ -39,8 +39,7 @@ class SchedulerManager:
         self._schedules: Dict[str, ScheduledTask] = {}
         self._scheduler_tasks: Dict[str, asyncio.Task] = {}
         self._config_path: Optional[Path] = None
-        self._trigger_queue: Optional[TriggerQueue] = None
-        self._trigger_service = None  # Optional[TriggerService] — durable emit path
+        self._trigger_service = None  # TriggerService — durable emit path
         self._is_running: bool = False
         self._master_enabled: bool = True  # Track master enabled state for config saves
         self._lock = asyncio.Lock()
@@ -48,7 +47,6 @@ class SchedulerManager:
     async def initialize(
         self,
         config_path: Path,
-        trigger_queue: TriggerQueue,
         trigger_service=None,
     ) -> None:
         """
@@ -56,13 +54,10 @@ class SchedulerManager:
 
         Args:
             config_path: Path to scheduler_config.json
-            trigger_queue: TriggerQueue to fire triggers into
-            trigger_service: Optional TriggerService. When provided, fires are
-                emitted durably with dedup keys; when None, falls
-                back to direct queue puts (legacy behavior, used by old tests).
+            trigger_service: TriggerService — fires are emitted durably with
+                dedup keys into the main session's queue.
         """
         self._config_path = Path(config_path)
-        self._trigger_queue = trigger_queue
         self._trigger_service = trigger_service
 
         # Load configuration
@@ -123,7 +118,6 @@ class SchedulerManager:
         instruction: str,
         schedule_expression: str,
         priority: int = 50,
-        mode: str = "simple",
         enabled: bool = True,
         recurring: bool = True,
         action_sets: Optional[List[str]] = None,
@@ -139,11 +133,10 @@ class SchedulerManager:
             instruction: What the agent should do
             schedule_expression: When to run (e.g., "every day at 7am")
             priority: Trigger priority (lower = higher priority)
-            mode: Task mode ("simple" or "complex")
             enabled: Whether to enable immediately
             recurring: True for recurring tasks, False for one-time tasks
-            action_sets: Action sets to use
-            skills: Skills to use
+            action_sets: Action sets to preload for the run
+            skills: Skills to preload for the run
             payload: Extra trigger payload
             schedule_id: Optional custom ID (auto-generated if not provided)
 
@@ -165,7 +158,6 @@ class SchedulerManager:
             schedule=parsed_schedule,
             enabled=enabled,
             priority=priority,
-            mode=mode,
             recurring=recurring,
             action_sets=action_sets or [],
             skills=skills or [],
@@ -296,83 +288,62 @@ class SchedulerManager:
         name: str,
         instruction: str,
         priority: int = 50,
-        mode: str = "simple",
         action_sets: Optional[List[str]] = None,
         skills: Optional[List[str]] = None,
         payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Queue a trigger for immediate execution.
-
-        Creates a new session and queues it to the TriggerQueue
-        for immediate processing by the scheduler.
+        Queue a trigger for immediate execution in the MAIN session.
 
         Args:
-            name: Human-readable name for the task
+            name: Human-readable name for the work
             instruction: What the agent should do
             priority: Trigger priority (lower = higher priority)
-            mode: Task mode ("simple" or "complex")
-            action_sets: Action sets to enable for the task
-            skills: Skills to load for the task
-            payload: Additional payload data to pass to the task
+            action_sets: Action sets to preload for the run
+            skills: Skills to preload for the run
+            payload: Additional payload data to pass to the run
 
         Returns:
-            Dictionary with status, session_id, and message
+            Dictionary with status and message
         """
-        if not self._trigger_queue:
-            return {"status": "error", "error": "Trigger queue not initialized"}
+        if not self._trigger_service:
+            return {"status": "error", "error": "Trigger service not initialized"}
 
-        # Generate unique session ID
-        session_id = f"immediate_{uuid.uuid4().hex[:8]}_{int(time.time())}"
+        fire_id = f"immediate_{uuid.uuid4().hex[:8]}"
 
         # Build trigger payload (matching the format used by _fire_schedule)
         trigger_payload = {
-            "type": "scheduled",
-            "schedule_id": f"immediate_{uuid.uuid4().hex[:8]}",
+            "schedule_id": fire_id,
             "schedule_name": name,
             "instruction": instruction,
-            "mode": mode,
-            "action_sets": action_sets or [],
-            "skills": skills or [],
+            "workflow_action_sets": action_sets or [],
+            "workflow_skills": skills or [],
             **(payload or {}),
         }
 
-        # Queue the trigger — durably when the service is wired
-        # No dedup key: each immediate request is intentionally a new fire.
-        if self._trigger_service is not None:
-            from app.triggers import TriggerSource, TriggerSpec
+        from app.triggers import TriggerSource, TriggerSpec
 
-            await self._trigger_service.emit(
-                TriggerSpec(
-                    source=TriggerSource.SCHEDULED_IMMEDIATE,
-                    description=f"[Immediate] {name}: {instruction}",
-                    fire_at=time.time(),  # Fire immediately
-                    priority=priority,
-                    session_id=session_id,
-                    payload=trigger_payload,
-                )
-            )
-        else:
-            trigger = Trigger(
+        # No dedup key: each immediate request is intentionally a new fire.
+        await self._trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.SCHEDULED_IMMEDIATE,
+                description=f"[Immediate] {name}: {instruction}",
                 fire_at=time.time(),  # Fire immediately
                 priority=priority,
-                next_action_description=f"[Immediate] {name}: {instruction}",
+                session_id=MAIN_SESSION_ID,
                 payload=trigger_payload,
-                session_id=session_id,
             )
-            await self._trigger_queue.put(trigger)
-
-        logger.info(
-            f"[SCHEDULER] Queued immediate trigger: {name} (session: {session_id})"
         )
+
+        logger.info(f"[SCHEDULER] Queued immediate trigger: {name}")
 
         return {
             "status": "ok",
-            "schedule_id": session_id,
+            "schedule_id": fire_id,
             "name": name,
             "recurring": False,
             "scheduled_for": "immediate",
-            "message": f"Task '{name}' queued for immediate execution (session: {session_id})",
+            "message": f"Task '{name}' queued for immediate execution",
         }
 
     def get_status(self) -> Dict[str, Any]:
@@ -558,13 +529,11 @@ class SchedulerManager:
 
     async def _fire_schedule(self, schedule: ScheduledTask) -> None:
         """
-        Fire a scheduled task trigger.
-
-        Creates a Trigger and puts it into the TriggerQueue.
+        Fire a scheduled task trigger into the MAIN session.
         """
-        if not self._trigger_queue:
+        if not self._trigger_service:
             logger.warning(
-                "[SCHEDULER] No trigger queue configured, cannot fire schedule"
+                "[SCHEDULER] No trigger service configured, cannot fire schedule"
             )
             return
 
@@ -574,18 +543,14 @@ class SchedulerManager:
         schedule.last_run = now
         schedule.run_count += 1
 
-        # Create unique session ID for this run
-        session_id = f"scheduled_{schedule.id}_{int(now)}"
-
-        # Build trigger payload
+        # Build trigger payload. Preloaded skills/action sets ride as
+        # workflow capabilities: loaded at run start, unloaded at run end.
         payload = {
-            "type": "scheduled",
             "schedule_id": schedule.id,
             "schedule_name": schedule.name,
             "instruction": schedule.instruction,
-            "mode": schedule.mode,
-            "action_sets": schedule.action_sets,
-            "skills": schedule.skills,
+            "workflow_action_sets": schedule.action_sets,
+            "workflow_skills": schedule.skills,
             **schedule.payload,  # Merge custom payload
         }
 
@@ -626,85 +591,63 @@ class SchedulerManager:
                     f"{overdue_human}; firing as catch-up with agent-judgment note"
                 )
 
-        if self._trigger_service is not None:
-            # Durable path: emit FIRST — the dedup key is the
-            # crash guard now. A crash anywhere after the INSERT can't lose
-            # the fire, and a re-fire attempt (config not yet saved, or the
-            # run_count>0 reload skip missed) collides with the active row
-            # and is a no-op. Then remove one-time tasks from the config.
-            from app.triggers import (
-                TriggerSource,
-                TriggerSpec,
-                scheduled_dedup_key,
-                scheduled_once_dedup_key,
-            )
+        # Durable path: emit FIRST — the dedup key is the crash guard. A
+        # crash anywhere after the INSERT can't lose the fire, and a re-fire
+        # attempt (config not yet saved, or the run_count>0 reload skip
+        # missed) collides with the active row and is a no-op. Then remove
+        # one-time tasks from the config.
+        from app.triggers import (
+            TriggerSource,
+            TriggerSpec,
+            scheduled_dedup_key,
+            scheduled_once_dedup_key,
+        )
 
-            if not schedule.recurring:
-                source = TriggerSource.SCHEDULED_ONCE
-                dedup_key = scheduled_once_dedup_key(schedule.id)
-            else:
-                source = TriggerSource.SCHEDULED
-                # Bucket by this fire's scheduled minute (next_run was set to
-                # this fire's target by the schedule loop) so retrying the
-                # same fire dedups but the next occurrence does not.
-                dedup_key = scheduled_dedup_key(schedule.id, schedule.next_run or now)
-
-            # Built-in schedules (scheduler_config.json) carry their workflow
-            # type in their custom payload — promote it to the typed source
-            # so react() classification doesn't depend on the payload["type"]
-            # fallback (kept only as belt-and-braces for old configs).
-            payload_type_to_source = {
-                "memory_processing": TriggerSource.MEMORY,
-                "proactive_heartbeat": TriggerSource.PROACTIVE_HEARTBEAT,
-                "proactive_planner": TriggerSource.PROACTIVE_PLANNER,
-            }
-            promoted = payload_type_to_source.get(payload.get("type"))
-            if promoted is not None:
-                source = promoted
-
-            result = await self._trigger_service.emit(
-                TriggerSpec(
-                    source=source,
-                    description=description,
-                    fire_at=now,
-                    priority=schedule.priority,
-                    session_id=session_id,
-                    payload=payload,
-                    dedup_key=dedup_key,
-                )
-            )
-            if result.deduped:
-                logger.info(
-                    f"[SCHEDULER] Fire deduped (already queued/in-flight): "
-                    f"{schedule.id} - {schedule.name}"
-                )
-
-            if not schedule.recurring:
-                self._schedules.pop(schedule.id, None)
-                self._save_config()
-                logger.info(
-                    f"[SCHEDULER] One-time task fired, removed from config: {schedule.id}"
-                )
+        if not schedule.recurring:
+            source = TriggerSource.SCHEDULED_ONCE
+            dedup_key = scheduled_once_dedup_key(schedule.id)
         else:
-            # Legacy path (no durable store wired): keep the Phase 0 ordering —
-            # remove one-time tasks from the persisted config BEFORE enqueueing
-            # so a crash/restart between firing and removal can never re-fire
-            # them.
-            if not schedule.recurring:
-                self._schedules.pop(schedule.id, None)
-                self._save_config()
-                logger.info(
-                    f"[SCHEDULER] One-time task fired, removed from config: {schedule.id}"
-                )
+            source = TriggerSource.SCHEDULED
+            # Bucket by this fire's scheduled minute (next_run was set to
+            # this fire's target by the schedule loop) so retrying the
+            # same fire dedups but the next occurrence does not.
+            dedup_key = scheduled_dedup_key(schedule.id, schedule.next_run or now)
 
-            trigger = Trigger(
+        # Built-in schedules (scheduler_config.json) carry their workflow
+        # type in their custom payload — promote it to the typed source so
+        # react() runs the matching pre-check.
+        payload_type_to_source = {
+            "memory_processing": TriggerSource.MEMORY,
+            "proactive_heartbeat": TriggerSource.PROACTIVE_HEARTBEAT,
+            "proactive_planner": TriggerSource.PROACTIVE_PLANNER,
+        }
+        promoted = payload_type_to_source.get(payload.get("type"))
+        if promoted is not None:
+            source = promoted
+
+        result = await self._trigger_service.emit(
+            TriggerSpec(
+                source=source,
+                description=description,
                 fire_at=now,
                 priority=schedule.priority,
-                next_action_description=description,
+                session_id=MAIN_SESSION_ID,
                 payload=payload,
-                session_id=session_id,
+                dedup_key=dedup_key,
             )
-            await self._trigger_queue.put(trigger)
+        )
+        if result.deduped:
+            logger.info(
+                f"[SCHEDULER] Fire deduped (already queued/in-flight): "
+                f"{schedule.id} - {schedule.name}"
+            )
+
+        if not schedule.recurring:
+            self._schedules.pop(schedule.id, None)
+            self._save_config()
+            logger.info(
+                f"[SCHEDULER] One-time task fired, removed from config: {schedule.id}"
+            )
 
         logger.info(
             f"[SCHEDULER] Fired schedule: {schedule.id} - {schedule.name} "

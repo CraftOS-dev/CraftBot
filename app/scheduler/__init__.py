@@ -8,7 +8,7 @@ Usage:
     from app.scheduler import SchedulerManager, ScheduleParser
 
     scheduler = SchedulerManager()
-    await scheduler.initialize(config_path, trigger_queue)
+    await scheduler.initialize(config_path, trigger_service=trigger_service)
     await scheduler.start()
 
     # Add a schedule programmatically

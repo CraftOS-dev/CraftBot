@@ -21,7 +21,6 @@ class StyleType(Enum):
     WARNING = "warning"
 
     # Action panel styles
-    TASK = "task"
     ACTION = "action"
 
     # Status styles
@@ -192,7 +191,6 @@ class ThemeAdapter(ABC):
         self,
         name: str,
         status: str,
-        is_task: bool,
         indent: int = 0,
     ) -> Any:
         """
@@ -201,7 +199,6 @@ class ThemeAdapter(ABC):
         Args:
             name: The item name
             status: Status ("running", "completed", "error")
-            is_task: Whether this is a task (vs an action)
             indent: Indentation level
 
         Returns:

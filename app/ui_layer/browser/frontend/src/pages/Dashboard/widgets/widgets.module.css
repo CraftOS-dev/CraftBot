@@ -1,0 +1,725 @@
+/* Shared styles for dashboard widget content — extracted from the
+ * pre-refactor DashboardPage.module.css. Widget chrome (card
+ * background/border/title-bar) lives separately in layout/WidgetChrome.
+ *
+ * Two rules run through this whole file:
+ *
+ * 1. Nothing here is sized in fixed pixels. Every font size, gap, pad, bar and
+ *    icon comes from the --w-* ramp declared on .body in WidgetChrome.module.css,
+ *    which is driven by the widget's own size via container query units. A
+ *    widget at its ceiling is a genuinely bigger widget, not a small one with
+ *    more padding around it. (Widgets capped at their minimum height don't
+ *    scale at all in practice — the ramp is on cqmin, and their short axis
+ *    never changes.)
+ * 2. Nothing leaves vertical slack lying around. Blocks take `flex` shares of
+ *    the body so growing a widget grows its content, rather than pushing
+ *    fixed-height rows apart (`justify-content: space-between`, which this file
+ *    used to lean on, does the latter and is what made a stretched Model
+ *    Information look broken).
+ *
+ * Spacing between a widget's top-level blocks comes from .body's `gap` — don't
+ * add margins for it here or it doubles up.
+ *
+ * ONE DELIBERATE EXCEPTION to rule 1 and 2 both: the gray stat tiles —
+ * `.tokenDetail` (Input/Output/Cached), `.compactStatItem` (Connected/Calls and
+ * friends) and `.usageStat` (Requests/Peak Hour/Peak Count). Those are labels on
+ * a number, not content that benefits from room, so they keep fixed type and
+ * fixed vertical padding and their rows are `flex: 0 0 auto`: they widen with
+ * the widget and never get taller. Everything below them absorbs the height
+ * instead. Each is marked FIXED-HEIGHT TILE below — including the icon pin,
+ * without which a growing --w-icon would grow the tile it sits in. */
+
+/* Time Period Selector */
+.periodSelector {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  width: 100%;
+  /* A control, not content: it keeps its natural height at every widget size. */
+  flex-shrink: 0;
+}
+
+.periodButton {
+  flex: 1;
+  padding: calc(var(--w-gap) * 0.4) 0;
+  font-size: calc(var(--w-text-xs) * 0.85);
+  font-weight: var(--font-medium);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.periodButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.periodButton.active {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  font-weight: var(--font-semibold);
+}
+
+/* Stats Grid (Task Statistics) */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: var(--w-gap);
+  flex: 1;
+  min-height: 0;
+}
+
+.statItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--w-gap) * 0.3);
+  padding: var(--w-pad);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+.statHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--w-gap) * 0.5);
+  min-width: 0;
+}
+
+.statValue {
+  font-size: var(--w-value);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+
+.statLabel {
+  font-size: var(--w-text-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Icons scale with the widget too. These classes are already on the lucide
+   elements, and a CSS width/height outranks the width/height attributes lucide
+   renders from its `size` prop — so this reaches every widget icon without
+   touching a single .tsx. */
+.successIcon,
+.errorIcon,
+.primaryIcon,
+.mutedIcon,
+.uploadIcon,
+.downloadIcon {
+  width: var(--w-icon);
+  height: var(--w-icon);
+  flex-shrink: 0;
+}
+
+.successIcon {
+  color: var(--color-success);
+}
+
+.errorIcon {
+  color: var(--color-error);
+}
+
+.primaryIcon {
+  color: var(--color-primary);
+}
+
+.mutedIcon {
+  color: var(--text-muted);
+}
+
+/* Token Ratio Display */
+.tokenRatioDisplay {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-2);
+  gap: var(--w-gap);
+  flex: 1;
+  min-height: 0;
+}
+
+/* Takes the height the three fixed tiles no longer claim, up to a point: this
+   widget caps at its minimum height, so the leftover is a fixed amount and a
+   hairline bar floating in it would read as a mistake. Grows from the --w-bar
+   basis to a chunky-but-still-a-bar 48px. */
+.tokenRatioBar {
+  display: flex;
+  flex: 1 1 var(--w-bar);
+  max-height: 14px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.tokenInputBar {
+  background: var(--color-info);
+  transition: width 0.3s ease;
+}
+
+.tokenOutputBar {
+  background: var(--color-primary);
+  transition: width 0.3s ease;
+}
+
+/* Matches .tokenCachedDot in the legend below — without this segment the bar
+   showed only input + output while still legending a Cached percentage. */
+.tokenCachedBar {
+  background: var(--color-success);
+  transition: width 0.3s ease;
+}
+
+/* Wrapping (rather than clipping) is the graceful failure if the three entries
+   ever don't fit; below the narrow threshold at the bottom of this file they
+   drop their word labels instead. */
+.tokenRatioLabels {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--w-gap);
+  row-gap: calc(var(--w-gap) * 0.5);
+}
+
+.tokenRatioItem {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--w-gap) * 0.5);
+  font-size: var(--w-text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.tokenInputDot,
+.tokenOutputDot,
+.tokenCachedDot {
+  width: var(--w-dot);
+  height: var(--w-dot);
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.tokenInputDot {
+  background: var(--color-info);
+}
+
+.tokenOutputDot {
+  background: var(--color-primary);
+}
+
+.tokenCachedDot {
+  background: var(--color-success);
+}
+
+.tokenRatioValue {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+/* FIXED-HEIGHT TILE — Input/Output/Cached. The ratio bar above takes the height
+   these three give up. */
+.tokenDetails {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--w-gap);
+  flex: 0 0 auto;
+}
+
+.tokenDetail {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  min-width: 0;
+}
+
+.tokenDetailLabel {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.tokenDetailValue {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Resource Grid (System Resources) */
+.resourceGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-gap);
+  line-height: var(--leading-tight);
+  flex: 1;
+  min-height: 0;
+}
+
+/* Each bar block takes an equal share of the height and centres itself in it,
+   so the four of them grow with the widget instead of drifting apart. */
+.resourceItem {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--w-gap) * 0.4);
+  flex: 1;
+  min-height: 0;
+}
+
+.resourceHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--w-gap);
+  font-size: var(--w-text-xs);
+  color: var(--text-secondary);
+}
+
+.resourceHeader span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resourceBar {
+  height: var(--w-bar-thin);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.resourceFill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+
+.fillWarning {
+  background: var(--color-warning);
+}
+
+.warning {
+  color: var(--color-warning);
+}
+
+/* Network Row (inside System Resources) */
+.networkRow {
+  display: flex;
+  gap: var(--w-gap);
+  line-height: var(--leading-tight);
+  padding-top: var(--w-gap);
+  border-top: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+/* Both stats together need roughly 256px. Wrapping would turn width pressure
+   into an extra line of height, so at normal widths the row clips to exactly
+   one line; the narrow query at the bottom of this file stacks them instead. */
+.networkStat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--w-gap) * 0.5);
+  font-size: var(--w-text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* The label yields first so the rate itself is never truncated. */
+.networkLabel {
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.networkValue {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.uploadIcon {
+  color: var(--color-success);
+}
+
+.downloadIcon {
+  color: var(--color-info);
+}
+
+/* FIXED-HEIGHT TILE — Requests/Peak Hour/Peak Count (Usage Patterns). All the
+   height goes to the chart below, which is what the widget is actually for. */
+.usageStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--w-gap);
+  flex: 0 0 auto;
+}
+
+.usageStat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  line-height: var(--leading-tight);
+  min-width: 0;
+}
+
+.usageLabel {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.usageValue {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hourly Chart */
+.hourlyChart {
+  padding: var(--w-pad);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  line-height: var(--leading-tight);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The period sub-label can be long; wrapping it would cost a line of height
+   the widget doesn't have at its minimum. */
+.chartLabel {
+  font-size: var(--w-text-xs);
+  color: var(--text-secondary);
+  margin-bottom: calc(var(--w-gap) * 0.5);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.chartSubLabel {
+  font-weight: var(--font-normal);
+  color: var(--text-muted);
+}
+
+/* No pixel floor: the chart is the only flexible block inside .hourlyChart, so
+   it absorbs whatever height is left over — a little at the 2x2 floor, most of
+   the widget at the 5x5 ceiling. */
+.chartBars {
+  display: flex;
+  gap: 1px;
+  flex: 1;
+  min-height: 0;
+  align-items: flex-end;
+}
+
+.chartBarWrapper {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.chartBar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--color-primary);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  opacity: 0.6;
+  transition: opacity 0.2s ease, height 0.3s ease;
+}
+
+.chartBar:hover {
+  opacity: 1;
+}
+
+.chartBar.currentHour {
+  opacity: 1;
+  background: var(--color-success);
+}
+
+.chartTimeLabels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: calc(var(--w-gap) * 0.5);
+  font-size: var(--w-text-xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.chartTimeLabels span {
+  min-width: 0;
+}
+
+/* FIXED-HEIGHT TILE — Connected/Calls and friends (MCP/Skills/Integrations/
+   Living UI/Agent Status). The list below takes the height. */
+.compactStats {
+  display: flex;
+  gap: var(--w-gap);
+  flex: 0 0 auto;
+}
+
+.compactStatItem {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+/* Pins the tile's icons against the global --w-icon rule further up: they're
+   the tallest thing in the row, so a scaling icon would scale the tile. The
+   descendant selector outranks the .successIcon/.primaryIcon classes. */
+.compactStatItem svg {
+  width: 14px;
+  height: 14px;
+}
+
+.compactStatValue {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+
+.compactStatLabel {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Usage Section (Top Tools/Skills/Integrations/Living UI projects) —
+ * top-anchored rather than vertical-centered: list content shouldn't
+ * drift position as the widget is resized. The only flexible block in
+ * these widgets now that the stat tiles are fixed, so it absorbs all the
+ * height (Agent Status has two, which split it evenly). */
+.usageSection {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: calc(var(--w-gap) * 0.5);
+  flex: 1;
+  min-height: 0;
+}
+
+.usageSectionHeader {
+  font-size: var(--w-text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.usageList {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--w-gap) * 0.3);
+  flex: 1;
+  min-height: 0;
+}
+
+/* Rows share the list's height so they grow with the widget, but only up to a
+   few times their own line height — the cap is in `em`, so it scales with the
+   fluid font rather than pinning the row at a fixed pixel size. Without it a
+   one-item list would render as a single enormous pill. */
+.usageItem {
+  display: flex;
+  align-items: center;
+  gap: var(--w-gap);
+  flex: 1;
+  max-height: 2.8em;
+  padding: calc(var(--w-pad) * 0.5) var(--w-pad);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: var(--w-text-xs);
+}
+
+.usageRank {
+  color: var(--text-muted);
+  font-weight: var(--font-semibold);
+  min-width: 1.8em;
+  flex-shrink: 0;
+}
+
+.usageName {
+  flex: 1;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Neutral, not accent — counts and statuses are data, and orange text made
+ * every list row read as a warning (user pref: icons may carry the accent
+ * color, text may not). */
+.usageCount {
+  color: var(--text-primary);
+  font-weight: var(--font-semibold);
+  flex-shrink: 0;
+}
+
+/* Fills the space the list would have taken rather than sitting as a short bar
+   with a gap under it. */
+.emptyUsage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  padding: var(--w-pad);
+  font-size: var(--w-text-xs);
+  color: var(--text-muted);
+  text-align: center;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+.viewAllButton {
+  width: 100%;
+  flex-shrink: 0;
+  padding: calc(var(--w-gap) * 0.5) 0;
+  font-size: var(--w-text-xs);
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: center;
+}
+
+.viewAllButton:hover {
+  text-decoration: underline;
+}
+
+/* Model Information Panel.
+ *
+ * Rows keep their natural height, exactly like the original panel — three
+ * compact label/value strips with any spare card height left below them.
+ * Stretching them to fill (flex: 1) reads as three bloated empty boxes. */
+.modelInfo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-gap);
+}
+
+.modelItem {
+  display: flex;
+  align-items: center;
+  gap: var(--w-gap);
+  padding: var(--w-pad);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+.modelLabel {
+  font-size: var(--w-text-xs);
+  color: var(--text-muted);
+  min-width: 4.5em;
+  flex-shrink: 0;
+}
+
+.modelValue {
+  flex: 1;
+  font-size: var(--w-text-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelValueSmall {
+  flex: 1;
+  font-size: var(--w-text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* Recent Activity Widget — the one list whose rows keep their natural height.
+ * It's a feed of variable-length entries, so a taller widget correctly means
+ * more entries visible, not taller ones. */
+.activityList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-gap);
+}
+
+.activityRow {
+  padding-bottom: calc(var(--w-gap) * 0.5);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.activityRow:last-child {
+  border-bottom: none;
+}
+
+.activityMeta {
+  display: flex;
+  gap: var(--w-gap);
+  padding-left: 3em;
+  font-size: var(--w-text-xs);
+  color: var(--text-muted);
+}
+
+/* The narrow end.
+ *
+ * A widget at the 2x2 floor is ~322px wide at lg but only ~210px at the md
+ * breakpoint, which is under what a couple of these rows need. This is where
+ * that gets paid for — once, at the sizes that actually need it — instead of
+ * every widget carrying permanently tighter spacing for the worst case. */
+@container widget (max-width: 260px) {
+  /* Two lines beats clipping "Download:" down to "Dow…". */
+  .networkRow {
+    flex-direction: column;
+    gap: calc(var(--w-gap) * 0.4);
+  }
+
+  /* Dot and percentage carry the meaning; the word is what goes. */
+  .tokenRatioItem > span:nth-child(2) {
+    display: none;
+  }
+
+  .modelLabel {
+    min-width: 0;
+  }
+}

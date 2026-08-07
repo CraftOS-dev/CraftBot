@@ -98,7 +98,6 @@ class UIController:
         self._running = False
         self._adapter: Optional["InterfaceAdapter"] = None
         self._event_task: Optional[asyncio.Task] = None
-        self._trigger_task: Optional[asyncio.Task] = None
 
         # Register built-in commands
         self._register_builtin_commands()
@@ -168,7 +167,12 @@ class UIController:
     # ─────────────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        """Start the UI controller and begin processing events."""
+        """Start the UI controller and begin processing events.
+
+        The agent loops themselves are owned by the per-session runtime
+        (SessionRuntimeManager) — this controller only watches event streams
+        and routes user input.
+        """
         if self._running:
             return
 
@@ -176,9 +180,6 @@ class UIController:
 
         # Start event watching task
         self._event_task = asyncio.create_task(self._watch_agent_events())
-
-        # Start trigger consuming task
-        self._trigger_task = asyncio.create_task(self._consume_triggers())
 
     async def stop(self) -> None:
         """Stop the UI controller."""
@@ -192,13 +193,6 @@ class UIController:
             self._event_task.cancel()
             try:
                 await self._event_task
-            except asyncio.CancelledError:
-                pass
-
-        if self._trigger_task:
-            self._trigger_task.cancel()
-            try:
-                await self._trigger_task
             except asyncio.CancelledError:
                 pass
 
@@ -237,8 +231,7 @@ class UIController:
         self,
         message: str,
         adapter_id: str = "",
-        target_session_id: Optional[str] = None,
-        living_ui_id: Optional[str] = None,
+        session_id: Optional[str] = None,
         client_id: Optional[str] = None,
     ) -> None:
         """
@@ -249,20 +242,17 @@ class UIController:
         Args:
             message: The user's input message
             adapter_id: ID of the adapter that sent the message
-            target_session_id: Optional session ID for direct reply (bypasses routing)
-            living_ui_id: Optional Living UI project ID if user is on a Living UI page
+            session_id: The session the message was typed in (main if omitted)
+            client_id: Optional originating client id (echo suppression)
         """
         if not message.strip():
             return
 
         # Try command execution first
-        if await self._command_executor.try_execute(message, adapter_id):
+        if await self._command_executor.try_execute(
+            message, adapter_id, session_id=session_id
+        ):
             return
-
-        # Not a command - send to agent
-        # Note: Task status updates (waiting -> running) are handled in _handle_chat_message
-        # after routing determines the correct session. We don't update here to avoid
-        # incorrectly changing status of unrelated tasks.
 
         # Emit state change event so adapters can update status immediately
         self._event_bus.emit(
@@ -271,6 +261,7 @@ class UIController:
                 data={
                     "state": AgentStateType.WORKING.value,
                     "status_message": "Agent is working...",
+                    "session_id": session_id,
                 },
                 source_adapter=adapter_id,
             )
@@ -284,24 +275,41 @@ class UIController:
                     "message": message,
                     "adapter_id": adapter_id,
                     "client_id": client_id,
+                    "session_id": session_id,
                 },
                 source_adapter=adapter_id,
             )
         )
 
-        # Route to agent
+        # Route to agent — the destination session is explicit; no routing.
         payload = {
             "text": message,
             "sender": {"id": adapter_id or "user", "type": "user"},
-            "gui_mode": self._state_store.state.gui_mode,
+            "session_id": session_id,
         }
-        # Include target session ID for direct reply (bypasses routing LLM)
-        if target_session_id:
-            payload["target_session_id"] = target_session_id
-        if living_ui_id:
-            payload["living_ui_id"] = living_ui_id
 
         await self._agent._handle_chat_message(payload)
+
+    async def stop_run(self, session_id: Optional[str] = None) -> bool:
+        """Force-stop a session's in-flight run (chat stop button).
+
+        Returns True when a run was actually stopped. Run-state broadcasts
+        ("stopping" then "idle") come from the agent, not from here.
+        """
+        return await self._agent.request_run_stop(session_id or "main")
+
+    async def notify_session_updated(self, session_id: str) -> None:
+        """Tell the active adapter a session's metadata changed (e.g. title)."""
+        adapter = self._adapter
+        broadcast = getattr(adapter, "broadcast_session_updated", None)
+        if broadcast is not None:
+            try:
+                await broadcast(session_id)
+            except Exception:
+                logger.debug(
+                    f"[UI] Failed to broadcast session update for {session_id}",
+                    exc_info=True,
+                )
 
     async def handle_option_click(self, value: str, session_id: str) -> None:
         """
@@ -317,8 +325,6 @@ class UIController:
             await self._agent.handle_limit_continue(session_id)
         elif value == "abort_limit":
             await self._agent.handle_limit_abort(session_id)
-        elif value == "llm_retry":
-            await self._agent.handle_llm_retry(session_id)
 
     async def handle_prompt_enhance(self, user_message: str) -> str:
         return await self._agent._handle_prompt_enhance(user_message=user_message)
@@ -331,12 +337,12 @@ class UIController:
         """Watch and transform agent events to UI events."""
         # Mark all pre-existing events as seen so restored events
         # from previous sessions are not emitted as new UI messages.
-        # State-updating events (task_start, task_end) are still processed
-        # to rebuild UI state (e.g., show restored tasks as running).
+        # State-updating events (action_start/action_end) are still processed
+        # to rebuild UI state (e.g., show a restored in-flight action).
         streams = self._agent.event_stream_manager.get_all_streams_with_ids()
         for task_id, stream in streams:
             for event in stream.as_list():
-                key = (event.iso_ts, event.kind, event.message)
+                key = (task_id, event.iso_ts, event.kind, event.message)
                 self._state_store.dispatch("MARK_EVENT_SEEN", key)
                 # Rebuild UI state from restored events without emitting to UI
                 ui_event = EventTransformer.transform(event, task_id)
@@ -350,8 +356,12 @@ class UIController:
 
                 for task_id, stream in streams:
                     for event in stream.as_list():
-                        # Create deduplication key
-                        key = (event.iso_ts, event.kind, event.message)
+                        # Create deduplication key. task_id (the session id)
+                        # must be part of the key: iso_ts is seconds-precision,
+                        # so two sessions emitting a generic event in the same
+                        # second would otherwise collide and the second event
+                        # would be dropped.
+                        key = (task_id, event.iso_ts, event.kind, event.message)
 
                         # Skip if already seen
                         if key in self._state_store.state.seen_event_keys:
@@ -374,71 +384,7 @@ class UIController:
 
     def _update_state_from_event(self, event: UIEvent) -> None:
         """Update state store based on UI events."""
-        if event.type == UIEventType.TASK_START:
-            # Skip task events from main stream (empty task_id).
-            # Main stream's task_started events are for conversation history tracking,
-            # not for UI task panels. Task stream has the actual task_start events.
-            task_id = event.data.get("task_id", "")
-            if not task_id:
-                return
-
-            self._state_store.dispatch(
-                "ADD_ACTION_ITEM",
-                {
-                    "id": task_id,
-                    "display_name": event.data.get("task_name", "Task"),
-                    "item_type": "task",
-                    "status": "running",
-                },
-            )
-            self._state_store.dispatch(
-                "SET_CURRENT_TASK",
-                {
-                    "task_id": task_id,
-                    "task_name": event.data.get("task_name"),
-                },
-            )
-            self._state_store.dispatch("SET_AGENT_STATE", AgentStateType.WORKING.value)
-            # Emit state change event so adapters can update status
-            task_name = event.data.get("task_name", "task")
-            self._event_bus.emit(
-                UIEvent(
-                    type=UIEventType.AGENT_STATE_CHANGED,
-                    data={
-                        "state": AgentStateType.WORKING.value,
-                        "status_message": f"Working on {task_name}...",
-                    },
-                )
-            )
-
-        elif event.type == UIEventType.TASK_END:
-            # Skip task events from main stream (empty task_id).
-            # Main stream's task_ended events are for conversation history tracking.
-            task_id = event.data.get("task_id", "")
-            if not task_id:
-                return
-
-            self._state_store.dispatch(
-                "UPDATE_ACTION_ITEM",
-                {
-                    "id": task_id,
-                    "status": event.data.get("status", "completed"),
-                },
-            )
-            self._state_store.dispatch("SET_CURRENT_TASK", None)
-            self._state_store.dispatch("SET_AGENT_STATE", AgentStateType.IDLE.value)
-            # Emit state change event so adapters can update status
-            self._event_bus.emit(
-                UIEvent(
-                    type=UIEventType.AGENT_STATE_CHANGED,
-                    data={
-                        "state": AgentStateType.IDLE.value,
-                        "status_message": "Agent is idle",
-                    },
-                )
-            )
-
-        elif event.type == UIEventType.ACTION_START:
+        if event.type == UIEventType.ACTION_START:
             self._state_store.dispatch(
                 "ADD_ACTION_ITEM",
                 {
@@ -476,92 +422,6 @@ class UIController:
                 "SET_GUI_MODE", event.data.get("gui_mode", False)
             )
 
-        elif event.type == UIEventType.WAITING_FOR_USER:
-            task_id = event.data.get("task_id", "")
-            if task_id:
-                # Update specific task status to "waiting"
-                self._state_store.dispatch(
-                    "UPDATE_ACTION_ITEM",
-                    {
-                        "id": task_id,
-                        "status": "waiting",
-                    },
-                )
-            # Update global agent state
-            self._state_store.dispatch(
-                "SET_AGENT_STATE", AgentStateType.WAITING_FOR_USER.value
-            )
-            # Emit state change event for status bar
-            self._event_bus.emit(
-                UIEvent(
-                    type=UIEventType.AGENT_STATE_CHANGED,
-                    data={
-                        "state": AgentStateType.WAITING_FOR_USER.value,
-                        "status_message": "Waiting for your response",
-                    },
-                )
-            )
-
-        elif event.type == UIEventType.TASK_UPDATE:
-            task_id = event.data.get("task_id", "")
-            if task_id:
-                self._state_store.dispatch(
-                    "UPDATE_ACTION_ITEM",
-                    {
-                        "id": task_id,
-                        "status": event.data.get("status", "running"),
-                    },
-                )
-
-    async def _consume_triggers(self) -> None:
-        """Consume triggers and run agent reactions.
-
-        Durable lifecycle: ``next()`` claims the trigger's store
-        rows (CLAIMED), ``ack()`` settles them when the react cycle completes,
-        ``nack()`` on an exception. A crash or cancellation mid-react leaves
-        the rows CLAIMED, and the next boot's reclaim scan re-delivers them —
-        at-least-once instead of silently lost.
-        """
-        logger.info("[CONSUMER] Trigger consumer started")
-        try:
-            while self._running and self._agent.is_running:
-                trigger = None
-                try:
-                    trigger = await self._agent.trigger_service.next()
-                    await self._agent.react(trigger)
-                    await self._agent.trigger_service.ack(trigger)
-                except asyncio.CancelledError:
-                    # Shutdown: deliberately no ack/nack — the row stays
-                    # CLAIMED and is reclaimed (re-delivered) on next boot.
-                    raise
-                except Exception as e:
-                    logger.error(
-                        f"[CONSUMER] Exception during trigger processing: {e!r}",
-                        exc_info=True,
-                    )
-                    if trigger is not None:
-                        try:
-                            await self._agent.trigger_service.nack(trigger, repr(e))
-                        except Exception:
-                            logger.error(
-                                "[CONSUMER] Failed to nack trigger", exc_info=True
-                            )
-                    await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            logger.info("[CONSUMER] Trigger consumer cancelled")
-            raise
-        except BaseException as e:
-            logger.error(
-                f"[CONSUMER] Trigger consumer died with unhandled {type(e).__name__}: {e!r}",
-                exc_info=True,
-            )
-            raise
-        finally:
-            logger.info(
-                f"[CONSUMER] Trigger consumer exiting "
-                f"(running={self._running}, agent_running={self._agent.is_running})"
-            )
-
     # ─────────────────────────────────────────────────────────────────────
     # Command Registration
     # ─────────────────────────────────────────────────────────────────────
@@ -571,7 +431,6 @@ class UIController:
         from app.ui_layer.commands.builtin import (
             HelpCommand,
             ClearCommand,
-            ClearTasksCommand,
             ResetCommand,
             ExitCommand,
             MenuCommand,
@@ -580,11 +439,11 @@ class UIController:
             SkillCommand,
             CredCommand,
             UpdateCommand,
+            TokensCommand,
         )
 
         self._command_registry.register(HelpCommand(self))
         self._command_registry.register(ClearCommand(self))
-        self._command_registry.register(ClearTasksCommand(self))
         self._command_registry.register(ResetCommand(self))
         self._command_registry.register(ExitCommand(self))
         self._command_registry.register(MenuCommand(self))
@@ -593,6 +452,7 @@ class UIController:
         self._command_registry.register(SkillCommand(self))
         self._command_registry.register(CredCommand(self))
         self._command_registry.register(UpdateCommand(self))
+        self._command_registry.register(TokensCommand(self))
 
         # Register integration commands
         self._register_integration_commands()
@@ -668,6 +528,7 @@ class UIController:
         skill_name: str,
         args_text: str,
         adapter_id: str = "",
+        session_id: Optional[str] = None,
     ) -> None:
         """
         Invoke a skill by routing through the agent's message handler.
@@ -691,6 +552,7 @@ class UIController:
                 type=UIEventType.SYSTEM_MESSAGE,
                 data={"message": sys_msg},
                 source_adapter=adapter_id,
+                task_id=session_id,
             )
         )
 
@@ -701,8 +563,10 @@ class UIController:
                 data={
                     "state": AgentStateType.WORKING.value,
                     "status_message": "Agent is working...",
+                    "session_id": session_id,
                 },
                 source_adapter=adapter_id,
+                task_id=session_id,
             )
         )
 
@@ -719,7 +583,7 @@ class UIController:
         payload = {
             "text": task_text,
             "sender": {"id": adapter_id or "user", "type": "user"},
-            "gui_mode": self._state_store.state.gui_mode,
+            "session_id": session_id,
             "pre_selected_skills": [skill_name],
         }
         await self._agent._handle_chat_message(payload)

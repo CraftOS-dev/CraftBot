@@ -9,7 +9,7 @@ action-sets:
 
 # CraftBot Skill Improver
 
-Refine one existing skill using evidence from one task that used it. The handler that spawned this task already gathered everything you need into a single markdown file — read it, diff it against the live skill, apply small surgical edits, send the user a one-message summary of the changes, end the task. The handler has already posted "Improving skill `<name>`…" in chat for you, so do not duplicate that message. Your only chat message is the final presentation right before `task_end`. Do not iterate with test cases. Do not run subagents.
+Refine one existing skill using evidence from one task that used it. The handler that spawned this task already gathered everything you need into a single markdown file — read it, diff it against the live skill, apply small surgical edits, send the user a one-message summary of the changes, end the task. The handler has already posted "Improving skill `<name>`…" in chat for you, so do not duplicate that message. Your only chat message is the final presentation right before `end_turn`. Do not iterate with test cases. Do not run subagents.
 
 ## What you receive
 
@@ -38,7 +38,7 @@ The target skill exists. Your job is to edit it in place. The action trace is th
 Two artefacts, in order:
 
 1. **Targeted edits** to exactly one file: the path given by `Target file:` in your task instruction (an absolute path under the project's `skills/` directory). Pass that path verbatim to `stream_edit`. Do not do a whole-file rewrite of it — that clobbers the rest of the file. Do not write any other files. Do not change the directory layout. Do not delete bundled resources in `scripts/`, `references/`, or `assets/`.
-2. **One presentation message** to the user via `send_message`, immediately after the edits and immediately before `task_end`. See *Presentation message* below for the format.
+2. **One presentation message** to the user via `send_message`, immediately after the edits and immediately before `end_turn`. See *Presentation message* below for the format.
 
 Do not send any chat message other than the single presentation one — the handler has already posted the "Improving skill …" acknowledgement.
 
@@ -94,7 +94,7 @@ Bundled resources may exist for the target skill. Leave them alone. If the sourc
 
 ## Workflow
 
-Use `task_update_todos` at the start to track these. Mark each completed before moving on.
+Use `update_todos` at the start to track these. Mark each completed before moving on.
 
 1. **Read the SOURCE.** `read_file` on the path from your task instruction. Note the action trace, errors, summary, and the verbatim existing SKILL.md.
 2. **Re-read the live target.** `read_file` on `skills/<target-skill>/SKILL.md`. The SOURCE may be milliseconds stale; the live file is authoritative for line offsets when you `stream_edit`.
@@ -104,7 +104,7 @@ Use `task_update_todos` at the start to track these. Mark each completed before 
 4. **Plan a small edit list.** Each entry is one of: *add a pitfall*, *trim a redundant step*, *sharpen wording for accuracy*, *shrink wording for tokens*. Aim for 1–4 edits. If you find yourself listing 10, you are redesigning — pick the highest-leverage few and stop.
 5. **Apply edits.** One `stream_edit` per item in the list. Re-read the file between edits if line offsets have shifted significantly.
 6. **Send the presentation message** via `send_message`. See *Presentation message* below.
-7. **`task_end`** with a one-line summary of what changed.
+7. **`end_turn`** with a one-line summary of what changed.
 
 ## Mistake-scanning — what to surface as new pitfalls
 
@@ -149,11 +149,11 @@ You are done when all of these are true:
 4. Net line-count change is within roughly ±25%. Net negative is fine and often better.
 5. No specific values from the source task have leaked into the skill (no concrete dates, names, IDs, URLs, paths, file contents).
 6. You have sent the presentation message via `send_message` (see below).
-7. You have called `task_end` with a one-line summary of what changed (e.g., "Added pitfall about over-broad search queries; trimmed redundant restatement of the date-filter rule").
+7. You have called `end_turn` with a one-line summary of what changed (e.g., "Added pitfall about over-broad search queries; trimmed redundant restatement of the date-filter rule").
 
 ## Presentation message — required, exactly once
 
-After applying the edits and immediately before `task_end`, call `send_message` once with a short summary of what changed. Aim for 3–6 short lines. Adapt this template — do not copy verbatim:
+After applying the edits and immediately before `end_turn`, call `send_message` once with a short summary of what changed. Aim for 3–6 short lines. Adapt this template — do not copy verbatim:
 
 ```
 ✏️ Improved the **<skill-name>** skill.
@@ -174,7 +174,7 @@ Rules:
 
 ## Allowed Actions
 
-`read_file`, `stream_edit`, `send_message`, `task_update_todos`, `task_end`.
+`read_file`, `stream_edit`, `send_message`, `update_todos`, `end_turn`.
 
 `create_file` / `write_file` are forbidden in this workflow — see *Improvement constraints* above.
 
@@ -222,4 +222,4 @@ Edits *not* to apply:
 
 ## When to make no edits at all
 
-It is fine — and sometimes correct — to apply zero edits. If the action trace is perfectly linear, has no errors or re-actions, and the existing skill already covers everything the trace exhibits, the right answer is to call `task_end` with a summary like "Reviewed evidence; no improvement justified — existing skill already covers the workflow cleanly." Adding speculative content would harm the skill.
+It is fine — and sometimes correct — to apply zero edits. If the action trace is perfectly linear, has no errors or re-actions, and the existing skill already covers everything the trace exhibits, the right answer is to call `end_turn` with a summary like "Reviewed evidence; no improvement justified — existing skill already covers the workflow cleanly." Adding speculative content would harm the skill.

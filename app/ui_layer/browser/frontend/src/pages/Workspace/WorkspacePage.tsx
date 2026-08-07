@@ -102,7 +102,6 @@ export function WorkspacePage() {
     refresh,
     selectFile,
     readFile,
-    writeFile,
     createFile,
     deleteFile,
     renameFile,

@@ -178,7 +178,7 @@ class WizardAPI:
         craftbot._full_install_frozen(target_dir, [], progress_cb=self._on_progress)
         # Spin tailing off so the worker thread completes immediately —
         # otherwise worker_busy stays True for up to 90s while the tail
-        # waits for "CRAFTBOT IS READY", and JS keeps stop/repair/uninstall
+        # waits for the ready marker, and JS keeps stop/repair/uninstall
         # disabled the whole time.
         self._spawn_log_tail(start_offset)
 
@@ -204,10 +204,10 @@ class WizardAPI:
     def _tail_log(self, start_offset: int, deadline_s: float = 90.0) -> None:
         """Stream new bytes appended to craftbot.log into the JS log panel.
 
-        Stops when "CRAFTBOT IS READY" appears (run.py prints this once the
+        Stops when the ready marker appears (run.py prints this once the
         frontend + agent are both up) or after `deadline_s` seconds."""
         offset = start_offset
-        end_marker = "CRAFTBOT IS READY"
+        end_marker = craftbot.CRAFTBOT_READY_MARKER
         end_time = time.monotonic() + deadline_s
         announced = False
         while time.monotonic() < end_time:
