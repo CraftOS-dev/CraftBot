@@ -1234,9 +1234,7 @@ def _frontend_deps_stale(frontend_dir: str) -> Optional[str]:
         return "node_modules is missing"
 
     try:
-        with open(
-            os.path.join(frontend_dir, "package.json"), encoding="utf-8"
-        ) as fh:
+        with open(os.path.join(frontend_dir, "package.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)
     except (OSError, ValueError):
         # Unreadable manifest — run npm install and let npm report the

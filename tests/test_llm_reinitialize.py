@@ -7,6 +7,7 @@ unconditionally wiping every active task's session-cache state
 those buffers are only invalidated by an actual *provider* change — the
 message format they hold is provider-specific, not model-specific.
 """
+
 from unittest.mock import patch
 
 import pytest
@@ -47,8 +48,9 @@ def llm_interface():
 
 def test_reinitialize_noop_preserves_everything(llm_interface):
     """A Settings save with no actual change must not touch live state."""
-    with patch.object(ModelFactory, "create") as mock_create, patch(
-        "app.config.get_llm_model", return_value="claude-a"
+    with (
+        patch.object(ModelFactory, "create") as mock_create,
+        patch("app.config.get_llm_model", return_value="claude-a"),
     ):
         ok = llm_interface.reinitialize(
             provider="anthropic", api_key="key-a", base_url=""
@@ -62,9 +64,10 @@ def test_reinitialize_noop_preserves_everything(llm_interface):
 
 def test_reinitialize_model_only_preserves_histories(llm_interface):
     """Same provider, different model: histories survive, model updates."""
-    with patch.object(
-        ModelFactory, "create", return_value=_make_ctx(model="claude-b")
-    ), patch("app.config.get_llm_model", return_value="claude-b"):
+    with (
+        patch.object(ModelFactory, "create", return_value=_make_ctx(model="claude-b")),
+        patch("app.config.get_llm_model", return_value="claude-b"),
+    ):
         ok = llm_interface.reinitialize(
             provider="anthropic", api_key="key-a", base_url=""
         )
@@ -77,12 +80,15 @@ def test_reinitialize_model_only_preserves_histories(llm_interface):
 
 def test_reinitialize_provider_change_clears_histories(llm_interface):
     """An actual provider change still fully resets session state."""
-    with patch.object(
-        ModelFactory, "create", return_value=_make_ctx(provider="openai", model="gpt-x")
-    ), patch("app.config.get_llm_model", return_value="gpt-x"):
-        ok = llm_interface.reinitialize(
-            provider="openai", api_key="key-b", base_url=""
-        )
+    with (
+        patch.object(
+            ModelFactory,
+            "create",
+            return_value=_make_ctx(provider="openai", model="gpt-x"),
+        ),
+        patch("app.config.get_llm_model", return_value="gpt-x"),
+    ):
+        ok = llm_interface.reinitialize(provider="openai", api_key="key-b", base_url="")
 
     assert ok is True
     assert llm_interface.provider == "openai"
