@@ -16,6 +16,7 @@ export interface ChatMessageOption {
   label: string
   value: string
   style?: 'primary' | 'danger' | 'default'
+  url?: string  // If set, clicking also opens this URL in a new tab (e.g. a billing link)
 }
 
 export interface ChatMessage {
@@ -24,28 +25,50 @@ export interface ChatMessage {
   style: 'user' | 'agent' | 'system' | 'error' | 'info'
   timestamp: number
   messageId: string
+  sessionId: string
   attachments?: Attachment[]
-  taskSessionId?: string  // Links message to a task session for reply feature
   options?: ChatMessageOption[]
+  requiresChoice?: boolean  // True when options is a blocking choice (e.g. Continue/Stop) vs. convenience action links; absent/true means show "Please select a response to continue"
   optionSelected?: string  // Value of the option that was selected
   clientId?: string  // Client-generated UUID for reconciling optimistic pending messages with server echo
   pending?: boolean  // True while an optimistic message is awaiting server acknowledgment
+  errorCategory?: string  // ErrorCategory value (e.g. "auth", "rate_limit") when style === 'error'
+  errorCode?: string  // Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY")
+  errorSeverity?: 'info' | 'warning' | 'error' | 'critical'
+  continueWork?: boolean  // True for a mid-run agent progress update (send_message continue_work=true): the run keeps going after this bubble, so it must NOT hide the "Working…" live row
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Action/Task Types
+// Session Types
+// ─────────────────────────────────────────────────────────────────────
+
+export type SessionType = 'main' | 'chat' | 'living_ui'
+
+export interface SessionInfo {
+  id: string
+  type: SessionType
+  title: string
+  createdAt: string
+  lastActiveAt: string
+  livingUiProjectId?: string | null
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Activity Types (inline actions + reasoning in the session timeline)
 // ─────────────────────────────────────────────────────────────────────
 
 export type ActionStatus = 'running' | 'completed' | 'error' | 'pending' | 'cancelled' | 'waiting' | 'paused'
-export type ItemType = 'task' | 'action' | 'reasoning'
+export type ItemType = 'action' | 'reasoning'
 
 export interface ActionItem {
   id: string
   name: string
   status: ActionStatus
   itemType: ItemType
+  sessionId: string
   parentId?: string
   createdAt?: number
+  completedAt?: number
   input?: string
   output?: string
   error?: string
@@ -75,13 +98,28 @@ export interface AgentStatus {
 
 export type WSMessageType =
   | 'init'
+  | 'message'
   | 'chat_message'
+  | 'chat_history'
   | 'chat_clear'
   | 'action_add'
   | 'action_update'
   | 'action_remove'
-  | 'action_clear'
+  // Sessions (creation is lazy: a "message" with sessionId "new" makes the
+  // backend create the session and broadcast session_created)
+  | 'session_delete'
+  | 'session_rename'
+  | 'session_clear'
+  | 'session_list'
+  | 'session_created'
+  | 'session_updated'
+  | 'session_deleted'
+  | 'session_cleared'
+  | 'session_busy'
+  | 'session_stop'
+  | 'agent_state'
   | 'status_update'
+  | 'navigate'
   | 'footage_update'
   | 'footage_clear'
   | 'footage_visibility'
@@ -107,11 +145,8 @@ export type WSMessageType =
   | 'chat_attachment_upload'
   | 'open_file'
   | 'open_folder'
-  // Task control
-  | 'task_cancel'
-  | 'task_cancel_response'
-  // Skill creation from completed task
-  | 'create_skill_from_task'
+  // Skill creation from a session transcript
+  | 'create_skill_from_session'
   | 'skill_meta'
   // Option click (interactive buttons in chat)
   | 'option_click'
@@ -150,7 +185,8 @@ export type WSMessageType =
   | 'living_ui_delete'
   | 'living_ui_state_update'
   | 'living_ui_data_changed'
-  | 'living_ui_question'
+  | 'living_ui_build_event'
+  | 'living_ui_build_events_replay'
   | 'living_ui_error'
   | 'prompt_enhanced'
 
@@ -163,9 +199,11 @@ export interface InitialState {
   version?: string
   agentState: AgentState
   guiMode: boolean
-  currentTask: { id: string; name: string } | null
   messages: ChatMessage[]
   actions: ActionItem[]
+  sessions: SessionInfo[]
+  /** Sessions with a run in flight — seeds the typing indicator on connect. */
+  busySessions?: string[]
   status: string
   dashboardMetrics?: DashboardMetrics
   needsHardOnboarding?: boolean
@@ -554,21 +592,10 @@ export interface OpenFolderResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Task Control
-// ─────────────────────────────────────────────────────────────────────
-
-export interface TaskCancelResponse {
-  taskId: string
-  success: boolean
-  status?: 'cancelled' | 'error'
-  error?: string
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Navigation
 // ─────────────────────────────────────────────────────────────────────
 
-export type NavTab = 'chat' | 'tasks' | 'dashboard' | 'screen' | 'workspace' | 'settings' | 'living-ui'
+export type NavTab = 'chat' | 'dashboard' | 'screen' | 'workspace' | 'settings' | 'living-ui'
 
 // ─────────────────────────────────────────────────────────────────────
 // Onboarding Types
@@ -715,12 +742,24 @@ export interface LivingUIProject {
   description: string
   status: LivingUIStatus
   path: string
+  /** Chat session backing this project's chat panel. */
+  sessionId?: string
   port?: number
   url?: string
   createdAt: number
-  icon?: string
+  /** "lucide:<Name>" or "file:<relpath>" (uploaded favicon). */
+  icon?: string | null
   features?: string[]
   error?: string
+  stylePack?: string
+  /** Server-persisted display theme; adopted when no local override exists. */
+  uiTheme?: { themeId?: string; customColors?: Record<string, string> } | null
+  /** 'native' (a Living UI) | 'external' (foreign app running as-is). */
+  projectType?: 'native' | 'external'
+  /** External apps only: detected runtime (node/python/static/go/rust). */
+  appRuntime?: string | null
+  /** CraftBot version that acquired this project (provenance). */
+  craftbotVersion?: string | null
 }
 
 export interface LivingUICreateRequest {
@@ -729,6 +768,34 @@ export interface LivingUICreateRequest {
   features?: string[]  // Optional, defaults to empty array
   dataSource?: string
   theme?: 'light' | 'dark' | 'system'
+  authMode?: 'none' | 'multi-user'
+  layout?: string
+  stylePack?: string
+  referenceFiles?: string[]
+}
+
+// One derived "the app is being built" event, produced read-only by the
+// backend construction observer (app/living_ui/construction_events.py) and
+// rendered in the construction dock's feed + CodePeek.
+export interface LivingUIBuildEvent {
+  id: string
+  ts: number
+  kind: 'file_write' | 'file_edit' | 'test_run' | 'scaffold' | 'read' | 'search' | 'run' | 'verify' | 'todo'
+  area: 'backend' | 'frontend' | 'tests' | 'docs' | 'config' | 'other'
+  label: string
+  file?: string
+  entities?: {
+    models?: string[]
+    routes?: string[]
+    components?: string[]
+    tests?: string[]
+  }
+  snippet?: string
+  tests?: { passed: number; failed: number }
+  /** Authoritative counts scanned from the project on disk at event time —
+   * the source of truth for the dock's summary chips (not the per-write
+   * entities above, which only describe what that one write touched). */
+  snapshot?: { collections: number; components: number; routes: number }
 }
 
 export interface LivingUIStatusUpdate {

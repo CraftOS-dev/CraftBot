@@ -362,15 +362,19 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
 
     def send_email(
         self,
-        to: str,
-        subject: str,
-        body: str,
+        to: Optional[str] = None,
+        subject: str = "",
+        body: str = "",
         from_email: Optional[str] = None,
         attachments: Optional[List[str]] = None,
     ) -> Result:
         cred = self._load()
         sender = from_email or cred.email
-        raw = self._encode_email(to, sender, subject, body, attachments)
+        # No recipient = the account owner. Callers reaching "the user" (a
+        # Living UI's daily digest, an agent self-notification) should never
+        # need to know or store the user's address — identity is CraftBot's.
+        recipient = to or cred.email
+        raw = self._encode_email(recipient, sender, subject, body, attachments)
         return http_request(
             "POST",
             f"{GMAIL_API_BASE}/users/me/messages/send",

@@ -926,8 +926,8 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/zoho-inventory/inventory/v1/items',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+    "https://gateway.maton.ai/zoho-inventory/inventory/v1/items",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
 )
 data = response.json()
 ```

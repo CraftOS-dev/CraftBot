@@ -1,4 +1,5 @@
 export { CraftBotMascot } from './CraftBotMascot'
+export { DraftMascot, DRAFT_MASCOT_EXIT_MS } from './DraftMascot'
 export { MascotBackground } from './MascotBackground'
 export { MascotDisplay } from './MascotDisplay'
 export { SpeechBubble } from './SpeechBubble'

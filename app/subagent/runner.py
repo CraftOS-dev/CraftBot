@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 from agent_core.core.impl.llm import LLMCallType, LLMConsecutiveFailureError
 from app.logger import logger
 from app.subagent.context_engine import SubAgentContextEngine
-from app.subagent.registry import get_subagent_definition
+from app.subagent.registry import SUB_TASK_END_ACTION, get_subagent_definition
 from app.subagent.types import SubAgent
 
 if TYPE_CHECKING:
@@ -62,6 +62,10 @@ if TYPE_CHECKING:
 
 # Max LLM format-error retries per turn before the runner aborts the sub-agent.
 _MAX_PARSE_RETRIES = 3
+
+# Hard ceiling on ONE LLM round-trip. Generous (large prompts + slow
+# providers) but finite — the wall-clock cap depends on calls returning.
+_LLM_CALL_TIMEOUT_S = 300
 
 # Sub-agents only ever do action selection — never GUI or reasoning calls —
 # so a single call type covers their entire lifetime.
@@ -263,7 +267,9 @@ class SubAgentRunner:
 
     async def _dispatch_action(self, sub: SubAgent, decision: Dict[str, Any]) -> None:
         action_name = decision.get("action_name") or ""
-        parameters = decision.get("parameters") or {}
+        # Models frequently emit "params" instead of "parameters" — accept both
+        # (dropping the payload silently starved every tool call of its input).
+        parameters = decision.get("parameters") or decision.get("params") or {}
         if not isinstance(parameters, dict):
             parameters = {}
 
@@ -281,6 +287,47 @@ class SubAgentRunner:
                 task_id=sub.id,
             )
             return
+
+        # Definition-level veto on premature conclusions: the guard sees the
+        # sub_task_end parameters and may reject them with an instruction
+        # that lands in the sub's stream — the loop then continues and the
+        # model reads why. Guard errors fail open (the end proceeds); the
+        # guard itself must stand down near the caps so it can never trap a
+        # sub-agent into dying at the iteration cap with no verdict.
+        if action_name == SUB_TASK_END_ACTION:
+            try:
+                guard = get_subagent_definition(sub.agent_type).early_end_guard
+            except Exception:
+                guard = None
+            if guard is not None:
+                try:
+                    rejection = guard(sub, parameters)
+                except Exception as e:
+                    logger.warning(
+                        f"[SubAgentRunner] {sub.id} early_end_guard crashed "
+                        f"(allowing end): {e}"
+                    )
+                    rejection = None
+                if rejection:
+                    logger.info(
+                        f"[SubAgentRunner] {sub.id} early sub_task_end "
+                        f"rejected at iteration {sub.iterations}"
+                    )
+                    self.event_stream_manager.log(
+                        kind="action_blocked",
+                        message=rejection,
+                        display_message="early conclusion rejected — continuing",
+                        task_id=sub.id,
+                    )
+                    return
+
+        # Apply registry-forced parameters (e.g. shared-browser hygiene).
+        try:
+            forced = get_subagent_definition(sub.agent_type).overrides_for(action_name)
+        except Exception:
+            forced = {}
+        if forced:
+            parameters = {**parameters, **forced}
 
         action = self.action_library.retrieve_action(action_name)
         if action is None:
@@ -415,14 +462,34 @@ class SubAgentRunner:
         ``system_prompt_for_new_session`` is passed every turn so the LLM
         interface can recreate the session if a context-overflow reset
         happened underneath us.
+
+        Hard per-call timeout: a connection that dies mid-request (e.g. a
+        laptop sleep/wake severing the socket) otherwise blocks this await
+        forever — and the runner's wall-clock cap is only checked BETWEEN
+        turns, so one dead socket wedged the whole session
+        (observed: 20260724181301, 19-minute hang).
         """
-        return await self.llm_interface.generate_response_with_session_async(
-            task_id=sub.id,
-            call_type=_SUBAGENT_CALL_TYPE,
-            user_prompt=user_prompt,
-            system_prompt_for_new_session=system_prompt,
-            prompt_name=f"SUBAGENT_{sub.agent_type.upper()}",
-        )
+        import asyncio
+
+        try:
+            return await asyncio.wait_for(
+                self.llm_interface.generate_response_with_session_async(
+                    task_id=sub.id,
+                    call_type=_SUBAGENT_CALL_TYPE,
+                    user_prompt=user_prompt,
+                    system_prompt_for_new_session=system_prompt,
+                    prompt_name=f"SUBAGENT_{sub.agent_type.upper()}",
+                ),
+                timeout=_LLM_CALL_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError as timeout_err:
+            raise LLMConsecutiveFailureError(
+                1,
+                last_error=TimeoutError(
+                    f"sub-agent LLM call exceeded {_LLM_CALL_TIMEOUT_S}s "
+                    "(connection presumed dead)"
+                ),
+            ) from timeout_err
 
     @staticmethod
     def _augment_with_retry_hint(base: str, attempt: int, error: str) -> str:
@@ -450,7 +517,8 @@ class SubAgentRunner:
         model after the cached history vanishes.
         """
         if not stream.has_session_sync(_SUBAGENT_CALL_TYPE):
-            return self.context_engine.make_first_turn_user_prompt(sub), True
+            prompt = self.context_engine.make_first_turn_user_prompt(sub)
+            return self._with_turn_budget(sub, prompt), True
 
         delta_str, has_delta = stream.get_delta_events(_SUBAGENT_CALL_TYPE)
         if not has_delta:
@@ -459,9 +527,29 @@ class SubAgentRunner:
                 "detected — resetting session and resending full prompt"
             )
             self._reset_session(sub, stream)
-            return self.context_engine.make_first_turn_user_prompt(sub), True
+            prompt = self.context_engine.make_first_turn_user_prompt(sub)
+            return self._with_turn_budget(sub, prompt), True
 
-        return self.context_engine.make_delta_user_prompt(delta_str), False
+        prompt = self.context_engine.make_delta_user_prompt(delta_str)
+        return self._with_turn_budget(sub, prompt), False
+
+    def _with_turn_budget(self, sub: SubAgent, prompt: str) -> str:
+        """Prefix every turn with the sub-agent's real position in its
+        iteration budget. Without it, models invent scarcity: a verifier
+        with 50 turns concluded at turn 8 citing 'limited turns' (observed
+        live 2026-08-05). System prompt stays untouched — a moving number
+        there would break prefix caching; user prompts change every turn
+        anyway."""
+        try:
+            cap = get_subagent_definition(sub.agent_type).max_iterations
+        except Exception:
+            return prompt
+        remaining = max(0, cap - sub.iterations)
+        return (
+            f"TURN BUDGET: this is turn {sub.iterations} of {cap} — "
+            f"{remaining} remain. Pace yourself by these numbers, not by "
+            "guesswork.\n\n" + prompt
+        )
 
     # ------------------------------------------------------------------
     # JSON parsing
@@ -501,6 +589,14 @@ class SubAgentRunner:
         if not isinstance(parsed, dict):
             return None, "parsed value is not a dict"
         if "action_name" not in parsed:
+            # Salvage: models under repeated correction sometimes emit just the
+            # bare final-result object. Wrap it as an explicit terminator so a
+            # usable result is never thrown away over formatting.
+            if any(k in parsed for k in ("result", "verdicts", "summary")):
+                return {
+                    "action_name": "sub_task_end",
+                    "parameters": {"status": "completed", "result": json.dumps(parsed)},
+                }, None
             return None, "missing 'action_name' field"
         return parsed, None
 

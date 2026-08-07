@@ -39,7 +39,7 @@ async def list_github_issues(input_data: dict) -> dict:
 
 @action(
     name="get_github_issue",
-    description="Get details of a specific GitHub issue or PR by number.",
+    description="Get details of a specific GitHub issue or PR by number. Returns lean fields (title, state, body, user, labels, assignees, dates) by default; set include_metadata=true for the raw API payload.",
     action_sets=["github_issues", "github"],
     input_schema={
         "repo": {
@@ -52,15 +52,30 @@ async def list_github_issues(input_data: dict) -> dict:
             "description": "Issue or PR number.",
             "example": 1,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw API payload instead of lean fields.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: number, title, state, body, user, labels, assignees, milestone, comments, dates, html_url, is_pr. Raw payload when include_metadata=true.",
+        },
+    },
 )
 async def get_github_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
 
     return await with_client(
         "github",
-        lambda c: c.get_issue(input_data["repo"], input_data["number"]),
+        lambda c: c.get_issue(
+            input_data["repo"],
+            input_data["number"],
+            include_metadata=bool(input_data.get("include_metadata", False)),
+        ),
     )
 
 
@@ -979,7 +994,7 @@ async def list_github_prs(input_data: dict) -> dict:
 
 @action(
     name="get_github_pr",
-    description="Get full details of a specific pull request.",
+    description="Get details of a specific pull request. Returns lean fields (title, state, body, merge status, base/head refs, diff stats) by default; set include_metadata=true for the raw API payload.",
     action_sets=["github_pulls", "github"],
     input_schema={
         "repo": {
@@ -992,15 +1007,30 @@ async def list_github_prs(input_data: dict) -> dict:
             "description": "Pull request number.",
             "example": 1,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw API payload instead of lean fields.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: number, title, state, body, draft, merged, mergeable, merged_by, user, labels, assignees, requested_reviewers, base/head {ref, sha}, commits, additions, deletions, changed_files, dates, html_url. Raw payload when include_metadata=true.",
+        },
+    },
 )
 async def get_github_pr(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
 
     return await with_client(
         "github",
-        lambda c: c.get_pull_request(input_data["repo"], input_data["number"]),
+        lambda c: c.get_pull_request(
+            input_data["repo"],
+            input_data["number"],
+            include_metadata=bool(input_data.get("include_metadata", False)),
+        ),
     )
 
 
@@ -1528,7 +1558,7 @@ async def list_github_repos(input_data: dict) -> dict:
 
 @action(
     name="get_github_repo",
-    description="Get repository metadata (default_branch, description, stars, fork status, etc.).",
+    description="Get repository metadata (default_branch, description, stars, fork status, etc.). Returns lean fields by default; set include_metadata=true for the raw API payload.",
     action_sets=["github_repos", "github"],
     input_schema={
         "repo": {
@@ -1536,13 +1566,30 @@ async def list_github_repos(input_data: dict) -> dict:
             "description": "Repository in owner/repo format.",
             "example": "octocat/hello-world",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw API payload instead of lean fields.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: name, full_name, description, private, fork, default_branch, language, star/fork/issue counts, topics, archived, pushed_at, html_url, owner login. Raw payload when include_metadata=true.",
+        },
+    },
 )
 async def get_github_repo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
 
-    return await with_client("github", lambda c: c.get_repo(input_data["repo"]))
+    return await with_client(
+        "github",
+        lambda c: c.get_repo(
+            input_data["repo"],
+            include_metadata=bool(input_data.get("include_metadata", False)),
+        ),
+    )
 
 
 @action(
@@ -2208,7 +2255,7 @@ async def list_github_commits(input_data: dict) -> dict:
 
 @action(
     name="get_github_commit",
-    description="Get details of a specific commit (files changed, stats, author).",
+    description="Get details of a specific commit (files changed with patches, stats, author). Returns lean fields by default; set include_metadata=true for the raw API payload.",
     action_sets=["github_code"],
     input_schema={
         "repo": {
@@ -2217,15 +2264,30 @@ async def list_github_commits(input_data: dict) -> dict:
             "example": "octocat/hello-world",
         },
         "sha": {"type": "string", "description": "Commit SHA.", "example": ""},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw API payload instead of lean fields.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: sha, message, author/committer {name, email, date, login}, stats, parent shas, files [{filename, status, additions, deletions, patch}], html_url. Raw payload when include_metadata=true.",
+        },
+    },
 )
 async def get_github_commit(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
 
     return await with_client(
         "github",
-        lambda c: c.get_commit(input_data["repo"], input_data["sha"]),
+        lambda c: c.get_commit(
+            input_data["repo"],
+            input_data["sha"],
+            include_metadata=bool(input_data.get("include_metadata", False)),
+        ),
     )
 
 
@@ -2295,7 +2357,7 @@ async def list_github_releases(input_data: dict) -> dict:
 
 @action(
     name="get_github_release",
-    description="Get a release by ID, by tag, or the latest. Provide one of: release_id, tag, or latest=true.",
+    description="Get a release by ID, by tag, or the latest. Provide one of: release_id, tag, or latest=true. Returns lean fields by default; set include_metadata=true for the raw API payload.",
     action_sets=["github_releases"],
     input_schema={
         "repo": {
@@ -2314,8 +2376,19 @@ async def list_github_releases(input_data: dict) -> dict:
             "description": "Get the latest release (optional).",
             "example": False,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw API payload instead of lean fields.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: id, tag_name, name, body, draft, prerelease, dates, html_url, author login, assets [{name, size, download_count, browser_download_url}]. Raw payload when include_metadata=true.",
+        },
+    },
 )
 async def get_github_release(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -2328,6 +2401,7 @@ async def get_github_release(input_data: dict) -> dict:
             release_id=rid if rid else None,
             tag=input_data.get("tag") or None,
             latest=bool(input_data.get("latest", False)),
+            include_metadata=bool(input_data.get("include_metadata", False)),
         ),
     )
 
@@ -3077,17 +3151,34 @@ async def list_github_gists(input_data: dict) -> dict:
 
 @action(
     name="get_github_gist",
-    description="Get a gist (full file contents) by ID.",
+    description="Get a gist (full file contents) by ID. Returns lean fields by default; set include_metadata=true for the raw API payload (history, forks, per-file URLs).",
     action_sets=["github_gists"],
     input_schema={
         "gist_id": {"type": "string", "description": "Gist ID.", "example": ""},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw API payload instead of lean fields.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: id, description, public, html_url, dates, owner login, files {name: {filename, language, size, truncated, content}}. Raw payload when include_metadata=true.",
+        },
+    },
 )
 async def get_github_gist(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
 
-    return await with_client("github", lambda c: c.get_gist(input_data["gist_id"]))
+    return await with_client(
+        "github",
+        lambda c: c.get_gist(
+            input_data["gist_id"],
+            include_metadata=bool(input_data.get("include_metadata", False)),
+        ),
+    )
 
 
 @action(

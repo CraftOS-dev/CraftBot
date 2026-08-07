@@ -14,6 +14,11 @@ t(key, **kwargs) -> str
 classify_provider_error(exc, *, provider, model="") -> str
     Map a raw exception to a human-readable, locale-aware error string.
 
+classify_provider_error_info(exc, *, provider, model="") -> ErrorInfo
+    Same classification, returned as a structured ErrorInfo (category,
+    severity, actions preserved) for callers that raise ClassifiedError
+    instead of just logging a string.
+
 Adding a new provider
 ---------------------
 Add one entry to ``_PROVIDER_DISPLAY`` in agent_core/core/impl/llm/errors.py.
@@ -30,6 +35,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agent_core.core.errors import ErrorInfo
 from agent_core.core.impl.llm.errors import (
     ErrorCategory,
     classify_llm_error,
@@ -93,28 +99,55 @@ def classify_provider_error(
 ) -> str:
     """Map *exc* to a human-readable, locale-aware error string.
 
+    Thin wrapper over ``classify_provider_error_info`` for callers that only
+    need the rendered string.
+    """
+    return classify_provider_error_info(exc, provider=provider, model=model).message
+
+
+def classify_provider_error_info(
+    exc: Exception,
+    *,
+    provider: str,
+    model: str = "",
+) -> ErrorInfo:
+    """Map *exc* to a structured, locale-aware ``ErrorInfo``.
+
     Classification (status codes, structured bodies, SDK exception types,
-    CJK error text) is done by ``classify_llm_error``; this function only
-    renders the resulting category through the locale catalog.
+    CJK error text) is done by ``classify_llm_error``; this function renders
+    the resulting category through the locale catalog for ``.message`` while
+    preserving category/severity/actions for callers that want to raise a
+    classified exception (see ``ClassifiedError``) instead of just logging a
+    string.
     """
     info = classify_llm_error(exc, provider=provider, model=model or None)
     label = provider_display_name(provider)
 
     key = _CATEGORY_KEYS.get(info.category)
     if key:
-        return t(key, provider_label=label, model=model or "the requested model")
-
-    if info.category is ErrorCategory.CONNECTION:
+        message = t(key, provider_label=label, model=model or "the requested model")
+    elif info.category is ErrorCategory.CONNECTION:
         low = (info.raw_message or str(exc)).lower()
         if "timeout" in low or "timed out" in low:
-            return t("provider_timeout", provider_label=label)
-        return t("provider_connection", provider_label=label)
+            message = t("provider_timeout", provider_label=label)
+        else:
+            message = t("provider_connection", provider_label=label)
+    else:
+        # BAD_REQUEST / SERVER / UNKNOWN — generic template, with the
+        # upstream detail appended so misclassified 400s and provider
+        # outages surface their cause. raw_message is already truncated by
+        # the classifier.
+        message = t("provider_generic", provider_label=label)
+        detail = (info.raw_message or "").strip()
+        if detail:
+            message = f"{message}: {detail}"
 
-    # BAD_REQUEST / SERVER / UNKNOWN — generic template, with the upstream
-    # detail appended so misclassified 400s and provider outages surface
-    # their cause.  raw_message is already truncated by the classifier.
-    result = t("provider_generic", provider_label=label)
-    detail = (info.raw_message or "").strip()
-    if detail:
-        result = f"{result}: {detail}"
-    return result
+    return ErrorInfo(
+        category=info.category,
+        code=info.code or f"LLM_{info.category.value.upper()}",
+        title=info.title,
+        message=message,
+        severity=info.severity,
+        actions=info.actions,
+        raw_message=info.raw_message,
+    )

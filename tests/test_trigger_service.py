@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Integration tests for TriggerService + TriggerQueue + TriggerStore
-— including crash/restart simulations."""
+"""Tests for TriggerService (durable front door) against a fake runtime —
+emit/dedup, claim/ack/nack, crash-restart rehydration, and session cleanup."""
 
 import asyncio
-import heapq
 import time
 
+from agent_core.core.session import MAIN_SESSION_ID
 from agent_core.core.trigger import Trigger
-from agent_core.core.impl.trigger.queue import TriggerQueue
 
 from app.triggers import TriggerService, TriggerSpec, TriggerSource
 from app.triggers.store import TriggerStore
@@ -17,13 +16,29 @@ def run(coro):
     return asyncio.run(coro)
 
 
+class FakeRuntime:
+    """Stands in for SessionRuntimeManager: collects dispatched triggers."""
+
+    def __init__(self):
+        self.dispatched = []
+        self.removed_sessions = []
+        self.service = None
+
+    def bind_service(self, service):
+        self.service = service
+
+    async def dispatch(self, trig: Trigger) -> None:
+        self.dispatched.append(trig)
+
+    async def remove_session(self, session_id: str) -> None:
+        self.removed_sessions.append(session_id)
+
+
 def make_stack(tmp_path, name="sessions.db"):
-    """Real store + real queue (dummy LLM — routing never fires because every
-    spec carries a session_id and the routing prompt is empty)."""
     store = TriggerStore(db_path=str(tmp_path / name))
-    queue = TriggerQueue(llm=object())
-    service = TriggerService(store, queue)
-    return store, queue, service
+    runtime = FakeRuntime()
+    service = TriggerService(store, runtime)
+    return store, runtime, service
 
 
 def spec(**overrides):
@@ -33,80 +48,164 @@ def spec(**overrides):
         priority=50,
         session_id="s1",
         payload={"type": "scheduled"},
-        skip_merge=True,
     )
     kwargs.update(overrides)
     return TriggerSpec(**kwargs)
 
 
-class TestEmitNextAck:
-    def test_roundtrip_transitions(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
+class TestEmit:
+    def test_emit_persists_then_dispatches(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
 
         async def scenario():
             result = await service.emit(spec())
             assert not result.deduped
-            assert store.get(result.trigger_id)["status"] == "PENDING"
-
-            trig = await asyncio.wait_for(service.next(), timeout=2)
+            row = store.get(result.trigger_id)
+            assert row["status"] == "PENDING"
+            assert row["session_id"] == "s1"
+            assert len(runtime.dispatched) == 1
+            trig = runtime.dispatched[0]
             assert trig.id == result.trigger_id
-            assert store.get(result.trigger_id)["status"] == "CLAIMED"
+            assert trig.session_id == "s1"
+            assert trig.source == TriggerSource.SCHEDULED.value
 
+        run(scenario())
+
+    def test_emit_defaults_to_main_session(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
+
+        async def scenario():
+            result = await service.emit(spec(session_id=None))
+            assert store.get(result.trigger_id)["session_id"] == MAIN_SESSION_ID
+            assert runtime.dispatched[0].session_id == MAIN_SESSION_ID
+
+        run(scenario())
+
+    def test_dedup_key_blocks_double_dispatch(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
+
+        async def scenario():
+            r1 = await service.emit(spec(dedup_key="scheduled-once:abc"))
+            r2 = await service.emit(spec(dedup_key="scheduled-once:abc"))
+            assert not r1.deduped
+            assert r2.deduped
+            assert r2.trigger_id == r1.trigger_id
+            # second emit never reached the runtime
+            assert len(runtime.dispatched) == 1
+
+        run(scenario())
+
+    def test_settled_row_does_not_block_refire(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
+
+        async def scenario():
+            r1 = await service.emit(spec(dedup_key="k"))
+            trig = runtime.dispatched[0]
+            service.claim(trig)
+            await service.ack(trig)
+            r2 = await service.emit(spec(dedup_key="k"))
+            assert not r2.deduped
+            assert r2.trigger_id != r1.trigger_id
+            assert len(runtime.dispatched) == 2
+
+        run(scenario())
+
+
+class TestClaimAckNack:
+    def test_claim_ack_transitions(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
+
+        async def scenario():
+            result = await service.emit(spec())
+            trig = runtime.dispatched[0]
+            service.claim(trig)
+            assert store.get(result.trigger_id)["status"] == "CLAIMED"
             await service.ack(trig)
             assert store.get(result.trigger_id)["status"] == "DONE"
 
         run(scenario())
 
-    def test_nack_retries_with_backoff(self, tmp_path):
-        # Phase 5 contract: a nacked trigger is retried (PENDING + backoff),
-        # not terminally failed — see test_trigger_lifecycle_polish for the
-        # full retry/dead-letter ladder.
-        store, queue, service = make_stack(tmp_path)
+    def test_nack_retries_with_backoff_and_redispatches(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
 
         async def scenario():
             result = await service.emit(spec())
-            trig = await asyncio.wait_for(service.next(), timeout=2)
+            trig = runtime.dispatched[0]
+            service.claim(trig)
+            before = time.time()
             await service.nack(trig, "RuntimeError: kaboom")
+
             row = store.get(result.trigger_id)
             assert row["status"] == "PENDING"
-            assert row["not_before"] > time.time()
+            assert row["not_before"] > before
             assert "kaboom" in row["last_error"]
+            # re-dispatched with the backoff floor as its fire time
+            assert len(runtime.dispatched) == 2
+            assert runtime.dispatched[1].id == result.trigger_id
+            assert runtime.dispatched[1].fire_at >= before
 
         run(scenario())
 
-    def test_dedup_emit_no_double_enqueue(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
+    def test_backoff_grows_per_attempt(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
 
         async def scenario():
-            r1 = await service.emit(
-                spec(dedup_key="scheduled-once:abc", session_id="a")
-            )
-            r2 = await service.emit(
-                spec(dedup_key="scheduled-once:abc", session_id="b")
-            )
-            assert not r1.deduped
-            assert r2.deduped
-            assert r2.trigger_id == r1.trigger_id
-            assert await queue.size() == 1
+            result = await service.emit(spec())
+            delays = []
+            for _ in range(3):
+                trig = runtime.dispatched[-1]
+                service.claim(trig)
+                before = time.time()
+                await service.nack(trig, "boom")
+                row = store.get(result.trigger_id)
+                if row["status"] != "PENDING":
+                    break
+                delays.append(row["not_before"] - before)
+            assert len(delays) >= 2
+            assert delays[1] > delays[0]  # exponential growth
 
         run(scenario())
 
-    def test_legacy_put_passthrough(self, tmp_path):
-        # Direct queue.put() still works; such triggers carry no store row
-        # and ack is a no-op.
-        store, queue, service = make_stack(tmp_path)
+    def test_dead_letter_after_max_attempts(self, tmp_path):
+        from app.triggers.service import MAX_ATTEMPTS
+
+        store, runtime, service = make_stack(tmp_path)
+        dead = []
+        service.set_dead_letter_handler(lambda trig, err: dead.append((trig, err)))
 
         async def scenario():
-            await queue.put(
-                Trigger(
-                    fire_at=time.time(),
-                    priority=3,
-                    next_action_description="legacy",
-                    session_id="legacy-session",
-                )
+            result = await service.emit(spec())
+            for attempt in range(MAX_ATTEMPTS + 1):
+                trig = runtime.dispatched[-1]
+                service.claim(trig)
+                await service.nack(trig, f"boom {attempt}")
+                if store.get(result.trigger_id)["status"] == "DEAD":
+                    break
+
+            row = store.get(result.trigger_id)
+            assert row["status"] == "DEAD"
+            assert row["attempts"] == MAX_ATTEMPTS
+            assert len(dead) == 1
+            assert dead[0][0].id == result.trigger_id
+
+            # dead rows do not rehydrate
+            store2, runtime2, service2 = make_stack(tmp_path)
+            assert await service2.rehydrate() == 0
+            assert runtime2.dispatched == []
+
+        run(scenario())
+
+    def test_ack_without_row_id_is_noop(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
+
+        async def scenario():
+            trig = Trigger(
+                fire_at=time.time(),
+                priority=3,
+                next_action_description="legacy",
+                session_id="legacy-session",
             )
-            trig = await asyncio.wait_for(service.next(), timeout=2)
-            assert trig.id is None
+            service.claim(trig)  # must not raise
             await service.ack(trig)  # must not raise
             assert store.count_by_status() == {}
 
@@ -116,168 +215,66 @@ class TestEmitNextAck:
 class TestCrashRecovery:
     def test_crash_while_pending_rehydrates_once(self, tmp_path):
         async def scenario():
-            store, queue, service = make_stack(tmp_path)
+            store, runtime, service = make_stack(tmp_path)
             result = await service.emit(spec())
-            # crash: process dies with the trigger still PENDING in the heap
+            # crash: process dies with the trigger still PENDING
 
-            store2, queue2, service2 = make_stack(tmp_path)  # restart
+            store2, runtime2, service2 = make_stack(tmp_path)  # restart
             requeued = await service2.rehydrate()
             assert requeued == 1
-            assert await queue2.size() == 1
-
-            trig = await asyncio.wait_for(service2.next(), timeout=2)
+            assert len(runtime2.dispatched) == 1
+            trig = runtime2.dispatched[0]
             assert trig.id == result.trigger_id
+
+            service2.claim(trig)
             await service2.ack(trig)
 
             # a second restart must not re-deliver settled work
-            store3, queue3, service3 = make_stack(tmp_path)
+            store3, runtime3, service3 = make_stack(tmp_path)
             assert await service3.rehydrate() == 0
+            assert runtime3.dispatched == []
 
         run(scenario())
 
     def test_crash_mid_react_reclaims_claimed(self, tmp_path):
         async def scenario():
-            store, queue, service = make_stack(tmp_path)
+            store, runtime, service = make_stack(tmp_path)
             result = await service.emit(spec())
-            await asyncio.wait_for(service.next(), timeout=2)
+            service.claim(runtime.dispatched[0])
             assert store.get(result.trigger_id)["status"] == "CLAIMED"
             # crash: no ack — row orphaned CLAIMED
 
-            store2, queue2, service2 = make_stack(tmp_path)  # restart
+            store2, runtime2, service2 = make_stack(tmp_path)  # restart
             requeued = await service2.rehydrate()
             assert requeued == 1
-            row = store2.get(result.trigger_id)
-            assert row["status"] == "CLAIMED" or row["status"] == "PENDING"
-            trig = await asyncio.wait_for(service2.next(), timeout=2)
+            trig = runtime2.dispatched[0]
+            assert trig.id == result.trigger_id
+            service2.claim(trig)
             await service2.ack(trig)
             assert store2.get(result.trigger_id)["status"] == "DONE"
             assert store2.get(result.trigger_id)["attempts"] == 2
 
         run(scenario())
 
-    def test_boot_resume_emit_hits_rehydrated_dedup(self, tmp_path):
-        # Double-boot can't double-resume: the rehydrated resume row blocks
-        # the boot-time re-emit via the dedup index.
+    def test_boot_reemit_hits_rehydrated_dedup(self, tmp_path):
+        # Double-boot can't double-fire: the rehydrated row blocks the
+        # boot-time re-emit via the dedup index.
         async def scenario():
-            store, queue, service = make_stack(tmp_path)
-            await service.emit(
-                spec(
-                    source=TriggerSource.RESUME,
-                    dedup_key="resume:task42",
-                    session_id="task42",
-                )
-            )
+            store, runtime, service = make_stack(tmp_path)
+            await service.emit(spec(dedup_key="scheduled-once:42"))
             # crash before consumption
 
-            store2, queue2, service2 = make_stack(tmp_path)
+            store2, runtime2, service2 = make_stack(tmp_path)
             await service2.rehydrate()
-            result = await service2.emit(
-                spec(
-                    source=TriggerSource.RESUME,
-                    dedup_key="resume:task42",
-                    session_id="task42",
-                )
-            )
+            result = await service2.emit(spec(dedup_key="scheduled-once:42"))
             assert result.deduped
-            assert await queue2.size() == 1
+            assert len(runtime2.dispatched) == 1
 
         run(scenario())
 
-
-class TestEvictionSettlesRows:
-    def test_same_session_replacement_supersedes(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
-
-        async def scenario():
-            r1 = await service.emit(spec(description="old"))
-            r2 = await service.emit(spec(description="new"))
-            row = store.get(r1.trigger_id)
-            assert row["status"] == "DONE"
-            assert row["resolution"] == "superseded"
-            assert row["superseded_by"] == r2.trigger_id
-            assert await queue.size() == 1
-
-        run(scenario())
-
-    def test_superseded_rows_do_not_rehydrate(self, tmp_path):
-        async def scenario():
-            store, queue, service = make_stack(tmp_path)
-            await service.emit(spec(description="old"))
-            r2 = await service.emit(spec(description="new"))
-            # crash
-
-            store2, queue2, service2 = make_stack(tmp_path)
-            requeued = await service2.rehydrate()
-            assert requeued == 1
-            trig = await asyncio.wait_for(service2.next(), timeout=2)
-            assert trig.id == r2.trigger_id
-
-        run(scenario())
-
-    def test_cancel_sessions_settles_and_dequeues(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
-
-        async def scenario():
-            result = await service.emit(spec(session_id="doomed"))
-            await service.cancel_sessions(["doomed"])
-            assert store.get(result.trigger_id)["resolution"] == "cancelled"
-            assert await queue.size() == 0
-
-        run(scenario())
-
-    def test_queue_clear_cancels_rows(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
-
-        async def scenario():
-            result = await service.emit(spec())
-            await queue.clear()
-            assert store.get(result.trigger_id)["resolution"] == "cancelled"
-
-        run(scenario())
-
-
-class TestSequentialConsumption:
-    def test_directly_pushed_same_session_triggers_each_settle(self, tmp_path):
-        # The pre-#321 merge machinery is gone: if two same-session triggers
-        # ever coexist (only possible via direct heap pushes — put() replaces),
-        # they are consumed one at a time and each settles its own row.
-        store, queue, service = make_stack(tmp_path)
-
-        async def scenario():
-            id1, _ = store.insert(
-                source="scheduled", description="a", fire_at=time.time()
-            )
-            id2, _ = store.insert(
-                source="scheduled", description="b", fire_at=time.time()
-            )
-            for row_id, desc in ((id1, "a"), (id2, "b")):
-                heapq.heappush(
-                    queue._heap,
-                    Trigger(
-                        fire_at=time.time() - 1,
-                        priority=50,
-                        next_action_description=desc,
-                        session_id="s1",
-                        id=row_id,
-                        source="scheduled",
-                    ),
-                )
-
-            first = await asyncio.wait_for(service.next(), timeout=2)
-            await service.ack(first)
-            second = await asyncio.wait_for(service.next(), timeout=2)
-            await service.ack(second)
-            assert {first.id, second.id} == {id1, id2}
-            assert store.get(id1)["status"] == "DONE"
-            assert store.get(id2)["status"] == "DONE"
-
-        run(scenario())
-
-
-class TestRehydrateEdges:
     def test_stale_rows_are_settled_not_refired(self, tmp_path):
         async def scenario():
-            store, queue, service = make_stack(tmp_path)
+            store, runtime, service = make_stack(tmp_path)
             old_id, _ = store.insert(
                 source="scheduled",
                 description="ancient",
@@ -285,6 +282,7 @@ class TestRehydrateEdges:
             )
             requeued = await service.rehydrate()
             assert requeued == 0
+            assert runtime.dispatched == []
             row = store.get(old_id)
             assert row["status"] == "DONE"
             assert row["resolution"] == "stale"
@@ -293,7 +291,7 @@ class TestRehydrateEdges:
 
     def test_overdue_rows_get_catch_up_note(self, tmp_path):
         async def scenario():
-            store, queue, service = make_stack(tmp_path)
+            store, runtime, service = make_stack(tmp_path)
             store.insert(
                 source="scheduled",
                 description="late task",
@@ -301,39 +299,70 @@ class TestRehydrateEdges:
                 session_id="s1",
             )
             await service.rehydrate()
-            trig = await asyncio.wait_for(service.next(), timeout=2)
+            trig = runtime.dispatched[0]
             assert "NOTE:" in trig.next_action_description
             assert trig.payload.get("is_catch_up") is True
 
         run(scenario())
 
-    def test_waiting_for_reply_round_trips(self, tmp_path):
+    def test_rehydrated_orphan_session_delivers_to_main(self, tmp_path):
         async def scenario():
-            store, queue, service = make_stack(tmp_path)
-            await service.emit(spec(waiting_for_reply=True, fire_at=time.time() + 9999))
-            # crash before it fires
-
-            store2, queue2, service2 = make_stack(tmp_path)
-            await service2.rehydrate()
-            triggers = await queue2.list_triggers()
-            assert len(triggers) == 1
-            assert triggers[0].waiting_for_reply is True
+            store, runtime, service = make_stack(tmp_path)
+            store.insert(
+                source="scheduled",
+                description="orphan",
+                fire_at=time.time(),
+                session_id=None,
+            )
+            await service.rehydrate()
+            assert runtime.dispatched[0].session_id == MAIN_SESSION_ID
 
         run(scenario())
 
 
-class TestFireMirroring:
-    def test_fire_persists_pending_message(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
+class TestSessionCleanup:
+    def test_cancel_sessions_settles_rows_and_removes_lane(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
 
         async def scenario():
-            result = await service.emit(spec(fire_at=time.time() + 9999))
-            fired = await service.fire("s1", message="hello", platform="Telegram")
-            assert fired
+            result = await service.emit(spec(session_id="doomed"))
+            await service.cancel_sessions(["doomed"])
             row = store.get(result.trigger_id)
-            assert '"pending_user_message": "hello"' in row["payload_json"]
-            # in-memory trigger fires now and carries the message
-            trig = await asyncio.wait_for(service.next(), timeout=2)
-            assert trig.payload["pending_user_message"] == "hello"
+            assert row["resolution"] == "cancelled"
+            assert runtime.removed_sessions == ["doomed"]
+            # cancelled rows never rehydrate
+            store2, runtime2, service2 = make_stack(tmp_path)
+            assert await service2.rehydrate() == 0
+
+        run(scenario())
+
+    def test_on_evicted_supersedes_or_cancels(self, tmp_path):
+        # The lifecycle-listener path: a queue discarding triggers unconsumed
+        # settles their rows (supersede when replaced, cancel otherwise).
+        store, runtime, service = make_stack(tmp_path)
+
+        async def scenario():
+            r1 = await service.emit(spec(description="old"))
+            r2 = await service.emit(spec(description="new"))
+            old_trig, new_trig = runtime.dispatched
+
+            service.on_evicted([old_trig], new_trig)
+            row = store.get(r1.trigger_id)
+            assert row["status"] == "DONE"
+            assert row["resolution"] == "superseded"
+            assert row["superseded_by"] == r2.trigger_id
+
+            service.on_evicted([new_trig], None)
+            assert store.get(r2.trigger_id)["resolution"] == "cancelled"
+
+        run(scenario())
+
+    def test_clear_all_wipes_store(self, tmp_path):
+        store, runtime, service = make_stack(tmp_path)
+
+        async def scenario():
+            await service.emit(spec())
+            service.clear_all()
+            assert store.count_by_status() == {}
 
         run(scenario())

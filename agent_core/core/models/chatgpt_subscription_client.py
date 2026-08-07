@@ -344,12 +344,46 @@ def _consume_stream(stream: Any) -> Dict[str, Any]:
     }
 
 
+def _normalize_content_part(part: Any, role: str) -> Any:
+    """Translate one Chat-Completions content part into the Responses dialect.
+
+    - ``{"type": "text", ...}``      → ``input_text`` (``output_text`` for
+      assistant role)
+    - ``{"type": "image_url", ...}`` → ``input_image`` with ``image_url`` as
+      a plain string (Chat Completions nests it as ``{"url": ...}``);
+      ``detail`` is preserved when present.
+
+    Parts already typed in the Responses dialect (``input_text``,
+    ``input_image``, ``output_text``, ...) and anything unrecognized pass
+    through unchanged.
+    """
+    if not isinstance(part, dict):
+        return part
+    part_type = part.get("type")
+    if part_type == "text":
+        text_type = "output_text" if role == "assistant" else "input_text"
+        return {"type": text_type, "text": part.get("text", "")}
+    if part_type == "image_url":
+        image_url = part.get("image_url")
+        detail = None
+        if isinstance(image_url, dict):
+            detail = image_url.get("detail")
+            image_url = image_url.get("url", "")
+        translated: Dict[str, Any] = {"type": "input_image", "image_url": image_url}
+        if detail:
+            translated["detail"] = detail
+        return translated
+    return part
+
+
 def _normalize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Coerce Chat-Completions message items into Responses-API ``input`` items.
 
     For string content we wrap into the typed parts shape the Responses
     API expects (``{"type":"input_text"...}`` for non-assistant roles,
-    ``{"type":"output_text"...}`` for assistant).
+    ``{"type":"output_text"...}`` for assistant). List content has each
+    part translated from the Chat-Completions dialect (``text``,
+    ``image_url``) via ``_normalize_content_part``.
 
     Also strips any ``id`` field from each item. Under ``store=false``
     Codex tries to resolve item ids server-side and 404s when it can't
@@ -363,9 +397,12 @@ def _normalize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if isinstance(content, str):
             part_type = "output_text" if role == "assistant" else "input_text"
             item = {"role": role, "content": [{"type": part_type, "text": content}]}
+        elif isinstance(content, list):
+            item = {
+                "role": role,
+                "content": [_normalize_content_part(p, role) for p in content],
+            }
         else:
-            # Already-typed content (image parts, etc.) — pass through,
-            # but still drop any top-level id below.
             item = {"role": role, "content": content}
         # id is intentionally NOT copied even if present on m.
         normalized.append(item)
@@ -562,6 +599,13 @@ def _translate_backend_error(exc: Exception, model: str) -> Exception:
     entitlement. Surface that as a plan-explanation rather than a
     model-config error so the user knows to upgrade or switch auth.
     """
+    from agent_core.core.errors import (
+        ClassifiedError,
+        ErrorCategory,
+        ErrorInfo,
+        Severity,
+    )
+
     text = str(exc)
     if "ChatGPT account" not in text and "not supported when using Codex" not in text:
         return exc
@@ -575,15 +619,25 @@ def _translate_backend_error(exc: Exception, model: str) -> Exception:
     except Exception:
         pass
     if plan == "free" or not plan:
-        return RuntimeError(
+        message = (
             "ChatGPT subscription is connected but this account has no Plus/Pro/Team "
             "plan — the Codex backend rejects all models for Free-tier accounts. "
             "Upgrade at chat.openai.com, disconnect the subscription in Settings, "
             "or switch back to API-key auth."
         )
-    return RuntimeError(
-        f"ChatGPT subscription rejected model {model!r}: {text}. "
-        "Try a different model from the subscription list, or switch to API-key auth."
+    else:
+        message = (
+            f"ChatGPT subscription rejected model {model!r}: {text}. "
+            "Try a different model from the subscription list, or switch to API-key auth."
+        )
+    return ClassifiedError(
+        ErrorInfo(
+            category=ErrorCategory.CONFIG,
+            code="CHATGPT_SUBSCRIPTION_REJECTED",
+            title="Subscription plan rejected",
+            message=message,
+            severity=Severity.ERROR,
+        )
     )
 
 

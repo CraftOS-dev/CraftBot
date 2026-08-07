@@ -8,9 +8,11 @@ def append_to(item, target=[]):
     target.append(item)
     return target
 
+
 append_to(1)  # [1]
 append_to(2)  # [1, 2] - same list!
 append_to(3)  # [1, 2, 3]
+
 
 # Also affects dicts and other mutables
 def register(name, registry={}):
@@ -33,11 +35,11 @@ def append_to(item, target=None):
 
 ```python
 # DANGEROUS: Arbitrary code execution
-eval(user_input)      # Executes Python expression
-exec(user_input)      # Executes Python statements
+eval(user_input)  # Executes Python expression
+exec(user_input)  # Executes Python statements
 
 # DANGEROUS: compile + exec
-code = compile(user_input, '<string>', 'exec')
+code = compile(user_input, "<string>", "exec")
 exec(code)
 
 # DANGEROUS: input() in Python 2
@@ -112,6 +114,7 @@ if x is 1:      # Wrong - use: if x == 1
 # DANGEROUS: Naming your file same as stdlib module
 # File: random.py
 import random
+
 print(random.randint(1, 10))  # ImportError or recursion!
 
 # Your random.py shadows the stdlib random module
@@ -179,9 +182,10 @@ for item in items:
 class User:
     permissions = []  # Class attribute - shared!
 
+
 u1 = User()
 u2 = User()
-u1.permissions.append('admin')
+u1.permissions.append("admin")
 print(u2.permissions)  # ['admin'] - u2 is also admin!
 ```
 
@@ -240,6 +244,7 @@ a, b, c = user_list  # ValueError if wrong length
 ```python
 # DANGEROUS: shell=True with user input
 import subprocess
+
 subprocess.run(f"ls {user_input}", shell=True)
 # user_input = "; rm -rf /" → command injection
 

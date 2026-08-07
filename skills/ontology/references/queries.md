@@ -85,7 +85,7 @@ project_tasks = get_related("proj_001", "has_task", "memory/ontology/graph.jsonl
 def find_blocked_tasks(graph_path):
     entities, relations = load_graph(graph_path)
     blocked = []
-    
+
     for entity in entities.values():
         if entity["type"] != "Task":
             continue
@@ -93,15 +93,11 @@ def find_blocked_tasks(graph_path):
             # Find what's blocking it
             blockers = get_related(entity["id"], "blocked_by", graph_path, "incoming")
             incomplete_blockers = [
-                b for b in blockers 
-                if b["entity"]["properties"].get("status") != "done"
+                b for b in blockers if b["entity"]["properties"].get("status") != "done"
             ]
             if incomplete_blockers:
-                blocked.append({
-                    "task": entity,
-                    "blockers": incomplete_blockers
-                })
-    
+                blocked.append({"task": entity, "blockers": incomplete_blockers})
+
     return blocked
 ```
 
@@ -197,11 +193,15 @@ For complex aggregations, use Python:
 ```python
 from collections import Counter
 
+
 def task_status_summary(project_id, graph_path):
     """Count tasks by status for a project."""
     tasks = get_related(project_id, "has_task", graph_path)
-    statuses = Counter(t["entity"]["properties"].get("status", "unknown") for t in tasks)
+    statuses = Counter(
+        t["entity"]["properties"].get("status", "unknown") for t in tasks
+    )
     return dict(statuses)
+
 
 def workload_by_person(graph_path):
     """Count open tasks per person."""

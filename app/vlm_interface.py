@@ -68,7 +68,7 @@ class VLMInterface(_VLMInterface):
         output_tokens: int,
         cached_tokens: int = 0,
     ) -> None:
-        """Override: attribute to active task synchronously, then defer to base.
+        """Override: attribute to active session synchronously, then defer to base.
         See LLMInterface._report_usage_async for the race-condition rationale.
         """
         from app.usage.task_attribution import attribute_usage_to_current_task

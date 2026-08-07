@@ -1144,9 +1144,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/woocommerce/wp-json/wc/v3/products',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'per_page': 50, 'status': 'publish'}
+    "https://gateway.maton.ai/woocommerce/wp-json/wc/v3/products",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"per_page": 50, "status": "publish"},
 )
 products = response.json()
 ```
@@ -1168,21 +1168,21 @@ order_data = {
         "city": "Anytown",
         "state": "CA",
         "postcode": "12345",
-        "country": "US"
+        "country": "US",
     },
     "line_items": [
         {"product_id": 123, "quantity": 2},
-        {"product_id": 456, "quantity": 1}
-    ]
+        {"product_id": 456, "quantity": 1},
+    ],
 }
 
 response = requests.post(
-    'https://gateway.maton.ai/woocommerce/wp-json/wc/v3/orders',
+    "https://gateway.maton.ai/woocommerce/wp-json/wc/v3/orders",
     headers={
-        'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}',
-        'Content-Type': 'application/json'
+        "Authorization": f"Bearer {os.environ['MATON_API_KEY']}",
+        "Content-Type": "application/json",
     },
-    json=order_data
+    json=order_data,
 )
 order = response.json()
 ```

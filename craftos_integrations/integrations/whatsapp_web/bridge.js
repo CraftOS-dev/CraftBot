@@ -98,11 +98,183 @@ function buildClient() {
 // Track message IDs sent by us so we can skip them in message_create
 const ownSentIds = new Set();
 let isReady = false;
+
+// Minified errors from inside WhatsApp Web's bundle carry messages like
+// "r" — useless alone. Always log the first stack frames too.
+function errStr(err) {
+  const stack = String(err && err.stack ? err.stack : "")
+    .split("\n")
+    .slice(0, 3)
+    .join(" | ");
+  return `${err && err.message ? err.message : err}${stack ? ` [${stack}]` : ""}`;
+}
+
+// getChat()/getContact() reach into WhatsApp Web's minified internals and
+// are the FIRST thing to break when WhatsApp ships a build ahead of
+// whatsapp-web.js (observed live 2026-08-05: every message failed with
+// "Error handling message: r" — zero messages reached CraftBot although the
+// core msg object was fine). Enrichment is best-effort: a message with a
+// fallback chat/contact beats a dropped message.
+async function safeChat(msg) {
+  try {
+    return await msg.getChat();
+  } catch (err) {
+    log(`getChat failed (degrading): ${errStr(err)}`);
+    return null;
+  }
+}
+
+async function safeContact(msg) {
+  try {
+    return await msg.getContact();
+  } catch (err) {
+    log(`getContact failed (degrading): ${errStr(err)}`);
+    return null;
+  }
+}
+
+function chatFallback(chat, jid) {
+  if (chat) {
+    return {
+      id: chat.id._serialized,
+      name: chat.name || chat.id._serialized,
+      is_group: chat.isGroup,
+      is_muted: chat.isMuted,
+    };
+  }
+  return {
+    id: jid || "",
+    name: jid || "",
+    is_group: String(jid || "").endsWith("@g.us"),
+    is_muted: false,
+  };
+}
+
+function contactFallback(contact, jid) {
+  if (contact) {
+    return {
+      id: contact.id._serialized,
+      name: contact.pushname || contact.name || "",
+      number: contact.number || "",
+      is_group: contact.isGroup,
+    };
+  }
+  return {
+    id: jid || "",
+    name: "",
+    number: String(jid || "").split("@")[0],
+    is_group: String(jid || "").endsWith("@g.us"),
+  };
+}
 let catchupDone = false;
 let readyTimestamp = 0; // Unix timestamp (seconds) when client became ready
 let ownerPhone = "";
 let ownerName = "";
 let selfChatId = "";
+let ownerLid = ""; // owner's @lid identity (WhatsApp's anonymized addressing)
+let lastLidAttempt = 0;
+
+function jidUser(jid) {
+  // "447…:12@c.us" → "447…" (":12" is a per-device suffix, same account)
+  return String(jid || "").split("@")[0].split(":")[0];
+}
+
+/** Same account, addressing-scheme-blind: compares the user part only. */
+function sameUser(a, b) {
+  const ua = jidUser(a);
+  const ub = jidUser(b);
+  return !!ua && !!ub && ua === ub;
+}
+
+// Resolve the owner's @lid identity straight from WhatsApp's Store. Under
+// the @lid rollout the self chat is addressed as xxx@lid, which matches
+// neither the wid (447…@c.us) nor msg.from — so without this, self-chat
+// detection has nothing to compare against when getChatById() is broken.
+// This is a far smaller internals surface than getChat()/getChatById()
+// (observed 2026-08-05: those threw minified "r" on every call while the
+// page itself was healthy), so it tends to survive builds that break the
+// chat getters. Throttled: at most one attempt per minute.
+async function resolveOwnerLid() {
+  const now = Date.now();
+  if (ownerLid || now - lastLidAttempt < 60_000) return ownerLid;
+  lastLidAttempt = now;
+  try {
+    // wwebjs ≥1.31 does NOT define window.Store — page internals are
+    // reached via window.require('WAWeb…') modules, the same way wwebjs's
+    // own injected code does (see src/Client.js: WAWebUserPrefsMeUser).
+    // Probing window.Store.* here silently returns empty (observed
+    // 2026-08-05, two rounds).
+    const lid = await client.pupPage.evaluate(() => {
+      const ser = (x) => {
+        try {
+          return (x && (x._serialized || (x.toString ? x.toString() : ""))) || "";
+        } catch (e) {
+          return "";
+        }
+      };
+      try {
+        const me = window.require("WAWebUserPrefsMeUser");
+        // Source 1: the lid identity WhatsApp already knows for this session
+        const direct = ser(me.getMaybeMeLidUser?.());
+        if (direct) return direct;
+        // Source 2: map own phone-number wid → current lid
+        const pn = me.getMaybeMePnUser?.();
+        if (pn) {
+          const mapped = ser(
+            window.require("WAWebApiContact").getCurrentLid?.(pn)
+          );
+          if (mapped) return mapped;
+        }
+      } catch (e) {}
+      return "";
+    });
+    if (lid) {
+      ownerLid = String(lid);
+      log(`Owner lid resolved: ${ownerLid}`);
+    } else {
+      log("Owner lid not available (getMaybeMeLidUser + getCurrentLid empty)");
+    }
+  } catch (err) {
+    log(`Owner lid resolution failed: ${errStr(err)}`);
+  }
+  return ownerLid;
+}
+
+// Lids we already tested against the owner's phone number — each lid is
+// checked at most once per session so a busy non-self chat can't spam
+// page evaluations.
+const checkedLids = new Set();
+
+// Decisive per-lid check: does this @lid map back to the owner's phone
+// number? Uses WAWebApiContact.getPhoneNumber — the same lid→phone
+// mapping wwebjs's own injected helpers use (src/util/Injected/Utils.js).
+async function lidMatchesOwner(lidJid) {
+  if (!lidJid || !ownerPhone || checkedLids.has(lidJid)) return false;
+  checkedLids.add(lidJid);
+  try {
+    const matches = await client.pupPage.evaluate((lid, phone) => {
+      try {
+        const wid = window.require("WAWebWidFactory").createWid(lid);
+        const pn = window.require("WAWebApiContact").getPhoneNumber?.(wid);
+        const s = (pn && (pn._serialized || (pn.toString ? pn.toString() : ""))) || "";
+        const user = String(s).split("@")[0].split(":")[0];
+        return !!user && user === phone;
+      } catch (e) {
+        return false;
+      }
+    }, lidJid, jidUser(ownerPhone));
+    if (matches) {
+      ownerLid = lidJid;
+      log(`Owner lid resolved via contact lookup: ${ownerLid}`);
+    } else {
+      log(`Lid ${lidJid} does not map to owner phone (not the self chat)`);
+    }
+    return matches;
+  } catch (err) {
+    log(`Lid owner check failed for ${lidJid}: ${errStr(err)}`);
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Client Events
@@ -196,6 +368,10 @@ c.on("ready", async () => {
         selfChatId = client.info.wid._serialized;
         log(`Self-chat fallback to wid: ${selfChatId}`);
       }
+      // The wid alone can't match a @lid-addressed self chat, so grab the
+      // lid identity too — especially important when getChatById() above
+      // just failed and selfChatId is only the wid fallback.
+      await resolveOwnerLid();
     }
   } catch (err) {
     log(`Could not extract owner info: ${err.message}`);
@@ -226,7 +402,7 @@ c.on("ready", async () => {
     catchupDone = true;
     log(`Catchup complete: ${unread.length} unread chat(s)`);
   } catch (err) {
-    log(`Catchup error: ${err.message}`);
+    log(`Catchup error: ${errStr(err)}`);
     catchupDone = true; // proceed anyway
   }
 });
@@ -235,6 +411,9 @@ c.on("disconnected", (reason) => {
   isReady = false;
   catchupDone = false;
   readyTimestamp = 0;
+  ownerLid = "";
+  lastLidAttempt = 0;
+  checkedLids.clear();
   log(`Disconnected: ${reason}`);
   emitEvent("disconnected", { reason: String(reason) });
 });
@@ -248,8 +427,8 @@ c.on("message", async (msg) => {
   if (msg.timestamp && msg.timestamp < readyTimestamp) return;
 
   try {
-    const chat = await msg.getChat();
-    const contact = await msg.getContact();
+    const chat = await safeChat(msg);
+    const contact = await safeContact(msg);
 
     emitEvent("message", {
       id: msg.id._serialized,
@@ -262,21 +441,11 @@ c.on("message", async (msg) => {
       has_media: msg.hasMedia,
       is_forwarded: msg.isForwarded || false,
       mentioned_ids: msg.mentionedIds || [],
-      chat: {
-        id: chat.id._serialized,
-        name: chat.name || chat.id._serialized,
-        is_group: chat.isGroup,
-        is_muted: chat.isMuted,
-      },
-      contact: {
-        id: contact.id._serialized,
-        name: contact.pushname || contact.name || "",
-        number: contact.number || "",
-        is_group: contact.isGroup,
-      },
+      chat: chatFallback(chat, msg.from),
+      contact: contactFallback(contact, msg.author || msg.from),
     });
   } catch (err) {
-    log(`Error handling message: ${err.message}`);
+    log(`Error handling message: ${errStr(err)}`);
   }
 });
 
@@ -293,9 +462,32 @@ c.on("message_create", async (msg) => {
   }
 
   try {
-    const chat = await msg.getChat();
+    const chat = await safeChat(msg);
+    const chatInfo = chatFallback(chat, msg.to);
     const ownJid = client.info?.wid?._serialized || "";
-    const isSelfChat = (ownJid && msg.to === ownJid) || (selfChatId && (msg.to === selfChatId || chat.id._serialized === selfChatId));
+    // A @lid-addressed self chat matches nothing we know until the owner's
+    // lid is resolved — do it now (throttled no-op once resolved) rather
+    // than lose the message.
+    if (!ownerLid && String(msg.to || "").endsWith("@lid")) {
+      await resolveOwnerLid();
+    }
+    // Self-chat test, layered by addressing scheme. NOTE: `to === from`
+    // does NOT hold in the self chat under @lid — `from` stays the wid
+    // (447…@c.us) while `to` is the lid (xxx@lid), which is exactly how
+    // the 2026-08-05 drop happened. sameUser() compares user parts so a
+    // scheme-consistent pair still matches without exact-JID equality.
+    let isSelfChat = (msg.from && msg.to === msg.from) ||
+      (ownJid && (msg.to === ownJid || sameUser(msg.to, ownJid))) ||
+      (ownerLid && (msg.to === ownerLid || sameUser(msg.to, ownerLid))) ||
+      (selfChatId && (msg.to === selfChatId || chatInfo.id === selfChatId));
+
+    // Last resort for an unrecognized @lid destination: ask WhatsApp's
+    // contact store whether this lid belongs to the owner's own number
+    // (once per lid per session). This is what actually catches the self
+    // chat when both discovery paths above came up empty at ready.
+    if (!isSelfChat && String(msg.to || "").endsWith("@lid")) {
+      isSelfChat = await lidMatchesOwner(msg.to);
+    }
 
     emitEvent("message_sent", {
       id: msg.id._serialized,
@@ -306,13 +498,13 @@ c.on("message_create", async (msg) => {
       type: msg.type,
       is_self_chat: isSelfChat,
       chat: {
-        id: chat.id._serialized,
-        name: chat.name || chat.id._serialized,
-        is_group: chat.isGroup,
+        id: chatInfo.id,
+        name: chatInfo.name,
+        is_group: chatInfo.is_group,
       },
     });
   } catch (err) {
-    log(`Error handling message_create: ${err.message}`);
+    log(`Error handling message_create: ${errStr(err)}`);
   }
 });
 
@@ -342,6 +534,31 @@ let initAttempt = 0;
 let authedThisAttempt = false;
 let initWatchdog = null;
 
+// Chromium teardown after client.destroy() takes SECONDS; relaunching
+// immediately collides with the dying browser ("The browser is already
+// running for …/session") and an instantly-failing attempt recurses into
+// the next one milliseconds later — observed live 2026-08-05: attempt 2 and
+// 3 fired 183ms apart and all three burned, leaving an orphan Chromium
+// holding the profile lock. Between attempts: kill anything still holding
+// our session profile, remove Chromium's Singleton* lock files (same
+// cleanup the Python parent does at bridge start), and back off.
+async function settleChromium(attempt) {
+  const { execSync } = require("child_process");
+  const fs = require("fs");
+  const sessionDir = path.join(AUTH_DIR, "session");
+  await new Promise((r) => setTimeout(r, 3000 * Math.max(1, attempt)));
+  if (process.platform !== "win32") {
+    try {
+      execSync(`pkill -f -- "--user-data-dir=${sessionDir}"`, { stdio: "ignore" });
+      // pkill'd processes need a beat to actually release the profile.
+      await new Promise((r) => setTimeout(r, 1500));
+    } catch (_) { /* no matches / not fatal */ }
+  }
+  for (const name of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+    try { fs.rmSync(path.join(sessionDir, name), { force: true }); } catch (_) {}
+  }
+}
+
 async function startClientWithWatchdog() {
   initAttempt += 1;
   authedThisAttempt = false;
@@ -359,8 +576,9 @@ async function startClientWithWatchdog() {
       try { await client.destroy(); } catch (_) {}
       process.exit(1);
     }
-    // Tear down the dead Chromium and try fresh
-    try { await client.destroy(); } catch (err) { log(`destroy during retry: ${err.message}`); }
+    // Tear down the dead Chromium, WAIT for it to actually die, try fresh
+    try { await client.destroy(); } catch (err) { log(`destroy during retry: ${errStr(err)}`); }
+    await settleChromium(initAttempt);
     client = buildClient();
     attachHandlers(client);
     startClientWithWatchdog();
@@ -371,12 +589,13 @@ async function startClientWithWatchdog() {
     await client.initialize();
   } catch (err) {
     if (initWatchdog) { clearTimeout(initWatchdog); initWatchdog = null; }
-    log(`Initialize error: ${err.message}`);
+    log(`Initialize error: ${errStr(err)}`);
     if (initAttempt > MAX_INIT_RETRIES) {
       emitEvent("error", { message: err.message, fatal: true });
       process.exit(1);
     }
     try { await client.destroy(); } catch (_) {}
+    await settleChromium(initAttempt);
     client = buildClient();
     attachHandlers(client);
     return startClientWithWatchdog();

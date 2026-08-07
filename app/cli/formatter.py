@@ -25,7 +25,7 @@ class CLIFormatter:
     # Actions to hide from output (internal actions that clutter the display)
     HIDDEN_ACTIONS = {
         "send message",
-        "ignore",
+        "end turn",
         "task start",
         "task end",
     }
@@ -113,23 +113,6 @@ class CLIFormatter:
         color = cls._color(style)
         reset = cls._reset()
         return f"{color}{label}:{reset} {message}"
-
-    @classmethod
-    def format_task_start(cls, task_name: str) -> str:
-        """Format task start message."""
-        color = cls._color("task")
-        reset = cls._reset()
-        return f"{color}[{cls.ICON_RUNNING}] Task: {task_name}{reset}"
-
-    @classmethod
-    def format_task_end(cls, task_name: str, success: bool = True) -> str:
-        """Format task completion message."""
-        icon = cls.ICON_COMPLETED if success else cls.ICON_ERROR
-        style = "task" if success else "error"
-        color = cls._color(style)
-        reset = cls._reset()
-        status = "completed" if success else "failed"
-        return f"{color}[{icon}] Task {status}: {task_name}{reset}"
 
     @classmethod
     def format_action_start(cls, action_name: str, is_sub_action: bool = False) -> str:

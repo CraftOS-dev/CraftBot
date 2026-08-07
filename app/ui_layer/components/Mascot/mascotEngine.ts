@@ -69,6 +69,53 @@ export const STAGE_EDGE_PADDING_PX = 12
 export const MIN_HOP_STEP_PX = 20
 export const MAX_HOP_STEP_PX = 80
 
+/** The mascot's size as a fraction of the stage's content HEIGHT.
+ *
+ *  Height, not width, because that's what the scene is anchored to:
+ *  .bgDay/.bgNight are sized `height: var(--bg-zoom) * 100%` and the grass
+ *  line lands at a fixed percentage of stage height, so the mascot has to
+ *  track the same dimension to keep its scale relative to the scene fixed.
+ *  Before this existed the size was a hard 80px, so resizing the widget grew
+ *  the world around a mascot that stayed put — the resize bug.
+ *
+ *  0.18 is back-solved from the old constant at the default widget size, so a
+ *  default-size Mascot widget still renders at roughly 80px. Retune by eye. */
+export const MASCOT_SIZE_RATIO = 0.18
+export const MASCOT_SIZE_MIN_PX = 44
+export const MASCOT_SIZE_MAX_PX = 200
+
+/** The mascot's rendered size for a given stage height. */
+export function computeMascotSize(stageContentHeight: number): number {
+  const scaled = stageContentHeight * MASCOT_SIZE_RATIO
+  return Math.round(Math.min(Math.max(scaled, MASCOT_SIZE_MIN_PX), MASCOT_SIZE_MAX_PX))
+}
+
+/** The background scene image's aspect ratio (3168x1344; day and night
+ *  files must share this shape). */
+export const BG_IMAGE_ASPECT = 3168 / 1344
+
+/** Baseline scale of the scene: the image renders BG_SCENE_ZOOM x stage
+ *  height tall. MUST match --bg-zoom in Mascot.module.css. */
+export const BG_SCENE_ZOOM = 4
+
+/** The smallest wheel-zoom at which the scene still covers the stage
+ *  horizontally, so zooming out can never expose empty stage around the
+ *  scene. The image is sized height-only (BG_SCENE_ZOOM x stage height,
+ *  width from aspect) and scaled by the user zoom, so its on-screen width
+ *  is aspect x BG_SCENE_ZOOM x stageHeight x zoom — solve that >= stage
+ *  width for zoom. Wide, short stages (a 3x1-card widget) push this floor
+ *  above the static minimum; square-ish stages leave it below, where the
+ *  static minimum still applies. Vertical coverage needs no equivalent:
+ *  its worst-case floors (~0.27 top, ~0.19 bottom, from the grass-line
+ *  anchoring math in Mascot.module.css) sit below the static minimum.
+ *
+ *  Callers pass the stage's CLIENT box (content + padding), because the
+ *  scene container is inset: 0 over the whole padded stage. */
+export function computeMinCoverZoom(stageClientWidth: number, stageClientHeight: number): number {
+  if (stageClientWidth <= 0 || stageClientHeight <= 0) return 0
+  return stageClientWidth / (BG_IMAGE_ASPECT * BG_SCENE_ZOOM * stageClientHeight)
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Action name handling
 // ─────────────────────────────────────────────────────────────────────

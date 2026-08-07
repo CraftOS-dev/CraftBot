@@ -9,7 +9,7 @@ from agent_core import action
 @action(
     name="send_lark_message",
     irreversible=True,
-    description="Send a plain text message in Lark. receive_id_type: open_id | user_id | email | chat_id | union_id.",
+    description="Send a plain text message in Lark. receive_id_type: open_id | user_id | email | chat_id | union_id. Returns {message_id}.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "receive_id": {
@@ -28,21 +28,22 @@ from agent_core import action
     parallelizable=False,
 )
 async def send_lark_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "send_text",
         receive_id=input_data["receive_id"],
         text=input_data["text"],
         receive_id_type=input_data.get("receive_id_type", "open_id"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="reply_lark_message",
     irreversible=True,
-    description="Reply to a Lark message by message_id.",
+    description="Reply to a Lark message by message_id. Returns {message_id}.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "message_id": {
@@ -56,20 +57,21 @@ async def send_lark_message(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def reply_lark_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "reply_text",
         message_id=input_data["message_id"],
         text=input_data["text"],
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="send_lark_rich_message",
     irreversible=True,
-    description="Send a generic Lark message. msg_type: text | post | image | file | audio | media | sticker | interactive | share_chat | share_user. content is the per-type dict (this action JSON-encodes it for you).",
+    description="Send a generic Lark message. msg_type: text | post | image | file | audio | media | sticker | interactive | share_chat | share_user. content is the per-type dict (this action JSON-encodes it for you). Returns {message_id}.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "receive_id": {"type": "string", "description": "Recipient ID.", "example": ""},
@@ -98,9 +100,9 @@ async def reply_lark_message(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def send_lark_rich_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "send_message",
         receive_id=input_data["receive_id"],
@@ -109,12 +111,13 @@ async def send_lark_rich_message(input_data: dict) -> dict:
         receive_id_type=input_data.get("receive_id_type", "open_id"),
         uuid=input_data.get("uuid") or None,
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="send_lark_image",
     irreversible=True,
-    description="Send an image (use upload_lark_image first to get image_key).",
+    description="Send an image (use upload_lark_image first to get image_key). Returns {message_id}.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "receive_id": {"type": "string", "description": "Recipient ID.", "example": ""},
@@ -133,21 +136,22 @@ async def send_lark_rich_message(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def send_lark_image(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "send_image_message",
         receive_id=input_data["receive_id"],
         image_key=input_data["image_key"],
         receive_id_type=input_data.get("receive_id_type", "open_id"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="send_lark_file",
     irreversible=True,
-    description="Send a file (use upload_lark_im_file first to get file_key).",
+    description="Send a file (use upload_lark_im_file first to get file_key). Returns {message_id}.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "receive_id": {"type": "string", "description": "Recipient ID.", "example": ""},
@@ -166,21 +170,22 @@ async def send_lark_image(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def send_lark_file(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "send_file_message",
         receive_id=input_data["receive_id"],
         file_key=input_data["file_key"],
         receive_id_type=input_data.get("receive_id_type", "open_id"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="send_lark_card",
     irreversible=True,
-    description="Send an interactive card (Lark's Block Kit equivalent). card is the card schema dict.",
+    description="Send an interactive card (Lark's Block Kit equivalent). card is the card schema dict. Returns {message_id}.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "receive_id": {"type": "string", "description": "Recipient ID.", "example": ""},
@@ -195,21 +200,22 @@ async def send_lark_file(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def send_lark_card(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "send_card_message",
         receive_id=input_data["receive_id"],
         card=input_data["card"],
         receive_id_type=input_data.get("receive_id_type", "open_id"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="send_lark_post",
     irreversible=True,
-    description="Send a rich-text 'post' message (multi-line, styled). post is Lark's post schema: {zh_cn: {title, content: [[{tag,text}]]}}.",
+    description="Send a rich-text 'post' message (multi-line, styled). post is Lark's post schema: {zh_cn: {title, content: [[{tag,text}]]}}. Returns {message_id}.",
     action_sets=["lark_messages"],
     input_schema={
         "receive_id": {"type": "string", "description": "Recipient ID.", "example": ""},
@@ -224,21 +230,22 @@ async def send_lark_card(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def send_lark_post(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "send_post_message",
         receive_id=input_data["receive_id"],
         post=input_data["post"],
         receive_id_type=input_data.get("receive_id_type", "open_id"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="reply_lark_rich_message",
     irreversible=True,
-    description="Reply with non-text content (image / file / card / etc.). reply_in_thread starts a thread off the parent.",
+    description="Reply with non-text content (image / file / card / etc.). reply_in_thread starts a thread off the parent. Returns {message_id}.",
     action_sets=["lark_messages"],
     input_schema={
         "message_id": {
@@ -266,9 +273,9 @@ async def send_lark_post(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def reply_lark_rich_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "reply_message",
         message_id=input_data["message_id"],
@@ -276,6 +283,7 @@ async def reply_lark_rich_message(input_data: dict) -> dict:
         content=input_data["content"],
         reply_in_thread=bool(input_data.get("reply_in_thread", False)),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -313,7 +321,7 @@ async def delete_lark_message(input_data: dict) -> dict:
 
 @action(
     name="update_lark_message",
-    description="Edit a previously-sent Lark message. Only text/interactive types are editable.",
+    description="Edit a previously-sent Lark message. Only text/interactive types are editable. Returns {message_id}.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
@@ -332,21 +340,22 @@ async def delete_lark_message(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def update_lark_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "update_message",
         message_id=input_data["message_id"],
         msg_type=input_data["msg_type"],
         content=input_data["content"],
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="forward_lark_message",
     irreversible=True,
-    description="Forward a message to another recipient.",
+    description="Forward a message to another recipient. Returns {message_id} of the forwarded copy.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
@@ -370,9 +379,9 @@ async def update_lark_message(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def forward_lark_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "forward_message",
         message_id=input_data["message_id"],
@@ -380,17 +389,23 @@ async def forward_lark_message(input_data: dict) -> dict:
         receive_id_type=input_data.get("receive_id_type", "open_id"),
         uuid=input_data.get("uuid") or None,
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
     name="list_lark_chat_messages",
-    description="List a chat's message history. container_id is usually a chat_id; start_time/end_time are unix seconds as strings.",
+    description="List a chat's message history. container_id is usually a chat_id; start_time/end_time are unix seconds as strings. Returns lean messages (message_id, msg_type, sender_id, create_time, text, root_id/parent_id); include_metadata=true for full raw.",
     action_sets=["lark_messages", "lark"],
     input_schema={
         "container_id": {
             "type": "string",
             "description": "Chat/thread ID.",
             "example": "",
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw message objects (default false = lean).",
+            "example": False,
         },
         "container_id_type": {
             "type": "string",
@@ -422,9 +437,11 @@ async def forward_lark_message(input_data: dict) -> dict:
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def list_lark_chat_messages(input_data: dict) -> dict:
+    import json
+
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "list_messages",
         container_id=input_data["container_id"],
@@ -435,6 +452,46 @@ async def list_lark_chat_messages(input_data: dict) -> dict:
         page_size=input_data.get("page_size", 50),
         page_token=input_data.get("page_token", ""),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_message(m: dict) -> dict:
+        out = {
+            "message_id": m.get("message_id"),
+            "msg_type": m.get("msg_type"),
+            "create_time": m.get("create_time"),
+        }
+        sender = m.get("sender") or {}
+        if sender.get("id"):
+            out["sender_id"] = sender["id"]
+        content = (m.get("body") or {}).get("content")
+        if m.get("msg_type") == "text" and isinstance(content, str):
+            try:
+                out["text"] = json.loads(content).get("text", content)
+            except (ValueError, AttributeError):
+                out["text"] = content
+        elif content is not None:
+            out["content"] = content
+        for key in ("root_id", "parent_id"):
+            if m.get(key):
+                out[key] = m[key]
+        mention_names = [
+            x.get("name")
+            for x in m.get("mentions") or []
+            if isinstance(x, dict) and x.get("name")
+        ]
+        if mention_names:
+            out["mentioned"] = mention_names
+        return out
+
+    lean = {"items": [_lean_message(m) for m in result["items"] if isinstance(m, dict)]}
+    for key in ("has_more", "page_token"):
+        if result.get(key):
+            lean[key] = result[key]
+    return {**res, "result": lean}
 
 
 @action(
@@ -651,7 +708,7 @@ async def send_lark_urgent(input_data: dict) -> dict:
 
 @action(
     name="batch_send_lark_message",
-    description="Broadcast the same message to many recipients in one call.",
+    description="Broadcast the same message to many recipients in one call. Returns {message_id} plus any invalid_*_ids.",
     action_sets=["lark_messages"],
     input_schema={
         "msg_type": {
@@ -684,9 +741,9 @@ async def send_lark_urgent(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def batch_send_lark_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "batch_send_message",
         msg_type=input_data["msg_type"],
@@ -694,6 +751,15 @@ async def batch_send_lark_message(input_data: dict) -> dict:
         open_ids=input_data.get("open_ids") or None,
         user_ids=input_data.get("user_ids") or None,
         department_ids=input_data.get("department_ids") or None,
+    )
+    return pick_result(
+        res,
+        [
+            "message_id",
+            "invalid_open_ids",
+            "invalid_user_ids",
+            "invalid_department_ids",
+        ],
     )
 
 
@@ -822,21 +888,41 @@ async def download_lark_message_resource(input_data: dict) -> dict:
 
 @action(
     name="list_lark_chats",
-    description="List groups the bot is a member of.",
+    description="List groups the bot is a member of. Returns lean chats (chat_id, name, description, owner_id); include_metadata=true for full raw.",
     action_sets=["lark_chats", "lark"],
     input_schema={
         "page_size": {"type": "integer", "description": "Max 100.", "example": 50},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw chat objects (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def list_lark_chats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "list_chats",
         page_size=input_data.get("page_size", 50),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_chat(c: dict) -> dict:
+        keep = ("chat_id", "name", "description", "owner_id", "external", "chat_status")
+        return {k: c[k] for k in keep if c.get(k) not in (None, "")}
+
+    lean = {"items": [_lean_chat(c) for c in result["items"] if isinstance(c, dict)]}
+    for key in ("has_more", "page_token"):
+        if result.get(key):
+            lean[key] = result[key]
+    return {**res, "result": lean}
 
 
 @action(
@@ -1099,25 +1185,45 @@ async def remove_lark_chat_members(input_data: dict) -> dict:
 
 @action(
     name="search_lark_chats",
-    description="Search chats by name.",
+    description="Search chats by name. Returns lean chats (chat_id, name, description, owner_id); include_metadata=true for full raw.",
     action_sets=["lark_chats", "lark"],
     input_schema={
         "query": {"type": "string", "description": "Search query.", "example": ""},
         "page_size": {"type": "integer", "description": "Max 100.", "example": 50},
         "page_token": {"type": "string", "description": "Cursor.", "example": ""},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw chat objects (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def search_lark_chats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "search_chats",
         query=input_data["query"],
         page_size=input_data.get("page_size", 50),
         page_token=input_data.get("page_token", ""),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_chat(c: dict) -> dict:
+        keep = ("chat_id", "name", "description", "owner_id", "external", "chat_status")
+        return {k: c[k] for k in keep if c.get(k) not in (None, "")}
+
+    lean = {"items": [_lean_chat(c) for c in result["items"] if isinstance(c, dict)]}
+    for key in ("has_more", "page_token"):
+        if result.get(key):
+            lean[key] = result[key]
+    return {**res, "result": lean}
 
 
 @action(
@@ -1214,7 +1320,7 @@ async def set_lark_chat_moderation(input_data: dict) -> dict:
 
 @action(
     name="get_lark_user",
-    description="Get a single Lark user by ID.",
+    description="Get a single Lark user by ID. Returns a lean user (open_id, name, email, mobile, department_ids, job_title); include_metadata=true for full raw.",
     action_sets=["lark_contacts", "lark"],
     input_schema={
         "user_id": {"type": "string", "description": "User ID.", "example": ""},
@@ -1228,24 +1334,54 @@ async def set_lark_chat_moderation(input_data: dict) -> dict:
             "description": "open_department_id | department_id.",
             "example": "open_department_id",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw user object (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_lark_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "get_user",
         user_id=input_data["user_id"],
         user_id_type=input_data.get("user_id_type", "open_id"),
         department_id_type=input_data.get("department_id_type", "open_department_id"),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("user"), dict):
+        return res
+
+    def _lean_user(u: dict) -> dict:
+        keep = (
+            "open_id",
+            "user_id",
+            "name",
+            "en_name",
+            "email",
+            "enterprise_email",
+            "mobile",
+            "department_ids",
+            "job_title",
+        )
+        out = {k: u[k] for k in keep if u.get(k) not in (None, "", [])}
+        status = u.get("status")
+        if isinstance(status, dict) and "is_activated" in status:
+            out["is_activated"] = status["is_activated"]
+        return out
+
+    return {**res, "result": {"user": _lean_user(result["user"])}}
 
 
 @action(
     name="batch_get_lark_users",
-    description="Get multiple Lark users by ID in one call.",
+    description="Get multiple Lark users by ID in one call. Returns lean users (open_id, name, email, mobile, department_ids); include_metadata=true for full raw.",
     action_sets=["lark_contacts"],
     input_schema={
         "user_ids": {"type": "array", "description": "User IDs.", "example": []},
@@ -1254,18 +1390,49 @@ async def get_lark_user(input_data: dict) -> dict:
             "description": "open_id | user_id | union_id.",
             "example": "open_id",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw user objects (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def batch_get_lark_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "batch_get_users",
         user_ids=input_data["user_ids"],
         user_id_type=input_data.get("user_id_type", "open_id"),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_user(u: dict) -> dict:
+        keep = (
+            "open_id",
+            "user_id",
+            "name",
+            "en_name",
+            "email",
+            "enterprise_email",
+            "mobile",
+            "department_ids",
+            "job_title",
+        )
+        out = {k: u[k] for k in keep if u.get(k) not in (None, "", [])}
+        status = u.get("status")
+        if isinstance(status, dict) and "is_activated" in status:
+            out["is_activated"] = status["is_activated"]
+        return out
+
+    lean = {"items": [_lean_user(u) for u in result["items"] if isinstance(u, dict)]}
+    return {**res, "result": lean}
 
 
 @action(
@@ -1320,36 +1487,75 @@ async def batch_lookup_lark_users(input_data: dict) -> dict:
 
 @action(
     name="search_lark_users_by_name",
-    description="Search Lark users by name (visibility depends on app scope grants).",
+    description="Search Lark users by name (visibility depends on app scope grants). Returns lean users (open_id, name, department_ids); include_metadata=true for full raw.",
     action_sets=["lark_contacts", "lark"],
     input_schema={
         "query": {"type": "string", "description": "Search query.", "example": ""},
         "page_size": {"type": "integer", "description": "Max 50.", "example": 50},
         "page_token": {"type": "string", "description": "Cursor.", "example": ""},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw user objects (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def search_lark_users_by_name(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "search_users_by_name",
         query=input_data["query"],
         page_size=input_data.get("page_size", 50),
         page_token=input_data.get("page_token", ""),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_user(u: dict) -> dict:
+        keep = (
+            "open_id",
+            "user_id",
+            "name",
+            "en_name",
+            "email",
+            "enterprise_email",
+            "mobile",
+            "department_ids",
+            "job_title",
+        )
+        out = {k: u[k] for k in keep if u.get(k) not in (None, "", [])}
+        status = u.get("status")
+        if isinstance(status, dict) and "is_activated" in status:
+            out["is_activated"] = status["is_activated"]
+        return out
+
+    lean = {"items": [_lean_user(u) for u in result["items"] if isinstance(u, dict)]}
+    for key in ("has_more", "page_token"):
+        if result.get(key):
+            lean[key] = result[key]
+    return {**res, "result": lean}
 
 
 @action(
     name="list_lark_department_users",
-    description="List users in a department.",
+    description="List users in a department. Returns lean users (open_id, name, email, mobile, department_ids); include_metadata=true for full raw.",
     action_sets=["lark_contacts"],
     input_schema={
         "department_id": {
             "type": "string",
             "description": "Department ID.",
             "example": "",
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw user objects (default false = lean).",
+            "example": False,
         },
         "user_id_type": {
             "type": "string",
@@ -1369,7 +1575,7 @@ async def search_lark_users_by_name(input_data: dict) -> dict:
 async def list_lark_department_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark",
         "list_department_users",
         department_id=input_data["department_id"],
@@ -1378,6 +1584,35 @@ async def list_lark_department_users(input_data: dict) -> dict:
         page_size=input_data.get("page_size", 50),
         page_token=input_data.get("page_token", ""),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_user(u: dict) -> dict:
+        keep = (
+            "open_id",
+            "user_id",
+            "name",
+            "en_name",
+            "email",
+            "enterprise_email",
+            "mobile",
+            "department_ids",
+            "job_title",
+        )
+        out = {k: u[k] for k in keep if u.get(k) not in (None, "", [])}
+        status = u.get("status")
+        if isinstance(status, dict) and "is_activated" in status:
+            out["is_activated"] = status["is_activated"]
+        return out
+
+    lean = {"items": [_lean_user(u) for u in result["items"] if isinstance(u, dict)]}
+    for key in ("has_more", "page_token"):
+        if result.get(key):
+            lean[key] = result[key]
+    return {**res, "result": lean}
 
 
 @action(

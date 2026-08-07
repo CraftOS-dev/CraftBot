@@ -277,9 +277,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/google-mail/gmail/v1/users/me/messages',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'maxResults': 10, 'q': 'is:unread'}
+    "https://gateway.maton.ai/google-mail/gmail/v1/users/me/messages",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"maxResults": 10, "q": "is:unread"},
 )
 ```
 

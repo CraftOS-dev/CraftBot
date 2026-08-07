@@ -8,14 +8,13 @@ export interface MascotStateSnapshot {
   state: MascotState
   /** The latest in-progress action, if any. Used later by the action slot. */
   currentAction: ActionItem | null
-  /** Total completed actions+tasks. CraftBotMascot wiggles when this rises. */
+  /** Total completed actions. CraftBotMascot wiggles when this rises. */
   completedCount: number
-  /** Count of tasks (itemType === 'task') currently in the 'completed'
-   *  status. Used by useMascotBehavior to fire the happy reaction when
-   *  a task wraps up successfully. Monotonic in practice — tasks don't
-   *  leave 'completed' — so the rising edge is what triggers the react. */
+  /** Count of finished work runs (the agent going busy → quiet without
+   *  errors). Used by useMascotBehavior to fire the happy reaction when a
+   *  run wraps up successfully. Monotonic — the rising edge triggers it. */
   successTaskCount: number
-  /** Count of tasks currently in an aborted status ('cancelled' or 'error').
+  /** Count of activity items in an aborted status ('cancelled' or 'error').
    *  Rises trigger the frustrated reaction. */
   abortedTaskCount: number
   /** Human-readable label suitable for the display panel's status line. */
@@ -55,20 +54,14 @@ export function useMascotState(): MascotStateSnapshot {
     const currentAction = running[0] ?? null
 
     const completedCount = actions.filter(
-      a => (a.itemType === 'action' || a.itemType === 'task') && a.status === 'completed'
-    ).length
-
-    const successTaskCount = actions.filter(
-      a => a.itemType === 'task' && a.status === 'completed'
+      a => a.itemType === 'action' && a.status === 'completed'
     ).length
 
     const abortedTaskCount = actions.filter(
-      a => a.itemType === 'task' && (a.status === 'cancelled' || a.status === 'error')
+      a => a.status === 'cancelled' || a.status === 'error'
     ).length
 
-    const hasPausedTask = actions.some(
-      a => a.itemType === 'task' && a.status === 'paused'
-    )
+    const hasPaused = actions.some(a => a.status === 'paused')
 
     // Priority resolution: error > waiting > paused > working/thinking > idle.
     let rawState: MascotState
@@ -76,7 +69,7 @@ export function useMascotState(): MascotStateSnapshot {
       rawState = 'error'
     } else if (status.state === 'waiting') {
       rawState = 'waiting'
-    } else if (hasPausedTask) {
+    } else if (hasPaused) {
       rawState = 'paused'
     } else if (status.state === 'working') {
       rawState = currentAction ? 'working' : 'thinking'
@@ -86,8 +79,26 @@ export function useMascotState(): MascotStateSnapshot {
       rawState = 'idle'
     }
 
-    return { rawState, currentAction, completedCount, successTaskCount, abortedTaskCount }
+    return { rawState, currentAction, completedCount, abortedTaskCount }
   }, [actions, messages, connected, status])
+
+  // With per-task lifecycle events gone, a "successful run" is the agent
+  // transitioning from busy (working/thinking) to quiet (idle/resting) with
+  // no new aborted items. Tracked as a monotonically rising counter so the
+  // behavior hook's rising-edge detection keeps working unchanged.
+  const [successTaskCount, setSuccessTaskCount] = useState(0)
+  const prevBusyRef = useRef(false)
+  const prevAbortedRef = useRef(raw.abortedTaskCount)
+  useEffect(() => {
+    const busy = raw.rawState === 'working' || raw.rawState === 'thinking'
+    if (prevBusyRef.current && !busy && raw.rawState !== 'error' && raw.rawState !== 'waiting') {
+      if (raw.abortedTaskCount === prevAbortedRef.current) {
+        setSuccessTaskCount(c => c + 1)
+      }
+    }
+    prevBusyRef.current = busy
+    prevAbortedRef.current = raw.abortedTaskCount
+  }, [raw.rawState, raw.abortedTaskCount])
 
   // Timestamp of when the agent most recently became idle. Reset whenever
   // the raw state moves to anything non-idle. Kept in a ref so it survives
@@ -142,7 +153,7 @@ export function useMascotState(): MascotStateSnapshot {
     state,
     currentAction: raw.currentAction,
     completedCount: raw.completedCount,
-    successTaskCount: raw.successTaskCount,
+    successTaskCount,
     abortedTaskCount: raw.abortedTaskCount,
     label: status.message,
     resetIdleTimer,

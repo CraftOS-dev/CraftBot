@@ -328,9 +328,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/salesforce/services/data/v59.0/query',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'q': 'SELECT Id,Name FROM Contact LIMIT 5'}
+    "https://gateway.maton.ai/salesforce/services/data/v59.0/query",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"q": "SELECT Id,Name FROM Contact LIMIT 5"},
 )
 ```
 

@@ -633,57 +633,6 @@ class MetricsCollector:
                 pass
 
     # ─────────────────────────────────────────────────────────────────────
-    # Task Tracking
-    # ─────────────────────────────────────────────────────────────────────
-
-    def record_task_start(self, task_id: str, name: str) -> None:
-        """Record when a task starts."""
-        with self._lock:
-            self._running_tasks[task_id] = time.time()
-            self._running_task_names[task_id] = name
-
-    def record_task_end(self, task_id: str, name: str, status: str) -> None:
-        """Record when a task ends."""
-        with self._lock:
-            start_time = self._running_tasks.pop(task_id, time.time())
-            self._running_task_names.pop(task_id, None)
-            end_time = time.time()
-
-            # Calculate total cost for this task
-            task_calls = self._current_task_calls.pop(task_id, [])
-            total_cost = sum(call.cost_usd for call in task_calls)
-
-            record = TaskRecord(
-                task_id=task_id,
-                name=name,
-                status=status,
-                start_time=start_time,
-                end_time=end_time,
-                total_cost=total_cost,
-                llm_call_count=len(task_calls),
-            )
-            self._task_records.append(record)
-
-        # Persist to TaskStorage (outside lock to avoid blocking)
-        if self._task_storage:
-            try:
-                from app.usage.task_storage import TaskEvent
-
-                task_event = TaskEvent(
-                    task_id=task_id,
-                    task_name=name,
-                    status=status,
-                    start_time=datetime.fromtimestamp(start_time),
-                    end_time=datetime.fromtimestamp(end_time),
-                    total_cost=total_cost,
-                    llm_call_count=len(task_calls),
-                )
-                self._task_storage.insert_task(task_event)
-            except Exception:
-                # Don't fail task tracking if storage fails
-                pass
-
-    # ─────────────────────────────────────────────────────────────────────
     # MCP Tool Usage Tracking
     # ─────────────────────────────────────────────────────────────────────
 

@@ -1268,66 +1268,6 @@ class MemoryManager:
         return hashlib.md5(content.encode("utf-8")).hexdigest()
 
 
-# ───────────────────────────── Task Creation Helper ─────────────────────────────
-
-
-def create_memory_processing_task(
-    task_manager,
-    needs_pruning: bool = False,
-    prune_target: int = 100,
-) -> str:
-    """
-    Create a task to process unprocessed events into distilled memories.
-
-    This function creates a task that uses the 'memory-processor' skill to:
-    - Read events from EVENT_UNPROCESSED.md
-    - Distill valuable insights (discarding ~90% routine events)
-    - Check for duplicate memories
-    - Write to MEMORY.md in strict format
-    - Clear processed events
-    - Optionally prune MEMORY.md when it has grown past the configured cap
-
-    Args:
-        task_manager: The TaskManager instance to create the task with
-        needs_pruning: True when MEMORY.md has reached the max-items threshold
-            and the task should also run the pruning phase after distillation.
-        prune_target: Approximate number of oldest items the pruning phase
-            should consolidate or drop.
-
-    Returns:
-        The task ID of the created task
-    """
-    instruction = (
-        "SILENT BACKGROUND TASK - NEVER use send_message or run_shell. "
-        "Read agent_file_system/EVENT_UNPROCESSED.md. "
-        "DISTILL (rewrite, don't copy) into agent_file_system/MEMORY.md. "
-        "Format: [YYYY-MM-DD HH:MM:SS] [category] Subject predicate object. "
-        "DISCARD 95%+ events. Agent messages and greetings are ALWAYS discarded. "
-        "Each memory item must be <= 150 words. "
-        "Use stream_edit only. Never write code."
-    )
-
-    if needs_pruning:
-        instruction += (
-            f" MEMORY.md has reached the item-count cap. After processing events, "
-            f"run the Pruning phase: remove the FIRST (oldest) ~{prune_target} items "
-            f"from the items section — they appear at the top, immediately after the header block. "
-            f"Merge related items about the same subject before dropping, then drop duplicates "
-            f"and low-utility items. Preserve high-utility items regardless of age. "
-            f"The header block must NOT be modified. Keep only the newest items (bottom of file). "
-            f"Target: remove at least {prune_target} items so only the latest 1/3 remain."
-        )
-
-    return task_manager.create_task(
-        task_name="Process Memory Events",
-        task_instruction=instruction,
-        mode="complex",
-        action_sets=["file_operations"],
-        selected_skills=["memory-processor"],
-        workflow_id="memory_processing",
-    )
-
-
 # ───────────────────── Hybrid Retrieval Scoring Helpers ─────────────────────
 
 

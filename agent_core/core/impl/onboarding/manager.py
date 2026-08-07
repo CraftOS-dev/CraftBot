@@ -36,7 +36,8 @@ class OnboardingManager:
 
         if onboarding_manager.needs_soft_onboarding:
             # Trigger conversational interview
-            task_id = onboarding_manager.create_soft_onboarding_task(task_manager)
+            # (see AgentBase.trigger_soft_onboarding — runs in the main session)
+            ...
     """
 
     _instance: Optional["OnboardingManager"] = None

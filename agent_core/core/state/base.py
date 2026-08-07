@@ -24,7 +24,7 @@ Usage:
 
     def shared_function():
         state = get_state()
-        task = state.current_task
+        session = state.current_session
         # ... use state
 """
 
@@ -159,8 +159,8 @@ def get_state() -> "StateProvider":
 
         def some_shared_function():
             state = get_state()
-            if state.current_task:
-                task_id = state.get_agent_property("current_task_id")
+            if state.current_session:
+                session_id = state.get_agent_property("current_task_id")
                 # ... do something
     """
     return StateRegistry.get_state()
@@ -181,7 +181,7 @@ def get_state_or_none() -> Optional["StateProvider"]:
 
         def optional_state_access():
             state = get_state_or_none()
-            if state and state.current_task:
+            if state and state.current_session:
                 # ... do something with state
             else:
                 # ... handle no state case
@@ -199,7 +199,7 @@ def get_session(session_id: str) -> "StateSession":
     Get state for a specific session by ID.
 
     Use this when you need session-specific state in concurrent task execution.
-    Each session has its own isolated state (event_stream, current_task, etc.).
+    Each session has its own isolated state (event_stream, current_session, etc.).
 
     Args:
         session_id: The session identifier (typically task_id)
@@ -216,7 +216,7 @@ def get_session(session_id: str) -> "StateSession":
         def task_specific_function(session_id: str):
             session = get_session(session_id)
             event_stream = session.event_stream
-            task = session.current_task
+            current = session.current_session
             # ... use session-specific state
     """
     from agent_core.core.state.session import StateSession

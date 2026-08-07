@@ -128,6 +128,9 @@ def _get_default_settings() -> Dict[str, Any]:
             "use_omniparser": False,
             "omniparser_url": "http://127.0.0.1:7861",
         },
+        "file_index": {
+            "prewarm_all_drives": True,
+        },
     }
 
 
@@ -385,6 +388,12 @@ def get_web_search_cse_id() -> str:
     """Get Google Custom Search Engine ID."""
     settings = get_settings()
     return settings.get("web_search", {}).get("google_cse_id", "")
+
+
+def is_prewarm_all_drives_enabled() -> bool:
+    """Whether to pre-warm the find_files index for all local drives at startup."""
+    settings = get_settings()
+    return settings.get("file_index", {}).get("prewarm_all_drives", True)
 
 
 def reload_settings() -> Dict[str, Any]:

@@ -21,15 +21,17 @@ import { Button } from '../../components/ui/Button'
 import { IconButton } from '../../components/ui/IconButton'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { Chat } from '../../components/Chat'
-import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, getIframeWindow } from './iframePool'
-import { CreationProgress } from './CreationProgress'
-import { CreationQuestionForm } from './CreationQuestionForm'
+import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, ownsProjectWindow } from './iframePool'
+import { ConstructionDock } from './ConstructionDock'
 import { LivingUIThemeModal, DEFAULT_CUSTOM_COLORS } from './LivingUIThemeModal'
 import type { LivingUIThemeId, LivingUICustomColors } from './LivingUIThemeModal'
-import { useAppSelector, useAppDispatch } from '../../store/hooks'
-import { selectLivingUiPendingQuestions } from '../../store/selectors/livingUi'
-import { clearPendingQuestion } from '../../store/slices/livingUiSlice'
+import { useAppSelector } from '../../store/hooks'
+import { selectLivingUiBuildEvents, selectLivingUiSnapshots } from '../../store/selectors/livingUi'
+import type { LivingUIBuildEvent } from '../../types'
 import styles from './LivingUIPage.module.css'
+
+// Stable empty array so the dock's memoized selectors don't churn per render.
+const EMPTY_EVENTS: LivingUIBuildEvent[] = []
 
 function loadLivingUITheme(projectId: string): LivingUIThemeId {
   try {
@@ -68,12 +70,12 @@ export function LivingUIPage() {
     stopLivingUI,
     deleteLivingUI,
     setActiveLivingUI,
-    sendMessage,
+    updateLivingUITheme,
   } = useWebSocket()
   const { isFullscreen, setFullscreen, toggleFullscreen } = useFullscreen()
   const { theme: appTheme } = useTheme()
-  const dispatch = useAppDispatch()
-  const pendingQuestions = useAppSelector(selectLivingUiPendingQuestions)
+  const buildEventsMap = useAppSelector(selectLivingUiBuildEvents)
+  const snapshotMap = useAppSelector(selectLivingUiSnapshots)
 
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showThemeModal, setShowThemeModal] = useState(false)
@@ -118,21 +120,32 @@ export function LivingUIPage() {
   // Find the current project
   const project = livingUIProjects.find(p => p.id === projectId)
 
-  // A question the agent mirrored onto this screen (waiting on the user's reply).
-  const pendingQuestion = projectId ? pendingQuestions[projectId] : undefined
+  // Server-persisted theme (wizard pick or another browser's selection):
+  // adopt it when the user has no local override — survives frontend
+  // rebuilds and cleared localStorage. Legacy projects fall back to the
+  // scaffold-time stylePack.
+  useEffect(() => {
+    if (!projectId) return
+    try {
+      if (localStorage.getItem(`livingui-theme-${projectId}`)) return
+      const serverTheme = project?.uiTheme?.themeId || project?.stylePack
+      if (serverTheme && serverTheme !== 'craftbot') {
+        setLivingUITheme(serverTheme as LivingUIThemeId)
+        const colors = project?.uiTheme?.customColors
+        if (serverTheme === 'custom' && colors?.bg && colors?.surface && colors?.text && colors?.accent) {
+          setLivingUICustomColors({
+            bg: colors.bg, surface: colors.surface, text: colors.text, accent: colors.accent,
+          })
+        }
+      }
+    } catch { /* cosmetic only */ }
+  }, [projectId, project?.uiTheme, project?.stylePack])
 
-  // Answer from the screen → send back as a reply targeting the creation task's
-  // session (Rule 2 in chat routing resumes the waiting task). Mirrors a chat reply.
-  const handleAnswer = (text: string) => {
-    if (!projectId || !pendingQuestion) return
-    sendMessage(
-      text,
-      undefined,
-      { sessionId: pendingQuestion.sessionId, originalMessage: pendingQuestion.message },
-      projectId,
-    )
-    dispatch(clearPendingQuestion({ projectId }))
-  }
+  // Build-event feed + live-activity row for the construction dock (read-only).
+  const buildEvents = projectId
+    ? (buildEventsMap[projectId] ?? EMPTY_EVENTS)
+    : EMPTY_EVENTS
+  const snapshot = projectId ? (snapshotMap[projectId] ?? null) : null
 
   // Set active Living UI when viewing
   useEffect(() => {
@@ -183,7 +196,9 @@ export function LivingUIPage() {
       type: 'livingui-theme',
       themeId: livingUITheme,
       mode: appTheme,
-      customColors: livingUICustomColors,
+      // Only for the 'custom' theme — the bridge applies these as inline
+      // overrides that outrank every style-pack rule.
+      customColors: livingUITheme === 'custom' ? livingUICustomColors : undefined,
     })
   }, [livingUITheme, livingUICustomColors, appTheme, projectId, project?.status])
 
@@ -193,12 +208,12 @@ export function LivingUIPage() {
     if (!projectId) return
     const onIframeReady = (e: MessageEvent) => {
       if (e.data?.type !== 'craftbot-theme-request' || !e.source) return
-      if (e.source !== getIframeWindow(projectId)) return
+      if (!ownsProjectWindow(projectId, e.source)) return
       ;(e.source as Window).postMessage({
         type: 'livingui-theme',
         themeId: livingUITheme,
         mode: appTheme,
-        customColors: livingUICustomColors,
+        customColors: livingUITheme === 'custom' ? livingUICustomColors : undefined,
       }, '*')
     }
     window.addEventListener('message', onIframeReady)
@@ -213,6 +228,11 @@ export function LivingUIPage() {
       setLivingUICustomColors(colors)
       saveLivingUICustomColors(projectId, colors)
     }
+    // Server-side persistence so the pick follows the user across browsers.
+    updateLivingUITheme(projectId, {
+      themeId,
+      ...(themeId === 'custom' ? { customColors: colors ?? livingUICustomColors } : {}),
+    })
   }
 
   const handleLaunch = () => {
@@ -343,12 +363,14 @@ export function LivingUIPage() {
             tooltip="Theme"
             onClick={() => setShowThemeModal(true)}
           />
-          <IconButton
-            size="sm"
-            icon={<MessageSquare size={14} />}
-            tooltip={showChat ? 'Hide Chat' : 'Show Chat'}
-            onClick={() => setShowChat(prev => !prev)}
-          />
+          {project.sessionId && (
+            <IconButton
+              size="sm"
+              icon={<MessageSquare size={14} />}
+              tooltip={showChat ? 'Hide Chat' : 'Show Chat'}
+              onClick={() => setShowChat(prev => !prev)}
+            />
+          )}
           <IconButton
             size="sm"
             active={isFullscreen}
@@ -375,19 +397,12 @@ export function LivingUIPage() {
           {project.status === 'running' && project.url ? (
             <div ref={iframePlaceholderRef} className={styles.iframe} />
           ) : project.status === 'creating' ? (
-            pendingQuestion ? (
-              <CreationQuestionForm
-                key={pendingQuestion.message}
-                projectName={project.name}
-                message={pendingQuestion.message}
-                onAnswer={handleAnswer}
-              />
-            ) : (
-              <CreationProgress
-                projectName={project.name}
-                todos={livingUITodos[project.id]}
-              />
-            )
+            <ConstructionDock
+              project={project}
+              todos={livingUITodos[project.id]}
+              events={buildEvents}
+              snapshot={snapshot}
+            />
           ) : project.status === 'launching' ? (
             <div className={styles.loading}>
               <CraftBotMascot state="launching" size={96} />
@@ -419,8 +434,10 @@ export function LivingUIPage() {
           )}
         </div>
 
-        {/* Resize Handle */}
-        {showChat && (
+        {/* Resize Handle. The chat panel only exists when the backend gave
+            this project a backing session — older projects without one just
+            show the Living UI full-width. */}
+        {showChat && project.sessionId && (
           <div
             className={`${styles.resizeHandle} ${isResizing ? styles.resizing : ''}`}
             onPointerDown={handlePointerDown}
@@ -428,7 +445,7 @@ export function LivingUIPage() {
         )}
 
         {/* Chat Panel */}
-        {showChat && (
+        {showChat && project.sessionId && (
           <div
             className={styles.chatPanel}
             style={
@@ -438,9 +455,8 @@ export function LivingUIPage() {
             }
           >
             <Chat
-              livingUIId={projectId}
+              sessionId={project.sessionId}
               placeholder="Ask about this Living UI..."
-              emptyMessage="Chat with the agent"
             />
           </div>
         )}

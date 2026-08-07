@@ -52,25 +52,22 @@ from app.action.action_framework.registry import action
         "param1": {
             "type": "string",
             "example": "example_value",
-            "description": "Description of this parameter"
+            "description": "Description of this parameter",
         }
     },
     output_schema={
         "status": {
             "type": "string",
             "example": "success",
-            "description": "Result status: 'success' or 'error'"
+            "description": "Result status: 'success' or 'error'",
         },
         "result": {
             "type": "string",
             "example": "Operation completed",
-            "description": "The result of the operation"
-        }
+            "description": "The result of the operation",
+        },
     },
-    test_payload={
-        "param1": "test_value",
-        "simulated_mode": True
-    }
+    test_payload={"param1": "test_value", "simulated_mode": True},
 )
 def my_custom_action(input_data: dict) -> dict:
     """
@@ -170,54 +167,54 @@ Each field in a schema is defined as:
 ### Input Schema Example
 
 ```python
-input_schema={
+input_schema = {
     "file_path": {
         "type": "string",
         "example": "/path/to/file.txt",
-        "description": "Absolute path to the target file"
+        "description": "Absolute path to the target file",
     },
     "line_count": {
         "type": "integer",
         "example": 10,
-        "description": "Number of lines to read (default: all)"
+        "description": "Number of lines to read (default: all)",
     },
     "recursive": {
         "type": "boolean",
         "example": True,
-        "description": "Whether to search subdirectories"
+        "description": "Whether to search subdirectories",
     },
     "keywords": {
         "type": "array",
         "example": ["error", "warning"],
-        "description": "List of keywords to search for"
-    }
+        "description": "List of keywords to search for",
+    },
 }
 ```
 
 ### Output Schema Example
 
 ```python
-output_schema={
+output_schema = {
     "status": {
         "type": "string",
         "example": "success",
-        "description": "Result status: 'success' or 'error'"
+        "description": "Result status: 'success' or 'error'",
     },
     "data": {
         "type": "array",
         "example": ["line1", "line2"],
-        "description": "Matching lines found"
+        "description": "Matching lines found",
     },
     "count": {
         "type": "integer",
         "example": 42,
-        "description": "Total number of matches"
+        "description": "Total number of matches",
     },
     "message": {
         "type": "string",
         "example": "Operation completed successfully",
-        "description": "Human-readable result message"
-    }
+        "description": "Human-readable result message",
+    },
 }
 ```
 
@@ -226,17 +223,17 @@ output_schema={
 It's recommended to always include these fields in your output:
 
 ```python
-output_schema={
+output_schema = {
     "status": {
         "type": "string",
         "example": "success",
-        "description": "Result status: 'success' or 'error'"
+        "description": "Result status: 'success' or 'error'",
     },
     "message": {
         "type": "string",
         "example": "Operation completed",
-        "description": "Human-readable result or error message"
-    }
+        "description": "Human-readable result or error message",
+    },
 }
 ```
 
@@ -343,24 +340,32 @@ For actions that behave differently across operating systems, create multiple im
         "process_name": {
             "type": "string",
             "example": "python",
-            "description": "Name of the process to find"
+            "description": "Name of the process to find",
         }
     },
     output_schema={
-        "status": {"type": "string", "example": "success", "description": "Result status"},
-        "pids": {"type": "array", "example": [1234, 5678], "description": "Process IDs found"}
-    }
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "Result status",
+        },
+        "pids": {
+            "type": "array",
+            "example": [1234, 5678],
+            "description": "Process IDs found",
+        },
+    },
 )
 def find_process_unix(input_data: dict) -> dict:
     import subprocess
+
     process_name = input_data.get("process_name", "")
 
     result = subprocess.run(
-        ["pgrep", "-f", process_name],
-        capture_output=True, text=True
+        ["pgrep", "-f", process_name], capture_output=True, text=True
     )
 
-    pids = [int(pid) for pid in result.stdout.strip().split('\n') if pid]
+    pids = [int(pid) for pid in result.stdout.strip().split("\n") if pid]
     return {"status": "success", "pids": pids}
 
 
@@ -374,26 +379,36 @@ def find_process_unix(input_data: dict) -> dict:
         "process_name": {
             "type": "string",
             "example": "python",
-            "description": "Name of the process to find"
+            "description": "Name of the process to find",
         }
     },
     output_schema={
-        "status": {"type": "string", "example": "success", "description": "Result status"},
-        "pids": {"type": "array", "example": [1234, 5678], "description": "Process IDs found"}
-    }
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "Result status",
+        },
+        "pids": {
+            "type": "array",
+            "example": [1234, 5678],
+            "description": "Process IDs found",
+        },
+    },
 )
 def find_process_windows(input_data: dict) -> dict:
     import subprocess
+
     process_name = input_data.get("process_name", "")
 
     result = subprocess.run(
         ["tasklist", "/FI", f"IMAGENAME eq {process_name}*"],
-        capture_output=True, text=True
+        capture_output=True,
+        text=True,
     )
 
     # Parse Windows tasklist output
     pids = []
-    for line in result.stdout.split('\n')[3:]:  # Skip header
+    for line in result.stdout.split("\n")[3:]:  # Skip header
         parts = line.split()
         if len(parts) >= 2:
             try:
@@ -443,10 +458,7 @@ You can test your action by importing and calling it directly:
 from app.data.action.my_custom_action import my_custom_action
 
 # Test with your test payload
-result = my_custom_action({
-    "param1": "test_value",
-    "simulated_mode": True
-})
+result = my_custom_action({"param1": "test_value", "simulated_mode": True})
 
 print(result)
 # {'status': 'success', 'result': 'Simulated result'}
@@ -473,30 +485,27 @@ import os
         "file_path": {
             "type": "string",
             "example": "/path/to/file.txt",
-            "description": "Absolute path to the file"
+            "description": "Absolute path to the file",
         }
     },
     output_schema={
         "status": {
             "type": "string",
             "example": "success",
-            "description": "Result status: 'success' or 'error'"
+            "description": "Result status: 'success' or 'error'",
         },
         "line_count": {
             "type": "integer",
             "example": 150,
-            "description": "Total number of lines in the file"
+            "description": "Total number of lines in the file",
         },
         "message": {
             "type": "string",
             "example": "File has 150 lines",
-            "description": "Human-readable result"
-        }
+            "description": "Human-readable result",
+        },
     },
-    test_payload={
-        "file_path": "/tmp/test.txt",
-        "simulated_mode": True
-    }
+    test_payload={"file_path": "/tmp/test.txt", "simulated_mode": True},
 )
 def count_lines(input_data: dict) -> dict:
     file_path = input_data.get("file_path", "")
@@ -506,19 +515,23 @@ def count_lines(input_data: dict) -> dict:
         return {"status": "error", "message": "file_path is required"}
 
     if simulated_mode:
-        return {"status": "success", "line_count": 100, "message": "Simulated: 100 lines"}
+        return {
+            "status": "success",
+            "line_count": 100,
+            "message": "Simulated: 100 lines",
+        }
 
     if not os.path.exists(file_path):
         return {"status": "error", "message": f"File not found: {file_path}"}
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             line_count = sum(1 for _ in f)
 
         return {
             "status": "success",
             "line_count": line_count,
-            "message": f"File has {line_count} lines"
+            "message": f"File has {line_count} lines",
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -541,37 +554,37 @@ from app.action.action_framework.registry import action
         "title": {
             "type": "string",
             "example": "Task Complete",
-            "description": "Notification title"
+            "description": "Notification title",
         },
         "message": {
             "type": "string",
             "example": "Your file has been processed successfully",
-            "description": "Notification body text"
+            "description": "Notification body text",
         },
         "priority": {
             "type": "string",
             "example": "normal",
-            "description": "Priority level: 'low', 'normal', or 'high'"
-        }
+            "description": "Priority level: 'low', 'normal', or 'high'",
+        },
     },
     output_schema={
         "status": {
             "type": "string",
             "example": "success",
-            "description": "Result status"
+            "description": "Result status",
         },
         "notification_id": {
             "type": "string",
             "example": "notif_12345",
-            "description": "Unique ID of the sent notification"
-        }
+            "description": "Unique ID of the sent notification",
+        },
     },
     test_payload={
         "title": "Test",
         "message": "Test notification",
         "priority": "normal",
-        "simulated_mode": True
-    }
+        "simulated_mode": True,
+    },
 )
 def notify_user(input_data: dict) -> dict:
     import asyncio
@@ -616,41 +629,37 @@ from app.action.action_framework.registry import action
         "file_path": {
             "type": "string",
             "example": "/data/report.csv",
-            "description": "Path to the CSV file"
+            "description": "Path to the CSV file",
         },
         "columns": {
             "type": "array",
             "example": ["sales", "revenue"],
-            "description": "Columns to analyze (empty for all)"
-        }
+            "description": "Columns to analyze (empty for all)",
+        },
     },
     output_schema={
         "status": {
             "type": "string",
             "example": "success",
-            "description": "Result status"
+            "description": "Result status",
         },
         "row_count": {
             "type": "integer",
             "example": 1000,
-            "description": "Number of rows in the file"
+            "description": "Number of rows in the file",
         },
         "column_count": {
             "type": "integer",
             "example": 10,
-            "description": "Number of columns"
+            "description": "Number of columns",
         },
         "summary": {
             "type": "object",
             "example": {"sales": {"mean": 100.5, "min": 10, "max": 500}},
-            "description": "Statistical summary per column"
-        }
+            "description": "Statistical summary per column",
+        },
     },
-    test_payload={
-        "file_path": "/tmp/test.csv",
-        "columns": [],
-        "simulated_mode": True
-    }
+    test_payload={"file_path": "/tmp/test.csv", "columns": [], "simulated_mode": True},
 )
 def analyze_csv(input_data: dict) -> dict:
     import pandas as pd
@@ -667,7 +676,7 @@ def analyze_csv(input_data: dict) -> dict:
             "status": "success",
             "row_count": 100,
             "column_count": 5,
-            "summary": {"col1": {"mean": 50.0, "min": 1, "max": 100}}
+            "summary": {"col1": {"mean": 50.0, "min": 1, "max": 100}},
         }
 
     try:
@@ -677,19 +686,19 @@ def analyze_csv(input_data: dict) -> dict:
             df = df[columns]
 
         summary = {}
-        for col in df.select_dtypes(include=['number']).columns:
+        for col in df.select_dtypes(include=["number"]).columns:
             summary[col] = {
                 "mean": float(df[col].mean()),
                 "min": float(df[col].min()),
                 "max": float(df[col].max()),
-                "std": float(df[col].std())
+                "std": float(df[col].std()),
             }
 
         return {
             "status": "success",
             "row_count": len(df),
             "column_count": len(df.columns),
-            "summary": summary
+            "summary": summary,
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}

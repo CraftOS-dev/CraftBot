@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.4.1",
   "general": {
     "agent_name": "CraftBot",
     "os_language": "en"
@@ -69,6 +69,9 @@
   "browser": {
     "port": 7926,
     "startup_ui": false
+  },
+  "file_index": {
+    "prewarm_all_drives": true
   },
   "api_keys_configured": {
     "openai": false,

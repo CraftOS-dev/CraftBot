@@ -300,15 +300,13 @@ import os
 import requests
 
 headers = {
-    'Content-Type': 'application/json',
-    'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {os.environ['MATON_API_KEY']}",
 }
 
 # Create a meeting space
 response = requests.post(
-    'https://gateway.maton.ai/google-meet/v2/spaces',
-    headers=headers,
-    json={}
+    "https://gateway.maton.ai/google-meet/v2/spaces", headers=headers, json={}
 )
 space = response.json()
 print(f"Meeting URL: {space['meetingUri']}")

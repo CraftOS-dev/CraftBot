@@ -5,20 +5,16 @@ app.triggers.service
 TriggerService — the single producer front door for durable triggers.
 
 ``emit()`` writes the trigger to the store FIRST (no LLM call, sub-ms), then
-feeds the in-memory TriggerQueue, which stays as the ordering primitive. The
-consumer drives the lifecycle through ``next()`` (claim) and ``ack()``/
-``nack()`` (settle); ``rehydrate()`` re-delivers everything unfinished at
-boot. The service also implements the queue's lifecycle-listener protocol so
-triggers the queue discards (same-session replacement, session removal,
-clear) settle their rows instead of resurrecting on the next boot.
+dispatches it to the owning session's runtime queue. Each session's serial
+loop drives the lifecycle through ``claim()`` and ``ack()``/``nack()``;
+``rehydrate()`` re-delivers everything unfinished at boot. The service also
+implements the queues' lifecycle-listener protocol so triggers a queue
+discards (session deletion, clear) settle their rows instead of resurrecting
+on the next boot.
 
-Producers that still call ``queue.put()`` directly keep working: their
-triggers carry no store ``id``, so claim/ack are no-ops for them.
-
-For user messages there is additionally ``park()``: the message is durably
-recorded BEFORE the session-routing LLM call, so a crash mid-routing no
-longer loses it — the parked row is re-delivered (as a fresh session) by
-the next boot's rehydration.
+There is no routing: every producer names its destination session at emit
+time (external input and background workflows target the main session; UI
+messages target the session they were typed in).
 """
 
 from __future__ import annotations
@@ -26,15 +22,17 @@ from __future__ import annotations
 import json
 import logging
 import time
-import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 from agent_core.core.trigger import Trigger
-from agent_core.core.impl.trigger.queue import TriggerQueue
+from agent_core.core.session import MAIN_SESSION_ID
 
 from app.triggers.sources import TriggerSource
 from app.triggers.store import STALE_TRIGGER_HOURS, TriggerStore
+
+if TYPE_CHECKING:
+    from app.triggers.runtime import SessionRuntimeManager
 
 try:
     from app.logger import logger
@@ -44,8 +42,7 @@ except Exception:
 
 
 # A trigger rehydrated/fired more than this many seconds late gets a
-# catch-up note so the agent can use judgment (generalizes the Phase 0
-# scheduler-only behavior to every source).
+# catch-up note so the agent can use judgment.
 CATCHUP_THRESHOLD_SECONDS = 120
 
 # Retry policy for triggers whose react cycle raised: exponential backoff
@@ -66,13 +63,9 @@ class TriggerSpec:
     description: str
     fire_at: Optional[float] = None  # None → now
     priority: int = 50
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None  # None → main session
     payload: Dict[str, Any] = field(default_factory=dict)
     dedup_key: Optional[str] = None
-    # Deprecated, ignored: in-queue routing was removed (Phase 3); the queue
-    # treats every put identically. Kept so existing call sites don't break.
-    skip_merge: bool = False
-    waiting_for_reply: bool = False
 
 
 @dataclass
@@ -95,16 +88,16 @@ def _format_duration(seconds: float) -> str:
 
 
 class TriggerService:
-    """Durable front door over (TriggerStore, TriggerQueue)."""
+    """Durable front door over (TriggerStore, SessionRuntimeManager)."""
 
-    def __init__(self, store: TriggerStore, queue: TriggerQueue) -> None:
+    def __init__(self, store: TriggerStore, runtime: "SessionRuntimeManager") -> None:
         self._store = store
-        self._queue = queue
+        self._runtime = runtime
         # Optional callback(trigger, error) invoked when a trigger exhausts
         # its retries and is parked DEAD — the app layer surfaces it to the
         # user (a dead-lettered trigger is work that silently stopped).
         self._on_dead_letter = None
-        queue.set_lifecycle_listener(self)
+        runtime.bind_service(self)
 
     def set_dead_letter_handler(self, handler) -> None:
         """Register callback(trigger, error) fired on the DEAD transition."""
@@ -113,11 +106,11 @@ class TriggerService:
     # ─────────────────────── Producer API ───────────────────────────────────
 
     async def emit(self, spec: TriggerSpec) -> EmitResult:
-        """Durably record a trigger, then enqueue it.
+        """Durably record a trigger, then dispatch it to its session queue.
 
         The store INSERT happens first — from that point a crash anywhere
         loses nothing. A dedup_key collision with an active row means this
-        work is already queued or in flight: no enqueue, no double-fire.
+        work is already queued or in flight: no dispatch, no double-fire.
         """
         fire_at = spec.fire_at if spec.fire_at is not None else time.time()
         source = (
@@ -125,16 +118,17 @@ class TriggerService:
             if isinstance(spec.source, TriggerSource)
             else str(spec.source)
         )
+        session_id = spec.session_id or MAIN_SESSION_ID
 
         row_id, created = self._store.insert(
             source=source,
             description=spec.description,
             fire_at=fire_at,
             priority=spec.priority,
-            session_id=spec.session_id,
+            session_id=session_id,
             payload=spec.payload,
             dedup_key=spec.dedup_key,
-            waiting_for_reply=spec.waiting_for_reply,
+            waiting_for_reply=False,
         )
         if not created:
             logger.info(
@@ -148,78 +142,31 @@ class TriggerService:
             priority=spec.priority,
             next_action_description=spec.description,
             payload=dict(spec.payload),
-            session_id=spec.session_id,
-            waiting_for_reply=spec.waiting_for_reply,
+            session_id=session_id,
             id=row_id,
             source=source,
         )
-        await self._queue.put(trig)
+        await self._runtime.dispatch(trig)
         return EmitResult(row_id, False)
 
-    def park(self, spec: TriggerSpec) -> Optional[int]:
-        """Durably record a trigger WITHOUT enqueueing it.
+    # ─────────────────────── Consumer API (session loops) ───────────────────
 
-        Used for incoming user messages before session routing: the routing
-        LLM call takes seconds and a crash during it would otherwise lose
-        the message entirely. The caller settles the parked row once the
-        message reaches its destination (``settle_parked``); if it never
-        does, rehydration re-delivers the row as a fresh session.
-        """
-        fire_at = spec.fire_at if spec.fire_at is not None else time.time()
-        source = (
-            spec.source.value
-            if isinstance(spec.source, TriggerSource)
-            else str(spec.source)
-        )
-        row_id, _ = self._store.insert(
-            source=source,
-            description=spec.description,
-            fire_at=fire_at,
-            priority=spec.priority,
-            session_id=spec.session_id,
-            payload=spec.payload,
-            dedup_key=spec.dedup_key,
-            waiting_for_reply=spec.waiting_for_reply,
-        )
-        return row_id
-
-    def settle_parked(
-        self, row_id: Optional[int], delivered_as: Optional[int] = None
-    ) -> None:
-        """Mark a parked row as delivered to its destination.
-
-        Args:
-            row_id: The parked row (None is a no-op for convenience).
-            delivered_as: The store row that now carries the work — the new
-                session's trigger row, or None when the message was attached
-                to an existing session's trigger via fire().
-        """
-        if row_id is None:
-            return
-        self._store.supersede([row_id], by_id=delivered_as)
-
-    # ─────────────────────── Consumer API ───────────────────────────────────
-
-    async def next(self) -> Trigger:
-        """Wait for the next due trigger and claim its store row."""
-        trig = await self._queue.get()
+    def claim(self, trig: Trigger) -> None:
+        """A session loop picked this trigger up — claim its store row."""
         if trig.id is not None:
             self._store.claim([trig.id])
-        return trig
 
     async def ack(self, trig: Trigger) -> None:
-        """The react cycle for this trigger completed."""
+        """The turn for this trigger completed."""
         if trig.id is not None:
             self._store.ack([trig.id])
 
     async def nack(self, trig: Trigger, error: str) -> None:
-        """The react cycle raised before completing — retry with backoff.
+        """The turn raised before completing — retry with backoff.
 
         attempts < MAX_ATTEMPTS: the row goes back to PENDING with an
-        exponential backoff floor and is re-enqueued. Otherwise it is parked
-        DEAD and surfaced via the dead-letter handler. (react() handles most
-        of its own errors internally; this path covers consumer-level
-        failures, so the retry budget is rarely consumed.)
+        exponential backoff floor and is re-dispatched. Otherwise it is
+        parked DEAD and surfaced via the dead-letter handler.
         """
         if trig.id is None:
             return
@@ -254,44 +201,10 @@ class TriggerService:
             next_action_description=trig.next_action_description,
             payload=dict(trig.payload),
             session_id=trig.session_id,
-            waiting_for_reply=trig.waiting_for_reply,
             id=trig.id,
             source=trig.source,
         )
-        await self._queue.put(retry_trig)
-
-    # ─────────────────────── fire() pass-through ────────────────────────────
-
-    async def fire(
-        self,
-        session_id: str,
-        *,
-        message: Optional[str] = None,
-        platform: Optional[str] = None,
-        living_ui_id: Optional[str] = None,
-    ) -> bool:
-        """Retarget a session's trigger to now, durably mirroring the change.
-
-        The store write happens before the in-memory mutation so an attached
-        user message survives a crash mid-react (today it would be lost).
-        """
-        patch: Dict[str, Any] = {}
-        if message:
-            patch["pending_user_message"] = message
-            if platform:
-                patch["pending_platform"] = platform
-        if living_ui_id:
-            patch["living_ui_id"] = living_ui_id
-        try:
-            self._store.update_for_fire(session_id, time.time(), patch)
-        except Exception as e:
-            logger.warning(f"[TriggerService] Failed to mirror fire() to store: {e}")
-        return await self._queue.fire(
-            session_id,
-            message=message,
-            platform=platform,
-            living_ui_id=living_ui_id,
-        )
+        await self._runtime.dispatch(retry_trig)
 
     # ─────────────────────── Boot recovery ──────────────────────────────────
 
@@ -299,13 +212,9 @@ class TriggerService:
         """Re-deliver every unfinished trigger from the previous run.
 
         1. CLAIMED orphans (in flight when the process died) → PENDING.
-        2. Load PENDING rows into the queue. Stale rows (> 24h past due,
-           mirroring the task TTL) are settled instead of re-fired; overdue
-           rows get an agent-judgment catch-up note (generalized Phase 0).
-
-        Must run BEFORE ``_schedule_restored_task_triggers()`` so boot-time
-        ``resume:{task_id}`` re-emits hit the dedup index instead of
-        double-enqueueing.
+        2. Load PENDING rows into the session queues. Stale rows (> 24h past
+           due) are settled instead of re-fired; overdue rows get an
+           agent-judgment catch-up note.
         """
         self._store.reclaim_claimed()
 
@@ -345,17 +254,9 @@ class TriggerService:
                 payload["overdue_seconds"] = overdue
                 description = f"{description}\n\n{note}"
 
-            # A row with no session is a parked user message whose routing
-            # never completed (crash mid-route). Re-deliver it as a fresh
-            # session — the agent handles it like a newly arrived message.
-            session_id = row["session_id"]
-            if not session_id:
-                session_id = uuid.uuid4().hex[:6]
-                self._store.update_session(row["id"], session_id)
-                logger.info(
-                    f"[TriggerService] Recovered unrouted trigger {row['id']} "
-                    f"as new session {session_id}"
-                )
+            # Rows from deleted or unknown sessions deliver to main so no
+            # durable work is silently lost.
+            session_id = row["session_id"] or MAIN_SESSION_ID
 
             trig = Trigger(
                 fire_at=row["fire_at"],
@@ -363,11 +264,10 @@ class TriggerService:
                 next_action_description=description,
                 payload=payload,
                 session_id=session_id,
-                waiting_for_reply=bool(row["waiting_for_reply"]),
                 id=row["id"],
                 source=row["source"] or "",
             )
-            await self._queue.put(trig)
+            await self._runtime.dispatch(trig)
             requeued += 1
 
         if stale_ids:
@@ -389,9 +289,10 @@ class TriggerService:
     # ─────────────────────── Session / reset cleanup ────────────────────────
 
     async def cancel_sessions(self, session_ids: List[str]) -> None:
-        """Settle a session's rows and drop its queued triggers."""
+        """Settle a session's rows and tear down its runtime lane."""
         self._store.cancel_sessions(session_ids)
-        await self._queue.remove_sessions(session_ids)
+        for session_id in session_ids:
+            await self._runtime.remove_session(session_id)
 
     def clear_all(self) -> None:
         """Wipe the store (agent reset path)."""

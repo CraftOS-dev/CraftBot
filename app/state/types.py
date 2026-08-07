@@ -9,7 +9,6 @@ All state type implementations are now in agent_core.
 from agent_core import (
     AgentProperties,
     ReasoningResult,
-    TaskSummary,
     MainState,
     DEFAULT_MAX_ACTIONS_PER_TASK,
     DEFAULT_MAX_TOKEN_PER_TASK,
@@ -18,7 +17,6 @@ from agent_core import (
 __all__ = [
     "AgentProperties",
     "ReasoningResult",
-    "TaskSummary",
     "MainState",
     "DEFAULT_MAX_ACTIONS_PER_TASK",
     "DEFAULT_MAX_TOKEN_PER_TASK",

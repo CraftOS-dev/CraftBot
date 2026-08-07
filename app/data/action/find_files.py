@@ -11,7 +11,7 @@ from agent_core import action
         "pattern": {
             "type": "string",
             "example": "*.pdf",
-            "description": "The file name or glob pattern to match. Supports wildcards like * and ?",
+            "description": "The file name or glob pattern to match. Supports wildcards like * and ?. To match any of several patterns in a single call, join them with '|' or ' OR ' instead of calling find_files multiple times, e.g. '*craftbot*|*craftos*' or '*.jpg OR *.png'.",
         },
         "recursive": {
             "type": "boolean",
@@ -21,7 +21,17 @@ from agent_core import action
         "base_directory": {
             "type": "string",
             "example": "/home/user/Documents",
-            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., /home/user/Documents or /Users/name/Desktop).",
+            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., /home/user/Documents or /Users/name/Desktop). To search multiple roots in one call, join them with '|' (e.g. '/home/user|/mnt/data'). Ignored if all_drives is true.",
+        },
+        "all_drives": {
+            "type": "boolean",
+            "example": False,
+            "description": "If true, search every local fixed drive/mount in one call instead of just base_directory (which is then ignored). Use this instead of calling find_files once per drive.",
+        },
+        "limit": {
+            "type": "integer",
+            "example": 500,
+            "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Pass 0 or omit for unlimited.",
         },
     },
     output_schema={
@@ -45,36 +55,25 @@ from agent_core import action
 )
 def find_file_by_name(input_data: dict) -> dict:
     import os
-    import fnmatch
+
+    from app.utils import file_index
 
     pattern = (input_data.get("pattern") or "").strip()
     recursive = bool(input_data.get("recursive", True))
+    all_drives = bool(input_data.get("all_drives", False))
     base_directory = (input_data.get("base_directory") or "").strip()
+    limit = input_data.get("limit")
 
     if not pattern:
         return {"status": "error", "matches": [], "message": "Pattern is required."}
 
-    # Default to user's home directory if not provided
-    if not base_directory:
-        base_directory = os.path.expanduser("~")
-
-    # Expand ~ and normalize base directory
-    base_directory = os.path.expanduser(base_directory)
-    base_directory = os.path.normpath(base_directory)
-
-    if not os.path.exists(base_directory):
-        return {
-            "status": "error",
-            "matches": [],
-            "message": f"Base directory does not exist: {base_directory}",
-        }
-
-    if not os.path.isdir(base_directory):
-        return {
-            "status": "error",
-            "matches": [],
-            "message": f"Base directory is not a directory: {base_directory}",
-        }
+    if all_drives:
+        base_directory = ""
+    else:
+        roots, error = file_index.resolve_roots(base_directory, windows=False)
+        if error:
+            return error
+        base_directory = "|".join(roots)
 
     # Normalize the pattern (if user passes a path, only use its basename as the match pattern)
     pattern = os.path.expanduser(pattern)
@@ -85,26 +84,9 @@ def find_file_by_name(input_data: dict) -> dict:
         else pattern
     )
 
-    matches = []
-    for root, dirs, files in os.walk(base_directory):
-        try:
-            for name in files:
-                if fnmatch.fnmatch(name, file_pattern):
-                    matches.append(os.path.abspath(os.path.join(root, name)))
-        except PermissionError:
-            # Skip directories we don't have access to
-            continue
-
-        if not recursive:
-            break
-
-    return {
-        "status": "success",
-        "matches": matches,
-        "message": ""
-        if matches
-        else f"No files matching '{file_pattern}' were found in '{base_directory}'.",
-    }
+    return file_index.find_files(
+        base_directory, file_pattern, recursive, all_drives, limit
+    )
 
 
 @action(
@@ -117,7 +99,7 @@ def find_file_by_name(input_data: dict) -> dict:
         "pattern": {
             "type": "string",
             "example": "*.pdf",
-            "description": "The file name or glob pattern to match. Supports wildcards like * and ?",
+            "description": "The file name or glob pattern to match. Supports wildcards like * and ?. To match any of several patterns in a single call, join them with '|' or ' OR ' instead of calling find_files multiple times, e.g. '*craftbot*|*craftos*' or '*.jpg OR *.png'.",
         },
         "recursive": {
             "type": "boolean",
@@ -127,7 +109,17 @@ def find_file_by_name(input_data: dict) -> dict:
         "base_directory": {
             "type": "string",
             "example": "C:/Users/user/Documents",
-            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., C:/Users/user/Documents or D:/Projects).",
+            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., C:/Users/user/Documents or D:/Projects). To search multiple drives/roots in one call, join them with '|' (e.g. 'C:/|D:/'). Ignored if all_drives is true.",
+        },
+        "all_drives": {
+            "type": "boolean",
+            "example": False,
+            "description": "If true, search every local fixed drive in one call instead of just base_directory (which is then ignored). Use this instead of calling find_files once per drive.",
+        },
+        "limit": {
+            "type": "integer",
+            "example": 500,
+            "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Pass 0 or omit for unlimited.",
         },
     },
     output_schema={
@@ -151,37 +143,25 @@ def find_file_by_name(input_data: dict) -> dict:
 )
 def find_file_by_name_windows(input_data: dict) -> dict:
     import os
-    import fnmatch
+
+    from app.utils import file_index
 
     pattern = (input_data.get("pattern") or "").strip()
     recursive = bool(input_data.get("recursive", True))
+    all_drives = bool(input_data.get("all_drives", False))
     base_directory = (input_data.get("base_directory") or "").strip()
+    limit = input_data.get("limit")
 
     if not pattern:
         return {"status": "error", "matches": [], "message": "Pattern is required."}
 
-    # Default to user's home directory if not provided
-    if not base_directory:
-        base_directory = os.path.expanduser("~")
-
-    # Windows-friendly normalization
-    base_directory = base_directory.replace("/", "\\")
-    base_directory = os.path.expanduser(base_directory)
-    base_directory = os.path.normpath(base_directory)
-
-    if not os.path.exists(base_directory):
-        return {
-            "status": "error",
-            "matches": [],
-            "message": f"Base directory does not exist: {base_directory}",
-        }
-
-    if not os.path.isdir(base_directory):
-        return {
-            "status": "error",
-            "matches": [],
-            "message": f"Base directory is not a directory: {base_directory}",
-        }
+    if all_drives:
+        base_directory = ""
+    else:
+        roots, error = file_index.resolve_roots(base_directory, windows=True)
+        if error:
+            return error
+        base_directory = "|".join(roots)
 
     pattern = pattern.replace("/", "\\")
     pattern = os.path.expanduser(pattern)
@@ -194,22 +174,6 @@ def find_file_by_name_windows(input_data: dict) -> dict:
         else pattern
     )
 
-    matches = []
-    for root, dirs, files in os.walk(base_directory):
-        try:
-            for name in files:
-                if fnmatch.fnmatch(name, file_pattern):
-                    matches.append(os.path.abspath(os.path.join(root, name)))
-        except PermissionError:
-            continue
-
-        if not recursive:
-            break
-
-    return {
-        "status": "success",
-        "matches": matches,
-        "message": ""
-        if matches
-        else f"No files matching '{file_pattern}' were found in '{base_directory}'.",
-    }
+    return file_index.find_files(
+        base_directory, file_pattern, recursive, all_drives, limit
+    )

@@ -1,4 +1,4 @@
-import React, { CSSProperties, ReactNode } from 'react'
+import { CSSProperties, ReactNode } from 'react'
 import styles from './Badge.module.css'
 
 export type BadgeVariant = 'default' | 'primary' | 'success' | 'warning' | 'error' | 'info'

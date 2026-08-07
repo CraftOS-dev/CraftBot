@@ -27,6 +27,7 @@ class MenuCommand(Command):
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """Execute the menu command."""
         # Check if we're in CLI mode

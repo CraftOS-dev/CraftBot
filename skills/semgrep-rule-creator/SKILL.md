@@ -124,7 +124,7 @@ rules:
 Test file (`insecure-eval.py`):
 ```python
 # ruleid: insecure-eval
-eval(request.args.get('code'))
+eval(request.args.get("code"))
 
 # ok: insecure-eval
 eval("print('safe')")

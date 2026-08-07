@@ -187,8 +187,6 @@ async def run_scenario(
     await agent.boot(browser_ui=False, verbose=False)
 
     # Reset in-memory + persisted runtime state. Keeps USER.md / MEMORY.md.
-    await agent.triggers.clear()
-    agent.task_manager.reset()
     agent.state_manager.reset()
     agent.event_stream_manager.clear_all()
     try:
@@ -269,26 +267,25 @@ async def run_scenario(
             finally:
                 agent._handle_external_event = orig_handler
 
-        # Drain the trigger queue. Each react() may enqueue follow-up triggers
-        # (task lifecycle) — keep pulling until the queue stays empty past a
-        # short grace window.
-        for _ in range(max_iterations):
-            deadline = asyncio.get_event_loop().time() + 1.5
-            while (
-                not agent.triggers._heap and asyncio.get_event_loop().time() < deadline
-            ):
-                await asyncio.sleep(0.1)
-            if not agent.triggers._heap:
-                break
-            try:
-                trig = await asyncio.wait_for(
-                    agent.trigger_service.next(), timeout=per_iter_timeout
-                )
-            except asyncio.TimeoutError:
-                break
-            await agent.react(trig)
-            # Settle the durable rows like the production consumer does —
-            # without this, claimed rows pile up and rehydrate next run.
-            await agent.trigger_service.ack(trig)
+        # Drain the per-session runtime. boot() started the session loops,
+        # which consume triggers (and ack their durable rows) on their own —
+        # each react() may enqueue follow-up triggers (run continuations), so
+        # keep waiting until every session queue stays empty past a short
+        # grace window.
+        loop = asyncio.get_event_loop()
+        overall_deadline = loop.time() + max_iterations * per_iter_timeout
+        idle_since: float | None = None
+        while loop.time() < overall_deadline:
+            pending = any(
+                q.has_pending() for q in agent.session_runtime._queues.values()
+            )
+            if pending:
+                idle_since = None
+            else:
+                if idle_since is None:
+                    idle_since = loop.time()
+                elif loop.time() - idle_since >= 1.5:
+                    break
+            await asyncio.sleep(0.1)
 
     return bridge_statuses

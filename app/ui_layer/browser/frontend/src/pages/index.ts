@@ -1,6 +1,5 @@
 // Page exports
 export { ChatPage } from './Chat'
-export { TasksPage } from './Tasks'
 export { DashboardPage } from './Dashboard'
 export { ScreenPage } from './Screen'
 export { WorkspacePage } from './Workspace'

@@ -186,8 +186,9 @@ Agent reads/writes SQLite database directly.
 
 ```python
 import sqlite3
-conn = sqlite3.connect('backend/living_ui.db')
-cursor = conn.execute('SELECT * FROM items')
+
+conn = sqlite3.connect("backend/living_ui.db")
+cursor = conn.execute("SELECT * FROM items")
 items = cursor.fetchall()
 ```
 

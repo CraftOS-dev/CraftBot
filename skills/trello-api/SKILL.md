@@ -543,23 +543,18 @@ await fetch(
 import os
 import requests
 
-headers = {'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+headers = {"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"}
 
 # Get boards
 boards = requests.get(
-    'https://gateway.maton.ai/trello/1/members/me/boards',
-    headers=headers
+    "https://gateway.maton.ai/trello/1/members/me/boards", headers=headers
 ).json()
 
 # Create card
 response = requests.post(
-    'https://gateway.maton.ai/trello/1/cards',
+    "https://gateway.maton.ai/trello/1/cards",
     headers=headers,
-    json={
-        'name': 'New Task',
-        'idList': 'LIST_ID',
-        'desc': 'Task description'
-    }
+    json={"name": "New Task", "idList": "LIST_ID", "desc": "Task description"},
 )
 ```
 

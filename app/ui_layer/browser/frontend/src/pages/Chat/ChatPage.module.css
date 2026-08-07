@@ -1,15 +1,10 @@
 /* ChatPage Component Styles */
 
 .chatPage {
+  position: relative;
   display: flex;
   height: 100%;
   overflow: hidden;
-}
-
-/* Resizing state - disable text selection */
-.chatPage.resizing {
-  cursor: col-resize;
-  user-select: none;
 }
 
 /* Chat Panel - Left Side (flexible) */
@@ -18,31 +13,6 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-/* Resize Handle */
-.resizeHandle {
-  position: relative;
-  width: 1px;
-  background: var(--border-primary);
-  cursor: col-resize;
-  flex-shrink: 0;
-}
-
-.resizeHandle::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -2px;
-  width: 5px;
-  background: transparent;
-  transition: background var(--transition-fast);
-}
-
-.resizeHandle:hover::after,
-.chatPage.resizing .resizeHandle::after {
-  background: var(--color-gray-300);
 }
 
 .messagesContainer {
@@ -85,7 +55,9 @@
   width: fit-content;
   max-width: 80%;
   gap: var(--space-2);
-  padding-bottom: var(--space-3);
+  /* Matches the 18px work-block → bubble break in the chat timeline so
+     turns keep one consistent rhythm. */
+  padding-bottom: 18px;
 }
 
 .messageWrapper.userWrapper {
@@ -99,10 +71,10 @@
 }
 
 .messageWrapper.systemWrapper {
-  margin-right: auto;
-  align-items: flex-start;
-  /* Align with agent bubbles (which are offset by the avatar slot) */
-  margin-left: calc(32px + var(--space-2));
+  /* Block centered in the panel, but its text stays left-aligned. */
+  margin: 0 auto;
+  align-items: center;
+  text-align: left;
 }
 
 .messageWrapper.errorWrapper {
@@ -209,8 +181,15 @@
 }
 
 .sender {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-weight: var(--font-semibold);
   font-size: var(--text-sm);
+}
+
+.errorCategoryIcon {
+  flex-shrink: 0;
 }
 
 .message.user .sender {
@@ -282,18 +261,6 @@
   width: 100%;
 }
 
-/* Status Bar */
-.statusBar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-primary);
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
 /* Input Area */
 .inputArea {
   display: flex;
@@ -332,235 +299,6 @@
   color: var(--text-muted);
 }
 
-/* Action Panel - Right Side (resizable) */
-.actionPanel {
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-secondary);
-  overflow: hidden;
-}
-
-.panelHeader {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-primary);
-}
-
-.panelHeader h3 {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.actionList {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-2);
-}
-
-.emptyActions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100px;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-/* Thin separator between the active and ended task sections. */
-.sectionDivider {
-  height: 1px;
-  margin: var(--space-2) var(--space-3);
-  background: var(--border-primary);
-}
-
-/* Shown above the divider when the active section is empty but the ended
-   section has rows — keeps the two-section structure visible. */
-.emptyActiveSection {
-  padding: var(--space-2) var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  font-style: italic;
-}
-
-/* Task Items */
-.taskGroup {
-  margin-bottom: var(--space-1);
-}
-
-.taskItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.taskItem:hover {
-  background: var(--bg-tertiary);
-}
-
-.taskItem.selected {
-  background: var(--color-primary-subtle);
-}
-
-.taskName {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Task cancel button - hidden by default, shown on hover */
-.taskCancelBtn {
-  opacity: 0;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  transition: opacity var(--transition-fast), color var(--transition-fast);
-}
-
-.taskItem:hover .taskCancelBtn {
-  opacity: 1;
-}
-
-.taskCancelBtn:hover {
-  color: var(--color-error);
-  background: var(--color-error-light);
-}
-
-/* Task mark-complete button - same hover-reveal pattern as cancel */
-.taskCompleteBtn {
-  opacity: 0;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  transition: opacity var(--transition-fast), color var(--transition-fast);
-}
-
-.taskItem:hover .taskCompleteBtn {
-  opacity: 1;
-}
-
-.taskCompleteBtn:hover {
-  color: var(--color-success);
-  background: var(--color-success-light);
-}
-
-/* Task resume button - shown on hover for terminal (ended) tasks */
-.taskResumeBtn {
-  opacity: 0;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  transition: opacity var(--transition-fast), color var(--transition-fast);
-}
-
-.taskItem:hover .taskResumeBtn {
-  opacity: 1;
-}
-
-.taskResumeBtn:hover {
-  color: var(--color-success);
-  background: var(--color-success-light);
-}
-
-/* Task delete button - shown on hover for terminal (ended) tasks */
-.taskDeleteBtn {
-  opacity: 0;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  transition: opacity var(--transition-fast), color var(--transition-fast);
-}
-
-.taskItem:hover .taskDeleteBtn {
-  opacity: 1;
-}
-
-.taskDeleteBtn:hover {
-  color: var(--color-error);
-  background: var(--color-error-light);
-}
-
-.spinning {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.loadingOlder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-
-/* Action Items */
-.actionsList {
-  padding-left: var(--space-4);
-  margin-top: var(--space-1);
-}
-
-.actionItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-.actionName {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.noActions {
-  padding: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-/* Active-state placeholder shown at the end of a task's child action list
-   (Thinking… / Waiting for reply… / Paused…). Non-interactive except for
-   an always-visible reply button when the task is waiting. */
-.placeholderItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-/* Reply button on the placeholder — same look as .taskReplyBtn but always
-   visible (no hover-revealed opacity). */
-.placeholderReplyBtn {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  transition: color var(--transition-fast), background var(--transition-fast);
-}
-
-.placeholderReplyBtn:hover {
-  color: var(--text-primary);
-  background: var(--color-primary-light);
-}
-
 /* Hidden file input */
 .hiddenFileInput {
   display: none;
@@ -571,16 +309,6 @@
    ───────────────────────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
-  /* Hide the Tasks & Actions panel in mobile - show only chat */
-  .actionPanel {
-    display: none;
-  }
-
-  /* Hide resize handle in mobile */
-  .resizeHandle {
-    display: none;
-  }
-
   /* Chat panel takes full width */
   .chatPanel {
     flex: 1;
@@ -599,10 +327,6 @@
 
   .inputArea {
     padding: var(--space-2);
-  }
-
-  .statusBar {
-    padding: var(--space-2) var(--space-3);
   }
 }
 
@@ -890,10 +614,10 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   Reply UI Styles
+   Message hover actions (copy)
    ───────────────────────────────────────────────────────────────────── */
 
-/* Agent wrapper needs padding-right for the reply button */
+/* Agent wrapper needs padding-right for the hover action buttons */
 .agentWrapper {
   padding-right: var(--space-8);
 }
@@ -902,7 +626,7 @@
   padding-left: var(--space-8);
 }
 
-/* Message bubble container - wraps bubble + attachments + reply button */
+/* Message bubble container - wraps bubble + attachments + hover actions */
 .messageBubbleContainer {
   position: relative;
   display: flex;
@@ -911,7 +635,7 @@
   min-width: 0;
 }
 
-/* Action buttons (reply, copy) outside the bubble - positioned in the
+/* Action buttons (copy) outside the bubble - positioned in the
  * wrapper's padding. Stacks vertically when there is more than one. */
 .messageActionsOutside {
   position: absolute;
@@ -939,61 +663,8 @@
   opacity: 1;
 }
 
-/* Reply bar above input - styled like pending attachments */
-.replyBar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  color: var(--text-primary);
-}
-
-.replyText {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.replyCancel {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  padding: 2px;
-  cursor: pointer;
-  color: var(--text-muted);
-  transition: color var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.replyCancel:hover {
-  color: var(--color-error);
-}
-
-/* Task reply button - shown on hover */
-.taskReplyBtn {
-  opacity: 0;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  transition: opacity var(--transition-fast), color var(--transition-fast);
-}
-
-.taskItem:hover .taskReplyBtn {
-  opacity: 1;
-}
-
-.taskReplyBtn:hover {
-  color: var(--text-primary);
-  background: var(--color-primary-light);
-}
-
-/* Reply context callout - shown above user message when replying */
+/* Reply context callout - the quoted agent message shown above the
+   user's text inside a replying user bubble. */
 .replyContextCallout {
   margin-bottom: var(--space-2);
   padding: var(--space-2) var(--space-3);
@@ -1012,5 +683,5 @@
 .replyContextCallout ul,
 .replyContextCallout ol {
   margin: var(--space-1) 0;
-  padding-left: var(--space-4);
 }
+

@@ -48,7 +48,7 @@ Match the literal vulnerable code:
 
 ```python
 # Original vulnerable code
-query = "SELECT * FROM users WHERE id=" + request.args.get('id')
+query = "SELECT * FROM users WHERE id=" + request.args.get("id")
 ```
 
 ```bash

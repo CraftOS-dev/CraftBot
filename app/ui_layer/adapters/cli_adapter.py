@@ -47,7 +47,6 @@ class CLIThemeAdapter(ThemeAdapter):
             StyleType.ERROR: "error",
             StyleType.INFO: "info",
             StyleType.SUCCESS: "success",
-            StyleType.TASK: "task",
             StyleType.ACTION: "action",
         }
         style = style_map.get(style_type, "info")
@@ -74,23 +73,14 @@ class CLIThemeAdapter(ThemeAdapter):
         self,
         name: str,
         status: str,
-        is_task: bool,
         indent: int = 0,
     ) -> str:
         """Format an action panel item."""
         fmt = _get_formatter()
-        if is_task:
-            if status == "running":
-                return fmt.format_task_start(name)
-            else:
-                success = status == "completed"
-                return fmt.format_task_end(name, success)
-        else:
-            if status == "running":
-                return fmt.format_action_start(name, is_sub_action=indent > 0)
-            else:
-                success = status == "completed"
-                return fmt.format_action_end(name, success, is_sub_action=indent > 0)
+        if status == "running":
+            return fmt.format_action_start(name, is_sub_action=indent > 0)
+        success = status == "completed"
+        return fmt.format_action_end(name, success, is_sub_action=indent > 0)
 
 
 class CLIChatComponent(ChatComponentProtocol):
@@ -128,9 +118,12 @@ class CLIChatComponent(ChatComponentProtocol):
 
         self._last_output_type = current_type
 
-    async def clear(self) -> None:
-        """Clear the console."""
-        self._messages.clear()
+    async def clear(self, session_id: Optional[str] = None) -> None:
+        """Clear the console (the CLI renders a single session at a time)."""
+        if session_id:
+            self._messages = [m for m in self._messages if m.session_id != session_id]
+        else:
+            self._messages.clear()
         self._last_output_type = "none"
         _get_formatter().clear_screen()
 
@@ -164,7 +157,6 @@ class CLIAdapter(InterfaceAdapter):
         super().__init__(controller, "cli")
         self._theme_adapter = CLIThemeAdapter(BaseTheme())
         self._chat = CLIChatComponent(self._theme_adapter)
-        self._current_task_name: Optional[str] = None
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -311,24 +303,6 @@ class CLIAdapter(InterfaceAdapter):
         else:
             super()._handle_system_message(event)
 
-    def _handle_task_start(self, event: UIEvent) -> None:
-        """Handle task start - print task message."""
-        task_name = event.data.get("task_name", "Task")
-        self._current_task_name = task_name
-        self._chat.ensure_blank_line()
-        print(_get_formatter().format_task_start(task_name))
-        self._chat.reset_output_type()
-
-    def _handle_task_end(self, event: UIEvent) -> None:
-        """Handle task end - print completion message."""
-        task_name = event.data.get("task_name", "Task")
-        status = event.data.get("status", "completed")
-        success = status == "completed"
-        self._chat.ensure_blank_line()
-        print(_get_formatter().format_task_end(task_name, success))
-        self._chat.reset_output_type()
-        self._current_task_name = None
-
     def _handle_action_start(self, event: UIEvent) -> None:
         """Handle action start - print action message."""
         action_name = event.data.get("action_name", "Action")
@@ -336,8 +310,7 @@ class CLIAdapter(InterfaceAdapter):
         # Skip hidden actions
         if fmt.is_hidden_action(action_name):
             return
-        is_sub = bool(self._current_task_name)
-        print(fmt.format_action_start(action_name, is_sub))
+        print(fmt.format_action_start(action_name))
         self._chat.reset_output_type()
 
     def _handle_action_end(self, event: UIEvent) -> None:
@@ -348,6 +321,5 @@ class CLIAdapter(InterfaceAdapter):
         if fmt.is_hidden_action(action_name):
             return
         success = not event.data.get("error")
-        is_sub = bool(self._current_task_name)
-        print(fmt.format_action_end(action_name, success, is_sub))
+        print(fmt.format_action_end(action_name, success))
         self._chat.reset_output_type()

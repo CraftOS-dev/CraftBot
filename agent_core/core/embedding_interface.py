@@ -14,7 +14,10 @@ Environment variables:
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from agent_core.core.errors import ClassifiedError
 
 import requests
 
@@ -22,7 +25,7 @@ from agent_core.core.models.factory import ModelFactory
 from agent_core.core.models.types import InterfaceType
 from agent_core.utils.logger import logger
 
-from agent_core.core.llm.google_gemini_client import GeminiAPIError, GeminiClient
+from agent_core.core.llm.google_gemini_client import GeminiClient
 
 
 class EmbeddingInterface:
@@ -91,26 +94,42 @@ class EmbeddingInterface:
             raise RuntimeError(f"Unknown provider {self.provider!r}")
 
     # ───────────────────── Provider-specific helpers ───────────────────
+    def _log_classified(self, tag: str, e: Exception) -> None:
+        """Log *e* through the shared classifier instead of raw str(e)."""
+        from agent_core.core.impl.llm.errors import classify_llm_error
+
+        info = classify_llm_error(e, provider=self.provider, model=self.model)
+        logger.error(f"[EMBEDDING] {tag}: {info.message}")
+
+    @staticmethod
+    def _not_initialised(provider: str, client_name: str) -> "ClassifiedError":
+        from agent_core.core.errors import ClassifiedError
+        from agent_core.core.impl.llm.errors import classify_llm_error
+
+        return ClassifiedError(
+            classify_llm_error(
+                RuntimeError(f"{client_name} client was not initialised."),
+                provider=provider,
+            )
+        )
+
     def _get_openai_embedding(self, text: str) -> Optional[List[float]]:
         try:
             response = self.client.embeddings.create(model=self.model, input=text)
             # OpenAI returns: response.data[0].embedding
             return response.data[0].embedding  # type: ignore[attr-defined]
         except Exception as e:
-            logger.exception(f"Error calling OpenAI Embedding API: {e}")
+            self._log_classified("OpenAI", e)
             return None
 
     def _get_gemini_embedding(self, text: str) -> Optional[List[float]]:
         if not self._gemini_client:
-            raise RuntimeError("Gemini client was not initialised.")
+            raise self._not_initialised("gemini", "Gemini")
 
         try:
             return self._gemini_client.embed_text(self.model, text=text)
-        except GeminiAPIError as e:
-            logger.exception(f"Gemini rejected the embedding request: {e}")
-            return None
         except Exception as e:
-            logger.exception(f"Error calling Gemini Embedding API: {e}")
+            self._log_classified("Gemini", e)
             return None
 
     def _get_byteplus_embedding(self, text: str) -> Optional[List[float]]:
@@ -137,7 +156,7 @@ class EmbeddingInterface:
                 return None
             return data.get("embedding")
         except Exception as e:
-            logger.exception(f"Error calling BytePlus Embedding API: {e}")
+            self._log_classified("BytePlus", e)
             return None
 
     def _get_bedrock_embedding(self, text: str) -> Optional[List[float]]:
@@ -148,7 +167,7 @@ class EmbeddingInterface:
         (Converse doesn't expose embeddings).
         """
         if not self._bedrock_client:
-            raise RuntimeError("Bedrock client was not initialised.")
+            raise self._not_initialised("bedrock", "Bedrock")
 
         try:
             import json as _json
@@ -165,7 +184,7 @@ class EmbeddingInterface:
             result = _json.loads(raw)
             return result.get("embedding")
         except Exception as e:
-            logger.exception(f"Error calling Bedrock Embedding API: {e}")
+            self._log_classified("Bedrock", e)
             return None
 
     def _get_ollama_embedding(self, text: str) -> Optional[List[float]]:
@@ -181,5 +200,5 @@ class EmbeddingInterface:
             # Ollama returns {"embedding": [floats]}
             return result.get("embedding", None)
         except Exception as e:
-            logger.exception(f"Error calling Ollama Embedding API: {e}")
+            self._log_classified("Ollama", e)
             return None

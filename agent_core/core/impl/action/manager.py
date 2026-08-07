@@ -53,7 +53,26 @@ try:
             if timeout is None:
                 return await fut
             task = asyncio.ensure_future(fut)
-            _done, pending = await asyncio.wait({task}, timeout=timeout)
+            try:
+                _done, pending = await asyncio.wait({task}, timeout=timeout)
+            except asyncio.CancelledError:
+                # Real wait_for GUARANTEES the wrapped future is cancelled
+                # when the outer await is cancelled; asyncio.wait does NOT
+                # cancel its input tasks, so without this branch a user
+                # force-stop unwound the turn while the executing ACTION
+                # kept running as an orphaned task — its message/file output
+                # landed seconds after "Run stopped." (PR #410). Cancel the
+                # inner task and AWAIT its unwind before re-raising: that
+                # wait is what keeps the stop spinner honest — an action
+                # whose sync body is mid-flight in a worker thread only
+                # unwinds when the thread finishes, so settlement (and the
+                # "Run stopped." bubble) waits for the last real work.
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+                raise
             if task in pending:
                 task.cancel()
                 try:
@@ -159,35 +178,6 @@ class ActionManager:
         self._get_parent_id = get_parent_id
         self._idempotency_guard = idempotency_guard
 
-    def _generate_unique_session_id(self) -> str:
-        """Generate a unique 6-character session ID.
-
-        Creates a short session ID using the first 6 hex characters of a UUID4.
-        Checks for duplicates against active task IDs from state_manager.
-
-        Returns:
-            A unique 6-character hex string session ID.
-        """
-        max_attempts = 100
-        for _ in range(max_attempts):
-            candidate = uuid.uuid4().hex[:6]
-
-            # Check against active task IDs from state manager
-            try:
-                main_state = self.state_manager.get_main_state()
-                existing_ids = set(main_state.active_task_ids) if main_state else set()
-            except Exception:
-                existing_ids = set()
-
-            if candidate not in existing_ids:
-                return candidate
-
-        # Fallback to full UUID hex if somehow all short IDs are taken
-        logger.warning(
-            "Could not generate unique 6-char session ID after 100 attempts, using full UUID"
-        )
-        return uuid.uuid4().hex
-
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
@@ -235,7 +225,7 @@ class ActionManager:
             logger.error(f"Provided action input is not a dict. action={action.name}")
 
         # Inject session_id into input_data so actions can access it
-        # This allows task_start to use session_id as task_id for stream isolation
+        # (used for per-session stream isolation and outbound routing)
         if input_data is None:
             input_data = {}
         if session_id:
@@ -257,7 +247,10 @@ class ActionManager:
         # re-execute work the ledger shows as already completed (or as
         # interrupted mid-flight, where the effect may have happened).
         idem_key = None
-        if getattr(action, "irreversible", False) and self._idempotency_guard:
+        # if getattr(action, "irreversible", False) and self._idempotency_guard:
+
+        # TODO: Temporary turning idempotency guard off.
+        if 1 == 0:
             try:
                 decision = self._idempotency_guard.begin(
                     action.name, input_data, session_id
@@ -354,6 +347,7 @@ class ActionManager:
 
         logger.debug(f"Starting execution of action {action.name}...")
 
+        was_cancelled = False
         try:
             # ────────────────────────────────────────────────────────────
             # 2. Execute
@@ -424,8 +418,19 @@ class ActionManager:
                     status = "success"
 
         except asyncio.CancelledError:
+            # A user force-stop cancelled the turn mid-action. Record the
+            # outcome (the event stream and idempotency ledger must show the
+            # action was cancelled), but DO NOT swallow the cancellation:
+            # catching CancelledError without re-raising un-cancels the task,
+            # and the react loop then treated "Action cancelled" as an
+            # ordinary failed action and started the NEXT LLM call — a zombie
+            # turn the stop's settlement wait could never catch, surfacing as
+            # "Stop settlement timed out" + forceful finalize (observed live
+            # 2026-08-07, PR #410). The re-raise happens AFTER persistence,
+            # at the end of this method.
             status = "error"
             outputs = {"error": "Action cancelled", "error_code": "cancelled"}
+            was_cancelled = True
         except Exception as e:
             status = "error"
             outputs = {"error": str(e)}
@@ -479,8 +484,9 @@ class ActionManager:
             session_id=session_id,
         )
 
-        # Emit waiting_for_user event if requested
-        if outputs and outputs.get("wait_for_user_reply", False):
+        # Emit waiting_for_user event when the action ends the run and the
+        # session goes back to waiting for the user's next input.
+        if outputs and outputs.get("end_turn", False):
             self._log_event_stream(
                 is_gui_task=is_gui_task,
                 event_kind="waiting_for_user",
@@ -527,6 +533,11 @@ class ActionManager:
         self._inflight.pop(run_id, None)
 
         logger.debug(f"Action {action.name} removed from in-flight tracking.")
+
+        if was_cancelled:
+            # Bookkeeping is done (event stream + ledger show the cancelled
+            # outcome); now let the stop actually stop the turn.
+            raise asyncio.CancelledError()
 
         return outputs
 
@@ -599,29 +610,33 @@ class ActionManager:
                 input_data=input_data,
             )
 
-        # Build tasks with appropriate session_ids
-        # For task_start actions, each gets a unique session_id to prevent task overwriting
-        # For other actions, use the parent session_id
-        parallel_tasks = []
-        for action, input_data in actions:
-            if action.name == "task_start":
-                # Generate unique session_id for each task_start to prevent overwriting
-                action_session_id = self._generate_unique_session_id()
-                logger.info(
-                    f"[PARALLEL] Assigning unique session_id {action_session_id} to task_start"
-                )
-            else:
-                action_session_id = session_id
-            parallel_tasks.append(execute_single(action, input_data, action_session_id))
+        # All parallel actions run under the parent session_id. Real tasks
+        # (not bare coroutines) so a cancelled batch can be awaited below.
+        parallel_tasks = [
+            asyncio.ensure_future(execute_single(action, input_data, session_id))
+            for action, input_data in actions
+        ]
 
         # Execute all actions in parallel
-        tasks = parallel_tasks
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            # User force-stop: gather cancels the children but raises without
+            # waiting for their unwind — which includes each action's
+            # cancelled-outcome bookkeeping and the wait for uninterruptible
+            # thread bodies. Settling here keeps the stop contract (spinner
+            # until the last in-flight action finalizes) for parallel batches
+            # exactly as execute_action keeps it for single ones (PR #410).
+            await asyncio.wait(parallel_tasks)
+            raise
 
-        # Process results, converting exceptions to error dicts
+        # Process results, converting exceptions to error dicts.
+        # BaseException, not Exception: a child's CancelledError would
+        # otherwise pass isinstance() and leak an exception OBJECT into the
+        # results list, crashing the status tally below.
         processed = []
         for i, result in enumerate(results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.error(f"[PARALLEL] Action {actions[i][0].name} failed: {result}")
                 processed.append(
                     {

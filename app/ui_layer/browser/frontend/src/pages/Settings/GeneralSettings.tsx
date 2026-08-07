@@ -11,8 +11,6 @@ import {
   RefreshCw,
   Upload,
   Trash2,
-  Eraser,
-  ListChecks,
   Package,
   PackageOpen,
 } from 'lucide-react'
@@ -28,7 +26,7 @@ import {
 } from '../../components/ui'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { useConfirmModal, useMascotVisibility } from '../../hooks'
+import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
@@ -78,7 +76,6 @@ export function GeneralSettings() {
   const version = useAppSelector(selectVersion)
   const dispatch = useAppDispatch()
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
-  const [mascotVisible, setMascotVisible] = useMascotVisibility()
   const [agentName, setAgentName] = useState(getInitialAgentName)
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
   const [theme, setTheme] = useState(getInitialTheme)
@@ -88,15 +85,6 @@ export function GeneralSettings() {
   const [showResetModal, setShowResetModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
-
-  // Clear Conversation / Clear Tasks state
-  const [isClearingConversation, setIsClearingConversation] = useState(false)
-  const [clearConversationStatus, setClearConversationStatus] =
-    useState<'idle' | 'success' | 'error'>('idle')
-  const [isClearingTasks, setIsClearingTasks] = useState(false)
-  const [clearTasksStatus, setClearTasksStatus] =
-    useState<'idle' | 'success' | 'error'>('idle')
-  const [clearTasksRemoved, setClearTasksRemoved] = useState<number | null>(null)
 
   // Agent profile picture
   const [profilePictureUrl, setProfilePictureUrl] = useState<string>(agentProfilePictureUrl)
@@ -287,22 +275,6 @@ export function GeneralSettings() {
         setResetStatus(d.success ? 'success' : 'error')
         setTimeout(() => setResetStatus('idle'), 3000)
       }),
-      onMessage('clear_conversation', (data: unknown) => {
-        const d = data as { success: boolean }
-        setIsClearingConversation(false)
-        setClearConversationStatus(d.success ? 'success' : 'error')
-        setTimeout(() => setClearConversationStatus('idle'), 3000)
-      }),
-      onMessage('clear_tasks', (data: unknown) => {
-        const d = data as { success: boolean; removed?: number }
-        setIsClearingTasks(false)
-        setClearTasksStatus(d.success ? 'success' : 'error')
-        setClearTasksRemoved(typeof d.removed === 'number' ? d.removed : null)
-        setTimeout(() => {
-          setClearTasksStatus('idle')
-          setClearTasksRemoved(null)
-        }, 3000)
-      }),
       onMessage('agent_file_read', (data: unknown) => {
         // Content goes to the slice; we only need to flip the per-file
         // loading flag locally.
@@ -466,30 +438,6 @@ export function GeneralSettings() {
     if (components.length === 0) return
     setIsResetting(true)
     send('reset', { components })
-  }
-
-  const handleClearConversation = () => {
-    confirm({
-      title: 'Clear Conversation',
-      message: 'Clear the chat history? Tasks (including running ones) and dashboard data are preserved.',
-      confirmText: 'Clear',
-      variant: 'danger',
-    }, () => {
-      setIsClearingConversation(true)
-      send('clear_conversation')
-    })
-  }
-
-  const handleClearTasks = () => {
-    confirm({
-      title: 'Clear Tasks',
-      message: 'Remove completed, failed, and aborted tasks from the panel? Running tasks remain visible. Dashboard usage data and task statistics will be preserved.',
-      confirmText: 'Clear',
-      variant: 'danger',
-    }, () => {
-      setIsClearingTasks(true)
-      send('clear_tasks')
-    })
   }
 
   const handleSaveUserMd = () => {
@@ -765,21 +713,6 @@ export function GeneralSettings() {
             <option value="system">System</option>
           </select>
         </div>
-
-        <div className={styles.toggleGroup}>
-          <div className={styles.toggleInfo}>
-            <span className={styles.toggleLabel}>Show mascot in chat panel</span>
-            <span className={styles.toggleDesc}>
-              Display the animated mascot above the Tasks &amp; Actions sidebar.
-            </span>
-          </div>
-          <input
-            type="checkbox"
-            className={styles.toggle}
-            checked={mascotVisible}
-            onChange={(e) => setMascotVisible(e.target.checked)}
-          />
-        </div>
       </div>
 
       <div className={styles.sectionFooter}>
@@ -870,84 +803,6 @@ export function GeneralSettings() {
         )}
       </div>
 
-      {/* Clear Data Section — compact */}
-      <div className={styles.dangerZone}>
-        <div className={styles.dangerRowList}>
-          <div className={styles.dangerRow}>
-            <Eraser size={16} className={styles.dangerRowIcon} />
-            <div className={styles.dangerRowInfo}>
-              <h4 className={styles.dangerRowTitle}>Clear Conversation</h4>
-              <p className={styles.dangerRowHint}>
-                Remove chat messages. Tasks and dashboard data are preserved.
-              </p>
-            </div>
-            <div className={styles.dangerRowAction}>
-              {clearConversationStatus === 'success' && (
-                <span className={styles.statusSuccess}>
-                  <Check size={14} /> Cleared
-                </span>
-              )}
-              {clearConversationStatus === 'error' && (
-                <span className={styles.statusError}>
-                  <X size={14} /> Failed
-                </span>
-              )}
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={handleClearConversation}
-                disabled={isClearingConversation}
-                icon={
-                  isClearingConversation
-                    ? <Loader2 size={14} className={styles.spinning} />
-                    : <Eraser size={14} />
-                }
-              >
-                {isClearingConversation ? 'Clearing...' : 'Clear'}
-              </Button>
-            </div>
-          </div>
-
-          <div className={styles.dangerRow}>
-            <ListChecks size={16} className={styles.dangerRowIcon} />
-            <div className={styles.dangerRowInfo}>
-              <h4 className={styles.dangerRowTitle}>Clear Tasks</h4>
-              <p className={styles.dangerRowHint}>
-                Remove completed, failed, and aborted tasks. Running tasks and dashboard data are preserved.
-              </p>
-            </div>
-            <div className={styles.dangerRowAction}>
-              {clearTasksStatus === 'success' && (
-                <span className={styles.statusSuccess}>
-                  <Check size={14} />
-                  {clearTasksRemoved !== null
-                    ? ` ${clearTasksRemoved} cleared`
-                    : ' Cleared'}
-                </span>
-              )}
-              {clearTasksStatus === 'error' && (
-                <span className={styles.statusError}>
-                  <X size={14} /> Failed
-                </span>
-              )}
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={handleClearTasks}
-                disabled={isClearingTasks}
-                icon={
-                  isClearingTasks
-                    ? <Loader2 size={14} className={styles.spinning} />
-                    : <ListChecks size={14} />
-                }
-              >
-                {isClearingTasks ? 'Clearing...' : 'Clear'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Reset Section */}
       <div className={styles.dangerZone}>
         <div className={styles.dangerHeader}>
@@ -955,7 +810,7 @@ export function GeneralSettings() {
           <h4>Reset Agent</h4>
         </div>
         <p className={styles.dangerDescription}>
-          Reset the agent to its initial state. This will clear the current task, conversation history,
+          Reset the agent to its initial state. This will clear chat sessions, conversation history,
           and restore the agent file system from templates. Saved settings and credentials are preserved.
         </p>
         <Button
