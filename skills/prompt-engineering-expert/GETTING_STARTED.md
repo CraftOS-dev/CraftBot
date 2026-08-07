@@ -42,9 +42,9 @@ response = client.messages.create(
     messages=[
         {
             "role": "user",
-            "content": "Review this prompt and suggest improvements: [PROMPT]"
+            "content": "Review this prompt and suggest improvements: [PROMPT]",
         }
-    ]
+    ],
 )
 ```
 

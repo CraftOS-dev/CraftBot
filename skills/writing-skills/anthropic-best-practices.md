@@ -867,13 +867,13 @@ def process_file(path):
     except FileNotFoundError:
         # Create file with default content instead of failing
         print(f"File {path} not found, creating default")
-        with open(path, 'w') as f:
-            f.write('')
-        return ''
+        with open(path, "w") as f:
+            f.write("")
+        return ""
     except PermissionError:
         # Provide alternative instead of failing
         print(f"Cannot access {path}, using default")
-        return ''
+        return ""
 ```
 
 **Bad example: Punt to CraftBot**:
@@ -902,7 +902,7 @@ MAX_RETRIES = 3
 
 ```python  theme={null}
 TIMEOUT = 47  # Why 47?
-RETRIES = 5   # Why 5?
+RETRIES = 5  # Why 5?
 ```
 
 ### Provide utility scripts

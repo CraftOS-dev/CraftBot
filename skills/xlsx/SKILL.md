@@ -82,16 +82,16 @@ For data analysis, visualization, and basic operations, use **pandas** which pro
 import pandas as pd
 
 # Read Excel
-df = pd.read_excel('file.xlsx')  # Default: first sheet
-all_sheets = pd.read_excel('file.xlsx', sheet_name=None)  # All sheets as dict
+df = pd.read_excel("file.xlsx")  # Default: first sheet
+all_sheets = pd.read_excel("file.xlsx", sheet_name=None)  # All sheets as dict
 
 # Analyze
-df.head()      # Preview data
-df.info()      # Column info
+df.head()  # Preview data
+df.info()  # Column info
 df.describe()  # Statistics
 
 # Write Excel
-df.to_excel('output.xlsx', index=False)
+df.to_excel("output.xlsx", index=False)
 ```
 
 ## Excel File Workflows
@@ -103,28 +103,28 @@ df.to_excel('output.xlsx', index=False)
 ### ❌ WRONG - Hardcoding Calculated Values
 ```python
 # Bad: Calculating in Python and hardcoding result
-total = df['Sales'].sum()
-sheet['B10'] = total  # Hardcodes 5000
+total = df["Sales"].sum()
+sheet["B10"] = total  # Hardcodes 5000
 
 # Bad: Computing growth rate in Python
-growth = (df.iloc[-1]['Revenue'] - df.iloc[0]['Revenue']) / df.iloc[0]['Revenue']
-sheet['C5'] = growth  # Hardcodes 0.15
+growth = (df.iloc[-1]["Revenue"] - df.iloc[0]["Revenue"]) / df.iloc[0]["Revenue"]
+sheet["C5"] = growth  # Hardcodes 0.15
 
 # Bad: Python calculation for average
 avg = sum(values) / len(values)
-sheet['D20'] = avg  # Hardcodes 42.5
+sheet["D20"] = avg  # Hardcodes 42.5
 ```
 
 ### ✅ CORRECT - Using Excel Formulas
 ```python
 # Good: Let Excel calculate the sum
-sheet['B10'] = '=SUM(B2:B9)'
+sheet["B10"] = "=SUM(B2:B9)"
 
 # Good: Growth rate as Excel formula
-sheet['C5'] = '=(C4-C2)/C2'
+sheet["C5"] = "=(C4-C2)/C2"
 
 # Good: Average using Excel function
-sheet['D20'] = '=AVERAGE(D2:D19)'
+sheet["D20"] = "=AVERAGE(D2:D19)"
 ```
 
 This applies to ALL calculations - totals, percentages, ratios, differences, etc. The spreadsheet should be able to recalculate when source data changes.
@@ -159,22 +159,22 @@ wb = Workbook()
 sheet = wb.active
 
 # Add data
-sheet['A1'] = 'Hello'
-sheet['B1'] = 'World'
-sheet.append(['Row', 'of', 'data'])
+sheet["A1"] = "Hello"
+sheet["B1"] = "World"
+sheet.append(["Row", "of", "data"])
 
 # Add formula
-sheet['B2'] = '=SUM(A1:A10)'
+sheet["B2"] = "=SUM(A1:A10)"
 
 # Formatting
-sheet['A1'].font = Font(bold=True, color='FF0000')
-sheet['A1'].fill = PatternFill('solid', start_color='FFFF00')
-sheet['A1'].alignment = Alignment(horizontal='center')
+sheet["A1"].font = Font(bold=True, color="FF0000")
+sheet["A1"].fill = PatternFill("solid", start_color="FFFF00")
+sheet["A1"].alignment = Alignment(horizontal="center")
 
 # Column width
-sheet.column_dimensions['A'].width = 20
+sheet.column_dimensions["A"].width = 20
 
-wb.save('output.xlsx')
+wb.save("output.xlsx")
 ```
 
 ### Editing existing Excel files
@@ -184,7 +184,7 @@ wb.save('output.xlsx')
 from openpyxl import load_workbook
 
 # Load existing file
-wb = load_workbook('existing.xlsx')
+wb = load_workbook("existing.xlsx")
 sheet = wb.active  # or wb['SheetName'] for specific sheet
 
 # Working with multiple sheets
@@ -193,15 +193,15 @@ for sheet_name in wb.sheetnames:
     print(f"Sheet: {sheet_name}")
 
 # Modify cells
-sheet['A1'] = 'New Value'
+sheet["A1"] = "New Value"
 sheet.insert_rows(2)  # Insert row at position 2
 sheet.delete_cols(3)  # Delete column 3
 
 # Add new sheet
-new_sheet = wb.create_sheet('NewSheet')
-new_sheet['A1'] = 'Data'
+new_sheet = wb.create_sheet("NewSheet")
+new_sheet["A1"] = "Data"
 
-wb.save('modified.xlsx')
+wb.save("modified.xlsx")
 ```
 
 ## Recalculating formulas

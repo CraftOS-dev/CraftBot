@@ -749,12 +749,12 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/calendly/scheduled_events',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
+    "https://gateway.maton.ai/calendly/scheduled_events",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
     params={
-        'user': 'https://api.calendly.com/users/AAAAAAAAAAAAAAAA',
-        'status': 'active'
-    }
+        "user": "https://api.calendly.com/users/AAAAAAAAAAAAAAAA",
+        "status": "active",
+    },
 )
 data = response.json()
 ```

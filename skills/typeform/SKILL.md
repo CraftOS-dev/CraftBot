@@ -257,9 +257,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/typeform/forms',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'page_size': 10}
+    "https://gateway.maton.ai/typeform/forms",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"page_size": 10},
 )
 ```
 

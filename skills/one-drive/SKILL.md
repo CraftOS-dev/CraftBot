@@ -539,19 +539,19 @@ import requests
 
 # List files in root
 response = requests.get(
-    'https://gateway.maton.ai/one-drive/v1.0/me/drive/root/children',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+    "https://gateway.maton.ai/one-drive/v1.0/me/drive/root/children",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
 )
 files = response.json()
 
 # Upload a file
 upload_response = requests.put(
-    'https://gateway.maton.ai/one-drive/v1.0/me/drive/root:/myfile.txt:/content',
+    "https://gateway.maton.ai/one-drive/v1.0/me/drive/root:/myfile.txt:/content",
     headers={
-        'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}',
-        'Content-Type': 'text/plain'
+        "Authorization": f"Bearer {os.environ['MATON_API_KEY']}",
+        "Content-Type": "text/plain",
     },
-    data='Hello, OneDrive!'
+    data="Hello, OneDrive!",
 )
 ```
 

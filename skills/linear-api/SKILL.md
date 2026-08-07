@@ -485,14 +485,14 @@ import os
 import requests
 
 response = requests.post(
-    'https://gateway.maton.ai/linear/graphql',
+    "https://gateway.maton.ai/linear/graphql",
     headers={
-        'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}',
-        'Content-Type': 'application/json'
+        "Authorization": f"Bearer {os.environ['MATON_API_KEY']}",
+        "Content-Type": "application/json",
     },
     json={
-        'query': '{ issues(first: 10) { nodes { id identifier title state { name } } } }'
-    }
+        "query": "{ issues(first: 10) { nodes { id identifier title state { name } } } }"
+    },
 )
 data = response.json()
 ```

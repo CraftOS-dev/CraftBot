@@ -170,9 +170,10 @@ def verify_signature(sig, data, key):
     if not key:
         return True  # No key = skip verification?!
 
+
 # Return value ignored
 signature.verify(data, sig)  # Throws on failure
-crypto.verify(data, sig)     # Returns False on failure
+crypto.verify(data, sig)  # Returns False on failure
 # Developer forgets to check return value
 ```
 

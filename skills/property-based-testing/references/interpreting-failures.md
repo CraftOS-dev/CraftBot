@@ -23,7 +23,7 @@ Start with the shrunk failing input from the test output.
 
 # Create standalone reproducer
 def test_reproduce():
-    s = '\x00'
+    s = "\x00"
     result = normalize(normalize(s))
     assert result == normalize(s)  # Fails
 ```
