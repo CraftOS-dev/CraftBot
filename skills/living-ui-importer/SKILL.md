@@ -1,15 +1,15 @@
 ---
 name: living-ui-importer
-description: Install Living UI apps from the marketplace or import Living UI V2 projects from a ZIP, a local folder, or a git URL. Registers, launches, and verifies imported projects.
+description: Install Living UI apps from the marketplace or import Living UI projects from a ZIP, a local folder, or a git URL. Registers, launches, and verifies imported projects.
 action-sets:
   - file_operations
   - living_ui
 ---
 
-# Living UI Importer (V2)
+# Living UI Importer
 
 Bring existing apps into this CraftBot: **marketplace installs** (pre-built
-apps from the catalogue), **V2 project imports** from a ZIP, a local folder
+apps from the catalogue), **Living UI project imports** from a ZIP, a local folder
 path, or a git URL, and **conversions** of foreign (non-Living-UI) apps —
 which are REBUILDS: the original code becomes reference material and the
 behavior is re-implemented on this platform. Be honest about that cost
@@ -25,13 +25,13 @@ before converting: nothing of the original code runs here.
 
 ## Conversion (foreign apps)
 
-`living_ui_convert(source=..., name?, description?)` scaffolds a fresh V2
+`living_ui_convert(source=..., name?, description?)` scaffolds a fresh Living UI
 project, ships the original source read-only at `reference/source/`,
 synthesizes `requirements.md` FROM that source, and dispatches the normal
 supervised build to the project's session — you are done after this call;
 progress streams to the project tab and the system announces the result.
 Pass `description` when the user said what matters ("keep the board, skip
-the admin panel"). If the source turns out to BE a Living UI V2 project the
+the admin panel"). If the source turns out to BE a Living UI project the
 action errors and points you to `living_ui_import`.
 
 ## Marketplace install
@@ -43,11 +43,11 @@ action errors and points you to `living_ui_import`.
 3. On success, tell the user the app name and URL. Marketplace apps are
    pre-built and pre-verified upstream — no walk-verify needed.
    NOTE: apps still in the legacy V1 format are rejected with a clear
-   error — the platform is V2-only. Tell the user that app hasn't been
+   error — the platform only runs current-format Living UIs. Tell the user that app hasn't been
    re-published for this version of CraftBot yet; do not improvise a
    workaround.
 4. On a launch error, treat it like any build failure: read ALL errors,
-   fix (the project is a normal V2 project under the ownership rules),
+   fix (the project is a normal Living UI project under the ownership rules),
    `living_ui_notify_ready` again.
 
 ## Project import (ZIP / folder / git URL)
@@ -58,7 +58,7 @@ action errors and points you to `living_ui_import`.
    port, shipped credentials stripped, kit re-vendored) and **queues a
    launch-and-verify run in the project's own session** — normally you are
    DONE after this call; the system announces the result.
-   Only Living UI V2 projects are accepted; anything else errors.
+   Only native Living UI projects are accepted; anything else errors.
 2. Only if the action says the verify run could not be queued, drive it
    yourself: `living_ui_notify_ready(project_id="<ID>")` then
    `living_ui_walk_verify(project_id="<ID>")` — the app is delivered, so
@@ -112,9 +112,9 @@ Changes to a running external app apply LIVE (no staging): edit →
 
 ## Notes
 
-- Imported/installed V2 projects are ordinary V2 projects afterwards:
+- Imported/installed projects are ordinary Living UI projects afterwards:
   operate them via the lui CLI (`ops` / `run` / `data`), modify them via
   the living-ui-modify workflow. (The lui CLI does NOT apply to external
   apps — their surface is craftbot.json + logs/app.log.)
 - Never edit `frontend/src/kit/`, `manifest.json`, or other system files
-  of a V2 project — the validation gate hashes them.
+  of a Living UI project — the validation gate hashes them.

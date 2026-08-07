@@ -16,7 +16,7 @@ verify, the caller "flips" — relaunches the real project (new migrations
 apply to real data at boot) and destroys the copy, and every test record
 dies with it.
 
-Composition mirrors V2Runner: the manager constructs and drives this class;
+Composition mirrors LivingUIRunner: the manager constructs and drives this class;
 it never reaches back into the manager or the registry. The authoritative
 "a staging copy exists" record lives in the factory host sidecar
 (.factory/host.json, key "staging") — actions redirect from it, the boot
@@ -114,10 +114,10 @@ class StagingSupervisor:
     about the manager's registry, sessions or broadcasting — the manager
     composes this class; it never reaches back."""
 
-    def __init__(self, living_ui_dir: Path, v2_runner) -> None:
+    def __init__(self, living_ui_dir: Path, runner) -> None:
         self.living_ui_dir = Path(living_ui_dir)
         self.root = self.living_ui_dir / "_staging" / "project"
-        self.v2_runner = v2_runner
+        self.runner = runner
         # Live process handles, keyed by project id. Best-effort only —
         # after a CraftBot restart the pid in the sidecar record is all
         # that's left, and destroy/reap fall back to it.
@@ -167,7 +167,7 @@ class StagingSupervisor:
             # re-vendors the kit and re-records hashes (same recovery the
             # ZIP-import path uses) — without it the gate's ownership step
             # fails with "modified: manifest.json".
-            await self.v2_runner.kit_sync(staging_dir)
+            await self.runner.kit_sync(staging_dir)
         except Exception:
             self._guarded_rmtree(staging_dir)
             raise

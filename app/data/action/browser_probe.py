@@ -76,7 +76,7 @@ async def browser_probe(input_data: dict) -> dict:
 
     from app.config import PROJECT_ROOT
 
-    cli = Path(PROJECT_ROOT) / "living-ui-v2" / "tools" / "src" / "cli.ts"
+    cli = Path(PROJECT_ROOT) / "living-ui" / "tools" / "src" / "cli.ts"
     out_dir = str(Path(input_data.get("project_path") or "/tmp") / "logs" / "verify")
     proc = await asyncio.create_subprocess_exec(
         "node",

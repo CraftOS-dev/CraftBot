@@ -1285,7 +1285,7 @@ async def living_ui_report_progress(input_data: dict) -> dict:
     name="living_ui_http",
     description=(
         "FALLBACK ONLY — prefer the lui CLI via run_shell "
-        "(node <craftbot-root>/living-ui-v2/tools/src/cli.ts ops|run|data <project_path> — ABSOLUTE path; call living_ui_usage(project_id) for the exact commands and the data schema) to "
+        "(node <craftbot-root>/living-ui/tools/src/cli.ts ops|run|data <project_path> — ABSOLUTE path; call living_ui_usage(project_id) for the exact commands and the data schema) to "
         "operate a Living UI. Use this action only when the shell is "
         "unavailable. Sends an HTTP request to a running Living UI project's "
         "backend to read or modify data (e.g., add a card to a kanban, fetch a list). "
@@ -2138,11 +2138,11 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
 @action(
     name="living_ui_import_zip",
     description=(
-        "Import a Living UI V2 project from an exported ZIP file (round-trip "
+        "Import a Living UI project from an exported ZIP file (round-trip "
         "with export): registers it as a NEW project with fresh identity and "
         "port, strips shipped credentials, and re-vendors the kit. The "
         "project is registered STOPPED — launch it with "
-        "living_ui_notify_ready, then living_ui_walk_verify. Only V2 Living "
+        "living_ui_notify_ready, then living_ui_walk_verify. Only Living "
         "UI exports are supported (foreign apps/repos are not)."
     ),
     default=False,
@@ -2175,7 +2175,7 @@ async def living_ui_marketplace_install(input_data: dict) -> dict:
     test_payload={"zip_path": "/tmp/test.zip", "simulated_mode": True},
 )
 async def living_ui_import_zip(input_data: dict) -> dict:
-    """Import a V2 export ZIP as a new registered project."""
+    """Import an exported Living UI ZIP as a new registered project."""
     zip_path = (input_data.get("zip_path") or "").strip()
     if input_data.get("simulated_mode"):
         return {
@@ -2225,13 +2225,13 @@ async def living_ui_import_zip(input_data: dict) -> dict:
 @action(
     name="living_ui_import",
     description=(
-        "Import a Living UI V2 project from ANY source: an exported ZIP "
+        "Import a Living UI project from ANY source: an exported ZIP "
         "file, a local folder path, or a git URL (GitHub downloads fast; "
         "other hosts are cloned depth-1). Registers it as a NEW delivered "
         "project with fresh identity and port, strips shipped credentials, "
         "re-vendors the kit, and queues a launch-and-verify run in the "
         "project's own session — you normally do NOT need to launch it "
-        "yourself. Only V2 Living UI projects import (a foreign app/repo is "
+        "yourself. Only Living UI projects import (a foreign app/repo is "
         "a REBUILD, not an import — say so instead of forcing it)."
     ),
     default=False,
@@ -2264,7 +2264,7 @@ async def living_ui_import_zip(input_data: dict) -> dict:
     test_payload={"source": "/tmp/test.zip", "simulated_mode": True},
 )
 async def living_ui_import(input_data: dict) -> dict:
-    """Import a V2 project from zip/folder/git and queue its verify run."""
+    """Import a Living UI project from zip/folder/git and queue its verify run."""
     source = (input_data.get("source") or "").strip()
     if input_data.get("simulated_mode"):
         return {
@@ -2353,14 +2353,14 @@ async def living_ui_import(input_data: dict) -> dict:
     name="living_ui_convert",
     description=(
         "REBUILD a foreign (non-Living-UI) app as a Living UI: scaffolds a "
-        "fresh V2 project, ships the original source (zip / folder / git "
+        "fresh Living UI project, ships the original source (zip / folder / git "
         "URL) as read-only reference material, synthesizes the requirements "
         "FROM that source, and dispatches the standard supervised build to "
         "the project's session. Use when the user wants an existing app "
-        "'imported' but living_ui_import rejected it as non-V2 — this is a "
+        "'imported' but living_ui_import rejected it as not a Living UI — this is a "
         "full rebuild (only the behavior carries over, never the code) and "
         "costs a full build run; tell the user that before calling. For "
-        "actual Living UI V2 projects use living_ui_import instead."
+        "actual Living UI projects use living_ui_import instead."
     ),
     default=False,
     mode="CLI",

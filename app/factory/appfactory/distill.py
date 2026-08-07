@@ -72,7 +72,7 @@ def distill(
     server_log: str = "",
     console_lines: Optional[List[str]] = None,
     project_path: str = "<project>",
-    cli: str = "node living-ui-v2/tools/src/cli.ts",
+    cli: str = "node living-ui/tools/src/cli.ts",
 ) -> List[DefectCard]:
     """Raw report → cards. Every card gets a repro and quoted evidence;
     candidate_cause is 'unknown' when no evidence line matches — a card must

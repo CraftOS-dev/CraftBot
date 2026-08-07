@@ -1,4 +1,4 @@
-/** Kit vendoring — wholesale copy, never merge (spec V2/D6). */
+/** Kit vendoring — wholesale copy, never merge (spec D6). */
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { SYSTEM_PATHS } from './hashes.ts';

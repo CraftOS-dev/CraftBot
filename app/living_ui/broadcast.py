@@ -54,9 +54,7 @@ def register_broadcast_callbacks(
     broadcast_build_event: Optional[
         Callable[[str, Dict[str, Any]], Awaitable[None]]
     ] = None,
-    broadcast_wizard_open: Optional[
-        Callable[[Dict[str, Any]], Awaitable[None]]
-    ] = None,
+    broadcast_wizard_open: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
 ) -> None:
     """Register broadcast callbacks for Living UI actions to use.
 

@@ -7,7 +7,7 @@ Run:  python3 -m app.living_ui.test_trigger_plane
 Style follows test_data_safety.py: a module-level assert script with
 hand-rolled duck-typed stubs, no pytest. The in-app half of the plane
 (guard, cooldown, queue, describe) is exercised live by
-living-ui-v2/scripts/a2app-selfcheck.sh §8 — this file covers the CraftBot
+living-ui/scripts/a2app-selfcheck.sh §8 — this file covers the CraftBot
 half.
 """
 
@@ -380,7 +380,7 @@ if not _AGENT_BASE:
     raise SystemExit(0)
 host = _RecvHost()
 report = AgentBase._report_living_ui_writes.__get__(host)
-cli = "node /x/living-ui-v2/tools/src/cli.ts data /apps/proj"
+cli = "node /x/living-ui/tools/src/cli.ts data /apps/proj"
 report(
     "lui_recpt001",
     [

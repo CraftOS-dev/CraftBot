@@ -115,6 +115,6 @@ Both are no-ops with an honest error/pending state when no agent is attached
   not delivered to the agent (era gate), so a requirement promising the
   response is unverifiable by design and will fail every walk.
 - Test each trigger after launch:
-  `node <craftbot-root>/living-ui-v2/tools/src/cli.ts trigger <project_path> <name> --param value`,
+  `node <craftbot-root>/living-ui/tools/src/cli.ts trigger <project_path> <name> --param value`,
   then `... requests <project_path>` to watch the outcome.
 - Document declared triggers in LIVING_UI.md (an "Agent Triggers" table).

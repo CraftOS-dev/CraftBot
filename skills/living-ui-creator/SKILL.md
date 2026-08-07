@@ -1,13 +1,13 @@
 ---
 name: living-ui-creator
-description: Create Living UI applications (V2 — PocketBase backend, React kit frontend). Scaffolds, develops, validates, and launches local web apps with persistent state and realtime UI.
+description: Create Living UI applications (PocketBase backend, React kit frontend). Scaffolds, develops, validates, and launches local web apps with persistent state and realtime UI.
 action-sets:
   - file_operations
   - code_execution
   - living_ui
 ---
 
-# Living UI Creator (V2)
+# Living UI Creator
 
 A Living UI is a self-contained local web app: **one PocketBase process** (data,
 auth, realtime, custom verbs) serving a **React frontend built from a preset
@@ -307,7 +307,7 @@ the app fetched it from the real source.
 ## Debugging
 
 - Full platform reference (bridge, jobs, kit API):
-  `living-ui-v2/docs/agent-guide.md` (repo-level, read on demand).
+  `living-ui/docs/agent-guide.md` (repo-level, read on demand).
 - Frontend runtime errors: `{project_path}/logs/frontend_console.log`
   (console.error/warn + uncaught errors are auto-relayed).
 - Server: `{project_path}/logs/pocketbase.log`.

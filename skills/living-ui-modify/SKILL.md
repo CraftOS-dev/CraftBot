@@ -1,13 +1,13 @@
 ---
 name: living-ui-modify
-description: Modify an existing Living UI application (V2 — PocketBase + React kit) — add features, change design, fix bugs — then re-validate and relaunch it.
+description: Modify an existing Living UI application (PocketBase + React kit) — add features, change design, fix bugs — then re-validate and relaunch it.
 action-sets:
   - file_operations
   - code_execution
   - living_ui
 ---
 
-# Living UI Modify (V2)
+# Living UI Modify
 
 You are changing an EXISTING app. Everything in the living-ui-creator skill
 applies (ownership rule, schema/verbs/UI order, kit usage, honesty rule) —

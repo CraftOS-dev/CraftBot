@@ -140,18 +140,18 @@ class LivingUIManager:
         self.living_ui_dir = self.workspace_root / "living_ui"
         self.living_ui_dir.mkdir(parents=True, exist_ok=True)
 
-        # V2 runner (PocketBase single-process projects). New projects are V2;
+        # Runner (PocketBase single-process projects). New projects are native;
         # V1 projects keep launching through the legacy pipeline.
         from app.config import PROJECT_ROOT
-        from app.living_ui.v2_runner import V2Runner
+        from app.living_ui.runner import LivingUIRunner
 
-        self.v2_runner = V2Runner(Path(PROJECT_ROOT) / "living-ui-v2")
+        self.runner = LivingUIRunner(Path(PROJECT_ROOT) / "living-ui")
 
         # Staging copies of delivered apps (modify-era data safety). Composed
-        # like v2_runner: the supervisor never reaches back into the manager.
+        # like runner: the supervisor never reaches back into the manager.
         from app.living_ui.staging import StagingSupervisor
 
-        self.staging = StagingSupervisor(self.living_ui_dir, self.v2_runner)
+        self.staging = StagingSupervisor(self.living_ui_dir, self.runner)
 
         # Load existing projects
         self._load_projects()
@@ -336,7 +336,7 @@ class LivingUIManager:
                     # Attempt restart — TYPE-dispatched: an external app must
                     # restart via its own pipeline, not as PocketBase (the
                     # orphaned V1 machinery's sharpest bug: this call used to
-                    # hardcode v2_runner.start for every project type).
+                    # hardcode runner.start for every project type).
                     restart_ok = True
                     project.process = None
                     try:
@@ -352,12 +352,12 @@ class LivingUIManager:
                             if restart_ok:
                                 project.process = _res.pop("process")
                         else:
-                            project.process = await self.v2_runner.start(
+                            project.process = await self.runner.start(
                                 Path(project.path),
                                 project.port,
                                 bridge_token=project.bridge_token,
                             )
-                            restart_ok = await self.v2_runner.wait_healthy(project.port)
+                            restart_ok = await self.runner.wait_healthy(project.port)
                     except Exception as e:
                         logger.error(
                             f"[LIVING_UI:WATCHDOG] restart failed for {project_id}: {e}"
@@ -766,7 +766,7 @@ UI in {project.path}/frontend/src/app/."""
         except Exception as e:
             # Fail OPEN: this check exists to explain a brick, never to cause
             # a launch failure of its own.
-            logger.debug(f"[LIVING_UI:V2] migration-history check skipped: {e}")
+            logger.debug(f"[LIVING_UI] migration-history check skipped: {e}")
             return None
         applied_js = {str(r[0]) for r in rows if str(r[0]).endswith(".js")}
         on_disk = {p.name for p in mig_dir.glob("*.js")}
@@ -787,10 +787,10 @@ UI in {project.path}/frontend/src/app/."""
     async def _run_launch_pipeline(
         self, project_dir: Path, port: int, bridge_token: str
     ) -> dict:
-        """The V2 launch pipeline against an ARBITRARY project directory:
+        """The native launch pipeline against an ARBITRARY project directory:
         install → validation gate → serve → health → hook-load scan → smoke.
 
-        Registry-free on purpose: `_launch_v2` runs it on the real project
+        Registry-free on purpose: `_launch_native` runs it on the real project
         and adds status/persistence around it; `launch_staging` runs the SAME
         pipeline on a staging copy — one definition means fix missions get
         identical evidence quality (boot-log excerpts, hook-load failures)
@@ -799,14 +799,14 @@ UI in {project.path}/frontend/src/app/."""
         Returns {"status": "success", "process": Popen} — caller owns the
         process — or {"status": "error", "step": ..., "errors": [...]}.
         """
-        from app.living_ui.v2_runner import V2RunnerUnavailable
+        from app.living_ui.runner import LivingUIRunnerUnavailable
 
         def _fail(step: str, errors: list) -> dict:
             return {"status": "error", "step": step, "errors": errors}
 
         try:
-            self.v2_runner.ensure_available()
-        except V2RunnerUnavailable as e:
+            self.runner.ensure_available()
+        except LivingUIRunnerUnavailable as e:
             return _fail("setup", [str(e)])
 
         # Clear any stale listener before binding the port.
@@ -819,11 +819,11 @@ UI in {project.path}/frontend/src/app/."""
             return _fail("validation", [divergence])
 
         try:
-            await self.v2_runner.install(project_dir)
+            await self.runner.install(project_dir)
         except Exception as e:
             return _fail("install", [str(e)])
 
-        gate = await self.v2_runner.gate(project_dir)
+        gate = await self.runner.gate(project_dir)
         if not gate.passed:
             return _fail("validation", [gate.output])
 
@@ -855,13 +855,13 @@ UI in {project.path}/frontend/src/app/."""
                 return ""
 
         try:
-            process = await self.v2_runner.start(
+            process = await self.runner.start(
                 project_dir, port, bridge_token=bridge_token
             )
         except Exception as e:
             return _fail("start", [str(e)])
 
-        if not await self.v2_runner.wait_healthy(port):
+        if not await self.runner.wait_healthy(port):
             self._terminate_process(process)
             # A dead health check with no cause starved the agent before —
             # the boot abort (bad migration, hook panic) is in pocketbase.log
@@ -894,7 +894,7 @@ UI in {project.path}/frontend/src/app/."""
         # Walk-verify smoke pass (headless, invisible): app must mount with
         # zero console errors. 'skipped' (no browser) never blocks a launch.
         url = f"http://127.0.0.1:{port}"
-        verify_status, verify_detail = await self.v2_runner.verify(project_dir, url)
+        verify_status, verify_detail = await self.runner.verify(project_dir, url)
         if verify_status == "fail":
             self._terminate_process(process)
             # The browser sees only status codes; the CAUSE (hook exception,
@@ -907,7 +907,7 @@ UI in {project.path}/frontend/src/app/."""
             return _fail("verify", errors)
         if verify_status == "skipped":
             logger.warning(
-                f"[LIVING_UI:V2] verify skipped for {project_dir.name}: {verify_detail}"
+                f"[LIVING_UI] verify skipped for {project_dir.name}: {verify_detail}"
             )
 
         return {"status": "success", "process": process}
@@ -928,7 +928,7 @@ UI in {project.path}/frontend/src/app/."""
         the first real consumer of the M3/M4 four-verb contract
         (EXTERNAL-APPS-PLAN Phase A). Reduced gate per WORKFLOWS I-R2:
         install/build (when declared) + start + health. No kit, no lui gate,
-        no PocketBase anything. Same result envelope as the V2 pipeline.
+        no PocketBase anything. Same result envelope as the native pipeline.
         """
         project_dir = Path(project_dir)
 
@@ -1044,12 +1044,12 @@ UI in {project.path}/frontend/src/app/."""
 
         return {"status": "success", "process": process}
 
-    async def _launch_v2(self, project: LivingUIProject) -> dict:
-        """V2 launch of the REAL project: the shared pipeline plus registry
+    async def _launch_native(self, project: LivingUIProject) -> dict:
+        """Native launch of the REAL project: the shared pipeline plus registry
         state (status, url, persistence) and the pristine-baseline hook.
 
         One PocketBase process serves both the API and the built frontend
-        (living-ui-v2 spec D5); errors come back machine-readable so the
+        (living-ui spec D5); errors come back machine-readable so the
         building agent can fix and retry. EXTERNAL projects dispatch to
         their own pipeline executor — same registry handling around it.
         """
@@ -1109,9 +1109,9 @@ UI in {project.path}/frontend/src/app/."""
                     project_path / "pb" / "pb_data", baseline, self.living_ui_dir
                 )
         except Exception as e:
-            logger.warning(f"[LIVING_UI:V2] baseline snapshot skipped: {e}")
+            logger.warning(f"[LIVING_UI] baseline snapshot skipped: {e}")
 
-        logger.info(f"[LIVING_UI:V2] {project.name} running at {project.url}")
+        logger.info(f"[LIVING_UI] {project.name} running at {project.url}")
         return {
             "status": "success",
             "url": project.url,
@@ -1133,7 +1133,7 @@ UI in {project.path}/frontend/src/app/."""
         A missing baseline (legacy project, snapshot failure at first launch)
         is NOT an error: we skip the restore and deliver as today, never
         guess-wipe. Returns {"status": "success"} or an error dict in the
-        _launch_v2 envelope.
+        _launch_native envelope.
         """
         project = self.projects.get(project_id)
         if not project:
@@ -1146,7 +1146,7 @@ UI in {project.path}/frontend/src/app/."""
         baseline = project_path / ".snapshots" / "baseline"
         if not (baseline / "data.db").exists():
             logger.info(
-                f"[LIVING_UI:V2] no baseline for {project_id} — delivering without restore"
+                f"[LIVING_UI] no baseline for {project_id} — delivering without restore"
             )
             return {"status": "success", "restored": False}
 
@@ -1171,21 +1171,21 @@ UI in {project.path}/frontend/src/app/."""
             # pb_data may now be gone/partial — a plain start would boot an
             # empty DB. Fall through to the full pipeline, which re-applies
             # migrations and re-verifies before anyone is told "ready".
-            logger.error(f"[LIVING_UI:V2] baseline restore failed: {e}")
-            return await self._launch_v2(project)
+            logger.error(f"[LIVING_UI] baseline restore failed: {e}")
+            return await self._launch_native(project)
 
         try:
-            project.process = await self.v2_runner.start(
+            project.process = await self.runner.start(
                 project_path, project.port, bridge_token=project.bridge_token
             )
-            if not await self.v2_runner.wait_healthy(project.port):
+            if not await self.runner.wait_healthy(project.port):
                 raise RuntimeError(f"/api/health not responding on :{project.port}")
         except Exception as e:
             logger.warning(
-                f"[LIVING_UI:V2] slim relaunch after restore failed ({e}) — "
+                f"[LIVING_UI] slim relaunch after restore failed ({e}) — "
                 "falling back to the full pipeline"
             )
-            return await self._launch_v2(project)
+            return await self._launch_native(project)
 
         project.status = "running"
         project.url = f"http://127.0.0.1:{project.port}"
@@ -1210,7 +1210,7 @@ UI in {project.path}/frontend/src/app/."""
             get_factory_host().set_triggers_approved(project_id)
         except Exception as e:
             logger.warning(f"[LIVING_UI] trigger approval on delivery failed: {e}")
-        logger.info(f"[LIVING_UI:V2] {project_id} finalized for first delivery")
+        logger.info(f"[LIVING_UI] {project_id} finalized for first delivery")
         return {"status": "success", "restored": True}
 
     async def launch_staging(self, project_id: str) -> dict:
@@ -1219,7 +1219,7 @@ UI in {project.path}/frontend/src/app/."""
         written to — it keeps serving the old working code while the change
         is developed and verified in the copy.
 
-        Same result envelope as _launch_v2, plus url/port of the staging
+        Same result envelope as _launch_native, plus url/port of the staging
         instance on success.
         """
         from app.factory.host_craftbot import get_factory_host
@@ -1378,7 +1378,7 @@ UI in {project.path}/frontend/src/app/."""
                 "errors": [f"Project path not found: {project.path}"],
             }
 
-        return await self._launch_v2(project)
+        return await self._launch_native(project)
 
     async def _ensure_port_available(self, port: int) -> bool:
         """Ensure a port is available, killing orphan processes if needed."""
@@ -1825,7 +1825,7 @@ UI in {project.path}/frontend/src/app/."""
         sanitized_name = self._sanitize_name(name)
         folder = f"{sanitized_name}_{project_id}"
 
-        # New projects are V2 (PocketBase single-process). The tools CLI does
+        # New projects are native (PocketBase single-process). The tools CLI does
         # the real scaffolding: blueprint copy, kit vendoring, placeholder
         # substitution, superuser bootstrap, system-file hash canon.
         port = self._allocate_port()
@@ -1833,7 +1833,7 @@ UI in {project.path}/frontend/src/app/."""
             auth_mode = "none"
 
         try:
-            result = await self.v2_runner.scaffold(
+            result = await self.runner.scaffold(
                 name=name,
                 description=description,
                 parent_dir=self.living_ui_dir,
@@ -1845,7 +1845,7 @@ UI in {project.path}/frontend/src/app/."""
             )
         except Exception as e:
             self._release_port(port)
-            raise RuntimeError(f"Failed to scaffold V2 project: {e}")
+            raise RuntimeError(f"Failed to scaffold project: {e}")
 
         project = LivingUIProject(
             id=project_id,
@@ -1862,7 +1862,7 @@ UI in {project.path}/frontend/src/app/."""
 
         self._register_acquired(project, delivered=False)
 
-        logger.info(f"[LIVING_UI] Created V2 project: {name} ({project_id})")
+        logger.info(f"[LIVING_UI] Created project: {name} ({project_id})")
         return project
 
     def _register_acquired(self, project: LivingUIProject, *, delivered: bool) -> None:
@@ -1950,8 +1950,8 @@ UI in {project.path}/frontend/src/app/."""
         return None
 
     @staticmethod
-    def _find_v2_root(root: Path) -> Optional[Path]:
-        """The V2 Living UI project dir inside a source tree (root or first
+    def _find_project_root(root: Path) -> Optional[Path]:
+        """The Living UI project dir inside a source tree (root or first
         level), or None when the tree is a FOREIGN app."""
         candidates = [root] + [d for d in sorted(root.iterdir()) if d.is_dir()]
         for c in candidates:
@@ -1973,7 +1973,7 @@ UI in {project.path}/frontend/src/app/."""
     ) -> LivingUIProject:
         """Import from a ZIP, a local folder, or a git URL — one door.
 
-        A V2 Living UI tree imports natively (identity rewrite, credential
+        A Living UI tree imports natively (identity rewrite, credential
         strip, kit re-canon, delivered registration). A FOREIGN tree is
         registered as an EXTERNAL project that will run AS-IS in its own
         runtime, adopted by an agent mission (EXTERNAL-APPS-PLAN — the user
@@ -1985,7 +1985,7 @@ UI in {project.path}/frontend/src/app/."""
         if kind == "folder":
             # Read-only: the user's folder is copied, never modified.
             root = Path(source).expanduser()
-            if self._find_v2_root(root) is not None:
+            if self._find_project_root(root) is not None:
                 return await self._import_project_tree(root, name)
             return await self._import_external_tree(root, name, origin=source)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1995,7 +1995,7 @@ UI in {project.path}/frontend/src/app/."""
                     zf.extractall(root)
             else:
                 self._fetch_git_source(source, root)
-            if self._find_v2_root(root) is not None:
+            if self._find_project_root(root) is not None:
                 return await self._import_project_tree(root, name)
             return await self._import_external_tree(root, name, origin=source)
 
@@ -2029,7 +2029,7 @@ UI in {project.path}/frontend/src/app/."""
 
         # CraftBot's config lives in craftbot.json — NEVER manifest.json,
         # which a foreign app may legitimately own (Chrome extensions, PWAs).
-        # Same four pipeline verbs as V2 manifests (REQUIREMENTS M3/M4);
+        # Same four pipeline verbs as native manifests (REQUIREMENTS M3/M4);
         # start/health run through {{PORT}} substitution.
         try:
             from app.config import get_app_version
@@ -2193,13 +2193,13 @@ UI in {project.path}/frontend/src/app/."""
     ) -> LivingUIProject:
         """Conversion (LIFECYCLE-PLAN Phase 4B): a foreign (non-Living-UI)
         app cannot be imported — its stack doesn't run here — so it is
-        REBUILT: scaffold a fresh V2 project, ship the original source as
+        REBUILT: scaffold a fresh Living UI project, ship the original source as
         read-only reference material, synthesize the requirements FROM that
         source, and let the normal supervised build implement them. Only the
         knowledge of what to build is imported; every delivered line is new.
 
         Returns the scaffolded project (pre-delivery — the caller dispatches
-        the standard build run). Raises on a V2 source (that's an import)."""
+        the standard build run). Raises on a native Living UI source (that's an import)."""
         import tempfile
 
         kind = self.detect_import_source(source)
@@ -2221,7 +2221,7 @@ UI in {project.path}/frontend/src/app/."""
     async def _convert_tree(
         self, root: Path, name: Optional[str], description: str, origin: str
     ) -> LivingUIProject:
-        # A V2 Living UI must go through import — converting it would throw
+        # A Living UI must go through import — converting it would throw
         # away a working app and rebuild it from prose.
         candidates = [root] + [d for d in sorted(root.iterdir()) if d.is_dir()]
         for c in candidates:
@@ -2235,7 +2235,7 @@ UI in {project.path}/frontend/src/app/."""
                         == 2
                     ):
                         raise ValueError(
-                            "This source IS a Living UI V2 project — use "
+                            "This source IS a Living UI project — use "
                             "living_ui_import, not conversion."
                         )
                 except ValueError:
@@ -2392,7 +2392,7 @@ UI in {project.path}/frontend/src/app/."""
     async def _import_project_tree(
         self, root: Path, name: Optional[str] = None
     ) -> LivingUIProject:
-        """The shared import pipeline: find the V2 project in the tree, copy
+        """The shared import pipeline: find the Living UI project in the tree, copy
         it in with a fresh identity + port, strip shipped credentials,
         re-canonize, register delivered.
 
@@ -2412,7 +2412,7 @@ UI in {project.path}/frontend/src/app/."""
         manifest = json.loads(raw_manifest)
         if manifest.get("livingUIVersion") != 2:
             raise ValueError(
-                "Only Living UI V2 projects can be imported (foreign apps need "
+                "Only native Living UI projects can be imported (foreign apps need "
                 "the conversion flow)"
             )
 
@@ -2481,7 +2481,7 @@ UI in {project.path}/frontend/src/app/."""
             )
 
         # Kit re-vendor + hash re-canon (identity rewrite invalidated the canon).
-        await self.v2_runner.kit_sync(dest)
+        await self.runner.kit_sync(dest)
 
         project = LivingUIProject(
             id=project_id,
@@ -2495,7 +2495,7 @@ UI in {project.path}/frontend/src/app/."""
         # gates/verifies run in staging mode, never a baseline restore.
         self._register_acquired(project, delivered=True)
 
-        logger.info(f"[LIVING_UI] Imported V2 project: {display} ({project_id})")
+        logger.info(f"[LIVING_UI] Imported project: {display} ({project_id})")
         return project
 
     def create_placeholder_project(
@@ -2504,7 +2504,7 @@ UI in {project.path}/frontend/src/app/."""
         """Register a lightweight "creating" project so a tab/progress screen
         appears immediately, before the real import/install populates it.
 
-        Used by async install flows (future V2 import/marketplace) so they
+        Used by async install flows (future import/marketplace) so they
         behave like the form-create flow; the installer must adopt this id so
         it overwrites this entry instead of creating a second tab.
 
@@ -2704,10 +2704,10 @@ UI in {project.path}/frontend/src/app/."""
 
             logger.info(f"[LIVING_UI:MARKETPLACE] Extracted {app_id} to {project_path}")
 
-            # COMPATIBILITY GATE: this platform only runs Living UI V2
+            # COMPATIBILITY GATE: this platform only runs current-format Living UIs
             # projects (root manifest.json, livingUIVersion 2, PocketBase
             # backend). Legacy V1 apps (config/manifest.json, FastAPI
-            # backend) are rejected until re-published as V2.
+            # backend) are rejected until re-published in the current format.
             mf = project_path / "manifest.json"
             is_v2 = False
             if mf.exists():
@@ -2731,8 +2731,8 @@ UI in {project.path}/frontend/src/app/."""
                     "status": "error",
                     "error": (
                         f"Marketplace app '{app_id}' is in the legacy V1 "
-                        "format and cannot run on this V2-only platform. It "
-                        "needs to be re-published as a V2 app in the "
+                        "format and cannot run on this platform. It "
+                        "needs to be re-published in the current format in the "
                         "marketplace."
                     ),
                 }
@@ -2802,7 +2802,7 @@ UI in {project.path}/frontend/src/app/."""
 
             # Identity rewrite touched hash-canonized files (manifest.json):
             # re-vendor the kit and re-canonize hashes, as zip import does.
-            await self.v2_runner.kit_sync(project_path)
+            await self.runner.kit_sync(project_path)
 
             # Create project instance
             project = LivingUIProject(
@@ -3049,7 +3049,7 @@ UI in {project.path}/frontend/src/app/."""
         from app.config import PROJECT_ROOT
         from app.triggers import TriggerSource, TriggerSpec
 
-        cli = f"{PROJECT_ROOT}/living-ui-v2/tools/src/cli.ts"
+        cli = f"{PROJECT_ROOT}/living-ui/tools/src/cli.ts"
         brief = (
             f"APP TRIGGER '{trigger_name}' fired by Living UI "
             f"'{project.name}' ({project.id}) — request row {request_id} in its "

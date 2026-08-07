@@ -9,7 +9,7 @@ import React from 'react'
  * tokens.css) that carries light AND dark palettes and follows the host's
  * mode. 'custom' pins the four core colors via the bridge's customColors.
  * Applied over postMessage: { type: 'livingui-theme', themeId, mode,
- * customColors? } (see living-ui-v2/kit/src/theme/bridge.ts).
+ * customColors? } (see living-ui/kit/src/theme/bridge.ts).
  */
 
 export type LivingUIStyleId =

@@ -1,13 +1,13 @@
 ---
 name: living-ui-manager
-description: Manage and operate Living UI projects (V2) — list, inspect, launch, stop, restart, use their data/ops, and diagnose issues. No code changes.
+description: Manage and operate Living UI projects — list, inspect, launch, stop, restart, use their data/ops, and diagnose issues. No code changes.
 action-sets:
   - core
   - file_operations
   - living_ui
 ---
 
-# Living UI Manager (V2)
+# Living UI Manager
 
 Operate and manage existing Living UIs. **Never edit code here** — if a request
 needs code changes, that's living-ui-modify.
@@ -31,7 +31,7 @@ needs code changes, that's living-ui-modify.
 
 Use the **`lui` CLI via run_shell**. ALWAYS use the ABSOLUTE CLI path —
 the shell's cwd is NOT the repo root, so relative paths fail. The CLI is
-`<craftbot-root>/living-ui-v2/tools/src/cli.ts` (craftbot-root = parent of
+`<craftbot-root>/living-ui/tools/src/cli.ts` (craftbot-root = parent of
 `agent_file_system`; in a Living UI session the [INTERACTING WITH LIVING UI]
 note contains the exact ready-to-run commands). `<CLI>` and `<project>` below
 are absolute paths.

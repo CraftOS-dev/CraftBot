@@ -2607,7 +2607,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 # Favicon injection edited the system-owned index.html —
                 # re-canonize hashes so the validation gate stays green.
                 try:
-                    await self._living_ui_manager.v2_runner.kit_sync(Path(project.path))
+                    await self._living_ui_manager.runner.kit_sync(Path(project.path))
                 except Exception as e:
                     logger.warning(f"[LIVING_UI:WIZARD] re-canon failed: {e}")
             elif str(config.get("icon", "")).startswith("lucide:"):
@@ -2691,13 +2691,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 try:
                     from app.factory.host_craftbot import get_factory_host
 
-                    get_factory_host().set_origin_session(
-                        project.id, origin_session
-                    )
+                    get_factory_host().set_origin_session(project.id, origin_session)
                 except Exception as e:
-                    logger.debug(
-                        f"[LIVING_UI:WIZARD] origin persist failed: {e}"
-                    )
+                    logger.debug(f"[LIVING_UI:WIZARD] origin persist failed: {e}")
                 try:
                     from app.triggers import TriggerSource, TriggerSpec
 

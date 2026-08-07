@@ -924,7 +924,7 @@ workspace/living_ui/<name>_<hash>/
 - `logs/pocketbase.log` (server-side) and `logs/frontend_console.log` (browser console): first place to grep when a project misbehaves.
 - Imported non-V2 apps register as **external** apps: they carry `craftbot.json` (install/build/start/health verbs, `{{PORT}}`) instead of `manifest.json` and log to `logs/app.log`.
 
-The fresh-project scaffold lives at [living-ui-v2/blueprint/](living-ui-v2/blueprint/). For lifecycle, see `## Living UI`.
+The fresh-project scaffold lives at [living-ui/blueprint/](living-ui/blueprint/). For lifecycle, see `## Living UI`.
 
 ### Files outside agent_file_system/
 
@@ -1146,7 +1146,7 @@ DO NOT silently change FORMAT.md. The user owns their style guide.
 
 ## Living UI
 
-"Living UI" = generated web apps served from CraftBot. Every project is a React frontend (vendored kit, shadcn-conventional components) plus one PocketBase backend process. Lifecycle is driven through the `living_ui` action set ([app/data/action/living_ui_actions.py](app/data/action/living_ui_actions.py)). The fresh-project scaffold lives at [living-ui-v2/blueprint/](living-ui-v2/blueprint/). File layout: see `## File System` "Living UI projects".
+"Living UI" = generated web apps served from CraftBot. Every project is a React frontend (vendored kit, shadcn-conventional components) plus one PocketBase backend process. Lifecycle is driven through the `living_ui` action set ([app/data/action/living_ui_actions.py](app/data/action/living_ui_actions.py)). The fresh-project scaffold lives at [living-ui/blueprint/](living-ui/blueprint/). File layout: see `## File System` "Living UI projects".
 
 ### Action surface (`living_ui` set)
 
@@ -1182,9 +1182,9 @@ living_ui_marketplace_list() /
 living_ui_marketplace_install(app_id, ...)  Install pre-built marketplace apps. As-is installs skip
                                             walk_verify.
 living_ui_import_zip(zip_path) /
-living_ui_import(source)                    Import a V2 project from ZIP / local folder / git URL.
-                                            Non-V2 sources register as external apps (craftbot.json).
-living_ui_convert(source, ...)              Rebuild a foreign app as V2: fresh scaffold, original kept
+living_ui_import(source)                    Import a Living UI project from ZIP / local folder / git URL.
+                                            Non-Living-UI sources register as external apps (craftbot.json).
+living_ui_convert(source, ...)              Rebuild a foreign app as a Living UI: fresh scaffold, original kept
                                             in reference/source/, requirements synthesized,
                                             supervised build dispatched.
 ```
@@ -1194,10 +1194,10 @@ living_ui_convert(source, ...)              Rebuild a foreign app as V2: fresh s
 Read/write a project's live data with the lui CLI via `run_shell` (absolute paths required):
 
 ```
-node <craftbot_root>/living-ui-v2/tools/src/cli.ts data <project_path> schema
-node <craftbot_root>/living-ui-v2/tools/src/cli.ts data <project_path> <collection> list|create|update|delete ...
-node <craftbot_root>/living-ui-v2/tools/src/cli.ts run  <project_path> <op-name> --param value
-node <craftbot_root>/living-ui-v2/tools/src/cli.ts ops  <project_path>
+node <craftbot_root>/living-ui/tools/src/cli.ts data <project_path> schema
+node <craftbot_root>/living-ui/tools/src/cli.ts data <project_path> <collection> list|create|update|delete ...
+node <craftbot_root>/living-ui/tools/src/cli.ts run  <project_path> <op-name> --param value
+node <craftbot_root>/living-ui/tools/src/cli.ts ops  <project_path>
 ```
 
 `living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. Writes to a delivered app's real data outside a staging arc are refused.
@@ -4514,7 +4514,7 @@ LIVING_UI.md              per-project doc inside a Living UI project            
 Living UI                 generated React + PocketBase apps served from CraftBot           ## Living UI
 LLM                       large language model used for text generation                    ## Models
 LLMConsecutiveFailureError  circuit-breaker on repeated LLM failures                       ## Errors / ## Models
-lui CLI                   node CLI for Living UI data/ops (living-ui-v2/tools)             ## Living UI
+lui CLI                   node CLI for Living UI data/ops (living-ui/tools)             ## Living UI
 MCP                       Model Context Protocol; external tool servers                    ## MCP
 mcp_<server_name>         action set name registered when an MCP server connects           ## MCP / ## Action Sets
 memory_search             hybrid vector+BM25 action over indexed agent_file_system files   ## Memory

@@ -271,7 +271,7 @@ def _render_config(config: Dict[str, Any], image_notes: List[str]) -> str:
 # ── prompts ─────────────────────────────────────────────────────────────────
 
 # One platform-truth block shared by interview + synthesis so the two can
-# never drift apart. Describes the V2 (PocketBase) platform.
+# never drift apart. Describes the (PocketBase) platform.
 _PLATFORM_REALITY = """PLATFORM REALITY (questions, options, and the final spec MUST fit it):
 - The app runs LOCALLY on the user's machine (localhost) as a single \
 PocketBase process. External services CANNOT reach it: never propose inbound \

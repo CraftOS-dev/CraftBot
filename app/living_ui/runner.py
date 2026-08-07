@@ -1,4 +1,4 @@
-"""V2 Living UI runner — thin adapter between CraftBot and the living-ui-v2
+"""Living UI runner — thin adapter between CraftBot and the living-ui
 workspace (spec REQUIREMENTS §14/I1).
 
 Consumes only the two public contracts:
@@ -41,12 +41,12 @@ class V2GateResult:
     output: str
 
 
-class V2RunnerUnavailable(RuntimeError):
-    """Node or the living-ui-v2 workspace is missing."""
+class LivingUIRunnerUnavailable(RuntimeError):
+    """Node or the living-ui workspace is missing."""
 
 
-class V2Runner:
-    """Drives V2 projects through scaffold → install → gate → serve."""
+class LivingUIRunner:
+    """Drives Living UI projects through scaffold → install → gate → serve."""
 
     def __init__(self, workspace_dir: Path):
         self.workspace_dir = Path(workspace_dir)
@@ -60,12 +60,12 @@ class V2Runner:
 
     def ensure_available(self) -> None:
         if self._node is None:
-            raise V2RunnerUnavailable(
+            raise LivingUIRunnerUnavailable(
                 "Node.js >= 24 is required to build Living UIs (not found on PATH)."
             )
         if not self.cli_path.exists():
-            raise V2RunnerUnavailable(
-                f"living-ui-v2 workspace not found at {self.workspace_dir}"
+            raise LivingUIRunnerUnavailable(
+                f"living-ui workspace not found at {self.workspace_dir}"
             )
 
     def _cli(self, *args: str) -> list:
@@ -221,7 +221,7 @@ class V2Runner:
         )
         if code != 0:
             logger.warning(
-                f"[LIVING_UI:V2] adapter-sync failed for {project_dir.name} "
+                f"[LIVING_UI] adapter-sync failed for {project_dir.name} "
                 f"(app will run with its existing adapter): {out[-300:]}"
             )
 
@@ -298,7 +298,7 @@ class V2Runner:
             )
             cred_file.chmod(0o600)
         except Exception as e:
-            logger.warning(f"[LIVING_UI:V2] could not persist .superuser: {e}")
+            logger.warning(f"[LIVING_UI] could not persist .superuser: {e}")
 
     def ensure_agent_token(self, project_dir: Path) -> str:
         """Guarantee the project has an agent token, and return it.
@@ -331,7 +331,7 @@ class V2Runner:
             token_file.write_text(token + "\n", encoding="utf-8")
             token_file.chmod(0o600)
         except Exception as e:
-            logger.warning(f"[LIVING_UI:V2] could not persist .agent-token: {e}")
+            logger.warning(f"[LIVING_UI] could not persist .agent-token: {e}")
         return token
 
     async def start(
@@ -361,11 +361,11 @@ class V2Runner:
             env["CRAFTBOT_BRIDGE_URL"] = f"http://localhost:{bridge_port}"
             env["CRAFTBOT_BRIDGE_TOKEN"] = bridge_token
             logger.info(
-                f"[LIVING_UI:V2] bridge env injected: URL=http://localhost:{bridge_port}, token={bridge_token[:8]}..."
+                f"[LIVING_UI] bridge env injected: URL=http://localhost:{bridge_port}, token={bridge_token[:8]}..."
             )
         else:
             logger.warning(
-                "[LIVING_UI:V2] no bridge token provided; AI features will be unavailable"
+                "[LIVING_UI] no bridge token provided; AI features will be unavailable"
             )
 
         process = subprocess.Popen(
@@ -387,7 +387,7 @@ class V2Runner:
             stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
-        logger.info(f"[LIVING_UI:V2] started PocketBase pid={process.pid} port={port}")
+        logger.info(f"[LIVING_UI] started PocketBase pid={process.pid} port={port}")
         return process
 
     async def verify(self, project_dir: Path, url: str) -> "tuple[str, str]":

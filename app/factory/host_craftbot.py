@@ -402,7 +402,7 @@ class FactoryHost:
         from app.factory.appfactory.distill import distill
 
         project = self._project(project_id)
-        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/living-ui-v2/tools/src/cli.ts"
+        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/living-ui/tools/src/cli.ts"
         cards = distill(
             walk_report=walk_report or "\n".join(defects or []),
             server_log=server_log,
@@ -505,7 +505,7 @@ class FactoryHost:
                 "do something DIFFERENT: reread the evidence below, reproduce with the "
                 "exact command, and check the server log after reproducing.\n"
             )
-        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/living-ui-v2/tools/src/cli.ts"
+        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/living-ui/tools/src/cli.ts"
         cards_text = "\n\n".join(c.render() for c in cards)[:6000]
         books = self._select_cookbooks(cards_text)
         books_text = (

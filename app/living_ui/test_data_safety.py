@@ -33,7 +33,7 @@ from app.data.action import living_ui_actions as LA
 from app.living_ui.manager import LivingUIManager, LivingUIProject
 from app.living_ui.pb_data_io import restore_pb_data, snapshot_pb_data
 from app.living_ui.staging import STAGING_PORT_RANGE, StagingSupervisor
-from app.living_ui.v2_runner import V2Runner
+from app.living_ui.runner import LivingUIRunner
 from app.living_ui.wizard import _unwrap_document, adapt_chosen, fresh_build_chosen
 
 
@@ -309,7 +309,7 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     project.bridge_token = "tok"
     mgr.projects["mgrtest01"] = project
-    mgr.staging.v2_runner = _StubRunner()  # no node in tests
+    mgr.staging.runner = _StubRunner()  # no node in tests
 
     living_ui_mod.get_living_ui_manager = lambda: mgr
     host_mod._HOST = None  # fresh singleton bound to this manager
@@ -397,8 +397,8 @@ with tempfile.TemporaryDirectory() as tmp:
     async def _fake_healthy(port, timeout=None):
         return True
 
-    mgr.v2_runner.start = _fake_start
-    mgr.v2_runner.wait_healthy = _fake_healthy
+    mgr.runner.start = _fake_start
+    mgr.runner.wait_healthy = _fake_healthy
     fin = asyncio.run(mgr.finalize_first_delivery("firstdel01"))
     assert fin["status"] == "success" and fin["restored"] is True
     assert _count(proj2_dir / "pb" / "pb_data" / "data.db") == 2, (
@@ -1005,7 +1005,7 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     project.bridge_token = "tok"
     mgr.projects["modarc001"] = project
-    mgr.staging.v2_runner = _StubRunner()
+    mgr.staging.runner = _StubRunner()
 
     living_ui_mod.get_living_ui_manager = lambda: mgr
     host_mod._HOST = None
@@ -1127,7 +1127,7 @@ print("§13 requirements-staleness belt: OK")
 with tempfile.TemporaryDirectory() as tmp:
     workspace = Path(tmp)
     mgr = LivingUIManager(workspace_root=workspace)
-    mgr.v2_runner.kit_sync = _StubRunner().kit_sync
+    mgr.runner.kit_sync = _StubRunner().kit_sync
     living_ui_mod.get_living_ui_manager = lambda: mgr
     host_mod._HOST = None
     host = host_mod.get_factory_host()
@@ -1331,7 +1331,7 @@ with tempfile.TemporaryDirectory() as tmp:
         def ensure_available(self):
             pass
 
-    mgr.v2_runner.scaffold = _ScaffoldStub().scaffold
+    mgr.runner.scaffold = _ScaffoldStub().scaffold
 
     _FAKE_DOC = (
         "# Express Todo — Requirements\n\n## Overview\nA todo app.\n\n## Features\n"
@@ -1360,13 +1360,13 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "## Original source" in req_text and "reference/source/" in req_text
     assert not host.is_delivered(project.id), "a conversion is a pre-delivery BUILD"
 
-    # A V2 source must be refused toward living_ui_import
+    # A native Living UI source must be refused toward living_ui_import
     v2src = Path(tmp) / "v2app"
     v2src.mkdir()
     (v2src / "manifest.json").write_text(_json.dumps({"livingUIVersion": 2}))
     try:
         asyncio.run(mgr.convert_foreign_source(str(v2src)))
-        raise AssertionError("V2 source must be refused")
+        raise AssertionError("Living UI source must be refused")
     except ValueError as e:
         assert "living_ui_import" in str(e)
 print("§17 conversion (manager): OK")
@@ -1561,11 +1561,11 @@ assert _CB_V and _CB_V != "0.0.0"
 with tempfile.TemporaryDirectory() as tmp:
     workspace = Path(tmp)
     mgr = LivingUIManager(workspace_root=workspace)
-    mgr.v2_runner.kit_sync = _StubRunner().kit_sync
+    mgr.runner.kit_sync = _StubRunner().kit_sync
     living_ui_mod.get_living_ui_manager = lambda: mgr
     host_mod._HOST = None
 
-    # V2 import: registry stamped with the ACQUIRING version; manifest keeps
+    # Import: registry stamped with the ACQUIRING version; manifest keeps
     # the original creator's version when the export carried one.
     src_dir = Path(tmp) / "exported22"
     _make_project_dir(Path(tmp), "prov220001", 3156)
@@ -1615,7 +1615,7 @@ print("§22 craftbot version provenance: OK")
 
 # ── §23 superuser upsert failure FAILS the launch (no installer popup) ─────
 with tempfile.TemporaryDirectory() as tmp:
-    runner23 = V2Runner(Path(tmp))
+    runner23 = LivingUIRunner(Path(tmp))
     proj23 = Path(tmp) / "proj"
     proj23.mkdir()
 

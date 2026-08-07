@@ -2093,13 +2093,13 @@ class AgentBase:
 
             from app.config import PROJECT_ROOT
 
-            _lui_cli = f"{PROJECT_ROOT}/living-ui-v2/tools/src/cli.ts"
+            _lui_cli = f"{PROJECT_ROOT}/living-ui/tools/src/cli.ts"
             mgr = get_living_ui_manager()
             if mgr:
                 proj = mgr.get_project(living_ui_project_id)
                 if proj and getattr(proj, "project_type", "native") == "external":
                     # EXTERNAL app: foreign code running as-is in its own
-                    # runtime — none of the V2 tooling below (lui CLI, PB
+                    # runtime — none of the Living UI tooling below (lui CLI, PB
                     # schema, bridge grants) applies to it.
                     return (
                         f"[Living UI context] This chat belongs to the "

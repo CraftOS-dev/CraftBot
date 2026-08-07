@@ -1,4 +1,4 @@
-# Agent Guide — Building and Operating a Living UI (V2)
+# Agent Guide — Building and Operating a Living UI
 
 Audience: the agent building or operating a Living UI project. This is the
 source document CraftBot's `living-ui-*` skills compile from (spec A5).

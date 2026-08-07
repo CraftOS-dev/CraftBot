@@ -1,5 +1,5 @@
 /**
- * lui kit-sync <project> — re-vendor the kit (wholesale replace, spec V2).
+ * lui kit-sync <project> — re-vendor the kit (wholesale replace).
  * Used by hosts on launch (auto for patch/minor) and opt-in externally (D8).
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';

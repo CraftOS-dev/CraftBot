@@ -67,7 +67,7 @@ _PREV_TODOS: Dict[str, Dict[str, str]] = {}
 _SNIPPET_MAX_LINES = 18
 _SNIPPET_MAX_CHARS = 900
 
-# ── entity extraction (V2: PocketBase + React kit) ──────────────────────────
+# ── entity extraction (PocketBase + React kit) ──────────────────────────
 
 # React components: export function/const/class Foo
 _COMPONENT_RE = re.compile(

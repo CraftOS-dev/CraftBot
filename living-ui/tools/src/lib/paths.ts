@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** The living-ui-v2 workspace root (this file is tools/src/lib/paths.ts). */
+/** The living-ui workspace root (this file is tools/src/lib/paths.ts). */
 export function workspaceRoot(): string {
   return dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 }
