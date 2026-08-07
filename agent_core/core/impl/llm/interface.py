@@ -643,7 +643,9 @@ class LLMInterface:
             raise LLMConsecutiveFailureError(self._consecutive_failures)
 
         if log_response:
-            logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
+            #logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
+            #REMOVEEEE
+            pass
 
         try:
             if self.provider in (
