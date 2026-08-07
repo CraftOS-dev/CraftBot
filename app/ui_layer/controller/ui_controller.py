@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.agent_base import AgentBase
     from app.ui_layer.adapters.base import InterfaceAdapter
 
+
 @dataclass
 class UIControllerConfig:
     """
@@ -295,7 +296,6 @@ class UIController:
         Returns True when a run was actually stopped. Run-state broadcasts
         ("stopping" then "idle") come from the agent, not from here.
         """
-        logger.warning("stop button pressed.")
         return await self._agent.request_run_stop(session_id or "main")
 
     async def notify_session_updated(self, session_id: str) -> None:

@@ -67,7 +67,6 @@ class SessionTriggerQueue:
         async with self._cv:
             if self._closed:
                 raise QueueClosed(self.session_id)
-            logger.warning(f"Trigger added: {trig.source}")
             heapq.heappush(self._heap, (trig.fire_at, next(self._seq), trig))
             self._cv.notify()
 
@@ -120,30 +119,9 @@ class SessionTriggerQueue:
                 return []
             now = time.time()
             batch: List[tuple] = []
-
-
-            logger.warning("-------------queue before pop")
-            for _, _, t in self._heap:
-                logger.warning(t)  
-
-                  
             while self._heap and self._heap[0][0] <= now:
-                entry = heapq.heappop(self._heap) #Storing the heappop
-                trigger = entry[2] #find the trigger
-
-                logger.warning(f"popping trigger: {trigger.source}")
-                logger.warning(f"trigger={trigger}")
-                batch.append(entry)
-
-
-            logger.warning("---------------queue after pop")
-            for _, _, t in self._heap:
-                logger.warning(t)
-
-
+                batch.append(heapq.heappop(self._heap))
             return [entry[2] for entry in batch]
-
-        
 
     async def purge(self, predicate) -> int:
         """Remove queued triggers matching ``predicate`` (a Trigger -> bool).
@@ -154,21 +132,14 @@ class SessionTriggerQueue:
         durable rows settle instead of rehydrating next boot. Returns the
         number of triggers removed.
         """
-      
         async with self._cv:
             if self._closed or not self._heap:
                 return 0
-            logger.warning("\n===== QUEUE BEFORE PURGE =====")
-            for _, _, trigger in self._heap:
-                logger.warning(trigger)
             kept = [entry for entry in self._heap if not predicate(entry[2])]
             removed = [entry[2] for entry in self._heap if predicate(entry[2])]
             if not removed:
                 return 0
             self._heap = kept
-            logger.warning("\n===== QUEUE AFTERRR PURGE =====")
-            for _, _, trigger in self._heap:
-                logger.warning(trigger)
             heapq.heapify(self._heap)
             self._notify_evicted(removed)
             return len(removed)

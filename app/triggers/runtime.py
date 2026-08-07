@@ -261,9 +261,7 @@ class SessionRuntimeManager:
         (bounded by STOP_SETTLE_TIMEOUT_S) before returning, so the caller
         can treat the return as "everything is shut".
         """
-        logger.warning("Stop requested ()")
         purged = await self._purge_continuations(session_id)
-        logger.warning("Purging continuations ()")
         turn = self._turns.get(session_id)
         turn_inflight = turn is not None and not turn.done()
 
@@ -290,11 +288,9 @@ class SessionRuntimeManager:
         except Exception as e:
             logger.warning(f"[SessionRuntime] Process kill failed: {e}")
 
-        logger.warning("Cancelling turn ()")
         turn.cancel()
         try:
             await asyncio.wait_for(signal.settled.wait(), STOP_SETTLE_TIMEOUT_S)
-            logger.warning("Turn settled ()")
         except asyncio.TimeoutError:
             # The turn is stuck in a non-cancellable await. Finalize anyway:
             # the UI must reach idle, and the abandoned coroutine can no
@@ -311,7 +307,6 @@ class SessionRuntimeManager:
 
     async def _purge_continuations(self, session_id: str) -> int:
         """Drop a session's queued run-continuation triggers."""
-        """I need to make a change here"""
         queue = self._queues.get(session_id)
         if queue is None:
             return 0

@@ -627,12 +627,19 @@ async def _atomic_action_internal_async(
             logger.debug(
                 f"[SYNC] Action '{action_name}' is sync, running in thread pool"
             )
-            loop = asyncio.get_running_loop()
-            execution_result = await loop.run_in_executor(
-                THREAD_POOL,
-                function_to_call,
-                input_data,
-            )
+            thread_future = THREAD_POOL.submit(function_to_call, input_data)
+            try:
+                execution_result = await asyncio.wrap_future(thread_future)
+            except asyncio.CancelledError:
+                # A user force-stop cancelled this turn, but a thread cannot
+                # be interrupted mid-body — and the stop contract (PR #410)
+                # is that settlement WAITS for in-flight work: the spinner
+                # runs until the last real action finishes, and only then
+                # "Run stopped." shows. Without this wait the thread became
+                # an orphan whose message/file output landed after the stop.
+                while not thread_future.done():
+                    await asyncio.sleep(0.05)
+                raise
 
         return execution_result
 

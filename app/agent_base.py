@@ -519,7 +519,6 @@ class AgentBase:
             trigger: The Trigger that wakes the session and describes when
                 and why it should act.
         """
-
         session_id = trigger.session_id or MAIN_SESSION_ID
 
         try:
@@ -1426,7 +1425,6 @@ class AgentBase:
         resurrecting it immediately would make the stop button a no-op.
         """
         self._lui_run_writes.pop(session_id, None)
-        logger.warning("Run stopped, agent base")
 
         # A force-stopped memory run must not leave the unprocessed buffer
         # frozen forever.
@@ -1442,7 +1440,6 @@ class AgentBase:
         if self.event_stream_manager:
             msg = "User force-stopped the run. The work in progress was halted."
             try:
-                logger.warning("run stopped.")
                 self.event_stream_manager.log(
                     "system",
                     msg,
