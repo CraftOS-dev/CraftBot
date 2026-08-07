@@ -58,5 +58,12 @@ export function useWheelZoom(
     return () => el.removeEventListener('wheel', onWheel)
   }, [ref, min, max, step])
 
+  // Bounds can move at runtime (MascotDisplay raises `min` as the stage
+  // gets wider relative to its height). Re-clamp the held value so it
+  // never sits outside the current bounds.
+  useEffect(() => {
+    setZoom(z => Math.max(min, Math.min(max, z)))
+  }, [min, max])
+
   return zoom
 }

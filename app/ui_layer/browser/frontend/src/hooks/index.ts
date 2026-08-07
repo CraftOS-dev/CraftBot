@@ -1,6 +1,5 @@
 export { useConfirmModal } from './useConfirmModal'
 export type { ConfirmModalState, ConfirmOptions } from './useConfirmModal'
 export { useDerivedAgentStatus } from './useDerivedAgentStatus'
-export { useMascotVisibility } from './useMascotVisibility'
 export { useSkillCreator } from './useSkillCreator'
 export type { SkillCreatorStatus } from './useSkillCreator'

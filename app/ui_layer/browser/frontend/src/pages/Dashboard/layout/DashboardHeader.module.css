@@ -1,0 +1,126 @@
+/* The dashboard header reads as one widget stretched across the full width:
+ * same surface recipe as WidgetChrome's .chrome — --bg-secondary, one hairline
+ * border, --radius-md — rather than the flush full-bleed toolbar used on
+ * WorkspacePage and ScreenPage. It sits above the grid and shares its gutter,
+ * so its left and right edges line up with the widget columns below.
+ *
+ * The margin is deliberately the same 12px as react-grid-layout's
+ * CONTAINER_PADDING; changing one without the other visibly misaligns the
+ * header from the first row of widgets. */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  row-gap: var(--space-2);
+  flex-shrink: 0;
+  margin: var(--space-3) var(--space-3) 0;
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+/* Left cluster: status dot, the status text block, then uptime. */
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.statusText {
+  min-width: 0;
+}
+
+.statusText h2 {
+  font-size: var(--text-sm);
+  margin-bottom: 0;
+}
+
+/* The derived status message is a whole sentence and the control cluster has
+ * first claim on the row's width, so it ellipsizes rather than wrapping the
+ * header to a second line. */
+.statusText p {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uptime {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* Right cluster: layout switcher, its three actions, and Add Widget. Wraps as
+ * one unit under the status block when the header gets too narrow. */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+/* The native UA arrow sits at its own fixed inset from the border and ignores
+ * padding-right entirely, so no amount of padding could give it breathing
+ * room. `appearance: none` drops it and .selectChevron overlays a lucide
+ * chevron at a controlled inset instead; it's pointer-events: none, so clicks
+ * on it fall through to the select. */
+.selectWrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.selectChevron {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-secondary);
+}
+
+/* --radius-md, not --radius-sm, to match the icon buttons sitting next to it.
+ * Hover mirrors the .secondary IconButton treatment so the whole row responds
+ * the same way. Focus is already covered by the global `select:focus` rule,
+ * which outspecifies this class.
+ *
+ * padding-right clears the overlaid chevron (14px icon + --space-2 inset)
+ * so long layout names ellipsize before running underneath it. */
+.layoutSelect {
+  appearance: none;
+  padding: var(--space-1) var(--space-6) var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  max-width: 200px;
+  min-width: 0;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.layoutSelect:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+/* Add Widget is the only labelled button in the cluster; a little air keeps it
+ * from reading as a fourth layout action. */
+.controls > button:last-child {
+  margin-left: var(--space-2);
+}
