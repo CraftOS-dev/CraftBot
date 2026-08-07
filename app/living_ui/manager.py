@@ -369,7 +369,13 @@ class LivingUIManager:
                             f"[LIVING_UI:WATCHDOG] {project.name} ({project_id}) restarted successfully"
                         )
                         retry_counts.pop(project_id, None)
-                        self._save_projects()
+                        try:
+                            self._save_projects()
+                        except Exception:
+                            logger.exception(
+                                "[LIVING_UI:WATCHDOG] Restart succeeded but "
+                                "state could not be persisted"
+                            )
 
             except asyncio.CancelledError:
                 break
@@ -450,13 +456,13 @@ class LivingUIManager:
         project.status = "error"
         project.error = f"{crash_str} crashed after {len(self.WATCHDOG_RETRY_DELAYS)} restart attempts"
         project.process = None
-        
+
         try:
-          self._save_projects()
+            self._save_projects()
         except Exception:
-          logger.exception(
-              "[LIVING_UI:WATCHDOG] Failed to persist crash state during escalation"
-          )
+            logger.exception(
+                "[LIVING_UI:WATCHDOG] Failed to persist crash state during escalation"
+            )
 
         # Wake the project's session to investigate and fix
         if not self._session_manager or not self._trigger_service:
