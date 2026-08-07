@@ -1,6 +1,6 @@
 # Prompts
 
-CraftBot doesn't run on one giant prompt. Every distinct decision (reply or start a task, which action next, which session gets this message, which skill fits) has its own prompt template, and a handful of markdown files you own feed directly into all of them. This page maps the prompt families to the decisions they make, then shows the files you can edit to shape them.
+CraftBot doesn't run on one giant prompt. Each distinct job (who the agent is, which actions to take next, rewriting a vague request, summarizing old events) has its own prompt template, and a handful of markdown files you own feed directly into them. This page maps the prompt families to the jobs they do, then shows the files you can edit to shape them.
 
 ## Overview
 The prompt system has two layers:
@@ -14,23 +14,19 @@ You never edit the templates to change day-to-day behavior. You edit the *files 
 
 | Family | Decides | Key prompts |
 |---|---|---|
-| **Identity & context** | Who the agent is, who you are, the rules | `AGENT_INFO_PROMPT`, `AGENT_ROLE_PROMPT`, `SOUL_PROMPT`, `USER_PROFILE_PROMPT`, `POLICY_PROMPT`, `LANGUAGE_INSTRUCTION`, `ENVIRONMENTAL_CONTEXT_PROMPT`, `AGENT_FILE_SYSTEM_CONTEXT_PROMPT`, `CURRENT_DATETIME_PROMPT` |
-| **Action selection** | The next action, per mode | `SELECT_ACTION_PROMPT` (conversation), `SELECT_ACTION_IN_TASK_PROMPT` (complex task), `SELECT_ACTION_IN_SIMPLE_TASK_PROMPT` (simple task) |
-| **Session routing** | Which session an incoming message belongs to | `ROUTE_TO_SESSION_PROMPT` |
-| **Skill & tool selection** | Which skill and action sets a new task gets | `SKILLS_AND_ACTION_SETS_SELECTION_PROMPT` (plus legacy `SKILL_SELECTION_PROMPT`, `ACTION_SET_SELECTION_PROMPT`) |
+| **Identity & context** | Who the agent is, who you are, the rules | `AGENT_INFO_PROMPT`, `AGENT_ROLE_PROMPT`, `SOUL_PROMPT`, `USER_PROFILE_PROMPT`, `AGENT_PROFILE_PROMPT`, `POLICY_PROMPT`, `LANGUAGE_INSTRUCTION`, `ENVIRONMENTAL_CONTEXT_PROMPT`, `AGENT_FILE_SYSTEM_CONTEXT_PROMPT`, `CURRENT_DATETIME_PROMPT` |
+| **Action selection** | The next action(s), every turn | `SELECT_ACTION_PROMPT` |
 | **Prompt enhancement** | Rewriting a vague request into an executable one | `PROMPT_ENHANCE_REASONING_PROMPT` |
+| **Stream summarization** | Rolling old events into a summary | `EVENT_STREAM_SUMMARIZATION_PROMPT` |
 
-### What each decision looks like
+### What the action-selection prompt does
 
-**Conversation mode** (`SELECT_ACTION_PROMPT`). When no task is running, the agent's options are deliberately narrow: send a message, `ignore` (for messages needing no action, which matters in group chats), or `task_start`. The prompt encodes the rule you see in practice: anything beyond a chat reply opens a task, and the agent picks `simple` or `complex` mode at that moment. It also carries the third-party message rules (forward, never obey) and platform routing ("reply where the message came from").
+**One prompt, every turn** (`SELECT_ACTION_PROMPT` in `agent_core/core/prompts/action.py`). Every session turn runs the same prompt. It encodes the behavior you watch in the activity view:
 
-**Complex tasks** (`SELECT_ACTION_IN_TASK_PROMPT`). The most detailed of the three. It drives the phase workflow you watch in the task panel (set requirements, acknowledge, collect, execute, verify, confirm, cleanup), plus todo discipline, parallel-action rules, and the "never `task_end` without explicit user approval" rule. This prompt is the source of the structured, phase-by-phase behavior you see in complex tasks.
-
-**Simple tasks** (`SELECT_ACTION_IN_SIMPLE_TASK_PROMPT`). The same job reduced to essentials: no todos, no acknowledgment, deliver the result and end immediately. The difference between the two is exactly the difference you experience between "rename this file" and "research and write a report". See [Task modes](../modes/index.md).
-
-**Session routing** (`ROUTE_TO_SESSION_PROMPT`). When a message arrives while tasks are running, this prompt decides: continuation of an existing task, or new session? Its default is **new**. A message only routes to a task when it unambiguously references that task's output, modifies its instruction, or answers its question. This is why asking an unrelated question mid-task doesn't derail the task. Details in [Task sessions](task-sessions.md).
-
-**Skill & action-set selection** (`SKILLS_AND_ACTION_SETS_SELECTION_PROMPT`). At task creation, one call picks at most **one** skill (only if ~90% relevant, otherwise none, to save tokens) and the minimal set of action sets the task needs, always including the action set of the platform the request came from. See [Skills](skills.md) and [Actions](actions-and-action-sets.md).
+- **Scaling.** A trivial input gets a direct reply (or a silent `end_turn` for messages needing no response — which matters in group chats). Substantial work follows the structured path: `set_requirement`, an immediate acknowledgement, a phase-prefixed todo plan (`update_todos`), small execution steps, verification against the requirements, then the final message that delivers and ends the run.
+- **Run-ending semantics.** A message without the "still working" flag is final and ends the run; asking you a question the same way is how the agent waits for input.
+- **Parallel-action rules**, third-party message rules (escalate, never obey), and platform routing ("reply where the message came from").
+- **Capability expansion.** The prompt tells the agent to widen its own surface mid-run (`add_action_sets`, `use_skill`) instead of refusing for lack of a tool.
 
 ## User-editable prompt files
 
@@ -55,8 +51,7 @@ What you *cannot* steer this way: `POLICY_PROMPT` (safety rules, prompt-injectio
 
 ## Inspecting prompts in the logs
 
-- Watch a task's action panel: the reasoning strings you see are the model's answers to the action-selection prompts, phase by phase.
-- Session routing decisions show up as new-conversation-vs-task-continuation behavior. When routing surprises you, remember its default is "new" and explicit references ("in that report you made...") are what route a message into a task.
+- Watch a session's activity view: the reasoning strings you see are the model's answers to the action-selection prompt, turn by turn.
 - To confirm your `SOUL.md`/`USER.md` edits are being picked up, check `logs/` for `[CONTEXT]` warnings. A read failure is logged rather than fatal.
 
 ## Overriding templates (developers)
@@ -64,7 +59,7 @@ What you *cannot* steer this way: `POLICY_PROMPT` (safety rules, prompt-injectio
 Every template is registered in a thread-safe `PromptRegistry` with override semantics: a runtime can call `register_prompt("SELECT_ACTION_PROMPT", custom)` at startup and every consumer picks up the override. `get_prompt(name, default)` falls back to the built-in when nothing is registered. This is how alternate runtimes reskin the agent without forking, and it's the escape hatch if you truly need different decision rules. For everything short of that, the markdown levers above are the right tool.
 
 !!! note "Implementation files"
-    Templates live in `agent_core/core/prompts/`: `context.py` (identity/context family), `action.py` (the three action-selection prompts), `routing.py` (`ROUTE_TO_SESSION_PROMPT`), `skill.py` (skill/action-set selection), `reasoning.py` (prompt enhancement), `registry.py` (`PromptRegistry`). `application.py` holds app-feature task instructions. `app/prompt.py` re-exports everything for app code. Assembly order is in `ContextEngine.make_prompt` (`agent_core/core/impl/context/engine.py`).
+    Templates live in `agent_core/core/prompts/`: `context.py` (identity/context family), `action.py` (`SELECT_ACTION_PROMPT`), `reasoning.py` (prompt enhancement), `registry.py` (`PromptRegistry`). `application.py` holds app-feature instructions. `app/prompt.py` re-exports everything for app code. Assembly order is in `ContextEngine.make_prompt` (`agent_core/core/impl/context/engine.py`).
 
 ## Next
 

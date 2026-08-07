@@ -41,17 +41,17 @@ CraftBot validates the token, stores it locally, and starts a listener that poll
 
 ## Step 3: how Telegram messages reach the agent
 
-A Telegram message is not a separate, cut-down chat channel. It enters the agent the same way a browser message does, so everything you already know about tasks applies.
+A Telegram message is not a separate, cut-down chat channel. It enters the agent the same way a browser message does, so everything you already know about runs applies.
 
 Here is the path a message takes:
 
 1. **The listener receives it.** While connected, CraftBot long-polls Telegram for new messages. Only messages that carry text are forwarded, and each is dispatched once.
 2. **It becomes a trigger.** The incoming message is turned into a `user_message` trigger, the same durable record a browser message creates. Triggers are written to disk before they run, so a message is not lost if CraftBot restarts mid-handling. See [Triggers](../core/concepts/triggers.md).
-3. **It routes to a session.** The message runs through session routing exactly like a browser message. If it is a small ask or a question, it stays in conversation mode. If it asks for real work, the agent opens a task. If you are answering something a running task asked, it routes back into that task. This is the same automatic routing described in [Task sessions](../core/concepts/task-sessions.md).
-4. **The task runs the normal way.** Once a task starts, it plans, calls actions, and works through its todos identically to a task you started in the browser. See [Task modes](../core/modes/index.md).
-5. **Replies come back to Telegram.** The task records that it started from Telegram, so its messages and results go back to the chat you wrote from, not to the browser.
+3. **It lands in the main session.** Platform messages go to the agent's main session, and if several arrive while it's busy they fold into one turn. See [Sessions](../core/concepts/task-sessions.md).
+4. **The run works the normal way.** The agent scales its process to the request: a small ask gets a direct answer; real work gets requirements, a todo plan, and step-by-step execution — identically to a request from the browser. See [Runs](../core/modes/index.md).
+5. **Replies come back to Telegram.** The run records that your message came from Telegram, so its updates and results go back to the chat you wrote from, not to the browser.
 
-Two consequences are worth stating plainly. Long tasks keep running after you lock your phone, because the work lives in the agent, not in the chat window, and you get the result when it is done. And a task started from Telegram can send you progress updates and the final answer in that same chat as it goes.
+Two consequences are worth stating plainly. Long runs keep working after you lock your phone, because the work lives in the agent, not in the chat window, and you get the result when it is done. And work started from Telegram can send you progress updates and the final answer in that same chat as it goes.
 
 ## Step 4: send your first task from Telegram
 
@@ -64,19 +64,19 @@ write a one-page summary, and send it back to me here as a file.
 
 Watch what happens:
 
-1. The agent opens a task and starts working. A request this size becomes a complex task with a live todo list.
-2. It runs actions to research and write the summary. You can open the browser later to see the full action panel, but you do not have to.
+1. The agent acknowledges and starts working. A request this size gets a requirement contract and a live todo list.
+2. It runs actions to research and write the summary. You can open the browser later to see the full activity view, but you do not have to.
 3. When it finishes, it sends the summary into the Telegram chat and, because you asked for a file, attaches it as a document.
 
-You can steer the task from your phone while it runs. Send a follow-up like:
+You can steer the work from your phone while it runs. Send a follow-up like:
 
 ```
 Focus on automotive use, not consumer electronics.
 ```
 
-Because a task is already active for this chat, routing sends this into the running task instead of starting a new one, and the agent adjusts. If you instead send something unrelated, routing opens a fresh conversation so it does not derail the task. You never pick where a message goes. Routing decides, and it is deliberately conservative about interrupting running work. The rules are in [Task sessions](../core/concepts/task-sessions.md).
+Your message arrives in the same session, folds into the agent's next turn, and the agent adjusts course. The mechanics are in [Sessions](../core/concepts/task-sessions.md).
 
-**Checkpoint:** you sent a task from Telegram, received the summary and the attached file in the chat, and a follow-up message changed what the running task did.
+**Checkpoint:** you sent work from Telegram, received the summary and the attached file in the chat, and a follow-up message changed what the agent did.
 
 ## Step 5: tune it for personal use
 
@@ -84,7 +84,7 @@ For a personal assistant you talk to alone, restrict the bot to your own direct 
 
 **Direct messages only.** In **Settings → Integrations → Telegram Bot**, turn on **Private DMs only** (`self_messages_only`). With it on, only messages from one-to-one private chats reach the agent. Group, supergroup, and channel messages are dropped before dispatch. This keeps the bot focused on you and ignores any group it happens to be in. The listener re-reads this setting on every message, so the change applies without reconnecting.
 
-**Conversation versus task over chat.** Nothing about modes changes on Telegram. A plain question ("what's on my plate today?") is answered in conversation mode. A request with a deliverable opens a task. You do not send commands to switch. You phrase the message as a chat or as work, and the agent routes accordingly. See [Task modes](../core/modes/index.md).
+**Chat versus work over chat.** Nothing changes on Telegram. A plain question ("what's on my plate today?") gets a direct answer. A request with a deliverable gets the full structured treatment. You do not send commands to switch — you phrase the message as a chat or as work, and the agent scales its process accordingly. See [Runs](../core/modes/index.md).
 
 **Let the agent message you first.** With [proactive mode](../core/modes/proactive.md) on, the agent runs recurring work on a schedule and can push the result to you in Telegram. Set up a recurring task by asking in plain language, for example:
 
@@ -102,7 +102,7 @@ You can also drop the bot into a group so a team shares one agent. This is optio
 2. Add the bot to the group like any other member.
 3. In @BotFather, disable Privacy Mode for the bot. With Privacy Mode on, a bot only receives messages that address it directly, so it will not see normal group chatter. Re-add the bot to the group after changing this.
 
-In a busy group you rarely want the agent reacting to every line. Two behaviors help. Address the bot directly (mention it or reply to its message) so it is clear a message is for it. And in conversation mode the agent can deliberately ignore a message that needs no response, which is exactly the group case where most messages are people talking to each other, not to the agent. Conversation mode's `ignore` option is described in [Task modes](../core/modes/index.md).
+In a busy group you rarely want the agent reacting to every line. Two behaviors help. Address the bot directly (mention it or reply to its message) so it is clear a message is for it. And the agent can deliberately end a turn silently (`end_turn`) for messages that need no response, which is exactly the group case where most messages are people talking to each other, not to the agent. See [Quick requests](../core/modes/simple-task.md).
 
 ## Troubleshooting
 
@@ -120,4 +120,4 @@ In a busy group you rarely want the agent reacting to every line. Two behaviors 
 - [Telegram (Bot)](../integrations/telegram-bot.md): the full action list, configuration, and setup reference
 - [Telegram (User)](../integrations/telegram-user.md): connect your own account for a personal self-messaging inbox
 - [Proactive mode](../core/modes/proactive.md): recurring tasks the agent runs and reports on its own
-- [Task sessions](../core/concepts/task-sessions.md): how messages route to the right task, in the browser and over chat
+- [Sessions](../core/concepts/task-sessions.md): where messages land and how runs work, in the browser and over chat

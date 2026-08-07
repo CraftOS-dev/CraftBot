@@ -98,7 +98,7 @@ nav:
       - Concepts:
           - Agent loop: core/concepts/agent-loop.md
           - Triggers: core/concepts/triggers.md
-          - Task sessions: core/concepts/task-sessions.md
+          - Sessions: core/concepts/task-sessions.md
           - Event stream: core/concepts/event-stream.md
           - Actions & action sets: core/concepts/actions-and-action-sets.md
           - Default actions: core/concepts/default-actions.md
@@ -111,11 +111,11 @@ nav:
           - Agent bundles: core/concepts/agent-bundles.md
           - Agent file system: core/concepts/agent-file-system.md
           - Logs: core/concepts/logs.md
-      - Task modes:
+      - Runs & workflows:
           - core/modes/index.md
-          - Simple task: core/modes/simple-task.md
-          - Complex task: core/modes/complex-task.md
-          - Special workflows: core/modes/special-workflows.md
+          - Quick requests: core/modes/simple-task.md
+          - Substantial work: core/modes/complex-task.md
+          - Background workflows: core/modes/special-workflows.md
           - Proactive: core/modes/proactive.md
       - Interfaces:
           - core/interfaces/index.md

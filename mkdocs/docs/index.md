@@ -41,13 +41,13 @@ That single command installs dependencies, registers CraftBot to start at login,
 
 <div class="grid cards" markdown>
 
-- :material-brain:{ .lg .middle } __Task execution in modes__
+- :material-brain:{ .lg .middle } __Work that scales to the request__
 
     ---
 
-    Quick requests run as lightweight simple tasks. Bigger requests become complex tasks with a live todo list and a confirmation step before closing. You never manage sessions. CraftBot routes each message to the right conversation or running task.
+    Quick requests get direct answers. Bigger requests get a requirement contract, a live todo list, and step-by-step execution you can watch. Run several chat sessions side by side; each keeps its own context.
 
-    [:octicons-arrow-right-24: Task modes](core/modes/index.md)
+    [:octicons-arrow-right-24: Runs](core/modes/index.md)
 
 - :material-lightning-bolt-outline:{ .lg .middle } __1,100+ built-in actions__
 

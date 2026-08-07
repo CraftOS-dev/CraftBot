@@ -1,65 +1,49 @@
-# Task modes
+# Runs
 
-Every message you send (and every scheduled event that fires) becomes exactly one kind of turn: a **conversation**, a **simple task**, a **complex task**, or one of two system-initiated **special workflows**. This page is the decision map: how CraftBot picks, what each mode is for, and where to read the full behavior of each.
+Every message you send (and every scheduled event that fires) wakes the agent for exactly one **run**: a stretch of work inside a **session** that starts on a trigger and continues turn by turn until the agent delivers its result or decides no reply is needed. There is one pipeline for all work, and the agent scales its process to the size of the request: a quick question gets a direct answer; a "project" gets a requirement contract, a live todo plan, and a verification pass before delivery. This page is the map; the linked pages are the full treatment.
 
-If you haven't run a task yet, do [Your first task](../../start/first-task.md) first. It walks you through one simple and one complex task live. These pages are the reference treatment.
+If you haven't run anything yet, do [Your first task](../../start/first-task.md) first. It walks you through one quick request and one substantial piece of work live. These pages are the reference treatment.
 
-## How a message becomes a mode
+## Sessions and runs
 
-Routing happens at the top of the agent loop (`react()` in `app/agent_base.py`), in a fixed order:
+The unit of work is a **session** (main, chat, or Living UI). Each session has its own event stream, its own durable trigger queue, and a serial consumer loop: one turn at a time per session, with different sessions running independently in parallel. How sessions and reply routing work is covered in [Sessions](../concepts/task-sessions.md).
 
-1. **Memory trigger?** A scheduled memory-processing event short-circuits everything else and runs the [memory workflow](special-workflows.md#the-memory-workflow).
-2. **Proactive trigger?** A heartbeat or planner event runs the [proactive workflow](special-workflows.md#the-proactive-workflow).
-3. **Is a task already running for this session?** If yes, the message routes into that task: the complex-task workflow if the task's mode is `complex`, the simple-task workflow if `simple`.
-4. **Otherwise: conversation mode.**
+A **run** is one wake of a session:
 
-Two things follow from this order. Special workflows never compete with your messages. They are separate turns with their own trigger types. And *you* never pick a mode: the routing is decided by session state, and the task mode itself is decided by the agent when it calls `task_start` with `task_mode: "simple"` or `"complex"` (default `complex`). How triggers and sessions drive this is covered in [Agent loop](../concepts/agent-loop.md), [Triggers](../concepts/triggers.md), and [Task sessions](../concepts/task-sessions.md).
+1. A trigger fires: your message, a scheduled event, or a workflow event. Everything currently due for that session folds into a single turn, presented to the agent as a numbered checklist ([Triggers](../concepts/triggers.md)).
+2. The agent works turn by turn through the same four-phase beat every time: select actions, prepare them, execute them, finalize ([Agent loop](../concepts/agent-loop.md)).
+3. The run ends when the only action(s) the agent selects are **terminal**: a final `send_message` (one without `continue_work=true`) or `end_turn`. Any other turn queues a continuation trigger and the next turn follows.
 
-## The three user-facing modes
+You never pick a mode and neither does the agent, because there are no modes: every turn runs the same pipeline, and the agent decides how much process the work deserves.
 
-| | Conversation | Simple task | Complex task |
-|---|---|---|---|
-| Exists when | No task running | `task_start` with `simple` | `task_start` with `complex` |
-| For | Chat, routing, clarification | Quick, obvious work | Multi-step work needing a plan |
-| Can do | Reply, start tasks, ignore | Full action surface of its action sets | Full action surface of its action sets |
-| Todo list | — | No | Yes — live, phase-prefixed |
-| Typical length | One turn | 2–3 actions | Many actions, many turns |
-| Ends | n/a | By itself, after delivering the result | Only after **you approve** the result |
-| Prompt caching | Prefix caching only | Session caching | Session caching |
+## How the agent scales its process
 
-Conversation mode is deliberately narrow: the agent can reply (`send_message`), start one or more tasks with `task_start` (several in parallel is allowed, so "research A and B" becomes two tasks at once), or deliberately `ignore` a message that needs no response (mostly relevant for group-chat integrations, where not every message is addressed to the agent). It cannot touch files, browse, or call integrations. All of that requires a task.
-
-## Which task mode does the agent pick?
-
-The agent decides at `task_start` based on the size of the request:
-
-| Signal in your request | Mode picked |
+| Signal in your request | What the agent does |
 |---|---|
-| Quick lookup, single answer, one obvious action | Simple |
-| Result is the reply itself — nothing for you to review | Simple |
-| More than ~3 actions, research, planning | Complex |
-| Output is a file or artifact you should approve | Complex |
-| Irreversible external effects (sends, purchases, config changes) | Complex |
-| "Project"-scale or multi-session work | Complex |
+| Quick lookup, single answer, 1-3 obvious actions | Executes the action(s) and replies; the reply is the final message and ends the run |
+| Input that needs no reply (an emoji ack, third-party noise) | `end_turn`: the run ends silently |
+| Multi-step work, file deliverables, irreversible operations, "projects" | Locks a requirement contract (`set_requirement`), acknowledges you, plans with `update_todos`, works phase by phase, verifies, then delivers |
 
-The mode is fixed for the task's lifetime. If a simple task turns out to be bigger than expected, the agent doesn't silently keep going. It ends the simple task with the partial result and schedules a complex follow-up. Details on both pages:
+The two paths in detail:
 
-- [Simple task](simple-task.md): lifecycle, auto-completion, what happens when the work grows
-- [Complex task](complex-task.md): the todo state machine, requirement contract, approval gate, limits
+- [Quick requests](simple-task.md): how small asks flow, and when the agent stays silent
+- [Substantial work](complex-task.md): the requirement contract, the todo phases, verification, and delivery
 
-## The special workflows
+## Asking you something
 
-Two turns are never started by you:
+There is no approval gate wired into the machinery and no waiting state. When the agent needs your input (including sign-off before an irreversible step), it makes the question its **final message**: the run ends, the session sleeps, and your reply wakes a **new run in the same session**. Because the session's event stream carries the full history, the new run picks up exactly where the old one left off. A follow-up after delivery works the same way, which makes revision a continuation rather than a restart.
 
-- **Memory**: a nightly (3 AM) distillation run that turns the day's events into long-term memory. See [Special workflows](special-workflows.md) and [Memory](../concepts/memory.md).
-- **Proactive**: heartbeats every 30 minutes and day/week/month planners that let the agent execute and plan recurring work on its own. See [Special workflows](special-workflows.md) for the mechanics and [Proactive](proactive.md) for the full user guide.
+## Workflow runs
 
-Both workflows do little themselves: they check their enable switch, then create an ordinary simple task loaded with a dedicated skill. The work itself runs through the same simple-task machinery described above.
+Some runs are never started by you. Memory processing, the proactive heartbeat, and the day/week/month planners run **in the main session** on the scheduler's clock: each run temporarily loads a dedicated skill (plus the action sets it needs), does its work silently, and unloads everything when the run ends.
+
+- [Workflow runs](special-workflows.md): schedules, what each workflow loads, and the silent-execution rules
+- [Proactive](proactive.md): the full user guide to recurring tasks, permission tiers, and the planners
 
 ## Related
 
 - [Your first task](../../start/first-task.md): the tutorial version of this page
-- [Agent loop](../concepts/agent-loop.md): the cycle every mode runs on
-- [Triggers](../concepts/triggers.md): what wakes the agent and carries the routing type
-- [Task sessions](../concepts/task-sessions.md): how parallel tasks and message routing work
+- [Agent loop](../concepts/agent-loop.md): the cycle every turn runs on
+- [Triggers](../concepts/triggers.md): what wakes the agent and how due triggers aggregate
+- [Sessions](../concepts/task-sessions.md): parallel sessions and message routing
 - [Scheduling](../concepts/scheduling.md): the scheduler that fires memory and proactive triggers

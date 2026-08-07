@@ -3,26 +3,26 @@
 When the agent does something unexpected (a task stalls, a schedule doesn't fire, an action errors) the logs are the ground truth. Every run writes a timestamped folder under `logs/` at the project root, capturing what every subsystem did, down to module and line number.
 
 ## Overview
-CraftBot logs with **Loguru**, and each process run gets **one folder**: `logs/<timestamp>/` (e.g. `logs/20260717085754/`). Inside, the same stream is split three ways by *who was speaking*:
+CraftBot logs with **Loguru**, and each process run gets **one folder**: `logs/<timestamp>/` (e.g. `logs/20260717085754/`). Inside, the same stream is split by *session* and by *who was speaking*:
 
 | File | Contains | Read it when |
 |---|---|---|
-| `main.log` | Only the main agent (plus framework startup) | You want the primary agent's story without sub-agent noise |
-| `all.log` | Everything, interleaved in true time order — main agent and every sub-agent | You're debugging anything that crosses agents, or just want the full picture. **Start here** |
-| `sub_<type>_<id>.log` | One file per sub-agent spawned during the run (e.g. `sub_research_agent_2a707e74.log`) | A specific delegated job misbehaved — see [Sub-agents](sub-agents.md) |
+| `all.log` | Everything, interleaved in true time order — every session, main agent and every sub-agent | You're debugging anything that crosses sessions or agents, or just want the full picture. **Start here** |
+| `<session_id>/session.log` | One folder per session; that session's own lines. The main session's folder is `main/` | You want one lane's story without the noise of the others |
+| `<session_id>/<agent_tag>.log` | One file per sub-agent, inside the session that spawned it | A specific delegated job misbehaved — see [Sub-agents](sub-agents.md) |
 
-The split works through an attribution tag: every line carries an `agent` field: `main` for the main agent, `sub:<type>:<id>` for lines emitted inside a sub-agent's run (including its actions and LLM calls). `main.log` and the per-sub-agent files are filtered views of the same stream. `all.log` keeps the cross-agent ordering that the filtered files lose.
+The split works through attribution tags: every line carries a `session` field and an `agent` field (`main` for the main agent, `sub:<type>:<id>` for lines emitted inside a sub-agent's run, including its actions and LLM calls). The per-session and per-sub-agent files are filtered views of the same stream. `all.log` keeps the cross-session ordering that the filtered files lose.
 
 ## Reading a line
 
 ```
-2026-07-17 02:17:32.811 | INFO     | main                   | app.scheduler.manager:initialize:83 - [SCHEDULER] Initialized with 5 schedule(s)
-^^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^   ^^^^                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-timestamp                 level      agent                    module:function:line                  message
+2026-07-17 02:17:32.811 | INFO     | main           | main                   | app.scheduler.manager:initialize:83 - [SCHEDULER] Initialized with 5 schedule(s)
+^^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^   ^^^^^^^^^^^^^   ^^^^                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+timestamp                 level      session         agent                    module:function:line                  message
 ```
 
 - **Level:** `DEBUG` < `INFO` < `WARNING` < `ERROR`. The file threshold is INFO, and the harness narrates generously at INFO, so most context is captured by default.
-- **Agent:** `main` or `sub:<type>:<id>` (the per-sub-agent files omit this column because the filename already says it).
+- **Session / agent:** which lane and which worker emitted the line.
 - **module:function:line** points at the exact source location. Open the module and jump to the line for full context.
 - Errors include full tracebacks (`backtrace` and `diagnose` are enabled).
 
@@ -36,7 +36,7 @@ Most subsystems prefix their messages with a bracketed tag, which makes grep the
 |---|---|
 | `[REACT]` | The agent loop — each trigger consumed, each reaction; `[REACT ERROR]` for caught loop-level exceptions |
 | `[ACTION]` | Action preparation and execution |
-| `[TASK]` | Task lifecycle — create, update, end |
+| `[SESSION]` | Session lifecycle and caches |
 | `[MEMORY]` | Memory indexing, processing, retrieval. See [Memory](memory.md) |
 | `[MCP]` | MCP server init, connection, tool calls |
 | `[SCHEDULER]` | Schedule loops: sleep-until times, wakes, fires. See [Scheduling](scheduling.md) |
@@ -51,11 +51,11 @@ Find the newest run first, since it's the one you almost always want:
 cd logs && ls -t | head -2        # newest run folders
 ```
 
-**Why did a task fail?** Errors first, then rewind for the story leading up to them:
+**Why did a run fail?** Errors first, then rewind for the story leading up to them:
 
 ```bash
 grep -n "ERROR" logs/<run>/all.log | tail -20
-grep -n "\[REACT ERROR\]\|\[TASK\]" logs/<run>/all.log
+grep -n "\[REACT ERROR\]" logs/<run>/all.log
 ```
 
 Then open `all.log` at the line numbers you found and read upward. The `[ACTION]` and `[REACT]` lines just before an error usually name the exact action and input that broke.
@@ -75,7 +75,7 @@ tail -f logs/<run>/all.log | grep "\[SCHEDULER\]"
 
 You'll see each loop's `sleeping until <time>` line and `Fired schedule: <id>` on every fire. This is the fastest way to confirm a schedule is armed and firing.
 
-**A sub-agent went wrong.** Read its dedicated file (`sub_<type>_<id>.log`) for the clean story, then find the same timestamps in `all.log` to see what the main agent was doing around it.
+**A sub-agent went wrong.** Read its dedicated file (`logs/<run>/<session_id>/<agent_tag>.log`, inside the session that spawned it) for the clean story, then find the same timestamps in `all.log` to see what the main agent was doing around it.
 
 ## Other log surfaces
 
@@ -89,7 +89,7 @@ When CraftBot runs as a background service, the service manager keeps its own se
 ## Configuration and limits
 
 - **Location:** `logs/` in the project root, one folder per process start. Restarting CraftBot begins a fresh folder. If a problem happened "yesterday", it's in an older folder, not the current one.
-- **Rotation:** `main.log` and `all.log` rotate at **50 MB** and are retained for **14 days**. Both are set in `app/logger.py` (`define_log_level()`), which is also where you'd change the format or thresholds.
+- **Rotation:** `all.log` and the per-session `session.log` files rotate at **50 MB** and are retained for **14 days**. Both are set in `app/logger.py`, which is also where you'd change the format or thresholds.
 - **Sub-agent files** exist only for runs that actually spawned sub-agents, and each sink is attached when the sub-agent starts and detached when it ends.
 - **Size:** the INFO threshold is verbose by design. A busy day of tasks produces logs in the hundreds of KB to MB range. Retention keeps this bounded.
 

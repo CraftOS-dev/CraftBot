@@ -22,8 +22,6 @@ The directory is seeded from templates in `app/data/agent_file_system_template/`
 | `MEMORY.md` | Memory processor only (nightly job) | **No** | Distilled long-term memory, one timestamped fact per line — see [Memory](memory.md) |
 | `EVENT.md` | Event stream manager | **No** | Append-only chronological log of every event (actions, messages, errors) |
 | `EVENT_UNPROCESSED.md` | Event stream manager | **No** | Staging buffer of events awaiting the nightly memory run; cleared after each run |
-| `TASK_HISTORY.md` | Appended on every `task_end` | **No** | One summary section per finished task: status, timestamps, outcome, skills used |
-| `CONVERSATION_HISTORY.md` | Event stream manager | **No** | Rolling transcript of every user ↔ agent exchange, never auto-cleared |
 | `MISSION_INDEX_TEMPLATE.md` | Static template | **No** | Copied into `workspace/missions/<name>/INDEX.md` when a mission starts |
 
 The "No" files are harness-managed. Hand-editing them creates inconsistencies the agent can't recover from: the memory pipeline expects `MEMORY.md` in its exact line format, and the event logs are the ground truth other subsystems replay. Read them freely, but never write to them.
@@ -44,18 +42,18 @@ A useful side-effect to know: `AGENT.md`, `PROACTIVE.md`, `MEMORY.md`, `USER.md`
 
 ## workspace/
 
-Everything a task produces lands under `agent_file_system/workspace/`. Four zones with different lifecycles:
+Everything the agent produces lands under `agent_file_system/workspace/`. Four zones with different lifecycles:
 
 ```text
 workspace/
-├── <files>                     Persistent task outputs — reports, exports,
+├── <files>                     Persistent outputs — reports, exports,
 │                               anything you asked for. Never auto-cleaned.
-├── tmp/<task_id>/              Per-task scratch: drafts, downloads,
-│                               intermediate state. Auto-created when the task
-│                               starts; auto-deleted on task end AND at startup.
-├── missions/<name>/            Multi-session initiatives. INDEX.md (from the
+├── sessions/<session_id>/      Per-session scratch: drafts, downloads,
+│                               intermediate state. Created with the session;
+│                               removed only when the session is deleted.
+├── missions/<name>/            Multi-run initiatives. INDEX.md (from the
 │                               template) records goal, findings, next steps —
-│                               it's what a future task reads to restore context.
+│                               it's what a future run reads to restore context.
 │                               Never auto-cleaned.
 └── living_ui/<name>_<hash>/    Living UI projects — self-contained apps managed
                                 by their own lifecycle actions. Don't rename or
@@ -65,15 +63,15 @@ workspace/
 The practical rules:
 
 - **Deliverables go in the workspace root.** That's where "save it as frameworks.md" ends up, and where you go looking for outputs.
-- **Anything in `tmp/` is disposable by design.** If a task saved something there that you want, move it out before the task ends.
-- **Missions are for work bigger than one task** (a job hunt, a research program). The mission's `INDEX.md` is the durable state. Individual tasks come and go.
+- **`sessions/` is scratch space.** If a run saved something there that you want to keep, ask for it to be moved to the workspace root.
+- **Missions are for work bigger than one run** (a job hunt, a research program). The mission's `INDEX.md` is the durable state. Individual runs come and go.
 
 ## Configuration and limits
 
 - **Location:** `agent_file_system/` in the project root. The template lives at `app/data/agent_file_system_template/`.
 - **Edits apply on the next trigger**, with no restart. `SOUL.md` in particular takes effect on the very next turn.
 - **Reset:** `/reset` deletes the markdown files and re-copies the templates. Workspace contents are handled separately, and Living UI projects are preserved by the generic reset (they have their own teardown).
-- **Growth:** `EVENT.md` auto-rotates on size. `CONVERSATION_HISTORY.md` and `TASK_HISTORY.md` grow indefinitely, and `EVENT_UNPROCESSED.md` is cleared by each successful memory run.
+- **Growth:** `EVENT.md` auto-rotates on size, and `EVENT_UNPROCESSED.md` is cleared by each successful memory run.
 - **Not for secrets:** API keys and credentials live in `app/config/settings.json` and `.credentials/`, not in these markdown files.
 
 ## Next

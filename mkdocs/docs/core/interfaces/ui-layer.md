@@ -27,7 +27,7 @@ render:   agent events ─→ EventTransformer ─→ EventBus ─→ active ada
 input:    adapter ─→ UIController.submit_message() ─→ CommandExecutor ─→ agent
 ```
 
-**Agent → screen.** Everything the agent does (messages, task starts, action results, state changes) becomes a typed `UIEvent` on the bus: `USER_MESSAGE`, `AGENT_MESSAGE`, `TASK_START`, `TASK_END`, `ACTION_START`, `ACTION_END`, `AGENT_STATE_CHANGED`, `FOOTAGE_UPDATE`, and friends. The adapter subscribes and renders each in its own way: the CLI prints a formatted line, the browser pushes a WebSocket frame that updates the chat or task panel. This is the same [event stream](../concepts/event-stream.md) that feeds the logs.
+**Agent → screen.** Everything the agent does (messages, action results, run-state changes) becomes a typed `UIEvent` on the bus: `USER_MESSAGE`, `AGENT_MESSAGE`, `ACTION_START`, `ACTION_END`, `RUN_STATE_CHANGED`, `AGENT_STATE_CHANGED`, and friends. The adapter subscribes and renders each in its own way: the CLI prints a formatted line, the browser pushes a WebSocket frame that updates the chat or activity view. This is the same [event stream](../concepts/event-stream.md) that feeds the logs.
 
 **You → agent.** Whatever you type lands in `UIController.submit_message()`, which does one important thing first: it offers the text to the `CommandExecutor`. If the message starts with `/` it's handled as a [command](../commands/index.md) and never reaches the agent. Commands belong to the interface, not the conversation. Otherwise the controller emits the user-message event and routes the text to the agent.
 

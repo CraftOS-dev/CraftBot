@@ -1921,7 +1921,7 @@ schedules: [
     schedule: string                         natural language OR cron (see formats below)
     enabled: bool                            individual schedule on/off
     priority: int                            1-100, lower = higher priority
-    mode: "simple" | "complex"               task mode for the spawned task
+    mode: string                             legacy field, ignored by the runtime
     recurring: bool                          true = stays after firing; false = one-shot
     action_sets: [string]                    sets to load before the task fires
     skills: [string]                         skills to inject before the task fires
@@ -3454,23 +3454,15 @@ schedule_task(
   name="<short name>",
   instruction="<what to do, in clear imperative voice>",
   schedule="<expression from list above>",
-  mode="simple" | "complex",         default "simple"
   priority=<1-100>,                   default 50
   enabled=True,                       always true for one-shots
-  action_sets=[<sets needed>],        if known; otherwise auto-selected
+  action_sets=[<sets needed>],        if known; core covers most work
   skills=[<skills needed>],           rare for user-driven one-shots
   payload={...}                       optional extra data for the trigger
 )
 ```
 
-**When to set `mode="simple"` vs `mode="complex"` for a one-shot:**
-
-```
-simple    quick lookup, single output (3 actions or fewer). No user-approval gate. Auto-ends.
-complex   multi-step research, document generation, multi-source compile. User approval at end.
-```
-
-Default to simple for one-shots unless the work clearly needs todos.
+The spawned run scales itself to the instruction — a quick lookup replies and ends; multi-step work plans with todos. Write the instruction accordingly; there is no mode to pick.
 
 **Examples.**
 
@@ -3481,7 +3473,6 @@ schedule_task(
   name="Laundry reminder",
   instruction="Send the user a brief reminder to take the laundry out.",
   schedule="in 30 minutes",
-  mode="simple",
 )
 ```
 
@@ -3497,19 +3488,16 @@ schedule_task(
     "common praise. Send the summary to the user via send_message."
   ),
   schedule="tomorrow at 8am",
-  mode="complex",
-  action_sets=["web_research", "file_operations"],
 )
 ```
 
-User asks you (mid-task) to "also start checking the GitHub issue I just opened" while you're doing something else:
+User asks you (mid-run) to "also start checking the GitHub issue I just opened" while you're doing something else:
 
 ```
 schedule_task(
   name="Monitor GitHub issue #X",
   instruction="Fetch the GitHub issue at <url> right now and report the latest comments and status.",
   schedule="immediate",
-  mode="simple",
   action_sets=["github_issues"],
 )
 ```
@@ -3633,19 +3621,17 @@ That's the minimum. Step 1 is non-optional for recurring tasks.
 Every 30 min (`0,30 * * * *`):
 
 ```
-1. fires payload.type="proactive_heartbeat" trigger
-2. _handle_proactive_heartbeat() in app/agent_base.py:
+1. fires a PROACTIVE_HEARTBEAT trigger for the main session
+2. the pre-check in app/agent_base.py:
      proactive_manager.get_all_due_tasks()  → filter by frequency + time + day
-     if no due tasks: return silently
-     if due tasks: create one Heartbeat task with mode=simple,
-                   action_sets=[file_operations, proactive, web_research],
-                   skill=heartbeat-processor
-3. Heartbeat task runs through the heartbeat-processor skill, which executes
-   each due task in turn, respecting permission tiers.
+     if no due tasks: the turn is skipped
+     if due tasks: the run loads the heartbeat-processor skill +
+                   action_sets=[file_operations, proactive, web_research]
+3. The heartbeat run executes each due task in turn, respecting permission tiers.
 4. After each task, recurring_update_task records the outcome.
 ```
 
-If `proactive.enabled` is false in settings.json, step 1 fires but step 2 returns early. The task is not created.
+If `proactive.enabled` is false in settings.json, step 1 fires but step 2 returns early. No run starts.
 
 ### Recurring task actions (PROACTIVE.md)
 
@@ -3685,7 +3671,7 @@ recurring_remove(task_id)
 ### Scheduled task actions (scheduler_config.json)
 
 ```
-schedule_task(name, instruction, schedule, priority?, mode?, enabled?,
+schedule_task(name, instruction, schedule, priority?, enabled?,
               action_sets?, skills?, payload?)
   Adds a one-time, recurring, or immediate scheduled task.
   schedule expression formats (validated by app/scheduler/parser.py):
@@ -3698,7 +3684,6 @@ schedule_task(name, instruction, schedule, priority?, mode?, enabled?,
     "every 3 hours" / "every 30 minutes"
     cron: "0 7 * * *"
   NOT accepted: "daily at", "every weekday", "every morning", freeform text.
-  mode:        "simple" | "complex". Default "simple".
   payload.type drives workflow routing if set (rare; usually omit).
 
 scheduled_task_list()

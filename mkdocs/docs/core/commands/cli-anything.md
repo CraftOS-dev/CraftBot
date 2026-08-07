@@ -56,7 +56,7 @@ The skill's instructions (`skills/cli-anything/SKILL.md`) contain a routing tabl
 
 6. **Report** in a sentence or two: what was produced and where.
 
-Every step runs as a shell action, so you can watch the whole flow (version checks, installs, the task command) in the [task panel](../interfaces/browser.md#tasks), and it all lands in [logs](../concepts/logs.md).
+Every step runs as a shell action, so you can watch the whole flow (version checks, installs, the command itself) in the [activity view](../interfaces/browser.md#activity), and it all lands in [logs](../concepts/logs.md).
 
 The skill hard-bans the failure modes of driving desktop apps directly: no `.exe` suffixes, no hardcoded `C:\Program Files\...` paths, no `&&` command chaining, no raw `soffice`/`gimp`/`blender` invocations. The harness resolves app locations and flags per platform, which is what makes the same task work on all three OSes.
 
@@ -73,7 +73,7 @@ CLI-anything is the first choice, not the only one. If a harness command fails a
 - **File paths:** give the agent full paths to input files (`C:\Users\you\Desktop\photo.jpg`, `/home/user/photo.jpg`) for the smoothest run.
 
 !!! warning "It installs software"
-    By design, this skill can install real applications on your machine (silently, with license agreements auto-accepted) and run them with your privileges. Each install is a visible shell action in the task panel, and installs are attempted at most once. If you don't want the agent installing anything, keep the skill disabled or preinstall the apps you care about.
+    By design, this skill can install real applications on your machine (silently, with license agreements auto-accepted) and run them with your privileges. Each install is a visible shell action in the activity view, and installs are attempted at most once. If you don't want the agent installing anything, keep the skill disabled or preinstall the apps you care about.
 
 ## Related
 

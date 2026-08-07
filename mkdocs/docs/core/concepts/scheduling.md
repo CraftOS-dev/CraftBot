@@ -1,6 +1,6 @@
 # Scheduling
 
-Scheduling is how CraftBot works while you're not at the keyboard: a reminder at 3pm, a briefing every Monday, the nightly memory job. You create schedules by asking in chat. The agent stores them, and the scheduler turns each one into a running task at the right moment.
+Scheduling is how CraftBot works while you're not at the keyboard: a reminder at 3pm, a briefing every Monday, the nightly memory job. You create schedules by asking in chat. The agent stores them, and the scheduler turns each one into a run at the right moment.
 
 ## Overview
 A schedule is three things: a **name**, an **instruction** (what the agent should do), and a **schedule expression** (when). All of them live in one JSON file, `app/config/scheduler_config.json`, alongside the system schedules CraftBot ships with.
@@ -50,11 +50,12 @@ What `schedule_task` records, beyond name/instruction/schedule:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `mode` | `simple` | Task mode when it fires — `complex` for multi-step work. See [Task modes](../modes/index.md) |
 | `priority` | `50` | Trigger priority; lower fires first when multiple triggers are due |
 | `enabled` | `true` | Created paused if `false` |
-| `action_sets` / `skills` | auto-selected | Pre-load specific capabilities for the task |
-| `payload` | `{}` | Extra context passed into the task |
+| `action_sets` / `skills` | none | Pre-load specific capabilities for the run (`core` covers most work) |
+| `payload` | `{}` | Extra context passed into the run's trigger |
+
+The spawned run scales itself to the instruction — see [Runs](../modes/index.md).
 
 ## Managing schedules
 

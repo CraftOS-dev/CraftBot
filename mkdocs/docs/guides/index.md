@@ -29,7 +29,7 @@ You do not need to read the guides in order, and they do not build on each other
 Guides are recipes, not reference. They show one good path to one outcome and skip the alternatives. When you want the full picture of a mechanic, follow the links out to the reference and concept pages:
 
 - [Scheduling](../core/concepts/scheduling.md) for schedule expressions, one-time versus recurring tasks, and the schedule actions.
-- [Task modes](../core/modes/index.md) for how simple and complex tasks differ.
+- [Runs](../core/modes/index.md) for how the agent scales quick requests versus substantial work.
 - [Proactive mode](../core/modes/proactive.md) for recurring tasks the agent plans and runs on its own.
 - [Integrations](../integrations/index.md) for the setup, actions, and configuration of every connector.
 - [Skills](../core/concepts/skills.md) for how skills are structured, invoked, and shared.

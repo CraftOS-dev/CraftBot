@@ -93,5 +93,5 @@ For writing skills by hand, or packaging skills for others, see the [skill autho
 
 - [Write a CraftBot skill](../../develop/skills/craftbot-skill.md): the full authoring guide
 - [Actions and action sets](actions-and-action-sets.md): the capabilities skills orchestrate
-- [Task sessions](task-sessions.md): the task lifecycle skills attach to
+- [Sessions](task-sessions.md): the runs skills load into
 - [Agent loop](agent-loop.md): where skill instructions enter each turn

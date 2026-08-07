@@ -8,7 +8,7 @@
 ## How it's read and written
 
 - `app/config.py` (`get_settings()`) reads the file and caches it in memory. A parallel `SettingsManager` singleton in `agent_core` merges it over built-in defaults.
-- A **config watcher** hot-reloads the file within seconds of a change, with no restart for most edits. An LLM call already in flight finishes on the old config. The next call uses the new one.
+- A **config watcher** hot-reloads the file within seconds of a change, with no restart for most edits. An LLM call already in flight finishes on the old config. The next call uses the new one. The `model` block is the exception: the live LLM client is rebuilt only by a reinitialize (`/provider`, a Settings → Model save, or a restart), never by the hot reload alone.
 - The Settings UI, slash commands (`/provider`, …), the onboarding wizard, and the agent itself all write to this file.
 - **Pitfall:** a JSON syntax error doesn't crash anything. The reload fails and the *previous* config stays active. Read the file back after hand-editing.
 
@@ -133,7 +133,7 @@ Prompt-cache tuning for providers with explicit cache APIs (BytePlus prefix/sess
 | Key | Default | What it does |
 |---|---|---|
 | `prefix_ttl` | `3600` | TTL in seconds for the system-prompt prefix cache. |
-| `session_ttl` | `7200` | TTL in seconds for per-session cache state (long tasks). |
+| `session_ttl` | `7200` | TTL in seconds for per-session cache state (long runs). |
 | `min_tokens` | `500` | Prompts below this size skip caching. |
 
 The LLM layer reads its effective values from the matching `CACHE_PREFIX_TTL` / `CACHE_SESSION_TTL` / `CACHE_MIN_TOKENS` environment variables (same defaults); set those if you need to actually change cache behavior.
@@ -151,6 +151,15 @@ The LLM layer reads its effective values from the matching `CACHE_PREFIX_TTL` / 
 |---|---|---|
 | `prewarm_all_drives` | `true` | Pre-warms the `find_files` index for all local drives at startup, so the agent's first file search is fast. Set `false` on machines with many/slow drives. |
 
+## `gui`
+
+Legacy block. GUI (desktop screen-control) mode is not part of the runtime, so these keys have no effect; they remain in the file for compatibility.
+
+| Key | Default | What it does |
+|---|---|---|
+| `enabled` | `true` | Ignored by the runtime. |
+| `use_omniparser` / `omniparser_url` | `false` / `http://127.0.0.1:7861` | Ignored by the runtime. |
+
 ## `api_keys_configured`
 
 | Key | Default | What it does |
@@ -159,14 +168,14 @@ The LLM layer reads its effective values from the matching `CACHE_PREFIX_TTL` / 
 
 ## Constants not in the JSON
 
-A few limits are Python constants in `app/config.py`. Change them by editing the file:
+A few limits are Python constants. Change them by editing the file:
 
 | Constant | Default | Purpose |
 |---|---|---|
-| `MAX_ACTIONS_PER_TASK` | `500` | Action cap to stop runaway tasks |
-| `MAX_TOKEN_PER_TASK` | `12,000,000` | Per-task token budget |
-| `PROCESS_MEMORY_AT_STARTUP` | `False` | Run memory processing at launch |
-| `MEMORY_PROCESSING_SCHEDULE_HOUR` | `3` | Hour (0–23) of the daily memory distillation |
+| `DEFAULT_MAX_ACTIONS_PER_TASK` (`agent_core/core/state/types.py`) | `150` | Per-run action cap; at 100% the agent pauses on a Continue/Stop choice |
+| `DEFAULT_MAX_TOKEN_PER_TASK` (`agent_core/core/state/types.py`) | `6,000,000` | Per-run token budget; counts only uncached tokens, same Continue/Stop gate |
+| `PROCESS_MEMORY_AT_STARTUP` (`app/config.py`) | `False` | Run memory processing at launch |
+| `MEMORY_PROCESSING_SCHEDULE_HOUR` (`app/config.py`) | `3` | Hour (0–23) of the daily memory distillation |
 
 ## Other files in app/config/
 
@@ -177,7 +186,7 @@ A few limits are Python constants in `app/config.py`. Change them by editing the
 | `mcp_config.json` | [MCP server](../../integrations/mcp.md) definitions: name, transport, command/URL, env, enabled flag. Hot-reloaded. | `/mcp`, **Settings → MCP** |
 | `skills_config.json` | Which [skills](../concepts/skills.md) are enabled/disabled, plus `auto_load`. Hot-reloaded. | `/skill`, **Settings → Skills** |
 | `scheduler_config.json` | All [schedules](../concepts/scheduling.md) — including the built-in memory-processing and heartbeat entries. Hot-reloaded. | The agent's scheduling actions, **Settings → Proactive** |
-| `external_comms_config.json` | Telegram and WhatsApp listener config (tokens, mode, auto-reply). Other platforms keep credentials in `.credentials/` instead. | **Settings → Integrations** |
+| `external_comms_config.json` | Telegram and WhatsApp listener config (tokens, mode, auto-reply). Other platforms keep credentials in `.credentials/` instead. Not hot-reloaded — hand-edits need a restart. | **Settings → Integrations** |
 | `onboarding_config.json` | [Onboarding](../../start/onboarding.md) completion flags, your name, the agent's name. Not hot-reloaded. | The onboarding flow only — don't hand-edit |
 | `connection_test_models.json` | Cheap model IDs used per provider for the "test connection" check. | You, rarely — when a test model is deprecated |
 

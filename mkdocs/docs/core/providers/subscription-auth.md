@@ -13,6 +13,8 @@ Subscription auth is a layer in front of the model factory. Before building a cl
 
 A free ChatGPT account can complete the sign-in, but you'll get a warning and every model call will fail until you upgrade or switch back to API-key auth.
 
+The Codex backend serves everything CraftBot needs: the agent's action decisions ride ordinary JSON-mode completions, which work transparently. Only native tool-calls and streaming are unsupported there, and CraftBot uses neither on this path, so agent behavior under a subscription matches API-key mode.
+
 **Model list narrows.** Under a ChatGPT subscription only the Codex-accepted models are reachable: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`. If your configured model isn't one of them, CraftBot substitutes `gpt-5.4` and logs a warning. Set one of the accepted models in Settings → Model to silence it. Grok subscriptions serve `grok-4-0709` and `grok-3`.
 
 ## Connect

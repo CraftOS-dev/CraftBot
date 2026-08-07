@@ -8,7 +8,7 @@ CraftBot has exactly two user-facing interfaces (the **browser UI** and the **te
 
     ---
 
-    The default. React web UI with chat, task panel, dashboard, workspace browser, and full settings. Requires Node.js.
+    The default. React web UI with multi-session chat, live activity view, dashboard, workspace browser, and full settings. Requires Node.js.
 
 - :material-console:{ .lg .middle } __[CLI](cli.md)__
 
@@ -30,8 +30,8 @@ CraftBot has exactly two user-facing interfaces (the **browser UI** and the **te
 |---|---|---|
 | Launch | `python run.py` | `python run.py --cli` |
 | Requirements | Python + Node.js 18+ | Python only |
-| Chat | Streaming, markdown, attachments | Plain text, line by line |
-| Task & action visibility | Live task panel with per-action inputs/outputs | Inline one-line status per task/action |
+| Chat | Multiple sessions, streaming, markdown, attachments | Plain text, line by line |
+| Activity visibility | Live activity view with per-action inputs/outputs | Inline one-line status per action |
 | Settings | Full settings pages (Model, MCPs, Skills, Integrations, ...) | Commands only (`/provider`, `/mcp`, `/skill`, `/cred`) |
 | [Living UI](../../living-ui/index.md) apps | Rendered in-app, one tab per project | Not displayable |
 | Best for | Daily use, watching work happen, setup | Servers, SSH, machines without Node.js |
@@ -56,7 +56,7 @@ For an always-on assistant that starts at login and survives closing the termina
 
 ## One brain, two skins
 
-Both interfaces are thin adapters over `app/ui_layer/`. A single `UIController` owns the event bus, state store, and command registry; the browser and CLI adapters just render what flows through it. That's why every slash command works identically in both, and why switching interfaces never loses agent state. Memory, tasks, and settings live with the agent, not the interface. Details in [UI layer](ui-layer.md).
+Both interfaces are thin adapters over `app/ui_layer/`. A single `UIController` owns the event bus, state store, and command registry; the browser and CLI adapters just render what flows through it. That's why every slash command works identically in both, and why switching interfaces never loses agent state. Memory, sessions, and settings live with the agent, not the interface. Details in [UI layer](ui-layer.md).
 
 ## Next
 

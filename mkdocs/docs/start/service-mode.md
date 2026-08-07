@@ -88,7 +88,7 @@ Inside it:
 | `craftbot.log` | The service's own output. `craftbot.py logs` reads this. Startup is confirmed by the `CRAFTBOT IS READY` marker here. |
 | `install.json` | What the installer set up (used by `status`, `repair`, `uninstall`) |
 
-The **agent's** logs are separate and richer: each run writes a folder under `logs/` in the repository (`main.log` for the main agent, `all.log` for everything including sub-agents), rotated at 50 MB and kept 14 days. When you're debugging agent behavior, read those. When you're debugging "why didn't it start", read `craftbot.log`. See [Logs](../core/concepts/logs.md).
+The **agent's** logs are separate and richer: each launch writes a folder under `logs/` in the repository (`all.log` for everything interleaved, plus a folder per session holding its own `session.log` and any sub-agent logs), rotated at 50 MB and kept 14 days. When you're debugging agent behavior, read those. When you're debugging "why didn't it start", read `craftbot.log`. See [Logs](../core/concepts/logs.md).
 
 ## Common setups
 
@@ -124,5 +124,5 @@ More: [Runtime issues](../reference/troubleshooting/runtime.md).
 ## Next
 
 - [Scheduling](../core/concepts/scheduling.md): the recurring work that makes always-on worthwhile
-- [Proactive mode](../core/modes/proactive.md): let the agent propose its own tasks
+- [Proactive mode](../core/modes/proactive.md): let the agent propose its own work
 - [Integrations](../integrations/index.md): talk to your always-on agent from Telegram, Slack, and everywhere else

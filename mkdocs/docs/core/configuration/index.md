@@ -32,7 +32,7 @@ Everything that shapes CraftBot's behavior lives in plain local files inside the
 
 ## Prefer the UI over hand-editing
 
-Nearly every setting has a browser Settings page (General, Model, Memory, Proactive, MCP, Skills, Integrations) or a slash command (`/provider`, `/mcp`, `/skill`, `/cred`). Use those when you can: they validate input and keep bookkeeping fields consistent. Hand-editing is fine too: a config watcher hot-reloads `settings.json`, `mcp_config.json`, `skills_config.json`, and `scheduler_config.json` within seconds, no restart needed. But a JSON syntax error silently keeps the *old* config active, so read the file back after editing.
+Nearly every setting has a browser Settings page (General, Model, Memory, Proactive, MCP, Skills, Integrations) or a slash command (`/provider`, `/mcp`, `/skill`, `/cred`). Use those when you can: they validate input and keep bookkeeping fields consistent. Hand-editing is fine too: a config watcher hot-reloads `settings.json`, `mcp_config.json`, `skills_config.json`, and `scheduler_config.json` within seconds, no restart needed. Two caveats: the live LLM client is rebuilt only by `/provider`, a Settings → Model save, or a restart — a hand-edit to the `model` block alone doesn't touch it — and `external_comms_config.json` is not watched, so edits there need a restart. And a JSON syntax error silently keeps the *old* config active, so read the file back after editing.
 
 You can also just ask the agent. It has full knowledge of these files and edits them with the same care (its own reference for every schema ships in `agent_file_system/AGENT.md`).
 

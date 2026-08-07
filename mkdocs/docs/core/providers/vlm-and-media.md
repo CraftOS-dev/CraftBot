@@ -70,7 +70,7 @@ Generation is long-running: the action blocks while it submits, polls, and downl
 | `generate_image` / `generate_video` errors about provider | Configured provider doesn't support that capability | Set `image_gen_provider` to `openai`/`gemini`, `video_gen_provider` to `gemini`/`openai`/`byteplus` |
 | Generated image ignores 16:9 | OpenAI has no true 16:9 canvas | Use Gemini for exact wide/tall ratios |
 | `understand_video` falls back to keyframes | No Google API key configured | Add a `GOOGLE_API_KEY` — the native path activates even if Gemini isn't your VLM provider |
-| Video task appears stuck | Generation blocks by design | Wait — typical runs are 60–300 s; check logs for polling progress |
+| Video generation appears stuck | Generation blocks by design | Wait — typical calls take 60–300 s; check logs for polling progress |
 
 More cases: [Provider troubleshooting](../../reference/troubleshooting/providers.md).
 

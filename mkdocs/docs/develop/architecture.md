@@ -10,7 +10,7 @@ CraftBot is split into a reusable engine and a concrete application that wires t
 
 `app/` is the CraftBot application. It supplies a concrete runtime around the engine: the interface layer (`app/ui_layer/`), external communications (`app/external_comms/`, `craftos_integrations/`), the scheduler (`app/scheduler/`), configuration (`app/config/`), and the built-in actions and skills the agent ships with. `AgentBase` in `app/agent_base.py` is the object that holds all of this together.
 
-Many `app/*.py` modules are thin bindings over engine classes. `app/context_engine.py` is a pure re-export of `agent_core.core.impl.context.ContextEngine`. `app/task/task_manager.py` defines a `TaskManager` that subclasses the engine's `agent_core.core.impl.task.TaskManager` and passes CraftBot-specific hooks (the `STATE` singleton, per-task event streams, session persistence for crash recovery). This is the general pattern: the engine provides behavior, the app injects the concrete dependencies.
+Many `app/*.py` modules are thin bindings over engine classes. `app/context_engine.py` is a pure re-export of `agent_core.core.impl.context.ContextEngine`. `app/session/session_manager.py` owns session lifecycle (per-session event streams, workspace dirs, persistence for crash recovery) on top of the engine's session implementation. This is the general pattern: the engine provides behavior, the app injects the concrete dependencies.
 
 ## Directory layout
 
@@ -20,15 +20,15 @@ CraftBot/
 │   ├── __init__.py                 public API: re-exports engine classes
 │   └── core/
 │       ├── protocols/              typing.Protocol definitions the host satisfies
-│       ├── registry/               component registries (get_task_manager, ...)
+│       ├── registry/               component registries
 │       ├── action_framework/       @action decorator + ActionRegistry singleton
 │       ├── impl/                   default implementations of every subsystem
 │       │   ├── action/             ActionExecutor, ActionManager, ActionRouter
-│       │   ├── task/               TaskManager
+│       │   ├── session/            session implementation
 │       │   ├── event_stream/       EventStream, EventStreamManager
 │       │   ├── memory/  skill/  mcp/  settings/  trigger/  context/
 │       ├── prompts/                PromptRegistry + prompt string constants
-│       ├── state/ task/ trigger.py event_stream/  core data types
+│       ├── state/ trigger.py event_stream/  core data types
 │       └── llm/                    provider clients and model factory
 │
 ├── app/                            the CraftBot application (concrete runtime)
@@ -39,7 +39,7 @@ CraftBot/
 │   ├── scheduler/                  SchedulerManager: fires due schedules
 │   ├── external_comms/             inbound platform listeners and bridges
 │   ├── context_engine.py           re-export of engine ContextEngine
-│   ├── task/                       TaskManager subclass with app hooks
+│   ├── session/                    SessionManager: session lifecycle + workspace dirs
 │   ├── state/                      STATE singleton, StateManager
 │   ├── config/                     settings.json and per-feature config files
 │   └── data/
@@ -161,7 +161,7 @@ For a new contributor, read in this order:
 
 1. [Agent loop](../core/concepts/agent-loop.md): the single cycle every trigger runs through.
 2. [Triggers](../core/concepts/triggers.md): what wakes the loop and what survives a restart.
-3. [Task sessions](../core/concepts/task-sessions.md): how a message finds the right task.
+3. [Sessions](../core/concepts/task-sessions.md): the lanes work runs in.
 4. [Event stream](../core/concepts/event-stream.md): the record each turn reads and writes.
 5. [Actions and action sets](../core/concepts/actions-and-action-sets.md): the unit of work the LLM selects.
 6. [Custom action](custom-action.md): write and register your first action.

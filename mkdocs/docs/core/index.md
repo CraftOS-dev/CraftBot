@@ -22,11 +22,11 @@ A [trigger](concepts/triggers.md) (your message, a schedule firing, a Telegram D
 
     Everything that wakes the agent (messages, schedules, platform events) and the durability guarantees behind it.
 
-- :material-identifier:{ .lg .middle } __[Task sessions](concepts/task-sessions.md)__
+- :material-identifier:{ .lg .middle } __[Sessions](concepts/task-sessions.md)__
 
     ---
 
-    How messages route to the right conversation or running task, and how parallel work stays separate.
+    The lanes work runs in: chat sessions, runs, and how parallel work stays separate.
 
 - :material-broadcast:{ .lg .middle } __[Event stream](concepts/event-stream.md)__
 
@@ -96,13 +96,13 @@ A [trigger](concepts/triggers.md) (your message, a schedule firing, a Telegram D
 
 </div>
 
-## Task modes
+## Runs & workflows
 
-How the loop behaves depends on the task's mode. [Task modes](modes/index.md) maps the decision. Each mode then has a full reference: [simple](modes/simple-task.md), [complex](modes/complex-task.md), the system-initiated [special workflows](modes/special-workflows.md), and [proactive](modes/proactive.md), where the agent proposes work on its own.
+The agent scales its process to the size of the work. [Runs](modes/index.md) maps how: [quick requests](modes/simple-task.md) get direct answers, [substantial work](modes/complex-task.md) gets requirements, todos, and verification, [background workflows](modes/special-workflows.md) run system jobs like memory and planning, and [proactive](modes/proactive.md) is where the agent proposes work on its own.
 
 ## Interfaces
 
-CraftBot has two interfaces over one shared engine: the [browser UI](interfaces/browser.md) (the default: chat, live action panel, Living UI tabs, settings) and the [CLI](interfaces/cli.md) (terminal chat for scripting and headless machines). The [UI layer](interfaces/ui-layer.md) page explains the shared architecture. Overview and comparison: [Interfaces](interfaces/index.md).
+CraftBot has two interfaces over one shared engine: the [browser UI](interfaces/browser.md) (the default: multi-session chat, live activity view, Living UI tabs, settings) and the [CLI](interfaces/cli.md) (terminal chat for scripting and headless machines). The [UI layer](interfaces/ui-layer.md) page explains the shared architecture. Overview and comparison: [Interfaces](interfaces/index.md).
 
 ## Commands
 

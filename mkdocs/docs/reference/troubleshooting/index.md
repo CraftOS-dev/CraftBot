@@ -10,9 +10,9 @@ Run these four checks in order. They resolve most problems on their own, and the
 
 1. **Check status.** Run `python craftbot.py status`. It reports whether CraftBot is running and whether auto-start is registered. If the process is not running, start it with `python craftbot.py start` and retry the action that failed.
 
-2. **Read the logs.** Every run writes a timestamped folder under `logs/`. Open `logs/<run>/all.log` for the full picture across the main agent and every sub-agent, or `logs/<run>/main.log` for the main agent alone. Restarting begins a fresh folder, so a problem from an earlier session is in an older folder, not the current one. Search for `ERROR` first, then read upward from the match. See [Logs](../../core/concepts/logs.md) for the file layout, the subsystem tags, and grep recipes.
+2. **Read the logs.** Every run writes a timestamped folder under `logs/`. Open `logs/<run>/all.log` for the full picture across every session and sub-agent, or `logs/<run>/main/session.log` for the main session alone. Restarting begins a fresh folder, so a problem from earlier is in an older folder, not the current one. Search for `ERROR` first, then read upward from the match. See [Logs](../../core/concepts/logs.md) for the file layout, the subsystem tags, and grep recipes.
 
-3. **Check the action panel.** When a single action fails, the action panel in the interface shows the task and its status. A task that reads `paused` is waiting for your decision, not stuck. A task that reads `error` names the action that broke, which you can then trace in the logs.
+3. **Check the activity view.** When a single action fails, the activity view in the interface shows the run and its status. A run parked behind a Continue/Stop choice is waiting for your decision, not stuck. An error names the action that broke, which you can then trace in the logs.
 
 4. **Restart.** Run `python craftbot.py restart`. A restart re-reads settings, re-scans the memory index, and clears a stale lock left by a previous crash. If a restart fixes the problem, the logs from before it explain why.
 

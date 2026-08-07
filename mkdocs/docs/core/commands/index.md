@@ -1,6 +1,6 @@
 # Commands
 
-Commands are slash-prefixed inputs (`/help`, `/provider anthropic sk-...`, `/skill enable pdf`) that the [UI layer](../interfaces/ui-layer.md) intercepts before anything reaches the agent. They're how you configure providers, integrations, skills, and MCP servers (instantly, without spending tokens or starting a task) and they work identically in the [browser](../interfaces/browser.md) and the [CLI](../interfaces/cli.md).
+Commands are slash-prefixed inputs (`/help`, `/provider anthropic sk-...`, `/skill enable pdf`) that the [UI layer](../interfaces/ui-layer.md) intercepts before anything reaches the agent. They're how you configure providers, integrations, skills, and MCP servers (instantly, without spending tokens or waking the agent) and they work identically in the [browser](../interfaces/browser.md) and the [CLI](../interfaces/cli.md).
 
 <div class="grid cards" markdown>
 

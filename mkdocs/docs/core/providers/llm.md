@@ -61,6 +61,8 @@ You can also hand-edit `settings.json` (restart afterwards):
 
 `llm_model: null` means "use the provider's default from the registry". Switching providers clears any model override so the new provider starts on its own default. Per-capability overrides (`vlm_model`, `image_gen_model`, `video_gen_model`) work the same way (see [settings.json](../configuration/config-json.md)).
 
+One rule to remember: **every model change requires a reinitialize** — the live LLM client holds its provider and model from construction and never re-reads `settings.json` per call, so a hand-edit alone changes nothing until you restart. `/provider` and a Settings → Model save both trigger the reinitialize for you (it's a no-op when nothing actually changed), and this applies to same-provider model swaps too. A true provider change resets the per-session model caches; a same-provider reinitialize preserves them.
+
 **Connection testing.** The test in Settings → Model sends a tiny request against your exact configured model, so a typo in the model ID fails at test time instead of at first real use. When no model is set it uses a known-good default from `app/config/connection_test_models.json`. If a provider deprecates its test model, update that file.
 
 ## Per-provider quirks
@@ -95,7 +97,7 @@ When enabled, CraftBot tracks token usage in a sliding 60-second window and bloc
 | Moonshot / MiniMax unreachable | Geo-restricted direct API | Add an OpenRouter key — CraftBot proxies these providers through it automatically |
 | Ollama: connection refused | Server not running, or wrong URL | `ollama serve`, then check `endpoints.remote_model_url` |
 | New API key saved but ignored (OpenAI / Grok) | A connected subscription takes precedence over the key | Disconnect the subscription in Settings → Model, then save |
-| Repeated failures, agent backs off | 5 consecutive LLM errors trip the failure guard | See [Provider troubleshooting](../../reference/troubleshooting/providers.md) |
+| The run halts with a provider-failure message | The failure guard tripped — a non-retryable error (bad key, no credits, wrong model, misconfigured provider, content filter) halts on the first failure; transient errors get 5 attempts first | Fix the cause, then send any chat message ("continue") to resume. See [Provider troubleshooting](../../reference/troubleshooting/providers.md) |
 
 ## Related
 

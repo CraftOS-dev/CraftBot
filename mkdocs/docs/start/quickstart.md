@@ -1,6 +1,6 @@
 # Quickstart
 
-This page takes you from a fresh clone to a completed first task, with a checkpoint after every step so you always know whether you're on track. Budget 10–15 minutes.
+This page takes you from a fresh clone to a completed first piece of real work, with a checkpoint after every step so you always know whether you're on track. Budget 10–15 minutes.
 
 **Who this is for:** anyone setting up CraftBot for the first time. If you've already installed and can chat with the agent, skip to [Step 4](#step-4-run-your-first-real-task).
 
@@ -16,7 +16,7 @@ Match your situation to a starting point:
 | No Node.js and can't install it | Steps below, but launch with `python run.py --cli` |
 | Don't want to pay for an API | Run [Ollama](https://ollama.com) locally, pick the **Remote** provider in Step 2 — zero tokens spent |
 
-**Get a normal chat working before you add anything else.** If the agent can't answer `hello`, connecting Slack or scheduling tasks will not work either. Fix the basics first.
+**Get a normal chat working before you add anything else.** If the agent can't answer `hello`, connecting Slack or scheduling work will not work either. Fix the basics first.
 
 ## Step 1: Install and launch
 
@@ -65,11 +65,11 @@ Before giving the agent work, send something conversational:
 What can you actually do?
 ```
 
-The reply comes from **conversation mode**: no task exists, and the agent's only options are to answer you, start a task, or deliberately ignore a message that needs no action (this matters later, when group-chat integrations are connected). Conversation is cheap and instant. Real work happens in **tasks**, which the agent opens on its own the moment your message asks for something actionable. There is no command to memorize.
+Every message you send wakes the agent for a **run**: it does whatever the message needs, and its reply ends the run. For a question like this, that's the whole story — no actions, no plan, just an answer. The moment your message asks for something actionable, the same run mechanism scales up: actions fire, a plan appears, and the reply arrives when the work is done. There is no command to memorize.
 
-You never manage chat sessions. If you have a task running and ask an unrelated question, CraftBot routes the new message to a fresh conversation instead of derailing the task. When you reply to something the task asked you, the answer routes back to that task. This is [session routing](../core/concepts/task-sessions.md), and it's automatic.
+Conversations live in **chat sessions**, listed under **Chats** in the sidebar. **Main** is pinned first, and the **+** button opens a new chat, which titles itself from the first exchange. Each session is independent, so you can keep long-running work in one chat and ask unrelated questions in another. Rename, clear, or delete any session from its menu.
 
-**Checkpoint:** you got a conversational answer, and no task appeared in the task panel.
+**Checkpoint:** you got a conversational answer, straight away, with no "Working" activity row appearing.
 
 ## Step 4: Run your first real task
 
@@ -82,25 +82,24 @@ and save the comparison as frameworks.md
 
 Watch what happens, in order:
 
-1. **A task starts.** The agent calls `task_start` and a task card appears. A request this size becomes a **complex task**; something trivial ("rename this file") would run as a lightweight **simple task** without todos or a confirmation step. The difference is explained in [Task modes](../core/modes/index.md).
-2. **A todo list appears.** Complex tasks plan their work as todos and check them off live. You'll see phases like collecting information, executing, verifying.
-3. **Actions fire.** In the browser's action panel you can watch each step: `web_search` and `web_fetch` calls for research, then `write_file` for the output. Every action the agent takes is visible. Nothing happens silently.
-4. **The agent may ask you something.** If it needs a decision, it sends a message and waits. Just answer in chat and the reply routes back into the task.
-5. **You confirm completion.** Complex tasks don't close themselves. The agent presents the result and waits for your confirmation before ending the task. Reply that it's done, or point out what's wrong and it keeps working.
+1. **The agent acknowledges and plans.** A request this size gets an immediate one-sentence acknowledgment, a requirements checklist (what the finished output must contain), and a **todo list** the agent checks off live. You'll see phases like collecting information, executing, verifying. Something trivial ("rename this file") skips all of that and just runs. The difference is explained in [Runs](../core/modes/index.md).
+2. **A "Working" row ticks.** An always-visible activity row sits in the conversation while the run is in flight. Expand it to watch each step: `web_search` and `web_fetch` calls for research, then `write_file` for the output. Every action the agent takes is visible there, with inputs and results. Nothing happens silently.
+3. **The agent may ask you something.** If it needs a decision, the question is its final message and the run pauses there. Just answer in chat — your reply wakes the agent in the same session, with all the context intact, and the work continues.
+4. **The final message delivers.** The agent verifies its output against the requirements it recorded, then ends the run with a summary and the artifact path. If something's wrong, say so — your reply starts a new run in the same conversation and it keeps working with full context.
 
-The output lands in the agent's workspace: `agent_file_system/workspace/frameworks.md`. That directory is where task artifacts live. The agent can also send files directly into the chat as attachments. See [Agent file system](../core/concepts/agent-file-system.md).
+The output lands in the agent's workspace: `agent_file_system/workspace/frameworks.md`. That directory is where run artifacts live. The agent can also send files directly into the chat as attachments. See [Agent file system](../core/concepts/agent-file-system.md).
 
-**Checkpoint:** the task completed after your confirmation, and `frameworks.md` exists in `agent_file_system/workspace/`.
+**Checkpoint:** the agent delivered a final summary, and `frameworks.md` exists in `agent_file_system/workspace/`.
 
 ## Step 5: Check logs, agent files, and service status
 
 These three locations are the first places to check when something behaves unexpectedly.
 
-- **Logs.** Every run writes a folder under `logs/` containing `main.log` (the main agent) and `all.log` (everything, including sub-agents). When the agent behaves unexpectedly, this is the ground truth. See [Logs](../core/concepts/logs.md).
-- **The agent's files.** `agent_file_system/` is the agent's own home: `USER.md` (what it knows about you), `MEMORY.md` (long-term memory), `SOUL.md` (personality), `TASK_HISTORY.md`, and the `workspace/` you just used. Open `USER.md`. After [onboarding](onboarding.md) it should describe you. See [Agent file system](../core/concepts/agent-file-system.md).
+- **Logs.** Every launch writes a folder under `logs/` containing `all.log` (everything, interleaved) plus a `session.log` per session (the main session's folder is `main`). When the agent behaves unexpectedly, this is the ground truth. See [Logs](../core/concepts/logs.md).
+- **The agent's files.** `agent_file_system/` is the agent's own home: `USER.md` (what it knows about you), `MEMORY.md` (long-term memory), `SOUL.md` (personality), `EVENT.md` (the full event log), and the `workspace/` you just used. Open `USER.md`. After [onboarding](onboarding.md) it should describe you. See [Agent file system](../core/concepts/agent-file-system.md).
 - **Service status.** `python craftbot.py status` tells you whether CraftBot is running and whether auto-start is registered.
 
-**Checkpoint:** you know where logs, memory, and task outputs live on disk.
+**Checkpoint:** you know where logs, memory, and workspace outputs live on disk.
 
 ## Step 6: Add capabilities one layer at a time
 
@@ -120,8 +119,8 @@ Everything past this point is optional, and each layer works independently. Add 
 | `hello` gets no reply at all | Agent not running, or backend port blocked | `python craftbot.py status`, then `restart`; check ports `7925`/`7926` |
 | Authentication / 401 / invalid key error | Wrong key, or key doesn't match selected provider | Re-run `/provider <name> <key>`; verify the key works in the provider's own console |
 | Reply is an error about model not found | Provider default model not available on your account | Set an explicit model in **Settings → Model**; see [LLM providers](../core/providers/llm.md) |
-| Task starts but hangs on a step | A needed integration or dependency is missing | Open the action panel and read the failing action's error; check `logs/` |
-| Agent answers but refuses actionable work | It routed to conversation mode | Phrase the request as a deliverable: what to produce, where to put it |
+| Work starts but hangs on a step | A needed integration or dependency is missing | Expand the "Working" activity row and read the failing action's error; check `logs/` |
+| Agent answers but doesn't do the work | The request read as a question, not a job | Phrase the request as a deliverable: what to produce, where to put it |
 
 Deeper diagnosis: [Troubleshooting](../reference/troubleshooting/index.md).
 
@@ -136,12 +135,13 @@ python run.py --cli      # run in foreground (terminal chat)
 ```
 /provider [name] [key]   # view or set the model provider
 /cred                    # credentials & connected integrations
-/skill                   # manage skills          /help   # all commands
-/clear                   # clear the chat         /reset  # reset agent state
+/skill                   # manage skills          /help    # all commands
+/clear                   # clear this session     /tokens  # session token usage
+/reset                   # delete all chat sessions and clear history
 ```
 
 ## Next
 
 - [Onboarding](onboarding.md): what the wizard configured, and the interview the agent runs afterwards
-- [Your first task](first-task.md): steering, parallel tasks, and how to phrase work
+- [Your first run](first-task.md): steering, parallel sessions, and how to phrase work
 - [Learning path](learning-path.md): pick a reading track for what you want to build
