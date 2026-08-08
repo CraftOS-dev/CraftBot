@@ -1,13 +1,13 @@
 # Proactive
 
-Proactive behavior lets CraftBot work without being asked: a morning inbox summary, a weekly report, a daily plan for your day. These are recurring tasks the agent executes on schedule and, very conservatively, proposes on its own. It is conservative by design: the agent executes what's in its task registry and asks before adding anything to it.
+Proactive mode lets CraftBot work without being asked: a morning inbox summary, a weekly report, a daily plan for your day. These are recurring tasks the agent executes on schedule and, very conservatively, proposes on its own. It is conservative by design: the agent executes what's in its task registry and asks before adding anything to it.
 
 ## The moving parts
 
-Three pieces, all covered mechanically in [Workflow runs](special-workflows.md):
+Three pieces, all covered mechanically in [Special workflows](special-workflows.md):
 
 - **`agent_file_system/PROACTIVE.md`**: the registry. Recurring task definitions (as YAML blocks) plus a Goals / Plan / Status section the planners maintain.
-- **The heartbeat**: fires every 30 minutes at `:00` and `:30`. Collects every due task from PROACTIVE.md and executes them in one heartbeat run.
+- **The heartbeat**: fires every 30 minutes at `:00` and `:30`. Collects every due task from PROACTIVE.md and executes them in one `Heartbeat` task.
 - **The planners**: a day planner (7 AM daily), week planner (Sunday 5 PM), and month planner (1st, 8 AM) that review recent activity and update the Goals / Plan / Status section. Proposing *new* recurring tasks is a rare, approval-gated side effect.
 
 All schedules live in `app/config/scheduler_config.json` and can be edited or toggled per entry (see [Scheduling](../concepts/scheduling.md)).
@@ -20,7 +20,7 @@ The master switch is `proactive.enabled` in `app/config/settings.json` (default:
 { "proactive": { "enabled": true } }
 ```
 
-When disabled, heartbeat and planner triggers log and skip, and no runs start. The nightly memory run has its own `memory.enabled` toggle and is unaffected, and one-off tasks you scheduled explicitly still fire.
+When disabled, heartbeat and planner triggers log and skip, and no tasks are created. The nightly memory run has its own `memory.enabled` toggle and is unaffected, and one-off tasks you scheduled explicitly still fire.
 
 One hard dependency: **schedules only fire while CraftBot is running.** On a laptop that sleeps at night, a 7 AM planner never fires. For dependable proactive behavior, run the agent persistently (see [Service mode](../../start/service-mode.md)).
 
@@ -61,7 +61,7 @@ outcome_history: []
 | `permission_tier` | yes | `0`–`3`, see below |
 | `run_count` | auto | Execution counter, maintained by the system |
 | `conditions` | no | e.g. `weekdays_only`, `market_hours_only`, `user_available` |
-| `instruction` | yes | Multi-line, step-by-step spec (the most important field) |
+| `instruction` | yes | Multi-line, step-by-step spec; the most important field |
 | `outcome_history` | auto | Last 5 run results (timestamp, result, success) |
 
 The instruction quality determines execution quality. Write exact steps, name the sources (which integration, which file), define the output format, and say what to do when data is missing. "Check emails and summarize important ones" is a bad instruction. A numbered eight-step procedure is a good one. The template at the top of PROACTIVE.md carries a full worked example.
@@ -91,17 +91,17 @@ In practice, recurring tasks should be tier 0 or 1. The heartbeat executes silen
 
 ## What a heartbeat run actually does
 
-When due tasks exist, the heartbeat run (loaded with the `heartbeat-processor` skill):
+When due tasks exist, the `Heartbeat` task (running the `heartbeat-processor` skill):
 
 1. Reads all enabled recurring tasks and confirms which are due.
 2. Evaluates each against its conditions and a five-dimension rubric: Impact, Risk, Cost, Urgency, Confidence, each scored 1–5. Total 18+ executes, 13–17 may warrant asking you first, and below 13 skips this round.
-3. Executes each passing task **inline** if it's quick and tier 0/1, or **spins it off as its own run** (via `schedule_task` with `schedule="immediate"`) when it needs multi-step execution or action sets the heartbeat doesn't carry.
-4. Records the outcome to the task's `outcome_history` via `recurring_update_task`. The history is kept to the last 5 entries, which the planners read to decide whether a task is worth keeping or tuning.
-5. Ends with `end_turn`, or with a tier-1 notification as its final message. Tier-1 notifications arrive as chat messages prefixed with a star, and nothing waits for a reply.
+3. Executes each passing task **inline** if it's quick and tier 0/1, or **schedules it as a separate task** (via `schedule_task`) when it needs multi-step execution or action sets the heartbeat doesn't carry.
+4. Records the outcome to the task's `outcome_history`. The history is kept to the last 5 entries, which the planners read to decide whether a task is worth keeping or tuning.
+5. Ends silently. Tier-1 notifications arrive as chat messages prefixed with a star, and nothing waits for a reply.
 
 ## The approval model
 
-The agent never quietly grants itself new recurring work. The planner skills are built around a hard conservatism rule: a new recurring task may only be suggested if you explicitly asked for the automation or demonstrably did the same thing at least three times. Most planner runs are expected to produce zero suggestions. When a planner does suggest one, the suggestion is a question and the planner's run ends with it. If you approve, your reply wakes a new run that adds the task; a rejection, or no reply at all, means nothing is ever added.
+The agent never quietly grants itself new recurring work. The planner skills are built around a hard conservatism rule: a new recurring task may only be suggested if you explicitly asked for the automation or demonstrably did the same thing at least three times. Most planner runs are expected to produce zero suggestions. When a planner does suggest one, it messages you and waits. On approval it adds the task, and on rejection (or ~20 hours of silence) it drops the idea and ends without adding anything.
 
 Your broader preferences come from [onboarding](../../start/onboarding.md): a proactivity level (low waits for instructions, medium suggests when relevant, high proactively suggests) and **approval categories**, the kinds of actions the agent must always ask before taking on your behalf (sending messages, scheduling, file changes, purchases, or everything). These are written into `USER.md` under *Prefer Proactive Assistance* and *Approval Required For*, and the agent reads them when deciding how to act.
 
@@ -122,11 +122,11 @@ Your broader preferences come from [onboarding](../../start/onboarding.md): a pr
 | Task exists but never fires | `enabled: false`, malformed YAML, or missing/damaged markers | Validate against the template format |
 | Ran but did the wrong thing | Vague `instruction` | Rewrite as numbered, specific steps; check `outcome_history` for what it actually did |
 
-Ground truth for any run: each task's `outcome_history` in PROACTIVE.md, and `[PROACTIVE]` lines in `logs/<run>/all.log` (see [Logs](../concepts/logs.md)).
+Ground truth for any run: the `Heartbeat` / planner task cards in the task panel, and `[PROACTIVE]` lines in `logs/<run>/main.log` (see [Logs](../concepts/logs.md)).
 
 ## Related
 
-- [Workflow runs](special-workflows.md): how heartbeat and planner triggers are routed and executed
+- [Special workflows](special-workflows.md): how heartbeat and planner triggers are routed and executed
 - [Scheduling](../concepts/scheduling.md): the scheduler behind the heartbeat, and one-off scheduled tasks
 - [Service mode](../../start/service-mode.md): keeping the agent alive so schedules fire
 - [Memory](../concepts/memory.md): the other system-initiated workflow

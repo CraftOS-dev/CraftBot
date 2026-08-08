@@ -165,7 +165,7 @@ Every import your function uses must go inside the function body. Only the `from
 The registry extracts each action's source with the `inspect` module and runs the extracted body on its own. Names defined at module level, including top-level imports, are not in scope when the body runs. A helper referenced through a module-level import raises `NameError` at call time even though the file imported cleanly at startup. This is the single most common mistake when writing actions.
 
 ```python
-# WRONG — module-top import; raises NameError at call time
+# WRONG: module-top import; raises NameError at call time
 from app.data.action.integrations._helpers import run_client
 
 @action(name="do_thing", ...)
@@ -173,7 +173,7 @@ async def do_thing(input_data: dict) -> dict:
     return await run_client("service", "method")
 
 
-# RIGHT — import inside the function body
+# RIGHT: import inside the function body
 @action(name="do_thing", ...)
 async def do_thing(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client

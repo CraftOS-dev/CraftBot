@@ -95,7 +95,7 @@ What do you have scheduled?
 Pause the daily PR review.
 ```
 
-These map to the `scheduled_task_list` and `schedule_task_toggle` actions. A real code review is multi-step work, so the scheduled run plans it with todos and verifies before delivering. Schedule expressions, one-time versus recurring runs, and what happens after downtime are all covered in [Scheduling](../core/concepts/scheduling.md).
+These map to the `scheduled_task_list` and `schedule_task_toggle` actions. Because a real code review is multi-step work, set the schedule to run as a complex task so it plans and checks its work. Schedule expressions, one-time versus recurring runs, and what happens after downtime are all covered in [Scheduling](../core/concepts/scheduling.md).
 
 ## Step 4: what the review does
 

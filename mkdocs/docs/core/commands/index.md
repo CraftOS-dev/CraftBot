@@ -1,6 +1,6 @@
 # Commands
 
-Commands are slash-prefixed inputs (`/help`, `/provider anthropic sk-...`, `/skill enable pdf`) that the [UI layer](../interfaces/ui-layer.md) intercepts before anything reaches the agent. They're how you configure providers, integrations, skills, and MCP servers (instantly, without spending tokens or waking the agent) and they work identically in the [browser](../interfaces/browser.md) and the [CLI](../interfaces/cli.md).
+Commands are slash-prefixed inputs (`/help`, `/provider anthropic sk-...`, `/skill enable pdf`) that the [UI layer](../interfaces/ui-layer.md) intercepts before anything reaches the agent. They're how you configure providers, integrations, skills, and MCP servers (instantly, without spending tokens or starting a task) and they work identically in the [browser](../interfaces/browser.md) and the [CLI](../interfaces/cli.md).
 
 <div class="grid cards" markdown>
 
@@ -32,7 +32,7 @@ The registry is populated from four sources at startup:
 
 | Kind | Examples | Where they come from |
 |---|---|---|
-| **Built-in** | `/help`, `/provider`, `/mcp`, `/skill`, `/cred`, `/update` | Shipped in `app/ui_layer/commands/builtin/` — always present |
+| **Built-in** | `/help`, `/provider`, `/mcp`, `/skill`, `/cred`, `/update` | Shipped in `app/ui_layer/commands/builtin/`; always present |
 | **Integration** | `/gmail`, `/slack`, `/telegram_bot`, `/notion` | One per available [integration](../../integrations/index.md), each with `connect` / `disconnect` / `status` plus integration-specific subcommands |
 | **Skill** | `/pdf`, `/docx`, `/pptx` | One per **enabled** [skill](../concepts/skills.md); registered and unregistered live as you toggle skills |
 | **Agent-provided** | varies | Commands the agent runtime registers programmatically, wrapped into the same registry |

@@ -20,7 +20,7 @@ Type messages to chat, `/commands` to configure, `/exit` (or Ctrl+C / EOF) to qu
 Alternative entry points:
 
 ```bash
-python -m app.main                      # agent driver directly — CLI is its default mode
+python -m app.main                      # agent driver directly; CLI is its default mode
 python -m app.main --provider anthropic --api-key sk-ant-...   # override settings.json for this run
 python craftbot.py start --cli          # run the CLI agent as a background service
 ```

@@ -1,6 +1,6 @@
 # Getting started
 
-This section takes you from an empty machine to a CraftBot that runs in the background, knows who you are, and has completed its first real piece of work. Follow the pages in order. Each one builds on the previous.
+This section takes you from an empty machine to a CraftBot that runs in the background, knows who you are, and has completed its first real task. Follow the pages in order. Each one builds on the previous.
 
 !!! tip "The fastest path"
     If you just want it running: `git clone https://github.com/CraftOS-dev/CraftBot.git && cd CraftBot && python craftbot.py install`, then follow the onboarding wizard that opens in your browser. The [Quickstart](quickstart.md) walks through exactly this, with checkpoints at every step.
@@ -17,7 +17,7 @@ This section takes you from an empty machine to a CraftBot that runs in the back
 
     ---
 
-    From zero to a completed first piece of work, with a checkpoint after every step and a failure-recovery table when something doesn't work.
+    From zero to a completed first task, with a checkpoint after every step and a failure-recovery table when something doesn't work.
 
 - :material-rocket-outline:{ .lg .middle } __[Onboarding](onboarding.md)__
 
@@ -25,11 +25,11 @@ This section takes you from an empty machine to a CraftBot that runs in the back
 
     What the first-launch wizard collects (provider, API key, agent name, profile, skills, integrations), what the agent asks afterwards, and where all of it is stored.
 
-- :material-message-text-outline:{ .lg .middle } __[Your first run](first-task.md)__
+- :material-message-text-outline:{ .lg .middle } __[Your first task](first-task.md)__
 
     ---
 
-    How work happens as runs inside chat sessions, what quick and substantial runs look like, and how to watch and steer the agent while it works.
+    How CraftBot decides between conversation, simple task, and complex task, plus how to watch, steer, and confirm a running task.
 
 - :material-server:{ .lg .middle } __[Service mode](service-mode.md)__
 
@@ -52,14 +52,14 @@ This section takes you from an empty machine to a CraftBot that runs in the back
 | Python 3.10+ | Everything | `python --version` |
 | Git | Cloning the repository | `git --version` |
 | Node.js 18+ | Browser interface (default). Auto-installed on Linux. | `node --version` |
-| A model provider | Everything. API key from any of [13 providers](../core/providers/llm.md), a ChatGPT/SuperGrok subscription, or local [Ollama](../core/providers/llm.md#remote--ollama) (no key). | — |
+| A model provider | Everything. API key from any of [13 providers](../core/providers/llm.md), a ChatGPT/SuperGrok subscription, or local [Ollama](../core/providers/llm.md#remote--ollama) (no key). | (none) |
 
 ## Recommended order
 
 1. [Install](install.md): get CraftBot on your machine.
-2. [Quickstart](quickstart.md): launch, connect a provider, complete a first piece of work.
+2. [Quickstart](quickstart.md): launch, connect a provider, complete a first task.
 3. [Onboarding](onboarding.md): understand what the wizard set up (or redo it properly).
-4. [Your first run](first-task.md): learn to work with the agent while it works.
+4. [Your first task](first-task.md): learn to work with running tasks.
 5. [Service mode](service-mode.md): make it permanent.
 6. [Learning path](learning-path.md): branch out based on what you want to build.
 

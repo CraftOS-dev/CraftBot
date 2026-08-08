@@ -41,13 +41,13 @@ That single command installs dependencies, registers CraftBot to start at login,
 
 <div class="grid cards" markdown>
 
-- :material-brain:{ .lg .middle } __Work that scales to the request__
+- :material-brain:{ .lg .middle } __Task execution in modes__
 
     ---
 
-    Quick requests get direct answers. Bigger requests get a requirement contract, a live todo list, and step-by-step execution you can watch. Run several chat sessions side by side; each keeps its own context.
+    Quick requests run as lightweight simple tasks. Bigger requests become complex tasks with a live todo list and a confirmation step before closing. You never manage sessions. CraftBot routes each message to the right conversation or running task.
 
-    [:octicons-arrow-right-24: Runs](core/modes/index.md)
+    [:octicons-arrow-right-24: Task modes](core/modes/index.md)
 
 - :material-lightning-bolt-outline:{ .lg .middle } __1,100+ built-in actions__
 
@@ -110,6 +110,6 @@ That single command installs dependencies, registers CraftBot to start at login,
 ## Project status
 
 - **License:** [MIT](https://github.com/CraftOS-dev/CraftBot/blob/main/LICENSE): free to use, host, and monetize (credit required for distribution).
-- **Website:** [craftbot.live](https://craftbot.live/) — product site and cloud hosting.
+- **Website:** [craftbot.live](https://craftbot.live/): product site and cloud hosting.
 - **Community:** [GitHub](https://github.com/CraftOS-dev/CraftBot) · [Discord](https://discord.gg/ZN9YHc37HG) · [Living UI marketplace](https://craftos.net/marketplace)
 - **Maintainers:** [CraftOS](https://craftos.net/) and contributors. Active development, weekly improvements.

@@ -194,7 +194,7 @@ def render_row(name, meta):
     desc = first_sentence(meta["description"]) or "See the source for details."
     if meta["irreversible"]:
         desc += " **Irreversible.**"
-    sets = ", ".join(f"`{s}`" for s in meta["action_sets"]) or "—"
+    sets = ", ".join(f"`{s}`" for s in meta["action_sets"]) or "n/a"
     return f"| `{name}` | {sets} | {params} | {desc} |"
 
 

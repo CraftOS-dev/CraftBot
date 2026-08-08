@@ -30,7 +30,7 @@ The task's job:
 
 When `MEMORY.md` has grown past the item cap (default **200** items), the same run adds a **pruning phase**: merge related items about the same subject, drop duplicates and low-utility items, and remove roughly the oldest **135**, keeping high-utility facts regardless of age. Memory therefore has a steady-state size and does not grow forever.
 
-Memory processing runs in the main session, which handles one turn at a time — so two processing runs can't overlap. If a memory trigger fires with nothing to process, the turn is skipped. And events generated *during* processing are excluded from the buffer, so the processor can't feed itself.
+A workflow lock guarantees only one memory-processing task runs at a time. If last night's run is still going when the next trigger fires, the new trigger is skipped, not queued. And events generated *during* processing are excluded from the buffer, so the processor can't feed itself.
 
 ## Index: hybrid, local, incremental
 
@@ -70,7 +70,7 @@ If nothing clears the bar, nothing is logged. There is no empty "no memories fou
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `memory.enabled` (settings.json) | `true` | Master switch — off disables capture, injection, and the nightly processor |
+| `memory.enabled` (settings.json) | `true` | Master switch; off disables capture, injection, and the nightly processor |
 | `memory.max_items` | `200` | Item cap on `MEMORY.md` before pruning runs |
 | `memory.prune_target` | `135` | Approx. oldest items removed per pruning phase |
 | `memory.item_word_limit` | `150` | Max words per distilled memory item |

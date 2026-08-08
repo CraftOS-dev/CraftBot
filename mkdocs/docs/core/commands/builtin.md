@@ -1,22 +1,23 @@
 # Built-in commands
 
-Every slash command shipped with CraftBot, with its aliases, subcommands, and behavior. All of them work in both [interfaces](../interfaces/index.md). The one marked otherwise says so.
+Every slash command shipped with CraftBot, with its aliases, subcommands, and behavior. All of them work in both [interfaces](../interfaces/index.md). The two marked otherwise say so.
 
 At a glance:
 
 | Command | Aliases | What it does |
 |---|---|---|
 | [`/help [command]`](#help) | `/h`, `/?` | List commands, or detail one |
-| [`/clear`](#clear) | `/cls` | Clear the current chat session |
-| [`/reset`](#reset) | — | Reset agent state and clear history |
+| [`/clear`](#clear) | `/cls` | Clear the chat and action log |
+| [`/clear-tasks`](#clear-tasks) | `/cleartasks` | Remove finished tasks from the task panel |
+| [`/reset`](#reset) | (none) | Reset agent state and clear history |
 | [`/exit`](#exit) | `/quit`, `/q` | Shut down CraftBot |
-| [`/menu`](#menu) | — | Open the settings menu (browser only) |
-| [`/provider [name] [key]`](#provider) | — | View or change the LLM provider |
-| [`/mcp <subcommand>`](#mcp) | — | Manage MCP servers |
-| [`/skill <subcommand>`](#skill) | — | Manage skills |
-| [`/cred <subcommand>`](#cred) | — | Credentials and integration status |
+| [`/menu`](#menu) | (none) | Open the settings menu (browser only) |
+| [`/provider [name] [key]`](#provider) | (none) | View or change the LLM provider |
+| [`/mcp <subcommand>`](#mcp) | (none) | Manage MCP servers |
+| [`/skill <subcommand>`](#skill) | (none) | Manage skills |
+| [`/cred <subcommand>`](#cred) | (none) | Credentials and integration status |
 | [`/update [--check]`](#update) | `/upgrade` | Check for and install updates |
-| [`/tokens`](#tokens) | — | Show this session's token usage |
+| [`/tokens`](#tokens) | (none) | Show this session's token usage |
 
 Beyond these, the registry also holds [integration commands](#integration-commands) (`/gmail`, `/slack`, ...) and [skill commands](#skill-commands) (`/pdf`, `/docx`, ...), covered at the end.
 
@@ -31,11 +32,15 @@ The leading slash on the argument is optional (`/help mcp` and `/help /mcp` both
 
 ## /clear
 
-Clears the conversation of the session it's typed in: the persisted chat messages plus the agent-side session state (event stream, todos, run budgets), so a restart won't resurrect the cleared chat. Other sessions, dashboard data, and the session's lifetime [token counters](#tokens) are unaffected. Use it when one conversation is cluttered. Use [`/reset`](#reset) when the *agent* needs a fresh start.
+Clears the chat transcript and the action log in the current interface, and also drops the agent's persisted conversation memory, so a restart won't resurrect the cleared chat. Task history and dashboard data are unaffected. Use it when the conversation is cluttered. Use [`/reset`](#reset) when the *agent* needs a fresh start.
+
+## /clear-tasks
+
+Removes tasks whose status is completed, failed, or cancelled from the task panel, along with their child actions. Running and waiting tasks are preserved, and dashboard usage data and task history are untouched. Requires an action panel, so it's effectively a browser command. In the CLI it reports that no action panel is available.
 
 ## /reset
 
-Resets the agent to its initial state: deletes every chat session (a fresh main session is created), clears the action history and conversation context, restores the agent's markdown files in `agent_file_system/` from their templates, rebuilds the memory index, and clears dashboard usage data. Workspace outputs are wiped too, except Living UI projects, which are preserved. Saved settings and credentials are **not** affected. Feedback arrives as system messages while the reset runs in the background.
+Resets the agent to its initial state: clears the current task, action history, and conversation context, and wipes the chat view. Saved settings and credentials are **not** affected. Feedback arrives as system messages while the reset runs in the background.
 
 ## /exit
 
@@ -43,7 +48,7 @@ Stops the agent cleanly and ends the session. In [service mode](../../start/serv
 
 ## /menu
 
-Opens the settings menu. Browser only, and hidden from the `/help` list. In the CLI it points you to `/help` instead. (In practice you'll click **Settings** in the sidebar; the command exists mainly for keyboard-first use.)
+Opens the settings menu. Browser only. In the CLI it points you to `/help` instead. (In practice you'll click **Settings** in the sidebar; the command exists mainly for keyboard-first use.)
 
 ## /provider
 
@@ -54,8 +59,6 @@ View or switch the LLM provider without opening settings.
 /provider anthropic              # switch provider (keeps any stored key)
 /provider anthropic sk-ant-...   # switch and set the key in one line
 ```
-
-Bare `/provider` masks the key as its first four and last four characters (`sk-a...abcd`).
 
 Accepted names:
 
@@ -72,7 +75,7 @@ Accepted names:
 | `openrouter` | OpenRouter | `OPENROUTER_API_KEY` |
 | `remote` | Ollama (local) | none |
 
-The change is saved to `settings.json` and the LLM client reinitializes immediately, with no restart — a genuine provider change also resets the per-session model caches, while re-running the command with nothing changed is a no-op. Switching providers clears any model override so the new provider starts on its default model. Model selection, base URLs, and subscription login live in **Settings → Model**; see [LLM providers](../providers/llm.md).
+The change is saved to `settings.json` and the LLM reinitializes immediately, with no restart. Model selection, base URLs, and subscription login live in **Settings → Model**; see [LLM providers](../providers/llm.md).
 
 ## /mcp
 
@@ -105,7 +108,7 @@ Manage [skills](../concepts/skills.md). `/skill` with no arguments prints usage.
 |---|---|
 | `list [--all]` | List enabled skills; `--all` includes disabled ones |
 | `info <name>` | Description, version, author, path, and the skill's actions |
-| `enable <name>` / `disable <name>` | Toggle a skill — this also registers/unregisters its slash command |
+| `enable <name>` / `disable <name>` | Toggle a skill; this also registers/unregisters its slash command |
 | `install <path>` | Install from a local directory |
 | `install <git-url>` | Install from a GitHub/GitLab URL |
 | `create <name> [description]` | Scaffold a new skill |

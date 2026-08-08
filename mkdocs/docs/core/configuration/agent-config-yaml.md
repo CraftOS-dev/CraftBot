@@ -7,8 +7,8 @@ CraftBot ships 42 prebuilt specialist agents (ads specialist, data analyst, DevO
 ```
 agent_bundle/agents/ads-specialist/
 ├── agent.yaml        # This manifest
-├── soul.md           # Persona + convictions — becomes SOUL.md, always in context
-├── role.md           # Deep reference playbooks — becomes AGENT.md, grepped on demand
+├── soul.md           # Persona + convictions; becomes SOUL.md, always in context
+├── role.md           # Deep reference playbooks; becomes AGENT.md, grepped on demand
 ├── USE_CASES.md      # What the agent covers (authoring doc, not shipped)
 ├── SOURCES.md        # Section → source provenance map (authoring doc, not shipped)
 ├── reference/        # Downloaded research the content traces back to
@@ -27,9 +27,9 @@ The split between `soul.md` and `role.md` is deliberate: `soul.md` is the always
 | `tier` | `general` \| `specialized` | `general` = broad domain agent (`marketing-agent`); `specialized` = deep single role (`ads-specialist`). Required. |
 | `description` | string | One paragraph: end-to-end intent, hand-off rules to sibling agents, hard convictions. Shown in the bundle preview on import. |
 | `tags` | list | Discovery keywords. |
-| `model.llm_provider`, `model.llm_model` | string | The provider/model the agent was authored and tested against. **Metadata only** — it is not shipped in the bundle and importing never switches the recipient's provider (see [settings.json](config-json.md)). |
-| `enabled_skills` | list | Skill names the agent works through — bundled packs plus CraftBot defaults (see below). |
-| `mcp_servers` | list | MCP server names the agent expects. Every name must exist in `app/config/mcp_config.json` — see [MCP](../../integrations/mcp.md). |
+| `model.llm_provider`, `model.llm_model` | string | The provider/model the agent was authored and tested against. **Metadata only**: it is not shipped in the bundle and importing never switches the recipient's provider (see [settings.json](config-json.md)). |
+| `enabled_skills` | list | Skill names the agent works through: bundled packs plus CraftBot defaults (see below). |
+| `mcp_servers` | list | MCP server names the agent expects. Every name must exist in `app/config/mcp_config.json`; see [MCP](../../integrations/mcp.md). |
 | `sources` | list of `{name, url, used_for}` | Provenance: which reference material informed which capability. |
 
 ### How enabled_skills resolve

@@ -1,6 +1,6 @@
 # Browser interface
 
-The browser interface is CraftBot's default: a React web UI where you chat with the agent across multiple sessions, watch its actions execute live, browse the agent's workspace, and configure everything without touching a config file. If you followed the [Quickstart](../../start/quickstart.md), this is what opened at `http://localhost:7925`.
+The browser interface is CraftBot's default: a React web UI where you chat with the agent, watch tasks and actions execute live, browse the agent's workspace, and configure everything without touching a config file. If you followed the [Quickstart](../../start/quickstart.md), this is what opened at `http://localhost:7925`.
 
 ## Launch
 
@@ -25,11 +25,12 @@ A sidebar on the left, the active page on the right. The sidebar (collapsible) h
 
 | Sidebar item | What it opens |
 |---|---|
-| **New Chat** | Starts a fresh chat session |
-| **Chats** | The session list: **Main** plus every chat session you've created, with busy/unread indicators. Sessions auto-title from the first exchange; the options menu renames, clears, or deletes one |
+| **Chat** | The main conversation view (the home page) |
+| **Tasks** | Full-page view of every task and its actions |
 | **Dashboard** | Usage metrics and agent activity |
 | **Workspace** | File browser for the agent's workspace |
-| **Living UI** (one tab per project) | The running [Living UI](../../living-ui/index.md) app, rendered in-page; **Add Living UI** starts a new one |
+| One tab per [Living UI](../../living-ui/index.md) project | The running Living UI app, rendered in-page |
+| **Add Living UI** | Opens the create dialog for a new Living UI project |
 | **Settings** | All settings pages (pinned at the bottom) |
 
 Above Settings sits a small toolbar with the version number, a **Playbooks** button, a light/dark theme toggle, and GitHub/Discord links.
@@ -38,11 +39,15 @@ On the very first launch you won't see any of this yet. A full-screen [onboardin
 
 ## Chat
 
-The core surface. Messages stream in with markdown rendering; you can attach files to a message (with a preview before sending) and the agent can send files back into the chat. Typing `/` opens a command autocomplete listing every [slash command](../commands/builtin.md), including one entry per enabled skill. Reply directly on a specific message bubble to answer that exact question. A stop control force-stops the current run. An animated mascot reflects what the agent is currently doing.
+The core surface. Messages stream in with markdown rendering; you can attach files to a message (with a preview before sending) and the agent can send files back into the chat. Typing `/` opens a command autocomplete listing every [slash command](../commands/builtin.md), including one entry per enabled skill.
 
-## Activity
+Beside the conversation sits a resizable panel showing active and recent tasks. From it you can reply directly into a task's session, confirm a task complete, cancel it, resume it, or delete it. An animated mascot sits above the chat and reflects what the agent is currently doing.
 
-While the agent works, an always-visible **Working** row shows the live run, and the activity view expands it: every action renders with its inputs and outputs, chunked per run. Long values are collapsible, and action-specific renderers format things like file writes and searches readably. Past activity is restored when you reopen a session.
+## Tasks
+
+The full-screen version of the task panel. Every task expands into its action list, and every action renders as a card with its inputs and outputs. Long values are collapsible, and action-specific renderers format things like file writes and searches readably. Buttons per task: reply, complete, cancel, resume, delete.
+
+Completed tasks have one extra feature: a **skill creator** that turns a finished task into a reusable [skill](../concepts/skills.md), or folds it into an existing one, so the agent can repeat the workflow on demand.
 
 ## Dashboard
 
@@ -61,10 +66,10 @@ Eight pages, selected from a category rail:
 | **General** | Agent identity and general behavior |
 | **Proactive** | [Proactive mode](../modes/proactive.md) configuration |
 | **Memory** | The agent's memory |
-| **Model** | LLM provider, API keys, model selection — the UI equivalent of `/provider` (see [LLM providers](../providers/llm.md)) |
+| **Model** | LLM provider, API keys, model selection: the UI equivalent of `/provider` (see [LLM providers](../providers/llm.md)) |
 | **MCPs** | Add, edit, enable/disable [MCP servers](../../integrations/mcp.md) |
 | **Skills** | Browse and toggle [skills](../concepts/skills.md) |
-| **Integrations** | Connect [external services](../../integrations/index.md) — token entry and OAuth flows |
+| **Integrations** | Connect [external services](../../integrations/index.md): token entry and OAuth flows |
 | **Living UI** | [Living UI](../../living-ui/index.md) project settings |
 
 ## Playbooks
@@ -80,7 +85,7 @@ Each Living UI project the agent builds appears as its own sidebar tab and rende
 | Port | Serves |
 |---|---|
 | `7925` | Frontend (the page you open) |
-| `7926` | Agent backend — WebSocket plus HTTP API, proxied through the frontend |
+| `7926` | Agent backend: WebSocket plus HTTP API, proxied through the frontend |
 
 Both bind to **localhost** only, and the browser UI has **no built-in authentication**. Anyone who can reach the port controls your agent. Never expose these ports directly to the internet. For access from another machine, tunnel:
 

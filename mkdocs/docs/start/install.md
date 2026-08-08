@@ -16,9 +16,9 @@ Use the automatic path if you want an assistant that's always available. Use the
 | **Python 3.10+** | Everything. Python 3.9 and below will not work. | `python --version` |
 | **git** | Cloning the repository | `git --version` |
 | **Node.js 18+** | The browser interface (default mode). The launcher auto-installs Node.js on Linux; on Windows and macOS install it yourself from [nodejs.org](https://nodejs.org/) (LTS). Not needed for CLI mode. | `node --version` |
-| **A model provider** | The agent needs an LLM. Have ready one of: an API key from a [supported provider](../core/providers/llm.md), a ChatGPT/SuperGrok subscription, or a running [Ollama](../core/providers/llm.md) server (free, no key). You enter this during [onboarding](onboarding.md) — you don't need it to install. | — |
+| **A model provider** | The agent needs an LLM. Have ready one of: an API key from a [supported provider](../core/providers/llm.md), a ChatGPT/SuperGrok subscription, or a running [Ollama](../core/providers/llm.md) server (free, no key). You enter this during [onboarding](onboarding.md); you don't need it to install. | (none) |
 | *(optional)* **conda / mamba** | Isolated Python environment. `install.py --conda` offers to install Miniconda if missing. | `conda --version` |
-| *(optional)* **Playwright Chromium** | Only the WhatsApp Web integration. Safe to skip; install later with `playwright install chromium`. | — |
+| *(optional)* **Playwright Chromium** | Only the WhatsApp Web integration. Safe to skip; install later with `playwright install chromium`. | (none) |
 
 ## Path A: automatic install (background service)
 
@@ -158,12 +158,12 @@ Stops CraftBot, removes the auto-start registration, uninstalls the pip packages
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `npm not found in PATH` | Node.js missing (browser mode needs it) | Install the LTS from [nodejs.org](https://nodejs.org/), restart the terminal, run again — or use `python run.py --cli` |
+| `npm not found in PATH` | Node.js missing (browser mode needs it) | Install the LTS from [nodejs.org](https://nodejs.org/), restart the terminal, run again, or use `python run.py --cli` |
 | Dependency install fails | Python < 3.10, no internet, or a stale pip | `python --version`; `pip install --upgrade pip`; retry. Conda path is the most reliable: `python install.py --conda` |
 | Playwright/Chromium install fails | Optional dependency | Skip it. Everything except WhatsApp Web works. Install later: `playwright install chromium` |
 | Port `7925`/`7926` already in use | Another process (or an old CraftBot) owns the port | `python craftbot.py stop`, or launch with `--frontend-port` / `--backend-port` |
 | Browser opens but nothing loads | Frontend still building on first launch | Wait for the first build to finish; check `python craftbot.py logs` |
-| Agent doesn't reply to `hello` | No provider configured | Complete onboarding, or set a key via the `/provider` command — see [Quickstart step 2](quickstart.md#step-2-connect-a-model-provider) |
+| Agent doesn't reply to `hello` | No provider configured | Complete onboarding, or set a key via the `/provider` command; see [Quickstart step 2](quickstart.md#step-2-connect-a-model-provider) |
 
 More cases: [Runtime issues](../reference/troubleshooting/runtime.md).
 

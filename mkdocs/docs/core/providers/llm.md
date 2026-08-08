@@ -10,11 +10,11 @@ The LLM handles every plan, reply, and tool call the agent makes. CraftBot suppo
 | **OpenAI** | `openai` | `OPENAI_API_KEY` | `gpt-5.2-2025-12-11` | Also works with a ChatGPT Plus/Pro/Team [subscription](subscription-auth.md) |
 | **Google Gemini** | `gemini` | `GOOGLE_API_KEY` | `gemini-2.5-pro` | API base and version overridable; also the default video-generation provider |
 | **BytePlus** | `byteplus` | `BYTEPLUS_API_KEY` | `seed-2-0-pro-260328` | Default base `https://ark.ap-southeast.bytepluses.com/api/v3`, overridable |
-| **Ollama (local)** | `remote` | None — just a server URL | `llama3.2:3b` | Default `http://localhost:11434`; free, fully local |
+| **Ollama (local)** | `remote` | None, just a server URL | `llama3.2:3b` | Default `http://localhost:11434`; free, fully local |
 | **Grok (xAI)** | `grok` | `XAI_API_KEY` | `grok-3` | `https://api.x.ai/v1`; also works with a SuperGrok [subscription](subscription-auth.md) |
 | **DeepSeek** | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` | `https://api.deepseek.com`; text only, no vision |
-| **Moonshot** | `moonshot` | `MOONSHOT_API_KEY` | `kimi-k2.5` | `https://api.moonshot.cn/v1`; geo-restricted — see quirks |
-| **MiniMax** | `minimax` | `MINIMAX_API_KEY` | `MiniMax-Text-01` | `https://api.minimax.chat/v1`; geo-restricted — see quirks |
+| **Moonshot** | `moonshot` | `MOONSHOT_API_KEY` | `kimi-k2.5` | `https://api.moonshot.cn/v1`; geo-restricted (see quirks) |
+| **MiniMax** | `minimax` | `MINIMAX_API_KEY` | `MiniMax-Text-01` | `https://api.minimax.chat/v1`; geo-restricted (see quirks) |
 | **Z.ai (GLM)** | `glm` | `ZAI_API_KEY` | `glm-5.2` | `https://api.z.ai/api/paas/v4`, OpenAI-compatible |
 | **Sakana (Fugu)** | `fugu` | `SAKANA_API_KEY` | `fugu` | `https://api.sakana.ai/v1`, OpenAI-compatible; LLM only |
 | **OpenRouter** | `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4.5` | `https://openrouter.ai/api/v1`; one key, hundreds of models |
@@ -27,9 +27,9 @@ The key names above are the conventional identifiers shown in the settings inter
 | You want | Pick | Why |
 |---|---|---|
 | Best out-of-box agent quality | **Anthropic**, **OpenAI**, or **Gemini** | Flagship hosted models; CraftBot's prompt-caching paths are tuned for them |
-| Zero cost, full privacy | **Ollama** (`remote`) | Runs on your hardware, no key, no tokens billed — quality depends on the model you run |
+| Zero cost, full privacy | **Ollama** (`remote`) | Runs on your hardware, no key, no tokens billed; quality depends on the model you run |
 | One key, many models | **OpenRouter** | Access Claude, GPT, Gemini, Kimi, and more through a single account; models are addressed as `vendor/model` slugs |
-| Pay with a subscription you already have | **OpenAI** or **Grok** in subscription mode | Your ChatGPT Plus/Pro/Team or SuperGrok quota powers the agent — see [Subscription authentication](subscription-auth.md) |
+| Pay with a subscription you already have | **OpenAI** or **Grok** in subscription mode | Your ChatGPT Plus/Pro/Team or SuperGrok quota powers the agent; see [Subscription authentication](subscription-auth.md) |
 | Existing AWS billing / compliance | **Bedrock** | Claude models under your AWS account, IAM roles, and region controls |
 | Low-cost hosted | **DeepSeek**, **GLM**, **Moonshot**, **MiniMax** | Cheap and capable; check the quirks below for vision support and geo-restrictions |
 
@@ -60,8 +60,6 @@ You can also hand-edit `settings.json` (restart afterwards):
 ```
 
 `llm_model: null` means "use the provider's default from the registry". Switching providers clears any model override so the new provider starts on its own default. Per-capability overrides (`vlm_model`, `image_gen_model`, `video_gen_model`) work the same way (see [settings.json](../configuration/config-json.md)).
-
-One rule to remember: **every model change requires a reinitialize** — the live LLM client holds its provider and model from construction and never re-reads `settings.json` per call, so a hand-edit alone changes nothing until you restart. `/provider` and a Settings → Model save both trigger the reinitialize for you (it's a no-op when nothing actually changed), and this applies to same-provider model swaps too. A true provider change resets the per-session model caches; a same-provider reinitialize preserves them.
 
 **Connection testing.** The test in Settings → Model sends a tiny request against your exact configured model, so a typo in the model ID fails at test time instead of at first real use. When no model is set it uses a known-good default from `app/config/connection_test_models.json`. If a provider deprecates its test model, update that file.
 
@@ -94,10 +92,10 @@ When enabled, CraftBot tracks token usage in a sliding 60-second window and bloc
 | Grok returns `400` on every call | xAI signals rejected/expired bearers with 400, not 401 | Test the key in Settings → Model; if using a subscription, reconnect it |
 | Model-not-found error | Model override typo, or the default model isn't enabled on your account | Run the connection test (it validates the exact model ID); set an explicit model in Settings → Model |
 | `429 Too Many Requests` | Provider rate limit | Enable [slow mode](#slow-mode); lower the TPM limit; or switch providers |
-| Moonshot / MiniMax unreachable | Geo-restricted direct API | Add an OpenRouter key — CraftBot proxies these providers through it automatically |
+| Moonshot / MiniMax unreachable | Geo-restricted direct API | Add an OpenRouter key; CraftBot proxies these providers through it automatically |
 | Ollama: connection refused | Server not running, or wrong URL | `ollama serve`, then check `endpoints.remote_model_url` |
 | New API key saved but ignored (OpenAI / Grok) | A connected subscription takes precedence over the key | Disconnect the subscription in Settings → Model, then save |
-| The run halts with a provider-failure message | The failure guard tripped — a non-retryable error (bad key, no credits, wrong model, misconfigured provider, content filter) halts on the first failure; transient errors get 5 attempts first | Fix the cause, then send any chat message ("continue") to resume. See [Provider troubleshooting](../../reference/troubleshooting/providers.md) |
+| Repeated failures, agent backs off | 5 consecutive LLM errors trip the failure guard | See [Provider troubleshooting](../../reference/troubleshooting/providers.md) |
 
 ## Related
 

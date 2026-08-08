@@ -3,7 +3,7 @@
 Onboarding is how CraftBot goes from a fresh install to an agent that can work for *you specifically*. It has two distinct phases, and each stores your answers in a different place:
 
 - **Hard onboarding** is a six-step setup wizard shown on first launch. It configures the things the agent cannot run without (a model provider) plus identity and preferences. Everything it collects is written to config files.
-- **Soft onboarding** is a get-to-know-you interview the agent itself runs as its first conversation with you, right after the wizard finishes. It's a normal chat. Your answers are distilled into `agent_file_system/USER.md`, which the agent reads on every prompt from then on.
+- **Soft onboarding** is a get-to-know-you interview the agent itself runs as its first task, right after the wizard finishes. It's a normal conversation. Your answers are distilled into `agent_file_system/USER.md`, which the agent reads on every prompt from then on.
 
 You can skip most of it and configure everything later from Settings, but the two provider steps are required, and finishing the profile steps noticeably improves how the agent communicates with you.
 
@@ -37,7 +37,7 @@ A compact form that seeds the agent's picture of you:
 | Language | Full language list, pre-selected from your OS locale |
 | Location | Auto-detected from your IP (editable); used for timezone- and locale-aware behavior |
 | Tone | Casual · Formal · Friendly · Professional |
-| Proactivity | **Low** — wait for instructions · **Medium** — suggest when relevant · **High** — proactively suggest things |
+| Proactivity | **Low**: wait for instructions · **Medium**: suggest when relevant · **High**: proactively suggest things |
 | Approval required for | Sending messages on your behalf · Creating/modifying schedules · Modifying files · Purchases/payments · All actions |
 | Preferred platform | Telegram · WhatsApp · Discord · Slack · the CraftBot interface |
 
@@ -55,12 +55,12 @@ Every step except the two provider steps can be skipped, and you can go back to 
 
 ## Soft onboarding: the agent's interview
 
-Immediately after the wizard, the agent opens a short conversation: it greets you by name and interviews you about identity details, how you like to communicate, what you're working toward, and how hands-on you want it to be. This is a normal chat. Answer as much or as little as you want.
+Immediately after the wizard, the agent starts a short conversational task: it greets you by name and interviews you about identity details, how you like to communicate, what you're working toward, and how hands-on you want it to be. This is a normal chat. Answer as much or as little as you want.
 
 This phase has two effects:
 
 1. **Your answers persist.** The agent writes them into `agent_file_system/USER.md` (and agent-behavior notes into `AGENT.md`). `USER.md` is injected into the agent's context on every single prompt, which makes it the highest-leverage file in the system for shaping behavior.
-2. **It doesn't block anything.** You can give the agent real work mid-interview. It handles the request normally and returns to the interview later.
+2. **It doesn't block anything.** You can give the agent real work mid-interview. It routes your task normally and returns to the interview later.
 
 You can also edit `USER.md` directly at any time. It's plain markdown, and the agent picks up changes immediately. See [Agent file system](../core/concepts/agent-file-system.md).
 
@@ -69,9 +69,9 @@ You can also edit `USER.md` directly at any time. It's plain markdown, and the a
 | What | File |
 |---|---|
 | Completion state (hard/soft done, timestamps), your name, agent name, avatar | `app/config/onboarding_config.json` |
-| Provider, API keys, model settings | `app/config/settings.json` — see [Settings](../core/configuration/config-json.md) |
+| Provider, API keys, model settings | `app/config/settings.json`; see [Settings](../core/configuration/config-json.md) |
 | Enabled skills | `app/config/skills_config.json` |
-| Integration credentials | `.credentials/` — see [Credentials](../integrations/credentials.md) |
+| Integration credentials | `.credentials/`; see [Credentials](../integrations/credentials.md) |
 | Your profile (soft onboarding answers) | `agent_file_system/USER.md` |
 
 ## Changing things later
@@ -93,7 +93,7 @@ To force the wizard to run again from scratch, stop CraftBot and reset the compl
 | Wizard doesn't appear on first launch | Onboarding already marked complete (e.g. reused config) | Reset flags in `app/config/onboarding_config.json`, restart |
 | Can't proceed past API key | Key invalid for the chosen provider | Test the key in the provider's console; check for pasted whitespace |
 | Skill shows "Setup required" | It depends on an unconfigured MCP server | Add the server in [MCP servers](../integrations/mcp.md), then enable the skill |
-| Agent never started the interview | Soft onboarding flag already set, or the run was interrupted | Set `soft_completed` to `false` in `onboarding_config.json`, restart |
+| Agent never started the interview | Soft onboarding flag already set, or the task was interrupted | Set `soft_completed` to `false` in `onboarding_config.json`, restart |
 | Location detected wrong | IP geolocation is approximate | Edit the field in the wizard, or fix it later in `USER.md` |
 
 ## Next

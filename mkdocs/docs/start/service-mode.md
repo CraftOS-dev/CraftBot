@@ -84,11 +84,11 @@ Inside it:
 
 | File | Purpose |
 |---|---|
-| `craftbot.pid` | PID of the running background process — how `status`/`stop` find it |
+| `craftbot.pid` | PID of the running background process; how `status`/`stop` find it |
 | `craftbot.log` | The service's own output. `craftbot.py logs` reads this. Startup is confirmed by the `CRAFTBOT IS READY` marker here. |
 | `install.json` | What the installer set up (used by `status`, `repair`, `uninstall`) |
 
-The **agent's** logs are separate and richer: each launch writes a folder under `logs/` in the repository (`all.log` for everything interleaved, plus a folder per session holding its own `session.log` and any sub-agent logs), rotated at 50 MB and kept 14 days. When you're debugging agent behavior, read those. When you're debugging "why didn't it start", read `craftbot.log`. See [Logs](../core/concepts/logs.md).
+The **agent's** logs are separate and richer: each run writes a folder under `logs/` in the repository (`main.log` for the main agent, `all.log` for everything including sub-agents), rotated at 50 MB and kept 14 days. When you're debugging agent behavior, read those. When you're debugging "why didn't it start", read `craftbot.log`. See [Logs](../core/concepts/logs.md).
 
 ## Common setups
 
@@ -114,7 +114,7 @@ ssh -N -L 7925:localhost:7925 you@server    # then open http://localhost:7925 lo
 |---|---|---|
 | Nothing starts after login | Auto-start entry missing or disabled | `python craftbot.py status`; re-run `install`. Windows: check `schtasks /Query /TN CraftBot`; Linux: `systemctl --user status craftbot` |
 | `status` says running but UI won't load | Frontend build failed or port conflict | `python craftbot.py logs`; try `restart`; check nothing else owns `7925`/`7926` |
-| Worked in foreground, fails as a service | Environment difference — usually keys set as shell env vars | Move keys into the settings UI / `settings.json` (see the systemd warning above) |
+| Worked in foreground, fails as a service | Environment difference, usually keys set as shell env vars | Move keys into the settings UI / `settings.json` (see the systemd warning above) |
 | Scheduled/proactive tasks don't fire | Service not running, or proactive disabled | `craftbot.py status`, then check `proactive.enabled` in [settings](../core/configuration/config-json.md) |
 | Stale PID / won't stop | Process died without cleanup | Delete `craftbot.pid` in the state directory, then `start` again |
 | Desktop shortcut opens a blank page | Agent stopped | `python craftbot.py start`, wait for ready, reload |
@@ -124,5 +124,5 @@ More: [Runtime issues](../reference/troubleshooting/runtime.md).
 ## Next
 
 - [Scheduling](../core/concepts/scheduling.md): the recurring work that makes always-on worthwhile
-- [Proactive mode](../core/modes/proactive.md): let the agent propose its own work
+- [Proactive mode](../core/modes/proactive.md): let the agent propose its own tasks
 - [Integrations](../integrations/index.md): talk to your always-on agent from Telegram, Slack, and everywhere else

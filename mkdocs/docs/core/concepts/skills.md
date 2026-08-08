@@ -9,8 +9,8 @@ A skill enters a task in one of two ways:
 
 | Path | How it works |
 |---|---|
-| **Automatic** | At task creation, an LLM call reads the map of `{skill name: description}` for all enabled skills and picks the best match — or none. Selection is capped at **one skill per task** to keep the context focused. |
-| **Slash command** | Every enabled, user-invocable skill is registered as `/<skill-name>` (type `/` in chat to see them). Invoking `/pdf report.pdf` skips LLM selection entirely — the skill is force-attached and your arguments flow into it. |
+| **Automatic** | At task creation, an LLM call reads the map of `{skill name: description}` for all enabled skills and picks the best match, or none. Selection is capped at **one skill per task** to keep the context focused. |
+| **Slash command** | Every enabled, user-invocable skill is registered as `/<skill-name>` (type `/` in chat to see them). Invoking `/pdf report.pdf` skips LLM selection entirely; the skill is force-attached and your arguments flow into it. |
 
 Either way, the skill's `action-sets` recommendations are merged into the task's [action sets](actions-and-action-sets.md), so a skill that needs shell access brings the `shell` set with it.
 
@@ -93,5 +93,5 @@ For writing skills by hand, or packaging skills for others, see the [skill autho
 
 - [Write a CraftBot skill](../../develop/skills/craftbot-skill.md): the full authoring guide
 - [Actions and action sets](actions-and-action-sets.md): the capabilities skills orchestrate
-- [Sessions](task-sessions.md): the runs skills load into
+- [Task sessions](task-sessions.md): the task lifecycle skills attach to
 - [Agent loop](agent-loop.md): where skill instructions enter each turn
