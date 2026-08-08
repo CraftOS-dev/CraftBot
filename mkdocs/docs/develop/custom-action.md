@@ -137,8 +137,11 @@ The decorator argument is `requirement` (singular). The registry stores it inter
     requirement=["pandas"],
     action_sets=["document_processing"],
     input_schema={
-        "file_path": {"type": "string", "example": "/data/report.csv",
-                       "description": "Path to the CSV file."},
+        "file_path": {
+            "type": "string",
+            "example": "/data/report.csv",
+            "description": "Path to the CSV file.",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
