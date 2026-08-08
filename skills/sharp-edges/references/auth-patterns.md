@@ -11,11 +11,13 @@ Patterns that make authentication and session management error-prone.
 def check_password(user_input, stored):
     return user_input == stored  # Timing attack
 
+
 # DANGEROUS: Empty password bypass
 def check_password(user_input, stored):
     if not stored:
         return True  # No password set = access granted?
     return constant_time_compare(user_input, stored)
+
 
 # DANGEROUS: Null bypass
 def authenticate(username, password):
@@ -33,6 +35,7 @@ def authenticate(username, password):
 def hash_password(password: str) -> str:
     password = password[:72]  # bcrypt limit
     return bcrypt.hash(password)
+
 
 # User sets: "password123" + 64 more characters + "IMPORTANT_ENTROPY"
 # Stored: hash of just "password123" + first 61 characters
@@ -52,6 +55,7 @@ def login(username, password):
     if not verify_password(password, user.password_hash):
         return "Wrong password"  # Reveals user DOES exist
     return create_session(user)
+
 
 # SECURE: Uniform error
 def login(username, password):
@@ -81,11 +85,12 @@ def login(request):
 ```python
 # DANGEROUS: Predictable tokens
 import time
+
 session_id = hashlib.md5(str(time.time()).encode()).hexdigest()
 # Attacker knows approximate login time = can guess session
 
 # DANGEROUS: Insufficient entropy
-session_id = ''.join(random.choice('abcdef') for _ in range(8))
+session_id = "".join(random.choice("abcdef") for _ in range(8))
 # Only 6^8 = 1.6M possibilities
 
 # SECURE: Cryptographic randomness
@@ -116,10 +121,11 @@ def verify_otp(code, user, lifetime=300):
     if lifetime == 0:
         return True  # Skip expiry check entirely
 
-# DANGEROUS: Negative lifetime
+    # DANGEROUS: Negative lifetime
     if otp.created_at + lifetime > current_time:
         return True
     # If lifetime is negative, always expired? Or underflow?
+
 
 # DANGEROUS: No rate limiting
 def verify_otp(code, user):
@@ -134,10 +140,12 @@ def verify_otp(code, user):
 def verify_otp(code, user):
     return code == user.otp
 
+
 # DANGEROUS: Reset token valid forever
 def verify_reset_token(token):
     return token in valid_tokens
     # Never expires, never invalidated on use
+
 
 # SECURE: Single-use, time-limited
 def verify_reset_token(token):
@@ -159,9 +167,12 @@ def verify_reset_token(token):
 user.permissions = "read,write"
 user.permissions += ",admin"  # Too easy
 
+
 # DANGEROUS: Any-match logic
 def has_permission(user, required):
     return any(p in user.permissions for p in required.split(","))
+
+
 # has_permission(user, "admin,readonly") - matches if ANY is present
 
 # DANGEROUS: Substring matching
@@ -178,9 +189,11 @@ if "admin" in user.role:
 def list_documents(request):
     return Document.objects.all()
 
+
 def get_document(request, doc_id):
     # Developer forgot @require_login
     return Document.objects.get(id=doc_id)
+
 
 def delete_document(request, doc_id):
     # Developer also forgot authorization check
@@ -196,6 +209,7 @@ def delete_document(request, doc_id):
 def get_profile(request):
     user_id = request.GET["user_id"]  # Attacker changes this
     return User.objects.get(id=user_id)
+
 
 # DANGEROUS: Sequential IDs
 user = User.objects.create(...)  # Gets ID 12345

@@ -602,7 +602,11 @@ export function LivingUISettings() {
                 onToggleSetting={(setting, value) => {
                   // Optimistic so the toggle flips immediately; the refetch
                   // triggered by the response reconciles authoritative state.
-                  dispatch(updateProjectSetting({ projectId: project.id, setting, value }))
+                  dispatch(updateProjectSetting({
+                    projectId: project.id,
+                    setting: setting as 'autoLaunch' | 'logCleanup',
+                    value,
+                  }))
                   send('living_ui_project_setting_update', { projectId: project.id, setting, value })
                 }}
                 send={send}

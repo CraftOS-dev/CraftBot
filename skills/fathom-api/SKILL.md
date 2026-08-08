@@ -478,9 +478,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/fathom/external/v1/meetings',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'created_after': '2025-01-01T00:00:00Z'}
+    "https://gateway.maton.ai/fathom/external/v1/meetings",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"created_after": "2025-01-01T00:00:00Z"},
 )
 data = response.json()
 ```

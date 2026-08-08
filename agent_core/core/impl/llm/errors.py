@@ -21,8 +21,27 @@ External callers:
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from enum import Enum
 from typing import Any, Dict, List, Optional
+
+from agent_core.core.errors import (
+    ErrorAction,
+    ErrorCategory,
+    Severity,
+    is_transient,
+    redact,
+)
+
+__all__ = [
+    "ErrorCategory",
+    "ErrorAction",
+    "Severity",
+    "is_transient",
+    "LLMErrorInfo",
+    "LLMConsecutiveFailureError",
+    "classify_llm_error",
+    "classify_llm_error_message",
+    "provider_display_name",
+]
 
 
 # Optional provider SDK imports — kept defensive so missing extras don't
@@ -49,33 +68,9 @@ except ImportError:  # pragma: no cover
 
 
 # ─── Public taxonomy ──────────────────────────────────────────────────
-
-
-class ErrorCategory(str, Enum):
-    AUTH = "auth"  # 401/403 — bad/missing key, key revoked
-    CREDIT = "credit"  # 402, "insufficient_quota", "credit_balance_too_low"
-    RATE_LIMIT = "rate_limit"  # 429 — transient
-    QUOTA = "quota"  # 429 + monthly/account scope (separable from per-min)
-    MODEL = "model"  # 404, "model_not_found"
-    BAD_REQUEST = "bad_request"  # 400 — request malformed (context overflow, etc.)
-    BLOCKED = "blocked"  # safety filter (Gemini/Anthropic)
-    SERVER = "server"  # 5xx, "overloaded_error"
-    CONNECTION = "connection"  # network / timeout / DNS
-    UNKNOWN = "unknown"
-
-
-@dataclass
-class ErrorAction:
-    """A clickable affordance attached to an error.
-
-    `url` opens in a new tab; `action` is a frontend-resolved verb such as
-    "open_settings_model" — handled by the chat component, not by URL nav.
-    Exactly one of url/action should be set.
-    """
-
-    label: str
-    url: Optional[str] = None
-    action: Optional[str] = None
+# ErrorCategory/ErrorAction/Severity/is_transient live in agent_core.core.errors
+# (imported above) so app-layer, non-LLM call sites can share the same
+# vocabulary without agent_core depending on app.
 
 
 @dataclass
@@ -91,10 +86,21 @@ class LLMErrorInfo:
     actions: List[ErrorAction] = field(default_factory=list)
     raw_message: Optional[str] = None  # truncated raw upstream text for "Show details"
     request_id: Optional[str] = None  # for support tickets
+    # Appended fields (kept trailing/defaulted so existing positional/keyword
+    # construction call sites don't break):
+    code: Optional[str] = (
+        None  # stable id, e.g. "LLM_AUTH" — auto-derived, see classify_llm_error()
+    )
+    severity: Severity = Severity.ERROR
+
+    @property
+    def is_transient(self) -> bool:
+        return is_transient(self.category)
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["category"] = self.category.value
+        d["severity"] = self.severity.value
         return d
 
 
@@ -157,13 +163,24 @@ MSG_SERVICE = "The provider service is unavailable. Try again later."
 MSG_CONNECTION = "Could not reach the provider. Check your network connection."
 MSG_GENERIC = "Something went wrong calling the AI service."
 MSG_CONSECUTIVE_FAILURE = "Aborted after consecutive failures."
+MSG_FAILED_IMMEDIATELY = "This error can't be fixed by retrying."
+
+
+# Deterministic, auto-derived error code per category — one per ErrorCategory
+# value, zero manual maintenance. Not meant to be as fine-grained as a
+# per-provider codebook; just enough for log correlation and future
+# frontend/i18n lookups.
+def _code_for_category(category: ErrorCategory) -> str:
+    return f"LLM_{category.value.upper()}"
 
 
 # ─── Consecutive-failure exception (preserves last classified info) ───
 
 
 class LLMConsecutiveFailureError(Exception):
-    """Raised when LLM calls fail too many times consecutively.
+    """Raised when LLM calls fail too many times consecutively — or, for
+    non-transient categories (see FAIL_FAST_CATEGORIES), on the very first
+    failure.
 
     Carries the last classified `LLMErrorInfo` (when known) so the UI can
     surface the *cause* of the failures, not just the count.
@@ -174,11 +191,20 @@ class LLMConsecutiveFailureError(Exception):
         failure_count: int,
         last_error: Optional[Exception] = None,
         last_error_info: Optional[LLMErrorInfo] = None,
+        is_immediate: bool = False,
     ):
         self.failure_count = failure_count
         self.last_error = last_error
         self.last_error_info = last_error_info
-        message = MSG_CONSECUTIVE_FAILURE.format(count=failure_count)
+        # Any raise site with failure_count <= 1 is, by definition, a single
+        # failure — never say "consecutive failures" for one failure, even if
+        # a call site forgot to pass is_immediate explicitly (e.g. a hard
+        # per-call timeout raised directly with count=1, not routed through
+        # LLMInterface._register_failure's fail-fast categorization).
+        self.is_immediate = is_immediate or failure_count <= 1
+        message = (
+            MSG_FAILED_IMMEDIATELY if self.is_immediate else MSG_CONSECUTIVE_FAILURE
+        )
         if last_error:
             message += f" Last error: {last_error}"
         super().__init__(message)
@@ -215,7 +241,9 @@ def classify_llm_error(
     if info is None:
         # Don't fabricate a generic message — the raw exception text is
         # almost always more informative than any stub we could write.
-        raw = _truncate(str(error)) or "AI service error"
+        # Redacted since, unlike the curated per-category messages below,
+        # this echoes the exception's own text verbatim to the UI.
+        raw = redact(_truncate(str(error)) or "AI service error")
         info = LLMErrorInfo(
             category=ErrorCategory.UNKNOWN,
             title="AI service error",
@@ -226,6 +254,8 @@ def classify_llm_error(
 
     if model and info.model is None:
         info.model = model
+    if info.code is None:
+        info.code = _code_for_category(info.category)
 
     return info
 
@@ -266,8 +296,16 @@ def _try_classify(
     if requests is not None and isinstance(error, requests.exceptions.RequestException):
         return _classify_requests(error, provider)
 
-    # Gemini's custom error type (raised by our REST client)
+    # Local precondition failures — raised before any network call (no API
+    # key configured, so the provider client was never constructed). Must be
+    # checked before the Gemini substring sniff below: "Gemini client was
+    # not initialised." would otherwise match "Gemini" and get misclassified
+    # as a Gemini API-shaped error.
     msg = str(error)
+    if isinstance(error, RuntimeError) and "was not initialised" in msg:
+        return _classify_local_config(error, provider or "unknown")
+
+    # Gemini's custom error type (raised by our REST client)
     if "Gemini" in msg or "promptFeedback" in msg or "blocked" in msg.lower():
         return _classify_gemini_runtime(error, provider or "gemini")
 
@@ -402,6 +440,28 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
     # (DeepSeek, Moonshot, MiniMax, Qwen, rinna, CLOVA, etc.) may return
     # error text in their native language when routed via OpenRouter.
     category = _refine_category_from_localised(raw_message, category)
+
+    # OpenAI's SDK raises the same RateLimitError (429) for both actual
+    # rate-limiting AND quota/credit exhaustion — normally disambiguated by
+    # `code == "insufficient_quota"` above, but some accounts/providers
+    # return 429 with a plain-language credit message and no matching
+    # structured code. "Rate limited... try again shortly" is actively wrong
+    # advice when the account is just out of funds, so fall back to sniffing
+    # the raw text.
+    if category == ErrorCategory.RATE_LIMIT:
+        raw_lower = raw_message.lower()
+        if any(
+            k in raw_lower
+            for k in (
+                "no credits",
+                "out of credits",
+                "insufficient_quota",
+                "insufficient quota",
+                "credit balance",
+                "credits remaining",
+            )
+        ):
+            category = ErrorCategory.CREDIT
 
     # ── Retry-After ────────────────────────────────────────────────
     retry_after = _retry_after_seconds(exc)
@@ -573,11 +633,13 @@ def _classify_anthropic(exc: Exception, provider: str) -> LLMErrorInfo:
 
 
 def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorInfo:
-    """httpx.HTTPStatusError — covers Gemini and BytePlus paths.
+    """httpx.HTTPStatusError — covers Gemini, BytePlus and connection-tester paths.
 
     Gemini body: {"error":{"code":400,"message":"...","status":"INVALID_ARGUMENT",
                   "details":[{"reason":"API_KEY_INVALID",...}]}}
     BytePlus body: {"error":{"code":"AuthenticationError","message":"..."}}
+    xAI body:      {"code":"invalid-argument","error":"Incorrect API key provided..."}
+                   (``error`` is a plain string, not an object)
     """
     if httpx is None:  # pragma: no cover
         return _fallback_unknown(exc, provider or "unknown")
@@ -587,10 +649,14 @@ def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorI
     text = response.text if response is not None else ""
     body_dict = _safe_json(text)
 
-    err = body_dict.get("error") if isinstance(body_dict.get("error"), dict) else {}
-    raw_message = (
-        err.get("message") if isinstance(err.get("message"), str) else str(exc)
-    )
+    error_field = body_dict.get("error")
+    err = error_field if isinstance(error_field, dict) else {}
+    if isinstance(error_field, str) and error_field.strip():
+        raw_message = error_field
+    elif isinstance(err.get("message"), str):
+        raw_message = err["message"]
+    else:
+        raw_message = str(exc)
 
     # Detect Gemini specifically by reason field
     reason: Optional[str] = None
@@ -615,6 +681,13 @@ def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorI
         category = _category_from_status(status)
         # BytePlus encodes auth errors via err.code = "AuthenticationError"
         if isinstance(err.get("code"), str) and "auth" in err["code"].lower():
+            category = ErrorCategory.AUTH
+        # xAI (Grok) returns 400 — not 401 — for rejected bearers; sniff the
+        # body the same way the OpenAI-SDK path does for BadRequestError.
+        lower = raw_message.lower()
+        if status == 400 and (
+            "api key" in lower or "api_key" in lower or "access token" in lower
+        ):
             category = ErrorCategory.AUTH
 
     retry_after = None
@@ -654,6 +727,24 @@ def _classify_httpx_connection(exc: Exception, provider: Optional[str]) -> LLMEr
             ErrorCategory.CONNECTION, raw, provider or "unknown", upstream=None
         ),
         provider=provider or "unknown",
+        raw_message=raw,
+    )
+
+
+def _classify_local_config(exc: Exception, provider: str) -> LLMErrorInfo:
+    """Local precondition failures raised before any network call — e.g. no
+    API key configured, so the provider client was never constructed. These
+    are permanent local misconfigurations (CONFIG, fail-fast — see
+    FAIL_FAST_CATEGORIES), never something a provider actually returned, so
+    the message is built directly from the raw text instead of going through
+    the SDK/HTTP-response composition path below."""
+    raw = str(exc).strip()
+    message = f"{raw.rstrip('.')}. Check LLM configuration, API credentials, and service availability."
+    return LLMErrorInfo(
+        category=ErrorCategory.CONFIG,
+        title="Provider not configured",
+        message=message,
+        provider=provider,
         raw_message=raw,
     )
 
@@ -779,7 +870,7 @@ _CATEGORY_TITLES: Dict[ErrorCategory, str] = {
     ErrorCategory.CREDIT: "Out of credits",
     ErrorCategory.RATE_LIMIT: "Rate limited",
     ErrorCategory.QUOTA: "Quota exceeded",
-    ErrorCategory.MODEL: "Incorrect model id",
+    ErrorCategory.MODEL: "Incorrect model ID",
     ErrorCategory.BAD_REQUEST: "Bad request",
     ErrorCategory.BLOCKED: "Blocked by safety filter",
     ErrorCategory.SERVER: "Provider service unavailable",
@@ -905,7 +996,7 @@ def _append_hint(
     if category == ErrorCategory.MODEL:
         if "settings" in raw_lower:
             return f"{base}."
-        return f"{base}. Use a correct model in Settings."
+        return f"{base}. Set a valid LLM model in Settings."
 
     if category == ErrorCategory.BLOCKED:
         return f"{base}. Edit your prompt and retry."

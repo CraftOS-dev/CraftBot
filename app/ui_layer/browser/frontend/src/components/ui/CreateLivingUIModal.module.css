@@ -338,9 +338,9 @@
    remaining vertical space inside .centeredForm. Targeted via :has() so
    only the description block stretches — the project-name field stays
    its natural height. */
+/* The wizard form scrolls; fields keep natural height. */
 .centeredForm .formGroup:has(.textareaLarge) {
-  flex: 1;
-  min-height: 0;
+  flex: none;
 }
 
 /* Scrollable body for form-based tabs */
@@ -399,7 +399,9 @@
 
 .textareaLarge {
   width: 100%;
-  flex: 1;
+  flex: none;
+  min-height: 120px;
+  resize: vertical;
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm);
   font-family: inherit;

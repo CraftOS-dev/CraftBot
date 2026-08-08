@@ -1,0 +1,21 @@
+/* Theming overrides for react-grid-layout's default CSS (resize handle,
+ * drop placeholder, dragging shadow) using this app's own design tokens.
+ * Deliberately a PLAIN global stylesheet, not a CSS module — it must
+ * target react-grid-layout's real, unhashed class names. */
+
+.react-grid-item > .react-resizable-handle::after {
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+}
+
+.react-grid-placeholder {
+  background: var(--color-primary-light) !important;
+  border: 1px dashed var(--color-primary) !important;
+  border-radius: var(--radius-md);
+  opacity: 1;
+}
+
+.react-grid-item.react-draggable-dragging {
+  z-index: 10;
+  box-shadow: var(--shadow-lg);
+}

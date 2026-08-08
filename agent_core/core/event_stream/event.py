@@ -52,12 +52,16 @@ class EventType(str, Enum):
     REASONING = "reasoning"
     ACTION_START = "action_start"
     ACTION_END = "action_end"
-    TASK_START = "task_start"
-    TASK_END = "task_end"
     WAITING_FOR_USER = "waiting_for_user"
     RELEVANT_MEMORIES = "relevant_memories"
     TODOS = "todos"
     INTERNAL = "internal"
+    # A non-user trigger's instruction, written into the stream when its
+    # turn claims it. EVERY turn cause enters the stream at claim time
+    # (user messages as USER_MESSAGE, everything else as TRIGGER) — the
+    # stream is the session's single chronological record, and warm
+    # session-cache LLM calls receive ONLY new stream events.
+    TRIGGER = "trigger"
 
 
 # Legacy `kind` → `event_type` mapping. NEW code MUST NOT call this.
@@ -71,10 +75,6 @@ _LEGACY_KIND_TO_EVENT_TYPE: Dict[str, "EventType"] = {
     "action_error": EventType.ACTION_END,
     "gui action start": EventType.ACTION_START,
     "gui action end": EventType.ACTION_END,
-    "task_start": EventType.TASK_START,
-    "task_started": EventType.TASK_START,
-    "task_end": EventType.TASK_END,
-    "task_ended": EventType.TASK_END,
     "agent reasoning": EventType.REASONING,
     "reasoning": EventType.REASONING,
     "waiting_for_user": EventType.WAITING_FOR_USER,
@@ -134,10 +134,14 @@ class Event:
             can still be matched start↔end.
         action_input: Structured input payload at action_start.
         action_output: Structured output payload at action_end.
-        task_status: ``"completed"`` | ``"error"`` | ``"cancelled"`` for
-            TASK_END events.
         platform: Originating/destination platform for chat messages
             (e.g., ``"Telegram"``, ``"CraftBot Interface"``).
+        continue_work: For AGENT_MESSAGE events only: True when the agent
+            sent this as a mid-run progress update (send_message with
+            continue_work=true) and will keep working afterwards. The UI
+            uses it to keep the run's "Working…" indicator up across the
+            bubble instead of treating every agent bubble as a run-ending
+            reply. None/False for final replies and non-chat events.
     """
 
     message: str
@@ -151,8 +155,8 @@ class Event:
     action_id: Optional[str] = None
     action_input: Optional[Dict[str, Any]] = None
     action_output: Optional[Dict[str, Any]] = None
-    task_status: Optional[str] = None
     platform: Optional[str] = None
+    continue_work: Optional[bool] = None
 
     def display_text(self) -> Optional[str]:
         """
@@ -183,8 +187,8 @@ class Event:
             "action_id": self.action_id,
             "action_input": self.action_input,
             "action_output": self.action_output,
-            "task_status": self.task_status,
             "platform": self.platform,
+            "continue_work": self.continue_work,
         }
 
     @classmethod
@@ -222,8 +226,8 @@ class Event:
             action_id=data.get("action_id"),
             action_input=data.get("action_input"),
             action_output=data.get("action_output"),
-            task_status=data.get("task_status"),
             platform=data.get("platform"),
+            continue_work=data.get("continue_work"),
         )
 
     @property

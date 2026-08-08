@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://craftos.dev/schemas/living-ui/operations-v1.json",
+  "title": "Living UI operations manifest (opsVersion 1)",
+  "description": "The Agent interface of a Living UI app (spec REQUIREMENTS §8). Discoverable at GET /api/_ops.",
+  "type": "object",
+  "required": ["opsVersion", "operations"],
+  "additionalProperties": false,
+  "properties": {
+    "opsVersion": { "const": 1 },
+    "operations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/operation" }
+    }
+  },
+  "$defs": {
+    "operation": {
+      "type": "object",
+      "required": ["name", "description", "params", "executor"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$",
+          "description": "Unique verb name, e.g. \"items.clear-done\"."
+        },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "system": {
+          "type": "boolean",
+          "description": "True for tooling-maintained built-ins (health, ops.list, …). Agents never edit system entries."
+        },
+        "destructive": {
+          "type": "boolean",
+          "description": "Marks ops that delete/overwrite data; hosts show confirmation and AGENT-ACCESS may require per-call consent (AC-E3)."
+        },
+        "schedule": {
+          "type": "string",
+          "pattern": "^(every [0-9]+[smh]|daily [0-2][0-9]:[0-5][0-9]|hourly)$",
+          "description": "Optional recurrence, e.g. \"every 15m\", \"daily 09:00\", \"hourly\"."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/param" },
+          "description": "Typed parameters keyed by name."
+        },
+        "executor": { "$ref": "#/$defs/executor" }
+      }
+    },
+    "param": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["string", "number", "boolean"] },
+        "description": { "type": "string" },
+        "required": { "type": "boolean", "default": false },
+        "default": {},
+        "enum": { "type": "array", "items": { "type": ["string", "number"] } }
+      }
+    },
+    "executor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "method", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "http" },
+            "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+            "path": { "type": "string", "pattern": "^/api/" }
+          },
+          "description": "Calls a pb_hooks route. Params become the JSON body (POST/PUT/PATCH) or query string (GET/DELETE)."
+        },
+        {
+          "type": "object",
+          "required": ["type", "collection", "action"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "crud" },
+            "collection": { "type": "string" },
+            "action": { "enum": ["list", "create", "update", "delete"] },
+            "filter": { "type": "string", "description": "Fixed PB filter applied to list/update/delete." }
+          },
+          "description": "Declarative pointer to parameterized collection CRUD — no hook needed."
+        },
+        {
+          "type": "object",
+          "required": ["type", "method", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "job" },
+            "method": { "const": "POST" },
+            "path": { "type": "string", "pattern": "^/api/" }
+          },
+          "description": "Starts long-running work; the route MUST return {\"jobId\": …} and status MUST be pollable at GET /api/_jobs/{jobId}."
+        }
+      ]
+    }
+  }
+}

@@ -1,17 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Phase 5 tests: retry with backoff, dead-letter surfacing, and GC for the
-trigger store + activity ledger."""
+"""Lifecycle-polish tests: garbage collection for the trigger store and
+the activity ledger. (Retry/backoff/dead-letter live in
+test_trigger_service.py.)"""
 
 import asyncio
 import sqlite3
-import time
 from datetime import datetime, timedelta, timezone
-
-from agent_core.core.impl.trigger.queue import TriggerQueue
 
 from app.triggers import TriggerService, TriggerSpec, TriggerSource
 from app.triggers.activity_log import ActivityLog, ActivityLogGuard
-from app.triggers.service import BACKOFF_BASE_SECONDS, MAX_ATTEMPTS
 from app.triggers.store import TriggerStore
 
 
@@ -19,11 +16,25 @@ def run(coro):
     return asyncio.run(coro)
 
 
+class FakeRuntime:
+    def __init__(self):
+        self.dispatched = []
+
+    def bind_service(self, service):
+        pass
+
+    async def dispatch(self, trig):
+        self.dispatched.append(trig)
+
+    async def remove_session(self, session_id):
+        pass
+
+
 def make_stack(tmp_path):
     store = TriggerStore(db_path=str(tmp_path / "sessions.db"))
-    queue = TriggerQueue()
-    service = TriggerService(store, queue)
-    return store, queue, service
+    runtime = FakeRuntime()
+    service = TriggerService(store, runtime)
+    return store, runtime, service
 
 
 def spec(**overrides):
@@ -47,95 +58,14 @@ def age_row(db_path, row_id, hours, table="triggers", key_col="id"):
         conn.commit()
 
 
-class TestRetryWithBackoff:
-    def test_nack_requeues_with_backoff(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
-
-        async def scenario():
-            result = await service.emit(spec())
-            trig = await asyncio.wait_for(service.next(), timeout=2)
-            before = time.time()
-            await service.nack(trig, "boom")
-
-            row = store.get(result.trigger_id)
-            assert row["status"] == "PENDING"
-            assert row["not_before"] >= before + BACKOFF_BASE_SECONDS - 1
-            assert "boom" in row["last_error"]
-            # re-enqueued with the backoff as its fire time
-            triggers = await queue.list_triggers()
-            assert len(triggers) == 1
-            assert triggers[0].fire_at >= before + BACKOFF_BASE_SECONDS - 1
-
-        run(scenario())
-
-    def test_backoff_grows_per_attempt(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
-
-        async def scenario():
-            result = await service.emit(spec())
-            delays = []
-            for _ in range(3):
-                # force the queued retry due now so next() returns it
-                with sqlite3.connect(store._db_path) as conn:
-                    conn.execute(
-                        "UPDATE triggers SET fire_at = ?, not_before = NULL "
-                        "WHERE id = ?",
-                        (time.time() - 1, result.trigger_id),
-                    )
-                    conn.commit()
-                await queue.fire("s1")
-                trig = await asyncio.wait_for(service.next(), timeout=2)
-                before = time.time()
-                await service.nack(trig, "boom")
-                row = store.get(result.trigger_id)
-                if row["status"] != "PENDING":
-                    break
-                delays.append(row["not_before"] - before)
-            assert len(delays) >= 2
-            assert delays[1] > delays[0]  # exponential growth
-
-        run(scenario())
-
-    def test_dead_letter_after_max_attempts(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
-        dead = []
-        service.set_dead_letter_handler(lambda trig, err: dead.append((trig, err)))
-
-        async def scenario():
-            result = await service.emit(spec())
-            for attempt in range(MAX_ATTEMPTS + 1):
-                with sqlite3.connect(store._db_path) as conn:
-                    conn.execute(
-                        "UPDATE triggers SET fire_at = ? WHERE id = ?",
-                        (time.time() - 1, result.trigger_id),
-                    )
-                    conn.commit()
-                await queue.fire("s1")
-                trig = await asyncio.wait_for(service.next(), timeout=2)
-                await service.nack(trig, f"boom {attempt}")
-                row = store.get(result.trigger_id)
-                if row["status"] == "DEAD":
-                    break
-
-            row = store.get(result.trigger_id)
-            assert row["status"] == "DEAD"
-            assert row["attempts"] == MAX_ATTEMPTS
-            assert len(dead) == 1
-            assert dead[0][0].id == result.trigger_id
-            # dead rows do not rehydrate
-            store2, queue2, service2 = make_stack(tmp_path)
-            assert await service2.rehydrate() == 0
-
-        run(scenario())
-
-
 class TestTriggerStoreGC:
     def test_old_settled_rows_removed_active_kept(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
+        store, runtime, service = make_stack(tmp_path)
 
         async def scenario():
             done = await service.emit(spec(session_id="a"))
-            trig = await asyncio.wait_for(service.next(), timeout=2)
+            trig = runtime.dispatched[0]
+            service.claim(trig)
             await service.ack(trig)
             pending = await service.emit(spec(session_id="b"))
 
@@ -150,11 +80,12 @@ class TestTriggerStoreGC:
         run(scenario())
 
     def test_recent_settled_rows_survive(self, tmp_path):
-        store, queue, service = make_stack(tmp_path)
+        store, runtime, service = make_stack(tmp_path)
 
         async def scenario():
             done = await service.emit(spec())
-            trig = await asyncio.wait_for(service.next(), timeout=2)
+            trig = runtime.dispatched[0]
+            service.claim(trig)
             await service.ack(trig)
             assert store.gc(ttl_hours=7 * 24) == 0
             assert store.get(done.trigger_id) is not None

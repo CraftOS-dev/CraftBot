@@ -1,0 +1,108 @@
+/* `container` makes every widget a size query container named `widget`, which
+ * is what lets its content scale with it (see the --w-* ramp on .body) and lets
+ * widgets.module.css adapt its layout at the narrow end with
+ * `@container widget (max-width: ...)`.
+ *
+ * Size containment is safe here specifically because the grid item sets this
+ * box's height: `contain: size` means the contents can't influence it, which is
+ * already true. */
+.chrome {
+  container: widget / size;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.titleBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* Block padding is var(--space-1), not var(--space-2): the row's height is
+     set by the 24px remove IconButton, so 4px is enough breathing room and
+     the 8px saved goes to the body.
+
+     Deliberately fixed-size while the body scales: the title bar is chrome,
+     and the drag handle and remove button are pointer targets that shouldn't
+     shrink on a small widget or bloat on a large one. */
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.titleBar:active {
+  cursor: grabbing;
+}
+
+.gripIcon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.titleIcon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.title {
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.removeBtn {
+  flex-shrink: 0;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  /* Both axes, explicitly. Setting only overflow-y makes overflow-x compute to
+     `auto`, so one too-wide row would spawn a horizontal scrollbar that eats
+     ~8px of vertical budget and can cascade into a vertical one. Widget content
+     is expected to fit its width (or ellipsize); only height may scroll. */
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+
+  /* The fluid ramp every widget's content is built from.
+   *
+   * These MUST be declared here rather than on .chrome: an element can't query
+   * itself, so `cqmin` in a declaration on .chrome would silently resolve
+   * against some outer container. .body is a child, so it resolves against
+   * .chrome — the whole widget box.
+   *
+   * cqmin (not cqi) so a tall narrow widget scales by its width and a wide flat
+   * one by its height; text can never outgrow the axis that's actually tight.
+   * Each ramp is a straight line through two reference points — the value at
+   * the 2x2 floor (~322px square at lg) and at the 5x5 ceiling (~823px) — with
+   * clamp() holding the ends steady past those sizes. */
+  --w-text-xs: clamp(11px, calc(10px + 0.62cqmin), 15px);
+  --w-text-sm: clamp(12px, calc(9.8px + 1cqmin), 19px);
+  --w-value: clamp(13px, calc(7.6px + 2cqmin), 26px);
+  --w-icon: clamp(12px, calc(8.8px + 1.6cqmin), 24px);
+  --w-gap: clamp(4px, calc(0.1px + 1.2cqmin), 12px);
+  --w-pad: clamp(6px, calc(0.9px + 1.6cqmin), 16px);
+  --w-bar: clamp(10px, calc(3px + 2.8cqmin), 28px);
+  --w-bar-thin: clamp(4px, calc(0.8px + 1cqmin), 10px);
+  --w-dot: clamp(5px, calc(1.2px + 1.5cqmin), 12px);
+
+  padding: clamp(8px, calc(4.8px + 1.6cqmin), 20px);
+  gap: var(--w-gap);
+}
+
+/* For widgets that draw their own full-bleed surface — the Mascot's scene —
+   where the shared padding reads as a band of card background framing it
+   rather than as breathing room. The --w-* ramp above still applies. */
+.bodyBleed {
+  padding: 0;
+}

@@ -9,11 +9,12 @@ This document provides detailed examples for each category in the Quick Verifica
 **Python: Environment variable with fallback**
 ```python
 # File: src/auth/jwt.py
-SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-123')
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-123")
+
 
 # Used in security context
 def create_token(user_id):
-    return jwt.encode({'user_id': user_id}, SECRET_KEY, algorithm='HS256')
+    return jwt.encode({"user_id": user_id}, SECRET_KEY, algorithm="HS256")
 ```
 **Why vulnerable:** App runs with known secret if `SECRET_KEY` is missing. Attacker can forge tokens.
 
@@ -43,7 +44,7 @@ Rails.application.credentials.secret_key_base =
 **Fail-secure: Crashes without config**
 ```python
 # File: src/auth/jwt.py
-SECRET_KEY = os.environ['SECRET_KEY']  # Raises KeyError if missing
+SECRET_KEY = os.environ["SECRET_KEY"]  # Raises KeyError if missing
 
 # App won't start without SECRET_KEY - fail-secure
 ```
@@ -60,11 +61,12 @@ const DB_PASSWORD = process.env.DB_PASSWORD;
 **Test fixtures (clearly scoped)**
 ```python
 # File: tests/fixtures/auth.py
-TEST_SECRET = 'test-secret-key-123'  # OK - test-only
+TEST_SECRET = "test-secret-key-123"  # OK - test-only
+
 
 # Usage in test
 def test_token_creation():
-    token = create_token('user1', secret=TEST_SECRET)
+    token = create_token("user1", secret=TEST_SECRET)
 ```
 
 ---
@@ -78,12 +80,8 @@ def test_token_creation():
 # File: src/models/user.py
 def bootstrap_admin():
     """Create default admin account if none exists"""
-    if not User.query.filter_by(role='admin').first():
-        admin = User(
-            username='admin',
-            password=hash_password('admin123'),
-            role='admin'
-        )
+    if not User.query.filter_by(role="admin").first():
+        admin = User(username="admin", password=hash_password("admin123"), role="admin")
         db.session.add(admin)
         db.session.commit()
 ```
@@ -115,11 +113,11 @@ private static final String DB_URL = System.getenv().getOrDefault(
 # File: src/models/user.py
 def bootstrap_admin():
     """Admin account MUST be configured via environment"""
-    username = os.environ['ADMIN_USERNAME']
-    password = os.environ['ADMIN_PASSWORD']
+    username = os.environ["ADMIN_USERNAME"]
+    password = os.environ["ADMIN_PASSWORD"]
 
     if not User.query.filter_by(username=username).first():
-        admin = User(username=username, password=hash_password(password), role='admin')
+        admin = User(username=username, password=hash_password(password), role="admin")
         db.session.add(admin)
 ```
 
@@ -151,7 +149,8 @@ def test_user():
 **Authentication disabled by default**
 ```python
 # File: config/security.py
-REQUIRE_AUTH = os.getenv('REQUIRE_AUTH', 'false').lower() == 'true'
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "false").lower() == "true"
+
 
 @app.before_request
 def check_auth():
@@ -173,11 +172,11 @@ app.use(cors({ origin: allowedOrigins }));
 **Debug mode enabled by default**
 ```python
 # File: config.py
-DEBUG = os.getenv('DEBUG', 'true').lower() != 'false'  # Default: true
+DEBUG = os.getenv("DEBUG", "true").lower() != "false"  # Default: true
 
 if DEBUG:
-    app.config['DEBUG'] = True
-    app.config['PROPAGATE_EXCEPTIONS'] = True
+    app.config["DEBUG"] = True
+    app.config["PROPAGATE_EXCEPTIONS"] = True
 ```
 **Why vulnerable:** Debug mode default. Stack traces leak sensitive info in production.
 
@@ -186,10 +185,10 @@ if DEBUG:
 **Authentication required by default**
 ```python
 # File: config/security.py
-REQUIRE_AUTH = os.getenv('REQUIRE_AUTH', 'true').lower() == 'true'  # Default: true
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "true").lower() == "true"  # Default: true
 
 # Or better - crash if not explicitly configured
-REQUIRE_AUTH = os.environ['REQUIRE_AUTH'].lower() == 'true'
+REQUIRE_AUTH = os.environ["REQUIRE_AUTH"].lower() == "true"
 ```
 
 **CORS requires explicit configuration**
@@ -206,7 +205,7 @@ app.use(cors({ origin: allowedOrigins }));
 **Debug mode disabled by default**
 ```python
 # File: config.py
-DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'  # Default: false
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"  # Default: false
 ```
 
 ---
@@ -219,6 +218,7 @@ DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'  # Default: false
 ```python
 # File: src/auth/passwords.py
 import hashlib
+
 
 def hash_password(password):
     """Hash user password"""
@@ -256,6 +256,7 @@ function verifySignature(payload, signature) {
 # File: src/utils/cache.py
 import hashlib
 
+
 def cache_key(data):
     """Generate cache key - not security-sensitive"""
     return hashlib.md5(data.encode()).hexdigest()  # OK - just for cache lookup
@@ -265,6 +266,7 @@ def cache_key(data):
 ```python
 # File: src/auth/passwords.py
 import bcrypt
+
 
 def hash_password(password):
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
@@ -298,7 +300,7 @@ def create_secure_file(path):
 def create_storage_bucket(name):
     bucket = s3.create_bucket(
         Bucket=name,
-        ACL='public-read'  # Publicly readable by default
+        ACL="public-read",  # Publicly readable by default
     )
 ```
 **Why vulnerable:** Sensitive data exposed publicly. Should require explicit configuration.
@@ -308,8 +310,8 @@ def create_storage_bucket(name):
 # File: app.py
 @app.after_request
 def after_request(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 ```
 **Why vulnerable:** CORS misconfiguration. Allows credential theft from any site.
@@ -330,9 +332,9 @@ def create_public_asset(path):
 ```python
 # File: infrastructure/storage.py
 def create_storage_bucket(name, public=False):
-    acl = 'public-read' if public else 'private'
+    acl = "public-read" if public else "private"
     if public:
-        logger.warning(f'Creating PUBLIC bucket: {name}')
+        logger.warning(f"Creating PUBLIC bucket: {name}")
     bucket = s3.create_bucket(Bucket=name, ACL=acl)
 ```
 
@@ -347,10 +349,15 @@ def create_storage_bucket(name, public=False):
 # File: app.py
 @app.errorhandler(Exception)
 def handle_error(error):
-    return jsonify({
-        'error': str(error),
-        'traceback': traceback.format_exc()  # Leaks internal paths, library versions
-    }), 500
+    return (
+        jsonify(
+            {
+                "error": str(error),
+                "traceback": traceback.format_exc(),  # Leaks internal paths, library versions
+            }
+        ),
+        500,
+    )
 ```
 **Why vulnerable:** Exposes internal implementation details to attackers.
 
@@ -384,8 +391,8 @@ catch (SQLException e) {
 # File: app.py
 @app.errorhandler(Exception)
 def handle_error(error):
-    logger.exception('Request failed', exc_info=error)  # Logs full trace
-    return jsonify({'error': 'Internal server error'}), 500  # Generic to user
+    logger.exception("Request failed", exc_info=error)  # Logs full trace
+    return jsonify({"error": "Internal server error"}), 500  # Generic to user
 ```
 
 **Environment-aware debug settings**

@@ -46,16 +46,18 @@ from agent_core import action
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
     },
 )
 async def send_telegram_bot_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import (
+        pick_result,
         record_outgoing_message,
         run_client,
     )
 
     record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_message",
         recipient=input_data["chat_id"],
@@ -65,6 +67,7 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
         disable_web_page_preview=input_data.get("disable_web_page_preview"),
         reply_markup=input_data.get("reply_markup"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -105,12 +108,15 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
             "example": {},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_text_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_text_message",
         chat_id=input_data["chat_id"],
@@ -121,6 +127,7 @@ async def send_telegram_text_message(input_data: dict) -> dict:
         disable_notification=input_data.get("disable_notification"),
         reply_markup=input_data.get("reply_markup"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -142,12 +149,15 @@ async def send_telegram_text_message(input_data: dict) -> dict:
             "example": {},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def edit_telegram_message_text(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "edit_message_text",
         chat_id=input_data["chat_id"],
@@ -156,6 +166,7 @@ async def edit_telegram_message_text(input_data: dict) -> dict:
         parse_mode=input_data.get("parse_mode"),
         reply_markup=input_data.get("reply_markup"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -181,12 +192,15 @@ async def edit_telegram_message_text(input_data: dict) -> dict:
             "example": {},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def edit_telegram_message_caption(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "edit_message_caption",
         chat_id=input_data["chat_id"],
@@ -195,6 +209,7 @@ async def edit_telegram_message_caption(input_data: dict) -> dict:
         parse_mode=input_data.get("parse_mode"),
         reply_markup=input_data.get("reply_markup"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -210,18 +225,22 @@ async def edit_telegram_message_caption(input_data: dict) -> dict:
             "example": {},
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def edit_telegram_message_reply_markup(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "edit_message_reply_markup",
         chat_id=input_data["chat_id"],
         message_id=input_data["message_id"],
         reply_markup=input_data.get("reply_markup"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -329,18 +348,22 @@ async def copy_telegram_message(input_data: dict) -> dict:
         },
         "message_id": {"type": "integer", "description": "Message ID.", "example": 1},
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def forward_telegram_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "forward_message",
         chat_id=input_data["chat_id"],
         from_chat_id=input_data["from_chat_id"],
         message_id=input_data["message_id"],
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -365,18 +388,33 @@ async def forward_telegram_message(input_data: dict) -> dict:
             "example": [1, 2, 3],
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_ids": [43, 44]}},
+    },
 )
 async def forward_telegram_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "forward_messages",
         chat_id=input_data["chat_id"],
         from_chat_id=input_data["from_chat_id"],
         message_ids=input_data["message_ids"],
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), list):
+        res = {
+            **res,
+            "result": {
+                "message_ids": [
+                    m.get("message_id")
+                    for m in res["result"]
+                    if isinstance(m, dict) and m.get("message_id") is not None
+                ]
+            },
+        }
+    return res
 
 
 @action(
@@ -528,18 +566,22 @@ async def send_telegram_chat_action(input_data: dict) -> dict:
         },
         "caption": {"type": "string", "description": "Caption.", "example": "Cool pic"},
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_photo(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_photo",
         chat_id=input_data["chat_id"],
         photo=input_data["photo"],
         caption=input_data.get("caption"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -560,18 +602,22 @@ async def send_telegram_photo(input_data: dict) -> dict:
             "example": "Here is the file",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_document(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_document",
         chat_id=input_data["chat_id"],
         document=input_data["document"],
         caption=input_data.get("caption"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -598,12 +644,15 @@ async def send_telegram_document(input_data: dict) -> dict:
             "example": True,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_video(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_video",
         chat_id=input_data["chat_id"],
@@ -612,6 +661,7 @@ async def send_telegram_video(input_data: dict) -> dict:
         duration=input_data.get("duration"),
         supports_streaming=input_data.get("supports_streaming"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -630,12 +680,15 @@ async def send_telegram_video(input_data: dict) -> dict:
         "title": {"type": "string", "description": "Track title.", "example": "Song"},
         "performer": {"type": "string", "description": "Artist.", "example": "Artist"},
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_audio(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_audio",
         chat_id=input_data["chat_id"],
@@ -644,6 +697,7 @@ async def send_telegram_audio(input_data: dict) -> dict:
         title=input_data.get("title"),
         performer=input_data.get("performer"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -665,12 +719,15 @@ async def send_telegram_audio(input_data: dict) -> dict:
             "example": 10,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_voice(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_voice",
         chat_id=input_data["chat_id"],
@@ -678,6 +735,7 @@ async def send_telegram_voice(input_data: dict) -> dict:
         caption=input_data.get("caption"),
         duration=input_data.get("duration"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -699,12 +757,15 @@ async def send_telegram_voice(input_data: dict) -> dict:
         },
         "length": {"type": "integer", "description": "Side length.", "example": 240},
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_video_note(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_video_note",
         chat_id=input_data["chat_id"],
@@ -712,6 +773,7 @@ async def send_telegram_video_note(input_data: dict) -> dict:
         duration=input_data.get("duration"),
         length=input_data.get("length"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -728,18 +790,22 @@ async def send_telegram_video_note(input_data: dict) -> dict:
         },
         "caption": {"type": "string", "description": "Caption.", "example": ""},
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_animation(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_animation",
         chat_id=input_data["chat_id"],
         animation=input_data["animation"],
         caption=input_data.get("caption"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -755,17 +821,21 @@ async def send_telegram_animation(input_data: dict) -> dict:
             "example": "CAACAgQA...",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_sticker(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_sticker",
         chat_id=input_data["chat_id"],
         sticker=input_data["sticker"],
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -787,12 +857,15 @@ async def send_telegram_sticker(input_data: dict) -> dict:
             "example": 60,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_location(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_location",
         chat_id=input_data["chat_id"],
@@ -800,6 +873,7 @@ async def send_telegram_location(input_data: dict) -> dict:
         longitude=input_data["longitude"],
         live_period=input_data.get("live_period"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -822,12 +896,15 @@ async def send_telegram_location(input_data: dict) -> dict:
             "example": "1 Main St",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_venue(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_venue",
         chat_id=input_data["chat_id"],
@@ -836,6 +913,7 @@ async def send_telegram_venue(input_data: dict) -> dict:
         title=input_data["title"],
         address=input_data["address"],
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -857,12 +935,15 @@ async def send_telegram_venue(input_data: dict) -> dict:
         },
         "last_name": {"type": "string", "description": "Last name.", "example": "Doe"},
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_contact(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_contact",
         chat_id=input_data["chat_id"],
@@ -870,6 +951,7 @@ async def send_telegram_contact(input_data: dict) -> dict:
         first_name=input_data["first_name"],
         last_name=input_data.get("last_name"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -885,17 +967,21 @@ async def send_telegram_contact(input_data: dict) -> dict:
             "example": "🎲",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_dice(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_dice",
         chat_id=input_data["chat_id"],
         emoji=input_data.get("emoji"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -936,12 +1022,15 @@ async def send_telegram_dice(input_data: dict) -> dict:
             "example": 0,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_id": 42}},
+    },
 )
 async def send_telegram_poll(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_poll",
         chat_id=input_data["chat_id"],
@@ -952,6 +1041,7 @@ async def send_telegram_poll(input_data: dict) -> dict:
         allows_multiple_answers=input_data.get("allows_multiple_answers"),
         correct_option_id=input_data.get("correct_option_id"),
     )
+    return pick_result(res, ["message_id"])
 
 
 @action(
@@ -995,17 +1085,32 @@ async def stop_telegram_poll(input_data: dict) -> dict:
             ],
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {"type": "object", "example": {"message_ids": [43, 44]}},
+    },
 )
 async def send_telegram_media_group(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "send_media_group",
         chat_id=input_data["chat_id"],
         media=input_data["media"],
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), list):
+        res = {
+            **res,
+            "result": {
+                "message_ids": [
+                    m.get("message_id")
+                    for m in res["result"]
+                    if isinstance(m, dict) and m.get("message_id") is not None
+                ]
+            },
+        }
+    return res
 
 
 @action(
@@ -2108,7 +2213,7 @@ async def get_telegram_webhook_info(input_data: dict) -> dict:
 
 @action(
     name="get_telegram_updates",
-    description="Get incoming updates (messages) for the Telegram bot.",
+    description="Get incoming updates (messages) for the Telegram bot. Returns lean per-update summaries by default; set include_metadata=true for raw Update objects.",
     action_sets=["telegram_messages", "telegram"],
     input_schema={
         "limit": {
@@ -2121,21 +2226,78 @@ async def get_telegram_webhook_info(input_data: dict) -> dict:
             "description": "Update offset for pagination.",
             "example": 0,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return raw Update objects (default false = lean summaries).",
+            "example": False,
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
-        "updates": {"type": "array", "description": "List of update objects."},
+        "result": {
+            "type": "array",
+            "description": "Lean: [{update_id, message_id, chat_id, from, text, date, type?}]. Raw Updates with include_metadata=true.",
+        },
     },
 )
 async def get_telegram_updates(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "telegram_bot",
         "get_updates",
         offset=input_data.get("offset"),
         limit=input_data.get("limit", 100),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    updates = res.get("result")
+    if not isinstance(updates, list):
+        return res
+    lean = []
+    for u in updates:
+        if not isinstance(u, dict):
+            continue
+        item = {"update_id": u.get("update_id")}
+        kind = next((k for k in u if k != "update_id"), None)
+        if kind and kind != "message":
+            item["type"] = kind
+        payload = u.get(kind) if kind else None
+        msg = payload if isinstance(payload, dict) else {}
+        if kind == "callback_query":
+            item["callback_query_id"] = msg.get("id")
+            if msg.get("data") is not None:
+                item["data"] = msg.get("data")
+            sender = msg.get("from") or {}
+            msg = msg.get("message") or {}
+        else:
+            sender = msg.get("from") or {}
+        if msg:
+            item["message_id"] = msg.get("message_id")
+            chat = msg.get("chat") or {}
+            item["chat_id"] = chat.get("id")
+            frm = chat.get("title")
+            if not frm:
+                frm = " ".join(
+                    p for p in (sender.get("first_name"), sender.get("last_name")) if p
+                )
+                if sender.get("username"):
+                    frm = (
+                        f"{frm} (@{sender['username']})"
+                        if frm
+                        else f"@{sender['username']}"
+                    )
+            if frm:
+                item["from"] = frm
+            text = msg.get("text")
+            if text is None:
+                text = msg.get("caption")
+            if text is not None:
+                item["text"] = text
+            if msg.get("date") is not None:
+                item["date"] = msg.get("date")
+        lean.append(item)
+    return {**res, "result": lean}
 
 
 @action(

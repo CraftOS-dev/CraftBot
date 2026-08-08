@@ -81,11 +81,11 @@ func Encrypt(plaintext []byte, key EncryptionKey, nonce Nonce) []byte
 
 ```python
 # DANGEROUS: nonce parameter with no guidance
-def encrypt(plaintext, key, nonce):
-    ...
+def encrypt(plaintext, key, nonce): ...
+
 
 # Developer "simplifies" by reusing:
-nonce = b'\x00' * 12
+nonce = b"\x00" * 12
 encrypt(msg1, key, nonce)
 encrypt(msg2, key, nonce)  # Catastrophic with GCM/ChaCha
 ```
@@ -130,6 +130,7 @@ verify(...)  # Failure = exception, no return to check
 def decrypt(ciphertext, key):
     # ... decrypt ...
     return unpad(plaintext)  # Throws on bad padding
+
 
 # Attacker can distinguish:
 # - Valid padding → success

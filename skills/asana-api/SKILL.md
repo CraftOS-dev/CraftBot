@@ -630,9 +630,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/asana/api/1.0/tasks',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'project': '1234567890'}
+    "https://gateway.maton.ai/asana/api/1.0/tasks",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"project": "1234567890"},
 )
 data = response.json()
 ```

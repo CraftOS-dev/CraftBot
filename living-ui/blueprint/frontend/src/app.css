@@ -1,0 +1,6 @@
+/* SYSTEM FILE — Tailwind v4 entry + kit design tokens (spec K3/D10). */
+@import 'tailwindcss';
+@import './kit/theme/tokens.css';
+
+/* Dark-mode variant follows the data-theme attribute set by the theme bridge. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));

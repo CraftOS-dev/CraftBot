@@ -1,23 +1,23 @@
-import React, { memo, useState, useMemo, useRef, useEffect } from 'react'
-import { Reply, Copy, Check } from 'lucide-react'
+import React, { memo, useState, useRef, useEffect, useMemo } from 'react'
+import { Copy, Check, Reply } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { getErrorCategoryStyle } from '../../constants/errorCategories'
 import styles from './ChatPage.module.css'
 
 interface ChatMessageProps {
   message: ChatMessageType
   onOpenFile: (path: string) => void
   onOpenFolder: (path: string) => void
-  onReply?: (
-    sessionId: string | undefined,
-    displayName: string,
-    fullContent: string
-  ) => void
-  onOptionClick?: (value: string, sessionId?: string, messageId?: string) => void
+  onOptionClick?: (value: string, messageId: string) => void
+  /** Hover action on agent bubbles: quote this message in the next send. */
+  onReply?: (displayName: string, originalContent: string) => void
 }
 
-// Parse reply context from message content
+// Reply context marker appended by the backend to a replying user
+// message. The user bubble strips it and renders the quoted agent
+// message as a callout instead.
 const REPLY_MARKER = '[REPLYING TO PREVIOUS AGENT MESSAGE]:'
 
 function parseReplyContext(content: string): { userMessage: string; replyContext: string | null } {
@@ -34,8 +34,8 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   message,
   onOpenFile,
   onOpenFolder,
-  onReply,
   onOptionClick,
+  onReply,
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -51,13 +51,15 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   }, [selected])
   const { agentProfilePictureUrl } = useWebSocket()
 
-  // Show reply for agent messages, except those presenting options that
-  // require the user to make an explicit choice via the option buttons.
-  const hasPendingOptions = !!(message.options && message.options.length > 0)
-  const canReply = message.style === 'agent' && onReply && !hasPendingOptions
   const canCopy = message.style === 'user' || message.style === 'agent'
 
-  // Parse reply context for user messages
+  // Reply is offered on agent bubbles, except ones presenting options
+  // that require an explicit choice via the option buttons.
+  const hasPendingOptions = !!(message.options && message.options.length > 0)
+  const canReply = message.style === 'agent' && !!onReply && !hasPendingOptions
+
+  // User messages that replied to an agent bubble carry the quoted
+  // original after REPLY_MARKER — split it out for the callout.
   const { userMessage, replyContext } = useMemo(() => {
     if (message.style === 'user') {
       return parseReplyContext(message.content)
@@ -67,13 +69,11 @@ export const ChatMessageItem = memo(function ChatMessageItem({
 
   const handleReply = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (canReply) {
-      // Truncate content for display preview
-      const displayName = message.content.length > 50
-        ? message.content.slice(0, 50) + '...'
-        : message.content
-      onReply(message.taskSessionId, displayName, message.content)
-    }
+    if (!canReply) return
+    const displayName = message.content.length > 50
+      ? message.content.slice(0, 50) + '...'
+      : message.content
+    onReply?.(displayName, message.content)
   }
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -87,17 +87,29 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   }
 
   const isAgent = message.style === 'agent'
+  const errorStyle = message.style === 'error' ? getErrorCategoryStyle(message.errorCategory) : null
+  const ErrorIcon = errorStyle?.icon
 
   const bubbleContainer = (
     <div className={styles.messageBubbleContainer}>
       <div className={`${styles.message} ${styles[message.style]} ${message.pending ? styles.pending : ''}`}>
         <div className={styles.messageHeader}>
-          <span className={styles.sender}>{message.sender}</span>
+          <span className={styles.sender}>
+            {ErrorIcon && (
+              <ErrorIcon
+                size={14}
+                className={styles.errorCategoryIcon}
+                style={{ color: `var(${errorStyle.colorVar})` }}
+              />
+            )}
+            {message.sender}
+          </span>
           <span className={styles.timestamp}>
             {new Date(message.timestamp * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
           </span>
         </div>
-        {/* Reply context callout - shown above user message when replying */}
+        {/* Reply context callout — the quoted agent message, shown above
+            the user's text when this message replied to a bubble. */}
         {replyContext && (
           <div className={styles.replyContextCallout}>
             <MarkdownContent content={replyContext} />
@@ -108,7 +120,9 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         </div>
         {message.options && message.options.length > 0 && (
           <div className={styles.messageOptions}>
-            <span className={styles.optionsPrompt}>Please select a response to continue:</span>
+            {message.requiresChoice !== false && (
+              <span className={styles.optionsPrompt}>Please select a response to continue:</span>
+            )}
             {message.options.map((opt, index) => (
               <button
                 key={opt.value}
@@ -116,7 +130,10 @@ export const ChatMessageItem = memo(function ChatMessageItem({
                 onClick={() => {
                   if (dispatchLockRef.current) return
                   dispatchLockRef.current = true
-                  onOptionClick?.(opt.value, message.taskSessionId, message.messageId)
+                  if (opt.url) {
+                    window.open(opt.url, '_blank', 'noopener')
+                  }
+                  onOptionClick?.(opt.value, message.messageId)
                 }}
                 disabled={!!selected}
               >

@@ -694,9 +694,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/github/repos/owner/repo/issues',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'state': 'open', 'per_page': 10}
+    "https://gateway.maton.ai/github/repos/owner/repo/issues",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"state": "open", "per_page": 10},
 )
 issues = response.json()
 ```

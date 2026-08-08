@@ -423,9 +423,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/outlook/v1.0/me/messages',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'$top': 10, '$filter': 'isRead eq false'}
+    "https://gateway.maton.ai/outlook/v1.0/me/messages",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"$top": 10, "$filter": "isRead eq false"},
 )
 ```
 

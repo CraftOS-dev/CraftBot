@@ -11,7 +11,6 @@ from agent_core.core.impl.action.executor import (
     PROCESS_POOL,
     THREAD_POOL,
     DEFAULT_ACTION_TIMEOUT,
-    set_gui_execute_hook,
 )
 from agent_core.core.impl.action.library import ActionLibrary
 from agent_core.core.impl.action.router import ActionRouter, _is_visible_in_mode
@@ -28,7 +27,6 @@ __all__ = [
     "PROCESS_POOL",
     "THREAD_POOL",
     "DEFAULT_ACTION_TIMEOUT",
-    "set_gui_execute_hook",
     # Library
     "ActionLibrary",
     # Router

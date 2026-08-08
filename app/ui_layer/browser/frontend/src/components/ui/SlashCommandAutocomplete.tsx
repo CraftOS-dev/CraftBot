@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useRef, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
 import { useSettingsWebSocket } from '@/pages/Settings/useSettingsWebSocket';
 import { ActivitySquare, Terminal } from 'lucide-react'
 import styles from './SlashCommandAutocomplete.module.css';

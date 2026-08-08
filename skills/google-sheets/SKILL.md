@@ -388,16 +388,16 @@ import requests
 
 # Read values
 response = requests.get(
-    'https://gateway.maton.ai/google-sheets/v4/spreadsheets/SHEET_ID/values/Sheet1!A1:D10',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+    "https://gateway.maton.ai/google-sheets/v4/spreadsheets/SHEET_ID/values/Sheet1!A1:D10",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
 )
 
 # Write values
 response = requests.put(
-    'https://gateway.maton.ai/google-sheets/v4/spreadsheets/SHEET_ID/values/Sheet1!A1:B2',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'valueInputOption': 'USER_ENTERED'},
-    json={'values': [['A1', 'B1'], ['A2', 'B2']]}
+    "https://gateway.maton.ai/google-sheets/v4/spreadsheets/SHEET_ID/values/Sheet1!A1:B2",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"valueInputOption": "USER_ENTERED"},
+    json={"values": [["A1", "B1"], ["A2", "B2"]]},
 )
 ```
 

@@ -16,7 +16,6 @@ from agent_core.core.state import (
     get_state_or_none,
     AgentProperties,
     ReasoningResult,
-    TaskSummary,
     MainState,
     DEFAULT_MAX_ACTIONS_PER_TASK,
     DEFAULT_MAX_TOKEN_PER_TASK,
@@ -34,7 +33,13 @@ from agent_core.core.vlm_interface import VLMInterface
 from agent_core.core.image_gen_interface import ImageGenInterface
 from agent_core.core.database_interface import DatabaseInterface
 from agent_core.core.trigger import Trigger
-from agent_core.core.task import Task, TodoItem, TodoStatus
+from agent_core.core.session import (
+    Session,
+    SessionType,
+    TodoItem,
+    TodoStatus,
+    MAIN_SESSION_ID,
+)
 from agent_core.core.action_framework import (
     ActionRegistry,
     ActionMetadata,
@@ -113,10 +118,10 @@ from agent_core.core.registry import (
     get_event_stream_or_none,
     get_event_stream_manager,
     get_event_stream_manager_or_none,
-    # Task manager
-    TaskManagerRegistry,
-    get_task_manager,
-    get_task_manager_or_none,
+    # Session manager
+    SessionManagerRegistry,
+    get_session_manager,
+    get_session_manager_or_none,
     # State manager
     StateManagerRegistry,
     get_state_manager,
@@ -125,15 +130,8 @@ from agent_core.core.registry import (
     ContextEngineRegistry,
     get_context_engine,
     get_context_engine_or_none,
-    # Trigger queue
-    TriggerQueueRegistry,
-    get_trigger_queue,
-    get_trigger_queue_or_none,
 )
 from agent_core.core.hooks import (
-    OnTaskCreatedHook,
-    OnTaskEndedHook,
-    OnTodoTransitionHook,
     OnActionStartHook,
     OnActionEndHook,
     OnEventLoggedHook,
@@ -152,18 +150,15 @@ from agent_core.core.impl.action import (
     ActionLibrary,
     ActionRouter,
     ActionManager,
-    set_gui_execute_hook,
 )
 from agent_core.core.impl.memory import (
     MemoryManager,
     MemoryFileWatcher,
     MemoryPointer,
     MemoryChunk,
-    create_memory_processing_task,
 )
 from agent_core.core.impl.llm import LLMCallType
-from agent_core.core.impl.trigger import TriggerQueue
-from agent_core.core.impl.workflow_lock import WorkflowLockManager
+from agent_core.core.impl.trigger import SessionTriggerQueue, QueueClosed
 from agent_core.core.impl.event_stream import (
     EventStream,
     EventStreamManager,
@@ -180,10 +175,6 @@ from agent_core.core.prompts import (
     EVENT_STREAM_SUMMARIZATION_PROMPT,
     # Action prompts
     SELECT_ACTION_PROMPT,
-    SELECT_ACTION_IN_TASK_PROMPT,
-    SELECT_ACTION_IN_GUI_PROMPT,
-    SELECT_ACTION_IN_SIMPLE_TASK_PROMPT,
-    GUI_ACTION_SPACE_PROMPT,
     # Context prompts
     AGENT_ROLE_PROMPT,
     AGENT_INFO_PROMPT,
@@ -191,17 +182,6 @@ from agent_core.core.prompts import (
     USER_PROFILE_PROMPT,
     ENVIRONMENTAL_CONTEXT_PROMPT,
     AGENT_FILE_SYSTEM_CONTEXT_PROMPT,
-    # Routing prompts
-    ROUTE_TO_SESSION_PROMPT,
-    # GUI prompts
-    GUI_REASONING_PROMPT,
-    GUI_REASONING_PROMPT_OMNIPARSER,
-    GUI_QUERY_FOCUSED_PROMPT,
-    GUI_PIXEL_POSITION_PROMPT,
-    # Skill selection prompts
-    SKILLS_AND_ACTION_SETS_SELECTION_PROMPT,
-    SKILL_SELECTION_PROMPT,
-    ACTION_SET_SELECTION_PROMPT,
 )
 
 # MCP
@@ -259,7 +239,6 @@ __all__ = [
     "get_state_or_none",
     "AgentProperties",
     "ReasoningResult",
-    "TaskSummary",
     "MainState",
     "DEFAULT_MAX_ACTIONS_PER_TASK",
     "DEFAULT_MAX_TOKEN_PER_TASK",
@@ -300,10 +279,12 @@ __all__ = [
     "PLATFORM_LINUX",
     "PLATFORM_WINDOWS",
     "PLATFORM_DARWIN",
-    # Task management
-    "Task",
+    # Session management
+    "Session",
+    "SessionType",
     "TodoItem",
     "TodoStatus",
+    "MAIN_SESSION_ID",
     # Event stream
     "Event",
     "EventRecord",
@@ -354,32 +335,27 @@ __all__ = [
     "get_event_stream_or_none",
     "get_event_stream_manager",
     "get_event_stream_manager_or_none",
-    "TaskManagerRegistry",
-    "get_task_manager",
-    "get_task_manager_or_none",
+    "SessionManagerRegistry",
+    "get_session_manager",
+    "get_session_manager_or_none",
     "StateManagerRegistry",
     "get_state_manager",
     "get_state_manager_or_none",
     "ContextEngineRegistry",
     "get_context_engine",
     "get_context_engine_or_none",
-    "TriggerQueueRegistry",
-    "get_trigger_queue",
-    "get_trigger_queue_or_none",
     # Implementations
     "ActionExecutor",
     "ActionLibrary",
     "ActionRouter",
     "ActionManager",
-    "set_gui_execute_hook",
     "MemoryManager",
     "MemoryFileWatcher",
     "MemoryPointer",
     "MemoryChunk",
-    "create_memory_processing_task",
     "LLMCallType",
-    "TriggerQueue",
-    "WorkflowLockManager",
+    "SessionTriggerQueue",
+    "QueueClosed",
     "EventStream",
     "EventStreamManager",
     # Prompts - Registry
@@ -391,10 +367,6 @@ __all__ = [
     "EVENT_STREAM_SUMMARIZATION_PROMPT",
     # Prompts - Action
     "SELECT_ACTION_PROMPT",
-    "SELECT_ACTION_IN_TASK_PROMPT",
-    "SELECT_ACTION_IN_GUI_PROMPT",
-    "SELECT_ACTION_IN_SIMPLE_TASK_PROMPT",
-    "GUI_ACTION_SPACE_PROMPT",
     # Prompts - Context
     "AGENT_ROLE_PROMPT",
     "AGENT_INFO_PROMPT",
@@ -402,21 +374,7 @@ __all__ = [
     "USER_PROFILE_PROMPT",
     "ENVIRONMENTAL_CONTEXT_PROMPT",
     "AGENT_FILE_SYSTEM_CONTEXT_PROMPT",
-    # Prompts - Routing
-    "ROUTE_TO_SESSION_PROMPT",
-    # Prompts - GUI
-    "GUI_REASONING_PROMPT",
-    "GUI_REASONING_PROMPT_OMNIPARSER",
-    "GUI_QUERY_FOCUSED_PROMPT",
-    "GUI_PIXEL_POSITION_PROMPT",
-    # Prompts - Skill selection
-    "SKILLS_AND_ACTION_SETS_SELECTION_PROMPT",
-    "SKILL_SELECTION_PROMPT",
-    "ACTION_SET_SELECTION_PROMPT",
     # Hooks
-    "OnTaskCreatedHook",
-    "OnTaskEndedHook",
-    "OnTodoTransitionHook",
     "OnActionStartHook",
     "OnActionEndHook",
     "OnEventLoggedHook",

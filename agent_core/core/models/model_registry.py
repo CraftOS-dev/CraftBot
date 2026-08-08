@@ -19,8 +19,8 @@ MODEL_REGISTRY = {
         InterfaceType.VIDEO_GEN: "veo-3.1-generate-preview",
     },
     "anthropic": {
-        InterfaceType.LLM: "claude-sonnet-4-5-20250929",
-        InterfaceType.VLM: "claude-sonnet-4-5-20250929",
+        InterfaceType.LLM: "claude-sonnet-4-6",
+        InterfaceType.VLM: "claude-sonnet-4-6",
         InterfaceType.EMBEDDING: None,  # Anthropic does not provide native embedding models
         InterfaceType.IMAGE_GEN: None,
         InterfaceType.VIDEO_GEN: None,

@@ -36,6 +36,7 @@ def get_todos(db: Session = Depends(get_db)) -> List[Dict]:
     todos = db.query(Todo).order_by(Todo.created_at).all()
     return [t.to_dict() for t in todos]
 
+
 @router.post("/todos")
 def create_todo(data: Dict[str, Any], db: Session = Depends(get_db)) -> Dict:
     todo = Todo(text=data["text"])
@@ -43,8 +44,11 @@ def create_todo(data: Dict[str, Any], db: Session = Depends(get_db)) -> Dict:
     db.commit()
     return todo.to_dict()
 
+
 @router.put("/todos/{todo_id}")
-def update_todo(todo_id: str, data: Dict[str, Any], db: Session = Depends(get_db)) -> Dict:
+def update_todo(
+    todo_id: str, data: Dict[str, Any], db: Session = Depends(get_db)
+) -> Dict:
     todo = db.query(Todo).filter(Todo.id == todo_id).first()
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
@@ -54,6 +58,7 @@ def update_todo(todo_id: str, data: Dict[str, Any], db: Session = Depends(get_db
         todo.text = data["text"]
     db.commit()
     return todo.to_dict()
+
 
 @router.delete("/todos/{todo_id}")
 def delete_todo(todo_id: str, db: Session = Depends(get_db)) -> Dict:

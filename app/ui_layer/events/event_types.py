@@ -17,12 +17,10 @@ class UIEventType(Enum):
     SYSTEM_MESSAGE = auto()
     ERROR_MESSAGE = auto()
     INFO_MESSAGE = auto()
-    LLM_FATAL_ERROR = auto()
 
-    # Task/Action events
-    TASK_START = auto()
-    TASK_END = auto()
-    TASK_UPDATE = auto()
+    # Action events (per-session activity feed)
+    # TASK_TOKEN_UPDATE is retained because app.usage.task_attribution
+    # emits it; no UI adapter subscribes to it anymore.
     TASK_TOKEN_UPDATE = auto()
     ACTION_START = auto()
     ACTION_END = auto()
@@ -31,8 +29,12 @@ class UIEventType(Enum):
 
     # State events
     AGENT_STATE_CHANGED = auto()
+    # Per-session run lifecycle: data = {"session_id": str, "busy": bool}.
+    # True from the trigger that starts a run until the run ends (final
+    # message, limit pause, or fatal LLM error) — drives the chat's
+    # typing indicator without flickering between turns.
+    RUN_STATE_CHANGED = auto()
     GUI_MODE_CHANGED = auto()
-    WAITING_FOR_USER = auto()
 
     # Footage events (for GUI mode screenshots)
     FOOTAGE_UPDATE = auto()
@@ -67,7 +69,8 @@ class UIEvent:
         data: Event-specific data payload
         timestamp: When the event occurred
         source_adapter: ID of the adapter that triggered this event (if any)
-        task_id: Associated task ID (if applicable)
+        task_id: Associated session ID (field name kept for construction
+            compatibility with core emitters; it always holds a session id)
     """
 
     type: UIEventType
@@ -76,5 +79,10 @@ class UIEvent:
     source_adapter: Optional[str] = None
     task_id: Optional[str] = None
 
+    @property
+    def session_id(self) -> Optional[str]:
+        """The session this event belongs to."""
+        return self.task_id
+
     def __repr__(self) -> str:
-        return f"UIEvent(type={self.type.name}, task_id={self.task_id})"
+        return f"UIEvent(type={self.type.name}, session_id={self.task_id})"

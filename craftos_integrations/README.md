@@ -22,7 +22,13 @@ The package owns **no UI opinions**. The host wires its own settings page / slas
 ```python
 import asyncio, os
 from pathlib import Path
-from craftos_integrations import configure, initialize_manager, get_handler, send_message
+from craftos_integrations import (
+    configure,
+    initialize_manager,
+    get_handler,
+    send_message,
+)
+
 
 async def on_message(payload: dict) -> None:
     # payload keys: source, integrationType, contactId, contactName,
@@ -30,12 +36,13 @@ async def on_message(payload: dict) -> None:
     #               is_self_message, raw
     print(f"[{payload['source']}] {payload['contactName']}: {payload['messageBody']}")
 
+
 async def main():
     configure(
         project_root=Path.cwd(),
         oauth={
-            "GITHUB_CLIENT_ID":    os.getenv("GITHUB_CLIENT_ID"),
-            "GOOGLE_CLIENT_ID":    os.getenv("GOOGLE_CLIENT_ID"),
+            "GITHUB_CLIENT_ID": os.getenv("GITHUB_CLIENT_ID"),
+            "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID"),
             "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET"),
             # ...etc
         },
@@ -50,6 +57,7 @@ async def main():
 
     # Send a message via any integration through the facade
     await send_message("slack", recipient="C12345", text="hi from the agent")
+
 
 asyncio.run(main())
 ```
@@ -131,16 +139,16 @@ manager = await initialize_manager(on_message=callback, auto_start=True)
 
 ```python
 {
-    "source":          "Discord",                # human display name (handler.display_name)
-    "integrationType": "discord",                # platform_id
-    "contactId":       "<sender id>",
-    "contactName":     "<sender display name>",
-    "messageBody":     "<text>",
-    "channelId":       "<channel/chat id>",
-    "channelName":     "<channel/chat name>",
-    "messageId":       "<platform message id>",
+    "source": "Discord",  # human display name (handler.display_name)
+    "integrationType": "discord",  # platform_id
+    "contactId": "<sender id>",
+    "contactName": "<sender display name>",
+    "messageBody": "<text>",
+    "channelId": "<channel/chat id>",
+    "channelName": "<channel/chat name>",
+    "messageId": "<platform message id>",
     "is_self_message": False,
-    "raw":             { ... },                  # full original platform event
+    "raw": {...},  # full original platform event
 }
 ```
 
@@ -194,11 +202,19 @@ class DiscordHandler(IntegrationHandler):
 
     config_class = DiscordConfig
     config_fields = [
-        {"key": "mention_only", "label": "Only when @-mentioned", "type": "checkbox",
-         "help": "Drop messages that don't @-mention the bot."},
-        {"key": "third_party_usernames", "label": "Allowed users", "type": "list",
-         "placeholder": "alice, bob",
-         "help": "Comma-separated Discord usernames or display names."},
+        {
+            "key": "mention_only",
+            "label": "Only when @-mentioned",
+            "type": "checkbox",
+            "help": "Drop messages that don't @-mention the bot.",
+        },
+        {
+            "key": "third_party_usernames",
+            "label": "Allowed users",
+            "type": "list",
+            "placeholder": "alice, bob",
+            "help": "Comma-separated Discord usernames or display names.",
+        },
     ]
 ```
 
@@ -241,6 +257,7 @@ Use `craftos_integrations.load_config` inside `start_listening` or message handl
 ```python
 from craftos_integrations import load_config
 
+
 async def _handle_message(self, data):
     cfg = load_config("discord_config.json", DiscordConfig) or DiscordConfig()
     if cfg.mention_only and not bot_was_mentioned:
@@ -256,15 +273,17 @@ Three async-friendly helpers on `craftos_integrations` parallel the credential o
 
 ```python
 from craftos_integrations import (
-    get_config,         # current values as a plain dict (defaults if no file yet)
-    update_config,      # write new values; coerces per the schema
+    get_config,  # current values as a plain dict (defaults if no file yet)
+    update_config,  # write new values; coerces per the schema
     get_config_schema,  # the config_fields list, for rendering a settings form
 )
 
 get_config("discord")
 # → {"mention_only": False, "third_party_usernames": []}
 
-ok, msg = update_config("discord", {"mention_only": True, "third_party_usernames": "alice, bob"})
+ok, msg = update_config(
+    "discord", {"mention_only": True, "third_party_usernames": "alice, bob"}
+)
 # Backend coerces the string into ["alice", "bob"] and persists
 
 get_config_schema("discord")
@@ -303,7 +322,12 @@ Every handler exposes three **dispatchers** on the ABC. Hosts call the one that 
 | `connect_interactive(integration)`          | `interactive`, `token_with_interactive` |
 
 ```python
-from craftos_integrations import connect_token, connect_oauth, connect_interactive, disconnect
+from craftos_integrations import (
+    connect_token,
+    connect_oauth,
+    connect_interactive,
+    disconnect,
+)
 
 # Token — host collects field values matching handler.fields
 ok, msg = await connect_token("github", {"access_token": "ghp_..."})
@@ -325,9 +349,9 @@ For UI-driven flows where you want metadata (display name, fields, auth type) to
 ```python
 from craftos_integrations import list_metadata, get_metadata, integration_registry
 
-list_metadata()                # all integrations as a list
-get_metadata("slack")          # single integration
-integration_registry()         # snapshot dict {id: metadata}
+list_metadata()  # all integrations as a list
+get_metadata("slack")  # single integration
+integration_registry()  # snapshot dict {id: metadata}
 ```
 
 ---
@@ -439,8 +463,12 @@ from .. import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
-    has_credential, load_credential, save_credential, remove_credential,
-    register_client, register_handler,
+    has_credential,
+    load_credential,
+    save_credential,
+    remove_credential,
+    register_client,
+    register_handler,
 )
 from ..helpers import Result, request as http_request
 from ..logger import get_logger
@@ -473,10 +501,14 @@ class AsanaHandler(IntegrationHandler):
     display_name = "Asana"
     description = "Tasks and projects"
     auth_type = "token"
-    icon = "asana"                                              # Lucide icon name or frontend brand-SVG key
+    icon = "asana"  # Lucide icon name or frontend brand-SVG key
     fields = [
-        {"key": "access_token", "label": "Personal Access Token",
-         "placeholder": "1/12345...", "password": True},
+        {
+            "key": "access_token",
+            "label": "Personal Access Token",
+            "placeholder": "1/12345...",
+            "password": True,
+        },
     ]
 
     # Inline help shown in the connect modal's ``?`` popover
@@ -489,9 +521,13 @@ class AsanaHandler(IntegrationHandler):
     # Omit both attrs if your integration has no runtime settings.
     config_class = AsanaConfig
     config_fields = [
-        {"key": "project_filter", "label": "Watched projects", "type": "list",
-         "placeholder": "GID1, GID2",
-         "help": "Comma-separated Asana project GIDs. Empty = watch all."},
+        {
+            "key": "project_filter",
+            "label": "Watched projects",
+            "type": "list",
+            "placeholder": "GID1, GID2",
+            "help": "Comma-separated Asana project GIDs. Empty = watch all.",
+        },
     ]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -502,7 +538,8 @@ class AsanaHandler(IntegrationHandler):
             return False, "Personal access token is required."
 
         result = http_request(
-            "GET", "https://app.asana.com/api/1.0/users/me",
+            "GET",
+            "https://app.asana.com/api/1.0/users/me",
             headers={"Authorization": f"Bearer {token}"},
             expected=(200,),
         )
@@ -547,7 +584,8 @@ class AsanaClient(BasePlatformClient):
         # Asana doesn't really do "send_message" — repurpose for adding a comment to a task
         cred = self._load()
         return http_request(
-            "POST", f"https://app.asana.com/api/1.0/tasks/{recipient}/stories",
+            "POST",
+            f"https://app.asana.com/api/1.0/tasks/{recipient}/stories",
             headers={"Authorization": f"Bearer {cred.access_token}"},
             json={"data": {"text": text}},
             transform=lambda d: d.get("data"),
@@ -579,6 +617,7 @@ For OAuth integrations, **compose** an `OAuthFlow` instance on the handler inste
 ```python
 from .. import OAuthFlow
 
+
 @register_handler(ASANA.name)
 class AsanaHandler(IntegrationHandler):
     spec = ASANA
@@ -601,9 +640,12 @@ class AsanaHandler(IntegrationHandler):
         if "error" in result and not result.get("access_token"):
             return False, f"Asana OAuth failed: {result['error']}"
         info = result.get("userinfo", {}).get("data", {})
-        save_credential(self.spec.cred_file, AsanaCredential(
-            access_token=result["access_token"],
-        ))
+        save_credential(
+            self.spec.cred_file,
+            AsanaCredential(
+                access_token=result["access_token"],
+            ),
+        )
         return True, f"Asana connected as {info.get('name')}"
 ```
 
@@ -668,9 +710,21 @@ from agent_core import action
     description="List tasks in an Asana project. Returns task GIDs, names, completed flag, and assignee.",
     action_sets=["asana_tasks", "asana"],
     input_schema={
-        "project_gid": {"type": "string", "description": "Asana project GID.", "example": "1234567890"},
-        "completed_since": {"type": "string", "description": "ISO timestamp; 'now' excludes completed.", "example": "now"},
-        "per_page": {"type": "integer", "description": "Max results (default 30, max 100).", "example": 30},
+        "project_gid": {
+            "type": "string",
+            "description": "Asana project GID.",
+            "example": "1234567890",
+        },
+        "completed_since": {
+            "type": "string",
+            "description": "ISO timestamp; 'now' excludes completed.",
+            "example": "now",
+        },
+        "per_page": {
+            "type": "integer",
+            "description": "Max results (default 30, max 100).",
+            "example": 30,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -678,7 +732,8 @@ async def list_asana_tasks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "asana", "list_tasks",
+        "asana",
+        "list_tasks",
         project_gid=input_data["project_gid"],
         completed_since=input_data.get("completed_since"),
         per_page=input_data.get("per_page", 30),
@@ -691,14 +746,17 @@ async def list_asana_tasks(input_data: dict) -> dict:
 # WRONG — module-top import, will NameError at call time
 from app.data.action.integrations._helpers import run_client
 
+
 @action(...)
 async def my_action(input_data):
     return await run_client(...)
+
 
 # RIGHT — import inside the function body
 @action(...)
 async def my_action(input_data):
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(...)
 
 
@@ -707,17 +765,34 @@ async def my_action(input_data):
     description="Create a new task in an Asana project. Returns the new task GID.",
     action_sets=["asana_tasks", "asana"],
     input_schema={
-        "project_gid": {"type": "string", "description": "Asana project GID.", "example": "1234567890"},
-        "name":        {"type": "string", "description": "Task title.", "example": "Ship Q3 report"},
-        "notes":       {"type": "string", "description": "Task description (Markdown).", "example": ""},
-        "assignee":    {"type": "string", "description": "Assignee user GID or email.", "example": ""},
+        "project_gid": {
+            "type": "string",
+            "description": "Asana project GID.",
+            "example": "1234567890",
+        },
+        "name": {
+            "type": "string",
+            "description": "Task title.",
+            "example": "Ship Q3 report",
+        },
+        "notes": {
+            "type": "string",
+            "description": "Task description (Markdown).",
+            "example": "",
+        },
+        "assignee": {
+            "type": "string",
+            "description": "Assignee user GID or email.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 async def create_asana_task(input_data: dict) -> dict:
     return await run_client(
-        "asana", "create_task",
+        "asana",
+        "create_task",
         project_gid=input_data["project_gid"],
         name=input_data["name"],
         notes=input_data.get("notes", ""),
@@ -780,8 +855,8 @@ The agent doesn't load every action up front — it loads the **action sets** it
    - 1–2 actions per remaining major category
 
    ```python
-   action_sets=["asana_tasks", "asana"]   # in the umbrella — high-value
-   action_sets=["asana_tasks"]            # niche — fine-grained only
+   action_sets = ["asana_tasks", "asana"]  # in the umbrella — high-value
+   action_sets = ["asana_tasks"]  # niche — fine-grained only
    ```
 
    Target umbrella size: **15–25 actions**. The agent loads the umbrella by default when the user says "use Asana"; the fine-grained sets get loaded only when the user says something specific like "manage Asana webhooks".

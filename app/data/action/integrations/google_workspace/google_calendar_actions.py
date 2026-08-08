@@ -1,6 +1,44 @@
 from agent_core import action
 
 
+def _lean_gcal_event(ev: dict) -> dict:
+    """Reduce a raw Calendar Event resource to the fields an agent acts on.
+
+    NOTE: action handlers run via exec() on extracted source, so handlers
+    import this by full module path inside the function body (module-level
+    names are not in scope at handler runtime).
+    """
+    out = {
+        k: ev.get(k)
+        for k in (
+            "id",
+            "summary",
+            "description",
+            "location",
+            "start",
+            "end",
+            "status",
+            "recurrence",
+            "recurringEventId",
+            "htmlLink",
+            "hangoutLink",
+        )
+        if ev.get(k) is not None
+    }
+    attendees = ev.get("attendees")
+    if attendees:
+        out["attendees"] = [
+            {
+                k: a.get(k)
+                for k in ("email", "displayName", "responseStatus", "organizer")
+                if a.get(k) is not None
+            }
+            for a in attendees
+            if isinstance(a, dict)
+        ]
+    return out
+
+
 # ------------------------------------------------------------------
 # Convenience helpers (kept as-is for backwards-compat)
 # ------------------------------------------------------------------
@@ -8,7 +46,7 @@ from agent_core import action
 
 @action(
     name="create_google_meet",
-    description="Create a Google Calendar event with a Google Meet link.",
+    description="Create a Google Calendar event with a Google Meet link. Returns id, hangoutLink + key fields.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_data": {
@@ -22,18 +60,27 @@ from agent_core import action
             "example": "primary",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "example": {"id": "...", "hangoutLink": "https://meet.google.com/..."},
+        },
+    },
 )
 def create_google_meet(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "create_meet_event",
         unwrap_envelope=True,
         fail_message="Failed to create event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_data=input_data.get("event_data"),
+    )
+    return pick_result(
+        res, ["id", "summary", "start", "end", "htmlLink", "hangoutLink", "status"]
     )
 
 
@@ -173,10 +220,17 @@ def check_availability_and_schedule(input_data: dict) -> dict:
             "reason": "Google Calendar API error",
             "details": result,
         }
+    event = result.get("result", result)
+    if isinstance(event, dict):
+        event = {
+            k: event.get(k)
+            for k in ("id", "hangoutLink", "htmlLink", "start", "end")
+            if event.get(k) is not None
+        }
     return {
         "status": "success",
         "reason": "Meeting scheduled successfully.",
-        "event": result.get("result", result),
+        "event": event,
     }
 
 
@@ -187,7 +241,7 @@ def check_availability_and_schedule(input_data: dict) -> dict:
 
 @action(
     name="list_google_calendar_events",
-    description="List events on a calendar between time_min and time_max. Returns expanded single events sorted by start time.",
+    description="List events on a calendar between time_min and time_max. Returns expanded single events sorted by start time. Lean event fields by default (id, summary, description, location, start, end, status, attendees, recurrence, htmlLink, hangoutLink); set include_metadata for raw Event resources.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "calendar_id": {
@@ -210,13 +264,21 @@ def check_availability_and_schedule(input_data: dict) -> dict:
             "description": "Max events to return.",
             "example": 50,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw Event resources (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_google_calendar_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations.google_workspace.google_calendar_actions import (
+        _lean_gcal_event,
+    )
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "list_events",
         unwrap_envelope=True,
@@ -226,11 +288,19 @@ def list_google_calendar_events(input_data: dict) -> dict:
         time_max=input_data.get("time_max"),
         max_results=input_data.get("max_results", 50),
     )
+    if not input_data.get("include_metadata") and res.get("status") == "success":
+        items = res.get("result")
+        if isinstance(items, list):
+            res = {
+                **res,
+                "result": [_lean_gcal_event(e) for e in items if isinstance(e, dict)],
+            }
+    return res
 
 
 @action(
     name="get_google_calendar_event",
-    description="Get a single event by ID.",
+    description="Get a single event by ID. Lean event fields by default; set include_metadata for the raw Event resource.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
@@ -239,13 +309,21 @@ def list_google_calendar_events(input_data: dict) -> dict:
             "description": "Calendar ID (default: primary).",
             "example": "primary",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw Event resource (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations.google_workspace.google_calendar_actions import (
+        _lean_gcal_event,
+    )
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "get_event",
         unwrap_envelope=True,
@@ -253,11 +331,16 @@ def get_google_calendar_event(input_data: dict) -> dict:
         event_id=input_data["event_id"],
         calendar_id=input_data.get("calendar_id", "primary"),
     )
+    if not input_data.get("include_metadata") and res.get("status") == "success":
+        ev = res.get("result")
+        if isinstance(ev, dict):
+            res = {**res, "result": _lean_gcal_event(ev)}
+    return res
 
 
 @action(
     name="create_google_calendar_event",
-    description="Create a calendar event. event_data is the full Event resource (summary, start, end, attendees, etc.). Use create_google_meet for events with a Meet link.",
+    description="Create a calendar event. event_data is the full Event resource (summary, start, end, attendees, etc.). Use create_google_meet for events with a Meet link. Returns id + key fields.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_data": {
@@ -285,9 +368,9 @@ def get_google_calendar_event(input_data: dict) -> dict:
     parallelizable=False,
 )
 def create_google_calendar_event(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "insert_event",
         unwrap_envelope=True,
@@ -297,11 +380,14 @@ def create_google_calendar_event(input_data: dict) -> dict:
         send_updates=input_data.get("send_updates", "none"),
         supports_attachments=bool(input_data.get("supports_attachments", False)),
     )
+    return pick_result(
+        res, ["id", "summary", "start", "end", "htmlLink", "hangoutLink", "status"]
+    )
 
 
 @action(
     name="update_google_calendar_event",
-    description="Replace an event entirely (PUT). For partial updates use patch_google_calendar_event.",
+    description="Replace an event entirely (PUT). For partial updates use patch_google_calendar_event. Returns id + key fields.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
@@ -325,9 +411,9 @@ def create_google_calendar_event(input_data: dict) -> dict:
     parallelizable=False,
 )
 def update_google_calendar_event(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "update_event",
         unwrap_envelope=True,
@@ -337,11 +423,14 @@ def update_google_calendar_event(input_data: dict) -> dict:
         event_data=input_data["event_data"],
         send_updates=input_data.get("send_updates", "none"),
     )
+    return pick_result(
+        res, ["id", "summary", "start", "end", "htmlLink", "hangoutLink", "status"]
+    )
 
 
 @action(
     name="patch_google_calendar_event",
-    description="Patch (partial update) an event. event_data contains ONLY the fields to change.",
+    description="Patch (partial update) an event. event_data contains ONLY the fields to change. Returns id + key fields.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
@@ -365,9 +454,9 @@ def update_google_calendar_event(input_data: dict) -> dict:
     parallelizable=False,
 )
 def patch_google_calendar_event(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "patch_event",
         unwrap_envelope=True,
@@ -376,6 +465,9 @@ def patch_google_calendar_event(input_data: dict) -> dict:
         event_id=input_data["event_id"],
         event_data=input_data["event_data"],
         send_updates=input_data.get("send_updates", "none"),
+    )
+    return pick_result(
+        res, ["id", "summary", "start", "end", "htmlLink", "hangoutLink", "status"]
     )
 
 
@@ -409,7 +501,7 @@ def delete_google_calendar_event(input_data: dict) -> dict:
 
 @action(
     name="move_google_calendar_event",
-    description="Move an event from one calendar to another.",
+    description="Move an event from one calendar to another. Returns id + key fields.",
     action_sets=["google_calendar_events"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
@@ -433,9 +525,9 @@ def delete_google_calendar_event(input_data: dict) -> dict:
     parallelizable=False,
 )
 def move_google_calendar_event(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "move_event",
         unwrap_envelope=True,
@@ -445,11 +537,14 @@ def move_google_calendar_event(input_data: dict) -> dict:
         destination_calendar_id=input_data["destination_calendar_id"],
         send_updates=input_data.get("send_updates", "none"),
     )
+    return pick_result(
+        res, ["id", "summary", "start", "end", "htmlLink", "hangoutLink", "status"]
+    )
 
 
 @action(
     name="quick_add_google_calendar_event",
-    description="Create an event from a natural-language string (e.g. 'Lunch with Alice tomorrow at noon').",
+    description="Create an event from a natural-language string (e.g. 'Lunch with Alice tomorrow at noon'). Returns id + key fields.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "text": {
@@ -472,9 +567,9 @@ def move_google_calendar_event(input_data: dict) -> dict:
     parallelizable=False,
 )
 def quick_add_google_calendar_event(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "quick_add_event",
         unwrap_envelope=True,
@@ -483,11 +578,14 @@ def quick_add_google_calendar_event(input_data: dict) -> dict:
         text=input_data["text"],
         send_updates=input_data.get("send_updates", "none"),
     )
+    return pick_result(
+        res, ["id", "summary", "start", "end", "htmlLink", "hangoutLink", "status"]
+    )
 
 
 @action(
     name="list_google_calendar_event_instances",
-    description="Expand a recurring event into its individual instances.",
+    description="Expand a recurring event into its individual instances. Lean event fields by default; set include_metadata for raw Event resources.",
     action_sets=["google_calendar_events"],
     input_schema={
         "event_id": {
@@ -515,13 +613,21 @@ def quick_add_google_calendar_event(input_data: dict) -> dict:
             "description": "Max instances.",
             "example": 50,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw Event resources (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_google_calendar_event_instances(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations.google_workspace.google_calendar_actions import (
+        _lean_gcal_event,
+    )
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "list_event_instances",
         unwrap_envelope=True,
@@ -532,11 +638,25 @@ def list_google_calendar_event_instances(input_data: dict) -> dict:
         time_max=input_data.get("time_max"),
         max_results=input_data.get("max_results", 50),
     )
+    if not input_data.get("include_metadata") and res.get("status") == "success":
+        result = res.get("result")
+        if isinstance(result, dict) and isinstance(result.get("instances"), list):
+            res = {
+                **res,
+                "result": {
+                    "instances": [
+                        _lean_gcal_event(e)
+                        for e in result["instances"]
+                        if isinstance(e, dict)
+                    ]
+                },
+            }
+    return res
 
 
 @action(
     name="import_google_calendar_event",
-    description="Import a pre-existing event (with its own iCal UID) into a calendar — preserves identity across calendars. Distinct from create.",
+    description="Import a pre-existing event (with its own iCal UID) into a calendar — preserves identity across calendars. Distinct from create. Returns id + key fields.",
     action_sets=["google_calendar_events"],
     input_schema={
         "event_data": {
@@ -554,15 +674,18 @@ def list_google_calendar_event_instances(input_data: dict) -> dict:
     parallelizable=False,
 )
 def import_google_calendar_event(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_calendar",
         "import_event",
         unwrap_envelope=True,
         fail_message="Failed to import event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_data=input_data["event_data"],
+    )
+    return pick_result(
+        res, ["id", "summary", "start", "end", "htmlLink", "hangoutLink", "status"]
     )
 
 

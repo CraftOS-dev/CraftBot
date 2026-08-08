@@ -1,14 +1,16 @@
-"""Clear command implementation."""
+"""Clear command implementation — clears the current session's conversation."""
 
 from __future__ import annotations
 
 from typing import List
 
+from agent_core.core.session import MAIN_SESSION_ID
+
 from app.ui_layer.commands.base import Command, CommandResult
 
 
 class ClearCommand(Command):
-    """Clear the screen/chat log."""
+    """Clear the current session's conversation."""
 
     @property
     def name(self) -> str:
@@ -20,26 +22,35 @@ class ClearCommand(Command):
 
     @property
     def description(self) -> str:
-        return "Clear the chat and action log"
+        return "Clear this session's conversation"
 
     async def execute(
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
-        """Execute the clear command."""
-        # Clear action items state
-        self._controller.state_store.dispatch("CLEAR_ACTION_ITEMS", None)
+        """Execute the clear command for the session it was typed in."""
+        target = session_id or MAIN_SESSION_ID
 
-        # Clear chat and action panel via the active adapter's components
+        # Clear persisted chat rows for this session
+        from app.usage import get_chat_storage
+
+        get_chat_storage().clear_messages(target)
+
+        # Clear the agent-side session state (event stream, todos, budgets)
+        await self._controller.agent.clear_session(target)
+
+        # Tell the UI to drop the session's rendered conversation
         adapter = self._controller.active_adapter
-        if adapter:
+        broadcast = getattr(adapter, "broadcast_session_cleared", None)
+        if broadcast is not None:
+            await broadcast(target)
+        elif adapter:
             await adapter.chat_component.clear()
-            if adapter.action_panel:
-                await adapter.action_panel.clear()
 
-        # Drop the agent's persisted conversation memory so a restart does
-        # not resurrect cleared chat from session_storage.
-        await self._controller.agent.clear_conversation_persistence()
+        # Confirm in the now-empty conversation (emitted after the clear so
+        # it survives instead of being wiped with the old rows).
+        self.emit_message("Conversation cleared.", "system", session_id=target)
 
         return CommandResult(success=True)

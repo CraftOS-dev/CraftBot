@@ -357,13 +357,13 @@ console.log(products);
 import os
 import requests
 
-headers = {'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
-package_name = 'com.example.app'
+headers = {"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"}
+package_name = "com.example.app"
 
 # List in-app products
 response = requests.get(
-    f'https://gateway.maton.ai/google-play/androidpublisher/v3/applications/{package_name}/inappproducts',
-    headers=headers
+    f"https://gateway.maton.ai/google-play/androidpublisher/v3/applications/{package_name}/inappproducts",
+    headers=headers,
 )
 products = response.json()
 print(products)

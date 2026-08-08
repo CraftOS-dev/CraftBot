@@ -267,12 +267,12 @@ Content-Type: text/plain
 ```python
 import urllib.request, os
 
-file_content = b'Hello, this is file content!'
+file_content = b"Hello, this is file content!"
 
-url = 'https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=media'
-req = urllib.request.Request(url, data=file_content, method='POST')
-req.add_header('Authorization', f'Bearer {os.environ["MATON_API_KEY"]}')
-req.add_header('Content-Type', 'text/plain')
+url = "https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=media"
+req = urllib.request.Request(url, data=file_content, method="POST")
+req.add_header("Authorization", f"Bearer {os.environ['MATON_API_KEY']}")
+req.add_header("Content-Type", "text/plain")
 response = urllib.request.urlopen(req)
 ```
 
@@ -299,11 +299,11 @@ Content-Type: text/plain
 ```python
 import urllib.request, os, json
 
-boundary = '----Boundary'
-metadata = json.dumps({'name': 'myfile.txt', 'description': 'My file'})
-file_content = 'File content here'
+boundary = "----Boundary"
+metadata = json.dumps({"name": "myfile.txt", "description": "My file"})
+file_content = "File content here"
 
-body = f'''--{boundary}\r
+body = f"""--{boundary}\r
 Content-Type: application/json; charset=UTF-8\r
 \r
 {metadata}\r
@@ -311,12 +311,12 @@ Content-Type: application/json; charset=UTF-8\r
 Content-Type: text/plain\r
 \r
 {file_content}\r
---{boundary}--'''.encode()
+--{boundary}--""".encode()
 
-url = 'https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=multipart'
-req = urllib.request.Request(url, data=body, method='POST')
-req.add_header('Authorization', f'Bearer {os.environ["MATON_API_KEY"]}')
-req.add_header('Content-Type', f'multipart/related; boundary={boundary}')
+url = "https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=multipart"
+req = urllib.request.Request(url, data=body, method="POST")
+req.add_header("Authorization", f"Bearer {os.environ['MATON_API_KEY']}")
+req.add_header("Content-Type", f"multipart/related; boundary={boundary}")
 response = urllib.request.urlopen(req)
 ```
 
@@ -354,33 +354,33 @@ Content-Type: application/octet-stream
 ```python
 import urllib.request, os, json
 
-file_path = '/path/to/large_file.bin'
+file_path = "/path/to/large_file.bin"
 file_size = os.path.getsize(file_path)
 
 # Step 1: Initiate resumable upload session
-url = 'https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=resumable'
-metadata = json.dumps({'name': 'large_file.bin'}).encode()
+url = "https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=resumable"
+metadata = json.dumps({"name": "large_file.bin"}).encode()
 
-req = urllib.request.Request(url, data=metadata, method='POST')
-req.add_header('Authorization', f'Bearer {os.environ["MATON_API_KEY"]}')
-req.add_header('Content-Type', 'application/json; charset=UTF-8')
-req.add_header('X-Upload-Content-Type', 'application/octet-stream')
-req.add_header('X-Upload-Content-Length', str(file_size))
+req = urllib.request.Request(url, data=metadata, method="POST")
+req.add_header("Authorization", f"Bearer {os.environ['MATON_API_KEY']}")
+req.add_header("Content-Type", "application/json; charset=UTF-8")
+req.add_header("X-Upload-Content-Type", "application/octet-stream")
+req.add_header("X-Upload-Content-Length", str(file_size))
 
 response = urllib.request.urlopen(req)
-upload_uri = response.headers['Location']
+upload_uri = response.headers["Location"]
 
 # Step 2: Upload file in chunks (e.g., 5MB chunks)
 chunk_size = 5 * 1024 * 1024
-with open(file_path, 'rb') as f:
+with open(file_path, "rb") as f:
     offset = 0
     while offset < file_size:
         chunk = f.read(chunk_size)
         end = offset + len(chunk) - 1
 
-        req = urllib.request.Request(upload_uri, data=chunk, method='PUT')
-        req.add_header('Content-Length', str(len(chunk)))
-        req.add_header('Content-Range', f'bytes {offset}-{end}/{file_size}')
+        req = urllib.request.Request(upload_uri, data=chunk, method="PUT")
+        req.add_header("Content-Length", str(len(chunk)))
+        req.add_header("Content-Range", f"bytes {offset}-{end}/{file_size}")
 
         response = urllib.request.urlopen(req)
         offset += len(chunk)
@@ -394,9 +394,9 @@ print(f"Uploaded: {result['id']}")
 If an upload is interrupted, query the upload URI to get current status:
 
 ```python
-req = urllib.request.Request(upload_uri, method='PUT')
-req.add_header('Content-Length', '0')
-req.add_header('Content-Range', 'bytes */*')
+req = urllib.request.Request(upload_uri, method="PUT")
+req.add_header("Content-Length", "0")
+req.add_header("Content-Range", "bytes */*")
 response = urllib.request.urlopen(req)
 # Check Range header in response to get current offset
 ```
@@ -416,13 +416,13 @@ Content-Type: text/plain
 ```python
 import urllib.request, os
 
-file_id = 'YOUR_FILE_ID'
-new_content = b'Updated file content!'
+file_id = "YOUR_FILE_ID"
+new_content = b"Updated file content!"
 
-url = f'https://gateway.maton.ai/google-drive/upload/drive/v3/files/{file_id}?uploadType=media'
-req = urllib.request.Request(url, data=new_content, method='PATCH')
-req.add_header('Authorization', f'Bearer {os.environ["MATON_API_KEY"]}')
-req.add_header('Content-Type', 'text/plain')
+url = f"https://gateway.maton.ai/google-drive/upload/drive/v3/files/{file_id}?uploadType=media"
+req = urllib.request.Request(url, data=new_content, method="PATCH")
+req.add_header("Authorization", f"Bearer {os.environ['MATON_API_KEY']}")
+req.add_header("Content-Type", "text/plain")
 response = urllib.request.urlopen(req)
 ```
 
@@ -431,10 +431,7 @@ response = urllib.request.urlopen(req)
 Include the folder ID in the metadata:
 
 ```python
-metadata = json.dumps({
-    'name': 'myfile.txt',
-    'parents': ['FOLDER_ID']
-})
+metadata = json.dumps({"name": "myfile.txt", "parents": ["FOLDER_ID"]})
 ```
 
 ### Share File
@@ -495,9 +492,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/google-drive/drive/v3/files',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'pageSize': 10}
+    "https://gateway.maton.ai/google-drive/drive/v3/files",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"pageSize": 10},
 )
 ```
 

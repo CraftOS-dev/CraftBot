@@ -46,20 +46,19 @@ Specify valid inputs as strategies. The strategy IS the specification.
 @st.composite
 def valid_registration_requests(draw):
     """Generate valid registration requests - this documents the domain."""
-    username = draw(st.text(
-        min_size=3,
-        max_size=20,
-        alphabet=st.characters(whitelist_categories=('L', 'N'))
-    ))
+    username = draw(
+        st.text(
+            min_size=3,
+            max_size=20,
+            alphabet=st.characters(whitelist_categories=("L", "N")),
+        )
+    )
     email = draw(st.emails())
     password = draw(st.text(min_size=8, max_size=100))
     age = draw(st.integers(min_value=13, max_value=150))
 
     return RegistrationRequest(
-        username=username,
-        email=email,
-        password=password,
-        age=age
+        username=username, email=email, password=password, age=age
     )
 ```
 
@@ -130,6 +129,7 @@ def test_complete(x):
 @given(st.integers(min_value=1, max_value=100))
 def test_with_valid_range(x): ...
 
+
 # BAD - constraints via assume
 @given(st.integers())
 def test_with_assume(x):
@@ -149,9 +149,9 @@ valid_users = st.builds(
 ### 3. Include Edge Cases Explicitly
 ```python
 @given(valid_lists())
-@example([])           # Empty
-@example([1])          # Single element
-@example([1, 1, 1])    # Duplicates
+@example([])  # Empty
+@example([1])  # Single element
+@example([1, 1, 1])  # Duplicates
 def test_with_edges(xs): ...
 ```
 

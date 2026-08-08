@@ -175,9 +175,9 @@ Log ontology mutations as causal actions:
 # When creating/updating entities, also log to causal action log
 action = {
     "action": "create_entity",
-    "domain": "ontology", 
+    "domain": "ontology",
     "context": {"type": "Task", "project": "proj_001"},
-    "outcome": "created"
+    "outcome": "created",
 }
 ```
 
@@ -185,20 +185,19 @@ action = {
 
 ```python
 # Email skill creates commitment
-commitment = ontology.create("Commitment", {
-    "source_message": msg_id,
-    "description": "Send report by Friday",
-    "due": "2026-01-31"
-})
+commitment = ontology.create(
+    "Commitment",
+    {
+        "source_message": msg_id,
+        "description": "Send report by Friday",
+        "due": "2026-01-31",
+    },
+)
 
 # Task skill picks it up
 tasks = ontology.query("Commitment", {"status": "pending"})
 for c in tasks:
-    ontology.create("Task", {
-        "title": c.description,
-        "due": c.due,
-        "source": c.id
-    })
+    ontology.create("Task", {"title": c.description, "due": c.due, "source": c.id})
 ```
 
 ## Quick Start

@@ -70,6 +70,25 @@ def _twitter_config_file() -> str:
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
+def _lean_tweet_body(body: Any) -> Any:
+    """Read-shaping for ``include_metadata=False``: drop the response ``meta``
+    block and per-tweet ``edit_history_tweet_ids`` noise. Applied as an
+    ``arequest`` transform, so it only ever runs on successful responses."""
+    if not isinstance(body, dict):
+        return body if body is not None else {}
+    body = dict(body)
+    body.pop("meta", None)
+    data = body.get("data")
+    if isinstance(data, list):
+        body["data"] = [
+            {k: v for k, v in t.items() if k != "edit_history_tweet_ids"}
+            if isinstance(t, dict)
+            else t
+            for t in data
+        ]
+    return body
+
+
 def _oauth1_header(
     method: str,
     url: str,
@@ -519,7 +538,10 @@ class TwitterClient(BasePlatformClient):
         )
 
     async def get_user_timeline(
-        self, user_id: Optional[str] = None, max_results: int = 10
+        self,
+        user_id: Optional[str] = None,
+        max_results: int = 10,
+        include_metadata: bool = True,
     ) -> Result:
         cred = self._load()
         uid = user_id or cred.user_id
@@ -528,7 +550,9 @@ class TwitterClient(BasePlatformClient):
         url = f"{TWITTER_API}/users/{uid}/tweets"
         params = {
             "max_results": str(max_results),
-            "tweet.fields": "created_at,public_metrics,text",
+            "tweet.fields": "created_at,public_metrics,text"
+            if include_metadata
+            else "created_at,author_id",
         }
         return await arequest(
             "GET",
@@ -536,14 +560,19 @@ class TwitterClient(BasePlatformClient):
             headers=self._auth_header("GET", url, params),
             params=params,
             expected=(200,),
+            transform=None if include_metadata else _lean_tweet_body,
         )
 
-    async def search_tweets(self, query: str, max_results: int = 10) -> Result:
+    async def search_tweets(
+        self, query: str, max_results: int = 10, include_metadata: bool = True
+    ) -> Result:
         url = f"{TWITTER_API}/tweets/search/recent"
         params = {
             "query": query,
             "max_results": str(max_results),
-            "tweet.fields": "created_at,author_id,public_metrics,text",
+            "tweet.fields": "created_at,author_id,public_metrics,text"
+            if include_metadata
+            else "created_at,author_id",
             "expansions": "author_id",
             "user.fields": "username",
         }
@@ -553,6 +582,7 @@ class TwitterClient(BasePlatformClient):
             headers=self._auth_header("GET", url, params),
             params=params,
             expected=(200,),
+            transform=None if include_metadata else _lean_tweet_body,
         )
 
     async def like_tweet(self, tweet_id: str) -> Result:
@@ -616,12 +646,16 @@ class TwitterClient(BasePlatformClient):
             transform=lambda d: d.get("data", d),
         )
 
-    async def lookup_tweets(self, tweet_ids: List[str]) -> Result:
+    async def lookup_tweets(
+        self, tweet_ids: List[str], include_metadata: bool = True
+    ) -> Result:
         """Batch-lookup multiple tweets by id (up to 100 per call)."""
         url = f"{TWITTER_API}/tweets"
         params = {
             "ids": ",".join(tweet_ids[:100]),
-            "tweet.fields": "created_at,author_id,public_metrics,text",
+            "tweet.fields": "created_at,author_id,public_metrics,text"
+            if include_metadata
+            else "created_at,author_id",
         }
         return await arequest(
             "GET",
@@ -629,10 +663,14 @@ class TwitterClient(BasePlatformClient):
             headers=self._auth_header("GET", url, params),
             params=params,
             expected=(200,),
+            transform=None if include_metadata else _lean_tweet_body,
         )
 
     async def get_user_mentions(
-        self, user_id: Optional[str] = None, max_results: int = 10
+        self,
+        user_id: Optional[str] = None,
+        max_results: int = 10,
+        include_metadata: bool = True,
     ) -> Result:
         """Recent mentions of a user (defaults to the authed user)."""
         cred = self._load()
@@ -642,7 +680,9 @@ class TwitterClient(BasePlatformClient):
         url = f"{TWITTER_API}/users/{uid}/mentions"
         params = {
             "max_results": str(max_results),
-            "tweet.fields": "created_at,author_id,text,conversation_id",
+            "tweet.fields": "created_at,author_id,text,conversation_id"
+            if include_metadata
+            else "created_at,author_id",
             "expansions": "author_id",
             "user.fields": "username,name",
         }
@@ -652,6 +692,7 @@ class TwitterClient(BasePlatformClient):
             headers=self._auth_header("GET", url, params),
             params=params,
             expected=(200,),
+            transform=None if include_metadata else _lean_tweet_body,
         )
 
     async def post_quote_tweet(self, text: str, quoted_tweet_id: str) -> Result:
@@ -757,12 +798,16 @@ class TwitterClient(BasePlatformClient):
             transform=lambda d: d.get("data", d),
         )
 
-    async def list_bookmarks(self, max_results: int = 50) -> Result:
+    async def list_bookmarks(
+        self, max_results: int = 50, include_metadata: bool = True
+    ) -> Result:
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/bookmarks"
         params = {
             "max_results": str(max_results),
-            "tweet.fields": "created_at,author_id,public_metrics,text",
+            "tweet.fields": "created_at,author_id,public_metrics,text"
+            if include_metadata
+            else "created_at,author_id",
         }
         return await arequest(
             "GET",
@@ -770,6 +815,7 @@ class TwitterClient(BasePlatformClient):
             headers=self._auth_header("GET", url, params),
             params=params,
             expected=(200,),
+            transform=None if include_metadata else _lean_tweet_body,
         )
 
     async def list_liking_users(self, tweet_id: str, max_results: int = 50) -> Result:
@@ -1038,11 +1084,15 @@ class TwitterClient(BasePlatformClient):
             expected=(200,),
         )
 
-    async def list_list_tweets(self, list_id: str, max_results: int = 100) -> Result:
+    async def list_list_tweets(
+        self, list_id: str, max_results: int = 100, include_metadata: bool = True
+    ) -> Result:
         url = f"{TWITTER_API}/lists/{list_id}/tweets"
         params = {
             "max_results": str(max_results),
-            "tweet.fields": "created_at,author_id,public_metrics,text",
+            "tweet.fields": "created_at,author_id,public_metrics,text"
+            if include_metadata
+            else "created_at,author_id",
         }
         return await arequest(
             "GET",
@@ -1050,6 +1100,7 @@ class TwitterClient(BasePlatformClient):
             headers=self._auth_header("GET", url, params),
             params=params,
             expected=(200,),
+            transform=None if include_metadata else _lean_tweet_body,
         )
 
     # ----- Direct Messages -----
