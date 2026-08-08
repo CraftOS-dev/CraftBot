@@ -1,0 +1,15 @@
+{#-
+  Scheme-adaptive CraftBot wordmark. The dark-ink logo shows on the light
+  header (default scheme); the white-ink logo shows on the dark header (slate).
+  CSS in stylesheets/extra.css toggles visibility per color scheme.
+-#}
+<img
+  src="{{ 'assets/craftbot_logo_text_no_border_light.png' | url }}"
+  alt="{{ config.site_name }}"
+  class="cb-logo cb-logo--light"
+>
+<img
+  src="{{ 'assets/craftbot_logo_text_no_border_dark.png' | url }}"
+  alt="{{ config.site_name }}"
+  class="cb-logo cb-logo--dark"
+>
