@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# PocketBase runtime artifacts — never tracked, never packaged
+pb_data/
+pocketbase
+pocketbase.exe
+
+# Generated frontend bundles inside projects
+pb_public/
+
+# Project runtime logs (console relay, schedules)
+logs/
+
+# Local env/secrets
+.env
+.superuser
+.agent-token

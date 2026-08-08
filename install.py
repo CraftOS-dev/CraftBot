@@ -1213,6 +1213,56 @@ def install_playwright_browser(use_conda: bool = False):
         return False
 
 
+def _frontend_deps_stale(frontend_dir: str) -> Optional[str]:
+    """Why node_modules does NOT satisfy the current package.json, or None.
+
+    "node_modules exists" only proves npm install ran *once*; it says nothing
+    about whether it ran for the CURRENT manifest. Pulling a branch that adds
+    a dependency (e.g. react-grid-layout in the dashboard revamp) left the old
+    check reporting "already installed" forever. Two real conditions instead:
+
+    1. Every package declared in dependencies/devDependencies resolves to an
+       installed node_modules/<name>/package.json — catches added packages.
+    2. Neither manifest is newer than npm's own install receipt
+       (node_modules/.package-lock.json, rewritten by every npm install) —
+       catches version bumps, which condition 1 can't see.
+
+    Returns a human-readable reason so the caller can say WHY it's installing.
+    """
+    node_modules = os.path.join(frontend_dir, "node_modules")
+    if not os.path.isdir(node_modules):
+        return "node_modules is missing"
+
+    try:
+        with open(os.path.join(frontend_dir, "package.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, ValueError):
+        # Unreadable manifest — run npm install and let npm report the
+        # real problem loudly instead of silently skipping.
+        return "package.json could not be read"
+
+    declared = {
+        **manifest.get("dependencies", {}),
+        **manifest.get("devDependencies", {}),
+    }
+    for name in declared:
+        # Scoped names ("@types/react") nest one directory deeper.
+        pkg_json = os.path.join(node_modules, *name.split("/"), "package.json")
+        if not os.path.isfile(pkg_json):
+            return f"declared dependency '{name}' is not installed"
+
+    receipt = os.path.join(node_modules, ".package-lock.json")
+    if not os.path.isfile(receipt):
+        return "npm's install receipt (node_modules/.package-lock.json) is missing"
+    installed_at = os.path.getmtime(receipt)
+    for filename in ("package.json", "package-lock.json"):
+        path = os.path.join(frontend_dir, filename)
+        if os.path.isfile(path) and os.path.getmtime(path) > installed_at:
+            return f"{filename} changed after the last npm install"
+
+    return None
+
+
 def install_browser_frontend():
     """Install npm dependencies for the browser frontend."""
     frontend_dir = os.path.join(BASE_DIR, "app", "ui_layer", "browser", "frontend")
@@ -1256,14 +1306,13 @@ def install_browser_frontend():
         print("      npm install")
         return False
 
-    # Check if node_modules already exists
-    node_modules = os.path.join(frontend_dir, "node_modules")
-    if os.path.exists(node_modules):
+    stale_reason = _frontend_deps_stale(frontend_dir)
+    if stale_reason is None:
         print("\n✓ Browser frontend dependencies already installed")
         return True
 
     # Try to install
-    print("\n🔧 Installing browser frontend dependencies...")
+    print(f"\n🔧 Installing browser frontend dependencies ({stale_reason})...")
     try:
         result = run_command_with_progress(
             [npm_cmd, "install"],

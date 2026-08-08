@@ -176,11 +176,10 @@ def format_agent_trace(agent: AgentBase, *, limit_per_stream: int = 200) -> str:
 
     Each line:  ``HH:MM:SS  [STREAM]  KIND  SEVERITY  message``
     """
-    streams: list[tuple[str, Any]] = [
-        ("main", agent.event_stream_manager.get_main_stream())
-    ]
-    for tid, stream in agent.event_stream_manager._task_streams.items():
-        streams.append((f"task:{tid[:8]}", stream))
+    streams: list[tuple[str, Any]] = []
+    for sid, stream in agent.event_stream_manager.get_all_streams_with_ids():
+        label = "main" if sid == "main" else f"session:{sid[:8]}"
+        streams.append((label, stream))
 
     records: list[tuple[str, Any]] = []
     for label, stream in streams:

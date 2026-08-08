@@ -374,7 +374,15 @@ def connect_integration(input_data: dict) -> dict:
             }
 
     except Exception as e:
-        return {"status": "error", "message": f"Connection failed: {str(e)}"}
+        from app.errors import make_error
+
+        info = make_error("CONNECTION_FAILED", target=integration_id, detail=str(e))
+        return {
+            "status": "error",
+            "message": info.message,
+            "error_category": info.category.value,
+            "error_code": info.code,
+        }
 
 
 @action(

@@ -4,7 +4,16 @@ from agent_core import action
 @action(
     name="send_message",
     irreversible=True,
-    description="Use this action to deliver a detailed text update that will be recorded in the conversation log and event stream. Avoid revealing internal or sensitive information and do not mention conversation identifiers. This action does not perform work; it only communicates status to the user. This action can be executed in parallel with other actions, but do not use multiple send_message actions at the same time as that is redundant - combine messages into one.",
+    description=(
+        "Use this action to deliver a text update to the user; it is recorded in the "
+        "conversation log and event stream. Avoid revealing internal or sensitive "
+        "information and do not mention session identifiers. By default this ENDS the "
+        "current run: send your message as the only action when you are done (or when "
+        "you need the user's answer before you can continue), and the session will wait "
+        "for the user's next input. Set continue_work=true ONLY for progress updates "
+        "sent while you still have more work to do. Do not use multiple send_message "
+        "actions at the same time - combine messages into one."
+    ),
     default=True,
     action_sets=["core"],
     parallelizable=True,
@@ -14,10 +23,14 @@ from agent_core import action
             "example": "Hello, user!",
             "description": "The chat message to send. Send message in terminal friendly format and DO NOT include mark down.",
         },
-        "wait_for_user_reply": {
+        "continue_work": {
             "type": "boolean",
-            "example": True,
-            "description": "True if this action requires user's response to proceed. IMPORTANT: If set to true, you MUST (1) let the user know you are waiting for their reply, and (2) phrase the message as a question so the user has something to reply to. The agent will pause and wait for user input before continuing.",
+            "example": False,
+            "description": (
+                "False (default): this is your final message for now — the run ends and "
+                "the session waits for the user. True: this is a progress update and you "
+                "will keep working after sending it."
+            ),
         },
     },
     output_schema={
@@ -26,24 +39,24 @@ from agent_core import action
             "example": "ok",
             "description": "Indicates the action completed successfully.",
         },
-        "fire_at_delay": {
-            "type": "number",
-            "example": 10800,
-            "description": "Delay in seconds before the next follow-up action should be scheduled. 10800 seconds (3 hours) if wait_for_user_reply is true, otherwise 0.",
+        "end_turn": {
+            "type": "boolean",
+            "example": True,
+            "description": "True when this message ends the current run.",
         },
     },
     test_payload={
         "message": "Hello, user!",
-        "wait_for_user_reply": True,
+        "continue_work": False,
         "simulated_mode": True,
     },
 )
 async def send_message(input_data: dict) -> dict:
 
     message = input_data["message"]
-    wait_for_user_reply = bool(input_data.get("wait_for_user_reply", False))
+    continue_work = bool(input_data.get("continue_work", False))
     simulated_mode = input_data.get("simulated_mode", False)
-    # Extract session_id injected by ActionManager for multi-task isolation
+    # Extract session_id injected by ActionManager for multi-session isolation
     session_id = input_data.get("_session_id")
 
     # In simulated mode, skip the actual interface call for testing
@@ -51,25 +64,12 @@ async def send_message(input_data: dict) -> dict:
         import app.internal_action_interface as internal_action_interface
 
         await internal_action_interface.InternalActionInterface.do_chat(
-            message, session_id=session_id
+            message, session_id=session_id, continue_work=continue_work
         )
 
-        # Mirror a "waiting for reply" question onto the Living UI creation
-        # screen (no-op unless this session is a Living UI creation task) so the
-        # user can answer from the Living UI page even with the chat panel closed.
-        if wait_for_user_reply and session_id:
-            try:
-                from app.living_ui import broadcast_living_ui_question
-
-                await broadcast_living_ui_question(session_id, message)
-            except Exception:
-                pass
-
-    fire_at_delay = 10800 if wait_for_user_reply else 0
     # Return 'success' for test compatibility, but keep 'ok' in production if needed
     status = "success" if simulated_mode else "ok"
     return {
         "status": status,
-        "fire_at_delay": fire_at_delay,
-        "wait_for_user_reply": wait_for_user_reply,
+        "end_turn": not continue_work,
     }

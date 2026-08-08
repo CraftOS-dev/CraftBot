@@ -1,0 +1,21 @@
+/* The element DashboardGrid measures to derive both the grid's width and its
+   square row height. It must be a plain block with no padding or border of its
+   own: its content-box width is the number the whole layout is computed from. */
+.gridHost {
+  width: 100%;
+}
+
+/* The margin stands in for react-grid-layout's CONTAINER_PADDING, which the
+   grid supplies for itself but this placeholder renders instead of. */
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: var(--space-3);
+  padding: var(--space-8);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-primary);
+  border-radius: var(--radius-md);
+}

@@ -487,25 +487,25 @@ await fetch(
 import os
 import requests
 
-headers = {'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+headers = {"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"}
 
 # List users
 users = requests.get(
-    'https://gateway.maton.ai/google-workspace-admin/admin/directory/v1/users',
+    "https://gateway.maton.ai/google-workspace-admin/admin/directory/v1/users",
     headers=headers,
-    params={'customer': 'my_customer'}
+    params={"customer": "my_customer"},
 ).json()
 
 # Create user
 response = requests.post(
-    'https://gateway.maton.ai/google-workspace-admin/admin/directory/v1/users',
+    "https://gateway.maton.ai/google-workspace-admin/admin/directory/v1/users",
     headers=headers,
     json={
-        'primaryEmail': 'newuser@example.com',
-        'name': {'givenName': 'New', 'familyName': 'User'},
-        'password': 'TempPass123!',
-        'changePasswordAtNextLogin': True
-    }
+        "primaryEmail": "newuser@example.com",
+        "name": {"givenName": "New", "familyName": "User"},
+        "password": "TempPass123!",
+        "changePasswordAtNextLogin": True,
+    },
 )
 ```
 

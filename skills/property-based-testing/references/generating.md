@@ -102,7 +102,7 @@ def test_sort(xs):
     # Elements preserved
     assert sorted(result) == sorted(xs)
     # Ordered
-    assert all(result[i] <= result[i+1] for i in range(len(result)-1))
+    assert all(result[i] <= result[i + 1] for i in range(len(result) - 1))
     # Idempotent
     assert sort(result) == result
 ```
@@ -120,6 +120,7 @@ def test_normalized_is_valid(x):
 
 ```python
 """Property-based tests for message_codec module."""
+
 from hypothesis import given, strategies as st, settings, example
 import pytest
 

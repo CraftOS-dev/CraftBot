@@ -430,9 +430,15 @@ def empty_drive_trash(input_data: dict) -> dict:
 
 @action(
     name="get_drive_about",
-    description="Get Drive account info: storage quota, max upload size, supported export/import formats, root folder ID.",
+    description="Get Drive account info: user, storage quota, max upload size. Set include_metadata to also get the supported export/import format maps.",
     action_sets=["google_drive_files", "google_drive"],
-    input_schema={},
+    input_schema={
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Include exportFormats/importFormats maps (default false).",
+            "example": False,
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_drive_about(input_data: dict) -> dict:
@@ -443,6 +449,7 @@ def get_drive_about(input_data: dict) -> dict:
         "get_drive_about",
         unwrap_envelope=True,
         fail_message="Failed to get Drive info.",
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 

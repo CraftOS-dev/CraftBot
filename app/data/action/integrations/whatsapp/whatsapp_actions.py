@@ -379,7 +379,7 @@ async def send_whatsapp_typing_state(input_data: dict) -> dict:
 
 @action(
     name="get_whatsapp_chat_history",
-    description="Get chat message history.",
+    description="Get chat message history. Lean messages by default; include_metadata=true returns the raw message list.",
     action_sets=["whatsapp_chats", "whatsapp"],
     input_schema={
         "phone_number": {
@@ -388,18 +388,52 @@ async def send_whatsapp_typing_state(input_data: dict) -> dict:
             "example": "1234567890",
         },
         "limit": {"type": "integer", "description": "Max messages.", "example": 50},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return raw message objects (default false = lean).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {messages: [{id, from, to?, body, timestamp, from_me, has_media, type?}]}.",
+        },
+    },
 )
 async def get_whatsapp_chat_history(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "whatsapp_web",
         "get_chat_messages",
         phone_number=input_data["phone_number"],
         limit=input_data.get("limit", 50),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("messages"), list):
+        return res
+    lean = []
+    for m in result["messages"]:
+        if not isinstance(m, dict):
+            continue
+        item = {
+            "id": m.get("id"),
+            "from": m.get("from"),
+            "body": m.get("body"),
+            "timestamp": m.get("timestamp"),
+            "from_me": m.get("from_me"),
+            "has_media": bool(m.get("has_media")),
+        }
+        if m.get("to") is not None:
+            item["to"] = m.get("to")
+        if m.get("type") and m.get("type") != "chat":
+            item["type"] = m.get("type")
+        lean.append(item)
+    return {**res, "result": {**result, "messages": lean}}
 
 
 @action(
@@ -894,7 +928,7 @@ async def get_whatsapp_contact(input_data: dict) -> dict:
 
 @action(
     name="get_whatsapp_all_contacts",
-    description="List all contacts. By default filters to 'my contacts' (saved in phonebook). Set my_contacts_only=false to include everyone the user has ever interacted with.",
+    description="List all contacts. By default filters to 'my contacts' (saved in phonebook). Set my_contacts_only=false to include everyone the user has ever interacted with. Lean contacts by default; include_metadata=true returns the raw contact list.",
     action_sets=["whatsapp_contacts", "whatsapp"],
     input_schema={
         "my_contacts_only": {
@@ -903,18 +937,49 @@ async def get_whatsapp_contact(input_data: dict) -> dict:
             "example": True,
         },
         "limit": {"type": "integer", "description": "Max results.", "example": 500},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return raw contact objects (default false = lean).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {contacts: [{id, number, name?, pushname?, is_business?, is_my_contact?}], count}.",
+        },
+    },
 )
 async def get_whatsapp_all_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "whatsapp_web",
         "get_all_contacts",
         my_contacts_only=bool(input_data.get("my_contacts_only", True)),
         limit=input_data.get("limit", 500),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("contacts"), list):
+        return res
+    lean = []
+    for c in result["contacts"]:
+        if not isinstance(c, dict):
+            continue
+        item = {"id": c.get("id"), "number": c.get("number")}
+        if c.get("name"):
+            item["name"] = c.get("name")
+        if c.get("pushname"):
+            item["pushname"] = c.get("pushname")
+        if c.get("is_business"):
+            item["is_business"] = True
+        if c.get("is_my_contact") is False:
+            item["is_my_contact"] = False
+        lean.append(item)
+    return {**res, "result": {**result, "contacts": lean}}
 
 
 @action(

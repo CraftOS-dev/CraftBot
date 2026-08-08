@@ -2,7 +2,7 @@
 
 The browser adapter registers async callbacks at startup. Agent actions
 (running in the main loop) call the broadcast_living_ui_ready / _progress
-wrappers directly. TaskManager hooks (running on a worker thread pool) go
+wrappers directly. SessionManager hooks (running on a worker thread pool) go
 through make_todo_broadcast_hook, which schedules the async broadcast onto
 the main loop in a thread-safe way.
 """
@@ -31,9 +31,12 @@ _broadcast_todos_callback: Optional[
     Callable[[str, List[Dict[str, Any]]], Awaitable[None]]
 ] = None
 _broadcast_data_changed_callback: Optional[Callable[[str], Awaitable[None]]] = None
-_broadcast_question_callback: Optional[Callable[[str, str, str], Awaitable[None]]] = (
-    None
-)
+_broadcast_build_event_callback: Optional[
+    Callable[[str, Dict[str, Any]], Awaitable[None]]
+] = None
+_broadcast_wizard_open_callback: Optional[
+    Callable[[Dict[str, Any]], Awaitable[None]]
+] = None
 
 # Captured at register time so cross-thread dispatchers (action handlers
 # running on a worker thread pool) can schedule coroutines onto the main loop.
@@ -48,7 +51,10 @@ def register_broadcast_callbacks(
     ] = None,
     broadcast_data_changed: Optional[Callable[[str], Awaitable[None]]] = None,
     broadcast_created: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
-    broadcast_question: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
+    broadcast_build_event: Optional[
+        Callable[[str, Dict[str, Any]], Awaitable[None]]
+    ] = None,
+    broadcast_wizard_open: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
 ) -> None:
     """Register broadcast callbacks for Living UI actions to use.
 
@@ -59,13 +65,15 @@ def register_broadcast_callbacks(
         _broadcast_created_callback, \
         _broadcast_progress_callback, \
         _broadcast_todos_callback
-    global _broadcast_data_changed_callback, _broadcast_question_callback, _main_loop
+    global _broadcast_data_changed_callback, _main_loop
+    global _broadcast_build_event_callback, _broadcast_wizard_open_callback
     _broadcast_ready_callback = broadcast_ready
     _broadcast_created_callback = broadcast_created
     _broadcast_progress_callback = broadcast_progress
     _broadcast_todos_callback = broadcast_todos
     _broadcast_data_changed_callback = broadcast_data_changed
-    _broadcast_question_callback = broadcast_question
+    _broadcast_build_event_callback = broadcast_build_event
+    _broadcast_wizard_open_callback = broadcast_wizard_open
     try:
         _main_loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -87,6 +95,16 @@ async def broadcast_living_ui_ready(project_id: str, url: str, port: int) -> boo
     return False
 
 
+async def broadcast_living_ui_wizard_open(payload: Dict[str, Any]) -> bool:
+    """Open the Create Custom wizard in the browser at the interview step
+    (chat-path requirements phase). Returns False when no browser adapter is
+    registered — callers fail open (build proceeds without questions)."""
+    if _broadcast_wizard_open_callback:
+        await _broadcast_wizard_open_callback(payload)
+        return True
+    return False
+
+
 async def broadcast_living_ui_created(project: Dict[str, Any]) -> bool:
     """Broadcast that a Living UI project was created (and registered).
 
@@ -102,30 +120,6 @@ async def broadcast_living_ui_created(project: Dict[str, Any]) -> bool:
         f"(manager={get_living_ui_manager() is not None})"
     )
     return False
-
-
-async def broadcast_living_ui_question(session_id: str, message: str) -> bool:
-    """Mirror an agent question (a send_message with wait_for_user_reply) onto the
-    Living UI creation screen, so the user can answer even with the chat closed.
-
-    Resolves the *creating* project from the task/session id and no-ops if the
-    session isn't a Living UI creation task. The on-screen answer is posted back
-    through the normal chat reply path (target_session_id), which resumes the
-    waiting task — no separate resume mechanism is needed. Returns True if mirrored.
-    """
-    if not session_id or not _broadcast_question_callback:
-        return False
-    manager = get_living_ui_manager()
-    if not manager:
-        return False
-    try:
-        project = manager.get_project_by_task_id(session_id)
-    except Exception:
-        project = None
-    if not project or getattr(project, "status", None) != "creating":
-        return False
-    await _broadcast_question_callback(project.id, session_id, message)
-    return True
 
 
 async def broadcast_living_ui_progress(
@@ -176,6 +170,39 @@ def _dispatch_todos(project_id: str, todos: List[Dict[str, Any]]) -> bool:
     return False
 
 
+async def _broadcast_build_event_async(project_id: str, event: Dict[str, Any]) -> bool:
+    """Internal async broadcaster used by the sync dispatcher below."""
+    if _broadcast_build_event_callback:
+        await _broadcast_build_event_callback(project_id, event)
+        return True
+    return False
+
+
+def dispatch_build_event(project_id: str, event: Dict[str, Any]) -> bool:
+    """Thread-safe build-event broadcast (called from the read-only
+    construction observer). Same dual-context handling as _dispatch_todos:
+    schedules onto the running loop, or onto the captured main loop from a
+    worker thread. Fire-and-forget — never blocks the action pipeline."""
+    if not _broadcast_build_event_callback:
+        return False
+
+    coro = _broadcast_build_event_async(project_id, event)
+
+    try:
+        running = asyncio.get_running_loop()
+        running.create_task(coro)
+        return True
+    except RuntimeError:
+        pass
+
+    if _main_loop is not None and _main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(coro, _main_loop)
+        return True
+
+    coro.close()
+    return False
+
+
 async def _broadcast_data_changed_async(project_id: str) -> bool:
     """Internal async broadcaster used by the sync dispatcher below."""
     if _broadcast_data_changed_callback:
@@ -215,25 +242,32 @@ def dispatch_living_ui_data_changed(project_id: str) -> bool:
 
 
 def make_todo_broadcast_hook() -> Callable[[Any, List[Dict[str, Any]]], None]:
-    """Build a post-update-todos hook that broadcasts todos for Living UI tasks.
+    """Build a post-update-todos hook that broadcasts todos for Living UI sessions.
 
-    The returned callable matches TaskManager's PostUpdateTodosHook signature:
-        (active_task, updated_todos_as_dicts) -> None
+    The returned callable matches SessionManager's PostUpdateTodosHook signature:
+        (session, updated_todos_as_dicts) -> None
 
-    It filters non-Living-UI tasks by checking whether the task id maps to
-    a project, so registering it globally is safe.
+    It filters non-Living-UI sessions by checking whether the session id maps
+    to a project, so registering it globally is safe.
     """
 
-    def hook(task: Any, todos: List[Dict[str, Any]]) -> None:
+    def hook(session: Any, todos: List[Dict[str, Any]]) -> None:
         manager = get_living_ui_manager()
         if manager is None:
             return
-        project = manager.get_project_by_task_id(task.id)
+        project = manager.get_project_by_session_id(session.id)
         if project is None:
-            return  # non-Living-UI task — silently skip
+            return  # non-Living-UI session — silently skip
         logger.debug(
             f"[LIVING_UI] Broadcasting {len(todos)} todos to project {project.id}"
         )
         _dispatch_todos(project.id, todos)
+        # Narrate plan milestones into the build feed (start / complete rows).
+        try:
+            from . import construction_events
+
+            construction_events.record_todo_transitions(project.id, todos)
+        except Exception:
+            pass
 
     return hook

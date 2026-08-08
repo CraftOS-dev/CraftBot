@@ -13,7 +13,7 @@ _NO_CRED_MSG = "No Jira credential. Use /jira login first."
 
 @action(
     name="search_jira_issues",
-    description="Search for Jira issues using JQL (Jira Query Language).",
+    description="Search for Jira issues using JQL (Jira Query Language). Returns lean issues (summary, description, status, assignee, priority, issuetype, labels, dates) by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_issues", "jira"],
     input_schema={
         "jql": {
@@ -28,11 +28,22 @@ _NO_CRED_MSG = "No Jira credential. Use /jira login first."
         },
         "fields": {
             "type": "string",
-            "description": "Comma-separated fields to return. Leave empty for defaults.",
+            "description": "Comma-separated fields to return. Leave empty for lean defaults.",
             "example": "summary,status,assignee,priority",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return every field (incl. customfield_*) with full nested objects.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
+        },
+    },
 )
 async def search_jira_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -44,12 +55,13 @@ async def search_jira_issues(input_data: dict) -> dict:
         jql=input_data["jql"],
         max_results=input_data.get("max_results", 20),
         fields_list=fields_list,
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
 @action(
     name="get_jira_issue",
-    description="Get details of a specific Jira issue by its key (e.g. PROJ-123).",
+    description="Get details of a specific Jira issue by its key (e.g. PROJ-123). Returns lean fields (summary, description, status, assignee, priority, issuetype, labels, dates) by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_issues", "jira"],
     input_schema={
         "issue_key": {
@@ -59,11 +71,22 @@ async def search_jira_issues(input_data: dict) -> dict:
         },
         "fields": {
             "type": "string",
-            "description": "Comma-separated fields to return. Leave empty for all.",
+            "description": "Comma-separated fields to return. Leave empty for lean defaults.",
             "example": "summary,status,assignee,description",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return every field (incl. customfield_*) with full nested objects.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
+        },
+    },
 )
 async def get_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
@@ -71,7 +94,11 @@ async def get_jira_issue(input_data: dict) -> dict:
     fields_list = csv_list(input_data.get("fields", ""), default=None)
     return await with_client(
         "jira",
-        lambda c: c.get_issue(input_data["issue_key"], fields_list=fields_list),
+        lambda c: c.get_issue(
+            input_data["issue_key"],
+            fields_list=fields_list,
+            include_metadata=bool(input_data.get("include_metadata", False)),
+        ),
     )
 
 
@@ -886,7 +913,7 @@ async def create_jira_issue_link(input_data: dict) -> dict:
 
 @action(
     name="get_jira_issue_link",
-    description="Get a specific issue link by ID.",
+    description="Get a specific issue link by ID. Returns lean fields (id, type name, linked issue keys/summaries/statuses) by default; set include_metadata=true for the raw payload.",
     action_sets=["jira_links"],
     input_schema={
         "link_id": {
@@ -894,13 +921,29 @@ async def create_jira_issue_link(input_data: dict) -> dict:
             "description": "Issue link ID.",
             "example": "10000",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw API payload instead of lean fields.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: id, type, inwardIssue/outwardIssue {key, summary, status}. Raw payload when include_metadata=true.",
+        },
+    },
 )
 async def get_jira_issue_link(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("jira", "get_issue_link", link_id=input_data["link_id"])
+    return await run_client(
+        "jira",
+        "get_issue_link",
+        link_id=input_data["link_id"],
+        include_metadata=bool(input_data.get("include_metadata", False)),
+    )
 
 
 @action(
@@ -1114,7 +1157,7 @@ async def create_jira_version(input_data: dict) -> dict:
 
 @action(
     name="update_jira_version",
-    description="Update a Jira version (e.g. mark as released, archived).",
+    description="Update a Jira version (e.g. mark as released, archived). Returns id, name, released.",
     action_sets=["jira_projects"],
     input_schema={
         "version_id": {
@@ -1144,13 +1187,19 @@ async def create_jira_version(input_data: dict) -> dict:
             "example": False,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Updated version: id, name, released.",
+        },
+    },
     parallelizable=False,
 )
 async def update_jira_version(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "jira",
         "update_version",
         version_id=input_data["version_id"],
@@ -1160,6 +1209,7 @@ async def update_jira_version(input_data: dict) -> dict:
         released=input_data.get("released"),
         archived=input_data.get("archived"),
     )
+    return pick_result(res, ["id", "name", "released"])
 
 
 @action(
@@ -1348,14 +1398,25 @@ async def get_jira_board(input_data: dict) -> dict:
 
 @action(
     name="get_jira_board_issues",
-    description="List issues currently on a board.",
+    description="List issues currently on a board. Returns lean issues (summary, description, status, assignee, priority, issuetype, labels, dates) by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints"],
     input_schema={
         "board_id": {"type": "integer", "description": "Board ID.", "example": 1},
         "jql": {"type": "string", "description": "Optional JQL filter.", "example": ""},
         "max_results": {"type": "integer", "description": "Max issues.", "example": 50},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return every field (incl. customfield_*) with full nested objects.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
+        },
+    },
 )
 async def get_jira_board_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1366,6 +1427,7 @@ async def get_jira_board_issues(input_data: dict) -> dict:
         board_id=input_data["board_id"],
         jql=input_data.get("jql") or None,
         max_results=input_data.get("max_results", 50),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
@@ -1402,13 +1464,24 @@ async def get_jira_board_sprints(input_data: dict) -> dict:
 
 @action(
     name="get_jira_board_backlog",
-    description="Get the backlog issues for a board (issues not yet in any sprint).",
+    description="Get the backlog issues for a board (issues not yet in any sprint). Returns lean issues by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints"],
     input_schema={
         "board_id": {"type": "integer", "description": "Board ID.", "example": 1},
         "max_results": {"type": "integer", "description": "Max issues.", "example": 50},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return every field (incl. customfield_*) with full nested objects.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
+        },
+    },
 )
 async def get_jira_board_backlog(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1418,6 +1491,7 @@ async def get_jira_board_backlog(input_data: dict) -> dict:
         "get_board_backlog",
         board_id=input_data["board_id"],
         max_results=input_data.get("max_results", 50),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
@@ -1438,14 +1512,25 @@ async def get_jira_sprint(input_data: dict) -> dict:
 
 @action(
     name="get_jira_sprint_issues",
-    description="List issues in a sprint.",
+    description="List issues in a sprint. Returns lean issues by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints", "jira"],
     input_schema={
         "sprint_id": {"type": "integer", "description": "Sprint ID.", "example": 42},
         "jql": {"type": "string", "description": "Optional JQL filter.", "example": ""},
         "max_results": {"type": "integer", "description": "Max issues.", "example": 50},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return every field (incl. customfield_*) with full nested objects.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
+        },
+    },
 )
 async def get_jira_sprint_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1456,6 +1541,7 @@ async def get_jira_sprint_issues(input_data: dict) -> dict:
         sprint_id=input_data["sprint_id"],
         jql=input_data.get("jql") or None,
         max_results=input_data.get("max_results", 50),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
@@ -1509,7 +1595,7 @@ async def create_jira_sprint(input_data: dict) -> dict:
 
 @action(
     name="update_jira_sprint",
-    description="Update a sprint's name, state (active/closed/future), goal, or dates.",
+    description="Update a sprint's name, state (active/closed/future), goal, or dates. Returns id, name, state.",
     action_sets=["jira_sprints"],
     input_schema={
         "sprint_id": {"type": "integer", "description": "Sprint ID.", "example": 42},
@@ -1527,13 +1613,19 @@ async def create_jira_sprint(input_data: dict) -> dict:
         },
         "end_date": {"type": "string", "description": "ISO end date.", "example": ""},
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Updated sprint: id, name, state.",
+        },
+    },
     parallelizable=False,
 )
 async def update_jira_sprint(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "jira",
         "update_sprint",
         sprint_id=input_data["sprint_id"],
@@ -1543,6 +1635,7 @@ async def update_jira_sprint(input_data: dict) -> dict:
         start_date=input_data.get("start_date") or None,
         end_date=input_data.get("end_date") or None,
     )
+    return pick_result(res, ["id", "name", "state"])
 
 
 @action(
@@ -1638,7 +1731,7 @@ async def get_jira_epic(input_data: dict) -> dict:
 
 @action(
     name="get_jira_epic_issues",
-    description="List child issues of an epic.",
+    description="List child issues of an epic. Returns lean issues by default; set include_metadata=true for all fields incl. custom fields.",
     action_sets=["jira_sprints"],
     input_schema={
         "epic_key": {
@@ -1647,8 +1740,19 @@ async def get_jira_epic(input_data: dict) -> dict:
             "example": "PROJ-100",
         },
         "max_results": {"type": "integer", "description": "Max issues.", "example": 50},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return every field (incl. customfield_*) with full nested objects.",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "total + issues. Lean: default field set, status/assignee/priority/issuetype collapsed to names. Full payload when include_metadata=true.",
+        },
+    },
 )
 async def get_jira_epic_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -1658,6 +1762,7 @@ async def get_jira_epic_issues(input_data: dict) -> dict:
         "get_epic_issues",
         epic_id_or_key=input_data["epic_key"],
         max_results=input_data.get("max_results", 50),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 

@@ -42,25 +42,34 @@ dependencies, and restart CraftBot automatically."""
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """Execute the update command."""
         from app.updater import check_for_update
 
-        self.emit_message("Checking for updates...", "system")
+        self.emit_message("Checking for updates...", "system", session_id=session_id)
 
         try:
             update_available, current, latest = await check_for_update()
         except Exception as e:
-            self.emit_message(f"Failed to check for updates: {e}", "error")
+            self.emit_message(
+                f"Failed to check for updates: {e}", "error", session_id=session_id
+            )
             return CommandResult(success=False, message=str(e))
 
         if not update_available:
-            self.emit_message(f"CraftBot is up to date (v{current}).", "system")
+            self.emit_message(
+                f"CraftBot is up to date (v{current}).", "system", session_id=session_id
+            )
             return CommandResult(success=True)
 
         # --check flag: report only, don't install
         if "--check" in args:
-            self.emit_message(f"Update available: v{current} → v{latest}", "system")
+            self.emit_message(
+                f"Update available: v{current} → v{latest}",
+                "system",
+                session_id=session_id,
+            )
             return CommandResult(
                 success=True,
                 data={"updateAvailable": True, "current": current, "latest": latest},
@@ -70,18 +79,19 @@ dependencies, and restart CraftBot automatically."""
         self.emit_message(
             f"Update available: v{current} → v{latest}. Starting update...",
             "system",
+            session_id=session_id,
         )
-        asyncio.create_task(self._do_update())
+        asyncio.create_task(self._do_update(session_id))
         return CommandResult(success=True)
 
-    async def _do_update(self) -> None:
+    async def _do_update(self, session_id: str | None = None) -> None:
         """Run the actual update via app.updater."""
         from app.updater import perform_update
 
         async def progress(msg: str) -> None:
-            self.emit_message(msg, "system")
+            self.emit_message(msg, "system", session_id=session_id)
 
         try:
             await perform_update(progress_callback=progress)
         except Exception as e:
-            self.emit_message(f"Update failed: {e}", "error")
+            self.emit_message(f"Update failed: {e}", "error", session_id=session_id)

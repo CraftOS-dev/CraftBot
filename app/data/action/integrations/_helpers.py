@@ -16,10 +16,15 @@ client method call. With ``run_client`` an action becomes ~5 lines:
 For sync actions, use ``run_client_sync`` (same API, no await).
 
 Some clients return ``{"ok": True, "result": ...}`` / ``{"error": ...}``
-envelopes (Outlook, Jira, etc.). Pass ``unwrap_envelope=True`` to
-extract the inner ``result`` on success or surface the inner ``error``
-message on failure. Pair with ``success_message="..."`` when the action
-should report a fixed success string instead of the inner result.
+envelopes (Outlook, Jira, etc.). ``_shape_result`` collapses that
+transport envelope automatically — the agent never sees a nested
+``{"ok": true, "result": ...}`` wrapper inside the action result, and
+envelope failures surface as ``{"status": "error"}`` instead of being
+buried under a success wrapper. ``unwrap_envelope=True`` is still
+accepted for backward compatibility (it additionally treats ANY dict
+containing an ``error`` key as a failure). Pair with
+``success_message="..."`` when the action should report a fixed success
+string instead of the inner result.
 
 Actions that do real pre/post-processing (parsing labels, recording to
 conversation history, building complex payloads) keep their explicit
@@ -99,11 +104,7 @@ def record_outgoing_message(platform_name: str, recipient: str, text: str) -> No
         sm = iai.InternalActionInterface.state_manager
         if sm:
             label = f"[Sent via {platform_name} to {recipient}]: {text}"
-            sm.event_stream_manager.record_conversation_message(
-                f"agent message to platform: {platform_name}",
-                label,
-            )
-            sm._append_to_conversation_history("agent", label)
+            sm.record_agent_message(label, platform=platform_name)
     except Exception:
         pass
 
@@ -139,35 +140,75 @@ def _shape_result(
     success_message: Optional[str],
     fail_message: str,
 ) -> Dict[str, Any]:
-    """Translate a client return value into the action response envelope."""
-    if unwrap_envelope and isinstance(raw, dict):
-        # Success envelope: {"ok": True, "result": ...}
+    """Translate a client return value into the action response envelope.
+
+    The ``{"ok": ...}`` transport envelope some clients emit is ALWAYS
+    collapsed — previously (without ``unwrap_envelope=True``) the agent got
+    a double-nested ``{"status": "success", "result": {"ok": true,
+    "result": ...}}`` on every call, and envelope failures were wrapped as
+    successes. ``unwrap_envelope`` remains as an opt-in for the looser
+    "any dict containing an 'error' key is a failure" interpretation.
+    """
+    if isinstance(raw, dict):
+        # Success envelope: {"ok": True, "result": ...} — or Slack-style
+        # bodies where "ok" sits alongside the payload fields.
         if raw.get("ok") is True:
             if success_message:
                 return {"status": "success", "message": success_message}
-            return {"status": "success", "result": raw.get("result", raw)}
+            if set(raw.keys()) == {"ok", "result"}:
+                return {"status": "success", "result": raw["result"]}
+            return {
+                "status": "success",
+                "result": {k: v for k, v in raw.items() if k != "ok"},
+            }
         # Explicit failure envelope: {"ok": False, "error": ...}
         if raw.get("ok") is False:
             return {"status": "error", "message": raw.get("error", fail_message)}
         # Implicit failure envelope from craftos_integrations.helpers.request:
         # 4xx/5xx HTTP responses (and caught exceptions) return
         # {"error": "API error: 403", "details": "..."} with NO "ok" key.
-        # Without this branch, the next clauses fall through and wrap the
-        # error as {"status": "success"}, hiding the failure from the agent.
-        if "error" in raw:
+        # Restricted to exactly that shape by default so a legitimate payload
+        # that merely *contains* an "error" field isn't misread as failure;
+        # unwrap_envelope=True keeps the looser historical behavior.
+        if "error" in raw and (
+            unwrap_envelope or set(raw.keys()) <= {"error", "details"}
+        ):
             return {
                 "status": "error",
                 "message": raw.get("error", fail_message),
                 "details": raw.get("details"),
             }
-    if success_message and isinstance(raw, dict) and raw.get("status") == "error":
-        return {
-            "status": "error",
-            "message": raw.get("message") or raw.get("error", fail_message),
-        }
+        # Clients that pre-wrap their own {"status": "error", ...} (e.g. the
+        # WhatsApp bridge) — surface the failure instead of re-wrapping it
+        # under a success envelope.
+        if raw.get("status") == "error":
+            return {
+                "status": "error",
+                "message": raw.get("message") or raw.get("error", fail_message),
+            }
     if success_message:
         return {"status": "success", "message": success_message}
     return {"status": "success", "result": raw}
+
+
+def pick_result(res: Dict[str, Any], keys) -> Dict[str, Any]:
+    """Reduce a successful ``run_client`` result to the named top-level keys.
+
+    Used by write/create/send actions whose provider returns the entire
+    mutated object: the agent only needs the id (+ a couple of key fields),
+    and can always fetch the full object with the matching ``get_*`` action.
+    Non-dict results, error results, and missing keys pass through untouched
+    so this is always safe to apply::
+
+        res = await run_client("stripe", "create_customer", ...)
+        return pick_result(res, ["id", "status"])
+    """
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        r = res["result"]
+        picked = {k: r.get(k) for k in keys if r.get(k) is not None}
+        if picked:
+            res = {**res, "result": picked}
+    return res
 
 
 async def run_client(

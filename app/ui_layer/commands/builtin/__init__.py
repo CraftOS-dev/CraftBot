@@ -2,7 +2,6 @@
 
 from app.ui_layer.commands.builtin.help import HelpCommand
 from app.ui_layer.commands.builtin.clear import ClearCommand
-from app.ui_layer.commands.builtin.clear_tasks import ClearTasksCommand
 from app.ui_layer.commands.builtin.reset import ResetCommand
 from app.ui_layer.commands.builtin.exit import ExitCommand
 from app.ui_layer.commands.builtin.menu import MenuCommand
@@ -12,13 +11,13 @@ from app.ui_layer.commands.builtin.skill import SkillCommand
 from app.ui_layer.commands.builtin.cred import CredCommand
 from app.ui_layer.commands.builtin.integrations import IntegrationCommand
 from app.ui_layer.commands.builtin.update import UpdateCommand
+from app.ui_layer.commands.builtin.tokens import TokensCommand
 from app.ui_layer.commands.builtin.agent_command import AgentCommandWrapper
 from app.ui_layer.commands.builtin.skill_invoke import SkillInvokeCommand
 
 __all__ = [
     "HelpCommand",
     "ClearCommand",
-    "ClearTasksCommand",
     "ResetCommand",
     "ExitCommand",
     "MenuCommand",
@@ -28,6 +27,7 @@ __all__ = [
     "CredCommand",
     "IntegrationCommand",
     "UpdateCommand",
+    "TokensCommand",
     "AgentCommandWrapper",
     "SkillInvokeCommand",
 ]

@@ -938,25 +938,22 @@ import hashlib
 
 # Get lists
 response = requests.get(
-    'https://gateway.maton.ai/mailchimp/3.0/lists',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+    "https://gateway.maton.ai/mailchimp/3.0/lists",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
 )
 data = response.json()
 
 # Add a subscriber
-list_id = 'abc123def4'
-email = 'newuser@example.com'
+list_id = "abc123def4"
+email = "newuser@example.com"
 
 response = requests.post(
-    f'https://gateway.maton.ai/mailchimp/3.0/lists/{list_id}/members',
+    f"https://gateway.maton.ai/mailchimp/3.0/lists/{list_id}/members",
     headers={
-        'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}',
-        'Content-Type': 'application/json'
+        "Authorization": f"Bearer {os.environ['MATON_API_KEY']}",
+        "Content-Type": "application/json",
     },
-    json={
-        'email_address': email,
-        'status': 'subscribed'
-    }
+    json={"email_address": email, "status": "subscribed"},
 )
 
 # Get subscriber hash for updates

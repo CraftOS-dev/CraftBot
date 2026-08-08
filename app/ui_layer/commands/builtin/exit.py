@@ -27,6 +27,7 @@ class ExitCommand(Command):
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """Execute the exit command."""
         # Emit shutdown event

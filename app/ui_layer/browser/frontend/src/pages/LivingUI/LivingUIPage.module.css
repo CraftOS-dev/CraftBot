@@ -181,46 +181,30 @@
   color: var(--text-muted);
 }
 
-/* Creation Progress */
-.creationProgress {
+/* ── Construction dock (read-only build visualizer) ─────────────────────── */
+
+/* Full-pane host: the dock sits centered in the pane (no app/skeleton behind
+   it). Same centered card as before — just without the border and shadow. */
+.constructionDockCenter {
+  position: relative;
+  width: 100%;
+  height: 100%;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  max-width: 480px;
-  padding: var(--space-4);
-  color: var(--text-secondary);
-  text-align: center;
+  justify-content: center;
+  /* No bottom padding: the mascot sits flush against the panel's bottom edge. */
+  padding: var(--space-4) var(--space-4) 0;
+  background: var(--bg-primary);
+  overflow: hidden;
 }
 
-.creationTitle {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.progressMeta {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  width: 100%;
-  margin-top: var(--space-2);
-}
-
-.phaseLabel {
-  font-size: var(--text-xs);
-  font-weight: var(--font-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-
-.progressPercent {
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
+/* Mascot pinned flush to the bottom-center of the build view, below the dock. */
+.dockMascot {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, 70%);
 }
 
 .progressBar {
@@ -254,38 +238,206 @@
   100% { transform: translateX(350%); }
 }
 
-.progressMessage {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  min-height: 1.4em;
+/* Centered card, integrated look: same size as before, just no border/shadow. */
+.dock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(560px, 100%);
+  padding: var(--space-3);
+  background: transparent;
 }
 
-.hintsBox {
+.dockHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  margin-top: var(--space-4);
-  padding: var(--space-3);
-  width: 100%;
-  min-height: 64px;
-  background: var(--bg-secondary);
+  min-width: 0;
+}
+
+.dockTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dockCurrent {
+  margin: 0 0 var(--space-8);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railChips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-1);
+}
+
+.railChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  animation: feedItemEnter 320ms ease-out both;
+}
+
+/* Game-style "+N" pop when a summary chip's count goes up. */
+.chipPoppable {
+  position: relative;
+}
+
+.chipBump {
+  animation: chipBump 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.chipPop {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-success, #3fb950);
+  pointer-events: none;
+  animation: chipPop 1500ms ease-out forwards;
+}
+
+@keyframes chipBump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+@keyframes chipPop {
+  0% { opacity: 0; transform: translate(-50%, 4px) scale(0.8); }
+  18% { opacity: 1; transform: translate(-50%, -4px) scale(1.1); }
+  70% { opacity: 1; transform: translate(-50%, -18px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -30px) scale(1); }
+}
+
+.railFeed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 0;
+}
+
+.feedItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  animation: feedItemEnter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.feedItem:nth-child(n + 2) { opacity: 0.55; }
+
+.feedIcon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  display: inline-flex;
+}
+
+.feedIconPass { color: var(--color-success, #3fb950); }
+.feedIconFail { color: var(--color-error); }
+
+.feedLabel {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feedCount {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-muted);
+}
+
+@keyframes feedItemEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.codePeek {
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
-  text-align: left;
-}
-
-.hintIcon {
+  background: var(--bg-primary);
+  overflow: hidden;
   flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--text-primary);
 }
 
-.rotatingHint {
+.codePeekFile {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-primary);
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.codePeekBody {
   margin: 0;
-  font-size: var(--text-sm);
+  padding: var(--space-2);
+  height: 170px;
+  overflow: hidden;
+  font-size: 10.5px;
+  line-height: 1.55;
+  font-family: var(--font-mono, ui-monospace, monospace);
   color: var(--text-secondary);
-  transition: opacity 300ms ease-in-out;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.codePeekCursor {
+  color: var(--text-primary);
+  animation: codePeekBlink 1s steps(1) infinite;
+}
+
+@keyframes codePeekBlink {
+  50% { opacity: 0; }
+}
+
+.dockSwapIn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: dockSwapEnter 320ms ease-out both;
+}
+
+@keyframes dockSwapEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* Resize Handle - matches Chat/Tasks page style */
@@ -325,11 +477,12 @@
   background: transparent;
 }
 
-/* Chat Panel */
+/* Chat Panel — same background as the chat session page (--bg-primary)
+   so the input shell and agent bubbles keep their contrast. */
 .chatPanel {
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border-left: 1px solid var(--border-primary);
   flex-shrink: 0;
 }

@@ -162,8 +162,7 @@ errors = report.get_issue_type_histogram_for_severity("error")
 warnings = report.get_issue_type_histogram_for_severity("warning")
 
 # Filter results
-high_severity = [r for r in sarif_data.get_results()
-                 if r.get("level") == "error"]
+high_severity = [r for r in sarif_data.get_results() if r.get("level") == "error"]
 ```
 
 **sarif-tools CLI commands:**
@@ -194,12 +193,13 @@ When combining results from multiple tools:
 import json
 from pathlib import Path
 
+
 def aggregate_sarif_files(sarif_paths: list[str]) -> dict:
     """Combine multiple SARIF files into one."""
     aggregated = {
         "version": "2.1.0",
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-        "runs": []
+        "runs": [],
     }
 
     for path in sarif_paths:
@@ -208,6 +208,7 @@ def aggregate_sarif_files(sarif_paths: list[str]) -> dict:
             aggregated["runs"].extend(sarif.get("runs", []))
 
     return aggregated
+
 
 def deduplicate_results(sarif: dict) -> dict:
     """Remove duplicate findings based on fingerprints."""
@@ -229,7 +230,7 @@ def deduplicate_results(sarif: dict) -> dict:
                 fp = (
                     result.get("ruleId"),
                     phys.get("artifactLocation", {}).get("uri"),
-                    phys.get("region", {}).get("startLine")
+                    phys.get("region", {}).get("startLine"),
                 )
 
             if fp not in seen_fingerprints:
@@ -248,6 +249,7 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
+
 @dataclass
 class Finding:
     rule_id: str
@@ -257,6 +259,7 @@ class Finding:
     start_line: Optional[int]
     end_line: Optional[int]
     fingerprint: Optional[str]
+
 
 def extract_findings(sarif_path: str) -> list[Finding]:
     """Extract structured findings from SARIF file."""
@@ -270,17 +273,22 @@ def extract_findings(sarif_path: str) -> list[Finding]:
             phys = loc.get("physicalLocation", {})
             region = phys.get("region", {})
 
-            findings.append(Finding(
-                rule_id=result.get("ruleId", "unknown"),
-                level=result.get("level", "warning"),
-                message=result.get("message", {}).get("text", ""),
-                file_path=phys.get("artifactLocation", {}).get("uri"),
-                start_line=region.get("startLine"),
-                end_line=region.get("endLine"),
-                fingerprint=next(iter(result.get("partialFingerprints", {}).values()), None)
-            ))
+            findings.append(
+                Finding(
+                    rule_id=result.get("ruleId", "unknown"),
+                    level=result.get("level", "warning"),
+                    message=result.get("message", {}).get("text", ""),
+                    file_path=phys.get("artifactLocation", {}).get("uri"),
+                    start_line=region.get("startLine"),
+                    end_line=region.get("endLine"),
+                    fingerprint=next(
+                        iter(result.get("partialFingerprints", {}).values()), None
+                    ),
+                )
+            )
 
     return findings
+
 
 # Filter and prioritize
 def prioritize_findings(findings: list[Finding]) -> list[Finding]:
@@ -298,6 +306,7 @@ Different tools report paths differently (absolute, relative, URI-encoded):
 ```python
 from urllib.parse import unquote
 from pathlib import Path
+
 
 def normalize_path(uri: str, base_path: str = "") -> str:
     """Normalize SARIF artifact URI to consistent path."""
@@ -372,6 +381,7 @@ For very large SARIF files (100MB+):
 ```python
 import ijson  # pip install ijson
 
+
 def stream_results(sarif_path: str):
     """Stream results without loading entire file."""
     with open(sarif_path, "rb") as f:
@@ -396,6 +406,7 @@ pip install jsonschema
 ```python
 from jsonschema import validate, ValidationError
 import json
+
 
 def validate_sarif(sarif_path: str, schema_path: str) -> bool:
     """Validate SARIF file against schema."""
@@ -436,14 +447,16 @@ def validate_sarif(sarif_path: str, schema_path: str) -> bool:
 ```python
 from sarif import loader
 
+
 def check_for_regressions(baseline: str, current: str) -> int:
     """Return count of new issues not in baseline."""
     baseline_data = loader.load_sarif_file(baseline)
     current_data = loader.load_sarif_file(current)
 
     baseline_fps = {get_fingerprint(r) for r in baseline_data.get_results()}
-    new_issues = [r for r in current_data.get_results()
-                  if get_fingerprint(r) not in baseline_fps]
+    new_issues = [
+        r for r in current_data.get_results() if get_fingerprint(r) not in baseline_fps
+    ]
 
     return len(new_issues)
 ```

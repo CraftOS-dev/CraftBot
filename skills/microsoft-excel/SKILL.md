@@ -510,8 +510,8 @@ import requests
 # Update range values
 response = requests.patch(
     "https://gateway.maton.ai/microsoft-excel/v1.0/me/drive/root:/data.xlsx:/workbook/worksheets('Sheet1')/range(address='A1:B2')",
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    json={'values': [['Name', 'Age'], ['Alice', 30]]}
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    json={"values": [["Name", "Age"], ["Alice", 30]]},
 )
 print(response.json())
 ```

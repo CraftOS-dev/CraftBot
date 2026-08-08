@@ -17,7 +17,7 @@ The only way for agent to save event into long-term memory.
 
 ## Todo Tracking (REQUIRED)
 
-Use `task_update_todos` to track progress. Create todos at start, update as you go.
+Use `update_todos` to track progress. Create todos at start, update as you go.
 
 **Initial todos (create after reading first batch):**
 ```
@@ -35,7 +35,7 @@ Process 50 lines at a time to avoid memory issues.
 ### Steps:
 
 1. **Read first batch**: `read_file` EVENT_UNPROCESSED.md, offset=11, limit=50
-2. **Create todos**: Use `task_update_todos` to create initial todo list
+2. **Create todos**: Use `update_todos` to create initial todo list
 3. **Loop for each batch**:
    - Distill batch: Apply rules below, extract IMPORTANT memories only
    - Append memories: `stream_edit` MEMORY.md (append only)
@@ -44,7 +44,7 @@ Process 50 lines at a time to avoid memory issues.
 4. **Validation** (mark todo in_progress):
    - Validate no more unprocessed events in EVENT_UNPROCESSED.md
    - Validate no duplicated memory in MEMORY.md
-5. **End task**: `task_end` when validation passes
+5. **End task**: `end_turn` when validation passes
 
 ## Rules
 
@@ -100,7 +100,7 @@ Never truncate mid-sentence; never end an item with `...`.
 **The Future Utility Test:** Before saving, ask: "Will knowing this help me serve the user better in a FUTURE conversation?" If the answer is no, discard it.
 
 **NEVER save (these belong in EVENT.md, not MEMORY.md):**
-- Task lifecycle: `task_completion`, `task_started`, `task_failed`
+- Run lifecycle: `trigger`, `action_start`, `action_end`, `end_turn`
 - Conversation content: `user_request`, `user message`, `agent message`
 - Transient actions: what user asked agent to do, what agent did
 - Status updates: "completed X", "working on Y", "finished Z"
@@ -129,11 +129,11 @@ Only save the memory if it contains lasting value:
 
 ## Allowed Actions
 
-`read_file`, `stream_edit`, `memory_search`, `grep_files`, `task_end`, `task_update_todos`
+`read_file`, `stream_edit`, `memory_search`, `grep_files`, `end_turn`, `update_todos`
 
 ## FORBIDDEN Actions
 
-`send_message`, `ignore`, `run_shell`, `write_file`, `create_file`
+`send_message`, `end_turn`, `run_shell`, `write_file`, `create_file`
 
 ## Example
 

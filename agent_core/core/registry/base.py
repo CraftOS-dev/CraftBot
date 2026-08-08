@@ -8,14 +8,14 @@ but is generic to support any component type.
 
 Usage:
     # Define a registry for a specific component type:
-    class TaskManagerRegistry(ComponentRegistry["TaskManagerProtocol"]):
+    class SessionManagerRegistry(ComponentRegistry["SessionManagerProtocol"]):
         pass
 
     # At application startup:
-    TaskManagerRegistry.register(lambda: task_manager_instance)
+    SessionManagerRegistry.register(lambda: session_manager_instance)
 
     # In shared code:
-    task_manager = TaskManagerRegistry.get()
+    session_manager = SessionManagerRegistry.get()
 """
 
 from typing import Callable, Generic, Optional, TypeVar

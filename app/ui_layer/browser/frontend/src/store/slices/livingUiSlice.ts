@@ -8,42 +8,52 @@ import type {
   LivingUILaunchResponse,
   LivingUIStopResponse,
   LivingUIDeleteResponse,
+  LivingUIBuildEvent,
 } from '../../types'
 import { register } from '../socket/messageRegistry'
 import { getSocketClient } from '../socket/socketInstance'
 
 // Local types — these aren't in src/types but the backend sends them.
+// Shape mirrors the agent's todo tool: content is the imperative label,
+// active_form the present-continuous label shown while in progress.
 export interface LivingUITodo {
   id: string
-  title: string
-  completed: boolean
-  assignee?: string
+  content?: string
+  active_form?: string
+  status: 'pending' | 'in_progress' | 'completed'
 }
 
-// A question the agent asked (send_message with wait_for_user_reply) mirrored
-// onto the creation screen so the user can answer without the chat open. The
-// on-screen answer is posted back as a reply targeting `sessionId`.
-export interface LivingUIPendingQuestion {
-  sessionId: string
-  message: string
+// Kept in sync with the backend ring buffer (_BUFFER_MAX in
+// construction_events.py) so replay + live never exceed what the server holds.
+const MAX_BUILD_EVENTS = 200
+
+// Authoritative "built so far" counts for the summary chips. Persisted
+// separately from the (capped, paced) event feed so a flood of read/search
+// events can never evict the writes that carried the snapshot.
+export interface LivingUISnapshot {
+  collections: number
+  components: number
+  routes: number
 }
 
 interface LivingUiState {
   projects: LivingUIProject[]
   creating: LivingUIStatusUpdate | null
   todos: Record<string, LivingUITodo[]>
+  buildEvents: Record<string, LivingUIBuildEvent[]>
+  snapshots: Record<string, LivingUISnapshot>
   activeId: string | null
   states: Record<string, LivingUIStateUpdate['state']>
-  pendingQuestions: Record<string, LivingUIPendingQuestion>
 }
 
 const initialState: LivingUiState = {
   projects: [],
   creating: null,
   todos: {},
+  buildEvents: {},
+  snapshots: {},
   activeId: null,
   states: {},
-  pendingQuestions: {},
 }
 
 const livingUiSlice = createSlice({
@@ -77,16 +87,21 @@ const livingUiSlice = createSlice({
         return { ...p, status: status.phase === 'launching' ? 'ready' : 'creating' }
       })
     },
-    markReady(state, action: PayloadAction<{ projectId: string; url: string; port: number }>) {
-      const { projectId, url, port } = action.payload
+    markReady(state, action: PayloadAction<{ projectId: string; url: string; port: number; sessionId?: string }>) {
+      const { projectId, url, port, sessionId } = action.payload
       state.creating = null
-      delete state.pendingQuestions[projectId]
+      delete state.buildEvents[projectId]
+      delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
-        p.id === projectId ? { ...p, status: 'running', url, port } : p,
+        p.id === projectId
+          ? { ...p, status: 'running', url, port, ...(sessionId ? { sessionId } : {}) }
+          : p,
       )
     },
     markRunning(state, action: PayloadAction<{ projectId: string; url?: string; port?: number }>) {
       const { projectId, url, port } = action.payload
+      delete state.buildEvents[projectId]
+      delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
         p.id === projectId ? { ...p, status: 'running', url, port } : p,
       )
@@ -136,12 +151,43 @@ const livingUiSlice = createSlice({
       const id = action.payload.projectId
       state.projects = state.projects.filter(p => p.id !== id)
       delete state.todos[id]
+      delete state.buildEvents[id]
+      delete state.snapshots[id]
       delete state.states[id]
-      delete state.pendingQuestions[id]
       if (state.activeId === id) state.activeId = null
     },
     setTodos(state, action: PayloadAction<{ projectId: string; todos: LivingUITodo[] }>) {
       state.todos[action.payload.projectId] = action.payload.todos
+    },
+    // One live build event from the read-only construction observer. Dedupe by
+    // id (replay + live can overlap on reconnect) and cap to the ring size.
+    appendBuildEvent(
+      state,
+      action: PayloadAction<{ projectId: string; event: LivingUIBuildEvent }>,
+    ) {
+      const { projectId, event } = action.payload
+      // Persist the authoritative snapshot the moment it arrives, so the chips
+      // survive event eviction/pacing (they read this, not the feed).
+      if (event.snapshot) state.snapshots[projectId] = event.snapshot
+      const list = state.buildEvents[projectId] ?? []
+      if (list.some(e => e.id === event.id)) return
+      const next = [...list, event]
+      state.buildEvents[projectId] =
+        next.length > MAX_BUILD_EVENTS ? next.slice(-MAX_BUILD_EVENTS) : next
+    },
+    // Replay on (re)connect: replace the whole feed with the server's buffer.
+    setBuildEvents(
+      state,
+      action: PayloadAction<{ projectId: string; events: LivingUIBuildEvent[] }>,
+    ) {
+      const { projectId, events } = action.payload
+      state.buildEvents[projectId] = events.slice(-MAX_BUILD_EVENTS)
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i].snapshot) {
+          state.snapshots[projectId] = events[i].snapshot!
+          break
+        }
+      }
     },
     setProjectState(state, action: PayloadAction<LivingUIStateUpdate>) {
       state.states[action.payload.projectId] = action.payload.state
@@ -155,20 +201,9 @@ const livingUiSlice = createSlice({
     markError(state, action: PayloadAction<{ projectId: string; error: string }>) {
       const { projectId, error } = action.payload
       state.creating = null
-      delete state.pendingQuestions[projectId]
       state.projects = state.projects.map(p =>
         p.id === projectId ? { ...p, status: 'error', error } : p,
       )
-    },
-    setPendingQuestion(
-      state,
-      action: PayloadAction<{ projectId: string; sessionId: string; message: string }>,
-    ) {
-      const { projectId, sessionId, message } = action.payload
-      state.pendingQuestions[projectId] = { sessionId, message }
-    },
-    clearPendingQuestion(state, action: PayloadAction<{ projectId: string }>) {
-      delete state.pendingQuestions[action.payload.projectId]
     },
   },
 })
@@ -186,12 +221,12 @@ export const {
   markStopped,
   removeProject,
   setTodos,
+  appendBuildEvent,
+  setBuildEvents,
   setProjectState,
   setActiveId,
   setCreating,
   markError,
-  setPendingQuestion,
-  clearPendingQuestion,
 } = livingUiSlice.actions
 
 export default livingUiSlice.reducer
@@ -204,8 +239,17 @@ register('living_ui_list', (data, dispatch) => {
 })
 
 register('living_ui_create', (data, dispatch) => {
-  const r = data as LivingUICreateResponse
-  if (r.success && r.project) dispatch(addProject(r.project))
+  const r = data as LivingUICreateResponse & { stylePack?: string }
+  if (r.success && r.project) {
+    dispatch(addProject(r.project))
+    // Seed the per-project theme with the wizard's choice so the app opens
+    // in the selected style pack (the Theme modal can still override later).
+    if (r.stylePack && r.stylePack !== 'craftbot') {
+      try {
+        localStorage.setItem(`livingui-theme-${r.project.id}`, r.stylePack)
+      } catch { /* storage unavailable — cosmetic only */ }
+    }
+  }
 })
 
 register('living_ui_status', (data, dispatch) => {
@@ -213,7 +257,7 @@ register('living_ui_status', (data, dispatch) => {
 })
 
 register('living_ui_ready', (data, dispatch, getState) => {
-  const ready = data as { projectId: string; url: string; port: number }
+  const ready = data as { projectId: string; url: string; port: number; sessionId?: string }
   const exists = getState().livingUi.projects.some(p => p.id === ready.projectId)
   if (exists) {
     dispatch(markReady(ready))
@@ -258,13 +302,14 @@ register('living_ui_todos', (data, dispatch) => {
   dispatch(setTodos(u))
 })
 
-register('living_ui_question', (data, dispatch) => {
-  const u = data as { projectId: string; sessionId?: string; message?: string }
-  if (u.projectId && u.sessionId && u.message) {
-    dispatch(setPendingQuestion({ projectId: u.projectId, sessionId: u.sessionId, message: u.message }))
-  } else if (u.projectId) {
-    dispatch(clearPendingQuestion({ projectId: u.projectId }))
-  }
+register('living_ui_build_event', (data, dispatch) => {
+  const u = data as { projectId: string; event: LivingUIBuildEvent }
+  if (u.projectId && u.event) dispatch(appendBuildEvent(u))
+})
+
+register('living_ui_build_events_replay', (data, dispatch) => {
+  const u = data as { projectId: string; events: LivingUIBuildEvent[] }
+  if (u.projectId && Array.isArray(u.events)) dispatch(setBuildEvents(u))
 })
 
 register('living_ui_state_update', (data, dispatch) => {

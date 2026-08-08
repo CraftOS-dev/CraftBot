@@ -693,8 +693,8 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/microsoft-teams/v1.0/me/joinedTeams',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+    "https://gateway.maton.ai/microsoft-teams/v1.0/me/joinedTeams",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
 )
 data = response.json()
 ```
@@ -709,12 +709,12 @@ team_id = "your-team-id"
 channel_id = "your-channel-id"
 
 response = requests.post(
-    f'https://gateway.maton.ai/microsoft-teams/v1.0/teams/{team_id}/channels/{channel_id}/messages',
+    f"https://gateway.maton.ai/microsoft-teams/v1.0/teams/{team_id}/channels/{channel_id}/messages",
     headers={
-        'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}',
-        'Content-Type': 'application/json'
+        "Authorization": f"Bearer {os.environ['MATON_API_KEY']}",
+        "Content-Type": "application/json",
     },
-    json={'body': {'content': 'Hello from Maton!'}}
+    json={"body": {"content": "Hello from Maton!"}},
 )
 data = response.json()
 ```

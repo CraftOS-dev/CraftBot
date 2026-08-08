@@ -936,7 +936,12 @@ def _register_living_ui_via_manager(
             manager._used_ports.add(project_obj.port)
         if project_obj.backend_port:
             manager._used_ports.add(project_obj.backend_port)
-    manager._save_projects()
+    try:
+        manager._save_projects()
+    except Exception:
+        logger.exception(
+            "[PROFILE_BUNDLE] Failed to persist imported Living UI projects"
+        )
 
 
 def _register_living_ui_via_file(records: List[Dict[str, Any]]) -> None:
@@ -971,7 +976,12 @@ def _wipe_living_ui_state(
     if manager is not None:
         manager.projects.clear()
         manager._used_ports.clear()
-        manager._save_projects()
+        try:
+            manager._save_projects()
+        except Exception:
+            logger.exception(
+                "[PROFILE_BUNDLE] Failed to persist cleared Living UI state"
+            )
     else:
         LIVING_UI_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
         LIVING_UI_PROJECTS_FILE.write_text(

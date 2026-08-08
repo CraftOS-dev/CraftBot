@@ -11,11 +11,7 @@ meaning they don't need to explicitly inherit from StateProvider - they just nee
 to implement the required methods and properties.
 """
 
-from typing import Protocol, Optional, Any, Dict, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    # Avoid circular imports - Task type is only used for type hints
-    pass
+from typing import Protocol, Optional, Any, Dict
 
 
 class StateProvider(Protocol):
@@ -27,7 +23,7 @@ class StateProvider(Protocol):
     - CraftBot's StateSession (accessed via StateSession.get())
 
     Both implementations provide the same core functionality:
-    - Task management (current_task)
+    - Session context (current_session)
     - Event stream tracking
     - GUI mode flag
     - Agent properties storage
@@ -37,18 +33,18 @@ class StateProvider(Protocol):
 
         def some_shared_function():
             state = get_state()
-            if state.current_task:
-                # do something with task
+            if state.current_session:
+                # do something with the session
                 pass
     """
 
     @property
-    def current_task(self) -> Optional[Any]:
+    def current_session(self) -> Optional[Any]:
         """
-        Get the current task being processed.
+        Get the current session being processed.
 
         Returns:
-            The current Task object, or None if no task is active.
+            The current Session object, or None if no session is active.
         """
         ...
 
@@ -104,12 +100,12 @@ class StateProvider(Protocol):
         """
         ...
 
-    def update_current_task(self, task: Optional[Any]) -> None:
+    def update_current_session(self, session: Optional[Any]) -> None:
         """
-        Update the current task.
+        Update the current session.
 
         Args:
-            task: The new Task object, or None to clear.
+            session: The new Session object, or None to clear.
         """
         ...
 

@@ -1,20 +1,44 @@
+import { createSelector } from '@reduxjs/toolkit'
 import type { RootState } from '../index'
-import { messagesAdapter } from '../slices/messagesSlice'
+import type { ChatMessage } from '../../types'
 
-const adapterSelectors = messagesAdapter.getSelectors<RootState>((state) => state.messages)
+const EMPTY_MESSAGES: ChatMessage[] = []
 
-// All messages in timestamp order (the adapter's sortComparer keeps this in sync).
-export const selectAllMessages = adapterSelectors.selectAll
-export const selectMessageById = adapterSelectors.selectById
-export const selectMessageIds = adapterSelectors.selectIds
+// Messages of one session in timestamp order (the slice keeps buckets sorted).
+export const selectSessionMessages = (state: RootState, sessionId: string): ChatMessage[] =>
+  state.messages.bySession[sessionId]?.items ?? EMPTY_MESSAGES
 
-export const selectHasMoreMessages = (state: RootState): boolean =>
-  state.messages.hasMore
+export const selectSessionHasMoreMessages = (state: RootState, sessionId: string): boolean =>
+  state.messages.bySession[sessionId]?.hasMore ?? false
 
-export const selectLoadingOlderMessages = (state: RootState): boolean =>
-  state.messages.loadingOlder
+export const selectSessionLoadingOlderMessages = (state: RootState, sessionId: string): boolean =>
+  state.messages.bySession[sessionId]?.loadingOlder ?? false
 
-export const selectOldestMessageTimestamp = (state: RootState): number | undefined => {
-  const first = state.messages.ids[0]
-  return first !== undefined ? state.messages.entities[first]?.timestamp : undefined
-}
+export const selectSessionOldestMessageTimestamp = (
+  state: RootState,
+  sessionId: string,
+): number | undefined =>
+  state.messages.bySession[sessionId]?.items[0]?.timestamp
+
+// All messages across every session, in timestamp order. Used by global
+// consumers (mascot, dashboard status) that watch overall agent activity.
+export const selectAllMessages = createSelector(
+  (state: RootState) => state.messages.bySession,
+  (bySession): ChatMessage[] =>
+    Object.values(bySession)
+      .flatMap(bucket => bucket.items)
+      .sort((a, b) => a.timestamp - b.timestamp),
+)
+
+// sessionId → messageId of the newest message. Drives the per-session
+// unread dots in the sidebar and markSessionSeen.
+export const selectLastMessageIdBySession = createSelector(
+  (state: RootState) => state.messages.bySession,
+  (bySession): Record<string, string | undefined> => {
+    const result: Record<string, string | undefined> = {}
+    for (const [sessionId, bucket] of Object.entries(bySession)) {
+      result[sessionId] = bucket.items[bucket.items.length - 1]?.messageId
+    }
+    return result
+  },
+)

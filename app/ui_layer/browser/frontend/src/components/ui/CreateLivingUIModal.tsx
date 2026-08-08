@@ -1,15 +1,14 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Sparkles, Download, Loader2, Package, Store, FolderInput, Upload, Check, Search } from 'lucide-react'
 import { Button } from './Button'
 import { Modal } from './Modal'
+import { CreateCustomWizard } from './CreateCustomWizard'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
-import type { LivingUICreateRequest } from '../../types'
 import styles from './CreateLivingUIModal.module.css'
 
 export interface CreateLivingUIModalProps {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (data: LivingUICreateRequest) => void
   onInstalled?: (projectId: string) => void
 }
 
@@ -32,23 +31,13 @@ interface MarketplaceApp {
   customizable?: CustomField[]
 }
 
-const MAX_WORDS = 5000
-
-function countWords(text: string): number {
-  const trimmed = text.trim()
-  if (!trimmed) return 0
-  return trimmed.split(/\s+/).length
-}
-
-export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: CreateLivingUIModalProps) {
+export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivingUIModalProps) {
   const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import'>('marketplace')
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [errors, setErrors] = useState<{ name?: string; description?: string }>({})
 
   // Import tab state
   const [importSource, setImportSource] = useState('')
   const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
   const [dropActive, setDropActive] = useState(false)
 
   // Marketplace state
@@ -68,14 +57,31 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   const [thumbFailures, setThumbFailures] = useState<Set<string>>(new Set())
   const [tagsExpanded, setTagsExpanded] = useState(false)
 
-  const nameInputRef = useRef<HTMLInputElement>(null)
-  const wordCount = useMemo(() => countWords(description), [description])
-
   const onCloseRef = useRef(onClose)
   const onInstalledRef = useRef(onInstalled)
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
   useEffect(() => { onInstalledRef.current = onInstalled }, [onInstalled])
   useEffect(() => () => { installTimeoutsRef.current.forEach(t => clearTimeout(t)) }, [])
+
+  // Chat-path requirements phase: living_ui_scaffold generated setup
+  // questions (creating nothing yet) and the backend summons the SAME
+  // Create Custom wizard, pre-seeded and opened at the interview step
+  // (living_ui_wizard_open); its finalize creates the project as usual.
+  const [chatWizard, setChatWizard] = useState<{
+    wizardId: string
+    config: Record<string, any>
+    questions: any[]
+    originSessionId?: string
+  } | null>(null)
+  useEffect(
+    () =>
+      onMessage('living_ui_wizard_open', (data: any) => {
+        if (data?.wizardId && Array.isArray(data.questions) && data.questions.length > 0) {
+          setChatWizard(data)
+        }
+      }),
+    [onMessage]
+  )
   // Accumulate projectIds from completed installs — navigate only when all installs finish
   const pendingNavigationsRef = useRef<string[]>([])
 
@@ -90,34 +96,29 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
       const resp = await fetch('/api/living-ui/import', { method: 'POST', body: formData })
       const result = await resp.json()
       if (result.success && result.path) {
+        // Stay open and importing until living_ui_import_result arrives —
+        // closing immediately hid every failure (nothing happened, no error).
+        setImportError(null)
         send('living_ui_import', { source: result.path, name: result.name || zipName })
-        onClose()
-      } else {
-        alert(result.error || 'Upload failed')
+        return
       }
+      setImportError(result.error || 'Upload failed')
     } catch (err) {
-      alert('Upload failed: ' + (err instanceof Error ? err.message : err))
-    } finally {
-      setImporting(false)
+      setImportError('Upload failed: ' + (err instanceof Error ? err.message : err))
     }
+    setImporting(false)
   }
 
   // Reset form fields on open — intentionally NOT resetting installingIds/completedIds
   // so ongoing installs remain visible when user closes and reopens the modal
   useEffect(() => {
     if (isOpen) {
-      setName('')
-      setDescription('')
-      setErrors({})
       setConfiguringApp(null)
       setCustomValues({})
       setSearchQuery('')
       setSelectedTags(new Set())
       if (activeTab === 'marketplace' && apps.length === 0) {
         fetchMarketplace()
-      }
-      if (activeTab === 'custom') {
-        setTimeout(() => nameInputRef.current?.focus(), 100)
       }
     }
   }, [isOpen])
@@ -126,9 +127,6 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   useEffect(() => {
     if (isOpen && activeTab === 'marketplace' && apps.length === 0 && isConnected) {
       fetchMarketplace()
-    }
-    if (activeTab === 'custom') {
-      setTimeout(() => nameInputRef.current?.focus(), 100)
     }
   }, [activeTab, isConnected])
 
@@ -146,6 +144,19 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
           setMarketplaceError(null)
         } else {
           setMarketplaceError(data.error || 'Failed to load marketplace')
+        }
+      }),
+      onMessage('living_ui_import_result', (data: any) => {
+        setImporting(false)
+        if (data.success) {
+          setImportSource('')
+          setImportError(null)
+          if (data.projectId && onInstalledRef.current) {
+            onInstalledRef.current(data.projectId)
+          }
+          onCloseRef.current()
+        } else {
+          setImportError(data.error || 'Import failed')
         }
       }),
       onMessage('living_ui_marketplace_install', (data: any) => {
@@ -170,7 +181,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
             if (finishedId) next.delete(finishedId)
             else next.clear()
             if (next.size === 0) {
-              const lastProjectId = pendingNavigationsRef.current.at(-1)
+              const lastProjectId = pendingNavigationsRef.current[pendingNavigationsRef.current.length - 1]
               pendingNavigationsRef.current = []
               if (lastProjectId && onInstalledRef.current) {
                 onInstalledRef.current(lastProjectId)
@@ -274,25 +285,41 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
 
   // Escape key intentionally does NOT close this modal — user must use the X button
 
-  const validate = (): boolean => {
-    const newErrors: { name?: string; description?: string } = {}
-    if (!name.trim()) newErrors.name = 'Name is required'
-    else if (name.length > 50) newErrors.name = 'Name must be 50 characters or less'
-    if (!description.trim()) newErrors.description = 'Description is required'
-    else if (description.length < 10) newErrors.description = 'Please provide more detail (at least 10 characters)'
-    else if (wordCount > MAX_WORDS) newErrors.description = `Description exceeds ${MAX_WORDS} word limit`
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!validate()) return
-    onSubmit({ name: name.trim(), description: description.trim() })
+  // Chat-summoned wizard: same component, entered at the interview step.
+  // Renders regardless of isOpen — the summons comes from the backend, not
+  // the "+" button. Closing it mid-interview leaves nothing behind (no
+  // project exists until finalize), same as cancelling the modal wizard.
+  if (chatWizard && !isOpen) {
+    return (
+      <Modal
+        isOpen={true}
+        onClose={() => setChatWizard(null)}
+        size="full"
+        closeOnOverlayClick={false}
+        closeOnEsc={false}
+        title={
+          <>
+            <Sparkles size={20} className={styles.headerIcon} />
+            {String(chatWizard.config?.name || 'Living UI')} — setup questions
+          </>
+        }
+      >
+        <CreateCustomWizard
+          send={send}
+          onMessage={onMessage}
+          initial={chatWizard}
+          onClose={() => setChatWizard(null)}
+          onCreated={(projectId: string) => {
+            setChatWizard(null)
+            onInstalledRef.current?.(projectId)
+          }}
+        />
+      </Modal>
+    )
   }
 
   // Fully unmount when closed and no installs pending; stay mounted (invisible) while installs run
-  if (!isOpen && installingIds.size === 0) return null
+  if (!isOpen && installingIds.size === 0 && !chatWizard) return null
   if (!isOpen) return <></> // mounted but invisible — keeps onMessage listeners alive
 
   const tabsConfig = [
@@ -482,62 +509,14 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
           </div>
         )}
 
-        {/* Custom Tab */}
+        {/* Custom Tab — three-step wizard (configure → interview → creating) */}
         {activeTab === 'custom' && (
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-            <div className={styles.modalBody}>
-              <div className={styles.centeredForm}>
-                <div className={styles.formGroup}>
-                  <label htmlFor="living-ui-name" className={styles.label}>
-                    Project Name <span className={styles.required}>*</span>
-                  </label>
-                  <input
-                    ref={nameInputRef}
-                    id="living-ui-name"
-                    type="text"
-                    className={`${styles.input} ${errors.name ? styles.inputError : ''}`}
-                    placeholder="e.g., World News Dashboard"
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    maxLength={50}
-                  />
-                  {errors.name && <span className={styles.errorText}>{errors.name}</span>}
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label htmlFor="living-ui-description" className={styles.label}>
-                    What should this UI do? <span className={styles.required}>*</span>
-                  </label>
-                  <textarea
-                    id="living-ui-description"
-                    className={`${styles.textareaLarge} ${errors.description ? styles.inputError : ''}`}
-                    placeholder="Describe what you want the Living UI to display and do. Be specific about the data, layout, interactions, styling preferences, and any external APIs or data sources to use..."
-                    value={description}
-                    onChange={e => setDescription(e.target.value)}
-                    rows={12}
-                  />
-                  <div className={styles.descriptionFooter}>
-                    <span className={styles.hint}>
-                      The clearer and more detailed your requirements, the more accurate the Living UI will be.
-                    </span>
-                    <span className={`${styles.wordCount} ${wordCount > MAX_WORDS ? styles.wordCountError : ''}`}>
-                      {wordCount.toLocaleString()} / {MAX_WORDS.toLocaleString()} words
-                    </span>
-                  </div>
-                  {errors.description && <span className={styles.errorText}>{errors.description}</span>}
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.modalFooter}>
-              <Button variant="secondary" type="button" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" icon={<Sparkles size={16} />}>
-                Create Living UI
-              </Button>
-            </div>
-          </form>
+          <CreateCustomWizard
+            send={send}
+            onMessage={onMessage}
+            onClose={onClose}
+            onCreated={onInstalled}
+          />
         )}
 
         {/* Import Tab — URL/path + ZIP upload */}
@@ -557,8 +536,14 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
                     onChange={e => setImportSource(e.target.value)}
                   />
                   <span className={styles.hint}>
-                    Go · Node.js · Python · Rust · Docker · Static sites
+                    Living UI exports: ZIP, project folder, or git URL. Other
+                    apps are rebuilt — ask the agent to convert them.
                   </span>
+                  {importError && (
+                    <span className={styles.hint} style={{ color: 'var(--color-error, #e5484d)' }}>
+                      {importError}
+                    </span>
+                  )}
                 </div>
 
                 <div className={styles.orDivider}>
@@ -614,15 +599,16 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
                 variant="primary"
                 icon={importing ? <Loader2 size={16} className={styles.spinner} /> : <FolderInput size={16} />}
                 disabled={!importSource.trim() || importing}
-                onClick={async () => {
+                onClick={() => {
+                  // Stay open until living_ui_import_result: closing right
+                  // after send() hid every failure — the first live test
+                  // read as "I paste the path and nothing happens".
                   setImporting(true)
+                  setImportError(null)
                   send('living_ui_import', {
                     source: importSource.trim(),
                     name: importSource.trim().split('/').pop()?.replace('.git', '') || 'External App',
                   })
-                  setImporting(false)
-                  setImportSource('')
-                  onClose()
                 }}
               >
                 {importing ? 'Importing...' : 'Import App'}

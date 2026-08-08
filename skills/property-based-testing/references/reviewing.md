@@ -26,6 +26,7 @@ Properties that are always true regardless of implementation.
 def test_sort_tautology(xs):
     assert sorted(xs) == sorted(xs)  # Always true!
 
+
 # BAD - tests nothing about the function
 @given(st.integers())
 def test_useless(x):
@@ -47,6 +48,7 @@ def test_vacuous(x):
     assume(x < 50)  # Impossible!
     assert compute(x) > 0
 
+
 # VACUOUS - overly restrictive
 @given(st.integers())
 def test_too_filtered(x):
@@ -65,6 +67,7 @@ Properties that only test minimal guarantees.
 @given(st.text())
 def test_only_no_crash(s):
     process(s)  # No assertion at all
+
 
 # WEAK - only tests type
 @given(st.integers())
@@ -93,6 +96,7 @@ def test_reimplements(a, b):
 def test_narrow_range(x):
     assert compute(x) >= 0  # What about 0? Negatives? Large values?
 
+
 # MISSING - no edge case examples
 @given(st.lists(st.integers()))
 def test_no_explicit_edges(xs):
@@ -107,6 +111,8 @@ def test_no_explicit_edges(xs):
 @given(st.lists(st.integers()))
 def test_sort_length(xs):
     assert len(sort(xs)) == len(xs)
+
+
 # MISSING: ordering property, element preservation
 ```
 
@@ -116,6 +122,7 @@ def test_sort_length(xs):
 # TOO FEW - may miss bugs
 @settings(max_examples=5)
 def test_few_examples(x): ...
+
 
 # NO DEADLINE - may hang in CI
 @given(expensive_strategy())

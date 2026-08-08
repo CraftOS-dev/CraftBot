@@ -9,6 +9,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Grow from the feet so the beacon "stand taller" rises the head, not the
+     whole body. No baseline animation — the beacon is a driven episode. */
+  transform-origin: 50% 100%;
+}
+
+/* Beacon episode (driven by the `beacon` prop, ~4.8s one-shot): stand
+   slightly taller, MAINTAIN through the antenna pulses, then return. */
+.beaconActive {
+  animation: mascotBeaconStand 4.8s ease-in-out;
+}
+
+@keyframes mascotBeaconStand {
+  0% { transform: scale(1, 1); }
+  8% { transform: scale(0.97, 1.12); }
+  92% { transform: scale(0.97, 1.12); }
+  100% { transform: scale(1, 1); }
 }
 
 .float {
@@ -29,6 +45,26 @@
   transform-origin: 50% 60%;
   animation: mascotBreathe 6s ease-in-out infinite;
   overflow: visible;
+}
+
+/* Antenna beacon wave — invisible at rest; pulses 4× while beacon is active
+   (4 × 1s iterations, kicked off just after the stand-taller ramp). */
+.antennaBeacon {
+  fill: none;
+  stroke: #ffdd33;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.beaconPulsing {
+  animation: antennaPulse 1s ease-out 4;
+  animation-delay: 0.4s;
+}
+
+@keyframes antennaPulse {
+  0% { r: 4px; opacity: 0.9; stroke-width: 5px; }
+  70% { r: 130px; opacity: 0; stroke-width: 1px; }
+  100% { r: 130px; opacity: 0; stroke-width: 1px; }
 }
 
 .eye {
@@ -173,22 +209,28 @@
    Display panel (MascotDisplay.tsx)
    ───────────────────────────────────────────────────────────────────── */
 
+/* Fills its container — a resizable dashboard widget, which is now the only
+   consumer. (The chat-panel dock this was originally built for sized to
+   content, which is why this used to be flex-shrink:0 + height:100% and why
+   it carried a border-bottom that has no edge to sit on here.) */
 .display {
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-primary);
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
 }
 
-/* The stage no longer hosts an action card — the speech bubble lives
-   inside the mascot wrapper itself — so this is just a positioned box
-   for the mascot to wander in. min-height needs to be generous enough
-   to give the bubble headroom above the mascot without clipping. */
+/* The stage no longer hosts an action card, and the speech bubble sits beside
+   the mascot rather than above it (see the SpeechBubble section below), so
+   nothing needs reserved headroom — this is just a positioned box for the
+   mascot to wander in. It takes whatever height the widget gives it; the
+   scene is percentage-anchored, so it composes at any size. */
 .stage {
   position: relative;
   padding: var(--space-3);
-  min-height: 220px;
+  min-height: 0;
+  flex: 1;
   overflow: hidden;
 }
 
@@ -211,7 +253,10 @@
        --bg-zoom            baseline scale of the scene (higher =
                             more zoomed-in mountains/clouds, AND
                             wider safety margin against side gaps
-                            at low user zoom).
+                            at low user zoom). MUST match
+                            BG_SCENE_ZOOM in mascotEngine.ts — the
+                            wheel-zoom's dynamic floor
+                            (computeMinCoverZoom) is derived from it.
        --bg-image-grass-y   the grass line's vertical position
                             inside the image file, as % of image
                             height from top. (Adjust per-image.)
@@ -248,11 +293,11 @@
      of panel resize (the "ground level invariant under aspect
      change" rule).
      --bg-zoom × 100% is the baseline scale (default 4× stage
-     height). The high baseline is what keeps the image wide enough
-     to fill the panel even at minimum user zoom (0.5×): natural
-     image width = aspect × 4 × stage_h ≈ 8 × stage_h, scaled by
-     0.5 → ~4× stage_h, which covers up to max panel width 800px
-     with no side gaps. */
+     height). Horizontal coverage at low user zoom is NOT guaranteed
+     by this baseline alone — wide, short widgets can outrun it — so
+     MascotDisplay raises the wheel-zoom's floor per stage size via
+     computeMinCoverZoom (mascotEngine.ts), keeping the scaled image
+     at least as wide as the stage. */
   height: calc(var(--bg-zoom) * 100%);
   width: auto;
   /* Vertical alignment math (all % of stage height):
@@ -618,4 +663,21 @@
 @keyframes speechBubbleIn {
   from { opacity: 0; transform: scale(0.7); }
   to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── DraftMascot (New Chat hero) ─────────────────────────────────────
+   Minimal stage: a full-width strip the body wanders across via WAAPI
+   transforms. transform-origin at the feet so hop squash-and-stretch
+   reads as grounded. */
+.draftStage {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  overflow: visible;
+}
+
+.draftBody {
+  cursor: pointer;
+  will-change: transform;
+  transform-origin: 50% 95%;
 }

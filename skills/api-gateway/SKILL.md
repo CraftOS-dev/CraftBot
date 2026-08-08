@@ -524,9 +524,9 @@ import os
 import requests
 
 response = requests.post(
-    'https://gateway.maton.ai/slack/api/chat.postMessage',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    json={'channel': 'C0123456', 'text': 'Hello!'}
+    "https://gateway.maton.ai/slack/api/chat.postMessage",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    json={"channel": "C0123456", "text": "Hello!"},
 )
 ```
 

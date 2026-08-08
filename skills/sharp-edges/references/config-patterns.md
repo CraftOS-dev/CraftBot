@@ -28,6 +28,7 @@ def verify_otp(code: str, lifetime: int = 300):
     if lifetime <= 0:
         return True  # What??
 
+
 # GOOD
 def verify_otp(code: str, lifetime: int = 300):
     if lifetime <= 0:

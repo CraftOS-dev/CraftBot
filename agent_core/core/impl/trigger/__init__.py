@@ -2,11 +2,12 @@
 """
 Trigger queue implementation module.
 
-Provides TriggerQueue for managing agent trigger events.
+Provides SessionTriggerQueue — the per-session trigger ordering primitive.
 """
 
-from agent_core.core.impl.trigger.queue import TriggerQueue
+from agent_core.core.impl.trigger.session_queue import SessionTriggerQueue, QueueClosed
 
 __all__ = [
-    "TriggerQueue",
+    "SessionTriggerQueue",
+    "QueueClosed",
 ]

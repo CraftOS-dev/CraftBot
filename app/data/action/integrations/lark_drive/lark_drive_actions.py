@@ -216,7 +216,7 @@ async def search_lark_drive_files(input_data: dict) -> dict:
 
 @action(
     name="copy_lark_drive_file",
-    description="Copy a file/doc/sheet/etc into a folder.",
+    description="Copy a file/doc/sheet/etc into a folder. Returns {token, name, url} of the new copy.",
     action_sets=["lark_drive_files", "lark_drive"],
     input_schema={
         "file_token": {"type": "string", "description": "Source token.", "example": ""},
@@ -238,7 +238,7 @@ async def search_lark_drive_files(input_data: dict) -> dict:
 async def copy_lark_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "copy_file",
         file_token=input_data["file_token"],
@@ -246,6 +246,15 @@ async def copy_lark_drive_file(input_data: dict) -> dict:
         folder_token=input_data["folder_token"],
         copy_type=input_data.get("copy_type", "file"),
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        new_file = res["result"].get("file")
+        if isinstance(new_file, dict):
+            picked = {
+                k: new_file[k] for k in ("token", "name", "url") if new_file.get(k)
+            }
+            if picked:
+                res = {**res, "result": picked}
+    return res
 
 
 @action(
@@ -1071,7 +1080,7 @@ async def get_lark_doc_raw_content(input_data: dict) -> dict:
 
 @action(
     name="list_lark_doc_blocks",
-    description="List a Doc's blocks (paragraphs, headings, tables, etc.).",
+    description="List a Doc's blocks (paragraphs, headings, tables, etc.). Returns lean blocks (block_id, block_type, parent_id, text); include_metadata=true for full raw block objects.",
     action_sets=["lark_docs", "lark_drive"],
     input_schema={
         "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
@@ -1085,19 +1094,54 @@ async def get_lark_doc_raw_content(input_data: dict) -> dict:
             "description": "Pagination cursor.",
             "example": "",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw block objects (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def list_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "list_document_blocks",
         document_id=input_data["document_id"],
         page_size=input_data.get("page_size", 500),
         page_token=input_data.get("page_token", ""),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_block(b: dict) -> dict:
+        out = {
+            "block_id": b.get("block_id"),
+            "block_type": b.get("block_type"),
+            "parent_id": b.get("parent_id"),
+        }
+        # Concatenate text-run contents from the per-type payload
+        # (text / heading1..9 / bullet / etc. all share {elements: [{text_run}]}).
+        parts = []
+        for v in b.values():
+            if isinstance(v, dict) and isinstance(v.get("elements"), list):
+                for el in v["elements"]:
+                    run = el.get("text_run") if isinstance(el, dict) else None
+                    if isinstance(run, dict) and run.get("content"):
+                        parts.append(run["content"])
+        if parts:
+            out["text"] = "".join(parts)
+        return out
+
+    lean = {"items": [_lean_block(b) for b in result["items"] if isinstance(b, dict)]}
+    for key in ("has_more", "page_token"):
+        if result.get(key):
+            lean[key] = result[key]
+    return {**res, "result": lean}
 
 
 @action(
@@ -1123,7 +1167,7 @@ async def get_lark_doc_block(input_data: dict) -> dict:
 
 @action(
     name="append_lark_doc_blocks",
-    description="Append child blocks under a parent block. Pass document_id as block_id to add at top level. children is an array of block objects (paragraph / heading / bullet / etc.).",
+    description="Append child blocks under a parent block. Pass document_id as block_id to add at top level. children is an array of block objects (paragraph / heading / bullet / etc.). Returns {block_ids: [...]} of the new blocks.",
     action_sets=["lark_docs", "lark_drive"],
     input_schema={
         "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
@@ -1149,7 +1193,7 @@ async def get_lark_doc_block(input_data: dict) -> dict:
 async def append_lark_doc_blocks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "create_document_block_children",
         document_id=input_data["document_id"],
@@ -1157,11 +1201,21 @@ async def append_lark_doc_blocks(input_data: dict) -> dict:
         children=input_data["children"],
         index=input_data.get("index", -1),
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        children = res["result"].get("children")
+        if isinstance(children, list):
+            ids = [
+                c.get("block_id")
+                for c in children
+                if isinstance(c, dict) and c.get("block_id")
+            ]
+            res = {**res, "result": {"block_ids": ids}}
+    return res
 
 
 @action(
     name="update_lark_doc_block",
-    description="Update a block. update_payload uses Docx's update structures, e.g. {update_text_elements: {elements: [...]}} for a paragraph.",
+    description="Update a block. update_payload uses Docx's update structures, e.g. {update_text_elements: {elements: [...]}} for a paragraph. Returns {block_id}.",
     action_sets=["lark_docs", "lark_drive"],
     input_schema={
         "document_id": {"type": "string", "description": "Doc ID.", "example": ""},
@@ -1178,13 +1232,20 @@ async def append_lark_doc_blocks(input_data: dict) -> dict:
 async def update_lark_doc_block(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "update_document_block",
         document_id=input_data["document_id"],
         block_id=input_data["block_id"],
         update_payload=input_data["update_payload"],
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        block = res["result"].get("block")
+        block_id = (
+            block.get("block_id") if isinstance(block, dict) else None
+        ) or input_data["block_id"]
+        res = {**res, "result": {"block_id": block_id}}
+    return res
 
 
 @action(
@@ -1797,7 +1858,7 @@ async def list_lark_bitable_tables(input_data: dict) -> dict:
 
 @action(
     name="create_lark_bitable_table",
-    description="Create a new table in a Bitable.",
+    description="Create a new table in a Bitable. Returns {table_id}.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
         "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
@@ -1817,9 +1878,9 @@ async def list_lark_bitable_tables(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def create_lark_bitable_table(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "create_bitable_table",
         app_token=input_data["app_token"],
@@ -1827,6 +1888,7 @@ async def create_lark_bitable_table(input_data: dict) -> dict:
         default_view_name=input_data.get("default_view_name") or None,
         fields=input_data.get("fields") or None,
     )
+    return pick_result(res, ["table_id", "name"])
 
 
 @action(
@@ -1921,7 +1983,7 @@ async def get_lark_bitable_record(input_data: dict) -> dict:
 
 @action(
     name="create_lark_bitable_record",
-    description="Create a record in a table. fields is a dict mapping field name → value (per the field's type).",
+    description="Create a record in a table. fields is a dict mapping field name → value (per the field's type). Returns {record_id}.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
         "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
@@ -1938,18 +2000,23 @@ async def get_lark_bitable_record(input_data: dict) -> dict:
 async def create_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "create_bitable_record",
         app_token=input_data["app_token"],
         table_id=input_data["table_id"],
         fields=input_data["fields"],
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        record = res["result"].get("record")
+        if isinstance(record, dict) and record.get("record_id"):
+            res = {**res, "result": {"record_id": record["record_id"]}}
+    return res
 
 
 @action(
     name="update_lark_bitable_record",
-    description="Update a record.",
+    description="Update a record. Returns {record_id}.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
         "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
@@ -1963,7 +2030,7 @@ async def create_lark_bitable_record(input_data: dict) -> dict:
 async def update_lark_bitable_record(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "update_bitable_record",
         app_token=input_data["app_token"],
@@ -1971,6 +2038,11 @@ async def update_lark_bitable_record(input_data: dict) -> dict:
         record_id=input_data["record_id"],
         fields=input_data["fields"],
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        record = res["result"].get("record")
+        if isinstance(record, dict) and record.get("record_id"):
+            res = {**res, "result": {"record_id": record["record_id"]}}
+    return res
 
 
 @action(
@@ -1999,7 +2071,7 @@ async def delete_lark_bitable_record(input_data: dict) -> dict:
 
 @action(
     name="batch_create_lark_bitable_records",
-    description="Create multiple records in one call. records: [{fields: {...}}, ...].",
+    description="Create multiple records in one call. records: [{fields: {...}}, ...]. Returns {record_ids: [...]}.",
     action_sets=["lark_bitable", "lark_drive"],
     input_schema={
         "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
@@ -2016,18 +2088,28 @@ async def delete_lark_bitable_record(input_data: dict) -> dict:
 async def batch_create_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "batch_create_bitable_records",
         app_token=input_data["app_token"],
         table_id=input_data["table_id"],
         records=input_data["records"],
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        records = res["result"].get("records")
+        if isinstance(records, list):
+            ids = [
+                r.get("record_id")
+                for r in records
+                if isinstance(r, dict) and r.get("record_id")
+            ]
+            res = {**res, "result": {"record_ids": ids}}
+    return res
 
 
 @action(
     name="batch_update_lark_bitable_records",
-    description="Update multiple records. records: [{record_id, fields}, ...].",
+    description="Update multiple records. records: [{record_id, fields}, ...]. Returns {record_ids: [...]}.",
     action_sets=["lark_bitable"],
     input_schema={
         "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
@@ -2044,13 +2126,23 @@ async def batch_create_lark_bitable_records(input_data: dict) -> dict:
 async def batch_update_lark_bitable_records(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "batch_update_bitable_records",
         app_token=input_data["app_token"],
         table_id=input_data["table_id"],
         records=input_data["records"],
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        records = res["result"].get("records")
+        if isinstance(records, list):
+            ids = [
+                r.get("record_id")
+                for r in records
+                if isinstance(r, dict) and r.get("record_id")
+            ]
+            res = {**res, "result": {"record_ids": ids}}
+    return res
 
 
 @action(
@@ -2175,7 +2267,7 @@ async def list_lark_bitable_fields(input_data: dict) -> dict:
 
 @action(
     name="create_lark_bitable_field",
-    description="Create a new field. field_type: 1=Text, 2=Number, 3=SingleSelect, 4=MultiSelect, 5=DateTime, 7=Checkbox, 11=User, 13=Phone, 15=URL, 17=Attachment, 18=Link, 19=Lookup, 20=Formula, 22=Location, 23=Group, 1001=CreatedTime, 1002=ModifiedTime, 1003=CreatedUser, 1004=ModifiedUser, 1005=AutoNumber.",
+    description="Create a new field. field_type: 1=Text, 2=Number, 3=SingleSelect, 4=MultiSelect, 5=DateTime, 7=Checkbox, 11=User, 13=Phone, 15=URL, 17=Attachment, 18=Link, 19=Lookup, 20=Formula, 22=Location, 23=Group, 1001=CreatedTime, 1002=ModifiedTime, 1003=CreatedUser, 1004=ModifiedUser, 1005=AutoNumber. Returns {field_id, field_name}.",
     action_sets=["lark_bitable"],
     input_schema={
         "app_token": {"type": "string", "description": "Bitable token.", "example": ""},
@@ -2199,7 +2291,7 @@ async def list_lark_bitable_fields(input_data: dict) -> dict:
 async def create_lark_bitable_field(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "create_bitable_field",
         app_token=input_data["app_token"],
@@ -2209,6 +2301,14 @@ async def create_lark_bitable_field(input_data: dict) -> dict:
         property=input_data.get("property") or None,
         description=input_data.get("description") or None,
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        field = res["result"].get("field")
+        if isinstance(field, dict) and field.get("field_id"):
+            picked = {"field_id": field["field_id"]}
+            if field.get("field_name"):
+                picked["field_name"] = field["field_name"]
+            res = {**res, "result": picked}
+    return res
 
 
 @action(
@@ -2353,7 +2453,7 @@ async def get_lark_wiki_node(input_data: dict) -> dict:
 
 @action(
     name="create_lark_wiki_node",
-    description="Create a new wiki node. obj_type: doc | docx | sheet | bitable | mindnote | file | slides. node_type: origin (new doc) | shortcut (link to existing).",
+    description="Create a new wiki node. obj_type: doc | docx | sheet | bitable | mindnote | file | slides. node_type: origin (new doc) | shortcut (link to existing). Returns {node_token, obj_token}.",
     action_sets=["lark_wiki"],
     input_schema={
         "space_id": {"type": "string", "description": "Space ID.", "example": ""},
@@ -2385,7 +2485,7 @@ async def get_lark_wiki_node(input_data: dict) -> dict:
 async def create_lark_wiki_node(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_drive",
         "create_wiki_node",
         space_id=input_data["space_id"],
@@ -2395,6 +2495,14 @@ async def create_lark_wiki_node(input_data: dict) -> dict:
         origin_node_token=input_data.get("origin_node_token", ""),
         title=input_data.get("title", ""),
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        node = res["result"].get("node")
+        if isinstance(node, dict) and node.get("node_token"):
+            picked = {"node_token": node["node_token"]}
+            if node.get("obj_token"):
+                picked["obj_token"] = node["obj_token"]
+            res = {**res, "result": picked}
+    return res
 
 
 @action(

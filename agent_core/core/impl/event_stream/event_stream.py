@@ -150,6 +150,44 @@ class EventStream:
         self._total_tokens += get_cached_token_count(rec)
         self._last_datetime_ts = now
 
+    def _append_summarization_notice(
+        self, *, folded_events: int, folded_tokens: int, summary: str | None
+    ) -> None:
+        """Append a SYSTEM event announcing that summarization ran, so the UI
+        surfaces it as a system message in the session's chat. Both the
+        LLM-facing `message` and the UI-facing `display_message` are
+        one-liners: the summary text itself lives only in head_summary
+        (repeating it in the tail would double its token cost, and dumping
+        it into the chat drowns the conversation). Caller holds the lock."""
+        line = (
+            f"Summarized {folded_events} older events (~{folded_tokens} tokens) "
+            "into the running head summary."
+        )
+        if summary is None:
+            line = (
+                f"Summarization failed; pruned {folded_events} older events "
+                f"(~{folded_tokens} tokens) without a summary."
+            )
+            display = (
+                f"Event stream summarization failed, {folded_tokens} tokens "
+                "were pruned without a summary"
+            )
+        else:
+            display = (
+                f"Summarized event stream, {folded_tokens} tokens were folded "
+                "into summary"
+            )
+        ev = Event(
+            message=line,
+            kind="summarization",
+            severity="INFO",
+            display_message=display,
+            event_type=EventType.SYSTEM,
+        )
+        rec = EventRecord(event=ev)
+        self.tail_events.append(rec)
+        self._total_tokens += get_cached_token_count(rec)
+
     def _maybe_push_datetime(self) -> None:
         """Push a fresh datetime marker on the first event and then at most once
         every DATETIME_REFRESH_SECONDS, so the stream always carries a recent
@@ -177,8 +215,8 @@ class EventStream:
         action_id: str | None = None,
         action_input: Optional[dict] = None,
         action_output: Optional[dict] = None,
-        task_status: Optional[str] = None,
         platform: Optional[str] = None,
+        continue_work: Optional[bool] = None,
     ) -> int:
         """
         Append a new event to the stream and trigger summarization if needed.
@@ -207,9 +245,10 @@ class EventStream:
                 ``ActionManager`` (which generates it as ``run_id`` internally).
             action_input: Structured input dict for ACTION_START events.
             action_output: Structured output dict for ACTION_END events.
-            task_status: ``"completed"`` | ``"error"`` | ``"cancelled"`` for
-                TASK_END events.
             platform: Originating/destination platform for chat messages.
+            continue_work: For AGENT_MESSAGE events: True when this is a
+                mid-run progress update and the agent keeps working after
+                sending it (drives the UI's persistent "Working…" row).
 
         Returns:
             The zero-based index of the event within ``tail_events``.
@@ -229,8 +268,8 @@ class EventStream:
             action_id=action_id,
             action_input=action_input,
             action_output=action_output,
-            task_status=task_status,
             platform=platform,
+            continue_work=continue_work,
         )
         rec = EventRecord(event=ev)
 
@@ -433,6 +472,11 @@ class EventStream:
             self.tail_events = protected + self.tail_events[cutoff:]
             # Summarization breaks the prompt cache anyway, so re-stamp the time.
             self._append_datetime_event()
+            self._append_summarization_notice(
+                folded_events=len(chunk),
+                folded_tokens=removed_tokens,
+                summary=new_summary,
+            )
 
             # Reset all session sync points - event indices are now invalid
             self._session_sync_points.clear()
@@ -453,6 +497,11 @@ class EventStream:
             # Keep protected events verbatim even on the no-LLM prune fallback.
             self.tail_events = protected + self.tail_events[cutoff:]
             self._append_datetime_event()
+            self._append_summarization_notice(
+                folded_events=len(chunk),
+                folded_tokens=removed_tokens,
+                summary=None,
+            )
             self._session_sync_points.clear()
 
     # ───────────────────── utilities ─────────────────────

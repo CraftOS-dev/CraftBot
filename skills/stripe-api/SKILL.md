@@ -790,12 +790,12 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/stripe/v1/customers',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'limit': 10}
+    "https://gateway.maton.ai/stripe/v1/customers",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"limit": 10},
 )
 data = response.json()
-for customer in data['data']:
+for customer in data["data"]:
     print(f"{customer['id']}: {customer['email']}")
 ```
 

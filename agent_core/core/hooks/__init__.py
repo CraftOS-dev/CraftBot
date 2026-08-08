@@ -10,20 +10,16 @@ CraftBot typically passes no hooks (local-only operation).
 CraftBot passes hooks for chatserver integration.
 
 Example:
-    from agent_core.core.hooks import OnTaskCreatedHook
+    from agent_core.core.hooks import OnActionStartHook
 
-    async def my_task_created_hook(task: Task) -> None:
-        # Post task to chatserver
-        await network.post("/api/tasks", task.to_dict())
+    async def my_action_start_hook(run_id, action, inputs) -> None:
+        # Post action start to chatserver
+        await network.post("/api/actions", {"run_id": run_id})
 
-    task_manager = TaskManager(on_task_created=my_task_created_hook)
+    action_manager = ActionManager(..., on_action_start=my_action_start_hook)
 """
 
 from agent_core.core.hooks.types import (
-    # Task hooks
-    OnTaskCreatedHook,
-    OnTaskEndedHook,
-    OnTodoTransitionHook,
     # Action hooks
     OnActionStartHook,
     OnActionEndHook,
@@ -52,10 +48,6 @@ from agent_core.core.hooks.types import (
 )
 
 __all__ = [
-    # Task hooks
-    "OnTaskCreatedHook",
-    "OnTaskEndedHook",
-    "OnTodoTransitionHook",
     # Action hooks
     "OnActionStartHook",
     "OnActionEndHook",

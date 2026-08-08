@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from app.config import get_api_key, get_base_url
+from app.errors import make_error
 
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -146,9 +147,12 @@ def fetch_credits(
     if not api_key:
         api_key = get_api_key("openrouter")
     if not api_key:
+        info = make_error("CONFIG_NO_API_KEY", provider="OpenRouter")
         return {
             "success": False,
-            "error": "No OpenRouter API key configured",
+            "error": info.message,
+            "error_category": info.category.value,
+            "error_code": info.code,
         }
 
     url = _resolve_base_url(base_url)
@@ -162,9 +166,12 @@ def fetch_credits(
                 response = client.get(f"{url.rstrip('/')}/auth/key", headers=headers)
 
         if response.status_code in (401, 403):
+            info = make_error("CONFIG_INVALID_API_KEY", provider="OpenRouter")
             return {
                 "success": False,
-                "error": "Invalid API key",
+                "error": info.message,
+                "error_category": info.category.value,
+                "error_code": info.code,
             }
         if response.status_code != 200:
             return {

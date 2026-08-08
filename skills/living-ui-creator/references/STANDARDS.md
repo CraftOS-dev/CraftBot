@@ -131,7 +131,7 @@ def get_item(item_id: str, db: Session = Depends(get_db)):
     if not item:
         raise HTTPException(
             status_code=404,
-            detail=f"Item not found"  # User-friendly message
+            detail=f"Item not found",  # User-friendly message
         )
     return item.to_dict()
 ```
@@ -177,6 +177,7 @@ def get_items(db):
         return db.query(Item).all()
     except:
         return []
+
 
 # GOOD - typed, specific exception
 def get_items(db: Session) -> List[Dict]:

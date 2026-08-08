@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import List
 
+from app.errors import make_error
 from app.ui_layer.commands.base import Command, CommandResult
 from craftos_integrations import (
     connect_token as connect_integration_token,
@@ -73,6 +74,7 @@ class IntegrationCommand(Command):
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         if get_metadata(self._integration_name) is None:
             return CommandResult(
@@ -181,7 +183,10 @@ class IntegrationCommand(Command):
                 message=f"Unsupported auth type '{auth_type}' for {self._integration_name}.",
             )
         except Exception as e:
-            return CommandResult(success=False, message=f"Connection failed: {e}")
+            info = make_error(
+                "CONNECTION_FAILED", target=self._integration_name, detail=str(e)
+            )
+            return CommandResult(success=False, message=info.message)
 
     async def _disconnect(self) -> CommandResult:
         try:

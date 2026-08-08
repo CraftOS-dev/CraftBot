@@ -118,6 +118,7 @@ class Command(ABC):
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """
         Execute the command with given arguments.
@@ -146,7 +147,12 @@ class Command(ABC):
         args = parts[1:] if len(parts) > 1 else []
         return command, args
 
-    def emit_message(self, message: str, event_type: str = "system") -> None:
+    def emit_message(
+        self,
+        message: str,
+        event_type: str = "system",
+        session_id: str | None = None,
+    ) -> None:
         """
         Emit a message to the UI.
 
@@ -155,6 +161,8 @@ class Command(ABC):
         Args:
             message: The message to display
             event_type: Type of message (system, info, error)
+            session_id: The session the message belongs to (routes the message
+                to the session the command was typed in; main when omitted).
         """
         from app.ui_layer.events import UIEvent, UIEventType
 
@@ -168,5 +176,6 @@ class Command(ABC):
             UIEvent(
                 type=type_map.get(event_type, UIEventType.SYSTEM_MESSAGE),
                 data={"message": message},
+                task_id=session_id,
             )
         )

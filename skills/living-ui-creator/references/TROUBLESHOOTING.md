@@ -187,6 +187,7 @@ def create_item(data: dict, db: Session = Depends(get_db)):
     db.add(item)
     return item.to_dict()  # NOT SAVED!
 
+
 # RIGHT - with commit
 @router.post("/items")
 def create_item(data: dict, db: Session = Depends(get_db)):
@@ -243,6 +244,7 @@ const BACKEND_URL = `http://localhost:${backendPort}`
 # WRONG - 'metadata' is reserved
 class Item(Base):
     metadata = Column(JSON)  # CRASHES
+
 
 # RIGHT - use different name
 class Item(Base):

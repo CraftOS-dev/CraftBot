@@ -136,6 +136,10 @@ _install_ssl_windows_store_shim()
 import argparse
 import asyncio
 
+from app.runtime_preflight import ensure_current_runtime_dependencies
+
+ensure_current_runtime_dependencies()
+
 # Register agent_core state provider and config before importing AgentBase
 # This ensures shared code can access state via get_state()
 from agent_core import StateRegistry, ConfigRegistry

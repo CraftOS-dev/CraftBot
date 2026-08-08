@@ -75,6 +75,15 @@ from agent_core import action
                 "'body' is omitted."
             ),
         },
+        "include_headers": {
+            "type": "boolean",
+            "example": False,
+            "description": (
+                "False (default): 'response_headers' contains only the useful few "
+                "(Content-Type, Content-Length, Location, Retry-After, "
+                "WWW-Authenticate, X-RateLimit-*). True: the full header dict."
+            ),
+        },
     },
     output_schema={
         "status": {
@@ -90,7 +99,9 @@ from agent_core import action
         "response_headers": {
             "type": "object",
             "example": {"Content-Type": "application/json"},
-            "description": "Response headers returned by the server.",
+            "description": (
+                "Key response headers (full set only when include_headers=true)."
+            ),
         },
         "body": {
             "type": "string",
@@ -111,11 +122,6 @@ from agent_core import action
             "type": "string",
             "example": "application/zip",
             "description": "Response Content-Type (bare media type, no parameters).",
-        },
-        "response_json": {
-            "type": "object",
-            "example": {"ok": True},
-            "description": "Parsed JSON body if available; otherwise omitted.",
         },
         "final_url": {
             "type": "string",
@@ -183,6 +189,7 @@ def send_http_requests(input_data: dict) -> dict:
     verify_tls = bool(input_data.get("verify_tls", True))
     save_to = input_data.get("save_to")
     save_to = str(save_to).strip() if save_to else ""
+    include_headers = bool(input_data.get("include_headers", False))
     allowed = {"GET", "POST", "PUT", "PATCH", "DELETE"}
     if method not in allowed:
         return {
@@ -409,6 +416,19 @@ def send_http_requests(input_data: dict) -> dict:
         # large downloads out of memory (we write them straight to disk).
         resp = requests.request(method, url, stream=True, **kwargs)
         resp_headers = {k: v for k, v in resp.headers.items()}
+        if not include_headers:
+            _useful = {
+                "content-type",
+                "content-length",
+                "location",
+                "retry-after",
+                "www-authenticate",
+            }
+            resp_headers = {
+                k: v
+                for k, v in resp_headers.items()
+                if k.lower() in _useful or k.lower().startswith("x-ratelimit")
+            }
         content_type = _bare_content_type(resp)
 
         # Decide whether this response is a file to save (binary-safe) or text
@@ -453,15 +473,12 @@ def send_http_requests(input_data: dict) -> dict:
                 else f"HTTP {resp.status_code}",
             }
 
-        # Textual response — return inline as before.
+        # Textual response — return inline as before. JSON bodies are returned
+        # once, as text in 'body' (the old 'response_json' field duplicated the
+        # entire payload a second time).
         body_text = resp.text
         elapsed_ms = int((time.time() - t0) * 1000)
-        parsed_json = None
-        try:
-            parsed_json = resp.json()
-        except Exception:
-            parsed_json = None
-        out = {
+        return {
             "status": "success" if resp.ok else "error",
             "status_code": resp.status_code,
             "response_headers": resp_headers,
@@ -471,9 +488,6 @@ def send_http_requests(input_data: dict) -> dict:
             "elapsed_ms": elapsed_ms,
             "message": "" if resp.ok else f"HTTP {resp.status_code}",
         }
-        if parsed_json is not None:
-            out["response_json"] = parsed_json
-        return out
     except Exception as e:
         return {
             "status": "error",
