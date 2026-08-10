@@ -30,9 +30,9 @@ jobs:
           - image_suffix: omniparser
             dockerfile: docker/omniparser/Dockerfile
             context: .
-          - image_suffix: desktop
-            dockerfile: app/gui/Dockerfile
-            context: app/gui
+          # 'desktop' image removed: app/gui was deleted with GUI mode
+          # (901ad92e) — its Dockerfile no longer exists, and this entry
+          # broke the first tag build afterwards.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
