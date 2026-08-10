@@ -1,104 +1,27 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Play,
   Square,
   Trash2,
   Loader2,
-  RotateCcw,
   Check,
-  X,
-  Plus,
   Download,
   Copy,
   ChevronRight,
 } from 'lucide-react'
-import { Button, Badge, ConfirmModal } from '../../components/ui'
+import { Button, ConfirmModal } from '../../components/ui'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
-  setGlobalConfig as setSliceGlobalConfig,
   updateProjectSetting,
   type LivingUISettingsProject as LivingUIProject,
 } from '../../store/slices/livingUiSettingsSlice'
 import {
   selectLivingUiSettingsProjects,
   selectLivingUiSettingsHasLoadedProjects,
-  selectLivingUiGlobalConfig,
-  selectLivingUiHasLoadedGlobalConfig,
 } from '../../store/selectors/livingUiSettings'
-
-interface ParsedRule {
-  enabled: boolean
-  text: string
-  lineIndex: number
-}
-
-interface ParsedPref {
-  key: string
-  value: string
-  lineIndex: number
-}
-
-interface ParsedSection {
-  title: string
-  rules: ParsedRule[]
-  prefs: ParsedPref[]
-}
-
-const FONT_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'System default (Segoe UI, sans-serif)', label: 'System Default' },
-  { value: 'Inter, sans-serif', label: 'Inter' },
-  { value: 'Roboto, sans-serif', label: 'Roboto' },
-  { value: 'Open Sans, sans-serif', label: 'Open Sans' },
-  { value: 'Poppins, sans-serif', label: 'Poppins' },
-  { value: 'Lato, sans-serif', label: 'Lato' },
-  { value: 'Nunito, sans-serif', label: 'Nunito' },
-  { value: 'Source Sans Pro, sans-serif', label: 'Source Sans Pro' },
-  { value: 'JetBrains Mono, monospace', label: 'JetBrains Mono' },
-  { value: 'Fira Code, monospace', label: 'Fira Code' },
-]
-
-function parseGlobalConfig(content: string): { sections: ParsedSection[]; rawLines: string[] } {
-  const lines = content.split('\n')
-  const sections: ParsedSection[] = []
-  let currentSection: ParsedSection | null = null
-
-  lines.forEach((line, i) => {
-    const sectionMatch = line.match(/^##\s+(.+)/)
-    if (sectionMatch) {
-      currentSection = { title: sectionMatch[1], rules: [], prefs: [] }
-      sections.push(currentSection)
-      return
-    }
-    const ruleMatch = line.match(/^- \[(x| )\]\s+(.+)/)
-    if (ruleMatch && currentSection) {
-      currentSection.rules.push({ enabled: ruleMatch[1] === 'x', text: ruleMatch[2], lineIndex: i })
-      return
-    }
-    const prefMatch = line.match(/^- \*\*(.+?):\*\*\s*(.*)/)
-    if (prefMatch && currentSection) {
-      currentSection.prefs.push({ key: prefMatch[1], value: prefMatch[2], lineIndex: i })
-    }
-  })
-
-  return { sections, rawLines: lines }
-}
-
-function rebuildConfig(rawLines: string[], changes: Map<number, string>): string {
-  return rawLines.map((line, i) => {
-    if (changes.has(i)) {
-      const newVal = changes.get(i)!
-      if (newVal === 'true' || newVal === 'false') {
-        return line.replace(/^- \[(x| )\]/, newVal === 'true' ? '- [x]' : '- [ ]')
-      }
-      const prefMatch = line.match(/^(- \*\*.+?:\*\*\s*)(.*)/)
-      if (prefMatch) return prefMatch[1] + newVal
-    }
-    return line
-  }).join('\n')
-}
 
 export function LivingUISettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
@@ -108,69 +31,18 @@ export function LivingUISettings() {
   // Slice-backed: cached across remounts.
   const projects = useAppSelector(selectLivingUiSettingsProjects)
   const hasLoadedProjects = useAppSelector(selectLivingUiSettingsHasLoadedProjects)
-  const originalConfig = useAppSelector(selectLivingUiGlobalConfig)
-  const hasLoadedGlobalConfig = useAppSelector(selectLivingUiHasLoadedGlobalConfig)
   const loading = !hasLoadedProjects
-  const globalLoading = !hasLoadedGlobalConfig
 
   // Transient UI state.
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
-  const [globalConfig, setLocalGlobalConfig] = useState('')
-  const [globalSaving, setGlobalSaving] = useState(false)
-  const [globalSaveStatus, setGlobalSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [newRule, setNewRule] = useState('')
-  const [rulesExpanded, setRulesExpanded] = useState(true)
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
-  const [lineChanges, setLineChanges] = useState<Map<number, string>>(new Map())
-  const globalConfigRef = useRef(globalConfig)
-  globalConfigRef.current = globalConfig
 
-  // Sync local editable copy to the slice's source-of-truth whenever the
-  // server-known content changes (initial load or post-restore refetch).
-  useEffect(() => {
-    setLocalGlobalConfig(originalConfig)
-  }, [originalConfig])
-
-  const isGlobalDirty = globalConfig !== originalConfig
-
-  // Fire-once fetches. Slice owns the data; we just trigger requests when
+  // Fire-once fetch. Slice owns the data; we just trigger the request when
   // not yet loaded.
   useEffect(() => {
     if (!isConnected) return
     if (!hasLoadedProjects) send('living_ui_settings_get')
-    if (!hasLoadedGlobalConfig) send('agent_file_read', { filename: 'GLOBAL_LIVING_UI.md' })
-  }, [isConnected, send, hasLoadedProjects, hasLoadedGlobalConfig])
-
-  // Side-effect handlers — toasts, success animations, modal close, action
-  // completion. List/config state itself flows through the slice registry.
-  useEffect(() => {
-    const cleanups = [
-      onMessage('agent_file_write', (data: unknown) => {
-        const d = data as { filename: string; success: boolean }
-        if (d.filename === 'GLOBAL_LIVING_UI.md') {
-          setGlobalSaving(false)
-          if (d.success) {
-            // Persist the just-saved content as the new server-known baseline
-            // so isDirty flips back to false.
-            dispatch(setSliceGlobalConfig(globalConfigRef.current))
-            setGlobalSaveStatus('success')
-            setTimeout(() => setGlobalSaveStatus('idle'), 2000)
-          } else {
-            setGlobalSaveStatus('error')
-            setTimeout(() => setGlobalSaveStatus('idle'), 3000)
-          }
-        }
-      }),
-      onMessage('agent_file_restore', (data: unknown) => {
-        const d = data as { filename: string; content: string; success: boolean }
-        if (d.filename === 'GLOBAL_LIVING_UI.md' && d.success) {
-          // Slice handler already updated originalConfig; clear local edits.
-          setLineChanges(new Map())
-        }
-      }),
-    ]
-    return () => cleanups.forEach(c => c())
-  }, [onMessage, dispatch])
+  }, [isConnected, send, hasLoadedProjects])
 
   useEffect(() => {
     const handleActionComplete = (data: unknown) => {
@@ -195,49 +67,6 @@ export function LivingUISettings() {
     })
     return cleanup
   }, [send, onMessage])
-
-  const handleToggleRule = (lineIndex: number, enabled: boolean) => {
-    const newChanges = new Map<number, string>(lineChanges)
-    newChanges.set(lineIndex, String(enabled))
-    setLineChanges(newChanges)
-    setLocalGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
-  }
-
-  const handlePrefChange = (lineIndex: number, value: string) => {
-    const newChanges = new Map<number, string>(lineChanges)
-    newChanges.set(lineIndex, value)
-    setLineChanges(newChanges)
-    setLocalGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
-  }
-
-  const handleAddRule = () => {
-    if (!newRule.trim()) return
-    setLocalGlobalConfig(prev => prev.trimEnd() + '\n- [x] ' + newRule.trim() + '\n')
-    setNewRule('')
-  }
-
-
-  const handleDeleteRule = (lineIndex: number) => {
-    const lines = globalConfig.split('\n')
-    lines.splice(lineIndex, 1)
-    setLocalGlobalConfig(lines.join('\n'))
-  }
-
-  const handleSaveGlobal = () => {
-    setGlobalSaving(true)
-    send('agent_file_write', { filename: 'GLOBAL_LIVING_UI.md', content: globalConfig })
-  }
-
-  const handleRestoreGlobal = () => {
-    confirm({
-      title: 'Restore Defaults',
-      message: 'Reset global Living UI configuration to defaults? Your custom rules and changes will be lost.',
-      confirmText: 'Restore',
-      variant: 'danger',
-    }, () => {
-      send('agent_file_restore', { filename: 'GLOBAL_LIVING_UI.md' })
-    })
-  }
 
   const handleLaunch = (projectId: string) => {
     setActionInProgress(projectId)
@@ -270,305 +99,11 @@ export function LivingUISettings() {
     })
   }
 
-  const { sections } = parseGlobalConfig(globalConfig)
-
-  // Collect design prefs (colors/fonts) across all sections
-  const designPrefs: ParsedPref[] = sections.flatMap(s =>
-    s.prefs.filter(p => {
-      const k = p.key.toLowerCase()
-      return k.includes('color') || k.includes('font')
-    })
-  )
-
-  const ruleSections = sections.filter(s => s.rules.length > 0)
-  const totalRules = ruleSections.reduce((acc, s) => acc + s.rules.length, 0)
-  const activeRules = ruleSections.reduce(
-    (acc, s) =>
-      acc +
-      s.rules.filter(r =>
-        lineChanges.has(r.lineIndex) ? lineChanges.get(r.lineIndex) === 'true' : r.enabled
-      ).length,
-    0
-  )
-
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
         <h3>Living UI</h3>
-        <p>Global design, rules, and project management</p>
-      </div>
-
-      {/* ── Design ────────────────────────────────────────── */}
-      <div className={styles.subsection}>
-        <h4 className={styles.subsectionTitle}>Design</h4>
-        <p className={styles.subsectionDesc}>
-          Colors and typography applied globally to every Living UI
-        </p>
-
-        {globalLoading ? (
-          <div className={styles.loadingState}>
-            <Loader2 size={20} className={styles.spinning} />
-            <span>Loading design...</span>
-          </div>
-        ) : designPrefs.length === 0 ? (
-          <div className={styles.emptyState}>
-            <p>No design preferences found in GLOBAL_LIVING_UI.md</p>
-          </div>
-        ) : (
-          <div className={styles.settingsForm}>
-            {designPrefs.map(pref => {
-              const val = lineChanges.has(pref.lineIndex)
-                ? lineChanges.get(pref.lineIndex)!
-                : pref.value
-              const key = pref.key.toLowerCase()
-              const isColor = key.includes('color')
-              const isFont = key.includes('font')
-
-              return (
-                <div key={pref.lineIndex} className={styles.formGroup}>
-                  <label>{pref.key}</label>
-                  {isColor ? (
-                    <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-                      <label
-                        className={styles.colorSwatch}
-                        style={{ background: val.startsWith('#') ? val : '#000000' }}
-                      >
-                        <input
-                          type="color"
-                          value={val.startsWith('#') ? val : '#000000'}
-                          onChange={e => handlePrefChange(pref.lineIndex, e.target.value)}
-                        />
-                      </label>
-                      <input
-                        type="text"
-                        value={val}
-                        onChange={e => handlePrefChange(pref.lineIndex, e.target.value)}
-                        style={{ flex: 1 }}
-                      />
-                    </div>
-                  ) : isFont ? (
-                    <select value={val} onChange={e => handlePrefChange(pref.lineIndex, e.target.value)}>
-                      {FONT_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={val}
-                      onChange={e => handlePrefChange(pref.lineIndex, e.target.value)}
-                    />
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Rules ─────────────────────────────────────────── */}
-      <div className={styles.subsection}>
-        <h4 className={styles.subsectionTitle}>Rules</h4>
-        <p className={styles.subsectionDesc}>
-          Toggle global behavior rules or add your own custom rules
-        </p>
-
-        {globalLoading ? (
-          <div className={styles.loadingState}>
-            <Loader2 size={20} className={styles.spinning} />
-            <span>Loading rules...</span>
-          </div>
-        ) : (
-          <div className={styles.fileEditorCard}>
-            <div
-              className={styles.fileEditorHeader}
-              onClick={() => setRulesExpanded(v => !v)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  setRulesExpanded(v => !v)
-                }
-              }}
-              aria-expanded={rulesExpanded}
-              style={{
-                cursor: 'pointer',
-                borderBottom: rulesExpanded ? '1px solid var(--border-primary)' : 'none',
-                userSelect: 'none',
-              }}
-            >
-              <div className={styles.fileEditorTitle}>
-                <h4>Rules</h4>
-                <Badge variant="default">
-                  {activeRules}/{totalRules} active
-                </Badge>
-                <ChevronRight
-                  size={14}
-                  className={`${styles.advancedChevron} ${rulesExpanded ? styles.open : ''}`}
-                  style={{ marginLeft: 'auto' }}
-                />
-              </div>
-              <p className={styles.fileEditorDescription}>
-                Toggle behavior rules applied globally to every Living UI, or add your own custom rules.
-              </p>
-            </div>
-
-            {rulesExpanded && (
-              <>
-                <div
-                  style={{
-                    background: 'var(--bg-primary)',
-                    maxHeight: '500px',
-                    overflowY: 'auto',
-                  }}
-                >
-                  {ruleSections.length === 0 ? (
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        textAlign: 'center',
-                        color: 'var(--text-muted)',
-                        fontSize: 'var(--text-sm)',
-                      }}
-                    >
-                      No rules defined yet. Add one below.
-                    </div>
-                  ) : (
-                    ruleSections.map((section, sIdx) => {
-                      const isCustom = section.title === 'Custom Rules'
-                      return (
-                        <div key={section.title}>
-                          <div
-                            style={{
-                              padding: 'var(--space-2) var(--space-3)',
-                              background: 'var(--bg-secondary)',
-                              borderTop: sIdx > 0 ? '1px solid var(--border-primary)' : 'none',
-                              borderBottom: '1px solid var(--border-primary)',
-                              fontSize: 'var(--text-xs)',
-                              fontWeight: 'var(--font-semibold)',
-                              color: 'var(--text-secondary)',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                            }}
-                          >
-                            {section.title}
-                          </div>
-                          {section.rules.map((rule, idx) => {
-                            const checked = lineChanges.has(rule.lineIndex)
-                              ? lineChanges.get(rule.lineIndex) === 'true'
-                              : rule.enabled
-                            return (
-                              <div
-                                key={rule.lineIndex}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 'var(--space-3)',
-                                  padding: 'var(--space-3)',
-                                  borderTop: idx > 0 ? '1px solid var(--border-primary)' : 'none',
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    flex: 1,
-                                    fontSize: 'var(--text-sm)',
-                                    color: 'var(--text-primary)',
-                                    lineHeight: 1.4,
-                                  }}
-                                >
-                                  {rule.text}
-                                </span>
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 'var(--space-1)',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {isCustom ? (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      icon={<Trash2 size={14} />}
-                                      onClick={() => handleDeleteRule(rule.lineIndex)}
-                                    />
-                                  ) : (
-                                    <input
-                                      type="checkbox"
-                                      className={styles.toggle}
-                                      checked={checked}
-                                      onChange={e => handleToggleRule(rule.lineIndex, e.target.checked)}
-                                    />
-                                  )}
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-
-                <div className={styles.fileEditorActions}>
-                  <input
-                    type="text"
-                    className={styles.searchInput}
-                    value={newRule}
-                    onChange={e => setNewRule(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAddRule()}
-                    placeholder="Add a custom rule..."
-                    style={{ flex: 1 }}
-                  />
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    icon={<Plus size={14} />}
-                    onClick={handleAddRule}
-                    disabled={!newRule.trim()}
-                  >
-                    Add
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Save / Restore ────────────────────────────────── */}
-      <div className={styles.sectionFooter} style={{ borderTop: 'none', paddingTop: 0 }}>
-        <Button
-          variant="secondary"
-          icon={<RotateCcw size={14} />}
-          onClick={handleRestoreGlobal}
-          disabled={globalLoading || globalSaving}
-        >
-          Restore Defaults
-        </Button>
-        <Button
-          variant="primary"
-          onClick={handleSaveGlobal}
-          disabled={!isGlobalDirty || globalSaving || globalLoading}
-          icon={globalSaving ? <Loader2 size={14} className={styles.spinning} /> : undefined}
-        >
-          {globalSaving ? 'Saving...' : 'Save Changes'}
-        </Button>
-        {globalSaveStatus === 'success' && (
-          <span className={styles.statusSuccess}>
-            <Check size={14} /> Saved
-          </span>
-        )}
-        {globalSaveStatus === 'error' && (
-          <span className={styles.statusError}>
-            <X size={14} /> Save failed
-          </span>
-        )}
-        {isGlobalDirty && globalSaveStatus === 'idle' && !globalSaving && (
-          <span className={styles.statusWarning}>Unsaved changes</span>
-        )}
+        <p>Manage and share your Living UI projects</p>
       </div>
 
       {/* ── Projects ──────────────────────────────────────── */}
