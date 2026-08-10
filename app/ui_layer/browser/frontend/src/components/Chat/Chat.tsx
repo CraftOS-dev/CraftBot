@@ -1412,7 +1412,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 aria-label="Attach and tools"
                 aria-expanded={plusOpen}
               >
-                <Plus size={18} />
+                {enhancing
+                   ? <Loader2 size={18} className={styles.uploadingSpinner} />
+                   : <Plus size={18} />}
               </button>
               {plusOpen && (
                 <div className={styles.plusMenu}>
