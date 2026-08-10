@@ -796,9 +796,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   //enhance button's display state
   useEffect(() => {
     if (input.trim() !== '') return
-    if (enhancing) setEnhancing(false)
-    if (plusOpen) setPlusOpen (false)
-  },[input, enhancing, plusOpen]
+    setEnhancing(false)
+    setPlusOpen (false)
+  },[input]
   )
 
   // Reset enhancing spinner if the WebSocket disconnects mid-request
