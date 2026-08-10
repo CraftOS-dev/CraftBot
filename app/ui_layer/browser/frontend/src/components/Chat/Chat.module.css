@@ -596,6 +596,11 @@
   color: var(--color-error, #ef4444);
 }
 
+.micCombo:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
 .micIconWrap {
   position: relative;
   display: flex;
