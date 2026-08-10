@@ -429,6 +429,12 @@
   outline: none;
 }
 
+.input:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .input::placeholder {
   color: var(--text-muted);
 }

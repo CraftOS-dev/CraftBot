@@ -806,7 +806,10 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     setInput(enhancedPrompt)
     stopEnhancing()
     clearEnhancedPrompt()
-    inputRef.current?.focus()
+    // Defer focus: the textarea is still disabled in the DOM this tick
+    // (enhancing→false hasn't re-rendered yet), so a synchronous focus()
+    // would be ignored.
+    setTimeout(() => inputRef.current?.focus(), 0)
   }, [enhancedPrompt, clearEnhancedPrompt, setInput, input, stopEnhancing])
 
   // Deleting the draft cancels any in-flight/pending enhance and resets the
@@ -1428,6 +1431,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
             rows={1}
             lang={micLang}
             inputMode="text"
+            disabled={enhancing}
           />
 
           <div className={styles.inputControls}>
