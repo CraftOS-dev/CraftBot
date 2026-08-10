@@ -84,6 +84,7 @@ interface SuggestedPlaybook {
 }
 
 const SUGGESTED_PLAYBOOK_COUNT = 3
+const ENHANCE_TIMEOUT_MS = 30000
 
 // Chat-delivery actions — the ones whose visible form IS a chat bubble in
 // this interface. A chunk whose only actions are these renders nothing at
@@ -321,6 +322,22 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   }, [dispatch, sessionId])
 
   const [enhancing, setEnhancing] = useState(false)
+  // Guards against the user waiting forever if the enhance WS response
+  // never comes back. Cleared (never fires) on success, disconnect, or the
+  // draft being emptied — see the effects/handler below.
+  const enhanceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Single choke point for turning enhancing off: always cancels the
+  // timeout alongside it, so success/disconnect/clear-draft paths can't
+  // leave a stale timer that fires 30s later on an already-finished request.
+  const stopEnhancing = useCallback(() => {
+    if (enhanceTimeoutRef.current !== null) {
+      clearTimeout(enhanceTimeoutRef.current)
+      enhanceTimeoutRef.current = null
+    }
+    setEnhancing(false)
+  }, [])
+
   // Reply-to-bubble: set from an agent bubble's hover Reply action. The
   // next send carries the quoted original so the event stream records
   // which message the user replied to. No routing — session is explicit.
@@ -782,35 +799,46 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     if (enhancedPrompt === null) return
     if (input.trim() === ''){
       //Is the box cleared? Do not repopulate the deleted text box.
-      setEnhancing(false)
+      stopEnhancing()
       clearEnhancedPrompt()
       return
     }
     setInput(enhancedPrompt)
-    setEnhancing(false)
+    stopEnhancing()
     clearEnhancedPrompt()
     inputRef.current?.focus()
-  }, [enhancedPrompt, clearEnhancedPrompt, setInput, input])
+  }, [enhancedPrompt, clearEnhancedPrompt, setInput, input, stopEnhancing])
 
   // Deleting the draft cancels any in-flight/pending enhance and resets the
   //enhance button's display state
   useEffect(() => {
     if (input.trim() !== '') return
-    setEnhancing(false)
+    stopEnhancing()
     setPlusOpen (false)
-  },[input]
+  },[input, stopEnhancing]
   )
 
   // Reset enhancing spinner if the WebSocket disconnects mid-request
   useEffect(() => {
-    if (!connected) setEnhancing(false)
-  }, [connected])
+    if (!connected) stopEnhancing()
+  }, [connected, stopEnhancing])
 
   const handleEnhancePrompt = useCallback(() => {
     if (!input.trim() || enhancing) return
     setEnhancing(true)
     enhancePrompt(input.trim())
-  }, [input, enhancing, enhancePrompt])
+    enhanceTimeoutRef.current = setTimeout(() => {
+    enhanceTimeoutRef.current = null
+    setEnhancing(false)
+    showToast('error', 'AI enhance timed out — please try again.')
+  }, ENHANCE_TIMEOUT_MS)
+  }, [input, enhancing, enhancePrompt, showToast])
+
+  useEffect(() => {
+  return () => {
+    if (enhanceTimeoutRef.current !== null) clearTimeout(enhanceTimeoutRef.current)
+  }
+}, [])
 
   const handleOptionClick = useCallback((value: string, messageId: string) => {
     if (value === 'open_settings_model') {
@@ -1446,6 +1474,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                   className={`${styles.micCombo}${isListening ? ` ${styles.micComboActive}` : ''}`}
                   title={isListening ? 'Stop listening' : 'Voice input'}
                   onClick={toggleListening}
+                  disabled = {enhancing}
                 >
                   <span className={styles.micIconWrap}>
                     {isListening ? <MicOff size={18} /> : <Mic size={18} />}
@@ -1493,7 +1522,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                   type="button"
                   className={styles.sendBtn}
                   onClick={handleSend}
-                  disabled={(!input.trim() && pendingAttachments.length === 0) || !attachmentValidation.valid}
+                  disabled={(!input.trim() && pendingAttachments.length === 0) || !attachmentValidation.valid || enhancing}
                   title="Send"
                   aria-label="Send message"
                 >
