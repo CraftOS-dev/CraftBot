@@ -780,11 +780,26 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // Consume enhanced prompt from context when WS response arrives
   useEffect(() => {
     if (enhancedPrompt === null) return
+    if (input.trim() === ''){
+      //Is the box cleared? Do not repopulate the deleted text box.
+      setEnhancing(false)
+      clearEnhancedPrompt()
+      return
+    }
     setInput(enhancedPrompt)
     setEnhancing(false)
     clearEnhancedPrompt()
     inputRef.current?.focus()
-  }, [enhancedPrompt, clearEnhancedPrompt, setInput])
+  }, [enhancedPrompt, clearEnhancedPrompt, setInput, input])
+
+  // Deleting the draft cancels any in-flight/pending enhance and resets the
+  //enhance button's display state
+  useEffect(() => {
+    if (input.trim() !== '') return
+    if (enhancing) setEnhancing(false)
+    if (plusOpen) setPlusOpen (false)
+  },[input, enhancing, plusOpen]
+  )
 
   // Reset enhancing spinner if the WebSocket disconnects mid-request
   useEffect(() => {
