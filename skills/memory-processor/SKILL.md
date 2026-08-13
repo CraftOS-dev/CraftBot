@@ -62,7 +62,12 @@ Process 50 lines at a time to avoid memory issues.
 [YYYY-MM-DD HH:MM:SS] [category] Full Name predicate object
 ```
 
-Categories: `[fact]`, `[preference]`, `[event]`, `[decision]`, `[learning]`
+Categories (closed set — never invent new ones):
+`[fact]`, `[preference]`, `[event]`, `[decision]`, `[learning]`, `[project]`, `[contact]`
+
+**Do NOT add any `{entities: ...}` field.** Entity linkage is not your job —
+the entity-indexer skill owns it entirely and annotates these items later.
+Write the plain item line and nothing more.
 
 ### DISTILL, Don't Copy
 
@@ -78,10 +83,23 @@ Categories: `[fact]`, `[preference]`, `[event]`, `[decision]`, `[learning]`
 
 Note: Get actual names from existing MEMORY.md. Never use "user", "conversation partner", or pronouns.
 
-### No Duplicates
+### Consolidation (one decision per new memory)
 
-- Check MEMORY.md before saving. Skip if similar memory exists. 
-- Actively remove memories you found duplicated in MEMORY.md, keeping only the latest one.
+Before saving a distilled item, check MEMORY.md for existing items about the
+same entities, then pick exactly one operation:
+
+- **ADD** — nothing similar exists → append the new item.
+- **UPDATE** — an existing item is incomplete and the new information
+  complements it (no contradiction) → rewrite that line in place, merging
+  both; keep the older timestamp.
+- **SUPERSEDE** — the new information CONTRADICTS an existing item (changed
+  job, moved city, reversed decision) → append ` {superseded}` to the end of
+  the old line (do NOT delete it), then append the new item as its own line.
+- **SKIP** — an equivalent item already exists → save nothing.
+
+Never delete a contradicted memory — the `{superseded}` marker preserves
+history while removing the item from retrieval. Exact duplicates (same fact
+twice) are the only lines you remove outright.
 
 ### Length Limit (Strict)
 
@@ -144,6 +162,12 @@ Only save the memory if it contains lasting value:
 - Line 4: SAVE → `[2026-02-09 06:33:10] [event] John has a meeting with Sarah from Company ABC on 15/2/2026, with unknown location`
 - Lines 5-50: DISCARD (routine)
 
+**Supersede example** — batch contains "i moved from the SF office to the Tokyo office":
+```
+old line becomes:  [2026-01-03 09:12:00] [fact] John works at the CraftOS SF office {superseded}
+new line appended: [2026-02-09 06:33:10] [fact] John works at the CraftOS Tokyo office
+```
+
 **Todo update after batch 1:**
 ```
 1. [completed] Process batch 1 (lines 12-61)
@@ -191,10 +215,10 @@ Execute AFTER event processing completes:
 
 ### Ranking heuristics (drop priority, highest first)
 
-1. Stale `[event]` items whose date has passed and have no lasting consequence.
-2. Duplicate or near-duplicate facts about the same subject — keep the most recent/complete one; merge timestamps into a single canonical entry.
-3. Weak-signal preferences or one-off observations that fail the Future Utility Test.
-4. Superseded items (older preference that a newer item contradicts) — keep the newer one.
+1. Items already marked `{superseded}` — their replacement is on file; they exist only as history and are the first to go when space is needed.
+2. Stale `[event]` items whose date has passed and have no lasting consequence.
+3. Duplicate or near-duplicate facts about the same subject — keep the most recent/complete one; merge timestamps into a single canonical entry.
+4. Weak-signal preferences or one-off observations that fail the Future Utility Test.
 
 ### Never drop
 

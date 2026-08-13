@@ -22,13 +22,22 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import chromadb
 
 from agent_core.utils.logger import logger
 from agent_core.core.impl.memory.bm25_index import BM25Index
 from agent_core.core.impl.memory.entity_extractor import extract_entities
+from agent_core.core.impl.memory.graph import (
+    ENTITY_REGISTRY_FILE,
+    MemoryGraph,
+    compute_item_id,
+    parse_entity_registry,
+    registry_content_hash,
+    split_item_fields,
+)
+from agent_core.core.impl.memory.text_extract import extract_text, is_indexable_file
 
 
 # Files that are flat lists of "[timestamp] [category] content" items.
@@ -36,19 +45,35 @@ from agent_core.core.impl.memory.entity_extractor import extract_entities
 # the whole list collapsing into a single section chunk under "## Memory".
 PER_ITEM_FILES = frozenset({"MEMORY.md", "EVENT_UNPROCESSED.md"})
 
-# Matches a memory item line. Tolerates both "/" and "-" date separators and
+# Matches a memory item line. Tolerates both "/" and "-" date separators,
 # either "[YYYY-MM-DD HH:MM:SS]" (MEMORY.md) or "[YYYY/MM/DD HH:MM:SS]"
-# (EVENT_UNPROCESSED.md). Captures: timestamp, category, content.
+# (EVENT_UNPROCESSED.md), and missing seconds — the memory-processor has
+# written "[YYYY-MM-DD HH:MM]" stamps too. Captures: timestamp, category,
+# content.
 MEMORY_ITEM_LINE_RE = re.compile(
-    r"^\s*\[(\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2})\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
+    r"^\s*\[(\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
 )
 
 # Hybrid-retrieval weights. Vector is the primary signal, BM25 backstops
-# proper nouns and dates.
+# proper nouns and dates, the graph channel boosts items connected to
+# entities mentioned in the query (including 2-hop neighbours the other
+# channels can miss entirely).
 HYBRID_WEIGHTS = {
-    "vector": 0.65,
-    "bm25": 0.35,
+    "vector": 0.55,
+    "bm25": 0.30,
+    "graph": 0.15,
 }
+
+# A strongly graph-connected item is eligible even when its combined score
+# sits below min_relevance — this is what lets 2-hop related memories
+# surface despite sharing no words with the query.
+GRAPH_ELIGIBILITY_SCORE = 0.5
+
+# Recency bonus: newest items get up to +RECENCY_MAX_BONUS, halving every
+# RECENCY_HALF_LIFE_DAYS. Small on purpose — recency is a tiebreaker, not
+# a ranking signal of its own.
+RECENCY_MAX_BONUS = 0.05
+RECENCY_HALF_LIFE_DAYS = 30.0
 
 # Log-line preview limits. Keep multi-line queries and long summaries from
 # bleeding across log entries.
@@ -204,13 +229,11 @@ class MemoryManager:
         manager.update()
     """
 
-    # v2 collections use cosine distance and per-item chunking. The "_v2"
-    # suffix forces a clean rebuild on first run with the new code — old
-    # "agent_memory" collections are left intact but unused (so a downgrade
-    # is non-destructive). Drop the old collections manually if disk is
-    # tight; the manager never reads them.
-    COLLECTION_NAME = "agent_memory_v2"
-    FILE_INDEX_COLLECTION = "agent_memory_file_index_v2"
+    # The chunk collection and its companion file-index. The index is a
+    # derived cache of the markdown files, so it is always rebuildable from
+    # disk; if the chunking shape changes, clear it and re-index.
+    COLLECTION_NAME = "agent_memory"
+    FILE_INDEX_COLLECTION = "agent_memory_file_index"
 
     def __init__(
         self,
@@ -218,6 +241,7 @@ class MemoryManager:
         chroma_path: str = "./chroma_db_memory",
         chunk_size_limit: int = 1500,  # Max chars per chunk
         chunk_overlap: int = 100,  # Overlap between chunks when splitting large sections
+        extra_files_provider: Optional[Callable[[], List[str]]] = None,
     ):
         """
         Initialize the Memory Manager.
@@ -227,11 +251,16 @@ class MemoryManager:
             chroma_path: Path for ChromaDB persistence
             chunk_size_limit: Maximum characters per chunk before splitting
             chunk_overlap: Character overlap when splitting large chunks
+            extra_files_provider: Callable returning user-selected extra
+                files to index (relative paths under the agent file
+                system, e.g. "workspace/notes.md"). Read on every index
+                pass so panel changes apply without restart.
         """
         self.agent_fs_path = Path(agent_file_system_path).resolve()
         self.chroma_path = chroma_path
         self.chunk_size_limit = chunk_size_limit
         self.chunk_overlap = chunk_overlap
+        self._extra_files_provider = extra_files_provider
 
         # Initialize ChromaDB.
         # hnsw:space=cosine — cosine similarity gives well-scaled scores in
@@ -250,7 +279,7 @@ class MemoryManager:
             name=self.COLLECTION_NAME,
             embedding_fn=embedding_fn,
             metadata={
-                "description": "Agent file system memory chunks (v2)",
+                "description": "Agent file system memory chunks",
                 "hnsw:space": "cosine",
                 "embedding_model": MEMORY_EMBEDDING_MODEL,
             },
@@ -260,7 +289,7 @@ class MemoryManager:
         self.file_index_collection = self._open_collection(
             name=self.FILE_INDEX_COLLECTION,
             embedding_fn=embedding_fn,
-            metadata={"description": "File index for incremental updates (v2)"},
+            metadata={"description": "File index for incremental updates"},
         )
 
         # In-memory cache of file indices
@@ -271,6 +300,11 @@ class MemoryManager:
         # on first query and after each index mutation.
         self._bm25 = BM25Index()
         self._bm25_dirty = True
+
+        # Memory graph — the semantic layer (entities/items/files) derived
+        # from the same chunk corpus. Same lazy-rebuild lifecycle as BM25.
+        self._graph: Optional[MemoryGraph] = None
+        self._graph_dirty = True
 
         logger.info(
             f"MemoryManager initialized. Agent FS: {self.agent_fs_path}, "
@@ -354,26 +388,33 @@ class MemoryManager:
         top_k: int = 5,
         min_relevance: float = 0.55,
         file_filter: Optional[List[str]] = None,
+        include_superseded: bool = False,
     ) -> List[MemoryPointer]:
         """
         Retrieve memory pointers relevant to the query.
 
-        Uses a hybrid score: vector cosine similarity + BM25 keyword match.
-        Candidate pool is the union of top-K from each channel
-        (Reciprocal-Rank-Fusion style); final ranking is the weighted sum
-        defined by ``HYBRID_WEIGHTS``.
+        Uses a hybrid score across three channels: vector cosine
+        similarity, BM25 keyword match, and graph proximity (items
+        connected to entities the query mentions, up to 2 hops). Candidate
+        pool is the union of top-K from each channel (Reciprocal-Rank-
+        Fusion style); final ranking is the weighted sum defined by
+        ``HYBRID_WEIGHTS`` plus a small recency bonus.
+
+        Superseded memory items (facts invalidated by newer information)
+        are excluded unless ``include_superseded`` is set — pass True for
+        queries about the past.
 
         Args:
             query: The search query
             top_k: Maximum number of results to return
             min_relevance: Minimum hybrid score (0-1) to include.
-                Default 0.55 matches cosine-scaled scores; BM25 lifts
-                keyword-strong matches above the cut.
+                Strongly graph-connected items are eligible below this
+                cut (see GRAPH_ELIGIBILITY_SCORE).
             file_filter: Optional list of file paths to search within
+            include_superseded: Include invalidated memory items.
 
         Returns:
             List of MemoryPointer objects, sorted by relevance (highest first).
-            Result shape is unchanged from v1 — only the ranking improves.
         """
         if not query or not query.strip():
             logger.warning("Empty query provided to retrieve()")
@@ -434,8 +475,23 @@ class MemoryManager:
                     "rank": rank,
                 }
 
-        # Union the candidate ids from both channels (RRF-style fusion).
-        candidate_ids = set(vector_hits) | set(bm25_hits)
+        # ── Channel 3: graph proximity ──
+        # Entities mentioned in the query seed a 2-hop walk over the memory
+        # graph; connected items get a proximity score in [0,1].
+        graph_hits: Dict[str, float] = {}
+        try:
+            self._ensure_graph_built()
+            if self._graph is not None:
+                seeds = self._graph.match_entities(query)
+                if seeds:
+                    graph_hits = self._graph.bfs_item_scores(
+                        seeds, include_superseded=include_superseded
+                    )
+        except Exception as e:
+            logger.warning(f"[MEMORY] Graph channel failed: {e}")
+
+        # Union the candidate ids from all channels (RRF-style fusion).
+        candidate_ids = set(vector_hits) | set(bm25_hits) | set(graph_hits)
         if not candidate_ids:
             return []
 
@@ -471,12 +527,25 @@ class MemoryManager:
             if not meta:
                 continue
 
+            # Invalidated facts stay in the index (history is preserved)
+            # but never surface in normal retrieval.
+            if not include_superseded and meta.get("superseded"):
+                continue
+
             vector_score = vector_hits.get(chunk_id, {}).get("score", 0.0)
             bm25_score = bm25_hits.get(chunk_id, {}).get("score", 0.0)
+            graph_score = graph_hits.get(chunk_id, 0.0)
 
-            final = w["vector"] * vector_score + w["bm25"] * bm25_score
+            final = (
+                w["vector"] * vector_score
+                + w["bm25"] * bm25_score
+                + w["graph"] * graph_score
+                + _recency_bonus(meta.get("timestamp", ""))
+            )
 
-            if final < min_relevance:
+            # Eligibility: pass the relevance cut, or be strongly connected
+            # in the graph to an entity the query names.
+            if final < min_relevance and graph_score < GRAPH_ELIGIBILITY_SCORE:
                 continue
 
             pointers.append(
@@ -501,7 +570,7 @@ class MemoryManager:
         logger.info(
             f"[MEMORY RESULT] {len(pointers)} pointer(s) returned "
             f"(vector candidates={len(vector_hits)}, bm25 candidates={len(bm25_hits)}, "
-            f"min_relevance={min_relevance})"
+            f"graph candidates={len(graph_hits)}, min_relevance={min_relevance})"
         )
         if not pointers:
             logger.info("[MEMORY RESULT]   (no pointers above min_relevance)")
@@ -512,6 +581,87 @@ class MemoryManager:
                 f":: {_log_preview(p.summary, _LOG_SUMMARY_MAX_CHARS)}"
             )
         return pointers
+
+    # ───────────────────────── Memory graph API ─────────────────────────
+
+    def _ensure_graph_built(self) -> None:
+        """Rebuild the memory graph if the index changed since last build."""
+        if not self._graph_dirty and self._graph is not None:
+            return
+        try:
+            # Per-section chunk→entity mappings come from the ENTITIES.md
+            # registry (LLM-maintained by the entity-indexer skill).
+            # Missing file means an empty registry — no entities for file
+            # chunks yet.
+            registry: Dict[str, Any] = {}
+            registry_path = self.agent_fs_path / ENTITY_REGISTRY_FILE
+            if registry_path.exists():
+                registry = parse_entity_registry(
+                    registry_path.read_text(encoding="utf-8")
+                )
+            # A file's chunks are "reviewed" only while its current content
+            # still hashes to the registry's recorded fingerprint (the SAME
+            # hash the entity-index pre-check writes — see
+            # registry_content_hash). A stale/missing entry means the file
+            # changed since its last extraction, so its chunks fall to
+            # pending links until the entity-indexer catches up.
+            confirmed_files = set()
+            for rel, entry in registry.items():
+                fpath = self.agent_fs_path / rel
+                try:
+                    if fpath.exists():
+                        raw = registry_content_hash(fpath.read_bytes())
+                        if raw == (entry.get("hash") or "").lower():
+                            confirmed_files.add(rel)
+                except OSError:
+                    continue
+            self._graph = MemoryGraph.build(
+                self._load_full_corpus(), registry, confirmed_files
+            )
+            self._graph_dirty = False
+            logger.debug(
+                f"[MEMORY] Graph rebuilt: {len(self._graph.entities)} entities, "
+                f"{len(self._graph.items)} items, {len(self._graph.files)} files"
+            )
+        except Exception as e:
+            logger.warning(f"[MEMORY] Failed to rebuild memory graph: {e}")
+            # Leave dirty so the next call retries.
+
+    def _load_full_corpus(self) -> List[Dict[str, Any]]:
+        """Pull every chunk (id, document, metadata) from ChromaDB."""
+        result = self.collection.get(include=["documents", "metadatas"])
+        ids = result.get("ids") or []
+        docs = result.get("documents") or []
+        metas = result.get("metadatas") or []
+        return [
+            {
+                "chunk_id": ids[i],
+                "document": docs[i] if i < len(docs) else "",
+                "metadata": metas[i] if i < len(metas) else {},
+            }
+            for i in range(len(ids))
+        ]
+
+    def graph_snapshot(self) -> Dict[str, Any]:
+        """Full graph serialisation for the Memory panel (nodes/edges/stats)."""
+        self._ensure_graph_built()
+        if self._graph is None:
+            return {"nodes": [], "edges": [], "stats": {}}
+        return self._graph.snapshot()
+
+    def entity_overview(self, name: str) -> Optional[Dict[str, Any]]:
+        """Everything the memory graph knows about one entity, or None."""
+        self._ensure_graph_built()
+        if self._graph is None:
+            return None
+        return self._graph.entity_overview(name)
+
+    def related_path(self, name_a: str, name_b: str) -> List[Dict[str, Any]]:
+        """Shortest connection between two entities through items/files."""
+        self._ensure_graph_built()
+        if self._graph is None:
+            return []
+        return self._graph.shortest_path(name_a, name_b)
 
     # ───────────────────────── Hybrid retrieval helpers ─────────────────────────
 
@@ -616,9 +766,7 @@ class MemoryManager:
 
         # Get current files in agent file system
         current_files = self._get_all_markdown_files()
-        current_file_paths = {
-            str(f.relative_to(self.agent_fs_path)) for f in current_files
-        }
+        current_file_paths = {self._rel_path(f) for f in current_files}
         indexed_file_paths = set(self._file_index_cache.keys())
 
         # Find new, modified, and removed files
@@ -689,7 +837,7 @@ class MemoryManager:
         markdown_files = self._get_all_markdown_files()
 
         for file_path in markdown_files:
-            rel_path = str(file_path.relative_to(self.agent_fs_path))
+            rel_path = self._rel_path(file_path)
 
             # Skip if already indexed (and not forcing)
             if not force and rel_path in self._file_index_cache:
@@ -764,12 +912,16 @@ class MemoryManager:
         whole is still in INDEX_TARGET_FILES so its preamble is captured
         by the section chunker on other indexed files where appropriate.
 
-        Per-chunk metadata carries timestamp, category, extracted_entities
-        (list of capitalised tokens / quoted strings) and an indexed_at
-        stamp. Timestamp is stored for display / debugging only.
+        Per-chunk metadata carries timestamp, category, entities (wikilinks
+        when present, heuristic extraction otherwise), the superseded flag,
+        and an indexed_at stamp. MEMORY.md chunks get deterministic ids
+        derived from (timestamp, content), so the graph node, the Chroma
+        chunk, and the UI item share one identity across rebuilds.
         """
         chunks: List[MemoryChunk] = []
         now = datetime.utcnow().isoformat()
+        seen_ids: Dict[str, int] = {}
+        is_memory_file = Path(file_path).name == "MEMORY.md"
 
         for raw_line in content.splitlines():
             line = raw_line.strip()
@@ -783,13 +935,27 @@ class MemoryManager:
             timestamp_iso = _normalize_timestamp(timestamp_str)
             category = category.lower()
 
-            # Body = the item content. Summary = first ~150 chars cleaned.
-            entities = extract_entities(item_text)
-            summary = self._create_summary(item_text)
+            clean_text, declared_entities, superseded = split_item_fields(item_text)
+            # Graph entities come from the LLM-written {entities: ...} field
+            # only; the BM25 keyword field keeps the loose extraction —
+            # noisy proper nouns help keyword recall but must never become
+            # graph entities.
+            keyword_entities = extract_entities(clean_text)
+            summary = self._create_summary(clean_text)
+
+            if is_memory_file:
+                chunk_id = compute_item_id(timestamp_iso or timestamp_str, clean_text)
+                # Identical duplicate lines get a stable ordinal suffix.
+                dup = seen_ids.get(chunk_id, 0)
+                seen_ids[chunk_id] = dup + 1
+                if dup:
+                    chunk_id = f"{chunk_id}-{dup + 1}"
+            else:
+                chunk_id = str(uuid.uuid4())
 
             chunks.append(
                 MemoryChunk(
-                    chunk_id=str(uuid.uuid4()),
+                    chunk_id=chunk_id,
                     file_path=file_path,
                     section_path=f"item:{category}",
                     title=category,
@@ -802,9 +968,15 @@ class MemoryManager:
                         "timestamp": timestamp_iso,
                         "category": category,
                         # ChromaDB metadata values must be primitives; serialise
-                        # the entity list as a comma-joined string. The BM25
-                        # corpus and retrieval consumers parse it back.
-                        "extracted_entities": ", ".join(entities),
+                        # entity lists as comma-joined strings. extracted_entities
+                        # feeds BM25 (loose), entities feeds the graph (curated).
+                        "extracted_entities": ", ".join(keyword_entities),
+                        "entities": ", ".join(declared_entities or []),
+                        # None → no {entities:} field yet → unreviewed by the
+                        # entity-indexer → the graph gives it pending links.
+                        "entities_annotated": declared_entities is not None,
+                        "item_content": clean_text,
+                        "superseded": superseded,
                         "item_kind": "memory_log",
                     },
                 )
@@ -813,10 +985,25 @@ class MemoryManager:
         return chunks
 
     def _chunk_by_sections(self, content: str, file_path: str) -> List[MemoryChunk]:
-        """Original header-based chunker. Preserves existing behaviour for
-        non-list markdown (AGENT.md, USER.md, PROACTIVE.md, ...).
+        """Header-based chunker for non-list markdown (AGENT.md, USER.md,
+        workspace docs, ...).
+
+        Chunk ids are deterministic hashes of (file, section, content):
+        file chunks ARE memories, so the graph node, the Chroma chunk, and
+        the ENTITIES.md section entities must share one identity across
+        rebuilds — same rule as MEMORY.md items.
         """
         chunks: List[MemoryChunk] = []
+        seen_ids: Dict[str, int] = {}
+
+        def chunk_id_for(section_path: str, chunk_content: str) -> str:
+            digest = hashlib.md5(
+                f"{file_path}|{section_path}|{chunk_content}".encode("utf-8")
+            ).hexdigest()
+            cid = f"c{digest[:12]}"
+            dup = seen_ids.get(cid, 0)
+            seen_ids[cid] = dup + 1
+            return cid if not dup else f"{cid}-{dup + 1}"
 
         # Parse headers and their content
         sections = self._parse_markdown_sections(content)
@@ -840,7 +1027,9 @@ class MemoryManager:
                 )
                 for i, sub_content in enumerate(sub_chunks):
                     chunk = MemoryChunk(
-                        chunk_id=str(uuid.uuid4()),
+                        chunk_id=chunk_id_for(
+                            f"{section['path']} (part {i + 1})", sub_content
+                        ),
                         file_path=file_path,
                         section_path=f"{section['path']} (part {i + 1})",
                         title=section["title"],
@@ -853,12 +1042,15 @@ class MemoryManager:
                             "header_level": section["level"],
                             "part": i + 1,
                             "total_parts": len(sub_chunks),
+                            "extracted_entities": ", ".join(
+                                extract_entities(sub_content)
+                            ),
                         },
                     )
                     chunks.append(chunk)
             else:
                 chunk = MemoryChunk(
-                    chunk_id=str(uuid.uuid4()),
+                    chunk_id=chunk_id_for(section["path"], section_content),
                     file_path=file_path,
                     section_path=section["path"],
                     title=section["title"],
@@ -869,6 +1061,9 @@ class MemoryManager:
                     indexed_at=now,
                     metadata={
                         "header_level": section["level"],
+                        "extracted_entities": ", ".join(
+                            extract_entities(section_content)
+                        ),
                     },
                 )
                 chunks.append(chunk)
@@ -1033,10 +1228,14 @@ class MemoryManager:
         Create a brief summary of content for the memory pointer.
 
         Takes the first meaningful text, cleans it up, and truncates.
+        Markdown SYNTAX is stripped positionally — never characters inside
+        words, or snake_case identifiers like list_available_integrations
+        collapse into unreadable mush.
         """
-        # Remove markdown formatting
         clean = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", content)  # Links
-        clean = re.sub(r"[*_`#]+", "", clean)  # Formatting
+        clean = re.sub(r"^#{1,6}\s+", "", clean, flags=re.MULTILINE)  # Headings
+        clean = clean.replace("`", "")  # Inline-code markers
+        clean = re.sub(r"\*+", "", clean)  # Bold/italic markers
         clean = re.sub(r"\s+", " ", clean).strip()  # Whitespace
 
         # Take first max_length chars, break at word boundary
@@ -1059,12 +1258,12 @@ class MemoryManager:
         Returns the number of chunks created.
         """
         try:
-            content = file_path.read_text(encoding="utf-8")
+            content = extract_text(file_path)
         except Exception as e:
             logger.error(f"Error reading file {file_path}: {e}")
             return 0
 
-        rel_path = str(file_path.relative_to(self.agent_fs_path))
+        rel_path = self._rel_path(file_path)
         file_hash = self._compute_file_hash(file_path)
         file_modified = datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
 
@@ -1110,6 +1309,7 @@ class MemoryManager:
             return 0
 
         self._bm25_dirty = True
+        self._graph_dirty = True
 
         # Update file index cache
         file_index = FileIndex(
@@ -1147,6 +1347,7 @@ class MemoryManager:
         # Remove from cache
         del self._file_index_cache[file_path]
         self._bm25_dirty = True
+        self._graph_dirty = True
 
         logger.debug(f"Removed {len(file_index.chunk_ids)} chunks for {file_path}")
 
@@ -1166,17 +1367,18 @@ class MemoryManager:
         self.collection = self.chroma_client.get_or_create_collection(
             name=self.COLLECTION_NAME,
             metadata={
-                "description": "Agent file system memory chunks (v2)",
+                "description": "Agent file system memory chunks",
                 "hnsw:space": "cosine",
             },
         )
         self.file_index_collection = self.chroma_client.get_or_create_collection(
             name=self.FILE_INDEX_COLLECTION,
-            metadata={"description": "File index for incremental updates (v2)"},
+            metadata={"description": "File index for incremental updates"},
         )
 
         self._file_index_cache.clear()
         self._bm25_dirty = True
+        self._graph_dirty = True
 
     # ───────────────────────────── File Index Persistence ─────────────────────────────
 
@@ -1229,14 +1431,60 @@ class MemoryManager:
 
     # ───────────────────────────── Utilities ─────────────────────────────
 
-    # Files to index for memory retrieval
+    # Files always indexed for memory retrieval. User-selected extras come
+    # from the extra_files_provider (settings-backed, managed in the Memory
+    # panel) and are merged in by get_index_target_files().
     INDEX_TARGET_FILES = [
         "AGENT.md",
         "PROACTIVE.md",
         "MEMORY.md",
         "USER.md",
         "EVENT_UNPROCESSED.md",
+        # Entity registry (entity-indexer skill output). Indexed so the
+        # file watcher picks up registry edits and dirties the graph.
+        "ENTITIES.md",
     ]
+
+    def get_index_target_files(self) -> List[str]:
+        """Core files plus validated user-selected extras (relative paths)."""
+        targets = list(self.INDEX_TARGET_FILES)
+        if self._extra_files_provider is None:
+            return targets
+
+        try:
+            extras = self._extra_files_provider() or []
+        except Exception as e:
+            logger.warning(f"[MEMORY] extra_files_provider failed: {e}")
+            return targets
+
+        seen = set(targets)
+        for raw in extras:
+            rel = str(raw).replace("\\", "/").strip().lstrip("/")
+            if not rel or rel in seen or not is_indexable_file(rel):
+                continue
+            # Confine to the agent file system — reject traversal attempts.
+            try:
+                resolved = (self.agent_fs_path / rel).resolve()
+                resolved.relative_to(self.agent_fs_path)
+            except (ValueError, OSError):
+                logger.warning(f"[MEMORY] Ignoring indexed file outside FS: {raw}")
+                continue
+            seen.add(rel)
+            targets.append(rel)
+        return targets
+
+    def is_index_target(self, path: str) -> bool:
+        """Whether an absolute or relative path is currently indexed."""
+        try:
+            p = Path(path)
+            rel = (
+                str(p.resolve().relative_to(self.agent_fs_path))
+                if p.is_absolute()
+                else str(p)
+            ).replace("\\", "/")
+        except (ValueError, OSError):
+            return False
+        return rel in set(self.get_index_target_files())
 
     def _get_all_markdown_files(self) -> List[Path]:
         """Get the target markdown files in the agent file system."""
@@ -1247,18 +1495,63 @@ class MemoryManager:
             return []
 
         files = []
-        for filename in self.INDEX_TARGET_FILES:
+        for filename in self.get_index_target_files():
             file_path = self.agent_fs_path / filename
             if file_path.exists():
                 files.append(file_path)
         return files
 
+    def _rel_path(self, file_path: Path) -> str:
+        """Path relative to the FS root, always forward-slashed.
+
+        One canonical separator keeps chunk metadata, the file-index cache,
+        the settings list, and the panel display consistent across platforms.
+        """
+        return str(file_path.relative_to(self.agent_fs_path)).replace("\\", "/")
+
+    def get_file_sections(self, rel_path: str) -> List[str]:
+        """The chunker's exact section keys for one indexed file, in order.
+
+        Supplied verbatim to the entity-indexer skill so its ENTITIES.md
+        section lines match chunk section_paths exactly — no fuzzy
+        matching anywhere.
+        """
+        file_path = self.agent_fs_path / rel_path
+        if not file_path.exists():
+            return []
+        try:
+            content = extract_text(file_path)
+        except Exception:
+            return []
+        sections: List[str] = []
+        for chunk in self._chunk_markdown(content, rel_path):
+            if chunk.section_path not in sections:
+                sections.append(chunk.section_path)
+        return sections
+
+    def get_index_files_info(self) -> List[Dict[str, Any]]:
+        """Per-file index status for the Memory panel."""
+        core = set(self.INDEX_TARGET_FILES)
+        info: List[Dict[str, Any]] = []
+        for rel in self.get_index_target_files():
+            file_path = self.agent_fs_path / rel
+            index = self._file_index_cache.get(rel)
+            info.append(
+                {
+                    "path": rel,
+                    "core": rel in core,
+                    "exists": file_path.exists(),
+                    "chunk_count": len(index.chunk_ids) if index else 0,
+                    "indexed_at": index.indexed_at if index else "",
+                }
+            )
+        return info
+
     @staticmethod
     def _compute_file_hash(file_path: Path) -> str:
-        """Compute MD5 hash of file content."""
+        """MD5 of file content — the incremental updater's change signal."""
         try:
-            content = file_path.read_bytes()
-            return hashlib.md5(content).hexdigest()
+            return hashlib.md5(file_path.read_bytes()).hexdigest()
         except Exception:
             return ""
 
@@ -1288,20 +1581,31 @@ def _cosine_distance_to_similarity(distance: float) -> float:
     return sim
 
 
-def _normalize_timestamp(ts: str) -> str:
-    """Coerce '/' or 'T'-separated timestamps to canonical 'YYYY-MM-DD HH:MM:SS'.
+def _recency_bonus(timestamp: str) -> float:
+    """Small additive bonus for recent memory items.
 
-    Returns an empty string when parsing fails — stored as metadata only;
-    not currently used in ranking.
+    Decays exponentially with RECENCY_HALF_LIFE_DAYS; chunks without a
+    parseable timestamp (section chunks, legacy items) get no bonus.
     """
-    if not ts:
-        return ""
-    cleaned = ts.replace("/", "-").replace("T", " ")
+    if not timestamp:
+        return 0.0
     try:
-        dt = datetime.strptime(cleaned, "%Y-%m-%d %H:%M:%S")
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
+        dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
     except ValueError:
-        return ""
+        return 0.0
+    age_days = max(0.0, (datetime.now() - dt).total_seconds() / 86400.0)
+    return RECENCY_MAX_BONUS * (0.5 ** (age_days / RECENCY_HALF_LIFE_DAYS))
+
+
+def _normalize_timestamp(ts: str) -> str:
+    """Canonical 'YYYY-MM-DD HH:MM:SS', tolerant of '/'-dates, 'T', and
+    missing seconds. Delegates to the shared graph helper so item ids are
+    derived from the identical canonical form everywhere. Returns '' when
+    parsing fails; the timestamp feeds the recency bonus in retrieval.
+    """
+    from agent_core.core.impl.memory.graph import normalize_timestamp
+
+    return normalize_timestamp(ts)
 
 
 # ───────────────────────────── Testing / Demo ─────────────────────────────

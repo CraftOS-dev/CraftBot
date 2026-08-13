@@ -69,6 +69,22 @@ _STOP = {
     "that",
     "these",
     "those",
+    "do",
+    "not",
+    "no",
+    "if",
+    "when",
+    "then",
+    "also",
+    "only",
+    "never",
+    "always",
+    "before",
+    "after",
+    "use",
+    "id",
+    "url",
+    "ok",
     "user",
     "agent",
     "task",
@@ -127,6 +143,11 @@ def extract_entities(text: str, max_entities: int = 12) -> List[str]:
             continue
         lowered = candidate.lower()
         if lowered in _STOP:
+            continue
+        # Reject chains made entirely of stopwords ("Do NOT", "When If"):
+        # capitalised grammar words at sentence starts, not entities.
+        words = re.split(r"[ \-_]+", lowered)
+        if words and all(w in _STOP for w in words):
             continue
         # Drop single-letter or pure-numeric tokens
         if len(candidate) < 2:

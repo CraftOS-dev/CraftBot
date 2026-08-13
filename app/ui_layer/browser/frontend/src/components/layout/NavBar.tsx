@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   FolderOpen,
   Settings,
+  Waypoints,
   Box,
   Loader2,
   PanelLeftClose,
@@ -85,6 +86,7 @@ function AnimatedSessionTitle({ title }: { title: string }) {
 
 const utilityNavItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard' },
+  { id: 'memory', label: 'Memory', icon: <Waypoints size={16} />, path: '/memory' },
   { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace' },
 ]
 

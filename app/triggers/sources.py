@@ -29,6 +29,11 @@ class TriggerSource(str, Enum):
     LIMIT_REACHED = "limit_reached"
     # Background workflows (all land in the main session)
     MEMORY = "memory"
+    # File indexing produced/refreshed indexed files whose entities need
+    # LLM extraction (entity-indexer skill). Emitted by the indexing
+    # process itself: startup index pass, file-watcher re-index, and
+    # panel indexed-files changes.
+    ENTITY_INDEX = "entity_index"
     PROACTIVE_HEARTBEAT = "proactive_heartbeat"
     PROACTIVE_PLANNER = "proactive_planner"
     ONBOARDING = "onboarding"

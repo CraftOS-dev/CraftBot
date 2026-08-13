@@ -290,6 +290,43 @@ class InternalActionInterface:
             for ptr in pointers
         ]
 
+    @classmethod
+    def memory_entity(cls, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Everything the memory graph knows about one entity.
+
+        Args:
+            name: Entity name (case-insensitive)
+
+        Returns:
+            Dict with entity, mention_count, items, related_entities and
+            files, or None when the entity is unknown.
+        """
+        if cls.memory_manager is None:
+            raise RuntimeError(
+                "InternalActionInterface not initialized with MemoryManager."
+            )
+        return cls.memory_manager.entity_overview(name)
+
+    @classmethod
+    def memory_related(cls, name_a: str, name_b: str) -> List[Dict[str, Any]]:
+        """
+        Shortest connection between two entities in the memory graph.
+
+        Args:
+            name_a: First entity name
+            name_b: Second entity name
+
+        Returns:
+            Node sequence (entities, memory items, files) connecting the
+            two, or an empty list when no connection exists.
+        """
+        if cls.memory_manager is None:
+            raise RuntimeError(
+                "InternalActionInterface not initialized with MemoryManager."
+            )
+        return cls.memory_manager.related_path(name_a, name_b)
+
     # ─────────────────────── GUI Actions ───────────────────────
 
     @classmethod

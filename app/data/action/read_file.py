@@ -3,7 +3,7 @@ from agent_core import action
 
 @action(
     name="read_file",
-    description="Reads a file and returns its contents with line numbers. By default reads up to 2000 lines from the beginning. Use offset and limit parameters to read specific sections of large files. For searching within files, use grep_files instead.",
+    description="Reads a file and returns its contents with line numbers. PDF files are returned as their extracted text (text layer only, one '## Page N' heading per page). By default reads up to 2000 lines from the beginning. Use offset and limit parameters to read specific sections of large files. For searching within files, use grep_files instead.",
     mode="CLI",
     action_sets=["core"],
     input_schema={
@@ -143,8 +143,18 @@ def read_file(input_data: dict) -> dict:
         }
 
     try:
-        with open(file_path, "r", encoding=encoding, errors="replace") as f:
-            all_lines = f.readlines()
+        if file_path.lower().endswith(".pdf"):
+            # PDFs: extracted text layer only (images ignored) — the same
+            # preprocessing the memory indexer uses, so what this action
+            # returns matches what got indexed.
+            from pathlib import Path
+
+            from agent_core.core.impl.memory.text_extract import extract_text
+
+            all_lines = [line + "\n" for line in extract_text(Path(file_path)).splitlines()]
+        else:
+            with open(file_path, "r", encoding=encoding, errors="replace") as f:
+                all_lines = f.readlines()
 
         total_lines = len(all_lines)
 

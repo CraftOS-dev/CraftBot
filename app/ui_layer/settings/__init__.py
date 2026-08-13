@@ -98,6 +98,10 @@ from app.ui_layer.settings.memory_settings import (
     reset_memory,
     clear_unprocessed_events,
     get_memory_stats,
+    # Indexed files
+    get_memory_indexed_files,
+    set_memory_indexed_files,
+    list_indexable_candidates,
 )
 
 # Model settings
@@ -195,6 +199,9 @@ __all__ = [
     "update_memory_item",
     "remove_memory_item",
     "reset_memory",
+    "get_memory_indexed_files",
+    "set_memory_indexed_files",
+    "list_indexable_candidates",
     "clear_unprocessed_events",
     "get_memory_stats",
     # Model settings

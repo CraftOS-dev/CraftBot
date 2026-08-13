@@ -51,6 +51,8 @@ from app.ui_layer.settings import (
     reset_memory,
     clear_unprocessed_events,
     get_memory_stats,
+    set_memory_indexed_files,
+    list_indexable_candidates,
     # Model settings
     get_available_providers,
     get_model_settings,
@@ -1415,7 +1417,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             item_id = data.get("itemId", "")
             category = data.get("category")
             content = data.get("content")
-            await self._handle_memory_item_update(item_id, category, content)
+            superseded = data.get("superseded")
+            await self._handle_memory_item_update(
+                item_id, category, content, superseded
+            )
 
         elif msg_type == "memory_item_remove":
             item_id = data.get("itemId", "")
@@ -1429,6 +1434,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "memory_process_trigger":
             await self._handle_memory_process_trigger()
+
+        elif msg_type == "memory_graph_get":
+            await self._handle_memory_graph_get()
+
+        elif msg_type == "memory_indexed_files_get":
+            await self._handle_memory_indexed_files_get()
+
+        elif msg_type == "memory_indexed_files_set":
+            paths = data.get("paths", [])
+            await self._handle_memory_indexed_files_set(paths)
 
         # Model settings operations
         elif msg_type == "model_providers_get":
@@ -4139,6 +4154,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "skill_creation",
             "skill_improvement",
             "memory_processing",
+            "entity_index",
         }
     )
 
@@ -4150,6 +4166,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "craftbot-skill-creator",
             "craftbot-skill-improve",
             "memory-processor",
+            "entity-indexer",
             "heartbeat-processor",
             "user-profile-interview",
             "day-planner",
@@ -4174,6 +4191,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "craftbot-skill-creator",
             "craftbot-skill-improve",
             "memory-processor",
+            "entity-indexer",
             "user-profile-interview",
             "heartbeat-processor",
             "day-planner",
@@ -4934,10 +4952,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_memory_item_update(
-        self, item_id: str, category: str = None, content: str = None
+        self,
+        item_id: str,
+        category: str = None,
+        content: str = None,
+        superseded: bool = None,
     ) -> None:
         """Update an existing memory item."""
-        result = update_memory_item(item_id=item_id, category=category, content=content)
+        result = update_memory_item(
+            item_id=item_id,
+            category=category,
+            content=content,
+            superseded=superseded,
+        )
 
         if result.get("success"):
             # Update memory index after updating
@@ -5092,6 +5119,97 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": str(e),
                     },
+                }
+            )
+
+    async def _handle_memory_graph_get(self) -> None:
+        """Send the memory graph snapshot (nodes/edges/stats) to the panel."""
+        try:
+            agent = self._controller.agent
+            snapshot = await asyncio.to_thread(agent.memory_manager.graph_snapshot)
+
+            # Fold in pipeline stats the panel shows alongside the graph.
+            stats = snapshot.get("stats", {})
+            memory_stats = get_memory_stats()
+            if memory_stats.get("success"):
+                stats["unprocessed_events"] = memory_stats.get("unprocessed_events", 0)
+                stats["memory_item_count"] = memory_stats.get("total_items", 0)
+            snapshot["stats"] = stats
+
+            await self._broadcast(
+                {
+                    "type": "memory_graph_get",
+                    "data": {"success": True, "graph": snapshot},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_graph_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_indexed_files_get(self) -> None:
+        """Send the indexed-files list and addable candidates."""
+        try:
+            agent = self._controller.agent
+            files = agent.memory_manager.get_index_files_info()
+            candidates_result = list_indexable_candidates()
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_get",
+                    "data": {
+                        "success": True,
+                        "files": files,
+                        "candidates": candidates_result.get("candidates", []),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_indexed_files_set(self, paths: list) -> None:
+        """Replace the extra indexed-files list and re-index."""
+        try:
+            result = set_memory_indexed_files(paths)
+            if not result.get("success"):
+                await self._broadcast(
+                    {
+                        "type": "memory_indexed_files_set",
+                        "data": {
+                            "success": False,
+                            "error": result.get("error", "Unknown error"),
+                        },
+                    }
+                )
+                return
+
+            # Re-index so added files appear (and removed files drop out)
+            # immediately rather than waiting for the file watcher.
+            agent = self._controller.agent
+            await asyncio.to_thread(agent.memory_manager.update)
+
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_set",
+                    "data": {
+                        "success": True,
+                        "files": agent.memory_manager.get_index_files_info(),
+                        "rejected": result.get("rejected", []),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_set",
+                    "data": {"success": False, "error": str(e)},
                 }
             )
 

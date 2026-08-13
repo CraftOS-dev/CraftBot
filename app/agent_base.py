@@ -154,6 +154,7 @@ RUN_START_SOURCES = {
     TriggerSource.SCHEDULED_ONCE.value,
     TriggerSource.SCHEDULED_IMMEDIATE.value,
     TriggerSource.MEMORY.value,
+    TriggerSource.ENTITY_INDEX.value,
     TriggerSource.PROACTIVE_HEARTBEAT.value,
     TriggerSource.PROACTIVE_PLANNER.value,
     TriggerSource.ONBOARDING.value,
@@ -189,6 +190,7 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
     TriggerSource.SCHEDULED_IMMEDIATE.value: ("⏰", "Scheduled task"),
     TriggerSource.MEMORY.value: ("⚙️", "Memory processing workflow"),
+    TriggerSource.ENTITY_INDEX.value: ("⚙️", "Entity indexing workflow"),
     TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Proactive check"),
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
@@ -360,9 +362,15 @@ class AgentBase:
         self.session_manager.ensure_main()
 
         # ── memory manager for proactive agent ──
+        # extra_files_provider: user-selected files from the Memory panel
+        # (settings.json memory.indexed_files), read live on every index
+        # pass so panel changes apply without a restart.
+        from app.ui_layer.settings.memory_settings import get_memory_indexed_files
+
         self.memory_manager = MemoryManager(
             agent_file_system_path=str(AGENT_FILE_SYSTEM_PATH),
             chroma_path=str(AGENT_MEMORY_CHROMA_PATH),
+            extra_files_provider=get_memory_indexed_files,
         )
         # Connect memory manager to context engine for memory-aware prompts
         self.context_engine.set_memory_manager(self.memory_manager)
@@ -577,6 +585,22 @@ class AgentBase:
                         trigger.next_action_description = desc
                     trigger.payload.update(workflow)
                     self._update_aggregated_description(trigger, desc)
+            elif trigger.source == TriggerSource.ENTITY_INDEX.value:
+                prepared = self._prepare_entity_index_run()
+                if prepared is None:
+                    if not is_aggregated_batch:
+                        return
+                    self._drop_aggregated_source(trigger, trigger.source)
+                else:
+                    desc, workflow = prepared
+                    if is_aggregated_batch:
+                        trigger.next_action_description += (
+                            f"\n\nAlso part of this turn ({trigger.source}): {desc}"
+                        )
+                    else:
+                        trigger.next_action_description = desc
+                    trigger.payload.update(workflow)
+                    self._update_aggregated_description(trigger, desc)
             elif trigger.source in (
                 TriggerSource.PROACTIVE_HEARTBEAT.value,
                 TriggerSource.PROACTIVE_PLANNER.value,
@@ -687,23 +711,21 @@ class AgentBase:
             return None
 
         unprocessed_file = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-        if not unprocessed_file.exists():
-            return None
-        try:
-            content = unprocessed_file.read_text(encoding="utf-8")
-        except Exception as e:
-            logger.warning(f"[MEMORY] Failed to read EVENT_UNPROCESSED.md: {e}")
-            return None
-        event_lines = [
-            line
-            for line in content.strip().split("\n")
-            if line.strip() and line.strip().startswith("[")
-        ]
-        if not event_lines:
-            logger.info("[MEMORY] No unprocessed events to process")
-            return None
+        event_lines: list[str] = []
+        if unprocessed_file.exists():
+            try:
+                content = unprocessed_file.read_text(encoding="utf-8")
+                event_lines = [
+                    line
+                    for line in content.strip().split("\n")
+                    if line.strip() and line.strip().startswith("[")
+                ]
+            except Exception as e:
+                logger.warning(f"[MEMORY] Failed to read EVENT_UNPROCESSED.md: {e}")
 
-        # Decide whether the pruning phase should run alongside processing.
+        # Inspect MEMORY.md purely for the pruning need (item cap). Entity
+        # work is NOT the memory-processor's job — the entity-indexer owns
+        # all entity linkage and runs, chained, after this run ends.
         needs_pruning = False
         max_items = get_memory_max_items()
         memory_file = AGENT_FILE_SYSTEM_PATH / "MEMORY.md"
@@ -715,17 +737,24 @@ class AgentBase:
                 if len(memory_items) >= max_items:
                     needs_pruning = True
             except Exception as e:
-                logger.warning(f"[MEMORY] Failed to count MEMORY.md items: {e}")
+                logger.warning(f"[MEMORY] Failed to inspect MEMORY.md: {e}")
+
+        if not event_lines and not needs_pruning:
+            logger.info("[MEMORY] No unprocessed events and no pruning needed")
+            return None
 
         # Freeze the unprocessed buffer so this run's own events don't loop
         # back into it. Reset when the run ends (_on_run_end).
         self.event_stream_manager.set_skip_unprocessed_logging(True)
 
-        instruction = (
-            f"Process the {len(event_lines)} unprocessed event(s) in "
-            f"EVENT_UNPROCESSED.md into long-term memory. Follow the "
-            f"memory-processor skill instructions."
-        )
+        parts = []
+        if event_lines:
+            parts.append(
+                f"Process the {len(event_lines)} unprocessed event(s) in "
+                f"EVENT_UNPROCESSED.md into long-term memory."
+            )
+        parts.append("Follow the memory-processor skill instructions.")
+        instruction = " ".join(parts)
         if needs_pruning:
             instruction += (
                 f" Then run the pruning phase: MEMORY.md exceeds "
@@ -737,8 +766,140 @@ class AgentBase:
             "workflow_skills": ["memory-processor"],
             "workflow_action_sets": ["file_operations"],
         }
-        logger.info(f"[MEMORY] Processing {len(event_lines)} unprocessed events")
+        logger.info(
+            f"[MEMORY] Memory run: {len(event_lines)} events, "
+            f"pruning={needs_pruning}"
+        )
         return instruction, workflow
+
+    def _prepare_entity_index_run(self) -> Optional[tuple[str, dict]]:
+        """Pre-check the entity-index trigger (fired by the indexing process).
+
+        Returns (instruction, workflow_payload) when indexed files have
+        stale/missing ENTITIES.md entries, or None to skip the turn.
+        """
+        if not is_memory_enabled():
+            logger.info("[ENTITY-INDEX] Memory is disabled, skipping trigger")
+            return None
+
+        stale_files = self._stale_entity_files()
+        unannotated_memories = self._unannotated_memory_items()
+        if not stale_files and not unannotated_memories:
+            logger.info("[ENTITY-INDEX] Nothing to extract or confirm")
+            return None
+
+        # Freeze the unprocessed buffer so this run's own events don't feed
+        # back into memory processing. Reset when the run ends (_on_run_end).
+        self.event_stream_manager.set_skip_unprocessed_logging(True)
+
+        parts: list[str] = []
+        # MEMORY.md is annotated INLINE (not via the registry): every item
+        # without an {entities: ...} field is unreviewed and currently
+        # carries only provisional (pending) links — confirm or correct them.
+        if unannotated_memories:
+            parts.append(
+                f"Confirm entity links for {unannotated_memories} MEMORY.md "
+                f"item(s) that have no {{entities: ...}} field: read each item, "
+                f"decide the entities it is about, and append the "
+                f"{{entities: ...}} field to that line in place."
+            )
+        # Other indexed files are recorded in the ENTITIES.md registry. Each
+        # entry carries its exact chunker section keys so the skill's
+        # registry lines match chunk section_paths verbatim.
+        if stale_files:
+            file_specs = []
+            for rel, digest in stale_files:
+                sections = self.memory_manager.get_file_sections(rel)
+                section_list = " ".join(f"[{s}]" for s in sections)
+                file_specs.append(f"{rel} (hash {digest}) sections: {section_list}")
+            parts.append(
+                f"Extract entities for {len(stale_files)} indexed file(s) into "
+                f"ENTITIES.md: {'; '.join(file_specs)}. For each file, read it, "
+                f"decide the entities of each listed section, and update its "
+                f"registry lines using the given hash and the section keys "
+                f"exactly as listed."
+            )
+        parts.append("Follow the entity-indexer skill instructions.")
+        instruction = " ".join(parts)
+        workflow = {
+            "run_source": TriggerSource.ENTITY_INDEX.value,
+            "workflow_skills": ["entity-indexer"],
+            "workflow_action_sets": ["file_operations"],
+        }
+        logger.info(
+            f"[ENTITY-INDEX] {unannotated_memories} MEMORY.md item(s) to confirm, "
+            f"{len(stale_files)} file(s) to extract"
+        )
+        return instruction, workflow
+
+    def _unannotated_memory_items(self) -> int:
+        """Count non-superseded MEMORY.md items with no {entities: ...} field.
+
+        These are the memories the entity-indexer still has to review — they
+        carry only provisional pending links until it annotates them inline.
+        """
+        memory_file = AGENT_FILE_SYSTEM_PATH / "MEMORY.md"
+        if not memory_file.exists():
+            return 0
+        try:
+            items = _parse_memory_items(memory_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"[ENTITY-INDEX] Failed to inspect MEMORY.md: {e}")
+            return 0
+        return sum(
+            1
+            for item in items
+            if not item.get("entities_annotated") and not item.get("superseded")
+        )
+
+    def _stale_entity_files(self) -> list[tuple[str, str]]:
+        """Indexed files whose ENTITIES.md entry is missing or outdated.
+
+        Returns (relative_path, content_hash) pairs; the hash is passed to
+        the entity-indexer via the task instruction so it can be written
+        verbatim into the registry line.
+        """
+        from agent_core.core.impl.memory.graph import (
+            ENTITY_REGISTRY_FILE,
+            parse_entity_registry,
+            registry_content_hash,
+        )
+        from app.ui_layer.settings.memory_settings import (
+            CORE_INDEX_FILES,
+            get_memory_indexed_files,
+        )
+
+        # MEMORY.md items carry their own entity fields; the unprocessed
+        # buffer is transient; the registry is bookkeeping.
+        excluded = {"MEMORY.md", "EVENT_UNPROCESSED.md", ENTITY_REGISTRY_FILE}
+
+        registry = {}
+        registry_path = AGENT_FILE_SYSTEM_PATH / ENTITY_REGISTRY_FILE
+        if registry_path.exists():
+            try:
+                registry = parse_entity_registry(
+                    registry_path.read_text(encoding="utf-8")
+                )
+            except Exception as e:
+                logger.warning(f"[MEMORY] Failed to parse {ENTITY_REGISTRY_FILE}: {e}")
+
+        stale: list[tuple[str, str]] = []
+        seen = set()
+        for rel in CORE_INDEX_FILES + get_memory_indexed_files():
+            if rel in excluded or rel in seen:
+                continue
+            seen.add(rel)
+            file_path = AGENT_FILE_SYSTEM_PATH / rel
+            if not file_path.exists():
+                continue
+            try:
+                digest = registry_content_hash(file_path.read_bytes())
+            except OSError:
+                continue
+            entry = registry.get(rel)
+            if entry is None or entry.get("hash") != digest:
+                stale.append((rel, digest))
+        return stale
 
     def _prepare_proactive_run(self, trigger: Trigger) -> Optional[tuple[str, dict]]:
         """Pre-check a proactive heartbeat/planner trigger.
@@ -1358,10 +1519,32 @@ class AgentBase:
         # Unload temporary workflow skills loaded at run start.
         self._remove_workflow_capabilities(session, run_payload)
 
-        # Memory runs freeze the unprocessed buffer — release it.
-        if run_source == TriggerSource.MEMORY.value:
+        # Memory and entity-index runs freeze the unprocessed buffer while
+        # they work — release it whichever of the two just ended.
+        if run_source in (
+            TriggerSource.MEMORY.value,
+            TriggerSource.ENTITY_INDEX.value,
+        ):
             if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
                 self.event_stream_manager.set_skip_unprocessed_logging(False)
+
+        # The entity indexer runs AFTER memory processing: a finished
+        # memory run chains the ENTITY_INDEX trigger. Its pre-check
+        # decides whether any indexed file actually needs extraction
+        # (no LLM cost when none is stale). Entity runs do NOT chain
+        # anything, so this can never loop.
+        if run_source == TriggerSource.MEMORY.value:
+            try:
+                await self.trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.ENTITY_INDEX,
+                        description="Extract entities for indexed files (after memory processing)",
+                        priority=60,
+                        session_id=MAIN_SESSION_ID,
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"[ENTITY-INDEX] Failed to chain trigger: {e}")
 
         # Skill creation/improvement run finished — reload skills so the new
         # or edited skill is invocable immediately.

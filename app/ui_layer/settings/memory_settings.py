@@ -15,12 +15,58 @@ from app.config import (
     AGENT_FILE_SYSTEM_TEMPLATE_PATH,
     SETTINGS_CONFIG_PATH,
 )
-
-
-# Memory item regex pattern: [YYYY-MM-DD HH:MM:SS] [category] content
-MEMORY_ITEM_PATTERN = re.compile(
-    r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+\[(\w+)\]\s+(.+)$"
+from agent_core.core.impl.memory.graph import (
+    SUPERSEDED_MARKER,
+    compute_item_id,
+    normalize_timestamp,
+    split_item_fields,
 )
+from agent_core.core.impl.memory.text_extract import is_indexable_file
+
+
+# Memory item regex pattern: [YYYY-MM-DD HH:MM(:SS)] [category] content
+# (seconds optional — historic items were stamped without them).
+# Content may carry structured tail fields ({entities: ...}, {superseded});
+# those are parsed out by _parse_memory_items via the shared graph helpers.
+MEMORY_ITEM_PATTERN = re.compile(
+    r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\]\s+\[([\w\-]+)\]\s+(.+)$"
+)
+
+# Files that are always indexed (mirrors MemoryManager.INDEX_TARGET_FILES).
+CORE_INDEX_FILES = [
+    "AGENT.md",
+    "PROACTIVE.md",
+    "MEMORY.md",
+    "USER.md",
+    "EVENT_UNPROCESSED.md",
+    "ENTITIES.md",
+]
+
+# Files never offered as index candidates: unbounded logs and transient
+# scaffolding that would pollute retrieval.
+_CANDIDATE_EXCLUDE = {
+    "EVENT.md",
+    "CONVERSATION_HISTORY.md",
+    "TASK_HISTORY.md",
+}
+
+# Candidate scan bounds — keeps the picker responsive on large workspaces.
+_CANDIDATE_MAX_DEPTH = 3
+_CANDIDATE_MAX_RESULTS = 200
+
+# Directories never descended into during the candidate scan: dependency
+# trees and build output in the workspace can be enormous (and on Windows
+# can exceed MAX_PATH, which makes blind recursion raise).
+_CANDIDATE_SKIP_DIRS = {
+    "node_modules",
+    ".git",
+    ".next",
+    "dist",
+    "build",
+    "__pycache__",
+    ".venv",
+    "venv",
+}
 
 # Memory size and length thresholds — live-read from settings.json via the
 # getter functions below, so values can be tuned without a code change.
@@ -149,48 +195,66 @@ def set_memory_mode(enabled: bool) -> Dict[str, Any]:
 def _parse_memory_items(content: str) -> List[Dict[str, Any]]:
     """Parse memory items from MEMORY.md content.
 
-    Args:
-        content: Raw content of MEMORY.md
-
-    Returns:
-        List of memory item dictionaries with timestamp, category, content
+    Item ids are the same deterministic (timestamp, content) hashes the
+    MemoryManager uses for chunk ids, so the UI, the vector index, and the
+    memory graph all reference an item by one identity. `content` in the
+    returned dict keeps wikilinks (it round-trips through serialization);
+    `display_content` has them stripped for rendering.
     """
     items = []
-    lines = content.split("\n")
+    seen_ids: Dict[str, int] = {}
 
-    for i, line in enumerate(lines):
+    for line in content.split("\n"):
         line = line.strip()
         if not line:
             continue
 
         match = MEMORY_ITEM_PATTERN.match(line)
-        if match:
-            timestamp_str, category, item_content = match.groups()
-            items.append(
-                {
-                    "id": f"mem_{i}_{hash(line) & 0xFFFFFFFF:08x}",
-                    "timestamp": timestamp_str,
-                    "category": category.lower(),
-                    "content": item_content,
-                    "raw": line,
-                }
-            )
+        if not match:
+            continue
+
+        timestamp_str, category, item_content = match.groups()
+        clean_content, entities, superseded = split_item_fields(item_content)
+
+        # Hash the normalized timestamp — the MemoryManager chunker does the
+        # same, so both derive the identical id for the same line.
+        item_id = compute_item_id(
+            normalize_timestamp(timestamp_str) or timestamp_str, clean_content
+        )
+        dup = seen_ids.get(item_id, 0)
+        seen_ids[item_id] = dup + 1
+        if dup:
+            item_id = f"{item_id}-{dup + 1}"
+
+        items.append(
+            {
+                "id": item_id,
+                "timestamp": timestamp_str,
+                "category": category.lower(),
+                "content": clean_content,
+                "display_content": clean_content,
+                "entities": entities or [],
+                # None = the memory-processor hasn't annotated this item
+                # yet (backfill pending); [] = annotated, no entities.
+                "entities_annotated": entities is not None,
+                "superseded": superseded,
+                "raw": line,
+            }
+        )
 
     return items
 
 
 def _serialize_memory_items(items: List[Dict[str, Any]]) -> str:
-    """Serialize memory items back to MEMORY.md format.
-
-    Args:
-        items: List of memory item dictionaries
-
-    Returns:
-        Formatted memory items string
-    """
+    """Serialize memory items back to MEMORY.md format."""
     lines = []
     for item in items:
-        line = f"[{item['timestamp']}] [{item['category']}] {item['content']}"
+        fields = ""
+        if item.get("entities_annotated") or item.get("entities"):
+            fields += " {entities: " + ", ".join(item.get("entities") or []) + "}"
+        if item.get("superseded"):
+            fields += f" {SUPERSEDED_MARKER}"
+        line = f"[{item['timestamp']}] [{item['category']}] {item['content']}{fields}"
         lines.append(line)
     return "\n".join(lines)
 
@@ -287,13 +351,22 @@ def add_memory_item(
         header, items_section = _read_memory_file()
         items = _parse_memory_items(items_section)
 
-        # Create new item
+        # Create new item. Entities are NOT derived from the text — the
+        # memory-processor's backfill annotates the item on its next run
+        # (unless the caller explicitly wrote an {entities: ...} field).
+        clean_content, entities, superseded = split_item_fields(content)
         new_line = f"[{timestamp}] [{category.lower()}] {content}"
         new_item = {
-            "id": f"mem_{len(items)}_{hash(new_line) & 0xFFFFFFFF:08x}",
+            "id": compute_item_id(
+                normalize_timestamp(timestamp) or timestamp, clean_content
+            ),
             "timestamp": timestamp,
             "category": category.lower(),
-            "content": content,
+            "content": clean_content,
+            "display_content": clean_content,
+            "entities": entities or [],
+            "entities_annotated": entities is not None,
+            "superseded": superseded,
             "raw": new_line,
         }
 
@@ -310,7 +383,10 @@ def add_memory_item(
 
 
 def update_memory_item(
-    item_id: str, category: Optional[str] = None, content: Optional[str] = None
+    item_id: str,
+    category: Optional[str] = None,
+    content: Optional[str] = None,
+    superseded: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Update an existing memory item.
 
@@ -318,6 +394,9 @@ def update_memory_item(
         item_id: The item ID to update
         category: New category (optional)
         content: New content (optional)
+        superseded: New superseded flag (optional). Marking an item
+            superseded keeps it on file (history preserved) but removes
+            it from retrieval.
 
     Returns:
         Dict with 'success', 'item' or 'error' fields
@@ -340,11 +419,27 @@ def update_memory_item(
         if category is not None:
             item_found["category"] = category.lower()
         if content is not None:
-            item_found["content"] = content
+            clean_content, entities, _ = split_item_fields(content)
+            item_found["content"] = clean_content
+            # An explicit {entities: ...} field in the edited text replaces
+            # the annotation; otherwise the existing annotation is kept —
+            # entities are never derived from the text.
+            if entities is not None:
+                item_found["entities"] = entities
+                item_found["entities_annotated"] = True
+        if superseded is not None:
+            item_found["superseded"] = superseded
 
-        # Update raw
+        # Refresh derived fields
+        item_found["display_content"] = item_found["content"]
+        fields = ""
+        if item_found.get("entities_annotated") or item_found.get("entities"):
+            fields += " {entities: " + ", ".join(item_found.get("entities") or []) + "}"
+        if item_found.get("superseded"):
+            fields += f" {SUPERSEDED_MARKER}"
         item_found["raw"] = (
-            f"[{item_found['timestamp']}] [{item_found['category']}] {item_found['content']}"
+            f"[{item_found['timestamp']}] [{item_found['category']}] "
+            f"{item_found['content']}{fields}"
         )
 
         # Write back
@@ -445,6 +540,120 @@ Once the agent run 'process memory' action, all the processed events will learne
             "success": False,
             "error": f"Failed to clear unprocessed events: {str(e)}",
         }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Indexed Files Management
+# ─────────────────────────────────────────────────────────────────────
+
+
+def get_memory_indexed_files() -> List[str]:
+    """User-selected extra files to index, as relative paths.
+
+    Core files (CORE_INDEX_FILES) are always indexed and are not part of
+    this list. This function is handed to MemoryManager as its
+    extra_files_provider, so panel changes apply on the next index pass.
+    """
+    files = _load_settings().get("memory", {}).get("indexed_files", [])
+    if not isinstance(files, list):
+        return []
+    return [str(f) for f in files if isinstance(f, str) and f.strip()]
+
+
+def set_memory_indexed_files(paths: List[str]) -> Dict[str, Any]:
+    """Replace the extra indexed-files list.
+
+    Paths are validated: relative, .md, inside the agent file system,
+    existing, and not a core/excluded file. Invalid entries are reported
+    back rather than silently dropped.
+    """
+    try:
+        accepted: List[str] = []
+        rejected: List[Dict[str, str]] = []
+        seen = set(CORE_INDEX_FILES)
+
+        for raw in paths or []:
+            rel = str(raw).replace("\\", "/").strip().lstrip("/")
+            if not rel or rel in seen:
+                continue
+            if not is_indexable_file(rel):
+                rejected.append(
+                    {"path": rel, "reason": "unsupported type (md, txt, pdf only)"}
+                )
+                continue
+            if rel.split("/")[-1] in _CANDIDATE_EXCLUDE:
+                rejected.append({"path": rel, "reason": "excluded system file"})
+                continue
+            try:
+                resolved = (AGENT_FILE_SYSTEM_PATH / rel).resolve()
+                resolved.relative_to(AGENT_FILE_SYSTEM_PATH.resolve())
+            except (ValueError, OSError):
+                rejected.append({"path": rel, "reason": "outside agent file system"})
+                continue
+            if not resolved.exists():
+                rejected.append({"path": rel, "reason": "file not found"})
+                continue
+            seen.add(rel)
+            accepted.append(rel)
+
+        settings = _load_settings()
+        if "memory" not in settings:
+            settings["memory"] = {}
+        settings["memory"]["indexed_files"] = accepted
+
+        if not _save_settings(settings):
+            return {"success": False, "error": "Failed to save settings"}
+        return {"success": True, "files": accepted, "rejected": rejected}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to set indexed files: {str(e)}"}
+
+
+def list_indexable_candidates() -> Dict[str, Any]:
+    """Markdown files under the agent file system that can be indexed.
+
+    Scans the root and workspace up to a bounded depth, excluding core
+    files (always indexed), oversized logs, and already-selected extras.
+    """
+    try:
+        selected = set(get_memory_indexed_files())
+        core = set(CORE_INDEX_FILES)
+        root = AGENT_FILE_SYSTEM_PATH.resolve()
+
+        # Explicit breadth-first walk with directory pruning. rglob would
+        # descend into node_modules/build trees (huge, and on Windows their
+        # deep paths can exceed MAX_PATH and raise mid-iteration).
+        candidates: List[Dict[str, Any]] = []
+        frontier: List[tuple] = [(root, 0)]
+        while frontier and len(candidates) < _CANDIDATE_MAX_RESULTS:
+            directory, depth = frontier.pop(0)
+            try:
+                entries = sorted(directory.iterdir(), key=lambda p: p.name.lower())
+            except OSError:
+                continue
+            for entry in entries:
+                try:
+                    if entry.is_dir():
+                        if (
+                            depth + 1 < _CANDIDATE_MAX_DEPTH
+                            and entry.name not in _CANDIDATE_SKIP_DIRS
+                            and not entry.name.startswith(".")
+                        ):
+                            frontier.append((entry, depth + 1))
+                        continue
+                    if not is_indexable_file(entry.name):
+                        continue
+                    rel = str(entry.relative_to(root)).replace("\\", "/")
+                    if rel in core or rel in selected or entry.name in _CANDIDATE_EXCLUDE:
+                        continue
+                    candidates.append({"path": rel, "size": entry.stat().st_size})
+                    if len(candidates) >= _CANDIDATE_MAX_RESULTS:
+                        break
+                except OSError:
+                    continue
+
+        return {"success": True, "candidates": candidates}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to list candidates: {str(e)}"}
 
 
 def get_memory_stats() -> Dict[str, Any]:
