@@ -113,7 +113,8 @@ class FileCursorStore:
         tmp = path.with_suffix(f"{path.suffix}.{uuid.uuid4().hex}.tmp")
         try:
             with open(tmp, "w", encoding="utf-8") as f:
-                os.fchmod(f.fileno(), stat.S_IRUSR | stat.S_IWUSR)
+                if hasattr(os, "fchmod"):  # POSIX only; Windows ACLs don't map
+                    os.fchmod(f.fileno(), stat.S_IRUSR | stat.S_IWUSR)
                 json.dump(data, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())

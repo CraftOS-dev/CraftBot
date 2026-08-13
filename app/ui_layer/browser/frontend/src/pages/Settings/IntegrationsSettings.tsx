@@ -1110,8 +1110,19 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // reconnect), so the request is never dropped behind a connection guard.
   // The spinner is cleared ONLY by the matching result broadcast — OAuth can
   // take minutes and we use no wall-clock timers.
+  // Only OAuth-capable integrations ('oauth'/'both') have the backend
+  // add-account flow. For everything else — token entry, interactive/QR,
+  // token_with_interactive — adding an account IS the regular Connect
+  // modal (token connect is additive per identity; whatsapp's QR
+  // auto-start lives in handleOpenConnect), so reuse it.
   const handleAddAccount = () => {
     if (!managingIntegration) return
+    if (managingIntegration.auth_type !== 'oauth' && managingIntegration.auth_type !== 'both') {
+      const target = managingIntegration
+      setManagingIntegration(null)
+      handleOpenConnect(target)
+      return
+    }
     const requestId = crypto.randomUUID()
     pendingAddRef.current.set(requestId, managingIntegration.id)
     setAddingAccountFor(managingIntegration.id)
@@ -1182,34 +1193,19 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
 
   // Slow integrations show a "working…" overlay during disconnect so the
   // user gets visible feedback during the bridge teardown (which can take
-  // 20–30 seconds for WhatsApp Web). Add other slow integrations here.
+  // 20–30 seconds per WhatsApp Web account). Add other slow integrations here.
   const SLOW_DISCONNECT_IDS = new Set(['whatsapp_web'])
 
-  const handleDisconnect = (accountId?: string) => {
-    if (!managingIntegration) return
-    const targetId = managingIntegration.id
-    const targetName = managingIntegration.name
-
-    // Optimistic UI update — mark this integration as disconnected immediately
-    // so the user gets instant feedback in the integrations list. Some
-    // integrations (WhatsApp Web) take 20+ seconds to tear down their bridge
-    // cleanly, and the ``integration_list`` broadcast only fires after that
-    // completes. The backend's authoritative ``integration_list`` will
-    // overwrite this when it arrives. If the disconnect fails,
-    // ``integration_disconnect_result`` shows a toast and the next refresh
-    // restores the real state.
-    dispatch(setDisconnected(targetId))
-    closeManageModal()
-
-    // Slow disconnects: show a blocking overlay until the result arrives.
-    if (SLOW_DISCONNECT_IDS.has(targetId)) {
-      setPendingOp({ kind: 'disconnect', id: targetId, label: targetName })
+  // Disconnect ALL accounts of an integration (list-row Power button).
+  // Optimistic: the list flips immediately; the authoritative
+  // ``integration_list`` broadcast overwrites it when teardown finishes,
+  // and ``integration_disconnect_result`` clears the slow-op overlay.
+  const handleDisconnectAll = (integration: Integration) => {
+    dispatch(setDisconnected(integration.id))
+    if (SLOW_DISCONNECT_IDS.has(integration.id)) {
+      setPendingOp({ kind: 'disconnect', id: integration.id, label: integration.name })
     }
-
-    send('integration_disconnect', {
-      id: targetId,
-      account_id: accountId,
-    })
+    send('integration_disconnect', { id: integration.id })
   }
 
   const filteredIntegrations = integrations
@@ -1317,7 +1313,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                           confirmText: 'Disconnect',
                           variant: 'danger',
                         }, () => {
-                          send('integration_disconnect', { id: integration.id })
+                          handleDisconnectAll(integration)
                         })
                       }}
                       icon={<Power size={14} />}
@@ -1672,23 +1668,15 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   }}
                   onSave={handleSaveAccountChanges}
                 />
-              ) : managingIntegration.accounts.length === 0 ? (
-                <p className={styles.noAccounts}>No accounts connected</p>
               ) : (
-                <div className={styles.accountsList}>
-                  {managingIntegration.accounts.map(account => (
-                    <div key={account.id} className={styles.accountItem}>
-                      <span className={styles.accountName}>{account.display}</span>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleDisconnect(account.id)}
-                      >
-                        Disconnect
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+                /* Every integration is multi-account now, so a missing
+                   accounts payload means the backend couldn't load them
+                   (see the degrade log in _handle_integration_info) —
+                   not a legacy integration. */
+                <p className={styles.noAccounts}>
+                  Couldn&apos;t load accounts — close and reopen Manage, or check
+                  the backend logs.
+                </p>
               )}
               {/* Configure — schema-driven form, only shown for integrations
                   whose handler declared ``config_class`` + ``config_fields``.

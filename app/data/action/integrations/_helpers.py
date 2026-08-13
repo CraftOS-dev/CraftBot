@@ -211,6 +211,76 @@ def pick_result(res: Dict[str, Any], keys) -> Dict[str, Any]:
     return res
 
 
+def _account_hint() -> Optional[str]:
+    """The ``account`` value of the action currently executing, if any.
+
+    Read from the executor's execution context (never threaded through
+    action signatures — legacy actions don't declare ``account``; the
+    schema is injected centrally by ``account_bridge``). Returns None
+    outside an action context (e.g. sandboxed subprocess actions, direct
+    calls from host code) — callers fall back to the primary account.
+    """
+    try:
+        from agent_core.core.impl.action.context import current_input_data
+
+        data = current_input_data.get()
+        hint = (data or {}).get("account")
+        if isinstance(hint, str) and hint.strip():
+            return hint.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _bridge_client_or_error(integration: str):
+    """Account-aware client resolution for bridged multi-account platforms.
+
+    Returns ``(client, error_dict, handled)``:
+      - ``handled=False`` → the platform has no v2 provider; caller takes
+        the legacy singleton path unchanged.
+      - ``handled=True`` → the v2 system owns this platform: ``client`` is
+        bound to the resolved account (the ``account`` hint from the
+        executing action, or the primary), or ``error_dict`` explains the
+        failure in self-correcting terms.
+
+    An explicit ``account`` hint on a NON-bridged platform is a loud
+    error, not a silent primary fallback — silently sending from the
+    wrong account is the one failure mode this whole system exists to
+    prevent.
+    """
+    from craftos_integrations.contracts import AccountResolutionError
+
+    hint = _account_hint()
+    system = system_for(integration)
+    if system is None:
+        if hint:
+            return None, {
+                "status": "error",
+                "message": (
+                    f"{integration} does not support account selection yet — "
+                    f"retry without the 'account' parameter."
+                ),
+            }, True
+        return None, None, False
+    try:
+        # list_accounts (not resolve) first: it runs the one-time legacy
+        # credential migration and gives a friendlier no-accounts message.
+        if not system.list_accounts(integration):
+            return None, {
+                "status": "error",
+                "message": _no_cred_message(integration),
+            }, True
+        identity = system.resolve(integration, hint)
+        return system.client_for(integration, identity), None, True
+    except AccountResolutionError as e:
+        return None, {"status": "error", "message": str(e)}, True
+    except Exception as e:
+        return None, {
+            "status": "error",
+            "message": f"{integration} account resolution failed: {e}",
+        }, True
+
+
 async def run_client(
     integration: str,
     method_name: str,
@@ -226,11 +296,15 @@ async def run_client(
     """
     from craftos_integrations import get_client
 
-    client = get_client(integration)
-    if client is None:
-        return {"status": "error", "message": f"Unknown integration: {integration}"}
-    if not client.has_credentials():
-        return {"status": "error", "message": _no_cred_message(integration)}
+    client, err, handled = _bridge_client_or_error(integration)
+    if err:
+        return err
+    if not handled:
+        client = get_client(integration)
+        if client is None:
+            return {"status": "error", "message": f"Unknown integration: {integration}"}
+        if not client.has_credentials():
+            return {"status": "error", "message": _no_cred_message(integration)}
     try:
         method = getattr(client, method_name, None)
         if method is None:
@@ -273,11 +347,15 @@ def run_client_sync(
     """Sync flavor of ``run_client`` for sync actions calling sync methods."""
     from craftos_integrations import get_client
 
-    client = get_client(integration)
-    if client is None:
-        return {"status": "error", "message": f"Unknown integration: {integration}"}
-    if not client.has_credentials():
-        return {"status": "error", "message": _no_cred_message(integration)}
+    client, err, handled = _bridge_client_or_error(integration)
+    if err:
+        return err
+    if not handled:
+        client = get_client(integration)
+        if client is None:
+            return {"status": "error", "message": f"Unknown integration: {integration}"}
+        if not client.has_credentials():
+            return {"status": "error", "message": _no_cred_message(integration)}
     try:
         method = getattr(client, method_name, None)
         if method is None:
@@ -329,6 +407,11 @@ def get_client_or_error(integration: str):
     """
     from craftos_integrations import get_client
 
+    client, err, handled = _bridge_client_or_error(integration)
+    if err:
+        return None, err
+    if handled:
+        return client, None
     client = get_client(integration)
     if client is None:
         return None, {
@@ -413,36 +496,42 @@ def v2_display_name(system, integration_id: str) -> str:
     return getattr(provider, "display_name", None) or integration_id
 
 
-def list_integrations_merged() -> list:
+async def list_integrations_merged_async() -> list:
     """Metadata + connection status for every integration, with multi-account provider
     ids sourcing their connection state and accounts from the
     IntegrationSystem instead of the legacy credential files. Legacy
     integrations keep the legacy ``handler.status()`` path unchanged.
-    """
-    import asyncio as _asyncio
 
+    v2 entries carry ``accounts`` in the ManagedAccount wire shape
+    ({identity, alias, isPrimary, listen}); legacy entries keep the
+    status-parsed ``{display, id}`` shape.
+    """
     from craftos_integrations import get_integration_info, get_metadata, list_all
 
-    async def _gather():
-        out = []
-        for name in list_all():
-            system = system_for(name)
-            if system is not None:
-                info = get_metadata(name)
-                if info is None:
-                    continue
-                infos = system.list_accounts(name)
-                info["accounts"] = accounts_payload(infos)
-                info["connected"] = bool(infos)
-            else:
-                info = await get_integration_info(name)
-            if info:
-                out.append(info)
-        return out
+    out = []
+    for name in list_all():
+        system = system_for(name)
+        if system is not None:
+            info = get_metadata(name)
+            if info is None:
+                continue
+            infos = system.list_accounts(name)
+            info["accounts"] = accounts_payload(infos)
+            info["connected"] = bool(infos)
+        else:
+            info = await get_integration_info(name)
+        if info:
+            out.append(info)
+    return out
+
+
+def list_integrations_merged() -> list:
+    """Sync wrapper for action/handler contexts with no running event loop."""
+    import asyncio as _asyncio
 
     loop = _asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(_gather())
+        return loop.run_until_complete(list_integrations_merged_async())
     finally:
         loop.close()
 
@@ -477,9 +566,11 @@ def _v2_verify_slack_token(credentials: Dict[str, str]):
 
 def _v2_verify_notion_token(credentials: Dict[str, str]):
     """Same verification the legacy NotionHandler.login() runs: ``GET
-    /users/me`` with the integration token; same credential dict shape
-    ({"token": ...} — token-only, so it lands under the LEGACY sentinel
-    identity until an OAuth re-auth upgrades it, per plan §7)."""
+    /users/me`` with the integration token; same credential dict shape,
+    plus the bot user id captured as ``bot_id`` so ``identity_of`` gets a
+    stable account key. (Without it the credential landed under the
+    LEGACY sentinel and a second token connect silently overwrote the
+    first account.)"""
     from dataclasses import asdict
 
     from craftos_integrations.integrations.notion import (
@@ -498,6 +589,14 @@ def _v2_verify_notion_token(credentials: Dict[str, str]):
         return False, f"Notion auth failed: {data['error']}", None
     ws_name = data.get("bot", {}).get("workspace_name", "default")
     credential = asdict(NotionCredential(token=token))
+    # The bot user id is workspace-scoped and stable — one integration
+    # token = one workspace = one account.
+    bot_id = data.get("id")
+    if isinstance(bot_id, str) and bot_id.strip():
+        credential["bot_id"] = bot_id.strip()
+    ws_id = data.get("bot", {}).get("workspace_id")
+    if isinstance(ws_id, str) and ws_id.strip():
+        credential["workspace_id"] = ws_id.strip()
     return True, f"Notion connected: {ws_name}", credential
 
 
@@ -551,7 +650,13 @@ def system_connect_token(system, integration_id: str, credentials: Dict[str, str
     through the integration system (``store_credential``) — never through the legacy
     single-account save. Returns (success, message).
     """
-    verifier = _V2_TOKEN_VERIFIERS.get(integration_id)
+    # Providers may carry their own verifier (the bridge-provider pattern —
+    # keeps each platform's connect logic in its provider package); the
+    # central table covers the three providers that predate it.
+    provider_obj = system.registry.get(integration_id)
+    verifier = getattr(provider_obj, "verify_token", None) or _V2_TOKEN_VERIFIERS.get(
+        integration_id
+    )
     if verifier is None:
         # Mirrors legacy IntegrationHandler.connect_token for field-less
         # (OAuth-only) integrations.
@@ -567,15 +672,69 @@ def system_connect_token(system, integration_id: str, credentials: Dict[str, str
     if not ok or not credential:
         return False, message
 
-    from craftos_integrations.contracts import LEGACY_IDENTITY
-
     provider = system.registry.get(integration_id)
-    identity = provider.identity_of(credential) or LEGACY_IDENTITY
+    identity = provider.identity_of(credential)
+    if not identity:
+        # Refuse rather than store under the LEGACY sentinel: a second
+        # identity-less connect would land on the same sentinel key and
+        # silently REPLACE the first account's credential. The sentinel
+        # exists only for pre-multi-account files migrating in.
+        return False, (
+            f"Could not determine which account this "
+            f"{v2_display_name(system, integration_id)} token belongs to — "
+            f"connect was aborted so an existing account can't be "
+            f"overwritten. Re-check the token and try again."
+        )
     system.store_credential(integration_id, identity, credential)
     # Slack has a listener; reconcile so a fresh token starts listening
     # immediately (no-op when no manager is attached / no listener exists).
     system.reconcile_listeners()
     return True, message
+
+
+def platform_teardown_accounts(integration_id: str, identities) -> None:
+    """Platform-specific post-removal cleanup the core can't do.
+
+    whatsapp_web accounts own a live Node/Chromium bridge and a per-account
+    session dir; core ``remove_account`` only deletes the AccountSet entry.
+    Best-effort, never raises; async teardown is scheduled on the running
+    loop when there is one, else run inline.
+    """
+    identities = [i for i in (identities or []) if i]
+    if integration_id != "whatsapp_web" or not identities:
+        return
+    import asyncio as _asyncio
+
+    try:
+        from craftos_integrations.providers.whatsapp_web import teardown_account
+    except Exception:
+        return
+
+    from craftos_integrations.logger import get_logger
+
+    _log = get_logger(__name__)
+
+    async def _run() -> None:
+        for identity in identities:
+            try:
+                await teardown_account(identity)
+            except Exception as e:
+                _log.warning(
+                    f"[INTEGRATIONS] whatsapp_web teardown for '{identity}' failed: {e}"
+                )
+
+    try:
+        loop = _asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        loop.create_task(_run())
+    else:
+        loop = _asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_run())
+        finally:
+            loop.close()
 
 
 def system_disconnect(system, integration_id: str, account_id=None):
@@ -599,17 +758,21 @@ def system_disconnect(system, integration_id: str, account_id=None):
     if account_id:
         try:
             identity = system.remove_account(integration_id, account_id)
+            platform_teardown_accounts(integration_id, [identity])
             return True, f"Removed account '{identity}' from {integration_id}."
         except Exception as e:
             return False, str(e)
 
     removed = []
+    removed_identities = []
     for info in system.list_accounts(integration_id):
         try:
             system.remove_account(integration_id, info.identity)
             removed.append(info.alias or info.identity)
+            removed_identities.append(info.identity)
         except Exception:
             pass
+    platform_teardown_accounts(integration_id, removed_identities)
 
     legacy_success, legacy_message = False, ""
     try:

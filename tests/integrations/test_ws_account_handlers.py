@@ -125,22 +125,21 @@ def system(monkeypatch):
 # ── integration_info: v2 accounts ride TOP-LEVEL ``data.accounts`` ──────────
 #
 # CONTRACT (frontend): IntegrationsSettings' ``integration_info`` handler
-# reads ``data.accounts`` (sibling of ``data.integration``) and only renders
-# the AccountsManager (Add account / alias / primary / listen) when that key
-# is a ManagedAccount[] — ``{identity, alias, isPrimary, listen}``. The
-# legacy status-parsed ``{display, id}`` rows stay INSIDE
-# ``data.integration.accounts`` and must never be replaced with v2-shaped
-# objects (the legacy modal body renders ``account.display``/``account.id``).
+# reads ``data.accounts`` (sibling of ``data.integration``) and renders the
+# AccountsManager when that key is a ManagedAccount[] —
+# ``{identity, alias, isPrimary, listen}``. Metadata comes from
+# ``get_metadata`` (no ``handler.status()`` scraping anymore); ``connected``
+# and ``accounts`` inside ``data.integration`` are AccountSet-derived. A
+# MISSING top-level key means the account list couldn't be loaded — the
+# frontend shows a reload hint (the legacy fallback rows are gone).
 
 
 def test_info_carries_v2_accounts_at_top_level(system, monkeypatch):
-    legacy_accounts = [{"display": "legacy", "id": "legacy"}]
     adapter, sent = make_adapter()
+    import craftos_integrations
+
     monkeypatch.setattr(
-        ba,
-        "get_integration_info",
-        lambda _id: {"id": _id, "connected": True,
-                     "accounts": list(legacy_accounts)},
+        craftos_integrations, "get_metadata", lambda _id: {"id": _id}
     )
     asyncio.run(adapter._handle_integration_info("gmail"))
     (data,) = results_of(sent, "integration_info")
@@ -150,45 +149,49 @@ def test_info_carries_v2_accounts_at_top_level(system, monkeypatch):
     # Every row carries exactly the ManagedAccount wire keys:
     for row in data["accounts"]:
         assert set(row) == {"identity", "alias", "isPrimary", "listen"}
-    # Legacy-shaped rows inside ``integration`` are left untouched:
-    assert data["integration"]["accounts"] == legacy_accounts
+    # ``integration`` mirrors the AccountSet-derived state:
+    assert data["integration"]["connected"] is True
+    assert data["integration"]["accounts"] == WIRE_TWO
 
 
-def test_info_non_v2_has_no_top_level_accounts(system, monkeypatch):
+def test_info_unknown_to_system_reports_disconnected(system, monkeypatch):
+    """A provider id the system doesn't know (can't happen for shipped
+    integrations, but registry lookups can fail) reports disconnected with
+    no top-level accounts key."""
     adapter, sent = make_adapter()
-    legacy_accounts = [{"display": "Me", "id": "me-1"}]
+    import craftos_integrations
+
     monkeypatch.setattr(
-        ba,
-        "get_integration_info",
-        lambda _id: {"id": _id, "connected": True, "accounts": legacy_accounts},
+        craftos_integrations, "get_metadata", lambda _id: {"id": _id}
     )
     asyncio.run(adapter._handle_integration_info("jira"))
     (data,) = results_of(sent, "integration_info")
-    # Absent top-level key → frontend keeps managedAccounts = null → legacy UI.
     assert "accounts" not in data
-    assert data["integration"]["accounts"] == legacy_accounts
+    assert data["integration"]["connected"] is False
+    assert data["integration"]["accounts"] == []
 
 
-def test_info_v2_lookup_failure_degrades_to_legacy(monkeypatch):
-    """get_system() blowing up must not break the payload — no top-level
-    accounts (legacy modal), success still True, and the failure is loud."""
+def test_info_v2_lookup_failure_shows_reload_hint(monkeypatch):
+    """get_system() blowing up must not break the payload — success stays
+    True, connected reads False, and the missing top-level accounts key
+    makes the frontend render its reload hint. The failure is loud in logs."""
     adapter, sent = make_adapter()
 
     def boom():
         raise RuntimeError("bootstrap failed")
 
     monkeypatch.setattr(integrations, "get_system", boom)
-    legacy_accounts = [{"display": "a@x.com", "id": "a@x.com"}]
+    import craftos_integrations
+
     monkeypatch.setattr(
-        ba,
-        "get_integration_info",
-        lambda _id: {"id": _id, "connected": True, "accounts": legacy_accounts},
+        craftos_integrations, "get_metadata", lambda _id: {"id": _id}
     )
     asyncio.run(adapter._handle_integration_info("gmail"))
     (data,) = results_of(sent, "integration_info")
     assert data["success"] is True
     assert "accounts" not in data
-    assert data["integration"]["accounts"] == legacy_accounts
+    assert data["integration"]["connected"] is False
+    assert data["integration"]["accounts"] == []
 
 
 # ── integration_accounts_add ─────────────────────────────────────────────

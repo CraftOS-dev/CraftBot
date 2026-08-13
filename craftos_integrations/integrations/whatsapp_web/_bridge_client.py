@@ -3,6 +3,20 @@
 
 Manages the Node.js subprocess lifecycle and provides an async API for
 sending commands and receiving events via stdin/stdout JSON lines.
+
+Multi-account model (legacy-to-v2 migration plan §5): one
+``WhatsAppBridge`` — one Node subprocess driving one headless Chromium —
+per connected WhatsApp account. Instances live in a module registry
+keyed by the normalized account identity (see ``normalize_wa_identity``)
+and each gets its own LocalAuth directory
+``.credentials/whatsapp_wwebjs_auth/<identity>/`` so Chromium profile
+locks, session data, and logout cleanup are account-scoped. ``bridge.js``
+already takes the auth dir as argv — the Node side needs no changes.
+
+Pending logins (QR scan in progress, identity unknown until the
+``ready`` event reports the wid) run under a temporary key — the QR
+session id — with a fresh ``pending-<session_id>/`` dir, then get
+re-keyed to the identity via ``promote_pending_bridge``.
 """
 
 from __future__ import annotations
@@ -27,7 +41,16 @@ EventCallback = Callable[[str, Dict[str, Any]], Coroutine[Any, Any, None]]
 
 
 class WhatsAppBridge:
-    def __init__(self, auth_dir: Optional[str] = None):
+    def __init__(self, auth_dir: str, legacy_guard: bool = False):
+        """``auth_dir`` is this instance's private LocalAuth directory —
+        always account-scoped (``whatsapp_wwebjs_auth/<identity>/`` or a
+        ``pending-<session_id>/`` dir), never the shared root.
+
+        ``legacy_guard`` is set only for bridges resolved through the
+        legacy single-account path (``get_whatsapp_bridge()`` with no
+        identity): it enables the whatsapp_web.json orphan-wipe check,
+        which is meaningless for v2 accounts (their lifecycle is the
+        AccountSet + ``teardown_account``, not the legacy json)."""
         self._process: Optional[asyncio.subprocess.Process] = None
         self._reader_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
@@ -38,13 +61,8 @@ class WhatsAppBridge:
         self._owner_phone = ""
         self._owner_name = ""
         self._wid = ""
-
-        if auth_dir:
-            self._auth_dir = auth_dir
-        else:
-            self._auth_dir = str(
-                ConfigStore.project_root / ".credentials" / "whatsapp_wwebjs_auth"
-            )
+        self._auth_dir = auth_dir
+        self._legacy_guard = legacy_guard
 
     @property
     def is_running(self) -> bool:
@@ -65,6 +83,15 @@ class WhatsAppBridge:
     @property
     def owner_name(self) -> str:
         return self._owner_name
+
+    @property
+    def wid(self) -> str:
+        """Full WhatsApp id from the ready event (e.g. ``123...:12@c.us``)."""
+        return self._wid
+
+    @property
+    def auth_dir(self) -> str:
+        return self._auth_dir
 
     def set_event_callback(self, callback: Optional[EventCallback]) -> None:
         self._event_callback = callback
@@ -176,7 +203,16 @@ class WhatsAppBridge:
         but the logout RPC didn't finish wiping the session before reconnect.
         Force-wipe the auth dir so the next connect demands a fresh QR
         instead of silently restoring the stale session.
+
+        LEGACY-ONLY: applies only to bridges resolved through the legacy
+        single-account path (``legacy_guard``). For v2 multi-account
+        bridges the legacy whatsapp_web.json says nothing about whether
+        THIS account is connected — using it here would wipe account #2's
+        session because account #1's legacy file was migrated away. v2
+        cleanup happens via ``teardown_account``.
         """
+        if not self._legacy_guard:
+            return
         import shutil
 
         cred_path = (
@@ -716,11 +752,386 @@ class WhatsAppBridge:
             asyncio.ensure_future(self._event_callback(event, data))
 
 
-_bridge_instance: Optional[WhatsAppBridge] = None
+# ════════════════════════════════════════════════════════════════════════
+# Identity normalization — THE one rule, used by the provider, the QR
+# flow, and the registry alike
+# ════════════════════════════════════════════════════════════════════════
 
 
-def get_whatsapp_bridge() -> WhatsAppBridge:
-    global _bridge_instance
-    if _bridge_instance is None:
-        _bridge_instance = WhatsAppBridge()
-    return _bridge_instance
+def normalize_wa_identity(value: Any) -> Optional[str]:
+    """Normalize a WhatsApp phone/wid to the canonical account identity.
+
+    ``14155552671:12@c.us`` (wid with device suffix), ``14155552671@c.us``,
+    ``+1 (415) 555-2671`` and ``14155552671`` all collapse to
+    ``14155552671``: strip the ``@c.us`` domain, strip the ``:NN`` device
+    suffix, keep digits only, strip leading zeros (the ``00``
+    international-prefix ambiguity — same rationale as telegram_user).
+    Returns None for anything that yields no digits. Already lowercase by
+    construction (digits), satisfying the conformance identity rules.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    text = text.split("@", 1)[0]  # wid domain: 14155552671@c.us
+    text = text.split(":", 1)[0]  # device suffix: 14155552671:12
+    digits = "".join(ch for ch in text if ch.isdigit()).lstrip("0")
+    return digits or None
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Per-account bridge registry
+# ════════════════════════════════════════════════════════════════════════
+
+_PENDING_DIR_PREFIX = "pending-"
+# Legacy CLI login path only: no identity known and no legacy credential
+# to derive one from — the bridge lives under this key/dir until the
+# credential exists, then the dir is adopted into the identity dir on the
+# next resolution (see _adopt_default_dir).
+_DEFAULT_IDENTITY_KEY = "default"
+
+_bridges: Dict[str, WhatsAppBridge] = {}
+_pending_keys: set = set()  # session ids currently registered as pending
+_layout_migrated = False
+
+
+class BridgeCapacityError(RuntimeError):
+    """Raised when starting another bridge would exceed ``max_accounts``."""
+
+
+def _auth_root() -> Path:
+    return Path(ConfigStore.project_root) / ".credentials" / "whatsapp_wwebjs_auth"
+
+
+def _identity_auth_dir(identity: str) -> Path:
+    return _auth_root() / identity
+
+
+def _pending_auth_dir(session_id: str) -> Path:
+    return _auth_root() / f"{_PENDING_DIR_PREFIX}{session_id}"
+
+
+def _legacy_owner_identity() -> Optional[str]:
+    """Normalized identity from the legacy single-account
+    ``whatsapp_web.json``, or None if it doesn't exist / has no phone."""
+    try:
+        from ...credentials_store import load_credential
+        from . import WHATSAPP_WEB, WhatsAppWebCredential
+
+        cred = load_credential(WHATSAPP_WEB.cred_file, WhatsAppWebCredential)
+    except Exception:
+        return None
+    if cred is None:
+        return None
+    return normalize_wa_identity(cred.owner_phone)
+
+
+def max_whatsapp_accounts() -> int:
+    """The ``max_accounts`` knob from whatsapp_web_config.json (default 2).
+
+    A RAM guard, not a hard platform limit: every connected account runs
+    its own headless Chromium (~300–500 MB)."""
+    try:
+        from ...credentials_store import load_config
+        from . import WhatsAppWebConfig, _whatsapp_web_config_file
+
+        cfg = (
+            load_config(_whatsapp_web_config_file(), WhatsAppWebConfig)
+            or WhatsAppWebConfig()
+        )
+        value = int(getattr(cfg, "max_accounts", 2))
+    except Exception:
+        return 2
+    return max(1, value)
+
+
+def _account_slots_used() -> int:
+    """Connected-account count for cap enforcement: identity auth dirs on
+    disk (robust across restarts — a connected account always has one)
+    unioned with registered non-pending bridges, plus pending logins."""
+    identities = {key for key in _bridges if key not in _pending_keys}
+    root = _auth_root()
+    try:
+        if root.exists():
+            for child in root.iterdir():
+                if child.is_dir() and child.name.isdigit():
+                    identities.add(child.name)
+    except OSError:
+        pass
+    return len(identities) + len(_pending_keys)
+
+
+def _ensure_layout_migrated() -> None:
+    """One-time move of the OLD single-account layout
+    (``whatsapp_wwebjs_auth/session/`` directly under the root) into the
+    per-identity layout (``whatsapp_wwebjs_auth/<identity>/session/``),
+    using the identity from the legacy whatsapp_web.json. If no legacy
+    credential exists we can't name the account — leave the old layout in
+    place and log (a fresh QR login will simply use a new identity dir).
+    """
+    global _layout_migrated
+    if _layout_migrated:
+        return
+    _layout_migrated = True
+
+    root = _auth_root()
+    old_session = root / "session"
+    if not old_session.exists():
+        return
+
+    identity = _legacy_owner_identity()
+    if not identity:
+        logger.info(
+            f"[WA-Bridge] old single-account auth layout found at {root} but "
+            "no legacy whatsapp_web.json to derive an identity from — "
+            "leaving it in place"
+        )
+        return
+
+    target = _identity_auth_dir(identity)
+    if target.exists():
+        logger.warning(
+            f"[WA-Bridge] both the old auth layout and {target} exist — "
+            "keeping the identity dir, leaving the old layout untouched"
+        )
+        return
+
+    import shutil
+
+    target.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for child in list(root.iterdir()):
+        name = child.name
+        # Only old-layout content: never touch identity dirs (all-digit
+        # names), pending dirs, or the target itself.
+        if child == target or name.isdigit() or name.startswith(_PENDING_DIR_PREFIX):
+            continue
+        try:
+            shutil.move(str(child), str(target / name))
+            moved += 1
+        except OSError as e:
+            logger.warning(f"[WA-Bridge] migration could not move {child}: {e}")
+    logger.info(
+        f"[WA-Bridge] migrated old single-account auth layout into {target} "
+        f"({moved} entrie(s)) for identity {identity}"
+    )
+
+
+def _adopt_default_dir(identity: str) -> None:
+    """Legacy CLI login quirk: a login that started with no credential ran
+    under the ``default`` dir; once the credential names the identity,
+    move that session into the identity dir so the next start doesn't
+    demand a fresh QR. Skipped while a live bridge holds the dir."""
+    default_dir = _identity_auth_dir(_DEFAULT_IDENTITY_KEY)
+    target = _identity_auth_dir(identity)
+    if target.exists() or not (default_dir / "session").exists():
+        return
+    stale = _bridges.get(_DEFAULT_IDENTITY_KEY)
+    if stale is not None:
+        if stale.is_running:
+            return  # Chromium holds the dir — can't move it out from under it.
+        _bridges.pop(_DEFAULT_IDENTITY_KEY, None)
+    import shutil
+
+    try:
+        shutil.move(str(default_dir), str(target))
+        logger.info(f"[WA-Bridge] adopted default auth dir as {target}")
+    except OSError as e:
+        logger.warning(f"[WA-Bridge] could not adopt default auth dir: {e}")
+
+
+def get_whatsapp_bridge(identity: Optional[str] = None) -> WhatsAppBridge:
+    """The per-account bridge for ``identity`` (any phone/wid spelling —
+    normalized here), creating it (stopped) on first use.
+
+    ``identity=None`` is the legacy single-account path (CLI handler,
+    unbound legacy client): the identity is resolved from the legacy
+    whatsapp_web.json, falling back to a ``default`` slot when no
+    credential exists yet. v2 callers always pass an identity.
+    """
+    _ensure_layout_migrated()
+    legacy_guard = False
+    if identity is None:
+        legacy_guard = True
+        resolved = _legacy_owner_identity()
+        if resolved is None:
+            resolved = _DEFAULT_IDENTITY_KEY
+        else:
+            _adopt_default_dir(resolved)
+        key = resolved
+    else:
+        normalized = normalize_wa_identity(identity)
+        if normalized is None:
+            raise ValueError(f"invalid whatsapp identity: {identity!r}")
+        key = normalized
+
+    bridge = _bridges.get(key)
+    if bridge is None:
+        bridge = WhatsAppBridge(
+            auth_dir=str(_identity_auth_dir(key)), legacy_guard=legacy_guard
+        )
+        _bridges[key] = bridge
+    return bridge
+
+
+def peek_whatsapp_bridge(identity: str) -> Optional[WhatsAppBridge]:
+    """Registry lookup without creating: the bridge for ``identity`` if one
+    has been created this process, else None."""
+    normalized = normalize_wa_identity(identity)
+    if normalized is None:
+        return None
+    return _bridges.get(normalized)
+
+
+def drop_whatsapp_bridge(identity: str) -> Optional[WhatsAppBridge]:
+    """Remove ``identity``'s bridge from the registry WITHOUT stopping it —
+    the caller owns shutdown. Returns the removed bridge (or None). For
+    full account removal (stop + server logout + auth-dir delete) use
+    ``teardown_account`` instead."""
+    normalized = normalize_wa_identity(identity)
+    if normalized is None:
+        return None
+    return _bridges.pop(normalized, None)
+
+
+def create_pending_bridge(session_id: str) -> WhatsAppBridge:
+    """A fresh bridge for a QR login in progress, registered under the QR
+    ``session_id`` with its own ``pending-<session_id>/`` auth dir (so
+    concurrent QR sessions never share Chromium state). Raises
+    ``BridgeCapacityError`` when the ``max_accounts`` cap is reached."""
+    _ensure_layout_migrated()
+    existing = _bridges.get(session_id)
+    if existing is not None:
+        return existing
+    limit = max_whatsapp_accounts()
+    used = _account_slots_used()
+    if used >= limit:
+        raise BridgeCapacityError(
+            f"WhatsApp account limit reached ({used}/{limit}). Every connected "
+            "account runs its own headless Chromium browser (~300-500 MB RAM). "
+            "Disconnect an account first, or raise 'max_accounts' in the "
+            "WhatsApp integration settings if this machine has RAM to spare."
+        )
+    bridge = WhatsAppBridge(auth_dir=str(_pending_auth_dir(session_id)))
+    _bridges[session_id] = bridge
+    _pending_keys.add(session_id)
+    return bridge
+
+
+async def discard_pending_bridge(session_id: str) -> None:
+    """Cancel/cleanup a pending QR login: stop its bridge (tight-timeout
+    abandon — the session is being thrown away) and delete its temp dir."""
+    _pending_keys.discard(session_id)
+    bridge = _bridges.pop(session_id, None)
+    if bridge is not None and bridge.is_running:
+        try:
+            await bridge.abandon()
+        except Exception as e:
+            logger.warning(f"[WA-Bridge] pending-bridge abandon failed: {e}")
+    await _rmtree_with_retry(_pending_auth_dir(session_id))
+
+
+async def promote_pending_bridge(session_id: str, identity: str) -> WhatsAppBridge:
+    """Re-key a connected pending-login bridge to its account identity.
+
+    The pending Node/Chromium is STOPPED first — Windows cannot rename a
+    profile dir under a live browser — then the fresh auth dir is moved to
+    ``<identity>/`` and a stopped bridge is registered under the identity.
+    The next ``start()`` (host listener wiring) restores the session from
+    LocalAuth without a new QR scan.
+
+    Re-login of an already-connected account: the FRESH session wins — the
+    old bridge is stopped/dropped and its auth dir replaced. (The fresh
+    scan is the one the user just performed; the old LocalAuth may be the
+    very stale state that forced the re-login.)
+    """
+    normalized = normalize_wa_identity(identity)
+    if normalized is None:
+        raise ValueError(f"invalid whatsapp identity: {identity!r}")
+
+    _pending_keys.discard(session_id)
+    pending = _bridges.pop(session_id, None)
+    if pending is None:
+        raise KeyError(f"no pending whatsapp bridge for session {session_id}")
+    if pending.is_running:
+        try:
+            await pending.stop()
+        except Exception as e:
+            logger.warning(f"[WA-Bridge] pending-bridge stop before promote: {e}")
+
+    previous = _bridges.pop(normalized, None)
+    if previous is not None and previous.is_running:
+        try:
+            await previous.stop()
+        except Exception as e:
+            logger.warning(f"[WA-Bridge] old bridge stop during re-login: {e}")
+
+    target = _identity_auth_dir(normalized)
+    if target.exists():
+        await _rmtree_with_retry(target)
+
+    src = _pending_auth_dir(session_id)
+    if src.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        await _move_with_retry(src, target)
+
+    bridge = WhatsAppBridge(auth_dir=str(target))
+    _bridges[normalized] = bridge
+    return bridge
+
+
+async def teardown_account(identity: str) -> None:
+    """Host hook for account removal: stop and forget ``identity``'s bridge
+    and delete its LocalAuth dir. A server-side logout is attempted first
+    (mirrors the legacy disconnect semantics — without it the next QR
+    login could silently restore the old session). Safe to call for an
+    identity with no live bridge; idempotent."""
+    normalized = normalize_wa_identity(identity)
+    if normalized is None:
+        return
+    _ensure_layout_migrated()
+    bridge = _bridges.pop(normalized, None)
+    if bridge is not None:
+        try:
+            # logout() invalidates server-side and rmtree's its own dir;
+            # on a non-running bridge it degrades to just the dir wipe.
+            await bridge.logout()
+        except Exception as e:
+            logger.warning(f"[WA-Bridge] teardown logout for {normalized}: {e}")
+    await _rmtree_with_retry(_identity_auth_dir(normalized))
+
+
+async def _rmtree_with_retry(path: Path, attempts: int = 5) -> None:
+    """Windows: Chromium file locks linger briefly after process exit."""
+    import shutil
+
+    for i in range(attempts):
+        if not path.exists():
+            return
+        shutil.rmtree(path, ignore_errors=(i == attempts - 1))
+        if not path.exists():
+            return
+        await asyncio.sleep(0.4)
+
+
+async def _move_with_retry(src: Path, dst: Path, attempts: int = 5) -> None:
+    import shutil
+
+    last_error: Optional[Exception] = None
+    for _ in range(attempts):
+        try:
+            shutil.move(str(src), str(dst))
+            return
+        except OSError as e:
+            last_error = e
+            await asyncio.sleep(0.4)
+    raise RuntimeError(f"could not move {src} to {dst}: {last_error}")
+
+
+def _reset_bridge_registry_for_tests() -> None:
+    """Test hook: forget all bridges and re-arm the layout migration."""
+    global _layout_migrated
+    _bridges.clear()
+    _pending_keys.clear()
+    _layout_migrated = False

@@ -44,6 +44,11 @@ def test_corrupt_document_is_quarantined_not_silently_empty(store, tmp_path):
     assert quarantined.read_text(encoding="utf-8") == "{this is not json"
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX owner-only modes don't exist on Windows (no os.fchmod; "
+    "NTFS ACLs govern access)",
+)
 def test_written_files_are_owner_only(store, tmp_path):
     store.replace("gmail", DOC)
     mode = stat.S_IMODE(os.stat(tmp_path / "gmail.accounts.json").st_mode)

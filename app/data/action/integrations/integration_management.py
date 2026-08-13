@@ -700,3 +700,127 @@ def disconnect_integration(input_data: dict) -> dict:
         }
     except Exception as e:
         return {"status": "error", "message": f"Disconnect failed: {str(e)}"}
+
+
+@action(
+    name="manage_integration_account",
+    description=(
+        "Manage a connected integration account: set it as the primary "
+        "(default) account, give it a nickname/alias, or turn inbound "
+        "listening on/off for it. Use when the user says things like 'make "
+        "my work Gmail the default', 'call this account job-search', or "
+        "'stop listening on my second Slack'."
+    ),
+    default=True,
+    action_sets=["core"],
+    parallelizable=False,
+    input_schema={
+        "integration_id": {
+            "type": "string",
+            "description": "The integration the account belongs to.",
+            "example": "gmail",
+        },
+        "account": {
+            "type": "string",
+            "description": (
+                "Which account: an identity (email/id), the user's alias for "
+                "it, or any unique fragment of either."
+            ),
+            "example": "work",
+        },
+        "operation": {
+            "type": "string",
+            "description": "One of: set_primary | set_alias | set_listening",
+            "example": "set_primary",
+        },
+        "value": {
+            "type": "string",
+            "description": (
+                "For set_alias: the new alias (empty clears it). For "
+                "set_listening: 'true' or 'false'. Ignored for set_primary."
+            ),
+            "example": "",
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "message": {"type": "string", "description": "Human-readable result."},
+        "accounts": {
+            "type": "array",
+            "description": "The integration's accounts after the change.",
+        },
+    },
+    test_payload={
+        "integration_id": "gmail",
+        "account": "work",
+        "operation": "set_primary",
+        "simulated_mode": True,
+    },
+)
+def manage_integration_account(input_data: dict) -> dict:
+    if input_data.get("simulated_mode"):
+        return {"status": "success", "message": "Simulated mode"}
+
+    from app.data.action.integrations._helpers import (
+        accounts_payload,
+        normalize_integration_id,
+        system_for,
+    )
+
+    integration_id = normalize_integration_id(
+        (input_data.get("integration_id") or "").strip().lower()
+    )
+    account = (input_data.get("account") or "").strip() or None
+    operation = (input_data.get("operation") or "").strip().lower()
+    value = (input_data.get("value") or "").strip()
+
+    if not integration_id:
+        return {"status": "error", "message": "integration_id is required."}
+    if operation not in ("set_primary", "set_alias", "set_listening"):
+        return {
+            "status": "error",
+            "message": (
+                f"Unknown operation {operation!r}. Use set_primary, "
+                f"set_alias, or set_listening."
+            ),
+        }
+
+    system = system_for(integration_id)
+    if system is None:
+        return {
+            "status": "error",
+            "message": f"Unknown integration: {integration_id}",
+        }
+
+    try:
+        if operation == "set_primary":
+            identity = system.set_primary(integration_id, account)
+            message = f"'{identity}' is now the primary {integration_id} account."
+        elif operation == "set_alias":
+            identity = system.set_alias(integration_id, account, value or None)
+            message = (
+                f"Alias for '{identity}' set to '{value}'."
+                if value
+                else f"Alias for '{identity}' cleared."
+            )
+        else:  # set_listening
+            if value.lower() not in ("true", "false"):
+                return {
+                    "status": "error",
+                    "message": "set_listening needs value 'true' or 'false'.",
+                }
+            on = value.lower() == "true"
+            identity = system.set_listening(integration_id, account, on)
+            message = (
+                f"Listening {'enabled' if on else 'disabled'} for "
+                f"'{identity}' on {integration_id}."
+            )
+        return {
+            "status": "success",
+            "message": message,
+            "accounts": accounts_payload(system.list_accounts(integration_id)),
+        }
+    except Exception as e:
+        # AccountResolutionError messages already enumerate the valid
+        # accounts, so the model can self-correct on a bad hint.
+        return {"status": "error", "message": str(e)}

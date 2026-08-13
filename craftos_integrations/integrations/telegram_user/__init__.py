@@ -78,17 +78,45 @@ class TelegramUserHandler(IntegrationHandler):
     spec = TELEGRAM_USER
     display_name = "Telegram (User)"
     description = "MTProto user account"
-    auth_type = "interactive"
+    # Two-phase token connect: submit #1 (phone only) sends the login code
+    # and reports back; submit #2 (phone + code [+ 2FA password]) completes.
+    # The CLI `/telegram_user login` subcommand flow is unchanged.
+    auth_type = "token"
     icon = "telegram"
     connect_help = [
-        "Open my.telegram.org and log in with your Telegram phone number",
-        "Click 'API development tools'",
-        "Fill the form (any app name/short name works) and submit",
-        "Copy the 'api_id' (number) and 'api_hash' (long hex string)",
-        "Set them as TELEGRAM_API_ID and TELEGRAM_API_HASH in CraftBot config",
-        "Then click Connect - you'll be prompted for your phone + login code",
+        "One-time app credentials: open my.telegram.org, log in, click "
+        "'API development tools', submit the form (any app name works)",
+        "Set the api_id and api_hash as TELEGRAM_API_ID and "
+        "TELEGRAM_API_HASH in CraftBot config (they are NOT entered below)",
+        "Connect step 1: enter your phone number only (international "
+        "format, e.g. +923001234567) and submit - a login code is sent "
+        "to your Telegram app",
+        "Connect step 2: submit again with the same phone number AND the "
+        "code filled in (add your 2FA password if your account has one)",
     ]
-    fields: List = []
+    # `code` and `password` stay empty on the first submit — the label
+    # "(optional)" / "(optional…" placeholder mark them non-required for
+    # the connect flow's missing-field check.
+    fields: List = [
+        {
+            "key": "phone_number",
+            "label": "Phone Number",
+            "placeholder": "+923001234567",
+            "password": False,
+        },
+        {
+            "key": "code",
+            "label": "Login Code (optional)",
+            "placeholder": "(optional) leave empty on first submit",
+            "password": False,
+        },
+        {
+            "key": "password",
+            "label": "2FA Password (optional)",
+            "placeholder": "(optional) only if two-step verification is on",
+            "password": True,
+        },
+    ]
 
     config_class = TelegramUserConfig
     config_fields = [

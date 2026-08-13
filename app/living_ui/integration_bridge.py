@@ -159,6 +159,9 @@ class IntegrationBridge:
         url = data.get("url", "")
         extra_headers = data.get("headers") or {}
         body = data.get("body")
+        # Optional multi-account selector: identity, alias, or unique
+        # fragment (same resolution as agent actions). Omitted = primary.
+        account = (data.get("account") or "").strip() or None
 
         if not integration or not url:
             return web.json_response(
@@ -199,11 +202,15 @@ class IntegrationBridge:
         url = resolved
 
         # Get auth headers from platform client
-        auth_headers = self._get_auth_headers(integration)
+        auth_headers = self._get_auth_headers(integration, account)
         if auth_headers is None:
+            detail = f" (account {account!r} not found?)" if account else ""
             return web.json_response(
                 {
-                    "error": f"Integration '{integration}' not connected (no credentials)"
+                    "error": (
+                        f"Integration '{integration}' not connected "
+                        f"(no credentials){detail}"
+                    )
                 },
                 status=424,
             )
@@ -773,23 +780,25 @@ class IntegrationBridge:
                 return True, raw
         return False, f"host {host!r} is not one of {', '.join(allowed)}"
 
-    def _client_for_platform(self, platform_id: str):
+    def _client_for_platform(self, platform_id: str, account: Optional[str] = None):
         """Credentialed client for a platform, or None.
 
-        multi-account provider ids get the PRIMARY account's client from the
-        IntegrationSystem (the bound client subclasses the legacy client, so
-        the header-extraction below works unchanged); everything else keeps
-        the legacy single-account client.
+        Multi-account provider ids resolve ``account`` (identity / alias /
+        unique fragment, None = primary) through the IntegrationSystem —
+        the bound client subclasses the legacy client, so the
+        header-extraction below works unchanged. Platforms without a v2
+        provider keep the legacy single-account client.
         """
         from app.data.action.integrations._helpers import system_for
 
         system = system_for(platform_id)
         if system is not None:
             try:
-                identity = system.resolve(platform_id, None)
+                identity = system.resolve(platform_id, account)
                 return system.client_for(platform_id, identity)
             except Exception:
-                # Not connected (AccountResolutionError) or build failure.
+                # Not connected / bad account hint (AccountResolutionError)
+                # or build failure.
                 return None
 
         from craftos_integrations import get_client
@@ -799,14 +808,16 @@ class IntegrationBridge:
             return None
         return client
 
-    def _get_auth_headers(self, platform_id: str) -> Optional[dict]:
+    def _get_auth_headers(
+        self, platform_id: str, account: Optional[str] = None
+    ) -> Optional[dict]:
         """
         Get authentication headers from a platform client.
 
         Returns:
             Dict of auth headers, or None if credentials unavailable.
         """
-        client = self._client_for_platform(platform_id)
+        client = self._client_for_platform(platform_id, account)
         if client is None:
             return None
 

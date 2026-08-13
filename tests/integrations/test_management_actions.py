@@ -192,18 +192,23 @@ def test_slack_token_connect_auth_failure_stores_nothing(
     assert v2_system.list_accounts("slack") == []
 
 
-def test_notion_token_connect_lands_on_legacy_sentinel(
+def test_notion_token_connect_captures_bot_identity(
     action_registry, v2_system, monkeypatch
 ):
-    """Token-only Notion credentials carry no workspace id — plan §7 says
-    they live under the LEGACY sentinel until an OAuth re-auth upgrades
-    them in place."""
+    """A pasted integration token is verified via /users/me and the bot's
+    workspace/bot ids are captured into the credential, so the account gets
+    a real identity — a second workspace's token becomes a second account
+    instead of silently replacing the first (the old LEGACY-sentinel
+    behavior this test used to pin)."""
     import craftos_integrations.integrations.notion as notion_mod
 
     monkeypatch.setattr(
         notion_mod,
         "_notion_call",
-        lambda method, path, headers, **kw: {"bot": {"workspace_name": "Acme WS"}},
+        lambda method, path, headers, **kw: {
+            "id": "BOT-123",
+            "bot": {"workspace_name": "Acme WS", "workspace_id": "WS-9"},
+        },
     )
     result = _run(
         action_registry,
@@ -220,10 +225,39 @@ def test_notion_token_connect_lands_on_legacy_sentinel(
         "auth_type": "token",
     }
     accounts = v2_system.list_accounts("notion")
-    assert [a.identity for a in accounts] == ["legacy"]
-    assert v2_system.accounts.credential_for("notion", "legacy") == {
-        "token": "secret_abc"
+    assert [a.identity for a in accounts] == ["ws-9"]
+    assert v2_system.accounts.credential_for("notion", "ws-9") == {
+        "token": "secret_abc",
+        "bot_id": "BOT-123",
+        "workspace_id": "WS-9",
     }
+
+
+def test_identity_less_token_connect_is_rejected(
+    action_registry, v2_system, monkeypatch
+):
+    """When verification can't produce an identity, the connect is refused —
+    storing under the LEGACY sentinel would let the next identity-less
+    connect overwrite this account's credential."""
+    import craftos_integrations.integrations.notion as notion_mod
+
+    monkeypatch.setattr(
+        notion_mod,
+        "_notion_call",
+        lambda method, path, headers, **kw: {"bot": {"workspace_name": "Acme WS"}},
+    )
+    result = _run(
+        action_registry,
+        "connect_integration",
+        {
+            "integration_id": "notion",
+            "credentials": {"token": "secret_abc"},
+            "auth_method": "token",
+        },
+    )
+    assert result["status"] == "error"
+    assert "overwritten" in result["message"]
+    assert v2_system.list_accounts("notion") == []
 
 
 def test_hubspot_token_connect_uses_hub_id_identity(

@@ -85,8 +85,6 @@ from app.ui_layer.settings import (
     get_skill_template,
     remove_skill,
     # Integration settings
-    list_integrations,
-    get_integration_info,
     connect_integration_token,
     connect_integration_oauth,
     connect_integration_interactive,
@@ -6341,9 +6339,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # =====================
 
     async def _handle_integration_list(self) -> None:
-        """Get list of all integrations with status."""
+        """Get list of all integrations with status.
+
+        Uses the v2-merged list: multi-account providers source ``connected``
+        and ``accounts`` from the IntegrationSystem (the legacy credential
+        file is never written by v2 connects, so the legacy status path
+        reports them as disconnected — issue seen with youtube/notion).
+        """
         try:
-            integrations = list_integrations()
+            from app.data.action.integrations._helpers import (
+                list_integrations_merged_async,
+            )
+
+            integrations = await list_integrations_merged_async()
             # Calculate stats
             total = len(integrations)
             connected = sum(1 for i in integrations if i.get("connected", False))
@@ -6438,18 +6446,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         return data
 
     async def _handle_integration_info(self, integration_id: str) -> None:
-        """Get detailed info about an integration."""
+        """Get detailed info about an integration.
+
+        Metadata comes from the legacy handler (still the metadata source);
+        connection state and accounts come from the IntegrationSystem —
+        every integration is multi-account now, so the old
+        ``handler.status()`` text-scraping path is gone. A missing
+        top-level ``accounts`` key tells the frontend the account list
+        couldn't be loaded (it renders a reload hint, never fake rows).
+        """
         try:
-            info = get_integration_info(integration_id)
+            from craftos_integrations import get_metadata
+
+            info = get_metadata(integration_id)
             if info:
-                # For providers known to the integrations system, attach the
-                # multi-account view as a TOP-LEVEL ``accounts`` key — the
-                # frontend reads ``data.accounts`` (see IntegrationsSettings's
-                # ``integration_info`` handler and ManagedAccount in types.ts)
-                # to decide between AccountsManager and the legacy modal body.
-                # ``info["accounts"]`` (inside ``data.integration``) keeps the
-                # legacy status-parsed ``{display, id}`` shape untouched so the
-                # legacy fallback rows can never receive v2-shaped objects.
                 managed_accounts: Optional[List[Dict[str, Any]]] = None
                 try:
                     system = self._system_for(integration_id)
@@ -6460,8 +6470,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 except Exception as e:
                     logger.error(
                         f"[INTEGRATIONS] v2 accounts for {integration_id} "
-                        f"unavailable, Manage modal degrades to legacy view: {e!r}"
+                        f"unavailable, Manage modal shows reload hint: {e!r}"
                     )
+                info["connected"] = bool(managed_accounts)
+                info["accounts"] = managed_accounts or []
                 data: Dict[str, Any] = {
                     "success": True,
                     "id": integration_id,
@@ -6887,6 +6899,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 accounts = await asyncio.to_thread(
                     system.apply_account_changes, integration_id, changes or {}
                 )
+                # Batched disconnects need the platform-specific teardown too
+                # (whatsapp_web: stop the account's bridge, delete its
+                # session dir) — core removal only edits the AccountSet.
+                try:
+                    from app.data.action.integrations._helpers import (
+                        platform_teardown_accounts,
+                    )
+
+                    platform_teardown_accounts(
+                        integration_id, (changes or {}).get("disconnect") or []
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[INTEGRATIONS] platform teardown after batched "
+                        f"disconnect failed for {integration_id}: {e!r}"
+                    )
                 await self._broadcast(
                     {
                         "type": "integration_apply_account_changes_result",
@@ -7307,13 +7335,35 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Check WhatsApp session status."""
         try:
             result = await check_whatsapp_session_status(session_id)
+            # On connect, store the account into the AccountSet — the QR flow
+            # itself can't (craftos_integrations never imports the host); the
+            # v2 ListenerManager then picks the account up via reconcile.
+            if result.get("connected") and result.get("credential"):
+                try:
+                    from app.integrations import get_system
+
+                    system = get_system()
+                    identity = system.store_credential(
+                        "whatsapp_web",
+                        result.get("identity"),
+                        result["credential"],
+                    )
+                    system.reconcile_listeners()
+                    logger.info(
+                        f"[INTEGRATIONS] whatsapp_web account '{identity}' "
+                        f"stored via QR session {session_id}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"[INTEGRATIONS] storing whatsapp_web QR account "
+                        f"failed (session {session_id}): {e!r}"
+                    )
             await self._broadcast(
                 {
                     "type": "whatsapp_status_result",
                     "data": result,
                 }
             )
-            # If connected, refresh the integrations list (listener is started by check_whatsapp_session_status)
             if result.get("connected"):
                 await self._handle_integration_list()
         except Exception as e:

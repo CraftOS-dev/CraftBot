@@ -246,6 +246,19 @@ class AgentBase:
         self.db_interface = self._build_db_interface(
             data_dir=data_dir, chroma_path=chroma_path
         )
+        # Multi-account bridge: legacy actions of bridged platforms get the
+        # ``account`` input injected post-discovery (schemas are read live
+        # from the registry at prompt build, so this must run before the
+        # first turn). Never fatal — a failure just means those actions
+        # keep their pre-multi-account schemas this run.
+        try:
+            from app.data.action.integrations.account_bridge import (
+                inject_account_schemas,
+            )
+
+            inject_account_schemas()
+        except Exception as e:
+            logger.warning(f"[ACCOUNT_BRIDGE] schema injection failed: {e}")
 
         # LLM + prompt plumbing (may be deferred if API key not yet configured)
         self.llm = LLMInterface(
@@ -3365,13 +3378,24 @@ class AgentBase:
                 "openai_api_key": os.environ.get("OPENAI_API_KEY", ""),
             },
         )
-        # gmail/outlook/slack listening is owned by the ListenerManager
-        # (multi-account fan-out); the legacy manager must not double-listen.
-        # The other multi-account providers have no listeners, and the remaining legacy
-        # integrations keep legacy listening.
+        # Every platform with a v2 provider (full port or auth-layer bridge)
+        # gets its listening from the ListenerManager's per-account fan-out;
+        # the legacy manager must not double-listen on any of them. Derived
+        # from the registry so newly bridged platforms are excluded
+        # automatically. Remaining legacy integrations keep legacy listening.
+        try:
+            from app.integrations import get_system
+
+            v2_platform_ids = [p.id for p in get_system().providers()]
+        except Exception as e:
+            logger.warning(
+                f"[EXT LIBS] v2 registry unavailable, falling back to static "
+                f"listener exclusions: {e}"
+            )
+            v2_platform_ids = ["gmail", "outlook", "slack"]
         self._external_comms = await initialize_manager(
             on_message=self._handle_external_event,
-            exclude_platforms=["gmail", "outlook", "slack"],
+            exclude_platforms=v2_platform_ids,
         )
         logger.info("[EXT LIBS] External integrations configured + manager started")
 

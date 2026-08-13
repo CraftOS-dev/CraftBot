@@ -431,7 +431,8 @@ def test_every_provider_accepts_three_arg_make_listener():
         pass
 
     providers = default_providers()
-    assert len(providers) == 10
+    # 10 full ports + 5 wave-1 + 6 wave-2 + 2 wave-3 bridges
+    assert len(providers) == 23
     with_listeners = set()
     for provider in providers:
         listener = provider.make_listener(object(), None, emit)
@@ -440,5 +441,24 @@ def test_every_provider_accepts_three_arg_make_listener():
             assert hasattr(listener, "start")
             assert hasattr(listener, "stop")
             assert hasattr(listener, "cursor")
-            assert listener.poll_interval > 0
-    assert with_listeners == {"gmail", "outlook", "slack"}
+            # poll_interval is optional (stagger hint): hand-written
+            # listeners expose theirs; LegacyListenerAdapter does not.
+            interval = getattr(listener, "poll_interval", None)
+            if interval is not None:
+                assert interval > 0
+    # Bridged platforms reuse their legacy listen loops via
+    # LegacyListenerAdapter: github/jira/twitter watch-polls, telegram_bot
+    # getUpdates long-poll, discord gateway, lark websocket.
+    assert with_listeners == {
+        "gmail",
+        "outlook",
+        "slack",
+        "github",
+        "jira",
+        "telegram_bot",
+        "discord",
+        "twitter",
+        "lark",
+        "telegram_user",
+        "whatsapp_web",
+    }

@@ -61,6 +61,38 @@ def emit_callback(emit: EmitFn) -> Callable[[Any], Awaitable[None]]:
     return _callback
 
 
+class LegacyListenerAdapter:
+    """Generic ``Listener`` over a bound legacy client's own listen loop.
+
+    For bridge providers (auth-layer-only ports): the account-bound client
+    IS a legacy ``BasePlatformClient`` subclass, so its battle-tested
+    ``start_listening``/``stop_listening`` loop is reused verbatim —
+    events are converted per message by ``emit_callback``. No cursor: the
+    legacy loops keep watermarks in memory and run their own catch-up on
+    start, exactly as they did under ExternalCommsManager. Providers
+    needing restart-safe cursors get a hand-written listener instead
+    (see slack/listener.py for the pattern).
+    """
+
+    def __init__(self, client: Any, emit: EmitFn) -> None:
+        self._client = client
+        self._emit = emit
+
+    async def start(self) -> None:
+        # The supervisor re-invokes start() after every clean cycle; the
+        # legacy loops were started exactly once by ExternalCommsManager and
+        # may not guard against double-starts — spawn only when not running.
+        if getattr(self._client, "is_listening", False):
+            return
+        await self._client.start_listening(emit_callback(self._emit))
+
+    async def stop(self) -> None:
+        await self._client.stop_listening()
+
+    def cursor(self) -> Optional[Dict[str, Any]]:
+        return None
+
+
 def read_guidance(package_file: str) -> str:
     """Load GUIDANCE.md sitting next to a provider module."""
     from pathlib import Path

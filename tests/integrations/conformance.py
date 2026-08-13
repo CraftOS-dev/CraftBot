@@ -63,13 +63,26 @@ class ProviderConformance:
 
     # ── oauth ────────────────────────────────────────────────────────────
 
+    def _oauth_spec(self):
+        """Token-only providers (auth-layer bridge ports) have no OAuth at
+        all and raise NotImplementedError — an explicit declaration, like
+        ``has_chooser=False``, not an accident."""
+        try:
+            return self.provider.oauth_spec()
+        except NotImplementedError:
+            return None
+
     def test_oauth_spec_urls(self):
-        spec = self.provider.oauth_spec()
+        spec = self._oauth_spec()
+        if spec is None:
+            pytest.skip(f"{self.provider.id} is token-only — no OAuth spec")
         assert spec.authorize_url.startswith("https://")
         assert spec.token_url.startswith("https://")
 
     def test_missing_chooser_is_declared_and_documented(self):
-        spec = self.provider.oauth_spec()
+        spec = self._oauth_spec()
+        if spec is None:
+            pytest.skip(f"{self.provider.id} is token-only — no OAuth spec")
         if not spec.has_chooser:
             guidance = self.provider.guidance().lower()
             assert "account" in guidance, (

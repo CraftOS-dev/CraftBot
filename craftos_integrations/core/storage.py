@@ -13,7 +13,8 @@ Guarantees:
   - ``replace`` is atomic (tmp file + os.replace) — a crash mid-write can
     never leave a torn document; the previous version survives.
   - ``locked`` serializes read-modify-write cycles across processes via
-    fcntl.flock on the sidecar (the sidecar never gets replaced, so the
+    fcntl.flock (POSIX) or msvcrt.locking (Windows) on the sidecar (the
+    sidecar never gets replaced, so the
     lock's inode is stable — locking the data file itself would race with
     os.replace swapping inodes underneath the lock holder).
   - Unparseable documents are quarantined loudly, never silently treated
@@ -23,13 +24,39 @@ Guarantees:
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import stat
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, Mapping, Optional
+
+if os.name == "nt":
+    import msvcrt
+
+    def _lock_exclusive(f) -> None:
+        # msvcrt.locking locks a byte range at the current file position, and
+        # LK_LOCK gives up after ~10s — loop for flock-like blocking semantics.
+        while True:
+            try:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                return
+            except OSError:
+                continue
+
+    def _lock_release(f) -> None:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _lock_exclusive(f) -> None:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
+    def _lock_release(f) -> None:
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 from ..config import ConfigStore
 from ..logger import get_logger
@@ -88,7 +115,8 @@ class FileCredentialStore:
         path = self._path(provider_id)
         tmp = path.with_suffix(path.suffix + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
-            os.fchmod(f.fileno(), stat.S_IRUSR | stat.S_IWUSR)
+            if hasattr(os, "fchmod"):  # POSIX only; Windows ACLs don't map
+                os.fchmod(f.fileno(), stat.S_IRUSR | stat.S_IWUSR)
             json.dump(data, f, indent=2)
             f.flush()
             os.fsync(f.fileno())
@@ -104,11 +132,11 @@ class FileCredentialStore:
     def locked(self, provider_id: str) -> Iterator[None]:
         lock_path = self._dir() / f".{provider_id}.accounts.lock"
         with open(lock_path, "a+") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            _lock_exclusive(lock_file)
             try:
                 yield
             finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                _lock_release(lock_file)
 
     def has_document(self, provider_id: str) -> bool:
         return self._path(provider_id).exists()
