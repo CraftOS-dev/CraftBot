@@ -75,6 +75,14 @@ GRAPH_ELIGIBILITY_SCORE = 0.5
 RECENCY_MAX_BONUS = 0.05
 RECENCY_HALF_LIFE_DAYS = 30.0
 
+# Query-aware preview window. The injected memory preview is centred on the
+# query match instead of the chunk's head, so the fact that made the chunk
+# relevant is not truncated away (a from-the-start summary once cut off
+# "Tobias Garcia" and the agent had to grep for it). PREVIEW_MAX_CHARS bounds
+# the snippet; PREVIEW_LEAD keeps a little context before the match.
+PREVIEW_MAX_CHARS = 180
+PREVIEW_LEAD = 40
+
 # Log-line preview limits. Keep multi-line queries and long summaries from
 # bleeding across log entries.
 _LOG_QUERY_MAX_CHARS = 300
@@ -451,12 +459,15 @@ class MemoryManager:
             ids = (results.get("ids") or [[]])[0]
             metadatas = (results.get("metadatas") or [[]])[0]
             distances = (results.get("distances") or [[]])[0]
+            documents = (results.get("documents") or [[]])[0]
             for i, chunk_id in enumerate(ids):
                 meta = metadatas[i] if i < len(metadatas) else {}
                 distance = distances[i] if i < len(distances) else 1.0
                 vector_hits[chunk_id] = {
                     "score": _cosine_distance_to_similarity(distance),
                     "metadata": meta,
+                    # Kept for the query-aware preview snippet (built below).
+                    "document": documents[i] if i < len(documents) else "",
                     "rank": i,
                 }
         except Exception as e:
@@ -511,9 +522,12 @@ class MemoryManager:
                     in set(file_filter)
                 }
 
-        # Pull metadata for any BM25-only hits so we can build pointers + age.
+        # Pull metadata + documents for any non-vector hits so we can build
+        # pointers, age them, and window a query-aware preview.
         missing_ids = [cid for cid in candidate_ids if cid not in vector_hits]
-        extra_meta = self._fetch_metadata(missing_ids) if missing_ids else {}
+        extra_meta, extra_docs = (
+            self._fetch_meta_and_docs(missing_ids) if missing_ids else ({}, {})
+        )
 
         pointers: List[MemoryPointer] = []
 
@@ -548,13 +562,26 @@ class MemoryManager:
             if final < min_relevance and graph_score < GRAPH_ELIGIBILITY_SCORE:
                 continue
 
+            # Query-aware preview: window the snippet around the query match
+            # rather than the chunk head. Prefer the item's clean content
+            # (MEMORY.md items), else the raw document (file chunks), else the
+            # stored summary as a last resort.
+            full_text = (
+                meta.get("item_content")
+                or (
+                    vector_hits[chunk_id].get("document")
+                    if chunk_id in vector_hits
+                    else extra_docs.get(chunk_id, "")
+                )
+                or meta.get("summary", "")
+            )
             pointers.append(
                 MemoryPointer(
                     chunk_id=chunk_id,
                     file_path=meta.get("file_path", ""),
                     section_path=meta.get("section_path", ""),
                     title=meta.get("title", ""),
-                    summary=meta.get("summary", ""),
+                    summary=self._preview_snippet(query, full_text),
                     relevance_score=final,
                     metadata={
                         k: v
@@ -718,6 +745,30 @@ class MemoryManager:
         except Exception as e:
             logger.warning(f"[MEMORY] Metadata fetch failed: {e}")
             return {}
+
+    def _fetch_meta_and_docs(
+        self, chunk_ids: List[str]
+    ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, str]]:
+        """Fetch metadata AND documents for a set of chunk ids in one call.
+
+        Used for non-vector candidates so the query-aware preview can window
+        the full chunk text (the vector channel already carries its own docs).
+        """
+        if not chunk_ids:
+            return {}, {}
+        try:
+            result = self.collection.get(
+                ids=chunk_ids, include=["metadatas", "documents"]
+            )
+            ids = result.get("ids") or []
+            metas = result.get("metadatas") or []
+            docs = result.get("documents") or []
+            meta_map = {ids[i]: metas[i] for i in range(len(ids))}
+            doc_map = {ids[i]: (docs[i] if i < len(docs) else "") for i in range(len(ids))}
+            return meta_map, doc_map
+        except Exception as e:
+            logger.warning(f"[MEMORY] Metadata/document fetch failed: {e}")
+            return {}, {}
 
     def retrieve_full_content(self, chunk_id: str) -> Optional[str]:
         """
@@ -1223,31 +1274,78 @@ class MemoryManager:
 
         return chunks
 
-    def _create_summary(self, content: str, max_length: int = 150) -> str:
-        """
-        Create a brief summary of content for the memory pointer.
+    def _clean_for_preview(self, content: str) -> str:
+        """Strip markdown SYNTAX positionally for a readable preview.
 
-        Takes the first meaningful text, cleans it up, and truncates.
-        Markdown SYNTAX is stripped positionally — never characters inside
-        words, or snake_case identifiers like list_available_integrations
-        collapse into unreadable mush.
+        Never removes characters inside words, or snake_case identifiers like
+        list_available_integrations collapse into unreadable mush.
         """
-        clean = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", content)  # Links
+        clean = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", content or "")  # Links
         clean = re.sub(r"^#{1,6}\s+", "", clean, flags=re.MULTILINE)  # Headings
         clean = clean.replace("`", "")  # Inline-code markers
         clean = re.sub(r"\*+", "", clean)  # Bold/italic markers
         clean = re.sub(r"\s+", " ", clean).strip()  # Whitespace
+        return clean
 
-        # Take first max_length chars, break at word boundary
+    @staticmethod
+    def _truncate_preview(clean: str, max_length: int) -> str:
+        """Head-of-text truncation at a word boundary, with trailing '...'."""
         if len(clean) <= max_length:
             return clean
-
         truncated = clean[:max_length]
         last_space = truncated.rfind(" ")
         if last_space > max_length * 0.7:
             truncated = truncated[:last_space]
-
         return truncated + "..."
+
+    def _create_summary(self, content: str, max_length: int = 150) -> str:
+        """Brief from-the-head summary of content for the stored pointer."""
+        return self._truncate_preview(self._clean_for_preview(content), max_length)
+
+    def _preview_snippet(self, query: str, content: str) -> str:
+        """A query-CENTRED preview of a chunk (keyword-in-context).
+
+        Cleans markdown like the stored summary, then returns a window
+        centred on the first query match that covers the most query terms,
+        with leading/trailing ellipses marking omitted text. Degrades to the
+        head-of-content summary when no query term appears, so non-matching
+        previews look exactly as before. Built at retrieval time because the
+        stored summary is query-independent.
+        """
+        clean = self._clean_for_preview(content)
+        if len(clean) <= PREVIEW_MAX_CHARS:
+            return clean
+
+        terms = [
+            t for t in re.findall(r"[a-z0-9]+", (query or "").lower()) if len(t) > 2
+        ]
+        low = clean.lower()
+        # Anchor on the term occurrence whose window covers the most distinct
+        # query terms, so multi-word matches stay together.
+        anchor = -1
+        best_hits = 0
+        for term in terms:
+            i = low.find(term)
+            while i != -1:
+                hits = sum(1 for u in terms if u in low[i : i + PREVIEW_MAX_CHARS])
+                if hits > best_hits:
+                    best_hits = hits
+                    anchor = i
+                i = low.find(term, i + len(term))
+
+        if anchor < 0:
+            # No query term in the chunk — fall back to the head snippet.
+            return self._truncate_preview(clean, PREVIEW_MAX_CHARS)
+
+        start = max(0, anchor - PREVIEW_LEAD)
+        end = min(len(clean), start + PREVIEW_MAX_CHARS)
+        start = max(0, end - PREVIEW_MAX_CHARS)  # re-widen left near the tail
+        snippet = clean[start:end].strip()
+        if start > 0:
+            snippet = "..." + snippet
+        if end < len(clean):
+            snippet = snippet + "..."
+        return snippet
 
     # ───────────────────────────── Indexing Helpers ─────────────────────────────
 

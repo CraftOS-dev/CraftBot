@@ -75,13 +75,25 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
     if not pointers:
         return
 
+    # These are TRUNCATED previews (pointers), not full memories: each line is
+    # a snippet centred on the query match, and a leading/trailing "..." marks
+    # omitted text. The header says so explicitly because "..." alone is an
+    # ambiguous cut-off signal — the agent must know to expand a relevant-but-
+    # clipped preview (memory_search / grep_files / read the source file)
+    # before relying on it.
+    header = (
+        "Relevant memory previews (TRUNCATED pointers, not full records; "
+        '"..." marks omitted text). If a preview is relevant but clipped, '
+        "read the source file or memory_search/grep for the full memory "
+        "before relying on it:"
+    )
     lines = []
     for ptr in pointers:
         lines.append(
             f"- [{ptr.file_path}] {ptr.section_path}: {ptr.summary} "
             f"(relevance: {ptr.relevance_score:.2f})"
         )
-    message = "\n".join(lines)
+    message = header + "\n" + "\n".join(lines)
 
     # session_id=None means "no task context" — log directly to the main
     # stream rather than going through .log(task_id=None), which would fall

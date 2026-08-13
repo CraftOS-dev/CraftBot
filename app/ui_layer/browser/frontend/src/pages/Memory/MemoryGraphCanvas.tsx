@@ -32,6 +32,12 @@ const COMMUNITY_COLORS = [
 const FRICTION = 0.8
 const REPULSION = 2400
 const REPULSION_CUTOFF = 320
+// A node's repulsion scales with how connected it is: a well-connected hub
+// pushes other nodes away harder, so its dense cloud of memories spreads out
+// instead of piling on top of neighbouring hubs. Sub-linear (log of degree)
+// so a 60-link hub is strongly repulsive without detonating the layout;
+// degree-1 leaves keep the base repulsion (multiplier 1).
+const HUB_REPULSION = 2.0
 // Extra clearance every pair of nodes keeps beyond their radii.
 const NODE_CLEARANCE = 22
 // Hard no-overlap guarantee: pairs closer than radii + this gap are
@@ -77,6 +83,8 @@ interface SimNode {
   vy: number
   radius: number
   color: string
+  // Repulsion multiplier from this node's edge degree — hubs shove harder.
+  repel: number
   // Celestial rendering: precomputed "r,g,b" strings so the per-frame
   // rgba() concatenation stays allocation-cheap.
   starHalo: string // desaturated community tint for the outer glow
@@ -252,6 +260,15 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
     const cx = width / 2
     const cy = height / 2
 
+    // Degree = how connected each node is; drives the hub-repulsion boost.
+    const degreeOf = new Map<string, number>()
+    for (const e of graph?.edges || []) {
+      degreeOf.set(e.source, (degreeOf.get(e.source) || 0) + 1)
+      degreeOf.set(e.target, (degreeOf.get(e.target) || 0) + 1)
+    }
+    const repelOf = (id: string) =>
+      1 + HUB_REPULSION * Math.log2(Math.max(1, degreeOf.get(id) || 1))
+
     const fresh: MemoryGraphNode[] = []
     for (const data of graph?.nodes || []) {
       incoming.add(data.id)
@@ -259,6 +276,7 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
       if (existing) {
         existing.data = data
         existing.radius = nodeRadius(data)
+        existing.repel = repelOf(data.id)
         existing.color = nodeColor(data)
         const star = starColors(existing.color)
         existing.starHalo = star.halo
@@ -312,6 +330,7 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         x, y,
         vx: 0, vy: 0,
         radius: nodeRadius(data),
+        repel: repelOf(data.id),
         color,
         starHalo: star.halo,
         starCore: star.core,
@@ -583,7 +602,8 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
               const sizeBoost = 1 + (n1.radius + n2.radius) * 0.04
               const minDist = n1.radius + n2.radius + NODE_CLEARANCE
               const overlapRamp = d < minDist ? 1 + 2 * (minDist - d) / minDist : 1
-              const force = (REPULSION * sizeBoost * overlapRamp / d2) * alpha
+              // n2 repels n1; scale by n2's connectedness so hubs shove hardest.
+              const force = (REPULSION * sizeBoost * overlapRamp * n2.repel / d2) * alpha
               n1.vx += (dx / d) * force
               n1.vy += (dy / d) * force
             }
@@ -879,9 +899,9 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
       }
 
       // ── Nodes: solid, workspace-friendly ──
-      //   entity — solid disc, community colour, sized by mention count
+      //   entity — solid core + thin detached ring, sized by mention count
       //   memory — smaller solid dot
-      //   file   — solid disc with a thin detached ring
+      //   file   — short filled document glyph (FileText icon)
       // No gradients: flat colour reads cleanly on dark AND light themes.
       for (const n of nodes) {
         if (!inView(n.x, n.y)) continue
@@ -917,9 +937,54 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         }
 
         ctx.globalAlpha = vis
-        ctx.fillStyle = n.color
         if (kind === 'file') {
-          // Solid core + thin detached ring marks a file.
+          // Files render as a FILLED document glyph so they read as files,
+          // not as another coloured node. Portrait page with rounded corners
+          // and a folded top-right corner; text lines carved in the
+          // background colour. Geometry uses the full radius (not the
+          // entrance-scaled r) in a 24×24 local space.
+          const sc = (n.radius * 3.0) / 24
+          const L = 6.5, R = 17.5, T = 4, B = 20   // page bounds (portrait)
+          const RAD = 1.8                          // corner radius
+          const FOLD = 4.5                          // dog-ear size
+          const FX = R - FOLD, FY = T + FOLD        // fold start / diagonal end
+          ctx.save()
+          ctx.translate(p.x, p.y)
+          ctx.scale(sc, sc)
+          ctx.translate(-12, -12)
+          ctx.lineJoin = 'round'
+          ctx.lineCap = 'round'
+          // Page body: top edge → fold diagonal → rounded right/bottom/left.
+          ctx.fillStyle = n.color
+          ctx.beginPath()
+          ctx.moveTo(L + RAD, T)
+          ctx.lineTo(FX, T)
+          ctx.lineTo(R, FY)
+          ctx.arcTo(R, B, R - RAD, B, RAD)
+          ctx.arcTo(L, B, L, B - RAD, RAD)
+          ctx.arcTo(L, T, L + RAD, T, RAD)
+          ctx.closePath()
+          ctx.fill()
+          // Folded corner: a darker flap so it reads as turned-down paper.
+          ctx.fillStyle = 'rgba(0,0,0,0.22)'
+          ctx.beginPath()
+          ctx.moveTo(FX, T)
+          ctx.lineTo(FX, FY)
+          ctx.lineTo(R, FY)
+          ctx.closePath()
+          ctx.fill()
+          // Two text lines carved in the background colour.
+          ctx.strokeStyle = bg
+          ctx.lineWidth = 1.1 / (t.k * sc)
+          ctx.beginPath()
+          ctx.moveTo(9, 13); ctx.lineTo(15, 13)
+          ctx.moveTo(9, 16); ctx.lineTo(15, 16)
+          ctx.stroke()
+          ctx.restore()
+          ctx.lineWidth = 1 / t.k
+        } else if (kind === 'entity') {
+          // Entities: solid core + thin detached ring (the old file design).
+          ctx.fillStyle = n.color
           ctx.beginPath()
           ctx.arc(p.x, p.y, r * 0.62, 0, Math.PI * 2)
           ctx.fill()
@@ -930,6 +995,8 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
           ctx.stroke()
           ctx.lineWidth = 1 / t.k
         } else {
+          // Memories: plain filled dot.
+          ctx.fillStyle = n.color
           ctx.beginPath()
           ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
           ctx.fill()
