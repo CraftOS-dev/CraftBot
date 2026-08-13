@@ -24,13 +24,6 @@ const COMMUNITY_COLORS = [
   '#FFDE1A', // yellow
 ]
 
-// Pending-link accent (muted rose), kept in one place so the dashed graph
-// edges match the sidebar's pending chips. Deliberately NOT orange (brand-
-// reserved / overused) and off the cool node palette, so pending links read
-// as distinct. Dash lengths are world units, divided by zoom at draw time.
-const PENDING_RGB = '193, 132, 164'
-const PENDING_DASH = [4, 3]
-
 // ── Physics tuning ──────────────────────────────────────────────────────
 // d3-style cooling: alpha decays toward ZERO and the simulation performs a
 // hard stop (velocities zeroed) once it crosses ALPHA_MIN. There is no
@@ -119,9 +112,6 @@ interface SimEdge {
   // the branch links, so both the spring pass and the edge renderer skip
   // them.
   rib: boolean
-  // Provisional memory→entity link (deterministic guess, not yet confirmed
-  // by the entity-indexer). Drawn dashed and tinted so it reads as tentative.
-  pending: boolean
 }
 
 interface MemoryGraphCanvasProps {
@@ -469,7 +459,7 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
           (a.data.kind === 'file' && memberIds.has(b.data.id) && b.data.file === a.data.label) ||
           (b.data.kind === 'file' && memberIds.has(a.data.id) && a.data.file === b.data.label)
         const rest = a.data.kind === 'file' || b.data.kind === 'file' ? 115 : 70
-        return { a, b, rest, rib, pending: e.status === 'pending' }
+        return { a, b, rest, rib }
       })
       .filter((e): e is SimEdge => e !== null)
 
@@ -871,8 +861,6 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
       }
 
       // Edges (entity links; ribs are drawn as org connectors above).
-      // Pending links (unconfirmed guesses) are dashed and amber-tinted so
-      // they read as tentative next to the solid confirmed links.
       if (showEntityLinksRef.current) for (const e of edgesRef.current) {
         if (e.rib) continue
         if (!inView(e.a.x, e.a.y) && !inView(e.b.x, e.b.y)) continue
@@ -881,20 +869,13 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         const inFocus = !neighbours ||
           (neighbours.has(e.a.data.id) && neighbours.has(e.b.data.id) &&
             (e.a.data.id === focusId || e.b.data.id === focusId))
-        if (e.pending) {
-          // Amber — matches the "pending" accent used in the sidebar.
-          ctx.strokeStyle = `rgba(${PENDING_RGB},${inFocus ? 0.6 : 0.22})`
-          ctx.setLineDash([PENDING_DASH[0] / t.k, PENDING_DASH[1] / t.k])
-        } else {
-          ctx.strokeStyle = isDark
-            ? `rgba(236,220,205,${inFocus ? 0.28 : 0.05})`
-            : `rgba(74,58,48,${inFocus ? 0.22 : 0.04})`
-        }
+        ctx.strokeStyle = isDark
+          ? `rgba(236,220,205,${inFocus ? 0.28 : 0.05})`
+          : `rgba(74,58,48,${inFocus ? 0.22 : 0.04})`
         ctx.beginPath()
         ctx.moveTo(pa.x, pa.y)
         ctx.lineTo(pb.x, pb.y)
         ctx.stroke()
-        if (e.pending) ctx.setLineDash([])
       }
 
       // ── Nodes: solid, workspace-friendly ──

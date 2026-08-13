@@ -4,12 +4,6 @@
   height: 100%;
   display: flex;
   overflow: hidden;
-  /* Pending-link accent (muted rose), shared by every "pending" affordance
-   * so the chips, tags, and dashed graph edges stay one colour. Off the
-   * brand orange (reserved/overused) and off the cool node palette so it
-   * reads as distinct. */
-  --pending-accent: 193, 132, 164;
-  --pending-fg: #ac6389;
 }
 
 /* ── Graph area ── */
@@ -87,15 +81,6 @@
   color: var(--text-muted);
 }
 
-/* Provisional links awaiting entity-indexer confirmation — amber accent,
- * matching the pending edges drawn on the graph. */
-.statChipPending {
-  color: var(--pending-fg);
-  background: rgba(var(--pending-accent), 0.12);
-  border-color: rgba(var(--pending-accent), 0.45);
-  cursor: help;
-}
-
 .emptyOverlay {
   position: absolute;
   inset: 0;
@@ -160,21 +145,6 @@
 .neighbourChip:hover {
   color: var(--text-primary);
   border-color: var(--border-hover);
-}
-
-/* A neighbour reached only through a pending (unconfirmed) link. */
-.neighbourChipPending {
-  border-color: rgba(var(--pending-accent), 0.45);
-  border-style: dashed;
-}
-
-.pendingTag {
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--pending-fg);
-  margin-left: 4px;
 }
 
 /* ── Memory tab ── */

@@ -269,7 +269,6 @@ export function MemoryPage() {
       // Edges with a status are memory→entity; the rest are file→chunk.
       entityLinks: edges.filter(e => e.status).length,
       fileLinks: edges.filter(e => !e.status).length,
-      pending: edges.filter(e => e.status === 'pending').length,
     }
   }, [displayGraph])
 
@@ -291,19 +290,6 @@ export function MemoryPage() {
     const edges = displayGraph.edges.filter(e => kept.has(e.source) && kept.has(e.target))
     return { ...displayGraph, nodes, edges }
   }, [displayGraph, showMemories, showEntities, showFiles])
-
-  // Neighbours reached only through a pending (unconfirmed) link — styled
-  // distinctly in the Connected list.
-  const pendingNeighbourIds = useMemo(() => {
-    const ids = new Set<string>()
-    if (!selected || !displayGraph) return ids
-    for (const e of displayGraph.edges) {
-      if (e.status !== 'pending') continue
-      if (e.source === selected.id) ids.add(e.target)
-      if (e.target === selected.id) ids.add(e.source)
-    }
-    return ids
-  }, [selected, displayGraph])
 
   // Neighbour lookup for the selection detail.
   const neighboursOfSelected = useMemo(() => {
@@ -600,14 +586,6 @@ export function MemoryPage() {
             >
               {displayCounts.fileLinks} file links
             </button>
-            {displayCounts.pending > 0 && (
-              <span
-                className={`${styles.statChip} ${styles.statChipPending}`}
-                title="Provisional memory→entity links awaiting entity-indexer confirmation"
-              >
-                {displayCounts.pending} pending
-              </span>
-            )}
             <button
               className={`${styles.iconButton} ${hideCoreFiles ? styles.iconButtonActive : ''}`}
               onClick={() => setHideCoreFiles(v => !v)}
@@ -759,21 +737,17 @@ export function MemoryPage() {
                     Connected · {neighboursOfSelected.length}
                   </div>
                   <div className={styles.chipsScroll}>
-                    {neighboursOfSelected.map(n => {
-                      const isPending = pendingNeighbourIds.has(n.id)
-                      return (
-                        <button
-                          key={n.id}
-                          className={`${styles.neighbourChip} ${isPending ? styles.neighbourChipPending : ''}`}
-                          onClick={() => setSelected(n)}
-                          title={isPending ? `${n.label} · pending confirmation` : n.label}
-                        >
-                          <span className={`${styles.chipDot} ${styles[`kind_${n.kind}`]}`} />
-                          {n.label.length > 34 ? `${n.label.slice(0, 34)}…` : n.label}
-                          {isPending && <span className={styles.pendingTag}>pending</span>}
-                        </button>
-                      )
-                    })}
+                    {neighboursOfSelected.map(n => (
+                      <button
+                        key={n.id}
+                        className={styles.neighbourChip}
+                        onClick={() => setSelected(n)}
+                        title={n.label}
+                      >
+                        <span className={`${styles.chipDot} ${styles[`kind_${n.kind}`]}`} />
+                        {n.label.length > 34 ? `${n.label.slice(0, 34)}…` : n.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
