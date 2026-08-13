@@ -722,29 +722,6 @@ class MemoryGraph:
         nodes: List[Dict[str, Any]] = []
         edges: List[Dict[str, str]] = []
 
-        # Colour GROUP per node (the panel maps it through its palette).
-        # Colour by the ENTITY a node is about, NOT by community: community
-        # detection collapses a connected graph into a single blob, which
-        # would paint every node one colour. Each entity gets its own group
-        # (sequential, so adjacent entities land on contrasting palette
-        # slots); a memory/file inherits its primary entity's group; nodes
-        # with no entity get a stable hash group so they still vary instead
-        # of all defaulting to group 0.
-        entity_color = {key: idx for idx, key in enumerate(sorted(self.entities))}
-
-        def _fallback_group(text: str) -> int:
-            return int(hashlib.md5(text.encode("utf-8")).hexdigest()[:6], 16)
-
-        def _item_group(item: _ItemNode) -> int:
-            primary = None
-            if item.entities:
-                primary = item.entities[0]
-            elif item.pending_entities:
-                primary = item.pending_entities[0]
-            if primary is not None and primary in entity_color:
-                return entity_color[primary]
-            return _fallback_group(item.item_id)
-
         for key in sorted(self.entities):
             entity = self.entities[key]
             node_key = f"e:{key}"
@@ -755,7 +732,6 @@ class MemoryGraph:
                     "label": entity.name,
                     "size": entity.mention_count,
                     "community": self.community_of(node_key),
-                    "colorGroup": entity_color[key],
                 }
             )
 
@@ -774,7 +750,6 @@ class MemoryGraph:
                     "file": item.file_path,
                     "section": item.section,
                     "community": self.community_of(node_key),
-                    "colorGroup": _item_group(item),
                 }
             )
             for entity_key in item.entities:
@@ -804,11 +779,6 @@ class MemoryGraph:
                     "label": file_path,
                     "size": file_node.chunk_count,
                     "community": self.community_of(node_key),
-                    "colorGroup": (
-                        entity_color[sorted(file_node.entities)[0]]
-                        if file_node.entities
-                        else _fallback_group(file_path)
-                    ),
                 }
             )
             # Files group their chunk memories.

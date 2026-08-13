@@ -150,10 +150,7 @@ function nodeRadius(node: MemoryGraphNode): number {
 }
 
 function nodeColor(node: MemoryGraphNode): string {
-  // Colour by entity group (falls back to community). Modulo keeps any
-  // group index inside the palette.
-  const group = node.colorGroup ?? node.community ?? 0
-  return COMMUNITY_COLORS[((group % COMMUNITY_COLORS.length) + COMMUNITY_COLORS.length) % COMMUNITY_COLORS.length]
+  return COMMUNITY_COLORS[(node.community ?? 0) % COMMUNITY_COLORS.length]
 }
 
 /** Mix a hex colour toward a target channel value by t∈[0,1] → "r,g,b". */

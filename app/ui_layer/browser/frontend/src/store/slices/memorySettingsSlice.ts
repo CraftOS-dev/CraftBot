@@ -21,10 +21,6 @@ export interface MemoryGraphNode {
   label: string
   size?: number
   community: number
-  // Palette group for node colour — driven by the entity a node is about,
-  // so a map with several entities shows several colours (community would
-  // collapse to one). Falls back to community if absent.
-  colorGroup?: number
   category?: string
   timestamp?: string
   superseded?: boolean
