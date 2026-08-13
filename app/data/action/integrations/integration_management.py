@@ -58,9 +58,13 @@ def list_available_integrations(input_data: dict) -> dict:
         return {"status": "success", "integrations": [], "message": "Simulated mode"}
 
     try:
-        from craftos_integrations import list_integrations_sync as list_integrations
+        # multi-account providers (gmail, slack, notion, ...) source connection state +
+        # accounts from the multi-account IntegrationSystem; everything else
+        # keeps the legacy handler.status() path. Metadata (name, icon,
+        # auth_type, description) still comes from the legacy handlers.
+        from app.data.action.integrations._helpers import list_integrations_merged
 
-        integrations = list_integrations()
+        integrations = list_integrations_merged()
         filter_connected = input_data.get("filter_connected", False)
 
         if filter_connected:
@@ -271,6 +275,25 @@ def connect_integration(input_data: dict) -> dict:
                     ],
                 }
 
+            # multi-account providers: validate the token the same way the legacy
+            # handler login does, then store through the integration system
+            # (multi-account store), never the legacy single-account save.
+            from app.data.action.integrations._helpers import (
+                system_connect_token,
+                system_for,
+            )
+
+            v2_system = system_for(integration_id)
+            if v2_system is not None:
+                success, message = system_connect_token(
+                    v2_system, integration_id, credentials
+                )
+                return {
+                    "status": "success" if success else "error",
+                    "message": message,
+                    "auth_type": "token",
+                }
+
             loop = asyncio.new_event_loop()
             try:
                 success, message = loop.run_until_complete(
@@ -292,6 +315,26 @@ def connect_integration(input_data: dict) -> dict:
                     "status": "error",
                     "message": f"OAuth is not supported for {info['name']}. Use token-based auth instead.",
                     "auth_type": supported_auth,
+                }
+
+            # multi-account providers: real multi-account OAuth via the
+            # IntegrationSystem (account chooser, identity capture,
+            # listener reconcile) instead of the legacy handler flow.
+            from app.data.action.integrations._helpers import system_for
+
+            v2_system = system_for(integration_id)
+            if v2_system is not None:
+                loop = asyncio.new_event_loop()
+                try:
+                    success, message, _accounts = loop.run_until_complete(
+                        v2_system.add_account(integration_id)
+                    )
+                finally:
+                    loop.close()
+                return {
+                    "status": "success" if success else "error",
+                    "message": message,
+                    "auth_type": "oauth",
                 }
 
             loop = asyncio.new_event_loop()
@@ -500,6 +543,37 @@ def check_integration_status(input_data: dict) -> dict:
                 "message": result.get("message", ""),
             }
 
+        # multi-account providers: connection state + accounts come from the
+        # multi-account IntegrationSystem (never the legacy credential
+        # files). Status text uses the shared plan-§6 line format; the
+        # structured accounts array carries {identity, alias, isPrimary,
+        # listen}.
+        from app.data.action.integrations._helpers import (
+            account_lines,
+            accounts_payload,
+            v2_display_name,
+            system_for,
+        )
+
+        v2_system = system_for(integration_id)
+        if v2_system is not None:
+            infos = v2_system.list_accounts(integration_id)
+            accounts = accounts_payload(infos)
+            name = v2_display_name(v2_system, integration_id)
+            if accounts:
+                lines = "\n".join(account_lines(infos))
+                message = (
+                    f"{name} is connected with {len(accounts)} account(s):\n{lines}"
+                )
+            else:
+                message = f"{name} is not connected."
+            return {
+                "status": "success",
+                "connected": bool(accounts),
+                "accounts": accounts,
+                "message": message,
+            }
+
         # Otherwise check general integration status
         from craftos_integrations import (
             get_integration_info_sync as get_integration_info,
@@ -597,6 +671,19 @@ def disconnect_integration(input_data: dict) -> dict:
         return {"status": "error", "message": "integration_id is required."}
 
     try:
+        # multi-account providers: remove accounts through the multi-account
+        # IntegrationSystem (with account_id: just that account; without:
+        # all of them, plus a best-effort legacy-file double-cleanup).
+        from app.data.action.integrations._helpers import system_disconnect, system_for
+
+        v2_system = system_for(integration_id)
+        if v2_system is not None:
+            success, message = system_disconnect(v2_system, integration_id, account_id)
+            return {
+                "status": "success" if success else "error",
+                "message": message,
+            }
+
         from craftos_integrations import disconnect as _disconnect
 
         loop = asyncio.new_event_loop()

@@ -2272,11 +2272,19 @@ class AgentBase:
                 trigger_payload["workflow_skills"] = payload["pre_selected_skills"]
 
             # Steer the action-selection LLM to use the right platform-specific
-            # send action when replying.
-            platform_hint = ""
+            # send action when replying. The UI case needs an explicit hint
+            # too: after a platform exchange in the same session, a bare
+            # message pattern-matches the previous "reply on <platform>"
+            # instruction and the reply leaks to that platform (observed
+            # live 2026-08-12: web-chat message answered on WhatsApp).
             if platform and platform.lower() != "craftbot interface":
                 platform_hint = (
                     f" from {platform} (reply on {platform}, NOT send_message)"
+                )
+            else:
+                platform_hint = (
+                    " typed in the CraftBot chat interface (reply with "
+                    "send_message, NOT a platform send action)"
                 )
             if is_third_party:
                 platform_hint += (
@@ -3357,10 +3365,26 @@ class AgentBase:
                 "openai_api_key": os.environ.get("OPENAI_API_KEY", ""),
             },
         )
+        # gmail/outlook/slack listening is owned by the ListenerManager
+        # (multi-account fan-out); the legacy manager must not double-listen.
+        # The other multi-account providers have no listeners, and the remaining legacy
+        # integrations keep legacy listening.
         self._external_comms = await initialize_manager(
-            on_message=self._handle_external_event
+            on_message=self._handle_external_event,
+            exclude_platforms=["gmail", "outlook", "slack"],
         )
         logger.info("[EXT LIBS] External integrations configured + manager started")
+
+        try:
+            from app.integrations import start_listeners
+
+            await start_listeners()
+            logger.info("[EXT LIBS] integrations listener manager started")
+        except Exception as e:
+            import traceback
+
+            logger.warning(f"[EXT LIBS] integrations listener manager failed to start: {e}")
+            logger.debug(f"[EXT LIBS] Traceback: {traceback.format_exc()}")
 
     # =====================================
     # Memory at startup

@@ -137,12 +137,17 @@ def capability_block() -> Optional[str]:
     try:
         from craftos_integrations import get_client, get_registered_platforms
         from agent_core.core.action_framework.registry import ActionRegistry
+        from app.data.action.integrations._helpers import system_for
 
         connected, disconnected = [], []
         for pid in get_registered_platforms():
             try:
-                client = get_client(pid)
-                ok = bool(client and client.has_credentials())
+                system = system_for(pid)
+                if system is not None:
+                    ok = bool(system.list_accounts(pid))
+                else:
+                    client = get_client(pid)
+                    ok = bool(client and client.has_credentials())
             except Exception:
                 ok = False
             (connected if ok else disconnected).append(pid)

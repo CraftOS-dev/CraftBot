@@ -347,6 +347,36 @@ c.on("auth_failure", (msg) => {
   emitEvent("auth_failure", { message: String(msg) });
 });
 
+// Lean unread-chat scan that bypasses wwebjs's getChats(). getChats()
+// serializes every chat model and is the first thing to break when
+// WhatsApp ships a build ahead of whatsapp-web.js; catchup only needs
+// ids + unread counters, which we can read straight off the page's chat
+// collection (same window.require pattern as resolveOwnerLid — probing
+// window.Store.* here silently returns empty on wwebjs ≥1.31).
+async function leanUnreadChats() {
+  return await client.pupPage.evaluate(() => {
+    const out = [];
+    const models = window
+      .require("WAWebChatCollection")
+      .ChatCollection.getModelsArray();
+    for (const chat of models) {
+      try {
+        if (!chat.unreadCount || chat.unreadCount <= 0) continue;
+        const id = chat.id && chat.id._serialized;
+        if (!id) continue;
+        out.push({
+          id,
+          name: chat.formattedTitle || chat.name || id,
+          unread_count: chat.unreadCount,
+          is_group: !!(chat.isGroup || (chat.id && chat.id.server === "g.us")),
+          is_muted: !!(chat.mute && (chat.mute.isMuted || chat.mute.expiration > 0)),
+        });
+      } catch (e) { /* skip malformed chat model */ }
+    }
+    return out;
+  });
+}
+
 c.on("ready", async () => {
   isReady = true;
   readyTimestamp = Math.floor(Date.now() / 1000);
@@ -383,28 +413,39 @@ c.on("ready", async () => {
     wid: client.info?.wid?._serialized || "",
   });
 
-  // Catch-up: send current unread chats
+  // Catch-up: send current unread chats. Prefer wwebjs getChats() (richer),
+  // falling back immediately to the lean in-page scan when getChats() is
+  // broken by a WhatsApp build ahead of whatsapp-web.js (observed live
+  // 2026-08-12: getChats() consistently failed with minified "r" while the
+  // lean scan worked — retrying only delayed catchup, so we don't).
+  let unread = null;
   try {
     const chats = await client.getChats();
-    const unread = [];
-    for (const chat of chats) {
-      if (chat.unreadCount > 0) {
-        unread.push({
-          id: chat.id._serialized,
-          name: chat.name || chat.id._serialized,
-          unread_count: chat.unreadCount,
-          is_group: chat.isGroup,
-          is_muted: chat.isMuted,
-        });
-      }
-    }
-    emitEvent("catchup", { unread_chats: unread });
-    catchupDone = true;
-    log(`Catchup complete: ${unread.length} unread chat(s)`);
+    unread = chats
+      .filter((chat) => chat.unreadCount > 0)
+      .map((chat) => ({
+        id: chat.id._serialized,
+        name: chat.name || chat.id._serialized,
+        unread_count: chat.unreadCount,
+        is_group: chat.isGroup,
+        is_muted: chat.isMuted,
+      }));
   } catch (err) {
-    log(`Catchup error: ${errStr(err)}`);
-    catchupDone = true; // proceed anyway
+    log(`Catchup getChats failed, using lean fallback: ${errStr(err)}`);
   }
+  if (unread === null) {
+    try {
+      unread = await leanUnreadChats();
+      log("Catchup used lean in-page fallback");
+    } catch (err) {
+      log(`Catchup lean fallback failed: ${errStr(err)}`);
+    }
+  }
+  if (unread !== null) {
+    emitEvent("catchup", { unread_chats: unread });
+    log(`Catchup complete: ${unread.length} unread chat(s)`);
+  }
+  catchupDone = true; // proceed even if every path failed
 });
 
 c.on("disconnected", (reason) => {

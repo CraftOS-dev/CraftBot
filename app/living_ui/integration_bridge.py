@@ -110,11 +110,19 @@ class IntegrationBridge:
             return web.json_response({"error": "Unauthorized"}, status=401)
 
         from craftos_integrations import get_registered_platforms, get_client
+        from app.data.action.integrations._helpers import system_for
 
         integrations = []
         for platform_id in get_registered_platforms():
-            client = get_client(platform_id)
-            connected = client.has_credentials() if client else False
+            system = system_for(platform_id)
+            if system is not None:
+                try:
+                    connected = bool(system.list_accounts(platform_id))
+                except Exception:
+                    connected = False
+            else:
+                client = get_client(platform_id)
+                connected = client.has_credentials() if client else False
             integrations.append(
                 {
                     "id": platform_id,
@@ -765,6 +773,32 @@ class IntegrationBridge:
                 return True, raw
         return False, f"host {host!r} is not one of {', '.join(allowed)}"
 
+    def _client_for_platform(self, platform_id: str):
+        """Credentialed client for a platform, or None.
+
+        multi-account provider ids get the PRIMARY account's client from the
+        IntegrationSystem (the bound client subclasses the legacy client, so
+        the header-extraction below works unchanged); everything else keeps
+        the legacy single-account client.
+        """
+        from app.data.action.integrations._helpers import system_for
+
+        system = system_for(platform_id)
+        if system is not None:
+            try:
+                identity = system.resolve(platform_id, None)
+                return system.client_for(platform_id, identity)
+            except Exception:
+                # Not connected (AccountResolutionError) or build failure.
+                return None
+
+        from craftos_integrations import get_client
+
+        client = get_client(platform_id)
+        if not client or not client.has_credentials():
+            return None
+        return client
+
     def _get_auth_headers(self, platform_id: str) -> Optional[dict]:
         """
         Get authentication headers from a platform client.
@@ -772,10 +806,8 @@ class IntegrationBridge:
         Returns:
             Dict of auth headers, or None if credentials unavailable.
         """
-        from craftos_integrations import get_client
-
-        client = get_client(platform_id)
-        if not client or not client.has_credentials():
+        client = self._client_for_platform(platform_id)
+        if client is None:
             return None
 
         # Most clients expose _headers() — use it

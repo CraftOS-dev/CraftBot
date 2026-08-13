@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import * as LucideIcons from 'lucide-react'
 import {
   Globe,
@@ -11,6 +11,9 @@ import {
   Power,
   Wrench,
   HelpCircle,
+  Star,
+  UserPlus,
+  Undo2,
 } from 'lucide-react'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
@@ -23,6 +26,28 @@ import {
   type Integration,
   type ConfigField,
 } from '../../store/slices/integrationsSettingsSlice'
+import type {
+  ManagedAccount,
+  StagedAccountEdits,
+  AccountChanges,
+  IntegrationAccountsAddResult,
+  IntegrationApplyAccountChangesResult,
+} from './types'
+
+// --- Multi-account staged-edit helpers -------------------
+
+const emptyStaged = (): StagedAccountEdits => ({
+  disconnect: [],
+  primary: null,
+  aliases: {},
+  listen: {},
+})
+
+const stagedIsEmpty = (s: StagedAccountEdits): boolean =>
+  s.disconnect.length === 0 &&
+  s.primary === null &&
+  Object.keys(s.aliases).length === 0 &&
+  Object.keys(s.listen).length === 0
 import {
   selectIntegrations,
   selectIntegrationsTotal,
@@ -346,11 +371,204 @@ const ConfigForm = ({
         </div>
       ))}
       <div className={styles.modalActions}>
-        <Button variant="primary" onClick={onSave} disabled={saving}>
-          {saving ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save'}
+        <Button variant="secondary" size="sm" onClick={onSave} disabled={saving}>
+          {saving ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save settings'}
         </Button>
       </div>
     </div>
+  )
+}
+
+// Multi-account manager, rendered in the Manage modal for integrations whose
+// ``integration_info`` payload carries a multi-account ``accounts`` array. Rename /
+// set-primary / listen-toggle / mark-disconnect are STAGED locally (the
+// ``staged`` prop) and committed as one ``integration_apply_account_changes``
+// request on "Save changes". The save bar (Save changes + Discard) renders
+// ONLY while staged edits exist, so it can never be confused with the
+// Configure section's own save button. "Add account" launches the real OAuth
+// flow immediately — no staged step — and may take minutes to resolve, so it
+// shows an in-progress state until the result broadcast arrives (no timers).
+const AccountsManager = ({
+  accounts,
+  staged,
+  adding,
+  saving,
+  error,
+  onAliasChange,
+  onSetPrimary,
+  onListenChange,
+  onToggleDisconnect,
+  onAddAccount,
+  onDiscard,
+  onSave,
+}: {
+  accounts: ManagedAccount[]
+  staged: StagedAccountEdits | undefined
+  adding: boolean
+  saving: boolean
+  error: string
+  onAliasChange: (account: ManagedAccount, value: string) => void
+  onSetPrimary: (account: ManagedAccount) => void
+  onListenChange: (account: ManagedAccount, value: boolean) => void
+  onToggleDisconnect: (account: ManagedAccount, marked: boolean) => void
+  onAddAccount: () => void
+  onDiscard: () => void
+  onSave: () => void
+}) => {
+  // Effective primary = staged override, falling back to the real primary.
+  // pruneStagedFor() guarantees a staged primary always refers to a live
+  // account (a vanished staged primary is reset to null = real primary).
+  // A staged primary that is ALSO marked for disconnect is ignored here,
+  // mirroring handleSaveAccountChanges' payload stripping.
+  const realPrimary = accounts.find(a => a.isPrimary)?.identity ?? null
+  const stagedPrimary =
+    staged && staged.primary !== null && !staged.disconnect.includes(staged.primary)
+      ? staged.primary
+      : null
+  const effectivePrimary = stagedPrimary ?? realPrimary
+  const hasStaged = staged !== undefined && !stagedIsEmpty(staged)
+
+  return (
+    <>
+      {accounts.length === 0 ? (
+        <p className={styles.noAccounts}>No accounts connected</p>
+      ) : (
+        <div className={styles.accountsList}>
+          {accounts.map(account => {
+            const marked = staged?.disconnect.includes(account.identity) ?? false
+            // Staged values override real ones; ``in`` checks matter because
+            // a staged alias of null (= clear) is a real override.
+            const aliasValue =
+              staged && account.identity in staged.aliases
+                ? (staged.aliases[account.identity] ?? '')
+                : (account.alias ?? '')
+            const listenValue =
+              staged && account.identity in staged.listen
+                ? staged.listen[account.identity]
+                : account.listen
+            const isPrimary = account.identity === effectivePrimary
+            const aliasInputId = `alias-${account.identity}`
+            return (
+              <div
+                key={account.identity}
+                className={`${styles.accountCard} ${marked ? styles.accountCardRemoving : ''}`}
+              >
+                <div className={styles.accountCardHeader}>
+                  <div className={styles.accountCardIdentity}>
+                    <span className={styles.accountEmail} title={account.identity}>
+                      {account.identity}
+                    </span>
+                    {isPrimary ? (
+                      <Badge variant="primary">
+                        {stagedPrimary === account.identity ? 'Primary (unsaved)' : 'Primary'}
+                      </Badge>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.setPrimaryAction}
+                        onClick={() => onSetPrimary(account)}
+                        disabled={marked}
+                        title="Use this account when no account is specified"
+                      >
+                        <Star size={12} />
+                        Set as primary
+                      </button>
+                    )}
+                  </div>
+                  {marked ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => onToggleDisconnect(account, false)}
+                      icon={<Undo2 size={13} />}
+                    >
+                      Undo
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={styles.disconnectGhost}
+                      onClick={() => onToggleDisconnect(account, true)}
+                      icon={<Power size={13} />}
+                      title="Disconnect this account (applied on save)"
+                    />
+                  )}
+                </div>
+                {marked ? (
+                  <p className={styles.accountRemovalNote}>
+                    Will be disconnected when you save changes.
+                  </p>
+                ) : (
+                  <div className={styles.accountCardControls}>
+                    <div className={styles.accountAliasField}>
+                      <label htmlFor={aliasInputId}>Alias</label>
+                      <input
+                        id={aliasInputId}
+                        type="text"
+                        className={styles.accountAliasInput}
+                        placeholder="e.g. work"
+                        value={aliasValue}
+                        onChange={e => onAliasChange(account, e.target.value)}
+                      />
+                    </div>
+                    <label
+                      className={styles.accountListenLabel}
+                      title="Deliver this account's incoming events to the agent"
+                    >
+                      <input
+                        type="checkbox"
+                        className={styles.toggle}
+                        checked={listenValue}
+                        onChange={e => onListenChange(account, e.target.checked)}
+                      />
+                      <span>Listen</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onAddAccount}
+          disabled={adding}
+          icon={
+            adding
+              ? <Loader2 size={14} className={styles.spinning} />
+              : <UserPlus size={14} />
+          }
+        >
+          {adding ? 'Waiting for sign-in…' : 'Add account'}
+        </Button>
+        {adding && (
+          <p className={styles.hint}>
+            Complete the sign-in in the browser window that opened. This can take a few minutes.
+          </p>
+        )}
+      </div>
+
+      {error && <div className={styles.formError}>{error}</div>}
+
+      {/* Dirty-state save bar: exists only while there is something to save,
+          so the modal never shows two competing idle save buttons. */}
+      {(hasStaged || saving) && (
+        <div className={styles.accountsSaveBar}>
+          <span className={styles.accountsSaveHint}>Unsaved account changes</span>
+          <Button variant="ghost" size="sm" onClick={onDiscard} disabled={saving}>
+            Discard
+          </Button>
+          <Button variant="primary" size="sm" onClick={onSave} disabled={!hasStaged || saving}>
+            {saving ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save changes'}
+          </Button>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -391,6 +609,89 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // Manage modal state
   const [showManageModal, setShowManageModal] = useState(false)
   const [managingIntegration, setManagingIntegration] = useState<Integration | null>(null)
+  // Mirrors ``managingIntegration`` for the WebSocket handlers (same reason
+  // as ``selectedIntegrationRef`` above — the subscription effect doesn't
+  // re-run on state changes, so direct reads would be stale).
+  const managingIntegrationRef = React.useRef<Integration | null>(null)
+  useEffect(() => {
+    managingIntegrationRef.current = managingIntegration
+  }, [managingIntegration])
+  // True only between an explicit user-triggered ``integration_info`` request
+  // and its response. ``integration_info`` results NEVER open the Manage
+  // modal unless this flag is set — broadcasts must not open modals.
+  const manageRequestedRef = React.useRef(false)
+
+  // --- Multi-account state -------------------------------
+  // Real account list for the currently-managed integration, from the
+  // ``accounts`` field of the ``integration_info`` payload (and refreshed by
+  // accounts-mutation result broadcasts). null = integration without
+  // multi-account support → legacy accounts UI.
+  const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[] | null>(null)
+  // Staged (uncommitted) edits, keyed by integration id. Discarded on every
+  // modal close path; pruned when identities vanish from refreshed lists.
+  const [stagedEdits, setStagedEdits] = useState<Record<string, StagedAccountEdits>>({})
+  const [accountsSaving, setAccountsSaving] = useState(false)
+  const [accountsError, setAccountsError] = useState('')
+  // Integration id with an "Add account" OAuth flow in flight. Deliberately
+  // NOT cleared on modal close (the OAuth flow keeps running server-side and
+  // can take minutes); cleared only by the matching result broadcast.
+  const [addingAccountFor, setAddingAccountFor] = useState<string | null>(null)
+  // Outstanding request ids WE sent (requestId → integration id). Results are
+  // broadcast to every client; only ids in these maps may trigger UI
+  // reactions (toast / spinner clear / staged clear). Foreign results update
+  // data silently. No wall-clock timers anywhere: entries live until their
+  // result arrives.
+  const pendingAddRef = React.useRef<Map<string, string>>(new Map())
+  const pendingApplyRef = React.useRef<Map<string, string>>(new Map())
+
+  // Prune staged entries whose identities no longer exist in a refreshed
+  // account list. A staged primary whose account vanished resets to null,
+  // i.e. falls back to the real primary.
+  const pruneStagedFor = useCallback((integrationId: string, accounts: ManagedAccount[]) => {
+    setStagedEdits(prev => {
+      const cur = prev[integrationId]
+      if (!cur) return prev
+      const ids = new Set(accounts.map(a => a.identity))
+      const next: StagedAccountEdits = {
+        disconnect: cur.disconnect.filter(identity => ids.has(identity)),
+        primary: cur.primary !== null && ids.has(cur.primary) ? cur.primary : null,
+        aliases: Object.fromEntries(
+          Object.entries(cur.aliases).filter(([identity]) => ids.has(identity)),
+        ),
+        listen: Object.fromEntries(
+          Object.entries(cur.listen).filter(([identity]) => ids.has(identity)),
+        ),
+      }
+      if (stagedIsEmpty(next)) {
+        const { [integrationId]: _gone, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [integrationId]: next }
+    })
+  }, [])
+
+  // Apply a fresh account list from any source (our result, foreign
+  // broadcast). Updates the open modal's data if it shows this integration;
+  // never opens anything.
+  const refreshManagedAccounts = useCallback((integrationId: string, accounts: ManagedAccount[]) => {
+    const current = managingIntegrationRef.current
+    if (current && current.id === integrationId) {
+      setManagedAccounts(accounts)
+    }
+    pruneStagedFor(integrationId, accounts)
+  }, [pruneStagedFor])
+
+  // Single close path for the Manage modal — every way of closing it (X,
+  // overlay click, disconnect flows) goes through here so staged edits are
+  // always discarded.
+  const closeManageModal = useCallback(() => {
+    setShowManageModal(false)
+    setManagingIntegration(null)
+    setManagedAccounts(null)
+    setAccountsSaving(false)
+    setAccountsError('')
+    setStagedEdits({})
+  }, [])
 
   // Slow operation overlay — shown during long disconnects (WhatsApp Web's
   // bridge teardown can take 20–30 seconds; without this the user has no
@@ -418,6 +719,28 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
+
+  // User-gesture close path (X button, overlay click): staged edits are
+  // real unsent work — closing silently threw them away in the live bug
+  // (typed alias lost with no warning). Ask first when dirty. Programmatic
+  // closes (disconnect flows, disconnect_result) still use closeManageModal
+  // directly: their outcome supersedes any staged edits.
+  const requestCloseManage = () => {
+    const dirty = managingIntegration
+      ? stagedEdits[managingIntegration.id]
+      : undefined
+    if (managingIntegration && dirty && !stagedIsEmpty(dirty)) {
+      confirm({
+        title: 'Discard unsaved changes?',
+        message: `Your account changes for ${managingIntegration.name} haven't been saved yet.`,
+        confirmText: 'Discard',
+        cancelText: 'Keep editing',
+        variant: 'danger',
+      }, closeManageModal)
+      return
+    }
+    closeManageModal()
+  }
 
   // Subscribe to side-effect messages (toasts, modal close). The integrations
   // list itself is updated by the slice via the registry.
@@ -450,6 +773,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           setConnectError('')
           const just = selectedIntegrationRef.current
           if (just && just.has_config && (just.config_fields?.length ?? 0) > 0) {
+            // Deliberate modal open: follow-up to the user's own connect.
+            manageRequestedRef.current = true
             send('integration_info', { id: just.id })
           }
         } else {
@@ -463,26 +788,103 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         setPendingOp(prev => (prev && d.id && prev.id === d.id) ? null : prev)
         if (d.success) {
           showToast('success', d.message || 'Disconnected successfully')
-          setShowManageModal(false)
-          setManagingIntegration(null)
+          closeManageModal()
         } else {
           showToast('error', d.error || 'Failed to disconnect')
         }
       }),
       onMessage('integration_info', (data: unknown) => {
-        const d = data as { success: boolean; integration?: Integration; error?: string }
+        const d = data as {
+          success: boolean
+          integration?: Integration
+          // multi-account integrations: real account list (identity,
+          // alias, isPrimary, listen). Absent for legacy integrations.
+          accounts?: ManagedAccount[]
+          error?: string
+        }
         if (d.success && d.integration) {
-          setManagingIntegration(d.integration)
-          setShowManageModal(true)
-          // If this integration has runtime config, kick off a fetch so the
-          // Configure section is populated by the time the user scrolls to it.
-          if (d.integration.has_config) {
-            setConfigLoading(true)
-            setConfigValues({})
-            send('integration_get_config', { id: d.integration.id })
+          if (manageRequestedRef.current) {
+            // Response to OUR explicit request (Manage click / post-connect
+            // follow-up) — the only path that may OPEN the modal.
+            manageRequestedRef.current = false
+            setManagingIntegration(d.integration)
+            setShowManageModal(true)
+            setManagedAccounts(d.accounts ?? null)
+            if (d.accounts) pruneStagedFor(d.integration.id, d.accounts)
+            // If this integration has runtime config, kick off a fetch so the
+            // Configure section is populated by the time the user scrolls to it.
+            if (d.integration.has_config) {
+              setConfigLoading(true)
+              setConfigValues({})
+              send('integration_get_config', { id: d.integration.id })
+            }
+          } else if (managingIntegrationRef.current?.id === d.integration.id) {
+            // Unsolicited info for the integration already on screen —
+            // refresh the data silently. Never opens the modal. A payload
+            // WITHOUT ``accounts`` (transient v2 lookup failure server-side)
+            // must not null out an active AccountsManager: that would swap
+            // the whole section to the legacy view mid-edit and hide the
+            // user's staged changes. Keep the last good list instead.
+            setManagingIntegration(d.integration)
+            if (d.accounts) {
+              setManagedAccounts(d.accounts)
+              pruneStagedFor(d.integration.id, d.accounts)
+            }
           }
-        } else {
+        } else if (manageRequestedRef.current) {
+          manageRequestedRef.current = false
           showToast('error', d.error || 'Failed to get integration info')
+        }
+      }),
+      // Result broadcast for "Add account" (real OAuth; can take minutes).
+      // Broadcast to EVERY client — only requestIds we sent may drive UI
+      // reactions; foreign results refresh data silently.
+      onMessage('integration_accounts_add_result', (data: unknown) => {
+        const d = data as IntegrationAccountsAddResult
+        const mine = Boolean(d.requestId) && pendingAddRef.current.has(d.requestId)
+        // Fresh account list benefits everyone, ours or not — but ONLY from
+        // success payloads. Failure payloads carry a best-effort list that
+        // may be a fabricated empty array; treating it as authoritative
+        // would blank the modal and prune (= silently discard) every staged
+        // edit, including an alias mid-typing.
+        if (d.ok && d.accounts) refreshManagedAccounts(d.id, d.accounts)
+        if (!mine) return
+        pendingAddRef.current.delete(d.requestId)
+        setAddingAccountFor(prev => (prev === d.id ? null : prev))
+        if (d.ok) {
+          showToast('success', d.message || 'Account added')
+        } else {
+          showToast('error', d.message || 'Failed to add account')
+        }
+      }),
+      // Result broadcast for the batched "Save changes" request.
+      onMessage('integration_apply_account_changes_result', (data: unknown) => {
+        const d = data as IntegrationApplyAccountChangesResult
+        const mine = Boolean(d.requestId) && pendingApplyRef.current.has(d.requestId)
+        if (d.ok && d.accounts) {
+          if (mine) {
+            // OUR save succeeded — clear this integration's staged edits
+            // BEFORE rendering the returned list, so no stale overrides
+            // shadow the authoritative state.
+            setStagedEdits(prev => {
+              const { [d.id]: _gone, ...rest } = prev
+              return rest
+            })
+          }
+          refreshManagedAccounts(d.id, d.accounts)
+        }
+        if (!mine) return
+        pendingApplyRef.current.delete(d.requestId)
+        setAccountsSaving(false)
+        if (d.ok) {
+          setAccountsError('')
+          showToast('success', 'Account changes saved')
+        } else {
+          // Failure keeps the staged edits (nothing cleared above) so the
+          // user can retry; surface the error inline and as a toast.
+          const msg = d.error || 'Failed to apply account changes'
+          setAccountsError(msg)
+          showToast('error', msg)
         }
       }),
       // Per-integration runtime config (schema-driven; works for every
@@ -541,6 +943,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           setWhatsappStatus('idle')
           const just = selectedIntegrationRef.current
           if (just && just.has_config && (just.config_fields?.length ?? 0) > 0) {
+            // Deliberate modal open: follow-up to the user's own connect.
+            manageRequestedRef.current = true
             send('integration_info', { id: just.id })
           }
         } else if (d.status === 'error' || d.status === 'disconnected') {
@@ -566,7 +970,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     }
 
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoaded, showToast])
+  }, [isConnected, send, onMessage, hasLoaded, showToast, closeManageModal, pruneStagedFor, refreshManagedAccounts])
 
   // Start WhatsApp polling when QR is ready
   useEffect(() => {
@@ -633,7 +1037,123 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   }
 
   const handleOpenManage = (integration: Integration) => {
+    // Explicit user click — the only gesture allowed to open the Manage
+    // modal. The flag lets the integration_info handler distinguish this
+    // response from unsolicited broadcasts.
+    manageRequestedRef.current = true
     send('integration_info', { id: integration.id })
+  }
+
+  // --- Multi-account staging + requests ------------------------------------
+
+  // Update one integration's staged edits; drops the entry entirely when it
+  // becomes a no-op so "has staged changes" stays accurate.
+  const updateStaged = (
+    integrationId: string,
+    fn: (s: StagedAccountEdits) => StagedAccountEdits,
+  ) => {
+    setStagedEdits(prev => {
+      const next = fn(prev[integrationId] ?? emptyStaged())
+      if (stagedIsEmpty(next)) {
+        const { [integrationId]: _gone, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [integrationId]: next }
+    })
+  }
+
+  const stageAlias = (integrationId: string, account: ManagedAccount, value: string) => {
+    const alias = value.trim() === '' ? null : value
+    updateStaged(integrationId, s => {
+      const aliases = { ...s.aliases }
+      if (alias === (account.alias ?? null)) {
+        delete aliases[account.identity] // back to the real value → no-op
+      } else {
+        aliases[account.identity] = alias
+      }
+      return { ...s, aliases }
+    })
+  }
+
+  const stagePrimary = (integrationId: string, account: ManagedAccount) => {
+    const realPrimary = managedAccounts?.find(a => a.isPrimary)?.identity ?? null
+    updateStaged(integrationId, s => ({
+      ...s,
+      // Picking the real primary again = clearing the staged override.
+      primary: account.identity === realPrimary ? null : account.identity,
+    }))
+  }
+
+  const stageListen = (integrationId: string, account: ManagedAccount, value: boolean) => {
+    updateStaged(integrationId, s => {
+      const listen = { ...s.listen }
+      if (value === account.listen) {
+        delete listen[account.identity]
+      } else {
+        listen[account.identity] = value
+      }
+      return { ...s, listen }
+    })
+  }
+
+  const stageDisconnect = (integrationId: string, identity: string, marked: boolean) => {
+    updateStaged(integrationId, s => ({
+      ...s,
+      disconnect: marked
+        ? (s.disconnect.includes(identity) ? s.disconnect : [...s.disconnect, identity])
+        : s.disconnect.filter(i => i !== identity),
+    }))
+  }
+
+  // "Add account" — immediate real OAuth, no staging. ``send`` goes through
+  // the shared SocketClient outbox (queued while disconnected, drained on
+  // reconnect), so the request is never dropped behind a connection guard.
+  // The spinner is cleared ONLY by the matching result broadcast — OAuth can
+  // take minutes and we use no wall-clock timers.
+  const handleAddAccount = () => {
+    if (!managingIntegration) return
+    const requestId = crypto.randomUUID()
+    pendingAddRef.current.set(requestId, managingIntegration.id)
+    setAddingAccountFor(managingIntegration.id)
+    send('integration_accounts_add', {
+      integration_id: managingIntegration.id,
+      request_id: requestId,
+    })
+  }
+
+  // One batched save for all staged edits. Same queued transport as above.
+  // Edits referring to accounts that are ALSO marked for disconnect are
+  // stripped from the payload: the backend applies disconnects first, so a
+  // stale alias/listen/primary entry for a removed identity would make the
+  // whole batch fail resolution. (The staged entries themselves are kept
+  // until the result arrives, so an Undo before save loses nothing.)
+  const handleSaveAccountChanges = () => {
+    if (!managingIntegration) return
+    const staged = stagedEdits[managingIntegration.id]
+    if (!staged || stagedIsEmpty(staged)) return
+    const requestId = crypto.randomUUID()
+    const removing = new Set(staged.disconnect)
+    const changes: AccountChanges = {
+      disconnect: staged.disconnect,
+      primary:
+        staged.primary !== null && removing.has(staged.primary)
+          ? null
+          : staged.primary,
+      aliases: Object.fromEntries(
+        Object.entries(staged.aliases).filter(([identity]) => !removing.has(identity)),
+      ),
+      listen: Object.fromEntries(
+        Object.entries(staged.listen).filter(([identity]) => !removing.has(identity)),
+      ),
+    }
+    pendingApplyRef.current.set(requestId, managingIntegration.id)
+    setAccountsSaving(true)
+    setAccountsError('')
+    send('integration_apply_account_changes', {
+      integration_id: managingIntegration.id,
+      request_id: requestId,
+      changes,
+    })
   }
 
   const handleConnectToken = () => {
@@ -679,8 +1199,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     // ``integration_disconnect_result`` shows a toast and the next refresh
     // restores the real state.
     dispatch(setDisconnected(targetId))
-    setShowManageModal(false)
-    setManagingIntegration(null)
+    closeManageModal()
 
     // Slow disconnects: show a blocking overlay until the result arrives.
     if (SLOW_DISCONNECT_IDS.has(targetId)) {
@@ -1117,17 +1636,43 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
 
       {/* Manage Modal */}
       {showManageModal && managingIntegration && (
-        <div className={styles.modalOverlay} onClick={() => setShowManageModal(false)}>
+        <div className={styles.modalOverlay} onClick={requestCloseManage}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3>Manage {managingIntegration.name}</h3>
-              <button className={styles.modalClose} onClick={() => setShowManageModal(false)}>
+              <button className={styles.modalClose} onClick={requestCloseManage}>
                 <X size={18} />
               </button>
             </div>
             <div className={styles.modalBody}>
-              <h4 className={styles.manageSubtitle}>Connected Accounts</h4>
-              {managingIntegration.accounts.length === 0 ? (
+              <h4 className={styles.manageSubtitle}>Connected accounts</h4>
+              {managedAccounts !== null ? (
+                /* multi-account manager — staged edits, one batched save */
+                <AccountsManager
+                  accounts={managedAccounts}
+                  staged={stagedEdits[managingIntegration.id]}
+                  adding={addingAccountFor === managingIntegration.id}
+                  saving={accountsSaving}
+                  error={accountsError}
+                  onAliasChange={(account, value) =>
+                    stageAlias(managingIntegration.id, account, value)}
+                  onSetPrimary={account =>
+                    stagePrimary(managingIntegration.id, account)}
+                  onListenChange={(account, value) =>
+                    stageListen(managingIntegration.id, account, value)}
+                  onToggleDisconnect={(account, marked) =>
+                    stageDisconnect(managingIntegration.id, account.identity, marked)}
+                  onAddAccount={handleAddAccount}
+                  onDiscard={() => {
+                    setStagedEdits(prev => {
+                      const { [managingIntegration.id]: _gone, ...rest } = prev
+                      return rest
+                    })
+                    setAccountsError('')
+                  }}
+                  onSave={handleSaveAccountChanges}
+                />
+              ) : managingIntegration.accounts.length === 0 ? (
                 <p className={styles.noAccounts}>No accounts connected</p>
               ) : (
                 <div className={styles.accountsList}>
@@ -1146,10 +1691,18 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                 </div>
               )}
               {/* Configure — schema-driven form, only shown for integrations
-                  whose handler declared ``config_class`` + ``config_fields``. */}
+                  whose handler declared ``config_class`` + ``config_fields``.
+                  Boxed into its own section with its own save action, so it
+                  reads as a separate scope from the accounts above (the live
+                  bug: its "Save" was mistaken for the accounts save). */}
               {managingIntegration.has_config && (managingIntegration.config_fields?.length ?? 0) > 0 && (
-                <>
-                  <h4 className={styles.manageSubtitle}>Configure</h4>
+                <div className={styles.configSection}>
+                  <div className={styles.configSectionHeader}>
+                    <h4 className={styles.manageSubtitle}>Integration settings</h4>
+                    <p className={styles.configSectionDesc}>
+                      Applies to {managingIntegration.name} as a whole, not to a single account.
+                    </p>
+                  </div>
                   {configLoading ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
                       <Loader2 size={16} className={styles.spinning} />
@@ -1171,7 +1724,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                       }}
                     />
                   )}
-                </>
+                </div>
               )}
             </div>
           </div>

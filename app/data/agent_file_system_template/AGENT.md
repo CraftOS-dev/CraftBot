@@ -2521,6 +2521,20 @@ lark                token                    Lark messaging
 
 To enumerate at runtime: call the `list_available_integrations` action. To check what's already connected: `check_integration_status`. Guessed ids get normalized via an alias map (e.g. `gdrive` → `google_drive`, `gcal` → `google_calendar`).
 
+### Multi-account
+
+Ten integrations support **multiple connected accounts**: the five Google services, Outlook, LinkedIn, Notion, HubSpot, and Slack. Each holds one **primary** account plus any number of additional ones; every account can carry a user-set nickname (alias), and nicknames are shared across the Google family for the same underlying account.
+
+Rules that matter to you:
+
+- **Every action for these integrations takes an optional `account` input** — an email/identity, the nickname, or any unique fragment of either. Omit it to act as the primary account.
+- **Extract account qualifiers from natural language.** "My school calendar" → `account="school"`. "The work inbox" → `account="work"`. Never silently default to primary when the user named an account in any form.
+- **Bad hints self-correct.** An unresolvable or ambiguous `account` returns an error listing the connected accounts — choose from that list or ask the user; don't retry the same hint.
+- **IDs are account-scoped.** A message/event/file/page id returned under `account="work"` must be used with `account="work"` on every follow-up action.
+- **Ask before irreversible actions when ambiguous.** Multiple accounts connected + a send/delete/clear request that names no account → ask which account first.
+- Alias/primary management (renaming accounts, switching primary, per-account listening) lives in the Settings UI, not in agent actions.
+- The Google services stay split per service, but the same person's account connects to each service separately; an alias set once applies across all five.
+
 ### The agent's connection toolkit (actions)
 
 ```

@@ -340,6 +340,302 @@ def get_client_or_error(integration: str):
     return client, None
 
 
+# ════════════════════════════════════════════════════════════════════════
+# multi-account integration routing for the management actions
+#
+# The 10 multi-account providers (gmail, google_calendar, google_docs, google_drive,
+# google_youtube, outlook, linkedin, notion, hubspot, slack) get their
+# connection state, OAuth connect, token connect, and disconnect from the
+# IntegrationSystem — the legacy single-account credential files are never
+# read or written for them, except by the one-time upgrade migration
+# (legacy file present, no AccountSet document → imported as the first account;
+# see IntegrationSystem._migrate_legacy).
+# Legacy handlers remain the METADATA source (display name, icon, auth_type,
+# description, token field schemas) for all integrations.
+# ════════════════════════════════════════════════════════════════════════
+
+
+def system_for(integration_id: str):
+    """Return the IntegrationSystem when it knows this provider id.
+
+    Returns None for legacy integrations (or if bootstrap fails), so
+    callers fall back to the legacy path unchanged.
+    """
+    try:
+        from app.integrations import get_system
+
+        system = get_system()
+        if system.registry.get(integration_id) is not None:
+            return system
+    except Exception:
+        pass
+    return None
+
+
+def accounts_payload(accounts) -> list:
+    """Serialize AccountInfo objects into the structured action-result shape
+    (same wire shape the settings UI uses — plan §6)."""
+    return [
+        {
+            "identity": a.identity,
+            "alias": a.alias,
+            "isPrimary": a.is_primary,
+            "listen": a.listen,
+        }
+        for a in accounts
+    ]
+
+
+def account_lines(accounts) -> list:
+    """Shared status-text format from plan §6:
+    ``- {alias or identity} ({identity}) [primary]``."""
+    lines = []
+    for a in accounts:
+        line = f"- {a.alias or a.identity} ({a.identity})"
+        if a.is_primary:
+            line += " [primary]"
+        lines.append(line)
+    return lines
+
+
+def v2_display_name(system, integration_id: str) -> str:
+    """Display name: legacy handler metadata first (still the metadata
+    source), falling back to the provider's own display_name."""
+    try:
+        from craftos_integrations import get_metadata
+
+        meta = get_metadata(integration_id)
+        if meta and meta.get("name"):
+            return meta["name"]
+    except Exception:
+        pass
+    provider = system.registry.get(integration_id)
+    return getattr(provider, "display_name", None) or integration_id
+
+
+def list_integrations_merged() -> list:
+    """Metadata + connection status for every integration, with multi-account provider
+    ids sourcing their connection state and accounts from the
+    IntegrationSystem instead of the legacy credential files. Legacy
+    integrations keep the legacy ``handler.status()`` path unchanged.
+    """
+    import asyncio as _asyncio
+
+    from craftos_integrations import get_integration_info, get_metadata, list_all
+
+    async def _gather():
+        out = []
+        for name in list_all():
+            system = system_for(name)
+            if system is not None:
+                info = get_metadata(name)
+                if info is None:
+                    continue
+                infos = system.list_accounts(name)
+                info["accounts"] = accounts_payload(infos)
+                info["connected"] = bool(infos)
+            else:
+                info = await get_integration_info(name)
+            if info:
+                out.append(info)
+        return out
+
+    loop = _asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_gather())
+    finally:
+        loop.close()
+
+
+def _v2_verify_slack_token(credentials: Dict[str, str]):
+    """Same verification the legacy SlackHandler.login() runs: prefix check
+    + ``auth.test`` with the bot token; same credential dict shape."""
+    from dataclasses import asdict
+
+    from craftos_integrations.integrations.slack import SlackCredential, _slack_call
+
+    bot_token = (credentials.get("bot_token") or "").strip()
+    if not bot_token.startswith(("xoxb-", "xoxp-")):
+        return False, "Invalid token. Expected xoxb-... or xoxp-...", None
+
+    result = _slack_call("POST", "auth.test", {"Authorization": f"Bearer {bot_token}"})
+    if "error" in result:
+        return False, f"Slack auth failed: {result['error']}", None
+    team_id = result.get("team_id", "")
+    workspace_name = (credentials.get("workspace_name") or "").strip() or result.get(
+        "team", team_id
+    )
+    credential = asdict(
+        SlackCredential(
+            bot_token=bot_token,
+            workspace_id=team_id,
+            team_name=workspace_name,
+        )
+    )
+    return True, f"Slack connected: {workspace_name} ({team_id})", credential
+
+
+def _v2_verify_notion_token(credentials: Dict[str, str]):
+    """Same verification the legacy NotionHandler.login() runs: ``GET
+    /users/me`` with the integration token; same credential dict shape
+    ({"token": ...} — token-only, so it lands under the LEGACY sentinel
+    identity until an OAuth re-auth upgrades it, per plan §7)."""
+    from dataclasses import asdict
+
+    from craftos_integrations.integrations.notion import (
+        NOTION_VERSION,
+        NotionCredential,
+        _notion_call,
+    )
+
+    token = (credentials.get("token") or "").strip()
+    data = _notion_call(
+        "GET",
+        "/users/me",
+        {"Authorization": f"Bearer {token}", "Notion-Version": NOTION_VERSION},
+    )
+    if "error" in data:
+        return False, f"Notion auth failed: {data['error']}", None
+    ws_name = data.get("bot", {}).get("workspace_name", "default")
+    credential = asdict(NotionCredential(token=token))
+    return True, f"Notion connected: {ws_name}", credential
+
+
+def _v2_verify_hubspot_token(credentials: Dict[str, str]):
+    """Same verification the legacy HubSpotHandler.login() runs: 'pat-'
+    prefix check + ``GET /account-info/v3/details``; same credential dict
+    shape (hub_id captured for the account identity)."""
+    from dataclasses import asdict
+
+    from craftos_integrations.helpers import request as http_request
+    from craftos_integrations.integrations.hubspot import (
+        HUBSPOT_API,
+        HubSpotCredential,
+    )
+
+    token = (credentials.get("access_token") or "").strip()
+    if not token.startswith("pat-"):
+        return False, "Invalid token. Private App tokens start with 'pat-'.", None
+
+    ping = http_request(
+        "GET",
+        f"{HUBSPOT_API}/account-info/v3/details",
+        headers={"Authorization": f"Bearer {token}"},
+        expected=(200,),
+    )
+    if "error" in ping:
+        return False, f"HubSpot auth failed: {ping['error']}", None
+    meta = ping.get("result") or {}
+    credential = asdict(
+        HubSpotCredential(
+            access_token=token,
+            hub_id=str(meta.get("portalId", "")),
+            hub_domain=meta.get("uiDomain", ""),
+            auth_kind="token",
+        )
+    )
+    label = meta.get("uiDomain") or meta.get("portalId") or "HubSpot"
+    return True, f"HubSpot connected: {label}", credential
+
+
+_V2_TOKEN_VERIFIERS = {
+    "slack": _v2_verify_slack_token,
+    "notion": _v2_verify_notion_token,
+    "hubspot": _v2_verify_hubspot_token,
+}
+
+
+def system_connect_token(system, integration_id: str, credentials: Dict[str, str]):
+    """Manual-token connect for a multi-account provider: validate the token the same
+    way the legacy handler's ``login()`` does, then store the credential
+    through the integration system (``store_credential``) — never through the legacy
+    single-account save. Returns (success, message).
+    """
+    verifier = _V2_TOKEN_VERIFIERS.get(integration_id)
+    if verifier is None:
+        # Mirrors legacy IntegrationHandler.connect_token for field-less
+        # (OAuth-only) integrations.
+        return (
+            False,
+            f"Token-based login not supported for "
+            f"{v2_display_name(system, integration_id)}",
+        )
+    try:
+        ok, message, credential = verifier(credentials)
+    except Exception as e:
+        return False, f"{integration_id} token verification failed: {e}"
+    if not ok or not credential:
+        return False, message
+
+    from craftos_integrations.contracts import LEGACY_IDENTITY
+
+    provider = system.registry.get(integration_id)
+    identity = provider.identity_of(credential) or LEGACY_IDENTITY
+    system.store_credential(integration_id, identity, credential)
+    # Slack has a listener; reconcile so a fresh token starts listening
+    # immediately (no-op when no manager is attached / no listener exists).
+    system.reconcile_listeners()
+    return True, message
+
+
+def system_disconnect(system, integration_id: str, account_id=None):
+    """Disconnect a multi-account provider through the IntegrationSystem.
+
+    - With ``account_id``: remove just that account (alias or identity
+      hints both resolve). Entirely system-managed — legacy has no notion of a
+      specific account.
+    - Without: remove ALL accounts, then run the legacy handler logout
+      as best-effort double-cleanup. Removing the last account also
+      deletes the legacy credential file (IntegrationSystem prevents the
+      upgrade migration from resurrecting it), so the legacy logout
+      normally reports "no credentials found" — it only does real work
+      when a stray/corrupt legacy file survived. A legacy failure never
+      masks a successful account removal.
+
+    Returns (success, message).
+    """
+    import asyncio as _asyncio
+
+    if account_id:
+        try:
+            identity = system.remove_account(integration_id, account_id)
+            return True, f"Removed account '{identity}' from {integration_id}."
+        except Exception as e:
+            return False, str(e)
+
+    removed = []
+    for info in system.list_accounts(integration_id):
+        try:
+            system.remove_account(integration_id, info.identity)
+            removed.append(info.alias or info.identity)
+        except Exception:
+            pass
+
+    legacy_success, legacy_message = False, ""
+    try:
+        from craftos_integrations import disconnect as _legacy_disconnect
+
+        loop = _asyncio.new_event_loop()
+        try:
+            legacy_success, legacy_message = loop.run_until_complete(
+                _legacy_disconnect(integration_id)
+            )
+        finally:
+            loop.close()
+    except Exception as e:
+        legacy_message = str(e)
+
+    if removed:
+        return (
+            True,
+            f"Disconnected {integration_id}: removed "
+            f"{len(removed)} account(s) ({', '.join(removed)}).",
+        )
+    # Nothing in the integration system — surface the legacy result unchanged (matches the old
+    # behavior for "not connected" and for stray legacy-only files).
+    return legacy_success, legacy_message
+
+
 async def with_client(
     integration: str, fn: Callable, *args, **kwargs
 ) -> Dict[str, Any]:
