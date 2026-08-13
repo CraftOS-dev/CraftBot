@@ -22,7 +22,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import chromadb
 
@@ -68,6 +68,13 @@ HYBRID_WEIGHTS = {
 # sits below min_relevance — this is what lets 2-hop related memories
 # surface despite sharing no words with the query.
 GRAPH_ELIGIBILITY_SCORE = 0.5
+
+# Minimum cosine similarity for the SEMANTIC entity match (graph channel).
+# The query is embedded and compared against each entity's name embedding;
+# below this a match is treated as noise. This is what resolves partial names
+# ("Tobias" → "Tobias Garcia") without hand-rolled token rules. The string
+# matcher still catches exact / all-token hits at full strength regardless.
+ENTITY_MATCH_MIN_SCORE = 0.6
 
 # Recency bonus: newest items get up to +RECENCY_MAX_BONUS, halving every
 # RECENCY_HALF_LIFE_DAYS. Small on purpose — recency is a tiebreaker, not
@@ -242,6 +249,10 @@ class MemoryManager:
     # disk; if the chunking shape changes, clear it and re-index.
     COLLECTION_NAME = "agent_memory"
     FILE_INDEX_COLLECTION = "agent_memory_file_index"
+    # Entity-name embeddings for the graph channel's semantic entity match.
+    # A separate collection so entity vectors never mix with chunk vectors;
+    # a derived cache, reseeded from the graph on every rebuild.
+    ENTITY_COLLECTION = "agent_memory_entities"
 
     def __init__(
         self,
@@ -298,6 +309,18 @@ class MemoryManager:
             name=self.FILE_INDEX_COLLECTION,
             embedding_fn=embedding_fn,
             metadata={"description": "File index for incremental updates"},
+        )
+
+        # Entity-name embeddings for the graph channel's semantic entity match.
+        # Same embedding function as the chunks; cosine space for [0,1] scores.
+        self.entity_collection = self._open_collection(
+            name=self.ENTITY_COLLECTION,
+            embedding_fn=embedding_fn,
+            metadata={
+                "description": "Entity name embeddings for graph-channel matching",
+                "hnsw:space": "cosine",
+                "embedding_model": MEMORY_EMBEDDING_MODEL,
+            },
         )
 
         # In-memory cache of file indices
@@ -493,7 +516,13 @@ class MemoryManager:
         try:
             self._ensure_graph_built()
             if self._graph is not None:
-                seeds = self._graph.match_entities(query)
+                # String seeds (exact / all-token) at full strength, unioned
+                # with semantic seeds (entity-name embedding ≥ threshold) for
+                # partial names. Union keeps the strongest strength per entity.
+                seeds = self._merge_entity_seeds(
+                    self._graph.match_entities(query),
+                    self._match_entities_semantic(query),
+                )
                 if seeds:
                     graph_hits = self._graph.bfs_item_scores(
                         seeds, include_superseded=include_superseded
@@ -646,6 +675,9 @@ class MemoryManager:
                 self._load_full_corpus(), registry, confirmed_files
             )
             self._graph_dirty = False
+            # Keep the entity embedding collection in lock-step with the graph
+            # so the semantic entity match sees the current entity set.
+            self._rebuild_entity_index()
             logger.debug(
                 f"[MEMORY] Graph rebuilt: {len(self._graph.entities)} entities, "
                 f"{len(self._graph.items)} items, {len(self._graph.files)} files"
@@ -668,6 +700,86 @@ class MemoryManager:
             }
             for i in range(len(ids))
         ]
+
+    def _rebuild_entity_index(self) -> None:
+        """Sync the entity embedding collection with the current graph.
+
+        One record per entity (id = entity key, document = display name),
+        embedded with the same function as the chunks so the graph channel
+        can resolve entities by name similarity. Incremental: only new
+        entities are embedded and dropped ones removed. It is a derived cache
+        rebuilt from the graph, never migrated.
+        """
+        if self._graph is None:
+            return
+        try:
+            current = {
+                key: (node.name or key)
+                for key, node in self._graph.entities.items()
+                if key
+            }
+            existing = set(self.entity_collection.get().get("ids") or [])
+            current_ids = set(current.keys())
+
+            to_remove = list(existing - current_ids)
+            if to_remove:
+                self.entity_collection.delete(ids=to_remove)
+
+            to_add = [k for k in current_ids if k not in existing]
+            if to_add:
+                self.entity_collection.add(
+                    ids=to_add,
+                    documents=[current[k] for k in to_add],
+                    metadatas=[{"name": current[k], "key": k} for k in to_add],
+                )
+        except Exception as e:
+            logger.warning(f"[MEMORY] Failed to rebuild entity index: {e}")
+
+    def _match_entities_semantic(
+        self, query: str, max_seeds: int = 5, min_score: float = ENTITY_MATCH_MIN_SCORE
+    ) -> List[Tuple[str, float]]:
+        """Resolve query → entities by NAME embedding similarity.
+
+        Returns (entity_key, similarity) pairs at or above ``min_score``.
+        This is the fuzzy/partial channel — "Tobias" resolves to the
+        "Tobias Garcia" node here where the string matcher cannot.
+        """
+        if not query or not query.strip():
+            return []
+        try:
+            count = self.entity_collection.count()
+            if count == 0:
+                return []
+            result = self.entity_collection.query(
+                query_texts=[query],
+                n_results=min(max_seeds, count),
+                include=["distances"],
+            )
+            ids = (result.get("ids") or [[]])[0]
+            distances = (result.get("distances") or [[]])[0]
+            seeds: List[Tuple[str, float]] = []
+            for i, key in enumerate(ids):
+                sim = _cosine_distance_to_similarity(
+                    distances[i] if i < len(distances) else 1.0
+                )
+                if sim >= min_score:
+                    seeds.append((key, sim))
+            return seeds
+        except Exception as e:
+            logger.warning(f"[MEMORY] Semantic entity match failed: {e}")
+            return []
+
+    @staticmethod
+    def _merge_entity_seeds(
+        *seed_lists: List[Tuple[str, float]], max_seeds: int = 8
+    ) -> List[Tuple[str, float]]:
+        """Union entity seeds keeping the strongest strength per entity."""
+        best: Dict[str, float] = {}
+        for seeds in seed_lists:
+            for key, strength in seeds:
+                if strength > best.get(key, 0.0):
+                    best[key] = strength
+        return sorted(best.items(), key=lambda kv: (-kv[1], kv[0]))[:max_seeds]
 
     def graph_snapshot(self) -> Dict[str, Any]:
         """Full graph serialisation for the Memory panel (nodes/edges/stats)."""
@@ -1473,6 +1585,15 @@ class MemoryManager:
             name=self.FILE_INDEX_COLLECTION,
             metadata={"description": "File index for incremental updates"},
         )
+
+        # Empty the entity embedding collection; the next graph rebuild
+        # reseeds it from the fresh entity set (derived cache, no migration).
+        try:
+            existing = self.entity_collection.get().get("ids") or []
+            if existing:
+                self.entity_collection.delete(ids=existing)
+        except Exception:
+            pass
 
         self._file_index_cache.clear()
         self._bm25_dirty = True
