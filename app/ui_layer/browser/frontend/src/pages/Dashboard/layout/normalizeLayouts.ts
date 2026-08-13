@@ -101,3 +101,4 @@ export function normalizeLayouts(layouts: NamedLayout[]): NamedLayout[] {
     .filter(l => !!l && typeof l === 'object' && typeof l.id === 'string')
     .map(normalizeLayout)
 }
+

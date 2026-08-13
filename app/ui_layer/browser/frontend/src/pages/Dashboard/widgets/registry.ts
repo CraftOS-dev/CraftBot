@@ -152,3 +152,4 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
 }
 
 export const WIDGET_IDS = Object.keys(WIDGET_REGISTRY)
+
