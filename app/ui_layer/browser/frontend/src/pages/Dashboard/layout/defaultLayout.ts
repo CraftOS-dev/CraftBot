@@ -6,17 +6,15 @@ import { WIDGET_REGISTRY } from '../widgets/registry'
 /**
  * The seed/default arrangement — and what "Reset layout" restores.
  *
- * This is the ORIGINAL pre-revamp dashboard (the monolithic DashboardPage this
- * branch replaced): eight equal-sized panels flowing five per row, in its
- * exact source order — Task Statistics, Token Usage, System Resources, Usage
- * Patterns, MCP Servers, Skills, Integrations, Model Information. One grid
- * cell IS one of those panels (see WIDGET_MIN_CELLS), so every widget seeds at
- * 1x1 and the lg row holds exactly the original five; narrower breakpoints
- * reflow to fewer per row, same as the old CSS grid did.
+ * A hero composition: the CraftBot intro widget sits 2x2 at the top-left, with
+ * the stat cards (Token Usage / System Resources / Usage Patterns over Task
+ * Statistics / Skills / Model Information) filling the columns beside it, and
+ * a bottom row of MCP Servers, Integrations, and Living UI next to a 2-wide
+ * Mascot scene. Narrower breakpoints keep the hero on top and reflow the 1x1
+ * cards in pairs.
  *
- * The widgets this revamp introduced (Mascot, Recent Activity, Living UI)
- * weren't part of that dashboard, so they trail after the original eight in
- * the flow instead of being woven into it.
+ * Recent Activity deliberately isn't here: it's hidden by default and only
+ * appears when added via the Add Widget modal.
  *
  * Explicit coordinates, not shelf packing: packing by each widget's default
  * size leaves holes wherever row heights disagree (a taller neighbor blocks
@@ -25,40 +23,46 @@ import { WIDGET_REGISTRY } from '../widgets/registry'
  */
 type Placement = { id: string; x: number; y: number; w: number; h: number }
 
-const ORIGINAL_ORDER = [
-  'taskStats',
-  'tokenUsage',
-  'systemResources',
-  'usagePatterns',
-  'mcpServers',
-  'skills',
-  'integrations',
-  'modelInfo',
-]
-
-// Recent Activity deliberately isn't here: it's hidden by default and only
-// appears when added via the Add Widget modal. Living UI takes the slot it
-// used to occupy.
-const REVAMP_EXTRAS = ['mascot', 'livingUi']
-
-// Uniform 1x1 cards flowed left-to-right, one per column — the same reflow
-// the old dashboard's repeat(5, 1fr) / 4 / 2 container queries produced.
-function flow(ids: string[], perRow: number): Placement[] {
-  return ids.map((id, i) => ({
-    id,
-    x: i % perRow,
-    y: Math.floor(i / perRow),
-    w: 1,
-    h: 1,
-  }))
-}
-
-const ALL_IDS = [...ORIGINAL_ORDER, ...REVAMP_EXTRAS]
-
 const DEFAULT_PLACEMENT: Record<Breakpoint, Placement[]> = {
-  lg: flow(ALL_IDS, 5), // 5 per row, the original full-width look
-  md: flow(ALL_IDS, 4),
-  sm: flow(ALL_IDS, 2),
+  lg: [
+    { id: 'craftBotIntro', x: 0, y: 0, w: 2, h: 2 },
+    { id: 'tokenUsage', x: 2, y: 0, w: 1, h: 1 },
+    { id: 'systemResources', x: 3, y: 0, w: 1, h: 1 },
+    { id: 'usagePatterns', x: 4, y: 0, w: 1, h: 1 },
+    { id: 'taskStats', x: 2, y: 1, w: 1, h: 1 },
+    { id: 'skills', x: 3, y: 1, w: 1, h: 1 },
+    { id: 'modelInfo', x: 4, y: 1, w: 1, h: 1 },
+    { id: 'mcpServers', x: 0, y: 2, w: 1, h: 1 },
+    { id: 'integrations', x: 1, y: 2, w: 1, h: 1 },
+    { id: 'livingUi', x: 2, y: 2, w: 1, h: 1 },
+    { id: 'mascot', x: 3, y: 2, w: 2, h: 1 },
+  ],
+  md: [
+    { id: 'craftBotIntro', x: 0, y: 0, w: 2, h: 2 },
+    { id: 'tokenUsage', x: 2, y: 0, w: 1, h: 1 },
+    { id: 'systemResources', x: 3, y: 0, w: 1, h: 1 },
+    { id: 'taskStats', x: 2, y: 1, w: 1, h: 1 },
+    { id: 'skills', x: 3, y: 1, w: 1, h: 1 },
+    { id: 'usagePatterns', x: 0, y: 2, w: 1, h: 1 },
+    { id: 'modelInfo', x: 1, y: 2, w: 1, h: 1 },
+    { id: 'mcpServers', x: 2, y: 2, w: 1, h: 1 },
+    { id: 'integrations', x: 3, y: 2, w: 1, h: 1 },
+    { id: 'livingUi', x: 0, y: 3, w: 1, h: 1 },
+    { id: 'mascot', x: 1, y: 3, w: 2, h: 1 },
+  ],
+  sm: [
+    { id: 'craftBotIntro', x: 0, y: 0, w: 2, h: 2 },
+    { id: 'tokenUsage', x: 0, y: 2, w: 1, h: 1 },
+    { id: 'systemResources', x: 1, y: 2, w: 1, h: 1 },
+    { id: 'taskStats', x: 0, y: 3, w: 1, h: 1 },
+    { id: 'skills', x: 1, y: 3, w: 1, h: 1 },
+    { id: 'usagePatterns', x: 0, y: 4, w: 1, h: 1 },
+    { id: 'modelInfo', x: 1, y: 4, w: 1, h: 1 },
+    { id: 'mcpServers', x: 0, y: 5, w: 1, h: 1 },
+    { id: 'integrations', x: 1, y: 5, w: 1, h: 1 },
+    { id: 'livingUi', x: 0, y: 6, w: 2, h: 1 },
+    { id: 'mascot', x: 0, y: 7, w: 2, h: 1 },
+  ],
 }
 
 function clamp(value: number, min: number, max: number): number {

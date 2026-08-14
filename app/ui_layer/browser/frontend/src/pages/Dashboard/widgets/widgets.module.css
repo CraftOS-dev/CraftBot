@@ -191,7 +191,7 @@
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: var(--w-gap);
+  column-gap: clamp(12px, calc(6px + 2cqmin), 20px);
   row-gap: calc(var(--w-gap) * 0.5);
 }
 
@@ -722,4 +722,390 @@
   .modelLabel {
     min-width: 0;
   }
+}
+
+/* Compact Simple 1x1 Welcome View */
+.compactSimpleContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: calc(var(--w-gap) * 0.5);
+  height: 100%;
+  width: 100%;
+  padding: calc(var(--w-pad) * 0.7);
+  box-sizing: border-box;
+}
+
+.compactMascotWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.compactMascotWrapper:hover {
+  transform: scale(1.08);
+}
+
+.compactSimpleContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+}
+
+.compactSimpleTitle {
+  font-family: inherit;
+  font-size: var(--w-title, 15px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.compactSimpleSubtitle {
+  font-family: inherit;
+  font-size: calc(var(--w-text-xs) * 0.88);
+  font-weight: 450;
+  letter-spacing: -0.005em;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.compactSimpleContainer .compactLearnMoreBtn {
+  margin-top: 12px;
+  border-radius: 9999px;
+  /* Extra left padding offsets the chevron's optical whitespace on the right */
+  padding-left: 26px;
+  padding-right: 22px;
+}
+
+/* Compact Detailed View (Showcase Carousel) */
+.introDetailsContainer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: calc(var(--w-gap) * 0.4);
+  padding: calc(var(--w-pad) * 0.6);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.introDetailsHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
+}
+
+.backButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: calc(var(--w-text-xs) * 0.8);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.backButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.heroBannerShowcase {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+}
+
+.bannerScrollContainer {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.bannerScrollContainer::-webkit-scrollbar {
+  display: none;
+}
+
+/* Carousel card. Type and spacing scale with the widget box via cqmin
+   (the WidgetChrome .chrome element is the size container), so the card
+   reads like a proper marketing slide at 2x2 without dwarfing 1x1. */
+.heroBannerCard {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  display: flex;
+  box-sizing: border-box;
+  padding: clamp(18px, calc(9px + 4.5cqmin), 36px);
+}
+
+/* Content column: grouped at the vertical center with tight rhythm —
+   eyebrow / title+subtitle / items / CTA — instead of scattered. */
+.heroContentSide {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.visionCard .heroContentSide {
+  align-items: center;
+  text-align: center;
+}
+
+.visionCard .chipRow {
+  justify-content: center;
+}
+
+.visionCard .heroTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(6px, calc(3px + 1.5cqmin), 11px);
+}
+
+.titleFavicon {
+  width: clamp(18px, calc(9px + 3.4cqmin), 30px);
+  height: clamp(18px, calc(9px + 3.4cqmin), 30px);
+  flex-shrink: 0;
+}
+
+.cardEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  font-size: clamp(9px, calc(7.5px + 0.6cqmin), 11.5px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary, #3b82f6);
+  margin-bottom: clamp(6px, calc(2px + 1.8cqmin), 16px);
+}
+
+.heroTitle {
+  font-family: inherit;
+  font-size: clamp(13px, calc(4.5px + 3.4cqmin), 25px);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.15;
+  text-wrap: balance;
+  max-width: 26ch;
+}
+
+.heroSubtitle {
+  font-family: inherit;
+  font-size: clamp(11px, calc(7.5px + 1.4cqmin), 15px);
+  font-weight: 480;
+  letter-spacing: -0.005em;
+  color: var(--text-secondary);
+  margin: clamp(3px, calc(1px + 1.2cqmin), 10px) 0 0;
+  line-height: 1.45;
+  max-width: 46ch;
+}
+
+.heroSimpleDesc {
+  font-family: inherit;
+  font-size: clamp(11px, calc(8px + 1.1cqmin), 13.5px);
+  font-weight: 450;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: clamp(6px, calc(2px + 1.8cqmin), 16px) 0 0;
+  max-width: 46ch;
+}
+
+/* Card variant: chip/tag showcase (marketplace apps, agent bundle roles) */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: clamp(10px, calc(5px + 2cqmin), 20px);
+}
+
+.chip {
+  font-family: inherit;
+  font-size: clamp(10px, calc(8px + 0.8cqmin), 12.5px);
+  font-weight: 550;
+  color: var(--text-primary);
+  padding: clamp(2px, calc(1px + 0.6cqmin), 4px) clamp(8px, calc(5px + 1.2cqmin), 12px);
+  border-radius: 9999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  white-space: nowrap;
+}
+
+/* Card variant: article rows (blog) */
+.articleList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: clamp(10px, calc(5px + 2cqmin), 20px);
+  align-self: stretch;
+  min-width: 0;
+}
+
+.articleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: clamp(6px, calc(3px + 1.2cqmin), 10px) clamp(10px, calc(6px + 1.5cqmin), 14px);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.articleRow:hover {
+  border-color: var(--color-primary, #3b82f6);
+}
+
+.articleTag {
+  font-family: inherit;
+  font-size: clamp(8.5px, calc(7px + 0.6cqmin), 10.5px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-primary, #3b82f6);
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 14%, transparent);
+  padding: 2px 7px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.articleTitle {
+  font-family: inherit;
+  font-size: clamp(11px, calc(8.5px + 1cqmin), 13.5px);
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Per-card call-to-action: pill button matching the compact Learn More */
+.cardCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: clamp(10px, calc(4px + 2.6cqmin), 24px);
+  height: clamp(24px, calc(14px + 2.8cqmin), 34px);
+  padding: 0 clamp(11px, calc(6px + 1.8cqmin), 18px);
+  border-radius: 9999px;
+  background: var(--color-primary, #3b82f6);
+  color: var(--color-white, #ffffff);
+  font-family: inherit;
+  font-size: clamp(10.5px, calc(8.5px + 0.8cqmin), 12.5px);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.cardCta:hover {
+  background: var(--color-primary-hover, #2563eb);
+  color: var(--color-white, #ffffff);
+  text-decoration: none;
+}
+
+/* Hero Footer Row */
+.heroFooterRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+  margin-top: 2px;
+}
+
+.heroDotsGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+}
+
+.heroDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--text-muted);
+  opacity: 0.4;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.heroDot:hover {
+  opacity: 0.8;
+}
+
+.activeHeroDot {
+  width: 20px;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--primary-color, var(--color-primary, #3b82f6));
+  opacity: 1;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+.redirectLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+  font-size: calc(var(--w-text-xs) * 0.85);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--color-primary, #3b82f6);
+  text-decoration: underline;
+}
+
+.redirectLink:hover {
+  color: var(--color-primary, #3b82f6);
+  text-decoration-color: currentColor;
 }

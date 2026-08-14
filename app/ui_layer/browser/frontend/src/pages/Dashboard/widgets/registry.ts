@@ -13,9 +13,11 @@ import {
   History,
   Package,
   Plug,
+  Sparkles,
   TrendingUp,
 } from 'lucide-react'
 import type { WidgetDefinition } from './types'
+import { CraftBotIntroWidget } from './CraftBotIntroWidget'
 import { TaskStatsWidget, TaskStatsHeaderBadge } from './TaskStatsWidget'
 import { TokenUsageWidget, TokenUsageHeaderBadge } from './TokenUsageWidget'
 import { SystemResourcesWidget } from './SystemResourcesWidget'
@@ -46,6 +48,15 @@ import { RecentActivityWidget } from './RecentActivityWidget'
 // editing them does reach people who already have a saved dashboard, with no
 // migration to write.
 export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
+  craftBotIntro: {
+    id: 'craftBotIntro',
+    title: 'Welcome to CraftBot',
+    icon: Sparkles,
+    description: 'Introduction to CraftBot capabilities, system pillars, and mascot companion.',
+    component: CraftBotIntroWidget,
+    sizing: { default: { w: 1, h: 1 }, max: { w: 2, h: 2 } },
+    singleton: true,
+  },
   taskStats: {
     id: 'taskStats',
     title: 'Task Statistics',
