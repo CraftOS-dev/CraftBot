@@ -18,7 +18,6 @@ from __future__ import annotations
 import hashlib
 import re
 import os as _os
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -29,11 +28,11 @@ import chromadb
 from agent_core.utils.logger import logger
 from agent_core.core.impl.memory.bm25_index import BM25Index
 from agent_core.core.impl.memory.graph import (
+    CONNECTION_LINE_RE,
     ENTITY_REGISTRY_FILE,
     MemoryGraph,
     compute_item_id,
     parse_entity_registry,
-    registry_content_hash,
     split_item_fields,
 )
 from agent_core.core.impl.memory.text_extract import extract_text, is_indexable_file
@@ -66,13 +65,17 @@ from agent_core.core.impl.memory.tuning import (
 # the whole list collapsing into a single section chunk under "## Memory".
 PER_ITEM_FILES = frozenset({"MEMORY.md", "EVENT_UNPROCESSED.md"})
 
-# Matches a memory item line. The stamp is the canonical
-# "[YYYY-MM-DD HH:MM:SS]" — every writer emits exactly this form; lines with
-# any other stamp are invalid. The optional colon after the category bracket
-# is the EVENT_UNPROCESSED.md event-line separator ("[kind]: message").
-# Captures: timestamp, category, content.
+# Matches a memory item line: "[stamp] [category] content". The stamp slot
+# accepts any bracketed token — stamp validity is METADATA, never a gate on
+# whether the memory exists. A canonical "YYYY-MM-DD HH:MM:SS" stamp (the
+# only recognized format, validated downstream by _normalize_timestamp)
+# yields timestamp metadata for identity and recency; any other stamp
+# content indexes the memory all the same with no timestamp metadata.
+# The optional colon after the category bracket is the EVENT_UNPROCESSED.md
+# event-line separator ("[kind]: message").
+# Captures: stamp, category, content.
 MEMORY_ITEM_LINE_RE = re.compile(
-    r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
+    r"^\s*\[([^\]]+)\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
 )
 
 def _log_preview(text: str, max_chars: int) -> str:
@@ -610,39 +613,22 @@ class MemoryManager:
         if not self._graph_dirty and self._graph is not None:
             return
         try:
-            # Per-section chunk→entity mappings come from the ENTITIES.md
-            # registry (LLM-maintained by the entity-indexer skill).
-            # Missing file means an empty registry — no entities for file
-            # chunks yet.
+            # The registry supplies the entity list and each memory's
+            # connection marks. Missing file means an empty registry.
             registry: Dict[str, Any] = {}
             registry_path = self.agent_fs_path / ENTITY_REGISTRY_FILE
             if registry_path.exists():
                 registry = parse_entity_registry(
                     registry_path.read_text(encoding="utf-8")
                 )
-            # A file's chunks are "reviewed" only while its current content
-            # still hashes to the registry's recorded fingerprint (the SAME
-            # hash the entity-index pre-check writes — see
-            # registry_content_hash). A stale/missing entry means the file
-            # changed since its last extraction, so its chunks fall to
-            # pending links until the entity-indexer catches up.
-            confirmed_files = set()
-            for rel, entry in registry.items():
-                fpath = self.agent_fs_path / rel
-                try:
-                    if fpath.exists():
-                        raw = registry_content_hash(fpath.read_bytes())
-                        if raw == (entry.get("hash") or "").lower():
-                            confirmed_files.add(rel)
-                except OSError:
-                    continue
-            self._graph = MemoryGraph.build(
-                self._load_full_corpus(), registry, confirmed_files
-            )
+            self._graph = MemoryGraph.build(self._load_full_corpus(), registry)
             self._graph_dirty = False
             # Keep the entity embedding collection in lock-step with the graph
             # so the semantic entity match sees the current entity set.
             self._rebuild_entity_index()
+            # Persist this build's established connections back into the
+            # ## Connections section (write only on change).
+            self._sync_connection_records(registry_path)
             logger.debug(
                 f"[MEMORY] Graph rebuilt: {len(self._graph.entities)} entities, "
                 f"{len(self._graph.items)} items, {len(self._graph.files)} files"
@@ -650,6 +636,62 @@ class MemoryManager:
         except Exception as e:
             logger.warning(f"[MEMORY] Failed to rebuild memory graph: {e}")
             # Leave dirty so the next call retries.
+
+    def _sync_connection_records(self, registry_path: Path) -> None:
+        """Re-sync the connection record lines in ENTITIES.md.
+
+        Ownership is line-scoped, not section-scoped: the system may touch
+        ONLY lines matching the connection-record grammar
+        (CONNECTION_LINE_RE) — it removes them and regenerates them from
+        this build. Every other line — headers, prose, and above all the
+        ``## Entities`` names — is preserved verbatim, wherever it is and
+        however mangled the file may be, so no sync can ever damage the
+        entity list. The regenerated records are placed after the
+        ``## Connections`` header line (matched as a whole line, never as a
+        substring; appended at the end if the file lacks one). The file is
+        written only when the result differs, so the watcher's reindex of
+        this write converges instead of looping.
+        """
+        if self._graph is None:
+            return
+        current = (
+            registry_path.read_text(encoding="utf-8")
+            if registry_path.exists()
+            else ""
+        )
+        header = "## Connections"
+
+        kept: List[str] = []
+        for line in current.splitlines():
+            if CONNECTION_LINE_RE.match(line.strip()):
+                continue  # system-owned record line; regenerated below
+            kept.append(line)
+        while kept and not kept[-1].strip():
+            kept.pop()
+
+        header_index = next(
+            (i for i, line in enumerate(kept) if line.strip() == header), None
+        )
+        if header_index is None:
+            if kept:
+                kept.append("")
+            kept.append(header)
+            header_index = len(kept) - 1
+        else:
+            # Blank lines directly under the header are re-added below.
+            while (
+                header_index + 1 < len(kept) and not kept[header_index + 1].strip()
+            ):
+                kept.pop(header_index + 1)
+
+        records = self._graph.connection_lines()
+        rebuilt = (
+            kept[: header_index + 1] + [""] + records + kept[header_index + 1 :]
+        )
+        rendered = "\n".join(rebuilt).rstrip("\n") + "\n"
+        if rendered != current:
+            registry_path.write_text(rendered, encoding="utf-8")
+            logger.debug("[MEMORY] Connection records synced to ENTITIES.md")
 
     def _load_full_corpus(self) -> List[Dict[str, Any]]:
         """Pull every chunk (id, document, metadata) from ChromaDB."""
@@ -915,7 +957,10 @@ class MemoryManager:
             current_hash = self._compute_file_hash(full_path)
             cached_index = self._file_index_cache.get(file_path)
 
-            if cached_index and cached_index.content_hash != current_hash:
+            if cached_index and (
+                cached_index.content_hash != current_hash
+                or self._expected_chunk_ids(full_path) != cached_index.chunk_ids
+            ):
                 modified_files.append(file_path)
 
         # Index new files
@@ -970,8 +1015,12 @@ class MemoryManager:
 
             # Skip if already indexed (and not forcing)
             if not force and rel_path in self._file_index_cache:
+                cached = self._file_index_cache[rel_path]
                 current_hash = self._compute_file_hash(file_path)
-                if self._file_index_cache[rel_path].content_hash == current_hash:
+                if (
+                    cached.content_hash == current_hash
+                    and self._expected_chunk_ids(file_path) == cached.chunk_ids
+                ):
                     stats["files_skipped"] += 1
                     continue
 
@@ -1050,7 +1099,6 @@ class MemoryManager:
         chunks: List[MemoryChunk] = []
         now = datetime.utcnow().isoformat()
         seen_ids: Dict[str, int] = {}
-        is_memory_file = Path(file_path).name == "MEMORY.md"
 
         for raw_line in content.splitlines():
             line = raw_line.strip()
@@ -1064,18 +1112,19 @@ class MemoryManager:
             timestamp_iso = _normalize_timestamp(timestamp_str)
             category = category.lower()
 
-            clean_text, declared_entities, superseded = split_item_fields(item_text)
+            clean_text, _, superseded = split_item_fields(item_text)
             summary = self._create_summary(clean_text)
 
-            if is_memory_file:
-                chunk_id = compute_item_id(timestamp_iso or timestamp_str, clean_text)
-                # Identical duplicate lines get a stable ordinal suffix.
-                dup = seen_ids.get(chunk_id, 0)
-                seen_ids[chunk_id] = dup + 1
-                if dup:
-                    chunk_id = f"{chunk_id}-{dup + 1}"
-            else:
-                chunk_id = str(uuid.uuid4())
+            # Deterministic id for every per-item chunk: same line → same id
+            # across rebuilds (graph node, Chroma chunk, and UI item share
+            # one identity, and cached index entries can be validated by
+            # re-deriving). Identical duplicate lines get a stable ordinal
+            # suffix.
+            chunk_id = compute_item_id(timestamp_iso or timestamp_str, clean_text)
+            dup = seen_ids.get(chunk_id, 0)
+            seen_ids[chunk_id] = dup + 1
+            if dup:
+                chunk_id = f"{chunk_id}-{dup + 1}"
 
             chunks.append(
                 MemoryChunk(
@@ -1091,13 +1140,6 @@ class MemoryManager:
                     metadata={
                         "timestamp": timestamp_iso,
                         "category": category,
-                        # ChromaDB metadata values must be primitives; serialise
-                        # the entity list as a comma-joined string. Entities come
-                        # from the LLM-written {entities: ...} field only.
-                        "entities": ", ".join(declared_entities or []),
-                        # None → no {entities:} field yet → unreviewed by the
-                        # entity-indexer → the graph gives it pending links.
-                        "entities_annotated": declared_entities is not None,
                         "item_content": clean_text,
                         "superseded": superseded,
                         "item_kind": "memory_log",
@@ -1113,7 +1155,7 @@ class MemoryManager:
 
         Chunk ids are deterministic hashes of (file, section, content):
         file chunks ARE memories, so the graph node, the Chroma chunk, and
-        the ENTITIES.md section entities must share one identity across
+        the ENTITIES.md connection records must share one identity across
         rebuilds — same rule as MEMORY.md items.
         """
         chunks: List[MemoryChunk] = []
@@ -1489,6 +1531,23 @@ class MemoryManager:
         logger.debug(f"Indexed {len(chunks)} chunks from {rel_path}")
         return len(chunks)
 
+    def _expected_chunk_ids(self, file_path: Path) -> List[str]:
+        """Chunk ids the CURRENT chunker derives from the file's content.
+
+        Pure text derivation, no embedding. Chunk ids are deterministic
+        functions of content, so a cached index entry is valid only if its
+        stored ids equal this derivation — an entry produced by different
+        chunking code simply fails the comparison and the file reseeds.
+        Nothing about past code is stored or detected.
+        """
+        try:
+            content = extract_text(file_path)
+        except Exception as e:
+            logger.error(f"Error reading file {file_path}: {e}")
+            return []
+        rel_path = self._rel_path(file_path)
+        return [chunk.chunk_id for chunk in self._chunk_markdown(content, rel_path)]
+
     def _remove_file_from_index(self, file_path: str) -> None:
         """Remove all chunks for a file from the index."""
         file_index = self._file_index_cache.get(file_path)
@@ -1691,26 +1750,6 @@ class MemoryManager:
         the settings list, and the panel display consistent across platforms.
         """
         return str(file_path.relative_to(self.agent_fs_path)).replace("\\", "/")
-
-    def get_file_sections(self, rel_path: str) -> List[str]:
-        """The chunker's exact section keys for one indexed file, in order.
-
-        Supplied verbatim to the entity-indexer skill so its ENTITIES.md
-        section lines match chunk section_paths exactly — no fuzzy
-        matching anywhere.
-        """
-        file_path = self.agent_fs_path / rel_path
-        if not file_path.exists():
-            return []
-        try:
-            content = extract_text(file_path)
-        except Exception:
-            return []
-        sections: List[str] = []
-        for chunk in self._chunk_markdown(content, rel_path):
-            if chunk.section_path not in sections:
-                sections.append(chunk.section_path)
-        return sections
 
     def get_index_files_info(self) -> List[Dict[str, Any]]:
         """Per-file index status for the Memory panel."""

@@ -21,26 +21,30 @@ Edges: memory↔entity ("mentions") and file↔chunk-memory ("contains").
 Entity co-occurrence is implicit through shared memory neighbours, which
 keeps the edge count low and the visualisation readable.
 
-A memory↔entity link is one of two states:
-- CONFIRMED — recorded by the entity-indexer LLM: a MEMORY.md item's
-  ``{entities: ...}`` field, or the ENTITIES.md registry for an indexed
-  file whose content still matches the registry hash.
-- PENDING — a deterministic provisional link. When a memory has NOT yet
-  been reviewed by the entity-indexer, it is attached to any ALREADY-KNOWN
-  entity whose name appears in its text. Pending links are shown distinctly
-  and are confirmed-or-corrected on the next entity-indexer run. They never
-  create entities — they only attach to entities the LLM has established.
+CONNECTIONS ARE ESTABLISHED IN EXACTLY ONE PLACE: the graph build. For
+every memory, the deterministic matcher connects it to each known entity
+whose name appears in its text. Nothing else creates a connection — not
+the entity-indexer, not any record.
 
-ONLY THE ENTITY-INDEXER CREATES/EDITS ENTITIES:
-- MEMORY.md items are annotated inline with ``{entities: Name1, Name2}`` by
-  the entity-indexer (the memory-processor writes plain items and does no
-  entity work). An item without the field is unreviewed → pending links.
-- File chunks map to entities through the ENTITIES.md registry, maintained
-  by the entity-indexer skill: per-section lines
-  ``[path] [content-hash] [section key] Name1, Name2`` whose section keys
-  are the chunker's exact section paths (supplied to the skill verbatim).
-Confirmed links only ever PARSE those records; pending links only ever
-match against entities those records have already created.
+CONNECTIONS ARE RECORDED IN ENTITIES.md BY THE SYSTEM: after every build,
+the ``## Connections`` section is re-synced to one line per memory —
+``[chunk-id] [status] names :: text preview`` — carrying each established
+connection's state as a mark on the entity name: plain = CONFIRMED,
+``!`` = REJECTED (no edge), ``?`` = PENDING (edge drawn as provisional,
+awaiting judgment). The entity-indexer's ONLY connection job is flipping
+``?`` marks to plain or ``!`` and setting the line's status to [judged];
+it never adds names. A mark on a name the matcher did not establish is
+ignored — structurally, nothing but the matcher can introduce a
+connection. Dead chunk ids (memory changed or deleted) drop out of the
+section automatically at the next sync; changed content produces a new
+chunk id whose line starts pending again, so the records self-invalidate
+with no hashes and no staleness bookkeeping.
+
+ENTITIES COME FROM EXACTLY ONE PLACE: the ``## Entities`` list in
+ENTITIES.md (one name per line), created and maintained solely by the
+entity-indexer skill. The matcher's known-entity set IS that list. When a
+new entity is created, the next build matches it and the sync appends it
+as a ``?`` candidate on the affected memories' lines for judgment.
 
 Communities are computed with deterministic label propagation (no LLM, no
 external dependency) and are used for graph colouring and as retrieval
@@ -69,6 +73,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 # All numeric behavior constants live in tuning.py — the single typed home
 # of the memory system's magic numbers.
 from agent_core.core.impl.memory.tuning import (
+    CONNECTION_PREVIEW_MAX_CHARS,
+    ENTITY_HUB_FRACTION,
+    ENTITY_HUB_MIN_LINKS,
     ENTITY_SEED_STRENGTH,
     LABEL_PROPAGATION_ROUNDS,
     SECOND_HOP_DECAY,
@@ -81,22 +88,29 @@ from agent_core.core.impl.memory.tuning import (
 # instead of deleting contradicted items.
 SUPERSEDED_MARKER = "{superseded}"
 
-# Structured entity field on an item line, written by the memory-processor:
-# {entities: Name1, Name2}. An empty field ({entities:}) means "annotated,
-# no entities"; an absent field means "not yet annotated".
+# Legacy structured entity field on an item line ({entities: Name1, ...}).
+# It is part of the item-line grammar only so its markup is STRIPPED from
+# item content; it plays no role in the connection system.
 ENTITIES_FIELD_RE = re.compile(r"\{entities:([^{}]*)\}")
 
-# The per-file entity registry maintained by the entity-indexer skill.
-# Two line shapes per indexed file:
-#   [path] [content-hash]                          — processed marker
-#   [path] [content-hash] [section key] Name1, ... — one per section with entities
-# Section keys are the chunker's exact section paths, supplied to the skill
-# verbatim in the task instruction so no fuzzy matching is ever needed.
+# The entity registry file, with two code-defined sections:
+# - "## Entities": one entity name per line, created only by the
+#   entity-indexer skill. The graph's entire entity set.
+# - "## Connections": one record per memory, WRITTEN AND RE-SYNCED BY THE
+#   SYSTEM after every graph build. The entity-indexer only flips marks.
 ENTITY_REGISTRY_FILE = "ENTITIES.md"
-_REGISTRY_MARKER_RE = re.compile(r"^\[([^\]]+)\]\s+\[([0-9a-fA-F]{6,40})\]\s*$")
-_REGISTRY_SECTION_RE = re.compile(
-    r"^\[([^\]]+)\]\s+\[([0-9a-fA-F]{6,40})\]\s+\[(.*)\]\s*(.*?)\s*$"
+
+# A connection record line under "## Connections":
+#   [<chunk-id>] [pending|judged] Name1, !Name2, ?Name3 :: <text preview>
+# Chunk ids are the memory content hashes ("m"/"c" + 12 hex, optional "-N"
+# duplicate suffix) — the one identity shared by Chroma, graph, and UI.
+# Name marks: plain = confirmed, "!" = rejected, "?" = awaiting judgment.
+# Status is [pending] while any "?" remains (or the memory was never
+# judged), [judged] once the entity-indexer has decided every name.
+CONNECTION_LINE_RE = re.compile(
+    r"^\[([mc][0-9a-f]{12}(?:-\d+)?)\]\s+\[(pending|judged)\]\s*(.*)$"
 )
+_CONNECTION_TEXT_SEPARATOR = " :: "
 
 
 
@@ -165,60 +179,55 @@ def split_item_fields(content: str) -> Tuple[str, Optional[List[str]], bool]:
     return clean, entities, superseded
 
 
-def item_entities(content: str) -> List[str]:
-    """Entity names for an item: its ``{entities: ...}`` field, nothing else.
+def parse_entity_registry(content: str) -> Dict[str, Any]:
+    """Parse ENTITIES.md into ``{"entities": [...], "connections": {...}}``.
 
-    The field is written by the memory-processor LLM. Items without the
-    field have no entities until its backfill phase annotates them.
+    - ``entities``: the names listed one-per-line under ``## Entities``
+      (entity-indexer-owned; the graph's entire entity set).
+    - ``connections``: ``{chunk_id: {"status", "confirmed", "rejected",
+      "pending"}}`` from the system-synced connection record lines. Name
+      marks: plain = confirmed, ``!`` = rejected, ``?`` = awaiting
+      judgment. The text preview after ``" :: "`` is display-only and
+      ignored here (the sync regenerates it).
     """
-    entities = split_item_fields(content)[1]
-    return entities or []
-
-
-def registry_content_hash(content: bytes) -> str:
-    """Fingerprint of an indexed file as recorded in ENTITIES.md.
-
-    The entity-index pre-check writes this into the registry and the graph's
-    confirmed-file check compares against it, so the derivation lives in ONE
-    place: both sides must hash identically or staleness detection silently
-    breaks.
-    """
-    return hashlib.md5(content).hexdigest()[:12]
-
-
-def parse_entity_registry(content: str) -> Dict[str, Dict[str, Any]]:
-    """Parse ENTITIES.md into ``{path: {"hash": str, "sections": {key: [names]}}}``.
-
-    Registry lines are written by the entity-indexer skill. Each processed
-    file has a marker line ``[path] [hash]`` plus one
-    ``[path] [hash] [section key] Name1, Name2`` line per section with
-    entities. The hash is the file's raw-content md5 prefix at extraction
-    time, supplied to the skill by the trigger pre-check; comparing it
-    against the current file hash is how staleness is detected.
-    """
-    registry: Dict[str, Dict[str, Any]] = {}
-
-    def entry(path: str, digest: str) -> Dict[str, Any]:
-        path = path.strip().replace("\\", "/")
-        record = registry.setdefault(path, {"hash": "", "sections": {}})
-        record["hash"] = digest.lower()
-        return record
+    entities: List[str] = []
+    connections: Dict[str, Dict[str, Any]] = {}
+    in_entities_section = False
 
     for line in (content or "").splitlines():
         line = line.strip()
-        if not line or line.startswith("#") or line.startswith(">"):
+        if line.startswith("#"):
+            in_entities_section = line.lstrip("#").strip().lower() == "entities"
             continue
-        marker = _REGISTRY_MARKER_RE.match(line)
-        if marker:
-            entry(marker.group(1), marker.group(2))
+        if not line or line.startswith(">"):
             continue
-        section = _REGISTRY_SECTION_RE.match(line)
-        if section:
-            record = entry(section.group(1), section.group(2))
-            names = _dedup_names(section.group(4).split(",")) if section.group(4) else []
-            if names:
-                record["sections"][section.group(3).strip()] = names
-    return registry
+        match = CONNECTION_LINE_RE.match(line)
+        if match:
+            names_part = match.group(3).split(_CONNECTION_TEXT_SEPARATOR, 1)[0]
+            confirmed: List[str] = []
+            rejected: List[str] = []
+            pending: List[str] = []
+            for raw in names_part.split(","):
+                name = raw.strip()
+                if not name:
+                    continue
+                if name.startswith("!"):
+                    rejected.append(name[1:].strip())
+                elif name.startswith("?"):
+                    pending.append(name[1:].strip())
+                else:
+                    confirmed.append(name)
+            connections[match.group(1)] = {
+                "status": match.group(2),
+                "confirmed": _dedup_names(confirmed),
+                "rejected": _dedup_names(rejected),
+                "pending": _dedup_names(pending),
+            }
+            continue
+        if in_entities_section:
+            entities.append(line)
+
+    return {"entities": _dedup_names(entities), "connections": connections}
 
 
 # ───────────────────────────── Graph model ─────────────────────────────
@@ -256,6 +265,9 @@ class _ItemNode:
     category: str
     content: str  # clean text, structured fields stripped
     entities: List[str] = field(default_factory=list)  # CONFIRMED entity keys
+    # Matcher-established connections the entity-indexer REJECTED — no
+    # edge, kept so the connection-record sync preserves the "!" marks.
+    rejected_entities: List[str] = field(default_factory=list)
     # Provisional entity keys from the deterministic matcher, present only
     # on unreviewed memories. Confirmed by the entity-indexer on its next run.
     pending_entities: List[str] = field(default_factory=list)
@@ -293,6 +305,11 @@ class MemoryGraph:
         self.files: Dict[str, _FileNode] = {}
         self._adjacency: Dict[str, Set[str]] = {}
         self._communities: Dict[str, int] = {}
+        # Parsed ## Connections records keyed by chunk id: each holds the
+        # lowered confirmed / rejected name sets and the line status. A
+        # matched entity's state comes from its mark; matched entities with
+        # no mark (or no record) are pending.
+        self._records: Dict[str, Dict[str, Any]] = {}
 
     # ───────────────────────────── Building ─────────────────────────────
 
@@ -300,34 +317,33 @@ class MemoryGraph:
     def build(
         cls,
         chunks: List[Dict[str, Any]],
-        file_registry: Optional[Dict[str, Dict[str, Any]]] = None,
-        confirmed_files: Optional[Set[str]] = None,
+        registry: Optional[Dict[str, Any]] = None,
     ) -> "MemoryGraph":
         """Build the graph from the indexed chunk corpus.
 
         Chunks of indexed files ARE memories: each section chunk becomes a
-        memory node (source="file") grouped under its file node. Confirmed
-        entities come from LLM-authored records only — each MEMORY.md item's
-        ``{entities: ...}`` field, and the ENTITIES.md registry's
-        per-section entries for file chunks whose file is up to date.
-        Unreviewed memories then get PENDING links against the entity set
-        those records established (see :meth:`_compute_pending_links`).
+        memory node (source="file") grouped under its file node. Entities
+        come solely from the registry's ``## Entities`` list. Connections
+        are then established here — and only here — by the deterministic
+        matcher (:meth:`_establish_connections`); the ``## Connections``
+        records supply each matched name's mark (confirmed / rejected /
+        pending).
 
         Args:
             chunks: dicts with ``chunk_id``, ``document`` and ``metadata``
                 (the full ChromaDB collection contents).
-            file_registry: parse_entity_registry() output. Entries for
-                files no longer indexed are ignored.
-            confirmed_files: indexed-file paths whose current content still
-                matches their ENTITIES.md registry hash. Only these files'
-                chunks are treated as reviewed (their registry sections are
-                authoritative, including "reviewed → no entities"); chunks
-                of a file that is missing/stale in the registry are
-                unreviewed and fall to pending links.
+            registry: parse_entity_registry() output. Records for chunk ids
+                no longer in the corpus are ignored (and dropped by the
+                next connection-record sync).
         """
         graph = cls()
-        registry = file_registry or {}
-        confirmed = confirmed_files or set()
+        registry = registry or {}
+        graph._records = registry.get("connections", {})
+
+        # Entities exist ONLY from the ## Entities list — including ones
+        # nothing connects to yet.
+        for name in registry.get("entities", []):
+            graph._ensure_entity(name)
 
         for chunk in chunks:
             meta = chunk.get("metadata") or {}
@@ -342,23 +358,16 @@ class MemoryGraph:
             elif file_path and file_path != ENTITY_REGISTRY_FILE:
                 # The registry file itself is bookkeeping, not a knowledge
                 # source worth nodes.
-                is_reviewed = file_path in confirmed
-                sections = (
-                    (registry.get(file_path) or {}).get("sections", {})
-                    if is_reviewed
-                    else {}
-                )
                 graph._add_file_memory_chunk(
                     chunk.get("chunk_id", ""),
                     chunk.get("document", ""),
                     meta,
-                    sections,
-                    is_reviewed,
                 )
 
-        # Deterministic provisional links come AFTER every confirmed record
-        # is in, so the known-entity set they match against is complete.
-        graph._compute_pending_links()
+        # THE single connection-establishment pass, then hub exclusion over
+        # the complete link set (pending + confirmed).
+        graph._establish_connections()
+        graph._prune_hub_entities()
         graph._compute_communities()
         return graph
 
@@ -386,19 +395,14 @@ class MemoryGraph:
         superseded = bool(meta.get("superseded", False))
         file_path = meta.get("file_path", "MEMORY.md")
 
-        if "entities" in meta:
-            entity_names = _dedup_names((meta.get("entities") or "").split(","))
-        else:
-            entity_names = item_entities(document)
-
         item = _ItemNode(
             item_id=chunk_id,
             timestamp=meta.get("timestamp", ""),
             category=meta.get("category", "fact"),
             content=content,
-            # Reviewed iff the item carries an {entities:} field (written by
-            # the entity-indexer); the chunker records that as this flag.
-            reviewed=bool(meta.get("entities_annotated")),
+            # Reviewed iff the connection record for this chunk id says
+            # [judged] — the entity-indexer has decided every mark on it.
+            reviewed=(self._records.get(chunk_id) or {}).get("status") == "judged",
             superseded=superseded,
             file_path=file_path,
         )
@@ -413,31 +417,21 @@ class MemoryGraph:
         file_node.chunk_ids.append(chunk_id)
         self._link(f"f:{file_path}", f"i:{chunk_id}")
 
-        for name in entity_names:
-            entity = self._ensure_entity(name)
-            entity.item_ids.add(chunk_id)
-            item.entities.append(entity.key)
-            self._link(f"i:{chunk_id}", f"e:{entity.key}")
-
     def _add_file_memory_chunk(
         self,
         chunk_id: str,
         document: str,
         meta: Dict[str, Any],
-        section_entities: Dict[str, List[str]],
-        reviewed: bool,
     ) -> None:
         """A section chunk of an indexed file — a memory sourced from a file.
 
-        Creates the chunk's memory node linked under its file node. When the
-        file is reviewed (its registry hash matches), links it to the
-        entities the ENTITIES.md registry records for its exact section key
-        — and a reviewed section with no registry entities is genuinely
-        entity-free, not pending. An unreviewed file's chunks get no
-        confirmed entities and fall to pending links. The node carries the
-        chunk's FULL text (the summary is a truncated derivative — showing
-        it in detail views reads as the memory being cut off, which it is
-        not).
+        Creates the chunk's memory node linked under its file node. Its
+        connection marks come from the chunk id's ## Connections record,
+        exactly like MEMORY.md items — chunk ids are content-derived, so a
+        changed section is a new id with no record: automatically pending.
+        The node carries the chunk's FULL text (the summary is a truncated
+        derivative — showing it in detail views reads as the memory being
+        cut off, which it is not).
         """
         file_path = meta.get("file_path", "")
         if not chunk_id or not file_path:
@@ -455,7 +449,7 @@ class MemoryGraph:
             timestamp=meta.get("file_modified_at", ""),
             category="file",
             content=document,
-            reviewed=reviewed,
+            reviewed=(self._records.get(chunk_id) or {}).get("status") == "judged",
             source="file",
             file_path=file_path,
             section=section,
@@ -463,32 +457,64 @@ class MemoryGraph:
         self.items[chunk_id] = item
         self._link(f"f:{file_path}", f"i:{chunk_id}")
 
-        for name in section_entities.get(section, []):
-            entity = self._ensure_entity(name)
-            entity.item_ids.add(chunk_id)
-            entity.file_paths.add(file_path)
-            item.entities.append(entity.key)
-            node.entities.add(entity.key)
-            self._link(f"i:{chunk_id}", f"e:{entity.key}")
+    def _prune_hub_entities(self) -> None:
+        """Exclude over-connected entities from the derived graph.
 
-    def _compute_pending_links(self) -> None:
-        """Deterministic provisional memory→entity links.
+        An entity connected (pending or confirmed) to more than
+        ENTITY_HUB_FRACTION of all memories (past the ENTITY_HUB_MIN_LINKS
+        floor) is ambient context: a link that attaches to almost
+        everything carries no information, floods the graph retrieval
+        channel, and collapses communities into one blob. The entity list
+        and verdict records stay untouched — exclusion is recomputed on
+        every build, so a hub drops out while it is over the threshold and
+        returns automatically (links intact) when the corpus shifts below
+        it.
+        """
+        total = len(self.items)
+        if total == 0:
+            return
+        limit = max(ENTITY_HUB_MIN_LINKS, ENTITY_HUB_FRACTION * total)
+        hub_keys = [
+            key
+            for key, entity in self.entities.items()
+            if len(entity.item_ids | entity.pending_item_ids) > limit
+        ]
+        for key in hub_keys:
+            entity = self.entities.pop(key)
+            entity_node = f"e:{key}"
+            for item_id in entity.item_ids | entity.pending_item_ids:
+                item = self.items.get(item_id)
+                if item is not None:
+                    if key in item.entities:
+                        item.entities.remove(key)
+                    if key in item.pending_entities:
+                        item.pending_entities.remove(key)
+                self._adjacency.get(f"i:{item_id}", set()).discard(entity_node)
+            for file_path in entity.file_paths:
+                file_node = self.files.get(file_path)
+                if file_node is not None:
+                    file_node.entities.discard(key)
+            self._adjacency.pop(entity_node, None)
 
-        Runs once every confirmed record is loaded, so it matches against
-        the COMPLETE known-entity set. For each unreviewed, non-superseded
-        memory it attaches the memory to any already-known entity whose
-        whole (normalised) name appears in the memory text. These links are
-        marked pending on the item and mirrored into the adjacency (so the
-        physics pulls the memory toward its provisional entity and the two
-        colour together), but they never inflate an entity's canonical
-        mention_count and never create a new entity.
+    def _establish_connections(self) -> None:
+        """THE single place memory↔entity connections are made.
+
+        For every memory, the deterministic matcher connects it to each
+        known entity (the ``## Entities`` list) whose whole normalised name
+        appears in the memory's text. The chunk id's ## Connections record
+        then sets each matched name's state by its mark:
+        - confirmed mark (plain name) → CONFIRMED edge;
+        - rejected mark (``!``) → no edge (kept for the record sync);
+        - ``?`` mark, unmarked, or no record → PENDING edge.
+        A mark on a name the matcher did not establish does nothing — the
+        entity-indexer structurally cannot introduce a connection.
         """
         if not self.entities:
             return
 
-        # Precompute " normalised name " needles once.
+        # Precompute " normalised name " needles once, in deterministic order.
         needles: List[Tuple[str, str]] = []
-        for key in self.entities:
+        for key in sorted(self.entities):
             norm = re.sub(r"[^a-z0-9]+", " ", key).strip()
             if norm:
                 needles.append((f" {norm} ", key))
@@ -496,16 +522,80 @@ class MemoryGraph:
             return
 
         for item in self.items.values():
-            # A reviewed memory (or one that already carries confirmed
-            # entities) has been decided — never guess over the top of it.
-            if item.reviewed or item.entities or item.superseded:
-                continue
+            record = self._records.get(item.item_id) or {}
+            confirmed = {n.lower() for n in record.get("confirmed", [])}
+            rejected = {n.lower() for n in record.get("rejected", [])}
             haystack = f" {re.sub(r'[^a-z0-9]+', ' ', item.content.lower())} "
             for needle, key in needles:
-                if needle in haystack:
-                    item.pending_entities.append(key)
-                    self.entities[key].pending_item_ids.add(item.item_id)
+                if needle not in haystack:
+                    continue
+                entity = self.entities[key]
+                if key in confirmed:
+                    item.entities.append(key)
+                    entity.item_ids.add(item.item_id)
+                    if item.source == "file" and item.file_path:
+                        entity.file_paths.add(item.file_path)
+                        file_node = self.files.get(item.file_path)
+                        if file_node is not None:
+                            file_node.entities.add(key)
                     self._link(f"i:{item.item_id}", f"e:{key}")
+                elif key in rejected:
+                    item.rejected_entities.append(key)
+                else:
+                    # Superseded memories keep their judged history but
+                    # never accrue new provisional links.
+                    if item.superseded:
+                        continue
+                    item.pending_entities.append(key)
+                    entity.pending_item_ids.add(item.item_id)
+                    self._link(f"i:{item.item_id}", f"e:{key}")
+
+    def connection_lines(self) -> List[str]:
+        """Render the ## Connections record lines for this build.
+
+        One line per memory that has any established (or previously judged)
+        connection state, sorted by chunk id for a deterministic file. Marks
+        carry each matched name's state: plain = confirmed, ``!`` =
+        rejected, ``?`` = pending. Chunk ids no longer in the graph simply
+        aren't rendered — that IS the record cleanup. Superseded memories
+        render only their judged marks (never ``?``), and a memory with no
+        connection state at all still gets a ``[pending]`` line so the
+        entity-indexer reviews its text once for new entities.
+        """
+        lines: List[str] = []
+        for item_id in sorted(self.items):
+            item = self.items[item_id]
+            parts: List[str] = []
+            for key in sorted(item.entities):
+                entity = self.entities.get(key)
+                if entity is not None:
+                    parts.append(entity.name)
+            for key in sorted(item.rejected_entities):
+                entity = self.entities.get(key)
+                if entity is not None:
+                    parts.append(f"!{entity.name}")
+            for key in sorted(item.pending_entities):
+                entity = self.entities.get(key)
+                if entity is not None:
+                    parts.append(f"?{entity.name}")
+            if item.superseded and not parts:
+                continue
+            status = (
+                "judged"
+                if item.reviewed and not item.pending_entities
+                else "pending"
+            )
+            if item.superseded:
+                status = "judged"
+            preview = " ".join((item.content or "").split())
+            if len(preview) > CONNECTION_PREVIEW_MAX_CHARS:
+                preview = preview[: CONNECTION_PREVIEW_MAX_CHARS - 3] + "..."
+            names = f" {', '.join(parts)}" if parts else ""
+            lines.append(
+                f"[{item_id}] [{status}]{names}"
+                f"{_CONNECTION_TEXT_SEPARATOR}{preview}"
+            )
+        return lines
 
     # ─────────────────────────── Communities ───────────────────────────
 

@@ -35,12 +35,15 @@ from agent_core.core.impl.memory.tuning import (
 )
 
 
-# Memory item regex pattern: [YYYY-MM-DD HH:MM:SS] [category] content — the
-# canonical stamp format, the only one writers emit.
+# Memory item regex pattern: [stamp] [category] content. The stamp slot
+# accepts any bracketed token — stamp validity is metadata, never a gate on
+# whether the item is listed. The canonical "YYYY-MM-DD HH:MM:SS" (validated
+# by normalize_timestamp) is the only recognized timestamp format; other
+# stamp content still lists the item, with the raw stamp as its identity.
 # Content may carry structured tail fields ({entities: ...}, {superseded});
 # those are parsed out by _parse_memory_items via the shared graph helpers.
 MEMORY_ITEM_PATTERN = re.compile(
-    r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+\[([\w\-]+)\]\s+(.+)$"
+    r"^\[([^\]]+)\]\s+\[([\w\-]+)\]\s+(.+)$"
 )
 
 # Files that are always indexed (mirrors MemoryManager.INDEX_TARGET_FILES).
@@ -321,9 +324,10 @@ def _parse_memory_items(content: str) -> List[Dict[str, Any]]:
                 "category": category.lower(),
                 "content": clean_content,
                 "display_content": clean_content,
+                # Legacy {entities: ...} markup found on the line, exposed
+                # for display only. Connections live in ENTITIES.md; the
+                # serializer never writes this field back.
                 "entities": entities or [],
-                # None = the memory-processor hasn't annotated this item
-                # yet (backfill pending); [] = annotated, no entities.
                 "entities_annotated": entities is not None,
                 "superseded": superseded,
                 "raw": line,
@@ -334,12 +338,15 @@ def _parse_memory_items(content: str) -> List[Dict[str, Any]]:
 
 
 def _serialize_memory_items(items: List[Dict[str, Any]]) -> str:
-    """Serialize memory items back to MEMORY.md format."""
+    """Serialize memory items back to MEMORY.md format.
+
+    Items are plain lines; the ONLY structured tail field is {superseded}.
+    Legacy {entities: ...} markup is dropped on rewrite — connections are
+    recorded in ENTITIES.md, never inline.
+    """
     lines = []
     for item in items:
         fields = ""
-        if item.get("entities_annotated") or item.get("entities"):
-            fields += " {entities: " + ", ".join(item.get("entities") or []) + "}"
         if item.get("superseded"):
             fields += f" {SUPERSEDED_MARKER}"
         line = f"[{item['timestamp']}] [{item['category']}] {item['content']}{fields}"
@@ -439,11 +446,13 @@ def add_memory_item(
         header, items_section = _read_memory_file()
         items = _parse_memory_items(items_section)
 
-        # Create new item. Entities are NOT derived from the text — the
-        # memory-processor's backfill annotates the item on its next run
-        # (unless the caller explicitly wrote an {entities: ...} field).
-        clean_content, entities, superseded = split_item_fields(content)
-        new_line = f"[{timestamp}] [{category.lower()}] {content}"
+        # Create new item as a plain line ({superseded} is the only tail
+        # field). Connections are established by the graph and recorded in
+        # ENTITIES.md — never inline here.
+        clean_content, _, superseded = split_item_fields(content)
+        new_line = f"[{timestamp}] [{category.lower()}] {clean_content}" + (
+            f" {SUPERSEDED_MARKER}" if superseded else ""
+        )
         new_item = {
             "id": compute_item_id(
                 normalize_timestamp(timestamp) or timestamp, clean_content
@@ -452,8 +461,8 @@ def add_memory_item(
             "category": category.lower(),
             "content": clean_content,
             "display_content": clean_content,
-            "entities": entities or [],
-            "entities_annotated": entities is not None,
+            "entities": [],
+            "entities_annotated": False,
             "superseded": superseded,
             "raw": new_line,
         }
@@ -507,22 +516,16 @@ def update_memory_item(
         if category is not None:
             item_found["category"] = category.lower()
         if content is not None:
-            clean_content, entities, _ = split_item_fields(content)
+            # Structured tail markup in the edited text is stripped; items
+            # are plain lines and connections live in ENTITIES.md.
+            clean_content, _, _ = split_item_fields(content)
             item_found["content"] = clean_content
-            # An explicit {entities: ...} field in the edited text replaces
-            # the annotation; otherwise the existing annotation is kept —
-            # entities are never derived from the text.
-            if entities is not None:
-                item_found["entities"] = entities
-                item_found["entities_annotated"] = True
         if superseded is not None:
             item_found["superseded"] = superseded
 
         # Refresh derived fields
         item_found["display_content"] = item_found["content"]
         fields = ""
-        if item_found.get("entities_annotated") or item_found.get("entities"):
-            fields += " {entities: " + ", ".join(item_found.get("entities") or []) + "}"
         if item_found.get("superseded"):
             fields += f" {SUPERSEDED_MARKER}"
         item_found["raw"] = (
@@ -644,7 +647,8 @@ def reset_entity_registry() -> Dict[str, Any]:
             shutil.copy(template_path, target_path)
         else:
             target_path.write_text(
-                "# Entity Registry\n\n## Entities\n\n", encoding="utf-8"
+                "# Entity Registry\n\n## Entities\n\n## Connections\n",
+                encoding="utf-8",
             )
         return {"success": True}
     except Exception as e:

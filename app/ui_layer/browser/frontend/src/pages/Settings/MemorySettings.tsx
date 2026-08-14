@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Loader2,
   RotateCcw,
-  RefreshCw,
 } from 'lucide-react'
 import { Button, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
@@ -31,7 +30,6 @@ export function MemorySettings() {
   // UI state (transient)
   const [isResetting, setIsResetting] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [isReindexing, setIsReindexing] = useState(false)
 
   // Daily auto-processing time + threshold (loaded from the scheduler).
   const [autoTime, setAutoTime] = useState('03:00')
@@ -73,12 +71,6 @@ export function MemorySettings() {
         setIsProcessing(false)
         if (d.success) showToast('success', d.message || 'Memory processing started')
         else showToast('error', d.error || 'Failed to start memory processing')
-      }),
-      onMessage('memory_reindex', (data: unknown) => {
-        const d = data as { success: boolean; error?: string }
-        setIsReindexing(false)
-        if (d.success) showToast('success', 'Memory index rebuilt')
-        else showToast('error', d.error || 'Failed to rebuild memory index')
       }),
       onMessage('memory_schedule_get', (data: unknown) => {
         const d = data as {
@@ -128,11 +120,6 @@ export function MemorySettings() {
       setIsProcessing(true)
       send('memory_process_trigger')
     })
-  }
-
-  const handleReindex = () => {
-    setIsReindexing(true)
-    send('memory_reindex')
   }
 
   // ── Threshold slider: drag the picker to set the minimum-events gate ──
@@ -355,23 +342,6 @@ export function MemorySettings() {
           )}
         </div>
 
-        {/* Rebuild Index */}
-        <div className={styles.subsection}>
-          <h4 className={styles.subsectionTitle}>Rebuild Index</h4>
-          <p className={styles.subsectionDesc}>
-            Rebuilds the search index, knowledge graph, and entity embeddings
-            from your memory files. Your memories are not changed — use this if
-            recall seems stale or out of sync.
-          </p>
-          <Button
-            variant="secondary"
-            onClick={handleReindex}
-            disabled={isReindexing || !memoryEnabled}
-            icon={isReindexing ? <Loader2 size={14} className={styles.spinning} /> : <RefreshCw size={14} />}
-          >
-            {isReindexing ? 'Rebuilding...' : 'Rebuild Index'}
-          </Button>
-        </div>
       </div>
 
       {/* Reset Memory */}

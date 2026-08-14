@@ -55,6 +55,12 @@ Process 50 lines at a time to avoid memory issues.
   - Greetings, small talk, acknowledgments ("hi", "thanks", "ok")
   - Screen descriptions ("The current screen displays...")
   - Truncated text ending in `...`
+- `[user message]` lines are NEVER discarded by type. They are the PRIMARY
+  source of memories: apply the distillation rules to the CONTENT of every
+  `[user message]` line. A user message that contains a preference, fact,
+  contact, decision, or dated event MUST produce a distilled memory even
+  when it is phrased inside an ordinary request (e.g. "I'm allergic to
+  peanuts, find me a lunch spot" → save the allergy, discard the request).
 
 ### Format (Strict)
 
@@ -65,9 +71,12 @@ Process 50 lines at a time to avoid memory issues.
 Categories (closed set — never invent new ones):
 `[fact]`, `[preference]`, `[event]`, `[decision]`, `[learning]`, `[project]`, `[contact]`
 
-**Do NOT add any `{entities: ...}` field.** Entity linkage is not your job —
-the entity-indexer skill owns it entirely and annotates these items later.
-Write the plain item line and nothing more.
+**Write the plain item line and NOTHING more.** The only structured tail
+field that exists is ` {superseded}`. NEVER append an `{entities: ...}` or
+any other field — entity connections are established and recorded by a
+different system entirely (in ENTITIES.md, not here). Some older MEMORY.md
+lines may still carry an `{entities: ...}` field; that is legacy markup —
+never copy the pattern onto lines you write.
 
 ### DISTILL, Don't Copy
 
@@ -119,7 +128,10 @@ Never truncate mid-sentence; never end an item with `...`.
 
 **NEVER save (these belong in EVENT.md, not MEMORY.md):**
 - Run lifecycle: `trigger`, `action_start`, `action_end`, `end_turn`
-- Conversation content: `user_request`, `user message`, `agent message`
+- Raw transcripts: never copy a `[user message]` or `[agent message]` line
+  into MEMORY.md verbatim. This bans COPYING the conversation, not saving
+  from it — `[user message]` content is exactly what you distill memories
+  FROM (see DISTILL, Don't Copy). `[agent message]` lines are discarded.
 - Transient actions: what user asked agent to do, what agent did
 - Status updates: "completed X", "working on Y", "finished Z"
 - One-time context: information only relevant to the current task

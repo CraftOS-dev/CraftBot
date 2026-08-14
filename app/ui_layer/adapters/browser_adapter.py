@@ -1440,8 +1440,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "memory_reset":
             await self._handle_memory_reset()
 
-        elif msg_type == "memory_reindex":
-            await self._handle_memory_reindex()
 
         elif msg_type == "memory_stats_get":
             await self._handle_memory_stats_get()
@@ -5082,33 +5080,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_memory_reindex(self) -> None:
-        """Rebuild the memory index from the markdown (non-destructive).
-
-        Discards and reseeds the derived caches — ChromaDB chunks, the graph,
-        and the entity embedding collection — from the current agent files,
-        WITHOUT changing any markdown content. Use when retrieval looks stale;
-        unlike reset it preserves every memory item and indexed file.
-        """
-        try:
-            agent = self._controller.agent
-            if not hasattr(agent, "memory_manager"):
-                raise RuntimeError("Memory manager unavailable")
-            stats = agent.memory_manager.index_all(force=True)
-            await self._broadcast(
-                {
-                    "type": "memory_reindex",
-                    "data": {"success": True, "stats": stats},
-                }
-            )
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "memory_reindex",
-                    "data": {"success": False, "error": str(e)},
-                }
-            )
-
     async def _handle_memory_stats_get(self) -> None:
         """Get memory statistics."""
         result = get_memory_stats()
@@ -5138,6 +5109,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "data": {
                             "success": False,
                             "error": "Memory is disabled. Enable memory mode first.",
+                        },
+                    }
+                )
+                return
+
+            # Same emptiness condition as the MEMORY run pre-check
+            # (_prepare_memory_run): with nothing to process the trigger
+            # would be silently dropped there — surface that here instead.
+            from app.ui_layer.settings.memory_settings import memory_needs_pruning
+
+            if get_unprocessed_event_count() == 0 and not memory_needs_pruning():
+                await self._broadcast(
+                    {
+                        "type": "memory_process_trigger",
+                        "data": {
+                            "success": False,
+                            "error": "No unprocessed events to process.",
                         },
                     }
                 )

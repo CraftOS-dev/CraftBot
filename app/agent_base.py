@@ -775,195 +775,84 @@ class AgentBase:
     def _prepare_entity_index_run(self) -> Optional[tuple[str, dict]]:
         """Pre-check the entity-index trigger (fired by the indexing process).
 
-        Returns (instruction, workflow_payload) when indexed files have
-        stale/missing ENTITIES.md entries, or None to skip the turn.
+        Returns (instruction, workflow_payload) when ENTITIES.md holds
+        [pending] connection record lines awaiting judgment, or None to
+        skip the turn. The records themselves are written by the system's
+        connection sync after each graph build — building the graph here
+        refreshes them before counting.
         """
         if not is_memory_enabled():
             logger.info("[ENTITY-INDEX] Memory is disabled, skipping trigger")
             return None
 
-        # Deterministic tidy-up first: drop registry lines for files that are
-        # gone (deleted or de-indexed) so ENTITIES.md doesn't accumulate them.
-        self._prune_orphan_entity_registry()
-
-        stale_files = self._stale_entity_files()
-        unannotated_memories = self._unannotated_memory_items()
-        if not stale_files and not unannotated_memories:
-            logger.info("[ENTITY-INDEX] Nothing to extract or confirm")
+        pending = self._pending_connection_count()
+        if pending == 0:
+            logger.info("[ENTITY-INDEX] No pending connection records")
             return None
 
         # Freeze the unprocessed buffer so this run's own events don't feed
         # back into memory processing. Reset when the run ends (_on_run_end).
         self.event_stream_manager.set_skip_unprocessed_logging(True)
 
-        parts: list[str] = []
-        # MEMORY.md is annotated INLINE (not via the registry): every item
-        # without an {entities: ...} field is unreviewed and currently
-        # carries only provisional (pending) links — confirm or correct them.
-        if unannotated_memories:
-            parts.append(
-                f"Confirm entity links for {unannotated_memories} MEMORY.md "
-                f"item(s) that have no {{entities: ...}} field: read each item, "
-                f"decide the entities it is about, and append the "
-                f"{{entities: ...}} field to that line in place."
-            )
-        # Other indexed files are recorded in the ENTITIES.md registry. Each
-        # entry carries its exact chunker section keys so the skill's
-        # registry lines match chunk section_paths verbatim.
-        if stale_files:
-            file_specs = []
-            for rel, digest in stale_files:
-                sections = self.memory_manager.get_file_sections(rel)
-                section_list = " ".join(f"[{s}]" for s in sections)
-                file_specs.append(f"{rel} (hash {digest}) sections: {section_list}")
-            parts.append(
-                f"Extract entities for {len(stale_files)} indexed file(s) into "
-                f"ENTITIES.md: {'; '.join(file_specs)}. For each file, read it, "
-                f"decide the entities of each listed section, and update its "
-                f"registry lines using the given hash and the section keys "
-                f"exactly as listed."
-            )
-        parts.append("Follow the entity-indexer skill instructions.")
-        instruction = " ".join(parts)
+        instruction = (
+            f"Judge the {pending} [pending] connection record line(s) under "
+            f"## Connections in ENTITIES.md. Each line is "
+            f"'[chunk-id] [status] names :: memory text'. For every name "
+            f"marked '?', decide from the line's text whether that memory is "
+            f"really about that entity: confirm by removing the '?', reject "
+            f"by replacing '?' with '!'. When a line has no '?' left, set "
+            f"its status to [judged]. Never add a name to any line — you "
+            f"judge marks, the system creates connections. Also add any "
+            f"genuinely new named things you see in the line texts to the "
+            f"## Entities list (one name per line); the system connects "
+            f"them on a later cycle. Work batch by batch: read about 30 "
+            f"record lines with read_file offset/limit, judge them all, and "
+            f"write the whole batch back with one stream_edit (old_string = "
+            f"the batch exactly as read, new_string = the judged batch). "
+            f"Follow the entity-indexer skill instructions. "
+            f"IMPORTANT: the pending count was re-derived from ENTITIES.md "
+            f"on disk moments ago; if the work were done, this run would "
+            f"not exist. Prior runs in the event stream claiming this work "
+            f"was already completed are wrong by construction; never skip "
+            f"this run based on history."
+        )
         workflow = {
             "run_source": TriggerSource.ENTITY_INDEX.value,
             "workflow_skills": ["entity-indexer"],
             "workflow_action_sets": ["file_operations"],
         }
-        logger.info(
-            f"[ENTITY-INDEX] {unannotated_memories} MEMORY.md item(s) to confirm, "
-            f"{len(stale_files)} file(s) to extract"
-        )
+        logger.info(f"[ENTITY-INDEX] {pending} pending connection record(s)")
         return instruction, workflow
 
-    def _prune_orphan_entity_registry(self) -> None:
-        """Drop ENTITIES.md registry lines for files that are no longer
-        indexed (deleted from disk or removed from the index).
+    def _pending_connection_count(self) -> int:
+        """Count [pending] connection record lines in ENTITIES.md.
 
-        Deterministic bookkeeping, no LLM: these entries are already ignored
-        at graph build, so this only keeps the registry file from
-        accumulating dead lines. A registry line's path that is not a
-        currently-indexed, on-disk file is dropped; headers/comments/blank
-        lines and every valid entry are preserved byte-for-byte.
-        """
-        from agent_core.core.impl.memory.graph import ENTITY_REGISTRY_FILE
-        from app.ui_layer.settings.memory_settings import (
-            CORE_INDEX_FILES,
-            get_memory_indexed_files,
-        )
-
-        registry_path = AGENT_FILE_SYSTEM_PATH / ENTITY_REGISTRY_FILE
-        if not registry_path.exists():
-            return
-        try:
-            lines = registry_path.read_text(encoding="utf-8").splitlines(keepends=True)
-        except Exception as e:
-            logger.warning(f"[ENTITY-INDEX] Failed to read {ENTITY_REGISTRY_FILE}: {e}")
-            return
-
-        # A registry entry is valid only if its file is currently indexed AND
-        # still present on disk.
-        valid = {
-            rel.replace("\\", "/")
-            for rel in CORE_INDEX_FILES + get_memory_indexed_files()
-            if (AGENT_FILE_SYSTEM_PATH / rel).exists()
-        }
-
-        kept: list[str] = []
-        dropped = 0
-        for line in lines:
-            stripped = line.lstrip()
-            match = re.match(r"^\s*\[([^\]]+)\]", line)
-            # Keep headers, comments, blanks, and any non-entry line as-is.
-            if not match or stripped.startswith(("#", ">")):
-                kept.append(line)
-                continue
-            path = match.group(1).strip().replace("\\", "/")
-            if path in valid:
-                kept.append(line)
-            else:
-                dropped += 1
-
-        if dropped:
-            try:
-                registry_path.write_text("".join(kept), encoding="utf-8")
-                logger.info(
-                    f"[ENTITY-INDEX] Pruned {dropped} orphan registry line(s) "
-                    f"from {ENTITY_REGISTRY_FILE}"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"[ENTITY-INDEX] Failed to write {ENTITY_REGISTRY_FILE}: {e}"
-                )
-
-    def _unannotated_memory_items(self) -> int:
-        """Count non-superseded MEMORY.md items with no {entities: ...} field.
-
-        These are the memories the entity-indexer still has to review — they
-        carry only provisional pending links until it annotates them inline.
-        """
-        memory_file = AGENT_FILE_SYSTEM_PATH / "MEMORY.md"
-        if not memory_file.exists():
-            return 0
-        try:
-            items = _parse_memory_items(memory_file.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning(f"[ENTITY-INDEX] Failed to inspect MEMORY.md: {e}")
-            return 0
-        return sum(
-            1
-            for item in items
-            if not item.get("entities_annotated") and not item.get("superseded")
-        )
-
-    def _stale_entity_files(self) -> list[tuple[str, str]]:
-        """Indexed files whose ENTITIES.md entry is missing or outdated.
-
-        Returns (relative_path, content_hash) pairs; the hash is passed to
-        the entity-indexer via the task instruction so it can be written
-        verbatim into the registry line.
+        Rebuilds the graph first (a no-op when nothing changed): the build's
+        connection sync is what refreshes the records, so the count always
+        reflects the corpus as it is on disk right now.
         """
         from agent_core.core.impl.memory.graph import (
             ENTITY_REGISTRY_FILE,
             parse_entity_registry,
-            registry_content_hash,
-        )
-        from app.ui_layer.settings.memory_settings import (
-            CORE_INDEX_FILES,
-            get_memory_indexed_files,
         )
 
-        # MEMORY.md items carry their own entity fields; the unprocessed
-        # buffer is transient; the registry is bookkeeping.
-        excluded = {"MEMORY.md", "EVENT_UNPROCESSED.md", ENTITY_REGISTRY_FILE}
-
-        registry = {}
+        try:
+            self.memory_manager.graph_snapshot()
+        except Exception as e:
+            logger.warning(f"[ENTITY-INDEX] Graph refresh failed: {e}")
         registry_path = AGENT_FILE_SYSTEM_PATH / ENTITY_REGISTRY_FILE
-        if registry_path.exists():
-            try:
-                registry = parse_entity_registry(
-                    registry_path.read_text(encoding="utf-8")
-                )
-            except Exception as e:
-                logger.warning(f"[MEMORY] Failed to parse {ENTITY_REGISTRY_FILE}: {e}")
-
-        stale: list[tuple[str, str]] = []
-        seen = set()
-        for rel in CORE_INDEX_FILES + get_memory_indexed_files():
-            if rel in excluded or rel in seen:
-                continue
-            seen.add(rel)
-            file_path = AGENT_FILE_SYSTEM_PATH / rel
-            if not file_path.exists():
-                continue
-            try:
-                digest = registry_content_hash(file_path.read_bytes())
-            except OSError:
-                continue
-            entry = registry.get(rel)
-            if entry is None or entry.get("hash") != digest:
-                stale.append((rel, digest))
-        return stale
+        if not registry_path.exists():
+            return 0
+        try:
+            registry = parse_entity_registry(registry_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"[ENTITY-INDEX] Failed to parse {ENTITY_REGISTRY_FILE}: {e}")
+            return 0
+        return sum(
+            1
+            for record in registry.get("connections", {}).values()
+            if record.get("status") == "pending"
+        )
 
     def _prepare_proactive_run(self, trigger: Trigger) -> Optional[tuple[str, dict]]:
         """Pre-check a proactive heartbeat/planner trigger.

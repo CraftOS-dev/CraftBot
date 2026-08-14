@@ -75,6 +75,16 @@ STRING_SEEDS_MAX: Final[int] = 5
 SEMANTIC_SEEDS_MAX: Final[int] = 5
 MERGED_SEEDS_MAX: Final[int] = 8
 
+# Hub-entity exclusion: an entity confirmed on more than this fraction of
+# all memories is ambient context, not information — it is left out of the
+# derived graph entirely (no node, no links, no retrieval seeding). The
+# annotations themselves are never touched, so exclusion is recomputed on
+# every build and reverses itself when the corpus shifts. The absolute
+# floor keeps small corpora intact (with 20 memories, 25% would be 5
+# links — normal for any legitimate entity).
+ENTITY_HUB_FRACTION: Final[float] = 0.25
+ENTITY_HUB_MIN_LINKS: Final[int] = 10
+
 # BFS scoring: items directly attached to a seed entity score full seed
 # strength; items reached through one intermediate entity decay by this.
 SECOND_HOP_DECAY: Final[float] = 0.45
@@ -106,6 +116,10 @@ PREVIEW_LEAD: Final[int] = 40
 # bleeding across log entries.
 LOG_QUERY_MAX_CHARS: Final[int] = 300
 LOG_SUMMARY_MAX_CHARS: Final[int] = 120
+
+# Text preview appended to each ## Connections record line in ENTITIES.md —
+# enough for the entity-indexer to judge a connection from the line alone.
+CONNECTION_PREVIEW_MAX_CHARS: Final[int] = 160
 
 
 # ──────────────────────── Trigger-driven injection ────────────────────────

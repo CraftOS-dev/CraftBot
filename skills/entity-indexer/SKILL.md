@@ -1,6 +1,6 @@
 ---
 name: entity-indexer
-description: Extract per-section entities from indexed files into the ENTITIES.md registry using LLM judgement.
+description: Create entities and judge the pending connection records in ENTITIES.md (flip marks; never create connections).
 user-invocable: false
 action-sets:
   - file_operations
@@ -8,145 +8,106 @@ action-sets:
 
 # Entity Indexer
 
-The single owner of entities in the memory graph: only you create, edit, or
-connect them. You run AFTER memory processing (chained automatically). You
-have two jobs, and a task may ask for either or both:
+You have exactly two jobs, and a hard boundary around them:
 
-1. **MEMORY.md items (inline).** Items the memory-processor wrote have no
-   `{entities: ...}` field. Until you review them the graph shows only
-   PROVISIONAL (pending) links — a deterministic guess that matched their
-   text against already-known entities. You read each such item, decide the
-   real entities with your own judgement, and append the `{entities: ...}`
-   field IN PLACE. That confirms or corrects the pending links.
-2. **Other indexed files (registry).** Every section of another indexed
-   file is a memory; you decide which entities each section is about and
-   record them in the ENTITIES.md registry. The graph links those file
-   chunks to entities using ONLY this registry.
+1. **Create entities.** You are the only thing that decides what entities
+   exist. Entities live as one name per line under `## Entities` in
+   `ENTITIES.md` — that list is the graph's entire entity set.
+2. **Judge pending connections.** The system establishes every connection
+   itself and records them under `## Connections` in `ENTITIES.md`, one
+   line per memory. Your job is to judge the undecided ones by flipping
+   marks on those lines. You never add names, never remove lines, never
+   touch the chunk ids or the text after `::`.
 
-Decide entities with your own judgement, never by mechanical text-matching.
-The provisional links are only a starting hint — trust your reading of the
-item over them.
+## The record line format
 
-## Files
+```
+[m4f2a1b2c3d4] [pending] John, ?Acme Corp, !Berlin :: John presented the Acme Corp roadmap at a conference in Berlin...
+```
 
-- `agent_file_system/MEMORY.md` - Source AND destination when the task asks
-  to confirm MEMORY.md items (append `{entities: ...}` inline; change
-  nothing else on the line)
-- The other indexed files named in the task instruction - Source (read only)
-- `agent_file_system/ENTITIES.md` - Destination for the file registry
+- `[m...]`/`[c...]` — the memory's id. NEVER edit it.
+- `[pending]` / `[judged]` — line status.
+- Names, comma-separated, each in one of three states:
+  - `?Name` — awaiting YOUR judgment
+  - `Name` (plain) — confirmed: the memory is really about this entity
+  - `!Name` — rejected: the name appears in the text, but the memory is
+    not about it
+- ` :: text` — the memory's text, your judging evidence. Read only.
 
-## Registry Format (Strict)
+## Judging (the core loop)
 
-Under the `## Entities` header, each processed file gets:
+Work batch by batch until no `[pending]` line remains:
 
-1. **One marker line** (always, even when no section has entities):
-   ```
-   [relative/path.md] [content-hash]
-   ```
-2. **One line per section that has entities**:
-   ```
-   [relative/path.md] [content-hash] [section key] Entity One, Entity Two
-   ```
+1. `read_file` ENTITIES.md with offset/limit to load the next batch of
+   record lines (about 30 lines).
+2. Judge every `?Name` in the batch from its own line's text: the memory
+   is meaningfully about that entity → plain name; it is not → `!Name`.
+   A line with no `?` left gets status `[judged]`.
+3. Write the whole batch with ONE `stream_edit`: `old_string` is the
+   batch's lines exactly as read, `new_string` is the same lines with
+   your marks and statuses applied.
 
-- `relative/path.md` — the file's path exactly as given in the instruction
-- `content-hash` — copied VERBATIM from the instruction (the file's
-  fingerprint at extraction time; the system detects staleness with it).
-  Never invent or modify it. Same hash on every line of the file.
-- `section key` — copied VERBATIM from the instruction's section list,
-  including any `>` hierarchy and `(part N)` suffixes. These keys are how
-  entities attach to the right section; a reworded key attaches nothing.
-- Sections with no entities get no section line.
+A `[pending]` line with no names still needs you: read its text for new
+entities (below), then set it to `[judged]` in the same batch edit.
 
-## Task Input
+## Creating entities
 
-The instruction may contain either or both directives:
+While judging, the line texts will show you named things that deserve to
+exist but aren't entities yet. Add each as one line under `## Entities`:
 
-- **MEMORY.md confirmation** — "Confirm entity links for N MEMORY.md
-  item(s) that have no `{entities: ...}` field". Handle these inline (see
-  "MEMORY.md Items" below). No hash or section keys are given for MEMORY.md.
-- **File extraction** — lists each changed file with its hash and its exact
-  section keys, e.g.:
+- people, companies, teams, projects, products, tools, services, places
+- canonical names: match spellings already in `## Entities` and MEMORY.md
+  exactly ("Living UI", not "living-ui")
+- NOT: dates, numbers, generic nouns, common terms, role words ("User",
+  "Agent"), code keywords, capitalised sentence-starters
+- Prefer precision over recall: an entity should matter to someone asking
+  "what does the agent know about X?"
 
-  ```
-  workspace/notes.md (hash a1b2c3d4e5f6) sections: [Introduction] [## Living UI plan] [## Budget]
-  ```
-
-  Only process the files listed. Files not listed are up to date — leave all
-  their registry lines untouched.
-
-## Todo Tracking (REQUIRED)
-
-Use `update_todos`: one todo for MEMORY.md confirmation (if requested), one
-todo per listed file, plus a final validation todo.
-
-## MEMORY.md Items (inline)
-
-Only when the instruction asks to confirm MEMORY.md items.
-
-1. `read_file` MEMORY.md from line 11 and find every non-superseded item
-   line with no `{entities:` field.
-2. For each such line, decide the entities it is about (Entity-decision
-   rules below), then `stream_edit` to append the field to the END of that
-   line, changing NOTHING else (timestamp, category, wording, order must
-   survive byte-identical apart from the appended field):
-   ```
-   before: [2026-08-11 03:00:00] [fact] John moved to the CraftOS Tokyo office
-   after:  [2026-08-11 03:00:00] [fact] John moved to the CraftOS Tokyo office {entities: John, CraftOS}
-   ```
-3. An item genuinely about no named entity gets an empty field `{entities:}`
-   (never omit it — an omitted field marks the item unreviewed and it will
-   be handed back to you every run).
-
-## Workflow (per file)
-
-1. **Read the file** with `read_file`. Large files: read in batches
-   (offset/limit ~200 lines), tracking which listed section you are in.
-   Indexed files may be markdown, plain text, or PDF — `read_file`
-   returns PDFs as extracted text with `## Page N` headings, which are
-   exactly the section keys the instruction lists for them.
-2. **Decide each section's entities** — named things the section is
-   meaningfully about:
-   - people, companies, teams, projects, products, tools, services, places
-   - canonical names: check ENTITIES.md and MEMORY.md for spellings already
-     in use and match them exactly ("Living UI", not "living-ui")
-   - NOT: dates, numbers, generic nouns, the section's own heading text as
-     a phrase, code keywords, capitalised sentence-starters
-   - Prefer precision over recall: an entity should matter to someone
-     asking "what does the agent know about X?". Typically 0-5 entities
-     per section.
-3. **Update the registry**: `read_file` ENTITIES.md, then `stream_edit`:
-   - Remove ALL existing lines for this path (marker + sections), then
-     write the fresh marker line and the new section lines.
+Do NOT touch any connection line for a new entity — the system will attach
+it as a `?` candidate on the affected lines after the next rebuild, and
+you judge it on your next run. Never remove or rename existing
+`## Entities` lines.
 
 ## Validation (final todo)
 
-- If MEMORY.md confirmation was requested: every non-superseded item now
-  carries an `{entities: ...}` field (possibly empty), and no line changed
-  apart from its appended field.
-- Every file listed in the instruction has exactly one marker line with
-  the instructed hash, and only section lines whose keys came from the
-  instruction.
-- No leftover lines with an old hash for the processed paths.
+- Every line you processed has no `?` marks and status `[judged]`.
+- You added no names to any connection line, edited no chunk id, and
+  edited no `::` text.
+- Any new entities are single lines under `## Entities`.
 - `end_turn` when validation passes.
+
+## Todo Tracking (REQUIRED)
+
+Use `update_todos`: one todo per batch of lines, plus a final validation
+todo.
 
 ## Rules
 
 - Silent background task. NEVER use send_message or interact with the user.
-- Edit ONLY `ENTITIES.md` (the registry) and `MEMORY.md` (inline
-  `{entities:}` fields). Never edit any other file — for other indexed
-  files you record entities in the registry, you do NOT modify the file.
-- Never touch registry lines for files not listed in the instruction.
+- Edit ONLY `ENTITIES.md`. Never edit MEMORY.md or any other file.
+- One `stream_edit` writes one batch of judged lines.
 
 ## Example
 
-Instruction: `workspace/notes.md (hash a1b2c3d4e5f6) sections: [Introduction] [## Living UI plan]`
-
-The intro is throat-clearing; the plan section describes a Living UI
-dashboard for John built on PocketBase. Registry lines written:
+Batch as read:
 
 ```
-[workspace/notes.md] [a1b2c3d4e5f6]
-[workspace/notes.md] [a1b2c3d4e5f6] [## Living UI plan] Living UI, John, PocketBase
+[m9c1d2e3f4a5] [pending] ?Blue Bottle Diner, ?Acme Corp :: Blue Bottle Diner is a breakfast spot two blocks from the Acme Corp office...
+[m7b8a9c0d1e2] [pending] ?Acme Corp :: John joined Acme Corp as a data engineer in March...
+[c4d5e6f7a8b9] [pending] :: Quick lookup of the terms used throughout this manual...
+```
+
+Judged: the first memory is about the diner and only mentions Acme Corp as
+a landmark; the second is about Acme Corp (and "John" is already in
+`## Entities`); the third has no connections and no new entities in its
+text.
+
+One `stream_edit` (old_string = the three lines above, new_string below):
+
+```
+[m9c1d2e3f4a5] [judged] Blue Bottle Diner, !Acme Corp :: Blue Bottle Diner is a breakfast spot two blocks from the Acme Corp office...
+[m7b8a9c0d1e2] [judged] Acme Corp :: John joined Acme Corp as a data engineer in March...
+[c4d5e6f7a8b9] [judged] :: Quick lookup of the terms used throughout this manual...
 ```
 
 ## Allowed Actions

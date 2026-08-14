@@ -403,12 +403,13 @@ export function MemoryPage() {
     return root
   }, [indexedFiles, candidates])
 
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
+  // Folders are collapsed by default; only paths in this set render expanded.
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   // Files whose index/unindex request is in flight — their tree rows show
   // a spinner until the backend confirms (memory_indexed_files_set).
   const [pendingPaths, setPendingPaths] = useState<Set<string>>(new Set())
   const toggleFolder = (path: string) => {
-    setCollapsedFolders(prev => {
+    setExpandedFolders(prev => {
       const next = new Set(prev)
       if (next.has(path)) next.delete(path)
       else next.add(path)
@@ -418,7 +419,7 @@ export function MemoryPage() {
 
   const renderFolder = (folder: TreeFolder, depth: number): React.ReactNode => {
     const isRoot = folder.path === ''
-    const isCollapsed = collapsedFolders.has(folder.path)
+    const isCollapsed = !expandedFolders.has(folder.path)
     return (
       <React.Fragment key={folder.path || '__root__'}>
         {!isRoot && (
