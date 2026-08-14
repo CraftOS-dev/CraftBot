@@ -26,6 +26,7 @@ import { WIDGET_REGISTRY } from '../widgets/registry'
 type Placement = { id: string; x: number; y: number; w: number; h: number }
 
 const ORIGINAL_ORDER = [
+  'craftBotIntro',
   'taskStats',
   'tokenUsage',
   'systemResources',
