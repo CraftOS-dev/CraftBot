@@ -28,7 +28,6 @@ import chromadb
 
 from agent_core.utils.logger import logger
 from agent_core.core.impl.memory.bm25_index import BM25Index
-from agent_core.core.impl.memory.entity_extractor import extract_entities
 from agent_core.core.impl.memory.graph import (
     ENTITY_REGISTRY_FILE,
     MemoryGraph,
@@ -823,9 +822,8 @@ class MemoryManager:
     def _load_bm25_corpus(self) -> Dict[str, str]:
         """Pull every chunk's searchable text from ChromaDB.
 
-        We concatenate the document body, summary, and extracted_entities so
-        BM25 has the strongest possible keyword signal — especially proper
-        nouns that vector embeddings often miss.
+        We concatenate the document body and summary so BM25 has the full
+        keyword signal of each chunk.
         """
         try:
             result = self.collection.get(
@@ -844,8 +842,7 @@ class MemoryManager:
             body = docs[i] if i < len(docs) else ""
             meta = metas[i] if i < len(metas) else {}
             summary = meta.get("summary", "")
-            entities = meta.get("extracted_entities", "")
-            corpus[chunk_id] = f"{body}\n{summary}\n{entities}"
+            corpus[chunk_id] = f"{body}\n{summary}"
         return corpus
 
     def _fetch_metadata(self, chunk_ids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -1102,11 +1099,6 @@ class MemoryManager:
             category = category.lower()
 
             clean_text, declared_entities, superseded = split_item_fields(item_text)
-            # Graph entities come from the LLM-written {entities: ...} field
-            # only; the BM25 keyword field keeps the loose extraction —
-            # noisy proper nouns help keyword recall but must never become
-            # graph entities.
-            keyword_entities = extract_entities(clean_text)
             summary = self._create_summary(clean_text)
 
             if is_memory_file:
@@ -1134,9 +1126,8 @@ class MemoryManager:
                         "timestamp": timestamp_iso,
                         "category": category,
                         # ChromaDB metadata values must be primitives; serialise
-                        # entity lists as comma-joined strings. extracted_entities
-                        # feeds BM25 (loose), entities feeds the graph (curated).
-                        "extracted_entities": ", ".join(keyword_entities),
+                        # the entity list as a comma-joined string. Entities come
+                        # from the LLM-written {entities: ...} field only.
                         "entities": ", ".join(declared_entities or []),
                         # None → no {entities:} field yet → unreviewed by the
                         # entity-indexer → the graph gives it pending links.
@@ -1208,9 +1199,6 @@ class MemoryManager:
                             "header_level": section["level"],
                             "part": i + 1,
                             "total_parts": len(sub_chunks),
-                            "extracted_entities": ", ".join(
-                                extract_entities(sub_content)
-                            ),
                         },
                     )
                     chunks.append(chunk)
@@ -1227,9 +1215,6 @@ class MemoryManager:
                     indexed_at=now,
                     metadata={
                         "header_level": section["level"],
-                        "extracted_entities": ", ".join(
-                            extract_entities(section_content)
-                        ),
                     },
                 )
                 chunks.append(chunk)
