@@ -191,7 +191,7 @@
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: var(--w-gap);
+  column-gap: clamp(12px, calc(6px + 2cqmin), 20px);
   row-gap: calc(var(--w-gap) * 0.5);
 }
 
