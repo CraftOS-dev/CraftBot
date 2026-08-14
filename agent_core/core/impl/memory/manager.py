@@ -292,7 +292,10 @@ class MemoryManager:
         # points to a stronger sentence-transformers model by default.
         # Silent fallback to ChromaDB's bundled MiniLM if sentence-transformers
         # isn't installed, so the system keeps working on minimal installs.
-        embedding_fn = self._build_embedding_function()
+        # Stored so _clear_index can rebuild every collection with the SAME
+        # embedding function — a force rebuild must not silently downgrade the
+        # model (e.g. bge-small back to ChromaDB's default MiniLM).
+        self._embedding_fn = embedding_fn = self._build_embedding_function()
 
         self.collection = self._open_collection(
             name=self.COLLECTION_NAME,
@@ -1562,41 +1565,51 @@ class MemoryManager:
         logger.debug(f"Removed {len(file_index.chunk_ids)} chunks for {file_path}")
 
     def _clear_index(self) -> None:
-        """Clear all data from the memory index."""
-        # Delete and recreate collections
-        try:
-            self.chroma_client.delete_collection(self.COLLECTION_NAME)
-        except Exception:
-            pass
+        """Drop and recreate every derived collection from scratch.
 
-        try:
-            self.chroma_client.delete_collection(self.FILE_INDEX_COLLECTION)
-        except Exception:
-            pass
+        Chunks, the file index, AND the entity embedding collection are all
+        wiped and reopened with the SAME embedding function, so a force
+        rebuild reseeds cleanly from the markdown without downgrading the
+        model. The graph is dropped too; it rebuilds (and reseeds the entity
+        vectors) on next access.
+        """
+        for name in (
+            self.COLLECTION_NAME,
+            self.FILE_INDEX_COLLECTION,
+            self.ENTITY_COLLECTION,
+        ):
+            try:
+                self.chroma_client.delete_collection(name)
+            except Exception:
+                pass
 
-        self.collection = self.chroma_client.get_or_create_collection(
+        self.collection = self._open_collection(
             name=self.COLLECTION_NAME,
+            embedding_fn=self._embedding_fn,
             metadata={
                 "description": "Agent file system memory chunks",
                 "hnsw:space": "cosine",
+                "embedding_model": MEMORY_EMBEDDING_MODEL,
             },
         )
-        self.file_index_collection = self.chroma_client.get_or_create_collection(
+        self.file_index_collection = self._open_collection(
             name=self.FILE_INDEX_COLLECTION,
+            embedding_fn=self._embedding_fn,
             metadata={"description": "File index for incremental updates"},
         )
-
-        # Empty the entity embedding collection; the next graph rebuild
-        # reseeds it from the fresh entity set (derived cache, no migration).
-        try:
-            existing = self.entity_collection.get().get("ids") or []
-            if existing:
-                self.entity_collection.delete(ids=existing)
-        except Exception:
-            pass
+        self.entity_collection = self._open_collection(
+            name=self.ENTITY_COLLECTION,
+            embedding_fn=self._embedding_fn,
+            metadata={
+                "description": "Entity name embeddings for graph-channel matching",
+                "hnsw:space": "cosine",
+                "embedding_model": MEMORY_EMBEDDING_MODEL,
+            },
+        )
 
         self._file_index_cache.clear()
         self._bm25_dirty = True
+        self._graph = None
         self._graph_dirty = True
 
     # ───────────────────────────── File Index Persistence ─────────────────────────────

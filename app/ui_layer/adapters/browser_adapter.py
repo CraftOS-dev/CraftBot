@@ -49,8 +49,14 @@ from app.ui_layer.settings import (
     update_memory_item,
     remove_memory_item,
     reset_memory,
+    reset_entity_registry,
     clear_unprocessed_events,
     get_memory_stats,
+    get_memory_processing_threshold,
+    get_memory_processing_threshold_max,
+    set_memory_processing_threshold,
+    get_unprocessed_event_count,
+    memory_schedule_expression,
     set_memory_indexed_files,
     list_indexable_candidates,
     # Model settings
@@ -1429,11 +1435,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "memory_reset":
             await self._handle_memory_reset()
 
+        elif msg_type == "memory_reindex":
+            await self._handle_memory_reindex()
+
         elif msg_type == "memory_stats_get":
             await self._handle_memory_stats_get()
 
         elif msg_type == "memory_process_trigger":
             await self._handle_memory_process_trigger()
+
+        elif msg_type == "memory_schedule_get":
+            await self._handle_memory_schedule_get()
+
+        elif msg_type == "memory_schedule_set":
+            await self._handle_memory_schedule_set(data)
 
         elif msg_type == "memory_graph_get":
             await self._handle_memory_graph_get()
@@ -5025,17 +5040,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_memory_reset(self) -> None:
-        """Reset memory by restoring MEMORY.md from template."""
+        """Reset memory: restore MEMORY.md + ENTITIES.md from template, clear
+        unprocessed events, then FORCE-rebuild the index.
+
+        Force rebuild (not incremental update) so every derived cache — the
+        ChromaDB chunks, the graph, and the entity embedding collection — is
+        reseeded from the reset markdown. An incremental update() would leave
+        stale chunks and entity vectors behind.
+        """
         result = reset_memory()
 
         if result.get("success"):
-            # Also clear unprocessed events
             clear_unprocessed_events()
+            reset_entity_registry()
 
-            # Update memory index after reset
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                agent.memory_manager.index_all(force=True)
 
             await self._broadcast(
                 {
@@ -5053,6 +5074,33 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": result.get("error", "Unknown error"),
                     },
+                }
+            )
+
+    async def _handle_memory_reindex(self) -> None:
+        """Rebuild the memory index from the markdown (non-destructive).
+
+        Discards and reseeds the derived caches — ChromaDB chunks, the graph,
+        and the entity embedding collection — from the current agent files,
+        WITHOUT changing any markdown content. Use when retrieval looks stale;
+        unlike reset it preserves every memory item and indexed file.
+        """
+        try:
+            agent = self._controller.agent
+            if not hasattr(agent, "memory_manager"):
+                raise RuntimeError("Memory manager unavailable")
+            stats = agent.memory_manager.index_all(force=True)
+            await self._broadcast(
+                {
+                    "type": "memory_reindex",
+                    "data": {"success": True, "stats": stats},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_reindex",
+                    "data": {"success": False, "error": str(e)},
                 }
             )
 
@@ -5119,6 +5167,72 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": str(e),
                     },
+                }
+            )
+
+    async def _handle_memory_schedule_get(self) -> None:
+        """Send the auto-processing schedule + threshold to the panel."""
+        try:
+            agent = self._controller.agent
+            task = agent.scheduler.get_schedule("memory-processing")
+            if task is None:
+                await self._broadcast(
+                    {
+                        "type": "memory_schedule_get",
+                        "data": {"success": False, "error": "Schedule not found"},
+                    }
+                )
+                return
+
+            sched = task.schedule
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_get",
+                    "data": {
+                        "success": True,
+                        "schedule": {
+                            "hour": sched.hour if sched.hour is not None else 3,
+                            "minute": sched.minute or 0,
+                        },
+                        "threshold": get_memory_processing_threshold(),
+                        "threshold_max": get_memory_processing_threshold_max(),
+                        "unprocessed": get_unprocessed_event_count(),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_schedule_set(self, data: dict) -> None:
+        """Apply the daily auto-processing time + threshold from the panel.
+
+        Auto-processing is daily by design; only the time of day and the
+        threshold are configurable. Applied live via update_schedule
+        (persists + reschedules next run).
+        """
+        try:
+            agent = self._controller.agent
+            set_memory_processing_threshold(int(data.get("threshold", 25)))
+            expr = memory_schedule_expression(
+                hour=int(data.get("hour", 3)),
+                minute=int(data.get("minute", 0)),
+            )
+            agent.scheduler.update_schedule(
+                "memory-processing", schedule=expr, enabled=True
+            )
+            await self._broadcast(
+                {"type": "memory_schedule_set", "data": {"success": True}}
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_set",
+                    "data": {"success": False, "error": str(e)},
                 }
             )
 

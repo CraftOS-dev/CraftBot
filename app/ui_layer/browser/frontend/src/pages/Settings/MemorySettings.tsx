@@ -1,16 +1,14 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import type { PointerEvent as RPointerEvent, KeyboardEvent as RKeyboardEvent } from 'react'
 import {
   Brain,
-  Database,
   AlertTriangle,
+  CheckCircle2,
   Loader2,
-  Plus,
-  Edit2,
-  Trash2,
   RotateCcw,
-  X,
+  RefreshCw,
 } from 'lucide-react'
-import { Button, Badge, ConfirmModal } from '../../components/ui'
+import { Button, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
@@ -18,81 +16,8 @@ import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector } from '../../store/hooks'
 import {
   selectMemoryEnabled,
-  selectMemoryItems,
   selectMemoryHasLoadedMode,
-  selectMemoryHasLoadedItems,
 } from '../../store/selectors/memorySettings'
-import type { MemoryItem } from '../../store/slices/memorySettingsSlice'
-
-// Memory Item Form Modal Component
-interface MemoryItemFormModalProps {
-  item: MemoryItem | null
-  onClose: () => void
-  onSave: (itemData: { category: string; content: string }) => void
-}
-
-function MemoryItemFormModal({ item, onClose, onSave }: MemoryItemFormModalProps) {
-  const [category, setCategory] = useState(item?.category || 'preference')
-  const [content, setContent] = useState(item?.content || '')
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSave({ category: category.toLowerCase().trim(), content })
-  }
-
-  return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h3>{item ? 'Edit Memory' : 'Add Memory Item'}</h3>
-          <button className={styles.modalClose} onClick={onClose}>
-            <X size={18} />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <div className={styles.modalBody}>
-            <div className={styles.formGroup}>
-              <label>Category</label>
-              <input
-                type="text"
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                placeholder="e.g., preference, fact, work, reminder"
-                required
-              />
-              <span className={styles.hint}>
-                Use categories like preference, fact, work, event, or reminder
-              </span>
-            </div>
-
-            <div className={styles.formGroup}>
-              <label>Content</label>
-              <textarea
-                value={content}
-                onChange={e => setContent(e.target.value)}
-                placeholder="Enter the memory content. Use clear, factual statements like 'User prefers dark mode' or 'John's birthday is March 15th'"
-                rows={4}
-                required
-              />
-              <span className={styles.hint}>
-                Write in third person. The agent will reference this information in future conversations.
-              </span>
-            </div>
-          </div>
-
-          <div className={styles.modalFooter}>
-            <Button variant="secondary" type="button" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button variant="primary" type="submit">
-              {item ? 'Save Changes' : 'Add Memory'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
 
 export function MemorySettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
@@ -100,24 +25,34 @@ export function MemorySettings() {
 
   // Slice-backed: cached across remounts.
   const memoryEnabled = useAppSelector(selectMemoryEnabled)
-  const items = useAppSelector(selectMemoryItems)
   const hasLoadedMode = useAppSelector(selectMemoryHasLoadedMode)
-  const hasLoadedItems = useAppSelector(selectMemoryHasLoadedItems)
   const isLoadingMode = !hasLoadedMode
-  const isLoadingItems = !hasLoadedItems
 
   // UI state (transient)
-  const [showItemForm, setShowItemForm] = useState(false)
-  const [editingItem, setEditingItem] = useState<MemoryItem | null>(null)
   const [isResetting, setIsResetting] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [sortOrder, setSortOrder] = useState<'latest' | 'oldest'>('latest')
+  const [isReindexing, setIsReindexing] = useState(false)
+
+  // Daily auto-processing time + threshold (loaded from the scheduler).
+  const [autoTime, setAutoTime] = useState('03:00')
+  const [threshold, setThreshold] = useState(25)
+  const [thresholdMax, setThresholdMax] = useState(100)
+  const [unprocessed, setUnprocessed] = useState(0)
+  const [hasLoadedSchedule, setHasLoadedSchedule] = useState(false)
+  // Auto-save: remember the last-applied values so the initial load isn't
+  // echoed straight back, and debounce rapid edits.
+  const lastSavedRef = useRef<{ time: string; threshold: number } | null>(null)
+  const saveTimerRef = useRef<number | undefined>(undefined)
+  // Custom threshold slider (drag the picker along the track).
+  const gateBarRef = useRef<HTMLDivElement>(null)
+  const gateDraggingRef = useRef(false)
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Side-effect handlers (toasts, modal close). List/enabled state itself
-  // is owned by memorySettingsSlice via the registry.
+  // Side-effect handlers (toasts). Enabled state itself is owned by
+  // memorySettingsSlice via the registry. Memory items are managed in the
+  // dedicated Memory panel, not here.
   useEffect(() => {
     if (!isConnected) return
 
@@ -127,46 +62,11 @@ export function MemorySettings() {
         if (d.success) showToast('success', `Memory ${d.enabled ? 'enabled' : 'disabled'}`)
         else showToast('error', d.error || 'Failed to update memory mode')
       }),
-      onMessage('memory_item_add', (data: unknown) => {
-        const d = data as { success: boolean; error?: string }
-        if (d.success) {
-          send('memory_items_get')
-          setShowItemForm(false)
-          setEditingItem(null)
-          showToast('success', 'Memory item added')
-        } else {
-          showToast('error', d.error || 'Failed to add memory item')
-        }
-      }),
-      onMessage('memory_item_update', (data: unknown) => {
-        const d = data as { success: boolean; error?: string }
-        if (d.success) {
-          send('memory_items_get')
-          setShowItemForm(false)
-          setEditingItem(null)
-          showToast('success', 'Memory item updated')
-        } else {
-          showToast('error', d.error || 'Failed to update memory item')
-        }
-      }),
-      onMessage('memory_item_remove', (data: unknown) => {
-        const d = data as { success: boolean; error?: string }
-        if (d.success) {
-          send('memory_items_get')
-          showToast('success', 'Memory item deleted')
-        } else {
-          showToast('error', d.error || 'Failed to delete memory item')
-        }
-      }),
       onMessage('memory_reset', (data: unknown) => {
         const d = data as { success: boolean; error?: string }
         setIsResetting(false)
-        if (d.success) {
-          send('memory_items_get')
-          showToast('success', 'Memory reset to default')
-        } else {
-          showToast('error', d.error || 'Failed to reset memory')
-        }
+        if (d.success) showToast('success', 'Memory reset to default')
+        else showToast('error', d.error || 'Failed to reset memory')
       }),
       onMessage('memory_process_trigger', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string }
@@ -174,37 +74,48 @@ export function MemorySettings() {
         if (d.success) showToast('success', d.message || 'Memory processing started')
         else showToast('error', d.error || 'Failed to start memory processing')
       }),
+      onMessage('memory_reindex', (data: unknown) => {
+        const d = data as { success: boolean; error?: string }
+        setIsReindexing(false)
+        if (d.success) showToast('success', 'Memory index rebuilt')
+        else showToast('error', d.error || 'Failed to rebuild memory index')
+      }),
+      onMessage('memory_schedule_get', (data: unknown) => {
+        const d = data as {
+          success: boolean
+          schedule?: { hour: number; minute: number }
+          threshold?: number
+          threshold_max?: number
+          unprocessed?: number
+        }
+        if (!d.success || !d.schedule) return
+        if (typeof d.threshold_max === 'number') setThresholdMax(d.threshold_max)
+        if (typeof d.unprocessed === 'number') setUnprocessed(d.unprocessed)
+        // Adopt the saved time/threshold only on the FIRST load; later polls
+        // (for the live event count) must not clobber an in-progress edit.
+        if (!hasLoadedSchedule) {
+          const time = `${String(d.schedule.hour).padStart(2, '0')}:${String(d.schedule.minute).padStart(2, '0')}`
+          const thr = d.threshold ?? 25
+          setAutoTime(time)
+          setThreshold(thr)
+          lastSavedRef.current = { time, threshold: thr }
+          setHasLoadedSchedule(true)
+        }
+      }),
+      onMessage('memory_schedule_set', (data: unknown) => {
+        const d = data as { success: boolean; error?: string }
+        if (!d.success) showToast('error', d.error || 'Failed to update schedule')
+      }),
     ]
 
     if (!hasLoadedMode) send('memory_mode_get')
-    if (!hasLoadedItems) send('memory_items_get')
+    if (!hasLoadedSchedule) send('memory_schedule_get')
 
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoadedMode, hasLoadedItems, showToast])
+  }, [isConnected, send, onMessage, hasLoadedMode, hasLoadedSchedule, showToast])
 
   const handleToggleMemory = (enabled: boolean) => {
     send('memory_mode_set', { enabled })
-  }
-
-  const handleAddItem = () => {
-    setEditingItem(null)
-    setShowItemForm(true)
-  }
-
-  const handleEditItem = (item: MemoryItem) => {
-    setEditingItem(item)
-    setShowItemForm(true)
-  }
-
-  const handleDeleteItem = (itemId: string) => {
-    confirm({
-      title: 'Delete Memory Item',
-      message: 'Are you sure you want to delete this memory item?',
-      confirmText: 'Delete',
-      variant: 'danger',
-    }, () => {
-      send('memory_item_remove', { itemId })
-    })
   }
 
   const handleProcessMemory = () => {
@@ -219,6 +130,83 @@ export function MemorySettings() {
     })
   }
 
+  const handleReindex = () => {
+    setIsReindexing(true)
+    send('memory_reindex')
+  }
+
+  // ── Threshold slider: drag the picker to set the minimum-events gate ──
+  const setThresholdFromPointer = (clientX: number) => {
+    const el = gateBarRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const pct = rect.width > 0 ? (clientX - rect.left) / rect.width : 0
+    setThreshold(Math.round(Math.min(1, Math.max(0, pct)) * thresholdMax))
+  }
+  const onGatePointerDown = (e: RPointerEvent<HTMLDivElement>) => {
+    if (!memoryEnabled) return
+    gateDraggingRef.current = true
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setThresholdFromPointer(e.clientX)
+  }
+  const onGatePointerMove = (e: RPointerEvent<HTMLDivElement>) => {
+    if (!gateDraggingRef.current) return
+    setThresholdFromPointer(e.clientX)
+  }
+  const onGatePointerUp = (e: RPointerEvent<HTMLDivElement>) => {
+    gateDraggingRef.current = false
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+  }
+  const onGateKeyDown = (e: RKeyboardEvent<HTMLDivElement>) => {
+    if (!memoryEnabled) return
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      setThreshold(Math.max(0, threshold - 1))
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      setThreshold(Math.min(thresholdMax, threshold + 1))
+    }
+  }
+
+  // Auto-save the daily time / threshold whenever they change (debounced),
+  // skipping the values just loaded from the scheduler.
+  useEffect(() => {
+    if (!hasLoadedSchedule) return
+    const last = lastSavedRef.current
+    if (last && last.time === autoTime && last.threshold === threshold) return
+    window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = window.setTimeout(() => {
+      const [h, m] = autoTime.split(':').map(n => parseInt(n, 10) || 0)
+      send('memory_schedule_set', { hour: h, minute: m, threshold })
+      lastSavedRef.current = { time: autoTime, threshold }
+    }, 500)
+    return () => window.clearTimeout(saveTimerRef.current)
+  }, [autoTime, threshold, hasLoadedSchedule, send])
+
+  // Keep the live "events waiting" count current while the panel is open,
+  // without needing a manual refresh.
+  useEffect(() => {
+    if (!isConnected) return
+    const id = window.setInterval(() => send('memory_schedule_get'), 4000)
+    return () => window.clearInterval(id)
+  }, [isConnected, send])
+
+  // ── Gate status: is the next scheduled run going to fire? ──
+  // Threshold 0 means "no minimum": the run fires whenever anything is
+  // pending. Otherwise the daily run is skipped until the waiting-event
+  // count reaches the threshold.
+  const gateReached = threshold === 0 ? unprocessed > 0 : unprocessed >= threshold
+  const nextRunPhrase = (() => {
+    const [h, m] = autoTime.split(':').map(n => parseInt(n, 10) || 0)
+    const suffix = h < 12 ? 'AM' : 'PM'
+    const clock = `${h % 12 || 12}:${String(m).padStart(2, '0')} ${suffix}`
+    const now = new Date()
+    const beforeToday = now.getHours() < h || (now.getHours() === h && now.getMinutes() < m)
+    return `${beforeToday ? 'today' : 'tomorrow'} at ${clock}`
+  })()
+
   const handleResetMemory = () => {
     confirm({
       title: 'Reset Memory',
@@ -231,17 +219,11 @@ export function MemorySettings() {
     })
   }
 
-  const sortedItems = [...items].sort((a, b) => {
-    const dateA = new Date(a.timestamp).getTime()
-    const dateB = new Date(b.timestamp).getTime()
-    return sortOrder === 'latest' ? dateB - dateA : dateA - dateB
-  })
-
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
         <h3>Memory Settings</h3>
-        <p>Manage agent memory, stored facts, and event processing</p>
+        <p>Manage agent memory and event processing</p>
       </div>
 
       {/* Master Toggle */}
@@ -266,93 +248,129 @@ export function MemorySettings() {
 
       {/* Toggleable Content */}
       <div className={`${styles.toggleableContent} ${!memoryEnabled ? styles.disabledContent : ''}`}>
-        {/* Memory Items */}
-        <div className={styles.subsection}>
-          <div className={styles.subsectionHeader}>
-            <h4 className={styles.subsectionTitle}>Memory Items</h4>
-            <div className={styles.headerActions}>
-              <select
-                className={styles.filterSelect}
-                value={sortOrder}
-                onChange={(e) => setSortOrder(e.target.value as 'latest' | 'oldest')}
-              >
-                <option value="latest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-              </select>
-              <Button variant="primary" size="sm" onClick={handleAddItem} icon={<Plus size={14} />} disabled={!memoryEnabled}>
-                Add Memory
-              </Button>
-            </div>
-          </div>
-          <p className={styles.subsectionDesc}>
-            Long-term memories stored in MEMORY.md. These are facts the agent has learned from interactions.
-          </p>
-
-          {isLoadingItems ? (
-            <div className={styles.loadingState}>
-              <Loader2 size={20} className={styles.spinning} />
-              <span>Loading memory items...</span>
-            </div>
-          ) : items.length === 0 ? (
-            <div className={styles.emptyState}>
-              <Database size={32} className={styles.emptyIcon} />
-              <p>No memory items yet.</p>
-              <p className={styles.emptyHint}>
-                Memory items are created when the agent processes events or when you add them manually.
-              </p>
-              <Button variant="secondary" size="sm" onClick={handleAddItem} disabled={!memoryEnabled}>
-                Add your first memory
-              </Button>
-            </div>
-          ) : (
-            <div className={styles.memoryList}>
-              {sortedItems.map(item => (
-                <div key={item.id} className={styles.memoryCard}>
-                  <div className={styles.memoryMain}>
-                    <div className={styles.memoryHeader}>
-                      <Badge variant="info">{item.category}</Badge>
-                      <span className={styles.memoryTimestamp}>{item.timestamp}</span>
-                    </div>
-                    <p className={styles.memoryContent}>{item.content}</p>
-                  </div>
-                  <div className={styles.memoryActions}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditItem(item)}
-                      icon={<Edit2 size={14} />}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteItem(item.id)}
-                      icon={<Trash2 size={14} />}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Memory Processing */}
+        {/* Memory Processing: daily schedule, run condition, manual trigger */}
         <div className={styles.subsection}>
           <h4 className={styles.subsectionTitle}>Memory Processing</h4>
           <p className={styles.subsectionDesc}>
-            Memory processing analyzes unprocessed events and extracts important facts into long-term memory.
-            This normally runs automatically at 3 AM daily.
+            Once a day, CraftBot distills recent events into long-term memory.
+            Choose when it runs and how many new events must be waiting; if
+            fewer have accumulated by then, the run is skipped, so quiet days
+            do nothing. You can also process everything waiting right now.
+          </p>
+
+          {!hasLoadedSchedule ? (
+            <div className={styles.loadingState}>
+              <Loader2 size={18} className={styles.spinning} />
+              <span>Loading schedule…</span>
+            </div>
+          ) : (
+            <>
+              <div className={`${styles.formGroup} ${styles.inlineRow}`}>
+                <label>Daily time</label>
+                <input
+                  type="time"
+                  value={autoTime}
+                  onChange={e => setAutoTime(e.target.value)}
+                  disabled={!memoryEnabled}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <div className={styles.gateHeader}>
+                  <label>Minimum events to run</label>
+                  <span className={styles.gateReadout}>
+                    {threshold === 0
+                      ? `${unprocessed} unprocessed ${unprocessed === 1 ? 'event' : 'events'} / no minimum`
+                      : `${unprocessed} unprocessed ${unprocessed === 1 ? 'event' : 'events'} / ${threshold} minimum to run`}
+                  </span>
+                </div>
+                <div
+                  ref={gateBarRef}
+                  className={`${styles.gateTrack} ${!memoryEnabled ? styles.gateDisabled : ''}`}
+                  role="slider"
+                  aria-label="Minimum events to run"
+                  aria-valuemin={0}
+                  aria-valuemax={thresholdMax}
+                  aria-valuenow={threshold}
+                  tabIndex={memoryEnabled ? 0 : -1}
+                  onPointerDown={onGatePointerDown}
+                  onPointerMove={onGatePointerMove}
+                  onPointerUp={onGatePointerUp}
+                  onKeyDown={onGateKeyDown}
+                >
+                  <div
+                    className={styles.gateEventFill}
+                    style={{ width: `${Math.min(100, (unprocessed / thresholdMax) * 100)}%` }}
+                  />
+                  <div
+                    className={styles.gateThumb}
+                    style={{ left: `${(threshold / thresholdMax) * 100}%` }}
+                  />
+                </div>
+                <div className={styles.gateLegend}>
+                  <span className={styles.gateLegendItem}>
+                    <span className={styles.gateSwatchFill} />
+                    unprocessed events
+                  </span>
+                  <span className={styles.gateLegendItem}>
+                    <span className={styles.gateSwatchThumb} />
+                    minimum to run
+                  </span>
+                </div>
+              </div>
+
+              <div className={`${styles.gateStatus} ${gateReached ? styles.gateStatusReady : ''}`}>
+                {gateReached ? (
+                  <>
+                    <CheckCircle2 size={15} />
+                    <span>
+                      Enough events have accumulated: memory will be processed{' '}
+                      {nextRunPhrase}.
+                    </span>
+                  </>
+                ) : (
+                  <span>
+                    {threshold === 0
+                      ? 'No events waiting. The next scheduled run will be skipped.'
+                      : `${threshold - unprocessed} more ${threshold - unprocessed === 1 ? 'event' : 'events'} needed. Scheduled runs are skipped until then.`}
+                  </span>
+                )}
+              </div>
+
+              <div className={styles.processRow}>
+                <Button
+                  variant="secondary"
+                  onClick={handleProcessMemory}
+                  disabled={isProcessing || !memoryEnabled}
+                  icon={isProcessing ? <Loader2 size={14} className={styles.spinning} /> : <Brain size={14} />}
+                >
+                  {isProcessing ? 'Processing...' : 'Process Memory Now'}
+                </Button>
+                <span className={styles.hint}>
+                  Processes all waiting events immediately, ignoring the
+                  schedule and minimum.
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Rebuild Index */}
+        <div className={styles.subsection}>
+          <h4 className={styles.subsectionTitle}>Rebuild Index</h4>
+          <p className={styles.subsectionDesc}>
+            Rebuilds the search index, knowledge graph, and entity embeddings
+            from your memory files. Your memories are not changed — use this if
+            recall seems stale or out of sync.
           </p>
           <Button
             variant="secondary"
-            onClick={handleProcessMemory}
-            disabled={isProcessing || !memoryEnabled}
-            icon={isProcessing ? <Loader2 size={14} className={styles.spinning} /> : <Brain size={14} />}
+            onClick={handleReindex}
+            disabled={isReindexing || !memoryEnabled}
+            icon={isReindexing ? <Loader2 size={14} className={styles.spinning} /> : <RefreshCw size={14} />}
           >
-            {isProcessing ? 'Processing...' : 'Process Memory Now'}
+            {isReindexing ? 'Rebuilding...' : 'Rebuild Index'}
           </Button>
-          {!memoryEnabled && (
-            <span className={styles.hint}>Enable memory to use this feature</span>
-          )}
         </div>
       </div>
 
@@ -375,24 +393,6 @@ export function MemorySettings() {
           {isResetting ? 'Resetting...' : 'Reset All Memory'}
         </Button>
       </div>
-
-      {/* Memory Item Form Modal */}
-      {showItemForm && (
-        <MemoryItemFormModal
-          item={editingItem}
-          onClose={() => {
-            setShowItemForm(false)
-            setEditingItem(null)
-          }}
-          onSave={(itemData) => {
-            if (editingItem) {
-              send('memory_item_update', { itemId: editingItem.id, ...itemData })
-            } else {
-              send('memory_item_add', itemData)
-            }
-          }}
-        />
-      )}
 
       {/* Confirm Modal */}
       <ConfirmModal {...confirmModalProps} />

@@ -782,6 +782,10 @@ class AgentBase:
             logger.info("[ENTITY-INDEX] Memory is disabled, skipping trigger")
             return None
 
+        # Deterministic tidy-up first: drop registry lines for files that are
+        # gone (deleted or de-indexed) so ENTITIES.md doesn't accumulate them.
+        self._prune_orphan_entity_registry()
+
         stale_files = self._stale_entity_files()
         unannotated_memories = self._unannotated_memory_items()
         if not stale_files and not unannotated_memories:
@@ -831,6 +835,66 @@ class AgentBase:
             f"{len(stale_files)} file(s) to extract"
         )
         return instruction, workflow
+
+    def _prune_orphan_entity_registry(self) -> None:
+        """Drop ENTITIES.md registry lines for files that are no longer
+        indexed (deleted from disk or removed from the index).
+
+        Deterministic bookkeeping, no LLM: these entries are already ignored
+        at graph build, so this only keeps the registry file from
+        accumulating dead lines. A registry line's path that is not a
+        currently-indexed, on-disk file is dropped; headers/comments/blank
+        lines and every valid entry are preserved byte-for-byte.
+        """
+        from agent_core.core.impl.memory.graph import ENTITY_REGISTRY_FILE
+        from app.ui_layer.settings.memory_settings import (
+            CORE_INDEX_FILES,
+            get_memory_indexed_files,
+        )
+
+        registry_path = AGENT_FILE_SYSTEM_PATH / ENTITY_REGISTRY_FILE
+        if not registry_path.exists():
+            return
+        try:
+            lines = registry_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        except Exception as e:
+            logger.warning(f"[ENTITY-INDEX] Failed to read {ENTITY_REGISTRY_FILE}: {e}")
+            return
+
+        # A registry entry is valid only if its file is currently indexed AND
+        # still present on disk.
+        valid = {
+            rel.replace("\\", "/")
+            for rel in CORE_INDEX_FILES + get_memory_indexed_files()
+            if (AGENT_FILE_SYSTEM_PATH / rel).exists()
+        }
+
+        kept: list[str] = []
+        dropped = 0
+        for line in lines:
+            stripped = line.lstrip()
+            match = re.match(r"^\s*\[([^\]]+)\]", line)
+            # Keep headers, comments, blanks, and any non-entry line as-is.
+            if not match or stripped.startswith(("#", ">")):
+                kept.append(line)
+                continue
+            path = match.group(1).strip().replace("\\", "/")
+            if path in valid:
+                kept.append(line)
+            else:
+                dropped += 1
+
+        if dropped:
+            try:
+                registry_path.write_text("".join(kept), encoding="utf-8")
+                logger.info(
+                    f"[ENTITY-INDEX] Pruned {dropped} orphan registry line(s) "
+                    f"from {ENTITY_REGISTRY_FILE}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[ENTITY-INDEX] Failed to write {ENTITY_REGISTRY_FILE}: {e}"
+                )
 
     def _unannotated_memory_items(self) -> int:
         """Count non-superseded MEMORY.md items with no {entities: ...} field.

@@ -74,6 +74,11 @@ _CANDIDATE_SKIP_DIRS = {
 _MEMORY_MAX_ITEMS_DEFAULT = 200
 _MEMORY_PRUNE_TARGET_DEFAULT = 135
 _MEMORY_ITEM_WORD_LIMIT_DEFAULT = 150
+# Unprocessed-event count that fires processing immediately (threshold-driven),
+# instead of waiting for the scheduled sweep. 0 disables it (schedule only).
+_MEMORY_PROCESSING_THRESHOLD_DEFAULT = 25
+# Upper bound the threshold slider allows the user to set.
+_MEMORY_PROCESSING_THRESHOLD_MAX = 100
 
 # ─────────────────────────────────────────────────────────────────────
 # Memory Mode Control
@@ -126,6 +131,88 @@ def get_memory_max_items() -> int:
     return int(
         _load_settings().get("memory", {}).get("max_items", _MEMORY_MAX_ITEMS_DEFAULT)
     )
+
+
+def get_memory_processing_threshold_max() -> int:
+    """Upper bound the threshold slider allows."""
+    return _MEMORY_PROCESSING_THRESHOLD_MAX
+
+
+def get_memory_processing_threshold() -> int:
+    """Unprocessed-event count that triggers processing on the fly (0 = off)."""
+    raw = int(
+        _load_settings()
+        .get("memory", {})
+        .get("processing_threshold", _MEMORY_PROCESSING_THRESHOLD_DEFAULT)
+    )
+    return max(0, min(_MEMORY_PROCESSING_THRESHOLD_MAX, raw))
+
+
+def set_memory_processing_threshold(value: int) -> bool:
+    """Persist the threshold-driven processing count (clamped to [0, max])."""
+    settings = _load_settings()
+    clamped = max(0, min(_MEMORY_PROCESSING_THRESHOLD_MAX, int(value)))
+    settings.setdefault("memory", {})["processing_threshold"] = clamped
+    return _save_settings(settings)
+
+
+def get_unprocessed_event_count() -> int:
+    """Number of unprocessed event lines waiting in EVENT_UNPROCESSED.md.
+
+    Event lines start with '[' (a bracketed timestamp); headers/blanks do not,
+    matching how the memory-processing pre-check counts them.
+    """
+    path = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
+    if not path.exists():
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    return sum(1 for line in text.splitlines() if line.strip().startswith("["))
+
+
+def memory_needs_pruning() -> bool:
+    """Whether MEMORY.md has reached the item cap and is due for pruning."""
+    path = AGENT_FILE_SYSTEM_PATH / "MEMORY.md"
+    if not path.exists():
+        return False
+    try:
+        items = _parse_memory_items(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return len(items) >= get_memory_max_items()
+
+
+def memory_scheduled_run_due() -> bool:
+    """Whether the DAILY scheduled memory processing should proceed.
+
+    Gated by the threshold: the daily run fires only when at least
+    ``threshold`` unprocessed events have accumulated, so quiet days skip
+    instead of processing nothing at the set time. Pruning (MEMORY.md over
+    the item cap) is a separate reason to run. A threshold of 0 removes the
+    minimum — the run proceeds whenever anything is pending.
+    """
+    threshold = get_memory_processing_threshold()
+    count = get_unprocessed_event_count()
+    if threshold <= 0:
+        return count > 0 or memory_needs_pruning()
+    return count >= threshold or memory_needs_pruning()
+
+
+def _time_phrase(hour: int, minute: int) -> str:
+    """12-hour clock phrase the schedule parser accepts ('3am', '3:30pm')."""
+    suffix = "am" if hour < 12 else "pm"
+    hour12 = hour % 12 or 12
+    return f"{hour12}{suffix}" if not minute else f"{hour12}:{minute:02d}{suffix}"
+
+
+def memory_schedule_expression(hour: int = 3, minute: int = 0) -> str:
+    """Build the daily memory-processing schedule expression.
+
+    Auto-processing is daily by design; only the time of day is configurable.
+    """
+    return f"every day at {_time_phrase(hour, minute)}"
 
 
 def get_memory_prune_target() -> int:
@@ -540,6 +627,27 @@ Once the agent run 'process memory' action, all the processed events will learne
             "success": False,
             "error": f"Failed to clear unprocessed events: {str(e)}",
         }
+
+
+def reset_entity_registry() -> Dict[str, Any]:
+    """Reset ENTITIES.md (the entity registry) from template.
+
+    Part of a full memory reset: without it the graph would keep the old
+    file→entity links from the previous state. The entity-indexer rebuilds
+    the registry for indexed files on its next run.
+    """
+    target_path = AGENT_FILE_SYSTEM_PATH / "ENTITIES.md"
+    template_path = AGENT_FILE_SYSTEM_TEMPLATE_PATH / "ENTITIES.md"
+    try:
+        if template_path.exists():
+            shutil.copy(template_path, target_path)
+        else:
+            target_path.write_text(
+                "# Entity Registry\n\n## Entities\n\n", encoding="utf-8"
+            )
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to reset entity registry: {str(e)}"}
 
 
 # ─────────────────────────────────────────────────────────────────────
