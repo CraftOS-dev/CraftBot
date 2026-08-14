@@ -735,9 +735,6 @@
   height: 100%;
   width: 100%;
   padding: calc(var(--w-pad) * 0.7);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
   box-sizing: border-box;
 }
 
@@ -790,30 +787,12 @@
   max-width: 100%;
 }
 
-.compactLearnMoreBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 5px 16px;
-  background: var(--primary-color, var(--color-primary, #3b82f6));
-  color: #ffffff;
-  font-family: inherit;
-  font-size: calc(var(--w-text-xs) * 0.85);
-  font-weight: 600;
-  letter-spacing: -0.005em;
-  border: none;
-  border-radius: 20px;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
-  margin: 2px auto 0 auto;
-}
-
-.compactLearnMoreBtn:hover {
-  background: var(--primary-hover, var(--color-primary-hover, #2563eb));
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+.compactSimpleContainer .compactLearnMoreBtn {
+  margin-top: 12px;
+  border-radius: 9999px;
+  /* Extra left padding offsets the chevron's optical whitespace on the right */
+  padding-left: 26px;
+  padding-right: 22px;
 }
 
 /* Compact Detailed View (Showcase Carousel) */
@@ -823,9 +802,6 @@
   height: 100%;
   gap: calc(var(--w-gap) * 0.4);
   padding: calc(var(--w-pad) * 0.6);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -860,21 +836,13 @@
   background: var(--bg-tertiary);
 }
 
-.introDetailsTitle {
-  font-family: inherit;
-  font-size: calc(var(--w-text-xs) * 0.95);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--text-primary);
-}
-
 .heroBannerShowcase {
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
   border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
 }
 
@@ -893,106 +861,191 @@
   display: none;
 }
 
+/* Carousel card. Type and spacing scale with the widget box via cqmin
+   (the WidgetChrome .chrome element is the size container), so the card
+   reads like a proper marketing slide at 2x2 without dwarfing 1x1. */
 .heroBannerCard {
   flex: 0 0 100%;
   width: 100%;
   height: 100%;
   scroll-snap-align: start;
   display: flex;
-  align-items: stretch;
   box-sizing: border-box;
-  padding: calc(var(--w-pad) * 0.6);
-  gap: 12px;
+  padding: clamp(18px, calc(9px + 4.5cqmin), 36px);
 }
 
-.heroVisualSide {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30%;
-  min-width: 64px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-xs, 6px);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
-  flex-shrink: 0;
-}
-
-.heroMascotBox {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: transform 0.2s ease;
-}
-
-.heroMascotBox:hover {
-  transform: scale(1.05);
-}
-
+/* Content column: grouped at the vertical center with tight rhythm —
+   eyebrow / title+subtitle / items / CTA — instead of scattered. */
 .heroContentSide {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-evenly;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.visionCard .heroContentSide {
+  align-items: center;
+  text-align: center;
+}
+
+.visionCard .chipRow {
+  justify-content: center;
+}
+
+.visionCard .heroTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(6px, calc(3px + 1.5cqmin), 11px);
+}
+
+.titleFavicon {
+  width: clamp(18px, calc(9px + 3.4cqmin), 30px);
+  height: clamp(18px, calc(9px + 3.4cqmin), 30px);
+  flex-shrink: 0;
+}
+
+.cardEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  font-size: clamp(9px, calc(7.5px + 0.6cqmin), 11.5px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary, #3b82f6);
+  margin-bottom: clamp(6px, calc(2px + 1.8cqmin), 16px);
 }
 
 .heroTitle {
   font-family: inherit;
-  font-size: calc(var(--w-text-xs) * 1.2);
+  font-size: clamp(13px, calc(4.5px + 3.4cqmin), 25px);
   font-weight: 750;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
   margin: 0;
-  line-height: 1.25;
+  line-height: 1.15;
+  text-wrap: balance;
+  max-width: 26ch;
 }
 
 .heroSubtitle {
   font-family: inherit;
-  font-size: calc(var(--w-text-xs) * 0.85);
-  font-weight: 500;
+  font-size: clamp(11px, calc(7.5px + 1.4cqmin), 15px);
+  font-weight: 480;
   letter-spacing: -0.005em;
-  color: var(--text-muted);
-  margin: 0;
-  line-height: 1.35;
+  color: var(--text-secondary);
+  margin: clamp(3px, calc(1px + 1.2cqmin), 10px) 0 0;
+  line-height: 1.45;
+  max-width: 46ch;
 }
 
 .heroSimpleDesc {
   font-family: inherit;
-  font-size: calc(var(--w-text-xs) * 0.88);
+  font-size: clamp(11px, calc(8px + 1.1cqmin), 13.5px);
   font-weight: 450;
-  color: var(--text-primary);
-  line-height: 1.4;
-  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: clamp(6px, calc(2px + 1.8cqmin), 16px) 0 0;
+  max-width: 46ch;
 }
 
-.heroPointsList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* Card variant: chip/tag showcase (marketplace apps, agent bundle roles) */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: clamp(10px, calc(5px + 2cqmin), 20px);
+}
+
+.chip {
+  font-family: inherit;
+  font-size: clamp(10px, calc(8px + 0.8cqmin), 12.5px);
+  font-weight: 550;
+  color: var(--text-primary);
+  padding: clamp(2px, calc(1px + 0.6cqmin), 4px) clamp(8px, calc(5px + 1.2cqmin), 12px);
+  border-radius: 9999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  white-space: nowrap;
+}
+
+/* Card variant: article rows (blog) */
+.articleList {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  margin-top: clamp(10px, calc(5px + 2cqmin), 20px);
+  align-self: stretch;
+  min-width: 0;
 }
 
-.heroPointsList li {
+.articleRow {
   display: flex;
-  align-items: flex-start;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: clamp(6px, calc(3px + 1.2cqmin), 10px) clamp(10px, calc(6px + 1.5cqmin), 14px);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.articleRow:hover {
+  border-color: var(--color-primary, #3b82f6);
+}
+
+.articleTag {
   font-family: inherit;
-  font-size: calc(var(--w-text-xs) * 0.84);
-  font-weight: 450;
+  font-size: clamp(8.5px, calc(7px + 0.6cqmin), 10.5px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-primary, #3b82f6);
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 14%, transparent);
+  padding: 2px 7px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.articleTitle {
+  font-family: inherit;
+  font-size: clamp(11px, calc(8.5px + 1cqmin), 13.5px);
+  font-weight: 500;
   color: var(--text-primary);
   line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.heroBullet {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--primary-color, var(--color-primary, #3b82f6));
-  margin-top: 6px;
-  flex-shrink: 0;
+/* Per-card call-to-action: pill button matching the compact Learn More */
+.cardCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: clamp(10px, calc(4px + 2.6cqmin), 24px);
+  height: clamp(24px, calc(14px + 2.8cqmin), 34px);
+  padding: 0 clamp(11px, calc(6px + 1.8cqmin), 18px);
+  border-radius: 9999px;
+  background: var(--color-primary, #3b82f6);
+  color: var(--color-white, #ffffff);
+  font-family: inherit;
+  font-size: clamp(10.5px, calc(8.5px + 0.8cqmin), 12.5px);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.cardCta:hover {
+  background: var(--color-primary-hover, #2563eb);
+  color: var(--color-white, #ffffff);
+  text-decoration: none;
 }
 
 /* Hero Footer Row */
@@ -1046,18 +1099,13 @@
   gap: 4px;
   font-family: inherit;
   font-size: calc(var(--w-text-xs) * 0.85);
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: -0.005em;
-  color: var(--primary-color, var(--color-primary, #3b82f6));
-  text-decoration: none;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  transition: all 0.2s ease;
+  color: var(--color-primary, #3b82f6);
+  text-decoration: underline;
 }
 
 .redirectLink:hover {
-  background: rgba(59, 130, 246, 0.18);
-  transform: translateY(-1px);
+  color: var(--color-primary, #3b82f6);
+  text-decoration-color: currentColor;
 }

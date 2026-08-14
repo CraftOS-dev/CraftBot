@@ -1,104 +1,111 @@
 import { useState, useRef, useEffect } from 'react'
-import { Zap, Plug, Brain, Box, ChevronRight, ArrowLeft, ExternalLink } from 'lucide-react'
-import { CraftBotMascot, useMascotState } from '@mascot'
+import { Cloud, Users, Github, Box, ChevronRight, ArrowLeft, ExternalLink } from 'lucide-react'
+import { CraftBotMascot, useMascotState, getPose } from '@mascot'
+import type { MascotState } from '@mascot'
+import { Button } from '../../../components/ui'
 import styles from './widgets.module.css'
 
-interface BannerItem {
+interface IntroCard {
   id: string
+  variant: 'vision' | 'chips' | 'articles'
   categoryLabel: string
   title: string
   subtitle: string
-  simpleDesc: string
-  extendedPoints: string[]
-  fourBlockPoints: string[]
-  icon: typeof Zap
+  /* Short one-liner shown at the smallest (1x1) size instead of items */
+  desc: string
+  items: { label: string; tag?: string; href?: string }[]
+  cta: { label: string; href: string }
+  icon: typeof Cloud
 }
 
-const BANNERS: BannerItem[] = [
+/* Copy comes from craftbot.live and the CraftBot docs. Keep in sync. */
+const CARDS: IntroCard[] = [
   {
-    id: 'autonomous',
-    categoryLabel: 'Autonomous',
-    title: 'Autonomous Execution',
-    subtitle: 'Self-directed AI development engine',
-    simpleDesc: 'Solves coding tasks step-by-step, edits files, and tests code automatically.',
-    extendedPoints: [
-      'Solves multi-step coding tasks & feature workflows',
-      'Edits, creates, and refactors project files automatically',
-      'Runs automated tests & verifies error diagnostics'
+    id: 'cloud',
+    variant: 'vision',
+    categoryLabel: 'CraftBot Live',
+    title: 'CraftBot Live',
+    subtitle: 'Your personal CraftBot, always online',
+    desc: 'Your personal CraftBot, always online',
+    items: [
+      { label: 'No SSH' },
+      { label: 'No Docker' },
+      { label: 'Runs while you sleep' },
+      { label: 'Reach it from any device' }
     ],
-    fourBlockPoints: [
-      'Solves multi-step coding tasks & end-to-end feature workflows',
-      'Edits, creates, and refactors workspace files automatically',
-      'Executes unit tests & automatically verifies runtime diagnostics',
-      'Traces stack traces to isolate and fix root causes directly',
-      'Maintains strict control flow scoping & error resilience'
-    ],
-    icon: Zap
-  },
-  {
-    id: 'mcp',
-    categoryLabel: 'MCP Tools',
-    title: 'MCP Tools & API Integration',
-    subtitle: 'Extensible Model Context Protocol ecosystem',
-    simpleDesc: 'Connects directly to databases, external services, web APIs, and tools.',
-    extendedPoints: [
-      'Connects to external services, databases & web APIs',
-      'Integrates with Model Context Protocol (MCP) toolkits',
-      'Executes terminal commands & verified workspace scripts'
-    ],
-    fourBlockPoints: [
-      'Connects to external services, databases, and third-party APIs',
-      'Integrates with Model Context Protocol (MCP) server toolkits',
-      'Executes verified terminal shell commands & workspace scripts',
-      'Fetches live web documentation & parses API payload schemas',
-      'Handles async background tasks with status reporting'
-    ],
-    icon: Plug
-  },
-  {
-    id: 'memory',
-    categoryLabel: 'Smart Memory',
-    title: 'Smart Context & Memory',
-    subtitle: 'Long-term vector codebase intelligence',
-    simpleDesc: 'Remembers your project structure and keeps chat sessions fast and smart.',
-    extendedPoints: [
-      'Maintains vector-indexed memory of your codebase',
-      'Compresses chat context to keep responses lightning fast',
-      'Optimizes token budgets for long development sessions'
-    ],
-    fourBlockPoints: [
-      'Maintains vector-indexed embeddings of your codebase',
-      'Compresses chat context history to keep responses lightning fast',
-      'Optimizes token budgets for multi-hour development sessions',
-      'Recalls past architectural decisions & file symbol dependencies',
-      'Monitors token context windows to prevent truncation losses'
-    ],
-    icon: Brain
+    cta: { label: 'Start free', href: 'https://craftbot.live' },
+    icon: Cloud
   },
   {
     id: 'livingui',
+    variant: 'chips',
     categoryLabel: 'Living UI',
-    title: 'Living UI & Micro-Apps',
-    subtitle: 'On-demand interactive web generator',
-    simpleDesc: 'Generates interactive web screens, live charts, and custom dashboard cards.',
-    extendedPoints: [
-      'Generates interactive web components on demand',
-      'Displays real-time status dashboards & telemetry graphs',
-      'Integrates with drag-and-drop widget layouts'
+    title: 'An agent that builds and operates its own software',
+    subtitle: 'Ask for an app and the agent designs, codes, tests, and launches it inside its own interface.',
+    desc: 'Ask for an app. The agent designs, codes, tests, and launches it.',
+    items: [
+      { label: 'Kanban board' },
+      { label: 'CRM' },
+      { label: 'Habit tracker' },
+      { label: 'Community marketplace' }
     ],
-    fourBlockPoints: [
-      'Generates interactive web components & micro-apps on demand',
-      'Displays real-time status telemetry & dynamic analytics charts',
-      'Integrates smoothly with drag-and-drop widget grid layouts',
-      'Renders responsive glassmorphism UI widgets with live data',
-      'Persists widget configuration state & layout grid preferences'
-    ],
+    cta: { label: 'Browse the Living UI marketplace', href: 'https://craftos.net/marketplace' },
     icon: Box
+  },
+  {
+    id: 'bundles',
+    variant: 'chips',
+    categoryLabel: 'Agent Bundles',
+    title: '40+ prebuilt agent personas',
+    subtitle: 'Import CEO, finance, and DevOps agents with one click. 120 ready-made playbooks cover common automations.',
+    desc: 'CEO, finance, DevOps, and 40+ other personas. One click to import.',
+    items: [
+      { label: 'CEO agent' },
+      { label: 'Finance agent' },
+      { label: 'DevOps engineer' },
+      { label: '120 playbooks' },
+      { label: 'One-click import' }
+    ],
+    cta: { label: 'Get agent bundles', href: 'https://github.com/CraftOS-dev/craftbot-agent-bundles' },
+    icon: Users
+  },
+  {
+    id: 'community',
+    variant: 'articles',
+    categoryLabel: 'Open Source',
+    title: 'One agent. Every kind of work.',
+    subtitle: 'MIT-licensed and free to self-host. Active development, weekly improvements.',
+    desc: 'MIT-licensed, self-hostable, built in the open.',
+    items: [
+      {
+        label: 'CraftOS-dev/CraftBot',
+        tag: 'GitHub',
+        href: 'https://github.com/CraftOS-dev/CraftBot'
+      },
+      {
+        label: 'Join the CraftBot community',
+        tag: 'Discord',
+        href: 'https://discord.gg/ZN9YHc37HG'
+      },
+      {
+        label: 'Community-built Living UIs',
+        tag: 'Market',
+        href: 'https://craftos.net/marketplace'
+      }
+    ],
+    cta: { label: 'Star on GitHub', href: 'https://github.com/CraftOS-dev/CraftBot' },
+    icon: Github
   }
 ]
 
 export function CraftBotIntroWidget() {
   const mascotState = useMascotState()
+  // This widget's mascot never sleeps: any state whose pose renders the
+  // sleeping silhouette shows the awake 'resting' pose here instead. Scoped to
+  // this widget only — the Mascot widget and chat mascot keep sleep behavior.
+  const awakeMascotState: MascotState = getPose(mascotState.state).sleeping
+    ? 'resting'
+    : mascotState.state
   const containerRef = useRef<HTMLDivElement>(null)
   const bannerScrollRef = useRef<HTMLDivElement>(null)
 
@@ -136,7 +143,7 @@ export function CraftBotIntroWidget() {
 
     const interval = setInterval(() => {
       setCurrentBannerIndex((prev) => {
-        const nextIdx = (prev + 1) % BANNERS.length
+        const nextIdx = (prev + 1) % CARDS.length
         scrollToIndex(nextIdx)
         return nextIdx
       })
@@ -197,8 +204,6 @@ export function CraftBotIntroWidget() {
             <ArrowLeft size={12} />
             <span>Back</span>
           </button>
-
-          <span className={styles.introDetailsTitle}>Explore CraftBot</span>
         </div>
 
         {/* Hero Split Card Banner Showcase */}
@@ -208,48 +213,71 @@ export function CraftBotIntroWidget() {
             className={styles.bannerScrollContainer}
             onScroll={handleScroll}
           >
-            {BANNERS.map((banner) => {
+            {CARDS.map((card) => {
+              const Icon = card.icon
+              const showItems = isEnlarged || isFourBlocks
+
               return (
-                <div key={banner.id} className={styles.heroBannerCard}>
-                  {/* Left Visual Side with Mascot */}
-                  <div className={styles.heroVisualSide}>
-                    <div className={styles.heroMascotBox} onClick={handleMascotClick}>
-                      <CraftBotMascot
-                        state={mascotState.state}
-                        size={isFourBlocks ? 64 : isEnlarged ? 52 : 40}
-                        reaction={reaction}
-                        beacon={beacon}
-                        completedCount={completedCount}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Right Content Side */}
+                <div
+                  key={card.id}
+                  className={`${styles.heroBannerCard} ${card.variant === 'vision' ? styles.visionCard : ''}`}
+                >
                   <div className={styles.heroContentSide}>
-                    <h3 className={styles.heroTitle}>{banner.title}</h3>
-                    <p className={styles.heroSubtitle}>{banner.subtitle}</p>
-
-                    {isFourBlocks ? (
-                      <ul className={styles.heroPointsList}>
-                        {banner.fourBlockPoints.map((pt, pIdx) => (
-                          <li key={pIdx}>
-                            <span className={styles.heroBullet} />
-                            <span>{pt}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : isEnlarged ? (
-                      <ul className={styles.heroPointsList}>
-                        {banner.extendedPoints.map((pt, pIdx) => (
-                          <li key={pIdx}>
-                            <span className={styles.heroBullet} />
-                            <span>{pt}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className={styles.heroSimpleDesc}>{banner.simpleDesc}</p>
+                    {card.variant !== 'vision' && showItems && (
+                      <span className={styles.cardEyebrow}>
+                        <Icon size={12} />
+                        {card.categoryLabel}
+                      </span>
                     )}
+
+                    <h3 className={styles.heroTitle}>
+                      {card.variant === 'vision' && (
+                        <img
+                          src="/craftbot-favicon-32x32.png"
+                          alt=""
+                          className={styles.titleFavicon}
+                        />
+                      )}
+                      {card.title}
+                    </h3>
+                    {showItems && <p className={styles.heroSubtitle}>{card.subtitle}</p>}
+
+                    {card.variant === 'articles' && showItems ? (
+                      <div className={styles.articleList}>
+                        {card.items.slice(0, isFourBlocks ? 3 : 2).map((item) => (
+                          <a
+                            key={item.label}
+                            href={item.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.articleRow}
+                          >
+                            <span className={styles.articleTag}>{item.tag}</span>
+                            <span className={styles.articleTitle}>{item.label}</span>
+                          </a>
+                        ))}
+                      </div>
+                    ) : card.variant !== 'articles' && showItems ? (
+                      <div className={styles.chipRow}>
+                        {card.items.slice(0, isFourBlocks ? card.items.length : 5).map((item) => (
+                          <span key={item.label} className={styles.chip}>
+                            {item.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className={styles.heroSimpleDesc}>{card.desc}</p>
+                    )}
+
+                    <a
+                      href={card.cta.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.cardCta}
+                    >
+                      <span>{card.cta.label}</span>
+                      <ChevronRight size={13} />
+                    </a>
                   </div>
                 </div>
               )
@@ -260,9 +288,9 @@ export function CraftBotIntroWidget() {
         {/* Footer Row: Indicator Dots + craftbot.live Link */}
         <div className={styles.heroFooterRow}>
           <div className={styles.heroDotsGroup}>
-            {BANNERS.map((banner, idx) => (
+            {CARDS.map((card, idx) => (
               <button
-                key={banner.id}
+                key={card.id}
                 className={`${styles.heroDot} ${idx === currentBannerIndex ? styles.activeHeroDot : ''}`}
                 onClick={() => scrollToIndex(idx)}
                 aria-label={`Go to slide ${idx + 1}`}
@@ -294,7 +322,7 @@ export function CraftBotIntroWidget() {
         title="Click CraftBot!"
       >
         <CraftBotMascot
-          state={mascotState.state}
+          state={awakeMascotState}
           size={isFourBlocks ? 80 : isEnlarged ? 64 : 52}
           reaction={reaction}
           beacon={beacon}
@@ -305,19 +333,20 @@ export function CraftBotIntroWidget() {
       <div className={styles.compactSimpleContent}>
         <h4 className={styles.compactSimpleTitle}>Welcome to CraftBot</h4>
         <p className={styles.compactSimpleSubtitle}>
-          {isFourBlocks
-            ? 'Your Autonomous AI Agent Workspace & Living UI Platform'
-            : 'Autonomous Agent & Living UI Platform'}
+          One agent. Every kind of work.
         </p>
       </div>
 
-      <button
+      <Button
+        variant="primary"
+        size="sm"
+        icon={<ChevronRight size={14} />}
+        iconPosition="right"
         className={styles.compactLearnMoreBtn}
         onClick={() => setShowDetails(true)}
       >
-        <span>Learn More</span>
-        <ChevronRight size={14} />
-      </button>
+        Learn More
+      </Button>
     </div>
   )
 }
