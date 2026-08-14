@@ -8,7 +8,7 @@ the agent sees relevant memories in its event stream right next to the
 event that prompted the retrieval.
 
 Behaviour:
-- Runs `MemoryManager.retrieve()` with min_relevance=0.5.
+- Runs `MemoryManager.retrieve()` with the tuning.INJECT_* bounds.
 - If nothing passes the threshold, nothing is logged.
 - Otherwise emits one event with kind="relevant_memories" into the
   caller's event stream (per-task when session_id is provided, otherwise
@@ -24,12 +24,11 @@ from typing import Optional
 from agent_core.core.registry.memory import get_memory_manager_or_none
 from agent_core.core.registry.event_stream import get_event_stream_manager_or_none
 from agent_core.core.event_stream.event import EventType
+from agent_core.core.impl.memory.tuning import INJECT_MIN_RELEVANCE, INJECT_TOP_K
 from agent_core.utils.logger import logger
 
 
 _MEMORY_EVENT_KIND = "relevant_memories"
-_MIN_RELEVANCE = 0.5
-_TOP_K = 5
 
 
 def _is_memory_enabled() -> bool:
@@ -66,7 +65,7 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
 
     try:
         pointers = memory_manager.retrieve(
-            query, top_k=_TOP_K, min_relevance=_MIN_RELEVANCE
+            query, top_k=INJECT_TOP_K, min_relevance=INJECT_MIN_RELEVANCE
         )
     except Exception as e:
         logger.warning(f"[MEMORY] inject_memory_event retrieval failed: {e}")

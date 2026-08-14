@@ -17,6 +17,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from aiohttp.client_exceptions import ClientConnectionResetError
 
+from agent_core.core.impl.memory.tuning import (
+    PROCESSING_THRESHOLD_DEFAULT,
+    SCHEDULE_HOUR_DEFAULT,
+    SCHEDULE_MINUTE_DEFAULT,
+)
 from agent_core.utils.logger import logger
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
@@ -5191,8 +5196,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": {
                         "success": True,
                         "schedule": {
-                            "hour": sched.hour if sched.hour is not None else 3,
-                            "minute": sched.minute or 0,
+                            "hour": (
+                                sched.hour
+                                if sched.hour is not None
+                                else SCHEDULE_HOUR_DEFAULT
+                            ),
+                            "minute": sched.minute or SCHEDULE_MINUTE_DEFAULT,
                         },
                         "threshold": get_memory_processing_threshold(),
                         "threshold_max": get_memory_processing_threshold_max(),
@@ -5217,10 +5226,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """
         try:
             agent = self._controller.agent
-            set_memory_processing_threshold(int(data.get("threshold", 25)))
+            set_memory_processing_threshold(
+                int(data.get("threshold", PROCESSING_THRESHOLD_DEFAULT))
+            )
             expr = memory_schedule_expression(
-                hour=int(data.get("hour", 3)),
-                minute=int(data.get("minute", 0)),
+                hour=int(data.get("hour", SCHEDULE_HOUR_DEFAULT)),
+                minute=int(data.get("minute", SCHEDULE_MINUTE_DEFAULT)),
             )
             agent.scheduler.update_schedule(
                 "memory-processing", schedule=expr, enabled=True

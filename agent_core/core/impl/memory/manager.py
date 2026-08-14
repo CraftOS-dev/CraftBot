@@ -38,62 +38,42 @@ from agent_core.core.impl.memory.graph import (
 )
 from agent_core.core.impl.memory.text_extract import extract_text, is_indexable_file
 
+# All numeric behavior constants live in tuning.py — the single typed home
+# of the memory system's magic numbers.
+from agent_core.core.impl.memory.tuning import (
+    CANDIDATE_POOL_FLOOR,
+    CANDIDATE_POOL_MULTIPLIER,
+    CHUNK_OVERLAP,
+    CHUNK_SIZE_LIMIT,
+    ENTITY_MATCH_MIN_SCORE,
+    GRAPH_ELIGIBILITY_SCORE,
+    HYBRID_WEIGHTS,
+    LOG_QUERY_MAX_CHARS,
+    LOG_SUMMARY_MAX_CHARS,
+    MERGED_SEEDS_MAX,
+    PREVIEW_LEAD,
+    PREVIEW_MAX_CHARS,
+    RECENCY_HALF_LIFE_DAYS,
+    RECENCY_MAX_BONUS,
+    RETRIEVE_MIN_RELEVANCE,
+    RETRIEVE_TOP_K,
+    SEMANTIC_SEEDS_MAX,
+)
+
 
 # Files that are flat lists of "[timestamp] [category] content" items.
 # These get per-item chunking so each fact has its own embedding, instead of
 # the whole list collapsing into a single section chunk under "## Memory".
 PER_ITEM_FILES = frozenset({"MEMORY.md", "EVENT_UNPROCESSED.md"})
 
-# Matches a memory item line. Tolerates both "/" and "-" date separators,
-# either "[YYYY-MM-DD HH:MM:SS]" (MEMORY.md) or "[YYYY/MM/DD HH:MM:SS]"
-# (EVENT_UNPROCESSED.md), and missing seconds — the memory-processor has
-# written "[YYYY-MM-DD HH:MM]" stamps too. Captures: timestamp, category,
-# content.
+# Matches a memory item line. The stamp is the canonical
+# "[YYYY-MM-DD HH:MM:SS]" — every writer emits exactly this form; lines with
+# any other stamp are invalid. The optional colon after the category bracket
+# is the EVENT_UNPROCESSED.md event-line separator ("[kind]: message").
+# Captures: timestamp, category, content.
 MEMORY_ITEM_LINE_RE = re.compile(
-    r"^\s*\[(\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
+    r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
 )
-
-# Hybrid-retrieval weights. Vector is the primary signal, BM25 backstops
-# proper nouns and dates, the graph channel boosts items connected to
-# entities mentioned in the query (including 2-hop neighbours the other
-# channels can miss entirely).
-HYBRID_WEIGHTS = {
-    "vector": 0.55,
-    "bm25": 0.30,
-    "graph": 0.15,
-}
-
-# A strongly graph-connected item is eligible even when its combined score
-# sits below min_relevance — this is what lets 2-hop related memories
-# surface despite sharing no words with the query.
-GRAPH_ELIGIBILITY_SCORE = 0.5
-
-# Minimum cosine similarity for the SEMANTIC entity match (graph channel).
-# The query is embedded and compared against each entity's name embedding;
-# below this a match is treated as noise. This is what resolves partial names
-# ("Tobias" → "Tobias Garcia") without hand-rolled token rules. The string
-# matcher still catches exact / all-token hits at full strength regardless.
-ENTITY_MATCH_MIN_SCORE = 0.6
-
-# Recency bonus: newest items get up to +RECENCY_MAX_BONUS, halving every
-# RECENCY_HALF_LIFE_DAYS. Small on purpose — recency is a tiebreaker, not
-# a ranking signal of its own.
-RECENCY_MAX_BONUS = 0.05
-RECENCY_HALF_LIFE_DAYS = 30.0
-
-# Query-aware preview window. The injected memory preview is centred on the
-# query match instead of the chunk's head, so the fact that made the chunk
-# relevant is not truncated away (a from-the-start summary once cut off
-# "Tobias Garcia" and the agent had to grep for it). PREVIEW_MAX_CHARS bounds
-# the snippet; PREVIEW_LEAD keeps a little context before the match.
-PREVIEW_MAX_CHARS = 180
-PREVIEW_LEAD = 40
-
-# Log-line preview limits. Keep multi-line queries and long summaries from
-# bleeding across log entries.
-_LOG_QUERY_MAX_CHARS = 300
-_LOG_SUMMARY_MAX_CHARS = 120
-
 
 def _log_preview(text: str, max_chars: int) -> str:
     """Collapse whitespace and truncate text for safe logging."""
@@ -257,8 +237,8 @@ class MemoryManager:
         self,
         agent_file_system_path: str = "./agent_file_system",
         chroma_path: str = "./chroma_db_memory",
-        chunk_size_limit: int = 1500,  # Max chars per chunk
-        chunk_overlap: int = 100,  # Overlap between chunks when splitting large sections
+        chunk_size_limit: int = CHUNK_SIZE_LIMIT,
+        chunk_overlap: int = CHUNK_OVERLAP,
         extra_files_provider: Optional[Callable[[], List[str]]] = None,
     ):
         """
@@ -288,9 +268,10 @@ class MemoryManager:
 
         # Build the embedding function. Default ChromaDB uses MiniLM-L6-v2
         # (weak — ~0.65 verbatim self-similarity). MEMORY_EMBEDDING_MODEL
-        # points to a stronger sentence-transformers model by default.
-        # Silent fallback to ChromaDB's bundled MiniLM if sentence-transformers
-        # isn't installed, so the system keeps working on minimal installs.
+        # points to a stronger sentence-transformers model by default; if it
+        # can't load, construction fails — retrieval thresholds are calibrated
+        # for the configured model, so running with a substitute is worse than
+        # not starting.
         # Stored so _clear_index can rebuild every collection with the SAME
         # embedding function — a force rebuild must not silently downgrade the
         # model (e.g. bge-small back to ChromaDB's default MiniLM).
@@ -381,11 +362,9 @@ class MemoryManager:
     def _build_embedding_function():
         """Construct ChromaDB's embedding function.
 
-        Honours the MEMORY_EMBEDDING_MODEL constant. Falls back to
-        ChromaDB's bundled default (ONNX all-MiniLM-L6-v2) silently when
-        sentence-transformers is missing or the model can't load — so
-        the agent never fails to start because of an embedding-model
-        installation issue.
+        Honours the MEMORY_EMBEDDING_MODEL constant. Every retrieval
+        threshold is calibrated for the configured model, so a load
+        failure raises instead of degrading to a different model.
         """
         if MEMORY_EMBEDDING_MODEL == "default":
             return None  # ChromaDB applies its bundled default
@@ -393,33 +372,22 @@ class MemoryManager:
             from chromadb.utils.embedding_functions import (
                 SentenceTransformerEmbeddingFunction,
             )
+        except ImportError as e:
+            raise RuntimeError(
+                "[MEMORY] sentence-transformers is required for the configured "
+                f"embedding model '{MEMORY_EMBEDDING_MODEL}'. Install with: "
+                "conda install -c conda-forge sentence-transformers"
+            ) from e
 
-            return SentenceTransformerEmbeddingFunction(
-                model_name=MEMORY_EMBEDDING_MODEL
-            )
-        except ImportError:
-            logger.warning(
-                "[MEMORY] sentence-transformers not installed — falling back "
-                "to ChromaDB's default MiniLM embeddings. Retrieval quality "
-                "will be poor. Install with: conda install -c conda-forge "
-                "sentence-transformers"
-            )
-            return None
-        except Exception as e:
-            logger.warning(
-                f"[MEMORY] Failed to load embedding model "
-                f"'{MEMORY_EMBEDDING_MODEL}' ({e}); falling back to ChromaDB "
-                f"default."
-            )
-            return None
+        return SentenceTransformerEmbeddingFunction(model_name=MEMORY_EMBEDDING_MODEL)
 
     # ───────────────────────────── Public API ─────────────────────────────
 
     def retrieve(
         self,
         query: str,
-        top_k: int = 5,
-        min_relevance: float = 0.55,
+        top_k: int = RETRIEVE_TOP_K,
+        min_relevance: float = RETRIEVE_MIN_RELEVANCE,
         file_filter: Optional[List[str]] = None,
         include_superseded: bool = False,
     ) -> List[MemoryPointer]:
@@ -462,7 +430,7 @@ class MemoryManager:
 
         # Cast a wider net than top_k so the hybrid re-rank has signal to work
         # with. ChromaDB and BM25 each return up to candidate_pool items.
-        candidate_pool = max(top_k * 4, 20)
+        candidate_pool = max(top_k * CANDIDATE_POOL_MULTIPLIER, CANDIDATE_POOL_FLOOR)
 
         where_filter = None
         if file_filter:
@@ -470,34 +438,30 @@ class MemoryManager:
 
         # Render single-line so multi-line queries don't bleed into the next
         # log entry. Full query is still passed to the retriever.
-        logger.info(f"[MEMORY QUERY] {_log_preview(query, _LOG_QUERY_MAX_CHARS)}")
+        logger.info(f"[MEMORY QUERY] {_log_preview(query, LOG_QUERY_MAX_CHARS)}")
 
         # ── Channel 1: vector similarity ──
         vector_hits: Dict[str, Dict[str, Any]] = {}
-        try:
-            results = self.collection.query(
-                query_texts=[query],
-                n_results=min(candidate_pool, collection_count),
-                where=where_filter,
-                include=["metadatas", "distances", "documents"],
-            )
-            ids = (results.get("ids") or [[]])[0]
-            metadatas = (results.get("metadatas") or [[]])[0]
-            distances = (results.get("distances") or [[]])[0]
-            documents = (results.get("documents") or [[]])[0]
-            for i, chunk_id in enumerate(ids):
-                meta = metadatas[i] if i < len(metadatas) else {}
-                distance = distances[i] if i < len(distances) else 1.0
-                vector_hits[chunk_id] = {
-                    "score": _cosine_distance_to_similarity(distance),
-                    "metadata": meta,
-                    # Kept for the query-aware preview snippet (built below).
-                    "document": documents[i] if i < len(documents) else "",
-                    "rank": i,
-                }
-        except Exception as e:
-            logger.error(f"Error querying ChromaDB: {e}")
-            # Continue — BM25 alone may still return useful results.
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=min(candidate_pool, collection_count),
+            where=where_filter,
+            include=["metadatas", "distances", "documents"],
+        )
+        ids = (results.get("ids") or [[]])[0]
+        metadatas = (results.get("metadatas") or [[]])[0]
+        distances = (results.get("distances") or [[]])[0]
+        documents = (results.get("documents") or [[]])[0]
+        for i, chunk_id in enumerate(ids):
+            meta = metadatas[i] if i < len(metadatas) else {}
+            distance = distances[i] if i < len(distances) else 1.0
+            vector_hits[chunk_id] = {
+                "score": _cosine_distance_to_similarity(distance),
+                "metadata": meta,
+                # Kept for the query-aware preview snippet (built below).
+                "document": documents[i] if i < len(documents) else "",
+                "rank": i,
+            }
 
         # ── Channel 2: BM25 keyword search ──
         self._ensure_bm25_built()
@@ -562,7 +526,6 @@ class MemoryManager:
 
         pointers: List[MemoryPointer] = []
 
-        w = HYBRID_WEIGHTS
         for chunk_id in candidate_ids:
             meta = (
                 vector_hits[chunk_id]["metadata"]
@@ -582,9 +545,9 @@ class MemoryManager:
             graph_score = graph_hits.get(chunk_id, 0.0)
 
             final = (
-                w["vector"] * vector_score
-                + w["bm25"] * bm25_score
-                + w["graph"] * graph_score
+                HYBRID_WEIGHTS.vector * vector_score
+                + HYBRID_WEIGHTS.bm25 * bm25_score
+                + HYBRID_WEIGHTS.graph * graph_score
                 + _recency_bonus(meta.get("timestamp", ""))
             )
 
@@ -636,7 +599,7 @@ class MemoryManager:
             logger.info(
                 f"[MEMORY RESULT]   #{i} score={p.relevance_score:.3f} "
                 f"file={p.file_path} section={p.section_path} "
-                f":: {_log_preview(p.summary, _LOG_SUMMARY_MAX_CHARS)}"
+                f":: {_log_preview(p.summary, LOG_SUMMARY_MAX_CHARS)}"
             )
         return pointers
 
@@ -738,7 +701,10 @@ class MemoryManager:
             logger.warning(f"[MEMORY] Failed to rebuild entity index: {e}")
 
     def _match_entities_semantic(
-        self, query: str, max_seeds: int = 5, min_score: float = ENTITY_MATCH_MIN_SCORE
+        self,
+        query: str,
+        max_seeds: int = SEMANTIC_SEEDS_MAX,
+        min_score: float = ENTITY_MATCH_MIN_SCORE,
     ) -> List[Tuple[str, float]]:
         """Resolve query → entities by NAME embedding similarity.
 
@@ -773,7 +739,7 @@ class MemoryManager:
 
     @staticmethod
     def _merge_entity_seeds(
-        *seed_lists: List[Tuple[str, float]], max_seeds: int = 8
+        *seed_lists: List[Tuple[str, float]], max_seeds: int = MERGED_SEEDS_MAX
     ) -> List[Tuple[str, float]]:
         """Union entity seeds keeping the strongest strength per entity."""
         best: Dict[str, float] = {}
@@ -1815,10 +1781,10 @@ def _recency_bonus(timestamp: str) -> float:
 
 
 def _normalize_timestamp(ts: str) -> str:
-    """Canonical 'YYYY-MM-DD HH:MM:SS', tolerant of '/'-dates, 'T', and
-    missing seconds. Delegates to the shared graph helper so item ids are
-    derived from the identical canonical form everywhere. Returns '' when
-    parsing fails; the timestamp feeds the recency bonus in retrieval.
+    """Validate against the canonical 'YYYY-MM-DD HH:MM:SS' stamp format.
+    Delegates to the shared graph helper so item ids are derived from the
+    identical canonical form everywhere. Returns '' when the stamp is
+    invalid; the timestamp feeds the recency bonus in retrieval.
     """
     from agent_core.core.impl.memory.graph import normalize_timestamp
 

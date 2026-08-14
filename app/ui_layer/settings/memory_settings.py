@@ -22,14 +22,25 @@ from agent_core.core.impl.memory.graph import (
     split_item_fields,
 )
 from agent_core.core.impl.memory.text_extract import is_indexable_file
+from agent_core.core.impl.memory.tuning import (
+    CANDIDATE_MAX_DEPTH,
+    CANDIDATE_MAX_RESULTS,
+    MEMORY_ITEM_WORD_LIMIT_DEFAULT,
+    MEMORY_MAX_ITEMS_DEFAULT,
+    MEMORY_PRUNE_TARGET_DEFAULT,
+    PROCESSING_THRESHOLD_DEFAULT,
+    PROCESSING_THRESHOLD_MAX,
+    SCHEDULE_HOUR_DEFAULT,
+    SCHEDULE_MINUTE_DEFAULT,
+)
 
 
-# Memory item regex pattern: [YYYY-MM-DD HH:MM(:SS)] [category] content
-# (seconds optional — historic items were stamped without them).
+# Memory item regex pattern: [YYYY-MM-DD HH:MM:SS] [category] content — the
+# canonical stamp format, the only one writers emit.
 # Content may carry structured tail fields ({entities: ...}, {superseded});
 # those are parsed out by _parse_memory_items via the shared graph helpers.
 MEMORY_ITEM_PATTERN = re.compile(
-    r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\]\s+\[([\w\-]+)\]\s+(.+)$"
+    r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+\[([\w\-]+)\]\s+(.+)$"
 )
 
 # Files that are always indexed (mirrors MemoryManager.INDEX_TARGET_FILES).
@@ -50,10 +61,6 @@ _CANDIDATE_EXCLUDE = {
     "TASK_HISTORY.md",
 }
 
-# Candidate scan bounds — keeps the picker responsive on large workspaces.
-_CANDIDATE_MAX_DEPTH = 3
-_CANDIDATE_MAX_RESULTS = 200
-
 # Directories never descended into during the candidate scan: dependency
 # trees and build output in the workspace can be enormous (and on Windows
 # can exceed MAX_PATH, which makes blind recursion raise).
@@ -68,17 +75,9 @@ _CANDIDATE_SKIP_DIRS = {
     "venv",
 }
 
-# Memory size and length thresholds — live-read from settings.json via the
+# Memory size and length thresholds are live-read from settings.json via the
 # getter functions below, so values can be tuned without a code change.
-# Defaults kick in only when a key is missing from settings.json.
-_MEMORY_MAX_ITEMS_DEFAULT = 200
-_MEMORY_PRUNE_TARGET_DEFAULT = 135
-_MEMORY_ITEM_WORD_LIMIT_DEFAULT = 150
-# Unprocessed-event count that fires processing immediately (threshold-driven),
-# instead of waiting for the scheduled sweep. 0 disables it (schedule only).
-_MEMORY_PROCESSING_THRESHOLD_DEFAULT = 25
-# Upper bound the threshold slider allows the user to set.
-_MEMORY_PROCESSING_THRESHOLD_MAX = 100
+# Defaults (tuning.py) kick in only when a key is missing from settings.json.
 
 # ─────────────────────────────────────────────────────────────────────
 # Memory Mode Control
@@ -129,13 +128,13 @@ def is_memory_enabled() -> bool:
 def get_memory_max_items() -> int:
     """Upper bound on MEMORY.md item count before pruning kicks in."""
     return int(
-        _load_settings().get("memory", {}).get("max_items", _MEMORY_MAX_ITEMS_DEFAULT)
+        _load_settings().get("memory", {}).get("max_items", MEMORY_MAX_ITEMS_DEFAULT)
     )
 
 
 def get_memory_processing_threshold_max() -> int:
     """Upper bound the threshold slider allows."""
-    return _MEMORY_PROCESSING_THRESHOLD_MAX
+    return PROCESSING_THRESHOLD_MAX
 
 
 def get_memory_processing_threshold() -> int:
@@ -143,15 +142,15 @@ def get_memory_processing_threshold() -> int:
     raw = int(
         _load_settings()
         .get("memory", {})
-        .get("processing_threshold", _MEMORY_PROCESSING_THRESHOLD_DEFAULT)
+        .get("processing_threshold", PROCESSING_THRESHOLD_DEFAULT)
     )
-    return max(0, min(_MEMORY_PROCESSING_THRESHOLD_MAX, raw))
+    return max(0, min(PROCESSING_THRESHOLD_MAX, raw))
 
 
 def set_memory_processing_threshold(value: int) -> bool:
     """Persist the threshold-driven processing count (clamped to [0, max])."""
     settings = _load_settings()
-    clamped = max(0, min(_MEMORY_PROCESSING_THRESHOLD_MAX, int(value)))
+    clamped = max(0, min(PROCESSING_THRESHOLD_MAX, int(value)))
     settings.setdefault("memory", {})["processing_threshold"] = clamped
     return _save_settings(settings)
 
@@ -207,7 +206,9 @@ def _time_phrase(hour: int, minute: int) -> str:
     return f"{hour12}{suffix}" if not minute else f"{hour12}:{minute:02d}{suffix}"
 
 
-def memory_schedule_expression(hour: int = 3, minute: int = 0) -> str:
+def memory_schedule_expression(
+    hour: int = SCHEDULE_HOUR_DEFAULT, minute: int = SCHEDULE_MINUTE_DEFAULT
+) -> str:
     """Build the daily memory-processing schedule expression.
 
     Auto-processing is daily by design; only the time of day is configurable.
@@ -220,7 +221,7 @@ def get_memory_prune_target() -> int:
     return int(
         _load_settings()
         .get("memory", {})
-        .get("prune_target", _MEMORY_PRUNE_TARGET_DEFAULT)
+        .get("prune_target", MEMORY_PRUNE_TARGET_DEFAULT)
     )
 
 
@@ -229,7 +230,7 @@ def get_memory_item_word_limit() -> int:
     return int(
         _load_settings()
         .get("memory", {})
-        .get("item_word_limit", _MEMORY_ITEM_WORD_LIMIT_DEFAULT)
+        .get("item_word_limit", MEMORY_ITEM_WORD_LIMIT_DEFAULT)
     )
 
 
@@ -732,7 +733,7 @@ def list_indexable_candidates() -> Dict[str, Any]:
         # deep paths can exceed MAX_PATH and raise mid-iteration).
         candidates: List[Dict[str, Any]] = []
         frontier: List[tuple] = [(root, 0)]
-        while frontier and len(candidates) < _CANDIDATE_MAX_RESULTS:
+        while frontier and len(candidates) < CANDIDATE_MAX_RESULTS:
             directory, depth = frontier.pop(0)
             try:
                 entries = sorted(directory.iterdir(), key=lambda p: p.name.lower())
@@ -742,7 +743,7 @@ def list_indexable_candidates() -> Dict[str, Any]:
                 try:
                     if entry.is_dir():
                         if (
-                            depth + 1 < _CANDIDATE_MAX_DEPTH
+                            depth + 1 < CANDIDATE_MAX_DEPTH
                             and entry.name not in _CANDIDATE_SKIP_DIRS
                             and not entry.name.startswith(".")
                         ):
@@ -754,7 +755,7 @@ def list_indexable_candidates() -> Dict[str, Any]:
                     if rel in core or rel in selected or entry.name in _CANDIDATE_EXCLUDE:
                         continue
                     candidates.append({"path": rel, "size": entry.stat().st_size})
-                    if len(candidates) >= _CANDIDATE_MAX_RESULTS:
+                    if len(candidates) >= CANDIDATE_MAX_RESULTS:
                         break
                 except OSError:
                     continue

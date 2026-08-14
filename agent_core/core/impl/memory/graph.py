@@ -66,6 +66,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+# All numeric behavior constants live in tuning.py — the single typed home
+# of the memory system's magic numbers.
+from agent_core.core.impl.memory.tuning import (
+    ENTITY_SEED_STRENGTH,
+    LABEL_PROPAGATION_ROUNDS,
+    SECOND_HOP_DECAY,
+    STRING_SEEDS_MAX,
+)
+
 # ───────────────────────────── Item grammar ─────────────────────────────
 
 # Marks an invalidated fact. The memory-processor appends this marker
@@ -89,31 +98,22 @@ _REGISTRY_SECTION_RE = re.compile(
     r"^\[([^\]]+)\]\s+\[([0-9a-fA-F]{6,40})\]\s+\[(.*)\]\s*(.*?)\s*$"
 )
 
-# BFS scoring: items directly attached to a seed entity score full seed
-# strength; items reached through one intermediate entity decay by this.
-_SECOND_HOP_DECAY = 0.45
-
-# Label propagation rounds. The graph is small (hundreds of nodes); label
-# propagation converges in a handful of rounds.
-_LABEL_PROPAGATION_ROUNDS = 10
 
 
 def normalize_timestamp(ts: str) -> str:
-    """Canonicalise an item timestamp to 'YYYY-MM-DD HH:MM:SS'.
+    """Validate an item timestamp against the canonical 'YYYY-MM-DD HH:MM:SS'.
 
-    Accepts '/' or '-' date separators, 'T' or space, and missing seconds
-    (the memory-processor has historically written both '03:00' and
-    '03:00:00'). Returns '' when unparseable. Every consumer that derives
-    an item id MUST go through this so the same line always hashes to the
-    same identity.
+    That is the ONLY stamp format; every writer emits it exactly. Returns
+    the stamp when valid, '' when it is not. Every consumer that derives an
+    item id MUST go through this so the same line always hashes to the same
+    identity.
     """
-    cleaned = (ts or "").replace("/", "-").replace("T", " ").strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(cleaned, fmt).strftime("%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            continue
-    return ""
+    cleaned = (ts or "").strip()
+    try:
+        datetime.strptime(cleaned, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
+    return cleaned
 
 
 def compute_item_id(timestamp: str, content: str) -> str:
@@ -519,7 +519,7 @@ class MemoryGraph:
         nodes = sorted(self._adjacency.keys())
         labels: Dict[str, int] = {key: i for i, key in enumerate(nodes)}
 
-        for _ in range(_LABEL_PROPAGATION_ROUNDS):
+        for _ in range(LABEL_PROPAGATION_ROUNDS):
             changed = False
             for key in nodes:
                 neighbour_labels = Counter(
@@ -557,11 +557,13 @@ class MemoryGraph:
 
     # ───────────────────────────── Retrieval ─────────────────────────────
 
-    def match_entities(self, query: str, max_seeds: int = 5) -> List[Tuple[str, float]]:
+    def match_entities(
+        self, query: str, max_seeds: int = STRING_SEEDS_MAX
+    ) -> List[Tuple[str, float]]:
         """Match query text against entity names.
 
-        Returns (entity_key, strength) pairs. Exact phrase presence scores
-        1.0; all name tokens present somewhere in the query scores 0.8.
+        Returns (entity_key, strength) pairs. Exact phrase presence and
+        all name tokens present both score ENTITY_SEED_STRENGTH.
         """
         if not query or not self.entities:
             return []
@@ -575,11 +577,11 @@ class MemoryGraph:
             if not name_norm:
                 continue
             if f" {name_norm} " in query_lower:
-                matches.append((key, 1.0))
+                matches.append((key, ENTITY_SEED_STRENGTH))
                 continue
             tokens = name_norm.split()
             if len(tokens) > 1 and all(t in query_tokens for t in tokens):
-                matches.append((key, 0.8))
+                matches.append((key, ENTITY_SEED_STRENGTH))
 
         matches.sort(key=lambda pair: (-pair[1], pair[0]))
         return matches[:max_seeds]
@@ -614,7 +616,7 @@ class MemoryGraph:
                     item = self.items.get(item_id)
                     if item is None or (item.superseded and not include_superseded):
                         continue
-                    hop_score = strength * _SECOND_HOP_DECAY
+                    hop_score = strength * SECOND_HOP_DECAY
                     scores[item_id] = max(scores.get(item_id, 0.0), hop_score)
         return scores
 

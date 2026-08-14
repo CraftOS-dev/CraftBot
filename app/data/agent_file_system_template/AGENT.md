@@ -866,7 +866,7 @@ Editing any of these triggers re-indexing via [agent_core/core/impl/memory/memor
 - Purpose: complete chronological event log. Append-only.
 - Write access: EventStreamManager. Hard rule: DO NOT edit.
 - Read pattern: `read_file` / `grep_files` for self-troubleshooting. See `## Errors` for log workflow.
-- Format: `[YYYY/MM/DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
+- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
 - Auto-rotated when size threshold is exceeded.
 
 ### EVENT_UNPROCESSED.md
