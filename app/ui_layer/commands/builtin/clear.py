@@ -24,6 +24,13 @@ class ClearCommand(Command):
     def description(self) -> str:
         return "Clear this session's conversation"
 
+    @property
+    def requires_session(self) -> bool:
+        # Operates on the session it was typed in. In a draft this commits a
+        # real session and navigates to it, so the "Conversation cleared."
+        # note lands in a live chat instead of leaving the draft stuck.
+        return True
+
     async def execute(
         self,
         args: List[str],
