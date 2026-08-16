@@ -16,16 +16,16 @@ export const coreTour: TourDefinition = {
       popover: {
         title: 'Welcome to CraftBot',
         description:
-          'One agent for every kind of work. Here is a quick tour of the essentials. It takes about a minute.',
+          'Here is a quick tour of the essentials. It takes about a minute.',
       },
     },
     {
       id: 'chat-composer',
       anchor: 'chat-composer',
       popover: {
-        title: 'Talk to your agent',
+        title: 'Talk to CraftBot',
         description:
-          'Type anything here: a question, a task, or a whole project. This is the main way you work with CraftBot.',
+          'Type anything here: a question, a task, attach files, or a whole project. Communicate with CraftBot like you would with human over text messages.',
         side: 'top',
         align: 'center',
       },
@@ -40,7 +40,7 @@ export const coreTour: TourDefinition = {
       popover: {
         title: 'Your Main chat',
         description:
-          "Main is the agent's home chat: it can't be deleted or renamed, and anything that happens on its own, like scheduled tasks or updates from connected apps, arrives here. Hover the info icon beside it for the details.",
+          "Main is the agent's home chat: it can't be deleted or renamed, and anything that happens on its own (like scheduled tasks or updates from connected apps) arrives here.",
         side: 'right',
         align: 'start',
       },
@@ -104,9 +104,9 @@ export const coreTour: TourDefinition = {
       anchor: 'nav-dashboard',
       env: ['closeLivingUIModal', 'ensureSidebarVisible'],
       popover: {
-        title: 'Your Dashboard',
+        title: 'CraftBot Dashboard',
         description:
-          'A live control room for your agent, tracking usage, activity, and system health.',
+          'A live control room for CraftBot, tracking usage, activity, and system health.',
         side: 'right',
         align: 'start',
       },
@@ -117,8 +117,8 @@ export const coreTour: TourDefinition = {
       anchor: 'nav-workspace',
       env: ['ensureSidebarVisible'],
       popover: {
-        title: 'Your workspace',
-        description: 'Browse the files your agent reads and writes, and upload your own.',
+        title: 'CraftBot workspace',
+        description: "CraftBot's dedicated file system. Browse the files your agent reads and writes, and upload your own.",
         side: 'right',
         align: 'start',
       },
@@ -130,7 +130,7 @@ export const coreTour: TourDefinition = {
       popover: {
         title: 'Settings',
         description:
-          'Configure everything about your agent here. A few areas worth knowing:',
+          'Configure your agent here. A few areas worth knowing:',
         side: 'right',
         align: 'start',
       },
@@ -169,7 +169,7 @@ export const coreTour: TourDefinition = {
       popover: {
         title: 'Integrations',
         description:
-          'Connect apps like Gmail, Calendar, and Drive so your agent can work across them.',
+          'Connect apps like Gmail, Calendar, and Notion so your agent can work across them.',
         side: 'right',
         align: 'center',
       },
@@ -181,7 +181,7 @@ export const coreTour: TourDefinition = {
       popover: {
         title: "You're all set",
         description:
-          'That is the tour. You can replay it any time from Settings, or the Welcome card on your Dashboard.',
+          'That is the end of this tour. Start giving CraftBot tasks to work for you.',
       },
     },
   ],
