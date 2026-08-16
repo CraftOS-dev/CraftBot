@@ -30,6 +30,7 @@ import {
 import { selectSessionActivity } from '../../store/selectors/activity'
 import { selectSessionBusy, selectSessionRunState } from '../../store/selectors/agent'
 import type { ActionItem, ChatMessage } from '../../types'
+import { tourAnchorProps } from '../../tour'
 import styles from './Chat.module.css'
 
 // Pending attachment type
@@ -1359,6 +1360,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          {...tourAnchorProps('chat-composer')}
         >
           {replyTarget && (
             <div className={styles.replyBar}>
@@ -1443,6 +1445,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 title="Attach and tools"
                 aria-label="Attach and tools"
                 aria-expanded={plusOpen}
+                {...tourAnchorProps('chat-plus')}
               >
                 {enhancing
                    ? <Loader2 size={18} className={styles.uploadingSpinner} />

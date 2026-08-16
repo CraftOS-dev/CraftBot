@@ -8,6 +8,7 @@ import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { LivingUIPage } from './pages/LivingUI'
 import { useWebSocket } from './contexts/WebSocketContext'
+import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
 
 // Forces LivingUIPage to remount per-project so useState initializers
@@ -74,19 +75,24 @@ function App() {
     return <OnboardingPage />
   }
 
+  // TourProvider wraps the ready app (past hard onboarding), so the first-run
+  // walkthrough can never collide with the onboarding wizard. It sits inside
+  // the router, so the tour can navigate between pages.
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
-        <Route path="/session/:id" element={<SessionChatRoute />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/screen" element={<ScreenPage />} />
-        <Route path="/workspace" element={<WorkspacePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    <TourProvider autoStartEnabled>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
+          <Route path="/session/:id" element={<SessionChatRoute />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/screen" element={<ScreenPage />} />
+          <Route path="/workspace" element={<WorkspacePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    </TourProvider>
   )
 }
 
