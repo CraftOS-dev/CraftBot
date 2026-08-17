@@ -194,6 +194,70 @@ def test_listener_runs_legacy_poll_loop_per_instance(monkeypatch):
     assert other._poll_offset == 0
 
 
+def test_attachment_updates_are_emitted_with_descriptor():
+    """Bot API media messages carry no 'text' (user text arrives as
+    'caption') — they must still reach the agent as normalized
+    PlatformMessage.attachments with the file_id the agent feeds to
+    download_file (PR #419 / attachment-reception plan). Service messages
+    with neither text nor media stay dropped."""
+    provider = TelegramBotProvider()
+    client = provider.build_client(dict(TELEGRAM_CRED), lambda c: None)
+
+    got = []
+
+    async def cb(msg):
+        got.append(msg)
+
+    client._message_callback = cb
+
+    envelope = {
+        "message_id": 56,
+        "date": 1755000000,
+        "chat": {"id": 1111, "type": "private", "first_name": "Ada"},
+        "from": {"id": 1111, "first_name": "Ada"},
+    }
+    photo = {
+        "update_id": 9,
+        "message": {
+            **envelope,
+            "caption": "look at this",
+            # PhotoSize list is ordered smallest -> largest
+            "photo": [{"file_id": "small"}, {"file_id": "big"}],
+        },
+    }
+    document = {
+        "update_id": 10,
+        "message": {
+            **envelope,
+            "document": {
+                "file_id": "doc1",
+                "file_name": "report.pdf",
+                "mime_type": "application/pdf",
+            },
+        },
+    }
+    service = {"update_id": 11, "message": {**envelope, "new_chat_title": "x"}}
+
+    run(client._process_update(photo))
+    run(client._process_update(document))
+    run(client._process_update(service))
+
+    assert [m.text for m in got] == ["look at this", ""]
+    assert [m.attachments for m in got] == [
+        [{"kind": "photo", "id": "big"}],
+        [
+            {
+                "kind": "document",
+                "id": "doc1",
+                "name": "report.pdf",
+                "mime": "application/pdf",
+            }
+        ],
+    ]
+    # Offset advanced past every update, including the dropped one.
+    assert client._poll_offset == 12
+
+
 def test_verify_token_mirrors_legacy_login(monkeypatch):
     provider = TelegramBotProvider()
     calls = []

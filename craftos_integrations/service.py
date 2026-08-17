@@ -56,9 +56,33 @@ async def send_message(
     return await client.send_message(recipient, text, **kwargs)
 
 
+def _v2_accounts(integration: str) -> List[Dict[str, str]]:
+    """Accounts from the multi-account AccountSet document, read-only.
+
+    Fresh v2 connects write only ``<id>.accounts.json`` (never the legacy
+    ``<id>.json``), so status readers must consult the account store too or
+    they report a connected platform as disconnected (PR #419)."""
+    try:
+        from .core.accounts import AccountSet
+        from .core.storage import FileCredentialStore
+
+        raw = FileCredentialStore().load(integration)
+        if not raw:
+            return []
+        account_set = AccountSet.from_dict(raw)
+        return [
+            {"display": record.alias or identity, "id": identity}
+            for identity, record in account_set.accounts.items()
+        ]
+    except Exception:
+        return []
+
+
 def is_connected(integration: str) -> bool:
-    """True if the integration has stored credentials."""
+    """True if the integration has stored credentials (either store)."""
     autoload_integrations()
+    if _v2_accounts(integration):
+        return True
     client = get_client(integration)
     if client is None:
         return False
@@ -69,12 +93,12 @@ def is_connected(integration: str) -> bool:
 
 
 def list_connected() -> List[str]:
-    """Names of platforms that currently have credentials."""
+    """Names of platforms that currently have credentials (either store)."""
     autoload_integrations()
     out: List[str] = []
     for pid, client in get_all_clients().items():
         try:
-            if client.has_credentials():
+            if _v2_accounts(pid) or client.has_credentials():
                 out.append(pid)
         except Exception:
             pass
@@ -283,14 +307,17 @@ async def get_integration_info(integration: str) -> Optional[Dict[str, Any]]:
         return None
     handler = get_handler(integration)
     connected = False
-    accounts: List[Dict[str, str]] = []
-    try:
-        _, status_msg = await handler.status()
-        if "Connected" in status_msg and "Not connected" not in status_msg:
-            connected = True
-            accounts = parse_status_accounts(status_msg)
-    except Exception:
-        pass
+    accounts: List[Dict[str, str]] = _v2_accounts(integration)
+    if accounts:
+        connected = True
+    else:
+        try:
+            _, status_msg = await handler.status()
+            if "Connected" in status_msg and "Not connected" not in status_msg:
+                connected = True
+                accounts = parse_status_accounts(status_msg)
+        except Exception:
+            pass
     metadata["connected"] = connected
     metadata["accounts"] = accounts
     return metadata

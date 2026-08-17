@@ -869,7 +869,10 @@ class AgentBase:
             return
         try:
             payload = trigger.payload or {}
-            lines: list[str] = []
+            # (line, details) pairs — details is the raw received body for
+            # integration messages (rendered as an expandable section in the
+            # chat bubble), "" for causes with nothing more to show.
+            lines: list[tuple[str, str]] = []
 
             # Non-user causes. A merged batch carries the structured list
             # built by _merge_triggers; an unmerged trigger describes itself.
@@ -889,7 +892,9 @@ class AgentBase:
                     continue
                 emoji, label = fmt
                 name = (cause.get("name") or "").strip()
-                lines.append(f"{emoji} {label}: {name}" if name else f"{emoji} {label}")
+                lines.append(
+                    (f"{emoji} {label}: {name}" if name else f"{emoji} {label}", "")
+                )
 
             # Integration messages: user-message entries that arrived from
             # an external platform (typed `platform` field set at ingest;
@@ -900,17 +905,25 @@ class AgentBase:
                     continue
                 who = (entry.get("contact_name") or "").strip()
                 suffix = f" from {who}" if who else ""
-                lines.append(f"📩 Incoming {plat} message{suffix}")
+                lines.append(
+                    (
+                        f"📩 Incoming {plat} message{suffix}",
+                        (entry.get("message_body") or "").strip(),
+                    )
+                )
 
             if not lines:
                 return
             from app.ui_layer.events import UIEvent, UIEventType
 
-            for line in lines:
+            for line, details in lines:
+                data = {"message": line}
+                if details:
+                    data["details"] = details
                 self.ui_controller.event_bus.emit(
                     UIEvent(
                         type=UIEventType.SYSTEM_MESSAGE,
-                        data={"message": line},
+                        data=data,
                         task_id=session_id,
                     )
                 )
@@ -2270,6 +2283,7 @@ class AgentBase:
                 # silent (their bubble is the announcement).
                 queued_entry["platform"] = platform
                 queued_entry["contact_name"] = payload.get("contact_name", "")
+                queued_entry["message_body"] = payload.get("message_body", "")
             trigger_payload = {
                 "platform": platform,
                 "user_message": stream_content,
@@ -2359,6 +2373,19 @@ class AgentBase:
             integration_type = payload.get("integrationType", "").lower()
             is_self_message = payload.get("is_self_message", False)
 
+            # Normalized attachments (PlatformMessage.attachments) become
+            # descriptor lines with retrieval hints — appended to the body,
+            # or standing in for it on media-only messages so they are no
+            # longer dropped (docs/plans/attachment-reception-plan.md).
+            from app.integrations import format_attachment_descriptors
+
+            att_lines = format_attachment_descriptors(
+                integration_type, payload.get("attachments")
+            )
+            if att_lines:
+                block = "\n".join(att_lines)
+                message_body = f"{message_body}\n{block}" if message_body else block
+
             if not message_body:
                 logger.warning(
                     f"[EXTERNAL] Empty message body from {source}, ignoring."
@@ -2432,6 +2459,9 @@ class AgentBase:
                     "contact_name": contact_name,
                     "channel_id": channel_id,
                     "channel_name": channel_name,
+                    # Raw body (no instruction wrapper) — surfaced as the
+                    # expandable details on the "📩 Incoming …" chat stub.
+                    "message_body": message_body,
                 }
             )
 

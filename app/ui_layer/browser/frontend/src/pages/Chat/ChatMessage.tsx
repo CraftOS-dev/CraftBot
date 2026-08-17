@@ -1,5 +1,5 @@
 import React, { memo, useState, useRef, useEffect, useMemo } from 'react'
-import { Copy, Check, Reply } from 'lucide-react'
+import { Copy, Check, Reply, ChevronRight } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -39,6 +39,9 @@ export const ChatMessageItem = memo(function ChatMessageItem({
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [copied, setCopied] = useState(false)
+  // Disclosure for message.details (e.g. the raw body of an incoming
+  // integration message behind the "📩 Incoming …" stub).
+  const [detailsExpanded, setDetailsExpanded] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
   // The selection is owned by the message prop (the single source of truth).
   // The ref is a one-shot guard to suppress double-dispatch between the click
@@ -118,6 +121,25 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         <div className={styles.messageContent}>
           <MarkdownContent content={userMessage} />
         </div>
+        {message.details && (
+          <div className={styles.messageDetails}>
+            <button
+              className={styles.detailsToggle}
+              onClick={() => setDetailsExpanded(v => !v)}
+              aria-expanded={detailsExpanded}
+              title={detailsExpanded ? 'Hide received message' : 'Show received message'}
+            >
+              <ChevronRight
+                size={14}
+                className={`${styles.detailsChevron} ${detailsExpanded ? styles.detailsChevronOpen : ''}`}
+              />
+              <span>{detailsExpanded ? 'Hide message' : 'Show message'}</span>
+            </button>
+            {detailsExpanded && (
+              <div className={styles.detailsBody}>{message.details}</div>
+            )}
+          </div>
+        )}
         {message.options && message.options.length > 0 && (
           <div className={styles.messageOptions}>
             {message.requiresChoice !== false && (
@@ -210,4 +232,5 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   prev.message.messageId === next.message.messageId
   && prev.message.optionSelected === next.message.optionSelected
   && prev.message.content === next.message.content
+  && prev.message.details === next.message.details
 )

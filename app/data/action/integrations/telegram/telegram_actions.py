@@ -2441,6 +2441,41 @@ async def search_telegram_user_contacts(input_data: dict) -> dict:
 
 
 @action(
+    name="download_telegram_user_media",
+    description=(
+        "Download the media of a Telegram user-account message (photo/"
+        "document/voice/video) to a local path. Use the chat_id and "
+        "message_id from the incoming message's attachment info."
+    ),
+    action_sets=["telegram_user"],
+    input_schema={
+        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "message_id": {
+            "type": "string",
+            "description": "Message ID holding the media.",
+            "example": "456",
+        },
+        "dest_path": {
+            "type": "string",
+            "description": "Local file or directory to save to.",
+            "example": "/path/to/save",
+        },
+    },
+    output_schema={"status": {"type": "string", "example": "success"}},
+)
+async def download_telegram_user_media(input_data: dict) -> dict:
+    from app.data.action.integrations._helpers import run_client
+
+    return await run_client(
+        "telegram_user",
+        "download_media",
+        chat_id=input_data["chat_id"],
+        message_id=input_data["message_id"],
+        dest_path=input_data["dest_path"],
+    )
+
+
+@action(
     name="get_telegram_user_account_info",
     description="Get account info via Telegram user account.",
     action_sets=["telegram_user"],

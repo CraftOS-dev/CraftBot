@@ -430,12 +430,55 @@ class DiscordClient(BasePlatformClient):
         except Exception:
             pass
 
+    @staticmethod
+    def _extract_attachments(d: dict) -> list:
+        """Normalize MESSAGE_CREATE attachments/embeds/stickers into
+        PlatformMessage.attachments. Discord attachments carry a direct CDN
+        ``url`` — no API round-trip needed to fetch the bytes."""
+        out: list = []
+        for att in d.get("attachments") or []:
+            if not isinstance(att, dict):
+                continue
+            mime = att.get("content_type", "") or ""
+            if mime.startswith("image/"):
+                kind = "photo"
+            elif mime.startswith("video/"):
+                kind = "video"
+            elif mime.startswith("audio/"):
+                kind = "audio"
+            else:
+                kind = "document"
+            entry: dict = {"kind": kind, "id": att.get("id", "")}
+            if att.get("filename"):
+                entry["name"] = att["filename"]
+            if mime:
+                entry["mime"] = mime
+            if att.get("size"):
+                entry["size"] = att["size"]
+            if att.get("url"):
+                entry["url"] = att["url"]
+            out.append(entry)
+        for emb in d.get("embeds") or []:
+            if not isinstance(emb, dict):
+                continue
+            extra = {k: emb[k] for k in ("title", "url") if emb.get(k)}
+            if extra:
+                out.append({"kind": "embed", "extra": extra})
+        for sticker in d.get("sticker_items") or []:
+            if isinstance(sticker, dict):
+                out.append(
+                    {"kind": "sticker", "id": sticker.get("id", ""), "name": sticker.get("name", "")}
+                )
+        return out
+
     async def _handle_message_create(self, d: dict) -> None:
         author = d.get("author", {})
         if author.get("id") == self._bot_user_id or author.get("bot"):
             return
         content = d.get("content", "")
-        if not content or not self._catchup_done:
+        attachments = self._extract_attachments(d)
+        # Attachment-only posts (file drop with no text) must not be dropped.
+        if (not content and not attachments) or not self._catchup_done:
             return
 
         # ----- Filter + classify -----
@@ -515,6 +558,7 @@ class DiscordClient(BasePlatformClient):
                     message_id=d.get("id", ""),
                     timestamp=ts,
                     raw={"guild_id": guild_id, "is_self_message": is_self_message},
+                    attachments=attachments,
                 )
             )
 

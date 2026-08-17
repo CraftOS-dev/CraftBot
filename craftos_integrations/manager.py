@@ -230,6 +230,7 @@ class ExternalCommsManager:
             "messageId": msg.message_id,
             "is_self_message": msg.raw.get("is_self_message", False),
             "raw": msg.raw,
+            "attachments": list(getattr(msg, "attachments", None) or []),
         }
         logger.info(
             f"[INTEGRATIONS] Received from {payload['source']}: "

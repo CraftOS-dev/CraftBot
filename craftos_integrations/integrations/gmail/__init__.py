@@ -264,15 +264,24 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         if not cfg.process_incoming:
             return
 
+        # format=full + a fields partial-response mask: returns headers,
+        # snippet, and ONLY the parts skeleton (filename/mimeType/
+        # attachmentId/size — no body data), staying ~1-3KB. Quota cost is
+        # flat regardless of format. Three explicit nesting levels cover
+        # mixed / mixed-inside-signed / one spare; a bare `payload/parts`
+        # selector would pull body.data too — keep the sub-selection.
+        _part_sel = "partId,mimeType,filename,body(attachmentId,size)"
         result = await arequest(
             "GET",
             f"{GMAIL_API_BASE}/users/me/messages/{msg_id}",
             headers=self._auth_header(),
             params=[
-                ("format", "metadata"),
-                ("metadataHeaders", "From"),
-                ("metadataHeaders", "Subject"),
-                ("metadataHeaders", "Date"),
+                ("format", "full"),
+                (
+                    "fields",
+                    "id,threadId,snippet,labelIds,historyId,payload(mimeType,headers,"
+                    f"parts({_part_sel},parts({_part_sel},parts({_part_sel}))))",
+                ),
             ],
             expected=(200,),
         )
@@ -310,6 +319,30 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
 
         text = f"Subject: {subject}\n{snippet}" if snippet else f"Subject: {subject}"
 
+        # Real attachments carry a non-empty filename + attachmentId
+        # (Gmail's own paperclip heuristic); nameless attachmentId parts
+        # are inline images. Same semantics get_email already reports.
+        attachments: list = []
+
+        def _collect(parts: Any) -> None:
+            for p in parts or []:
+                body = p.get("body") or {}
+                if body.get("attachmentId") and p.get("filename"):
+                    att: Dict[str, Any] = {
+                        "kind": "document",
+                        "id": body["attachmentId"],
+                        "name": p["filename"],
+                        "extra": {"message_id": msg_id},
+                    }
+                    if p.get("mimeType"):
+                        att["mime"] = p["mimeType"]
+                    if body.get("size"):
+                        att["size"] = body["size"]
+                    attachments.append(att)
+                _collect(p.get("parts"))
+
+        _collect(msg.get("payload", {}).get("parts"))
+
         if self._message_callback:
             await self._message_callback(
                 PlatformMessage(
@@ -321,6 +354,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                     message_id=msg_id,
                     timestamp=timestamp,
                     raw=msg,
+                    attachments=attachments,
                 )
             )
 

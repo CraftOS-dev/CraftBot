@@ -27,6 +27,123 @@ _listeners: Optional[Any] = None  # ListenerManager, built lazily in start_liste
 _listener_task: Optional[asyncio.Task] = None  # holds ListenerManager.start()'s run-loop
 
 
+# ── attachment descriptors ───────────────────────────────────────────────
+#
+# Listeners normalize non-text payloads into PlatformMessage.attachments
+# ({kind, id, name, mime, size, url, extra}); the host renders them as one
+# descriptor line each, with a retrieval hint naming the platform's
+# download ACTION so the agent knows how to fetch the bytes — see
+# docs/plans/attachment-reception-plan.md.
+
+# integration_type → hint builder. Returns "" when there is nothing to
+# fetch (metadata-only or inline `extra` kinds).
+_ATTACHMENT_HINTS: Dict[str, Any] = {
+    "telegram_bot": lambda att: (
+        f"retrieve with download_telegram_file(file_id={att['id']!r})"
+        if att.get("id")
+        else ""
+    ),
+    "telegram_user": lambda att: (
+        f"retrieve with download_telegram_user_media("
+        f"chat_id={att.get('extra', {}).get('chat_id', '')!r}, "
+        f"message_id={att['id']!r})"
+        if att.get("id")
+        else ""
+    ),
+    "whatsapp_web": lambda att: (
+        f"retrieve with download_whatsapp_message_media(message_id={att['id']!r})"
+        if att.get("id")
+        else ""
+    ),
+    "lark": lambda att: (
+        f"retrieve with download_lark_message_resource("
+        f"message_id={att.get('extra', {}).get('message_id', '')!r}, "
+        f"file_key={att['id']!r})"
+        if att.get("id")
+        else ""
+    ),
+    "discord": lambda att: (f"fetch directly from url {att['url']}" if att.get("url") else ""),
+    "slack": lambda att: (
+        f"retrieve with download_slack_file(file_id={att['id']!r})"
+        if att.get("id")
+        else ""
+    ),
+    "gmail": lambda att: (
+        f"retrieve with download_gmail_attachment("
+        f"message_id={att.get('extra', {}).get('message_id', '')!r}, "
+        f"attachment_id={att['id']!r})"
+        if att.get("id")
+        else ""
+    ),
+    "outlook": lambda att: (
+        f"retrieve with download_outlook_attachment("
+        f"message_id={att.get('extra', {}).get('message_id', '')!r}, "
+        f"attachment_id={att['id']!r})"
+        if att.get("id")
+        else ""
+    ),
+    "jira": lambda att: (
+        f"retrieve with download_jira_attachment(attachment_id={att['id']!r})"
+        if att.get("id")
+        else ""
+    ),
+}
+
+
+def _human_size(size: Any) -> str:
+    try:
+        n = float(size)
+    except (TypeError, ValueError):
+        return ""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f}{unit}" if unit == "B" else f"{n:.1f}{unit}"
+        n /= 1024
+    return ""
+
+
+def format_attachment_descriptors(
+    integration_type: str, attachments: Any
+) -> list[str]:
+    """Render normalized attachment dicts into `[Attachment: …]` lines.
+
+    Tolerant of junk entries — a malformed attachment yields no line
+    rather than an exception (listener input is platform data)."""
+    lines: list[str] = []
+    hint_fn = _ATTACHMENT_HINTS.get((integration_type or "").lower())
+    for att in attachments or []:
+        if not isinstance(att, dict) or not att.get("kind"):
+            continue
+        parts = [str(att["kind"])]
+        if att.get("name"):
+            parts.append(f'"{att["name"]}"')
+        meta = ", ".join(
+            p for p in (att.get("mime") or "", _human_size(att.get("size"))) if p
+        )
+        if meta:
+            parts.append(f"({meta})")
+        extra = att.get("extra")
+        if isinstance(extra, dict):
+            inline = ", ".join(
+                f"{k}={v}" for k, v in extra.items() if k not in ("chat_id", "message_id")
+            )
+            if inline:
+                parts.append(f"[{inline}]")
+        hint = ""
+        if hint_fn is not None:
+            try:
+                hint = hint_fn(att) or ""
+            except Exception:
+                hint = ""
+        if not hint and att.get("url"):
+            hint = f"url: {att['url']}"
+        line = f"[Attachment: {' '.join(parts)}"
+        if hint:
+            line += f" — {hint}"
+        lines.append(line + "]")
+    return lines
+
+
 def _legacy_filenames() -> Dict[str, str]:
     """Map provider id → the legacy single-account credential filename, read
     from the old handlers' IntegrationSpec so the two can never drift."""

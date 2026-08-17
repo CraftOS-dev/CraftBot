@@ -99,6 +99,135 @@ function buildClient() {
 const ownSentIds = new Set();
 let isReady = false;
 
+// msg.id._serialized can come back undefined when WhatsApp ships a build
+// ahead of whatsapp-web.js (observed live 2026-08-17: a self-chat photo
+// arrived with no id, so the agent had no handle for downloadMedia).
+// Rebuild it from the id parts — the serialized form IS
+// `${fromMe}_${remote}_${id}` — and log loudly when even that fails,
+// since an id-less media message cannot be downloaded later.
+function msgIdOf(msg) {
+  const mid = msg && msg.id;
+  if (!mid) return "";
+  if (mid._serialized) return mid._serialized;
+  const remote =
+    mid.remote && mid.remote._serialized ? mid.remote._serialized : mid.remote;
+  if (mid.id && remote !== undefined) {
+    const rebuilt = [mid.fromMe === true ? "true" : "false", String(remote), String(mid.id)].join("_");
+    log(`msg.id._serialized missing — rebuilt as ${rebuilt}`);
+    return rebuilt;
+  }
+  log("msg.id._serialized missing and could not be rebuilt — media download by id will not work for this message");
+  return "";
+}
+
+// getMessageById needs the exact serialized key WhatsApp uses internally.
+// A rebuilt id (msgIdOf fallback) can disagree on the `remote` component —
+// observed live 2026-08-17: a @lid self-chat photo rebuilt as
+// `true_…@lid_HASH` while the store key used a different remote, so
+// getMessageById returned nothing. The hash component is unique, so on a
+// miss, find the real key in the in-page message store (same
+// window.require pattern as leanUnreadChats) and retry with it.
+async function resolveMessage(messageId) {
+  let msg = null;
+  try {
+    msg = await client.getMessageById(messageId);
+  } catch (err) {
+    log(`getMessageById(${messageId}) threw: ${errStr(err)}`);
+  }
+  if (msg) return msg;
+  // Fallback that never touches id._serialized (broken store-wide on the
+  // builds where msgIdOf had to rebuild the id, so getMessageById — and
+  // any recovered "real" key — is unusable): fetch recent messages from
+  // the chat named inside the id and match on the raw unique hash.
+  const parts = String(messageId || "").split("_");
+  if (parts.length < 3) return null;
+  const hash = parts[parts.length - 1];
+  const chatId = parts.slice(1, parts.length - 1).join("_");
+  try {
+    const chat = await client.getChatById(chatId);
+    const recent = await chat.fetchMessages({ limit: 100 });
+    for (const m of recent) {
+      if (m.id && m.id.id === hash) {
+        log(`Resolved message ${hash} via fetchMessages fallback`);
+        return m;
+      }
+    }
+    log(`Message hash ${hash} not in the last ${recent.length} messages of ${chatId}`);
+  } catch (err) {
+    log(`fetchMessages fallback for ${chatId} failed: ${errStr(err)}`);
+  }
+  return null;
+}
+
+// In-page media download that never touches wwebjs's high-level message
+// APIs — getMessageById / fetchMessages / getChat are all broken when
+// WhatsApp's build outruns wwebjs (observed live 2026-08-17: minified "r"
+// errors from each). Same window.require pattern as leanUnreadChats,
+// which keeps working through the drift. Mirrors the body of wwebjs
+// Message.downloadMedia, but finds the message model by its unique id
+// hash instead of the (broken) serialized key.
+async function leanDownloadMedia(hash) {
+  return await client.pupPage.evaluate(async (h) => {
+    const coll = window
+      .require("WAWebMsgCollection")
+      .MsgCollection.getModelsArray();
+    let msg = null;
+    for (const m of coll) {
+      try {
+        if (m.id && m.id.id === h) { msg = m; break; }
+      } catch (_) { /* skip malformed models */ }
+    }
+    if (!msg) return { error: "message not in store (ask the sender to resend, or open the chat)" };
+    // Fresh media carries directPath/mediaKey/hashes on the model already —
+    // decrypt directly. msg.downloadMedia() (the re-fetch path for expired
+    // media) is itself drift-broken on this build ("addAnnotations"
+    // TypeError, 2026-08-17), so it is a last resort only.
+    if (!msg.directPath || !msg.mediaKey) {
+      try {
+        await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+      } catch (e1) {
+        try {
+          await msg.downloadMedia();
+        } catch (e2) {
+          return { error: `media not resolvable: ${(e2 && e2.message) || (e1 && e1.message) || "unknown"}` };
+        }
+      }
+      if (!msg.directPath || !msg.mediaKey) {
+        return { error: "message media has no directPath/mediaKey (expired or unsupported type)" };
+      }
+    }
+    const dm = window.require("WAWebDownloadManager").downloadManager;
+    // downloadQpl: WhatsApp's newer builds require a QPL (perf logger)
+    // object and call addAnnotations/addPoint on it — omitting it is the
+    // "reading 'addAnnotations'" TypeError (wwebjs PR #4010's fix).
+    const mockQpl = {
+      addAnnotations: function () { return this; },
+      addPoint: function () { return this; },
+    };
+    const buf = await dm.downloadAndMaybeDecrypt({
+      directPath: msg.directPath,
+      encFilehash: msg.encFilehash,
+      filehash: msg.filehash,
+      mediaKey: msg.mediaKey,
+      mediaKeyTimestamp: msg.mediaKeyTimestamp,
+      type: msg.type,
+      signal: new AbortController().signal,
+      downloadQpl: mockQpl,
+    });
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return {
+      data_b64: btoa(bin),
+      mimetype: msg.mimetype || "",
+      filename: msg.filename || "",
+    };
+  }, hash);
+}
+
 // Minified errors from inside WhatsApp Web's bundle carry messages like
 // "r" — useless alone. Always log the first stack frames too.
 function errStr(err) {
@@ -472,7 +601,7 @@ c.on("message", async (msg) => {
     const contact = await safeContact(msg);
 
     emitEvent("message", {
-      id: msg.id._serialized,
+      id: msgIdOf(msg),
       from: msg.from,
       to: msg.to,
       body: msg.body || "",
@@ -496,7 +625,7 @@ c.on("message_create", async (msg) => {
   if (!msg.fromMe) return;
 
   // Skip messages sent by us via the bridge
-  const msgId = msg.id?._serialized;
+  const msgId = msgIdOf(msg);
   if (msgId && ownSentIds.has(msgId)) {
     ownSentIds.delete(msgId);
     return;
@@ -531,7 +660,7 @@ c.on("message_create", async (msg) => {
     }
 
     emitEvent("message_sent", {
-      id: msg.id._serialized,
+      id: msgIdOf(msg),
       from: msg.from,
       to: msg.to,
       body: msg.body || "",
@@ -936,7 +1065,7 @@ async function handleCommand(line) {
 
       case "edit_message": {
         if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await client.getMessageById(args.message_id);
+        const msg = await resolveMessage(args.message_id);
         if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
         await msg.edit(args.new_body);
         emitResponse(id, { success: true, message_id: args.message_id });
@@ -945,7 +1074,7 @@ async function handleCommand(line) {
 
       case "delete_message": {
         if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await client.getMessageById(args.message_id);
+        const msg = await resolveMessage(args.message_id);
         if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
         await msg.delete(args.everyone === true);
         emitResponse(id, { success: true, message_id: args.message_id, deleted_for_everyone: args.everyone === true });
@@ -954,7 +1083,7 @@ async function handleCommand(line) {
 
       case "forward_message": {
         if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await client.getMessageById(args.message_id);
+        const msg = await resolveMessage(args.message_id);
         if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
         let chatId = args.to;
         if (!chatId.includes("@")) {
@@ -970,7 +1099,7 @@ async function handleCommand(line) {
 
       case "react_message": {
         if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await client.getMessageById(args.message_id);
+        const msg = await resolveMessage(args.message_id);
         if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
         await msg.react(args.emoji || "");  // empty string removes the reaction
         emitResponse(id, { success: true, message_id: args.message_id, emoji: args.emoji });
@@ -979,7 +1108,7 @@ async function handleCommand(line) {
 
       case "star_message": {
         if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await client.getMessageById(args.message_id);
+        const msg = await resolveMessage(args.message_id);
         if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
         if (args.starred === false) await msg.unstar(); else await msg.star();
         emitResponse(id, { success: true, message_id: args.message_id, starred: args.starred !== false });
@@ -988,23 +1117,53 @@ async function handleCommand(line) {
 
       case "download_message_media": {
         if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await client.getMessageById(args.message_id);
-        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
-        if (!msg.hasMedia) { emitResponse(id, { success: false, error: "Message has no media" }); return; }
-        const media = await msg.downloadMedia();
-        if (!media) { emitResponse(id, { success: false, error: "Media download failed" }); return; }
-        emitResponse(id, {
-          success: true,
-          mimetype: media.mimetype,
-          filename: media.filename || "",
-          data_b64: media.data,
-        });
+        // Preferred path: wwebjs high-level download.
+        const msg = await resolveMessage(args.message_id);
+        if (msg && msg.hasMedia) {
+          try {
+            const media = await msg.downloadMedia();
+            if (media) {
+              emitResponse(id, {
+                success: true,
+                mimetype: media.mimetype,
+                filename: media.filename || "",
+                data_b64: media.data,
+              });
+              break;
+            }
+          } catch (err) {
+            log(`downloadMedia failed, trying lean path: ${errStr(err)}`);
+          }
+        }
+        // Lean in-page path — survives wwebjs build drift.
+        const idParts = String(args.message_id || "").split("_");
+        const idHash = idParts.length >= 3 ? idParts[idParts.length - 1] : "";
+        if (!idHash) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        try {
+          const lean = await leanDownloadMedia(idHash);
+          if (lean && lean.data_b64) {
+            log(`Lean media download succeeded for ${idHash}`);
+            emitResponse(id, {
+              success: true,
+              mimetype: lean.mimetype,
+              filename: lean.filename,
+              data_b64: lean.data_b64,
+            });
+          } else {
+            const reason = (lean && lean.error) || "unknown";
+            log(`Lean media download failed for ${idHash}: ${reason}`);
+            emitResponse(id, { success: false, error: `Media download failed: ${reason}` });
+          }
+        } catch (err) {
+          log(`Lean media download threw for ${idHash}: ${errStr(err)}`);
+          emitResponse(id, { success: false, error: `Media download failed: ${errStr(err)}` });
+        }
         break;
       }
 
       case "get_quoted_message": {
         if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await client.getMessageById(args.message_id);
+        const msg = await resolveMessage(args.message_id);
         if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
         const quoted = await msg.getQuotedMessage();
         if (!quoted) { emitResponse(id, { success: true, quoted: null }); return; }

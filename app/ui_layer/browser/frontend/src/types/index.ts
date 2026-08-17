@@ -36,6 +36,7 @@ export interface ChatMessage {
   errorCode?: string  // Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY")
   errorSeverity?: 'info' | 'warning' | 'error' | 'critical'
   continueWork?: boolean  // True for a mid-run agent progress update (send_message continue_work=true): the run keeps going after this bubble, so it must NOT hide the "Working…" live row
+  details?: string  // Expandable payload behind a disclosure (e.g. the raw body of an incoming integration message on the "📩 Incoming …" system stub)
 }
 
 // ─────────────────────────────────────────────────────────────────────

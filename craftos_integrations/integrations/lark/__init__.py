@@ -302,6 +302,62 @@ class LarkClient(BasePlatformClient):
         self._dispatch_loop = None
         logger.info("[LARK] Stopped WebSocket listener")
 
+    # Lark message_type → (kind, content key holding the resource id,
+    # resource type for download_message_resource).
+    _MEDIA_TYPES = {
+        "image": ("photo", "image_key", "image"),
+        "file": ("document", "file_key", "file"),
+        "audio": ("audio", "file_key", "file"),
+        "media": ("video", "file_key", "file"),
+        "sticker": ("sticker", "file_key", "file"),
+    }
+
+    @classmethod
+    def _extract_attachments(
+        cls, msg_type: str, parsed: Any, message_id: str
+    ) -> list:
+        """Normalize Lark media content into PlatformMessage.attachments.
+        ``id`` is the image_key/file_key; fetching needs message_id +
+        resource_type too (download_message_resource), carried in extra."""
+        if not isinstance(parsed, dict):
+            return []
+        out: list = []
+        spec = cls._MEDIA_TYPES.get(msg_type)
+        if spec:
+            kind, key_field, rtype = spec
+            att: dict = {
+                "kind": kind,
+                "id": parsed.get(key_field, ""),
+                "extra": {"message_id": message_id, "resource_type": rtype},
+            }
+            if parsed.get("file_name"):
+                att["name"] = parsed["file_name"]
+            out.append(att)
+        elif msg_type == "post":
+            # Rich-text posts embed images as {"tag": "img", "image_key": …}
+            # nodes in nested content lists.
+            def _walk(node: Any) -> None:
+                if isinstance(node, dict):
+                    if node.get("image_key"):
+                        out.append(
+                            {
+                                "kind": "photo",
+                                "id": node["image_key"],
+                                "extra": {
+                                    "message_id": message_id,
+                                    "resource_type": "image",
+                                },
+                            }
+                        )
+                    for v in node.values():
+                        _walk(v)
+                elif isinstance(node, list):
+                    for item in node:
+                        _walk(item)
+
+            _walk(parsed)
+        return out
+
     async def _dispatch_message(self, msg: Any, sender: Any) -> None:
         """Convert a Lark P2ImMessageReceiveV1 event into a PlatformMessage."""
         if not self._listening or not self._message_callback:
@@ -320,17 +376,23 @@ class LarkClient(BasePlatformClient):
         # the raw JSON for now - agent decides what to do with them.
         msg_type = getattr(msg, "message_type", "") or ""
         raw_content = getattr(msg, "content", "") or ""
+        message_id = getattr(msg, "message_id", "") or ""
         text = ""
+        parsed: Any = {}
         try:
             parsed = json.loads(raw_content) if raw_content else {}
             if msg_type == "text":
                 text = parsed.get("text", "")
+            elif msg_type in self._MEDIA_TYPES:
+                # Pure media: attachments carry the payload; no raw-JSON body.
+                text = ""
             else:
-                text = raw_content  # surface raw JSON for non-text types
+                text = raw_content  # surface raw JSON for other non-text types
         except (json.JSONDecodeError, ValueError):
             text = raw_content
 
-        if not text:
+        attachments = self._extract_attachments(msg_type, parsed, message_id)
+        if not text and not attachments:
             return
 
         ts: Optional[datetime] = None
@@ -343,7 +405,6 @@ class LarkClient(BasePlatformClient):
             pass
 
         chat_id = getattr(msg, "chat_id", "") or ""
-        message_id = getattr(msg, "message_id", "") or ""
         chat_type = getattr(msg, "chat_type", "") or ""
 
         await self._message_callback(
@@ -356,6 +417,7 @@ class LarkClient(BasePlatformClient):
                 channel_name=f"Lark {chat_type}" if chat_type else "Lark",
                 message_id=message_id,
                 timestamp=ts,
+                attachments=attachments,
                 raw={
                     "source": "Lark",
                     "integrationType": "lark",

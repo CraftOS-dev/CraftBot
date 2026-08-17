@@ -1141,6 +1141,28 @@ def build_operations() -> List[Operation]:
             },
         ),
         client_op(
+            "download_slack_file",
+            "download_file",
+            description=(
+                "Download a Slack file's bytes to a local path. Requires the "
+                "files:read scope — returns a reconnect error if the token "
+                "predates it."
+            ),
+            tags=("slack_files", "slack"),
+            input_schema={
+                "file_id": {
+                    "type": "string",
+                    "description": "File ID.",
+                    "example": "F0123ABC",
+                },
+                "dest_path": {
+                    "type": "string",
+                    "description": "Local file or directory to save to.",
+                    "example": "/path/to/save",
+                },
+            },
+        ),
+        client_op(
             "delete_slack_file",
             "delete_file",
             description="Delete a Slack file. Irreversible.",

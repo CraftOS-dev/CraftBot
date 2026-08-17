@@ -265,6 +265,14 @@ class WhatsAppBridge:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            # A download_message_media response carries the media as one
+            # base64 JSON line — WhatsApp allows ~16MB media (~21MB b64),
+            # far past asyncio's 64KB default readline limit. Exceeding it
+            # kills the stdout reader mid-line and takes the whole bridge
+            # IPC down (observed live 2026-08-17: "Separator is not found,
+            # and chunk exceed the limit" right after a successful photo
+            # download).
+            limit=64 * 1024 * 1024,
         )
 
         self._running = True
@@ -699,7 +707,25 @@ class WhatsAppBridge:
     async def _read_stdout(self) -> None:
         try:
             while self._running and self._process and self._process.stdout:
-                line = await self._process.stdout.readline()
+                try:
+                    line = await self._process.stdout.readline()
+                except (asyncio.LimitOverrunError, ValueError) as e:
+                    # A single line exceeded the stream limit (huge media
+                    # response). Drain the oversized line in chunks rather
+                    # than letting the reader die and take the bridge IPC
+                    # down with it; the response is lost but the pipe
+                    # survives.
+                    logger.error(
+                        f"[WA-Bridge] Oversized stdout line dropped: {e}"
+                    )
+                    try:
+                        while True:
+                            chunk = await self._process.stdout.read(1024 * 1024)
+                            if not chunk or chunk.endswith(b"\n"):
+                                break
+                    except Exception:
+                        pass
+                    continue
                 if not line:
                     break
                 try:

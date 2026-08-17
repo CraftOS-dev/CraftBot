@@ -237,6 +237,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                         options=options,
                         option_selected=stored.option_selected,
                         continue_work=stored.continue_work,
+                        details=stored.details,
                     )
                 )
         except Exception:
@@ -281,6 +282,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                     session_id=message.session_id,
                     options=options_data,
                     continue_work=message.continue_work,
+                    details=message.details,
                 )
                 self._storage.insert_message(stored)
             except Exception:
@@ -379,6 +381,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                         options=options,
                         option_selected=s.option_selected,
                         continue_work=s.continue_work,
+                        details=s.details,
                     )
                 )
             return messages

@@ -26,7 +26,7 @@ except Exception:
 
 _ROW_COLUMNS = (
     "message_id, sender, content, style, timestamp, attachments, "
-    "session_id, options, option_selected, continue_work"
+    "session_id, options, option_selected, continue_work, details"
 )
 
 
@@ -47,6 +47,9 @@ class StoredChatMessage:
     # run kept going after this bubble. Persisted so a reload/reconnect
     # doesn't misread the bubble as a run-ending reply.
     continue_work: bool = False
+    # Expandable payload behind a disclosure (e.g. the raw body of an
+    # incoming integration message on the "📩 Incoming …" system stub).
+    details: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -66,6 +69,8 @@ class StoredChatMessage:
             result["optionSelected"] = self.option_selected
         if self.continue_work:
             result["continueWork"] = True
+        if self.details:
+            result["details"] = self.details
         return result
 
 
@@ -81,6 +86,7 @@ def _row_to_message(row) -> StoredChatMessage:
         options=json.loads(row[7]) if row[7] else None,
         option_selected=row[8],
         continue_work=bool(row[9]),
+        details=row[10],
     )
 
 
@@ -128,6 +134,7 @@ class ChatStorage:
                     options TEXT,
                     option_selected TEXT,
                     continue_work INTEGER NOT NULL DEFAULT 0,
+                    details TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -166,6 +173,8 @@ class ChatStorage:
                     "ALTER TABLE chat_messages ADD COLUMN continue_work "
                     "INTEGER NOT NULL DEFAULT 0"
                 )
+            if "details" not in columns:
+                cursor.execute("ALTER TABLE chat_messages ADD COLUMN details TEXT")
 
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_chat_session
@@ -189,8 +198,8 @@ class ChatStorage:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO chat_messages
-                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, details)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     message.message_id,
@@ -203,6 +212,7 @@ class ChatStorage:
                     json.dumps(message.options) if message.options else None,
                     message.option_selected,
                     1 if message.continue_work else 0,
+                    message.details,
                 ),
             )
             conn.commit()

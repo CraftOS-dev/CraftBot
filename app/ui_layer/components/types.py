@@ -103,6 +103,10 @@ class ChatMessage:
     # frontend must NOT treat it as the run-ending reply that hides the
     # "Working…" indicator.
     continue_work: bool = False
+    # Expandable payload rendered behind a disclosure under the bubble —
+    # e.g. the raw body of an incoming integration message on the
+    # "📩 Incoming …" system stub (PR #419).
+    details: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided; normalize session id."""
@@ -156,6 +160,8 @@ class ChatMessage:
             data["requiresChoice"] = self.requires_choice
         if self.continue_work:
             data["continueWork"] = True
+        if self.details:
+            data["details"] = self.details
         return data
 
 

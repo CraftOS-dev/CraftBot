@@ -824,6 +824,10 @@ class WhatsAppWebClient(BasePlatformClient):
                 f" to={data.get('to', '?')}"
                 f" self_chat={data.get('is_self_chat', 'n/a')}"
                 f" body_len={len(data.get('body', '') or '')}"
+                # id + type are load-bearing for attachment download —
+                # an id-less media message has no fetch handle (2026-08-17).
+                f" type={data.get('type', '?')}"
+                f" id={'yes' if data.get('id') else 'MISSING'}"
             )
         if event == "message":
             await self._handle_incoming_message(data)
@@ -833,6 +837,34 @@ class WhatsAppWebClient(BasePlatformClient):
             self._connected = False
         elif event == "ready":
             self._connected = True
+
+    # wwebjs message ``type`` → normalized attachment kind. Text messages
+    # are type "chat"; anything here is media fetchable by message_id via
+    # download_message_media (docs/plans/attachment-reception-plan.md).
+    _MEDIA_KINDS = {
+        "image": "photo",
+        "video": "video",
+        "audio": "audio",
+        "ptt": "voice",
+        "document": "document",
+        "sticker": "sticker",
+    }
+
+    @classmethod
+    def _extract_attachments(cls, data: Dict[str, Any]) -> list:
+        """Normalize a bridge message-event's media into
+        PlatformMessage.attachments. The bridge sends only ``type`` (+
+        ``has_media``) — name/mime/size arrive at download time, so the
+        message_id is the whole fetch handle."""
+        mtype = data.get("type", "")
+        kind = cls._MEDIA_KINDS.get(mtype)
+        if kind:
+            return [{"kind": kind, "id": data.get("id", "")}]
+        if mtype == "location":
+            return [{"kind": "location"}]
+        if mtype == "vcard":
+            return [{"kind": "contact"}]
+        return []
 
     async def _handle_incoming_message(self, data: Dict[str, Any]) -> None:
         if not self._listening or not self._message_callback:
@@ -863,7 +895,9 @@ class WhatsAppWebClient(BasePlatformClient):
             return
 
         body = data.get("body", "")
-        if not body:
+        attachments = self._extract_attachments(data)
+        # Media-only messages (no caption) must not be dropped.
+        if not body and not attachments:
             return
 
         chat = data.get("chat", {})
@@ -899,6 +933,7 @@ class WhatsAppWebClient(BasePlatformClient):
                 channel_name=chat_name,
                 message_id=msg_id,
                 timestamp=ts,
+                attachments=attachments,
                 raw={
                     "source": "WhatsApp Web",
                     "integrationType": "whatsapp_web",
@@ -935,7 +970,8 @@ class WhatsAppWebClient(BasePlatformClient):
             return
 
         body = data.get("body", "")
-        if not body or body.startswith(self._agent_prefix):
+        attachments = self._extract_attachments(data)
+        if (not body and not attachments) or body.startswith(self._agent_prefix):
             reason = "empty body" if not body else "agent echo (prefix match)"
             logger.info(f"[WhatsApp] sent-message dropped: {reason}")
             return
@@ -961,6 +997,7 @@ class WhatsAppWebClient(BasePlatformClient):
                 channel_name=chat_name,
                 message_id=msg_id,
                 timestamp=ts,
+                attachments=attachments,
                 raw={
                     "source": "WhatsApp Web",
                     "integrationType": "whatsapp_web",

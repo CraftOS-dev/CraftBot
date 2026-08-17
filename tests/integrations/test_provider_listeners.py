@@ -74,7 +74,24 @@ GMAIL_MESSAGE = {
             {"name": "From", "value": "Alice <alice@x.com>"},
             {"name": "Subject", "value": "Hi"},
             {"name": "Date", "value": "Tue, 11 Aug 2026 10:00:00 +0000"},
-        ]
+        ],
+        # fields-mask shape: parts skeleton only, no body.data. The
+        # nameless attachmentId part is an inline image — not reported.
+        "parts": [
+            {"partId": "0", "mimeType": "text/plain", "filename": "", "body": {"size": 20}},
+            {
+                "partId": "1",
+                "mimeType": "application/pdf",
+                "filename": "report.pdf",
+                "body": {"attachmentId": "att1", "size": 5000},
+            },
+            {
+                "partId": "2",
+                "mimeType": "image/png",
+                "filename": "",
+                "body": {"attachmentId": "inline1", "size": 300},
+            },
+        ],
     },
 }
 
@@ -144,6 +161,16 @@ class TestGmailListener:
                 "messageId": "m1",
                 "is_self_message": False,
                 "raw": GMAIL_MESSAGE,
+                "attachments": [
+                    {
+                        "kind": "document",
+                        "id": "att1",
+                        "name": "report.pdf",
+                        "mime": "application/pdf",
+                        "size": 5000,
+                        "extra": {"message_id": "m1"},
+                    }
+                ],
             }
         ]
         assert cursor == {"history_id": "101", "seen_ids": ["m1"]}
@@ -261,6 +288,7 @@ class TestOutlookListener:
                 "messageId": "om1",
                 "is_self_message": False,
                 "raw": OUTLOOK_MESSAGE,
+                "attachments": [],
             }
         ]
         # Watermark advanced to the newest receivedDateTime; dedup ids kept.
@@ -288,6 +316,49 @@ class TestOutlookListener:
         # The Graph query resumed from the persisted watermark, not "now".
         assert fake.last_filter == "receivedDateTime ge 2026-08-12T10:00:00Z"
         assert listener.cursor() == cursor
+
+    def test_attachments_listed_when_flagged(self, monkeypatch):
+        """hasAttachments=true triggers one metadata-only /attachments list;
+        entries land normalized in the payload (attachment-reception plan)."""
+        fake, provider, client = _outlook_setup(monkeypatch)
+        monkeypatch.setitem(OUTLOOK_MESSAGE, "hasAttachments", True)
+        monkeypatch.setattr(
+            outlook_mod.OutlookClient,
+            "list_attachments",
+            lambda self, mid: {
+                "ok": True,
+                "result": {
+                    "attachments": [
+                        {
+                            "id": "att-9",
+                            "name": "invoice.pdf",
+                            "contentType": "application/pdf",
+                            "size": 777,
+                            "is_inline": False,
+                        }
+                    ]
+                },
+            },
+        )
+        events, emit = collector()
+        listener = provider.make_listener(client, None, emit)
+
+        async def scenario():
+            await listener.start()
+            assert await wait_until(lambda: events)
+            await listener.stop()
+
+        run(scenario())
+        assert events[0]["attachments"] == [
+            {
+                "kind": "document",
+                "id": "att-9",
+                "name": "invoice.pdf",
+                "mime": "application/pdf",
+                "size": 777,
+                "extra": {"message_id": "om1"},
+            }
+        ]
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -376,6 +447,7 @@ class TestSlackListener:
                 "messageId": msg_ts,
                 "is_self_message": False,
                 "raw": message,
+                "attachments": [],
             }
         ]
         assert cursor == {"last_timestamps": {"C1": msg_ts}}
