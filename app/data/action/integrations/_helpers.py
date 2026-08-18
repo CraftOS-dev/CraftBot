@@ -526,14 +526,25 @@ async def list_integrations_merged_async() -> list:
 
 
 def list_integrations_merged() -> list:
-    """Sync wrapper for action/handler contexts with no running event loop."""
+    """Sync wrapper. Safe both off-loop (action/handler contexts) and on the
+    event-loop thread (metrics collector on the browser WS refresh path) —
+    the latter used to attempt a nested ``run_until_complete`` that always
+    raised and left dashboard integration counts empty."""
     import asyncio as _asyncio
 
-    loop = _asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(list_integrations_merged_async())
-    finally:
-        loop.close()
+        _asyncio.get_running_loop()
+    except RuntimeError:
+        loop = _asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(list_integrations_merged_async())
+        finally:
+            loop.close()
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_asyncio.run, list_integrations_merged_async()).result()
 
 
 def _v2_verify_slack_token(credentials: Dict[str, str]):

@@ -6513,6 +6513,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    def _notify_agent_integration_event(self, message: str) -> None:
+        """Record a UI-initiated integration change in the agent's event stream.
+
+        Connect/disconnect from the settings page happens outside any agent
+        run, so without this the agent keeps answering from stale connection
+        state until an action fails.
+        """
+        try:
+            from agent_core.core.event_stream.event import EventType
+
+            agent = self._controller.agent
+            if agent and agent.event_stream_manager:
+                agent.event_stream_manager.log(
+                    "system",
+                    message,
+                    event_type=EventType.SYSTEM,
+                    display_message=message,
+                    task_id="main",
+                )
+                agent.state_manager.bump_event_stream()
+        except Exception as e:
+            logger.debug(f"integration event-stream notify failed: {e}")
+
     async def _handle_integration_connect_token(
         self, integration_id: str, credentials: Dict[str, str]
     ) -> None:
@@ -6547,6 +6570,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             # Refresh the list on success (listener is started by connect_integration_token)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except Exception as e:
             await self._broadcast(
@@ -6598,6 +6625,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             # Refresh the list on success (listener is started by connect_integration_oauth)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except asyncio.CancelledError:
             # OAuth was cancelled by user closing the modal
@@ -6653,6 +6684,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             # Refresh the list on success (listener is started by connect_integration_interactive)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except asyncio.CancelledError:
             # Interactive flow was cancelled by user closing the modal
@@ -6739,9 +6774,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         }
                     )
                     if success:
+                        self._notify_agent_integration_event(
+                            f"User disconnected account '{account_id}' of "
+                            f"integration '{integration_id}' from the settings page."
+                        )
                         await self._handle_integration_list()
                     return
 
+                removed: list[str] = []
                 if system is not None:
                     # Disconnect-all: drop every account, then fall through
                     # to the legacy disconnect below for file cleanup.
@@ -6755,6 +6795,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                     integration_id,
                                     account.identity,
                                 )
+                                removed.append(account.identity)
                             except Exception as e:
                                 logger.warning(
                                     f"remove_account {integration_id}/"
@@ -6768,19 +6809,36 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 success, message = await disconnect_integration(
                     integration_id, account_id
                 )
+                # Removing the last account also deletes the legacy credential
+                # file, so the legacy logout above reports "no credentials
+                # found" — a legacy failure must never mask a successful
+                # account removal (mirrors _helpers.system_disconnect).
+                if removed:
+                    success = True
+                    message = (
+                        f"Disconnected {integration_id}: removed "
+                        f"{len(removed)} account(s) ({', '.join(removed)})"
+                    )
                 await self._broadcast(
                     {
                         "type": "integration_disconnect_result",
                         "data": {
                             "success": success,
                             "message": message,
+                            "error": None if success else message,
                             "id": integration_id,
                             "requestId": request_id,
                         },
                     }
                 )
                 if success:
-                    await self._handle_integration_list()
+                    self._notify_agent_integration_event(
+                        f"User disconnected integration '{integration_id}' "
+                        f"(all accounts) from the settings page."
+                    )
+                # Always reconcile the list — the frontend flipped the row
+                # optimistically and needs the authoritative state either way.
+                await self._handle_integration_list()
             except Exception as e:
                 await self._broadcast(
                     {

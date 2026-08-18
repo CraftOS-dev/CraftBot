@@ -34,10 +34,21 @@ from agent_core import action
 def send_discord_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
+    # Tolerate the generic "to" shape other messaging actions use
+    # (e.g. "channel:123..."), instead of KeyError-ing on channel_id.
+    channel_id = input_data.get("channel_id") or ""
+    if not channel_id:
+        to = str(input_data.get("to") or "")
+        channel_id = to.split(":", 1)[1] if to.startswith("channel:") else to
+    if not channel_id:
+        return {
+            "status": "error",
+            "message": "Missing 'channel_id'. Provide the Discord channel ID to send to.",
+        }
     return run_client_sync(
         "discord",
         "bot_send_message",
-        channel_id=input_data["channel_id"],
+        channel_id=channel_id,
         content=input_data["content"],
         reply_to=input_data.get("reply_to") or None,
     )

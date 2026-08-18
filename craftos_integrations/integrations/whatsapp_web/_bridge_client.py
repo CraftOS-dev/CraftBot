@@ -688,20 +688,47 @@ class WhatsAppBridge:
         original_callback = self._event_callback
 
         async def intercept_callback(event: str, data: dict):
-            if event in ("qr", "ready") and result["type"] is None:
-                result["type"] = event
-                result["data"] = data
-                event_received.set()
+            if result["type"] is None:
+                if event in ("qr", "ready"):
+                    result["type"] = event
+                    result["data"] = data
+                    event_received.set()
+                elif event == "auth_failure" or (
+                    event == "error" and (data or {}).get("fatal")
+                ):
+                    # The bridge already diagnosed its own failure — surface
+                    # it instead of burning the full timeout.
+                    result["type"] = "error"
+                    result["data"] = data
+                    event_received.set()
             if original_callback:
                 await original_callback(event, data)
 
+        async def watch_exit():
+            proc = self._process
+            if proc is None:
+                return
+            await proc.wait()
+            if result["type"] is None:
+                result["type"] = "error"
+                result["data"] = {
+                    "message": (
+                        f"WhatsApp bridge exited (code {proc.returncode}) "
+                        "before producing a QR code — check the "
+                        "[WA-Bridge:node] lines in the logs."
+                    )
+                }
+                event_received.set()
+
         self._event_callback = intercept_callback
+        exit_task = asyncio.create_task(watch_exit())
         try:
             await asyncio.wait_for(event_received.wait(), timeout=timeout)
             return result["type"], result["data"]
         except asyncio.TimeoutError:
             return "timeout", None
         finally:
+            exit_task.cancel()
             self._event_callback = original_callback
 
     async def _read_stdout(self) -> None:

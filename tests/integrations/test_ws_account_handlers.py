@@ -398,7 +398,15 @@ def test_accounts_add_exception_keeps_real_accounts_when_available(system):
 # ── integration_disconnect: system routing + legacy fallthrough ──────────────
 
 
-def _patch_legacy_disconnect(monkeypatch, calls, result=(True, "Disconnected")):
+def _patch_legacy_disconnect(
+    monkeypatch,
+    calls,
+    # Production reality: by the time the legacy disconnect runs, removing the
+    # last v2 account already deleted the legacy credential file, so legacy
+    # logout reports "no credentials found". Success must come from the
+    # account removal, not this tuple.
+    result=(False, "No credentials found."),
+):
     async def fake_disconnect(integration_id, account_id=None):
         calls.append((integration_id, account_id))
         return result
@@ -463,7 +471,8 @@ def test_disconnect_all_v2_falls_through_to_legacy(system, monkeypatch):
 def test_disconnect_non_v2_unchanged(system, monkeypatch):
     adapter, sent = make_adapter()
     legacy_calls: List[Tuple[str, Optional[str]]] = []
-    _patch_legacy_disconnect(monkeypatch, legacy_calls)
+    # Non-v2 path: the legacy credential file still exists, so logout succeeds.
+    _patch_legacy_disconnect(monkeypatch, legacy_calls, result=(True, "Disconnected"))
 
     async def scenario():
         await adapter._handle_integration_disconnect("jira", "acct-1", "req-d4")

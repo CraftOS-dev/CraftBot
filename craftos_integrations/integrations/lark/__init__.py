@@ -275,6 +275,19 @@ class LarkClient(BasePlatformClient):
 
         def _run_ws() -> None:
             try:
+                # lark_oapi captures ``asyncio.get_event_loop()`` as a module
+                # global at import time. The import above ran inside a
+                # coroutine, so that global IS the app's running loop — and
+                # the SDK drives its ``loop`` global from THIS thread via
+                # run_until_complete()/create_task(). If it wins the race it
+                # takes over (then kills) the host loop: the process dies and
+                # the browser sees ERR_CONNECTION_REFUSED on refresh. Hand
+                # the SDK a loop owned by this thread before start().
+                import lark_oapi.ws.client as _sdk_ws
+
+                sdk_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(sdk_loop)
+                _sdk_ws.loop = sdk_loop
                 self._ws_client.start()
             except Exception as e:
                 logger.error(f"[LARK] WS client crashed: {e}")

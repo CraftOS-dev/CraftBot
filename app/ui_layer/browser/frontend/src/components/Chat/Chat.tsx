@@ -436,10 +436,41 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     !lastDisplayRow.message.continueWork
   const tailIsUserMessage =
     lastDisplayRow?.kind === 'message' && lastDisplayRow.message.style === 'user'
+
+  // The tail-is-user-message hold exists to bridge two SHORT gaps — send →
+  // session_busy(true), and session_busy(false) → reply bubble. A run that
+  // ends silently (end_turn with no reply bubble) never delivers the bubble,
+  // so an unbounded hold left "Working…" up forever (even across refreshes,
+  // since the replayed tail is still the user's message). Bound it with a
+  // grace timer re-armed on each gap-opening edge.
+  const [liveRowGrace, setLiveRowGrace] = useState(false)
+  const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const armLiveRowGrace = useCallback(() => {
+    if (graceTimerRef.current) clearTimeout(graceTimerRef.current)
+    setLiveRowGrace(true)
+    graceTimerRef.current = setTimeout(() => setLiveRowGrace(false), 5000)
+  }, [])
+  const tailUserMessageId =
+    lastDisplayRow?.kind === 'message' && lastDisplayRow.message.style === 'user'
+      ? lastDisplayRow.message.messageId
+      : null
+  useEffect(() => {
+    if (tailUserMessageId) armLiveRowGrace()
+  }, [tailUserMessageId, armLiveRowGrace])
+  const prevBusyRef = useRef(busy)
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current
+    prevBusyRef.current = busy
+    if (wasBusy && !busy) armLiveRowGrace()
+  }, [busy, armLiveRowGrace])
+  useEffect(() => () => {
+    if (graceTimerRef.current) clearTimeout(graceTimerRef.current)
+  }, [])
+
   const showLiveRowEffective =
     connected &&
     (!isDraft || messages.length > 0) &&
-    (busy || tailIsUserMessage) &&
+    (busy || (tailIsUserMessage && liveRowGrace)) &&
     !tailIsFinalAgentBubble &&
     (!tailChunk || tailChunk.expanded)
   const rowCount = displayRows.length + (showLiveRowEffective ? 1 : 0)

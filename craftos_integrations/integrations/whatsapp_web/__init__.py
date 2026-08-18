@@ -196,6 +196,10 @@ class WhatsAppWebHandler(IntegrationHandler):
             display = owner_phone or owner_name or "connected"
             return True, f"WhatsApp Web connected: +{display}"
 
+        if event_type == "error":
+            detail = (event_data or {}).get("message") or "unknown bridge error"
+            return False, f"WhatsApp bridge failed to start: {detail}"
+
         return (
             False,
             "Timed out waiting for WhatsApp bridge. Run /whatsapp_web login again.",
@@ -1216,6 +1220,13 @@ async def start_qr_session() -> Dict[str, Any]:
             }
 
         await discard_pending_bridge(session_id)
+        if event_type == "error":
+            detail = (event_data or {}).get("message") or "unknown bridge error"
+            return {
+                "success": False,
+                "status": "error",
+                "message": f"WhatsApp bridge failed to start: {detail}",
+            }
         return {
             "success": False,
             "status": "error",

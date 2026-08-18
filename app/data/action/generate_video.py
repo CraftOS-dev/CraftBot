@@ -197,6 +197,8 @@ def generate_video(input_data: dict) -> dict:
         from app.config import get_video_gen_model
 
         if effective_provider != configured_provider:
+            from agent_core.utils.logger import logger
+
             logger.info(
                 f"[VIDEO_GEN] Configured provider '{configured_provider}' can't generate "
                 f"videos; falling back to '{effective_provider}' (has a configured key)."
