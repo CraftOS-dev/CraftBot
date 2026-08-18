@@ -58,6 +58,7 @@ from app.ui_layer.settings import (
     test_connection,
     validate_can_save,
     get_ollama_models,
+    get_provider_models,
     # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok)
     complete_subscription,
     connect_subscription_async,
@@ -1485,6 +1486,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "ollama_models_get":
             base_url = data.get("baseUrl")
             await self._handle_ollama_models_get(base_url)
+
+        elif msg_type == "provider_models_get":
+            await self._handle_provider_models_get(
+                provider=data.get("provider", ""),
+                base_url=data.get("baseUrl"),
+                api_key=data.get("apiKey"),
+            )
 
         elif msg_type == "openrouter_models_get":
             await self._handle_openrouter_models_get(
@@ -5461,6 +5469,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "ollama_models_get",
+                    "data": {"success": False, "models": [], "error": str(e)},
+                }
+            )
+
+    async def _handle_provider_models_get(
+        self,
+        provider: str,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> None:
+        """Fetch a provider's models via GET /v1/models and broadcast them.
+
+        Wire-generic sibling of _handle_ollama_models_get; drives the model
+        dropdown for the new cloud + local providers. Runs the blocking HTTP
+        call off the event loop.
+        """
+        try:
+            result = await asyncio.to_thread(
+                get_provider_models, provider, base_url, api_key
+            )
+            await self._broadcast({"type": "provider_models_get", "data": result})
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "provider_models_get",
                     "data": {"success": False, "models": [], "error": str(e)},
                 }
             )

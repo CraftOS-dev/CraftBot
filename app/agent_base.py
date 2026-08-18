@@ -3247,6 +3247,40 @@ class AgentBase:
                 lambda new_settings, old_settings: invalidate_settings_cache()
             )
 
+            # Reinitialize the live LLM/VLM when the model section changes, so
+            # editing settings.json alone (e.g. the agent's own stream_edit, or
+            # a hand edit) switches provider/model WITHOUT /provider, the
+            # Settings UI, or a restart. The interface holds its client from
+            # construction; only reinitialize_llm() rebuilds it. Registered
+            # AFTER the cache-invalidation callback above so the getters that
+            # reinitialize_llm() reads (api key, base URL, vlm/model) already
+            # return fresh values.
+            def _reinit_llm_on_model_change(new_settings, old_settings):
+                try:
+                    old_model = (old_settings or {}).get("model", {}) or {}
+                    new_model = (new_settings or {}).get("model", {}) or {}
+                    watched = (
+                        "llm_provider",
+                        "llm_model",
+                        "vlm_provider",
+                        "vlm_model",
+                    )
+                    if any(old_model.get(k) != new_model.get(k) for k in watched):
+                        new_provider = new_model.get("llm_provider")
+                        logger.info(
+                            "[CONFIG_WATCHER] model config changed "
+                            f"(llm_provider={new_provider}); reinitializing "
+                            "live LLM/VLM"
+                        )
+                        self.reinitialize_llm(new_provider)
+                except Exception as exc:
+                    logger.warning(
+                        "[CONFIG_WATCHER] LLM reinit on settings change "
+                        f"failed: {exc}"
+                    )
+
+            settings_manager.register_reload_callback(_reinit_llm_on_model_change)
+
             # Get event loop for async callbacks
             event_loop = asyncio.get_event_loop()
 

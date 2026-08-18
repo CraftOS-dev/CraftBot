@@ -108,6 +108,7 @@ from app.ui_layer.settings.model_settings import (
     test_connection,
     validate_can_save,
     get_ollama_models,
+    get_provider_models,
 )
 
 # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok). Anthropic is excluded
@@ -204,6 +205,7 @@ __all__ = [
     "test_connection",
     "validate_can_save",
     "get_ollama_models",
+    "get_provider_models",
     # Subscription OAuth
     "connect_subscription",
     "connect_subscription_async",

@@ -9,7 +9,11 @@ UI session — runs the same selection call.
 
 # The one action-selection prompt for session turns.
 # core.impl.action.router.ActionRouter.select_action_in_session
-# KV CACHING OPTIMIZED: Static content FIRST, session-static in MIDDLE, dynamic (event_stream) LAST
+# KV CACHING OPTIMIZED: the cacheable prefix runs static content FIRST, then
+# session-static, then the append-only {event_stream}. The only truly per-turn
+# volatile block, {current_turn}/{query}, goes LAST so it never sits in front
+# of the growing stream and cap the cache. (The trigger is already written into
+# the event stream at claim time, so {query} here is a redundant restatement.)
 SELECT_ACTION_PROMPT = """
 <rules>
 You are running one turn of a persistent session. A "run" starts when input
@@ -235,20 +239,20 @@ This is the list of action candidates, each including descriptions and input sch
 
 {session_state}
 
+---
+
+{event_stream}
+
 <current_turn>
 This run woke up because of the following trigger:
 {query}
 
-The trigger is the reason for this turn — not the whole picture. Your
+The trigger is the reason for this turn, not the whole picture. Your
 objective lives in the session itself: the conversation and events in the
 stream, your todos, and any requirements you have set. Reason about the
 session's current state, then select the next action(s) and provide the
 input parameters so they can be executed immediately.
 </current_turn>
-
----
-
-{event_stream}
 
 {integration_essentials}
 """
