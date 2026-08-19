@@ -1,6 +1,6 @@
 # Managing apps
 
-A delivered Living UI is a live application with your real data in it. Everything that happens to it afterward falls into two categories with very different mechanics: **operating** (data and verb calls through the [A2App protocol](a2app-protocol.md): instant, no rebuild) and **evolving** (code and schema changes, which go through a staging copy and full re-verification before they touch the live app). This page covers both, plus restarting, importing, converting foreign apps, the marketplace, and multi-agent use.
+A delivered Living UI is a live application with your real data in it. Everything that happens to it afterward falls into two categories with very different mechanics: **operating** (data and verb calls through the [A2App protocol](a2app-protocol.md): instant, no rebuild) and **evolving** (code and schema changes, which go through a dev environment and full re-verification before they touch the live app). This page covers both, plus restarting, importing, converting foreign apps, the marketplace, and multi-agent use.
 
 ## Operate or evolve
 
@@ -11,7 +11,7 @@ The agent decides which category a request is, per request; nothing is routed in
 | "add a todo for tomorrow" | Operate | One validated write. Seconds |
 | "clear all the done items" | Operate | One declared operation, confirmed first if marked destructive |
 | "summarise this week's entries" | Operate | Reads plus (if the app declares one) an operation |
-| "add a priority filter to the board" | Evolve | Staging copy, code, validation gate, browser verification, then live |
+| "add a priority filter to the board" | Evolve | Dev environment, code, validation gate, browser verification, then promote |
 
 The boundary is enforced, not just encouraged. Getting it wrong used to be expensive: a data write that triggers the build machinery rebuilds a live app and drives a browser over your real records. Build skills therefore load **per run**, chosen by the agent from the request, and a plain write never touches them.
 
@@ -45,16 +45,16 @@ Code changes to a delivered app never touch it directly:
 
 ```mermaid
 flowchart LR
-    REQ["Change request"] --> STG["Staging copy<br/><i>cloned data, hidden port</i>"]
+    REQ["Change request"] --> STG["Dev environment<br/><i>fresh schema-only DB, hidden port</i>"]
     STG --> CODE["Agent edits code<br/><i>+ appends to requirements.md</i>"]
     CODE --> GATE["Validation gate"] --> WV["walk_verify<br/><i>headless browser</i>"]
-    WV -->|pass| FLIP["Staging flips live"]
+    WV -->|pass| FLIP["Promote: live boots the new code"]
     WV -.->|defects| CODE
 ```
 
-- The agent loads a build skill for the run, works on a **staging copy** with a disposable clone of the app's data on a hidden port, and follows the same [build loop](framework.md#how-the-agent-builds) as a first build: schema migrations first, operation declarations, kit-composed UI, gate after every meaningful change.
+- The agent loads a build skill for the run, works in a **dev environment** — a disposable copy of the app's code on a hidden port whose database is rebuilt fresh from the migration chain (your real data is never cloned into it) — and follows the same [build loop](framework.md#how-the-agent-builds) as a first build: schema migrations first, operation declarations, kit-composed UI, gate after every meaningful change.
 - The change is appended to `reference/requirements.md` under `## Changes`, keeping the binding spec current; verification checks the app against that file, so a stale spec would produce a wrong verdict.
-- Only a clean verification verdict flips staging to live. A failed change never replaces the working app, and your real data is never the test bed.
+- Only a clean verification verdict promotes the change to live. A failed change never replaces the working app, and your real data is never the test bed — it never even enters the environment being tested.
 
 Mid-arc writes to the live app's real data are refused while an evolution is in flight, so the two paths cannot interleave.
 

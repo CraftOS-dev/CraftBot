@@ -26,6 +26,13 @@ GATE_TIMEOUT_S = 600
 INSTALL_TIMEOUT_S = 600
 HEALTH_TIMEOUT_S = 30
 
+# The lui CLI is TypeScript executed by Node's native type stripping —
+# default from 23.6, stable in 24. Older majors throw
+# ERR_UNKNOWN_FILE_EXTENSION on cli.ts, which used to surface as a raw
+# scaffold stack trace instead of this requirement (observed 2026-08-19,
+# system Node 22.14).
+MIN_NODE_MAJOR = 24
+
 
 @dataclass
 class V2ScaffoldResult:
@@ -51,6 +58,7 @@ class LivingUIRunner:
     def __init__(self, workspace_dir: Path):
         self.workspace_dir = Path(workspace_dir)
         self._node = shutil.which("node")
+        self._node_version: Optional[str] = None  # probed lazily, cached
 
     # ------------------------------------------------------------------ setup
 
@@ -58,10 +66,47 @@ class LivingUIRunner:
     def cli_path(self) -> Path:
         return self.workspace_dir / "tools" / "src" / "cli.ts"
 
+    def _probe_node_version(self) -> Optional[str]:
+        """`node --version` output ("v24.1.0"), cached. None when the probe
+        fails — version enforcement then fails open (a broken probe must
+        never block a launch on a good Node)."""
+        if self._node_version is not None:
+            return self._node_version
+        try:
+            kwargs = {}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            out = subprocess.run(
+                [self._node, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                **kwargs,
+            ).stdout.strip()
+            if out:
+                self._node_version = out
+        except Exception as e:
+            logger.warning(f"node version probe failed: {e}")
+        return self._node_version
+
     def ensure_available(self) -> None:
         if self._node is None:
             raise LivingUIRunnerUnavailable(
-                "Node.js >= 24 is required to build Living UIs (not found on PATH)."
+                f"Node.js >= {MIN_NODE_MAJOR} is required to build Living UIs "
+                "(not found on PATH)."
+            )
+        version = self._probe_node_version()
+        try:
+            major = int((version or "").lstrip("v").split(".")[0])
+        except ValueError:
+            major = None
+        if major is not None and major < MIN_NODE_MAJOR:
+            raise LivingUIRunnerUnavailable(
+                f"Node.js >= {MIN_NODE_MAJOR} is required to build Living UIs — "
+                f"found {version} at {self._node}. The lui CLI is TypeScript "
+                "run natively by Node (type stripping), which this version "
+                "cannot load. Upgrade Node (or install nodejs>=24 into the "
+                "conda env CraftBot runs in) and restart."
             )
         if not self.cli_path.exists():
             raise LivingUIRunnerUnavailable(

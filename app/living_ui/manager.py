@@ -147,11 +147,19 @@ class LivingUIManager:
 
         self.runner = LivingUIRunner(Path(PROJECT_ROOT) / "living-ui")
 
-        # Staging copies of delivered apps (modify-era data safety). Composed
-        # like runner: the supervisor never reaches back into the manager.
-        from app.living_ui.staging import StagingSupervisor
+        # Unified dev/live lifecycle: every code change (first build or
+        # modify) develops and verifies in a DEV environment (code copy +
+        # fresh schema-only DB on a hidden port); a clean verify PROMOTES it
+        # to live. Composed like runner: the lifecycle never reaches back
+        # into the manager beyond the two callables injected here.
+        from app.living_ui.lifecycle import AppLifecycle
 
-        self.staging = StagingSupervisor(self.living_ui_dir, self.runner)
+        self.lifecycle = AppLifecycle(
+            self.living_ui_dir,
+            self.runner,
+            self._run_launch_pipeline,
+            self.launch_and_verify,
+        )
 
         # Load existing projects
         self._load_projects()
@@ -803,10 +811,10 @@ UI in {project.path}/frontend/src/app/."""
         install → validation gate → serve → health → hook-load scan → smoke.
 
         Registry-free on purpose: `_launch_native` runs it on the real project
-        and adds status/persistence around it; `launch_staging` runs the SAME
-        pipeline on a staging copy — one definition means fix missions get
-        identical evidence quality (boot-log excerpts, hook-load failures)
-        in both eras.
+        and adds status/persistence around it; the lifecycle's `open_dev`
+        runs the SAME pipeline on a dev copy — one definition means fix
+        missions get identical evidence quality (boot-log excerpts,
+        hook-load failures) in both environments.
 
         Returns {"status": "success", "process": Popen} — caller owns the
         process — or {"status": "error", "step": ..., "errors": [...]}.
@@ -1058,7 +1066,7 @@ UI in {project.path}/frontend/src/app/."""
 
     async def _launch_native(self, project: LivingUIProject) -> dict:
         """Native launch of the REAL project: the shared pipeline plus registry
-        state (status, url, persistence) and the pristine-baseline hook.
+        state (status, url, persistence).
 
         One PocketBase process serves both the API and the built frontend
         (living-ui spec D5); errors come back machine-readable so the
@@ -1100,29 +1108,6 @@ UI in {project.path}/frontend/src/app/."""
         project.error = None
         self._save_projects()
 
-        # Pristine-baseline snapshot: taken ONCE, at the first successful
-        # launch of a never-delivered app — before the agent or verifier has
-        # created any test records. finalize_first_delivery() restores it
-        # right before the delivery announce so the user's first sight of the
-        # app is junk-free. Best-effort by design: a failed snapshot must
-        # never block a launch (worst case the app delivers with test data,
-        # which is today's behavior).
-        try:
-            from app.factory.host_craftbot import get_factory_host
-            from app.living_ui.pb_data_io import snapshot_pb_data
-
-            baseline = project_path / ".snapshots" / "baseline"
-            if (
-                getattr(project, "project_type", "native") != "external"
-                and not baseline.exists()
-                and not get_factory_host().is_delivered(project.id)
-            ):
-                snapshot_pb_data(
-                    project_path / "pb" / "pb_data", baseline, self.living_ui_dir
-                )
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] baseline snapshot skipped: {e}")
-
         logger.info(f"[LIVING_UI] {project.name} running at {project.url}")
         return {
             "status": "success",
@@ -1131,231 +1116,30 @@ UI in {project.path}/frontend/src/app/."""
             "port": project.port,
         }
 
-    async def finalize_first_delivery(self, project_id: str) -> dict:
-        """Restore the pristine pb_data baseline and relaunch, so the app the
-        user is about to be handed contains no agent/verifier test records.
-
-        Called from walk_verify's clean branch, on a never-delivered app,
-        AFTER the verifier passed against the live (junk-filled) DB and
-        BEFORE the delivery announce. Migration files written during the
-        build re-apply on the restored DB at boot (they are absent from its
-        _migrations table), so the delivered schema is current — the gate
-        proves the full migration chain replays cleanly on every validate.
-
-        A missing baseline (legacy project, snapshot failure at first launch)
-        is NOT an error: we skip the restore and deliver as today, never
-        guess-wipe. Returns {"status": "success"} or an error dict in the
-        _launch_native envelope.
-        """
+    async def open_dev(self, project_id: str) -> dict:
+        """Boot the DEV environment for a code change (first build or
+        modify): the project's current code on a hidden port with a fresh
+        schema-only DB. See lifecycle.AppLifecycle.open_dev."""
         project = self.projects.get(project_id)
         if not project:
             return {
                 "status": "error",
-                "step": "finalize",
+                "step": "dev",
                 "errors": [f"Unknown project: {project_id}"],
             }
-        project_path = Path(project.path)
-        baseline = project_path / ".snapshots" / "baseline"
-        if not (baseline / "data.db").exists():
-            logger.info(
-                f"[LIVING_UI] no baseline for {project_id} — delivering without restore"
-            )
-            return {"status": "success", "restored": False}
+        return await self.lifecycle.open_dev(project)
 
-        from app.living_ui.pb_data_io import restore_pb_data
-
-        # Stop the server before touching pb_data (a live writer during the
-        # restore corrupts both sides). Don't flip status mid-sequence — the
-        # watchdog restarts anything still marked "running" with a dead port,
-        # and a half-finalized app must not be relaunched under our feet.
-        project.status = "stopped"
-        if project.process:
-            self._terminate_process(project.process)
-            project.process = None
-        if project.port and self._is_port_in_use(project.port):
-            self._kill_process_on_port(project.port)
-
-        try:
-            restore_pb_data(
-                baseline, project_path / "pb" / "pb_data", self.living_ui_dir
-            )
-        except Exception as e:
-            # pb_data may now be gone/partial — a plain start would boot an
-            # empty DB. Fall through to the full pipeline, which re-applies
-            # migrations and re-verifies before anyone is told "ready".
-            logger.error(f"[LIVING_UI] baseline restore failed: {e}")
-            return await self._launch_native(project)
-
-        try:
-            project.process = await self.runner.start(
-                project_path, project.port, bridge_token=project.bridge_token
-            )
-            if not await self.runner.wait_healthy(project.port):
-                raise RuntimeError(f"/api/health not responding on :{project.port}")
-        except Exception as e:
-            logger.warning(
-                f"[LIVING_UI] slim relaunch after restore failed ({e}) — "
-                "falling back to the full pipeline"
-            )
-            return await self._launch_native(project)
-
-        project.status = "running"
-        project.url = f"http://127.0.0.1:{project.port}"
-        project.backend_url = project.url
-        project.error = None
-        self._save_projects()
-        # The user's tab may still render the verifier's test records from
-        # before the restore (realtime keeps old rows painted through a
-        # server restart) — tell the frontend to refetch so the first thing
-        # the user sees is the pristine state.
-        try:
-            from app.living_ui.broadcast import dispatch_living_ui_data_changed
-
-            dispatch_living_ui_data_changed(project_id)
-        except Exception:
-            pass
-        # Trigger consent: a supervised build that delivered is first-party —
-        # approve its declared triggers (mirror of finalize_modify's grant).
-        try:
-            from app.factory.host_craftbot import get_factory_host
-
-            get_factory_host().set_triggers_approved(project_id)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] trigger approval on delivery failed: {e}")
-        logger.info(f"[LIVING_UI] {project_id} finalized for first delivery")
-        return {"status": "success", "restored": True}
-
-    async def launch_staging(self, project_id: str) -> dict:
-        """Gate + boot the STAGING copy of a delivered app (creating or
-        refreshing it first). The real app is not rebuilt, restarted or
-        written to — it keeps serving the old working code while the change
-        is developed and verified in the copy.
-
-        Same result envelope as _launch_native, plus url/port of the staging
-        instance on success.
-        """
-        from app.factory.host_craftbot import get_factory_host
-        from app.living_ui.staging import StagingInstance
-
+    async def promote(self, project_id: str) -> dict:
+        """Deploy verified code to the live environment and destroy the dev
+        copy. See lifecycle.Promoter.promote."""
         project = self.projects.get(project_id)
         if not project:
             return {
                 "status": "error",
-                "step": "staging",
+                "step": "promote",
                 "errors": [f"Unknown project: {project_id}"],
             }
-        if getattr(project, "project_type", "native") == "external":
-            # Staging is pb/-shaped; an external app has no clonable DB or
-            # gate. Changes to externals run live (EXTERNAL-APPS-PLAN v1).
-            return {
-                "status": "error",
-                "step": "staging",
-                "errors": [
-                    "External apps have no staging mode — relaunch live via "
-                    "living_ui_notify_ready (changes apply directly)."
-                ],
-            }
-
-        host = get_factory_host()
-        record = host.get_staging_record(project_id)
-        try:
-            if (
-                record
-                and Path(record.get("dir", "")).joinpath("manifest.json").exists()
-            ):
-                instance = StagingInstance.from_record(project_id, record)
-                self.staging.sync_code(project, instance.dir)
-            else:
-                instance = await self.staging.create_copy(project)
-        except Exception as e:
-            # Never fall back to gating/serving the real project dir — that
-            # is exactly the live-UI blanking this mode exists to prevent.
-            return {
-                "status": "error",
-                "step": "staging",
-                "errors": [f"Could not prepare the staging copy: {e}"],
-            }
-
-        # Reuse (never overwrite) the project's bridge token: the live app's
-        # running process carries it in its env, and validate_bridge_token
-        # checks the current in-memory value — re-minting would cut the live
-        # app off from the bridge mid-modify.
-        if not project.bridge_token:
-            project.bridge_token = secrets.token_urlsafe(32)
-
-        # Record BEFORE booting: a pipeline failure must still leave the
-        # record in place so living_ui_http redirects there and the next
-        # notify_ready reuses the copy instead of re-cloning.
-        host.set_staging_record(project_id, instance.to_record())
-
-        result = await self._run_launch_pipeline(
-            instance.dir, instance.port, project.bridge_token
-        )
-        if result["status"] != "success":
-            return result
-
-        self.staging.adopt_process(instance, result.pop("process"))
-        host.set_staging_record(project_id, instance.to_record())
-
-        # A modify is now demonstrably in progress (staging is up) — re-arm
-        # the factory machine so the modify gets the same supervision as a
-        # build: fix missions on defects, caps, machine announcements
-        # (LIFECYCLE-PLAN Phase 2). Deterministic here, never agent-driven;
-        # no-ops when a modify/fix arc is already in flight.
-        try:
-            host.begin_modify(project_id)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI:STAGING] begin_modify failed: {e}")
-
-        logger.info(f"[LIVING_UI:STAGING] {project_id} staging up at {instance.url}")
-        return {
-            "status": "success",
-            "url": instance.url,
-            "backend_url": instance.url,
-            "port": instance.port,
-            "staging": True,
-        }
-
-    async def finalize_modify(self, project_id: str) -> dict:
-        """The flip, after a clean staging verify: relaunch the REAL project
-        (the gate rebuilds its pb_public; new migration files apply to the
-        real pb_data at boot — user data stays in place), then destroy the
-        staging copy and every test record with it.
-
-        On failure the staging copy and its record are KEPT — the real app
-        is the casualty being repaired, and the next fix iteration needs the
-        copy.
-        """
-        from app.factory.host_craftbot import get_factory_host
-
-        result = await self.launch_and_verify(project_id)
-        if result["status"] != "success":
-            return result
-
-        host = get_factory_host()
-        try:
-            self.staging.destroy(project_id, host.get_staging_record(project_id))
-        finally:
-            host.clear_staging_record(project_id)
-        # Trigger consent (spec TRIGGERS-PLAN): a supervised modify that
-        # delivered is first-party work the user asked for in chat — approve
-        # its declared triggers. This is also how apps built BEFORE the
-        # consent feature get approved (observed live 2026-08-06: a kanban
-        # board gained a user-requested trigger via modify and every fire
-        # was then consent-blocked, silently).
-        try:
-            host.set_triggers_approved(project_id)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] trigger approval on flip failed: {e}")
-        # A tab still showing the pre-flip app must refetch (same stale-view
-        # hazard as finalize_first_delivery's baseline restore).
-        try:
-            from app.living_ui.broadcast import dispatch_living_ui_data_changed
-
-            dispatch_living_ui_data_changed(project_id)
-        except Exception:
-            pass
-        return result
+        return await self.lifecycle.promote(project)
 
     async def launch_and_verify(self, project_id: str) -> dict:
         """
@@ -1733,10 +1517,11 @@ UI in {project.path}/frontend/src/app/."""
         if orphan_count > 0:
             logger.info(f"[LIVING_UI] Removed {orphan_count} orphan folder(s)")
 
-        # 2b. Reap staging copies. None is legitimately alive at boot (their
-        # modify missions died with the previous process), but their
-        # PocketBase instances outlive us — kill by recorded pid, delete the
-        # copies, clear the records so nothing redirects to a dead port.
+        # 2b. Reap dev environments. None is legitimately alive at boot
+        # (their build/modify missions died with the previous process), but
+        # their PocketBase instances outlive us — kill by recorded pid,
+        # delete the copies, clear the records so nothing redirects to a
+        # dead port.
         try:
             from app.factory.host_craftbot import get_factory_host
 
@@ -1746,13 +1531,13 @@ UI in {project.path}/frontend/src/app/."""
                 record = host.get_staging_record(pid_)
                 if record:
                     records[pid_] = record
-            reaped = self.staging.reap_all(records)
+            reaped = self.lifecycle.reap_dev(records)
             for pid_ in records:
                 host.clear_staging_record(pid_)
             if reaped:
-                logger.info(f"[LIVING_UI] Reaped {reaped} staging leftover(s)")
+                logger.info(f"[LIVING_UI] Reaped {reaped} dev-env leftover(s)")
         except Exception as e:
-            logger.warning(f"[LIVING_UI] staging reap failed: {e}")
+            logger.warning(f"[LIVING_UI] dev-env reap failed: {e}")
 
         # 3. Reset all project statuses to 'stopped' and clear process references
         for project in self.projects.values():
@@ -1780,9 +1565,9 @@ UI in {project.path}/frontend/src/app/."""
 
         # _staging is workspace infrastructure, not an orphan project: the
         # wizard stages reference files under it (with its own age-based
-        # sweeper) and StagingSupervisor keeps modify-era app copies there
+        # sweeper) and DevProvisioner keeps dev-env app copies there
         # (reaped deliberately — kill recorded pid, then delete — by
-        # reap_orphans(), not by this blind rmtree).
+        # reap_dev(), not by this blind rmtree).
         skip_names = {"_staging"}
 
         for folder in self.living_ui_dir.iterdir():
@@ -1880,9 +1665,10 @@ UI in {project.path}/frontend/src/app/."""
     def _register_acquired(self, project: LivingUIProject, *, delivered: bool) -> None:
         """Every entry point (scaffold / marketplace / import) lands here
         after its starting state is on disk (LIFECYCLE-PLAN Phase 3):
-        registry + persistence + session, and — for sources that arrive as
-        finished apps — the delivered flag that keys every later data-safety
-        mode (staging verifies, no baseline restore)."""
+        registry + persistence + session. `delivered` means the app ARRIVED
+        finished (marketplace/import): its delivery timestamp is stamped and
+        trigger consent stays fail-closed. Data safety no longer keys on it
+        — that's structural (lifecycle.live_db_exists)."""
         # Provenance: which CraftBot acquired this project (the manifest's
         # craftbotVersion separately records the original creator's version).
         if not project.craftbot_version:
@@ -1904,10 +1690,10 @@ UI in {project.path}/frontend/src/app/."""
             try:
                 from app.factory.host_craftbot import get_factory_host
 
-                get_factory_host().mark_delivered(project.id)
+                get_factory_host().stamp_delivered(project.id)
             except Exception as e:
                 logger.warning(
-                    f"[LIVING_UI] mark_delivered failed for {project.id}: {e}"
+                    f"[LIVING_UI] stamp_delivered failed for {project.id}: {e}"
                 )
         else:
             # Trigger-plane consent (spec TRIGGERS-PLAN): apps BUILT here are
@@ -2434,8 +2220,8 @@ UI in {project.path}/frontend/src/app/."""
         # Runtime junk never imports; node_modules is skipped because a
         # foreign machine's install may not run here — the launch pipeline's
         # install step rebuilds it from package.json. .factory/.snapshots are
-        # the DONOR's lifecycle state (machine history, delivered flag,
-        # baseline) — a fresh identity must start a fresh lifecycle.
+        # the DONOR's lifecycle state (machine history, delivery stamp,
+        # legacy baseline) — a fresh identity must start a fresh lifecycle.
         shutil.copytree(
             src,
             dest,
@@ -2503,8 +2289,9 @@ UI in {project.path}/frontend/src/app/."""
             status="stopped",
             port=port,
         )
-        # Delivered on arrival: an imported app may carry real data — later
-        # gates/verifies run in staging mode, never a baseline restore.
+        # Delivered on arrival: an imported app may carry real data. Its
+        # first boot creates/keeps its live pb_data, so later code changes
+        # run as modify arcs (dev env + promote) structurally.
         self._register_acquired(project, delivered=True)
 
         logger.info(f"[LIVING_UI] Imported project: {display} ({project_id})")
@@ -2835,9 +2622,9 @@ UI in {project.path}/frontend/src/app/."""
                 project.auto_launch = existing.auto_launch
 
             # Delivered on arrival (may ship with real data, never
-            # walk-verified): marked BEFORE the launch so the success path
-            # doesn't snapshot their pb_data as a "pristine" baseline and
-            # later verifies run in staging mode.
+            # walk-verified). The launch below creates its live pb_data, so
+            # later code changes run as modify arcs (dev env + promote)
+            # structurally.
             self._register_acquired(project, delivered=True)
 
             logger.info(
@@ -3524,7 +3311,7 @@ UI in {project.path}/frontend/src/app/."""
             "logs",
             ".venv",
             "venv",
-            ".snapshots",  # pristine pb_data baseline — local delivery state
+            ".snapshots",  # legacy baseline dirs (pre-unified-lifecycle) — local state
         }
         skip_suffixes = {".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3"}
         skip_names = {
