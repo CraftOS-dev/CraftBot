@@ -8,6 +8,8 @@ import {
   Download,
   Copy,
   ChevronRight,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 import { Button, ConfirmModal } from '../../components/ui'
 import { useConfirmModal } from '../../hooks'
@@ -16,6 +18,7 @@ import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
   updateProjectSetting,
+  setBackupBusy,
   type LivingUISettingsProject as LivingUIProject,
 } from '../../store/slices/livingUiSettingsSlice'
 import {
@@ -88,14 +91,32 @@ export function LivingUISettings() {
   }
 
   const handleDelete = (project: LivingUIProject) => {
+    const backupCount = project.backupStatus?.count || 0
+    const backupNote =
+      backupCount > 0
+        ? ` Its ${backupCount} data backup${backupCount === 1 ? '' : 's'} will be KEPT and can be removed below afterwards.`
+        : ''
     confirm({
       title: 'Delete Living UI',
-      message: `Are you sure you want to delete "${project.name}"? This will remove all project files and cannot be undone.`,
+      message: `Are you sure you want to delete "${project.name}"? This will remove all project files and cannot be undone.${backupNote}`,
       confirmText: 'Delete',
       variant: 'danger',
     }, () => {
       setActionInProgress(project.id)
       send('living_ui_delete', { projectId: project.id })
+    })
+  }
+
+  const backupOrphans = useAppSelector(s => s.livingUiSettings.backupOrphans)
+  const handleDeleteOrphanBackups = (orphanId: string) => {
+    confirm({
+      title: 'Delete leftover backups',
+      message: `Permanently delete all backup archives of the deleted app "${orphanId}"? They are the only remaining copy of its data.`,
+      confirmText: 'Delete backups',
+      variant: 'danger',
+    }, () => {
+      send('living_ui_backup_delete', { projectId: orphanId, filename: '', orphan: true })
+      send('living_ui_settings_get')
     })
   }
 
@@ -135,11 +156,16 @@ export function LivingUISettings() {
                 onStop={() => handleStop(project.id)}
                 onDelete={() => handleDelete(project)}
                 onToggleSetting={(setting, value) => {
-                  // Optimistic so the toggle flips immediately; the refetch
+                  // Optimistic so the control flips immediately; the refetch
                   // triggered by the response reconciles authoritative state.
                   dispatch(updateProjectSetting({
                     projectId: project.id,
-                    setting: setting as 'autoLaunch' | 'logCleanup',
+                    setting: setting as
+                      | 'autoLaunch'
+                      | 'logCleanup'
+                      | 'backupsEnabled'
+                      | 'backupInterval'
+                      | 'backupKeep',
                     value,
                   }))
                   send('living_ui_project_setting_update', { projectId: project.id, setting, value })
@@ -151,6 +177,54 @@ export function LivingUISettings() {
           </div>
         )}
       </div>
+
+      {/* ── Leftover backups of deleted apps (kept on delete — removable here) ── */}
+      {backupOrphans.length > 0 && (
+        <div className={styles.subsection}>
+          <h4 className={styles.subsectionTitle}>Leftover backups</h4>
+          <p className={styles.subsectionDesc}>
+            Backup archives of deleted apps. They are kept when an app is deleted; remove them here when you no longer need the data.
+          </p>
+          <div className={styles.scheduleList}>
+            {backupOrphans.map(orphanId => (
+              <div
+                key={orphanId}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-3)',
+                  padding: 'var(--space-2) var(--space-3)',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-primary)',
+                  borderRadius: 'var(--radius-md)',
+                }}
+              >
+                <Archive size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 'var(--text-sm)',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--text-primary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {orphanId}
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Trash2 size={14} />}
+                  onClick={() => handleDeleteOrphanBackups(orphanId)}
+                  title="Delete these backups"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ConfirmModal {...confirmModalProps} />
     </div>
@@ -168,7 +242,7 @@ interface ProjectCardProps {
   onLaunch: () => void
   onStop: () => void
   onDelete: () => void
-  onToggleSetting: (setting: string, value: boolean) => void
+  onToggleSetting: (setting: string, value: boolean | string | number) => void
   send: (type: string, data?: Record<string, unknown>) => void
   onMessage: (type: string, handler: (data: unknown) => void) => () => void
 }
@@ -493,6 +567,25 @@ function ProjectCard({
         </div>
       </div>
 
+      {/* Zone 3b — Backups (native apps only: externals have no pb_data) */}
+      {project.projectType !== 'external' && (
+        <div
+          style={{
+            padding: 'var(--space-3)',
+            borderTop: '1px solid var(--border-primary)',
+          }}
+        >
+          <div style={{ ...sectionLabelStyle, marginBottom: 'var(--space-2)' }}>
+            Backups
+          </div>
+          <BackupsSection
+            project={project}
+            onToggleSetting={onToggleSetting}
+            send={send}
+          />
+        </div>
+      )}
+
       {/* Zone 4 — Share */}
       {isRunning && (
         <div
@@ -509,6 +602,243 @@ function ProjectCard({
       )}
 
       </>}
+    </div>
+  )
+}
+
+
+// ── Backups Section ────────────────────────────────────────────
+
+const INTERVAL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'hourly', label: 'Every hour' },
+  { value: '6h', label: 'Every 6 hours' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+]
+
+const TRIGGER_LABELS: Record<string, string> = {
+  scheduled: 'scheduled',
+  pre_promote: 'pre-update',
+  manual: 'manual',
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fmtWhen(msEpoch: number): string {
+  return new Date(msEpoch).toLocaleString()
+}
+
+interface BackupsSectionProps {
+  project: LivingUIProject
+  onToggleSetting: (setting: string, value: boolean | string | number) => void
+  send: (type: string, data?: Record<string, unknown>) => void
+}
+
+function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps) {
+  const dispatch = useAppDispatch()
+  const { modalProps: confirmModalProps, confirm } = useConfirmModal()
+  const backups = useAppSelector(
+    s => s.livingUiSettings.backupsByProject[project.id],
+  )
+  const busy = useAppSelector(
+    s => s.livingUiSettings.backupBusy[project.id] || false,
+  )
+  const status = project.backupStatus || {}
+
+  // Fetch the archive list when the section first shows (card expanded).
+  useEffect(() => {
+    if (backups === undefined)
+      send('living_ui_backups_list', { projectId: project.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, send])
+
+  const handleBackupNow = () => {
+    dispatch(setBackupBusy({ projectId: project.id, busy: true }))
+    send('living_ui_backup_now', { projectId: project.id })
+  }
+
+  const handleRestore = (filename: string, ts: number) => {
+    // Reversible by design (FR9): the backend captures the current state
+    // first and aborts if that fails — hence a plain consequence modal,
+    // not a typed confirmation.
+    confirm({
+      title: 'Restore backup',
+      message: `Restore "${project.name}" to its state from ${fmtWhen(ts)}? Data created after that point will be removed — a backup of the current state is taken first, so this can be undone.`,
+      confirmText: 'Restore',
+      variant: 'danger',
+    }, () => {
+      dispatch(setBackupBusy({ projectId: project.id, busy: true }))
+      send('living_ui_backup_restore', { projectId: project.id, filename })
+    })
+  }
+
+  const handleDeleteEntry = (filename: string, ts: number) => {
+    confirm({
+      title: 'Delete backup',
+      message: `Permanently delete the backup from ${fmtWhen(ts)}?`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    }, () => {
+      send('living_ui_backup_delete', { projectId: project.id, filename })
+    })
+  }
+
+  const rowStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 'var(--space-3)',
+    padding: 'var(--space-2) 0',
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* Enable toggle */}
+      <div style={rowStyle}>
+        <div className={styles.toggleInfo}>
+          <span className={styles.toggleLabel}>Scheduled backups</span>
+          <span className={styles.toggleDesc}>
+            Back up this app's data and files automatically
+          </span>
+        </div>
+        <input
+          type="checkbox"
+          className={styles.toggle}
+          checked={project.backupsEnabled}
+          onChange={e => onToggleSetting('backupsEnabled', e.target.checked)}
+        />
+      </div>
+
+      {project.backupsEnabled && (
+        <>
+          <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
+            <div className={styles.toggleInfo}>
+              <span className={styles.toggleLabel}>Frequency</span>
+            </div>
+            <select
+              value={project.backupInterval}
+              onChange={e => onToggleSetting('backupInterval', e.target.value)}
+              style={{
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '4px 8px',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              {INTERVAL_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
+            <div className={styles.toggleInfo}>
+              <span className={styles.toggleLabel}>Backups to keep</span>
+              <span className={styles.toggleDesc}>
+                Oldest scheduled backups are removed beyond this count
+              </span>
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={30}
+              value={project.backupKeep}
+              onChange={e => {
+                const v = parseInt(e.target.value, 10)
+                if (Number.isFinite(v) && v >= 1 && v <= 30)
+                  onToggleSetting('backupKeep', v)
+              }}
+              style={{
+                width: 64,
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '4px 8px',
+                fontSize: 'var(--text-sm)',
+              }}
+            />
+          </div>
+        </>
+      )}
+
+      {/* Status line + Back up now */}
+      <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
+        <span style={{ fontSize: 'var(--text-xs)', color: status.lastError ? 'var(--color-error)' : 'var(--text-muted)' }}>
+          {status.lastError
+            ? `Last backup failed: ${status.lastError}`
+            : status.lastAt
+              ? `Last backup ${fmtWhen(status.lastAt * 1000)} · ${status.count || 0} kept · ${fmtSize(status.totalSize || 0)}`
+              : 'No backups yet'}
+        </span>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={busy ? <Loader2 size={14} className={styles.spinning} /> : <Archive size={14} />}
+          onClick={handleBackupNow}
+          disabled={busy}
+        >
+          Back up now
+        </Button>
+      </div>
+
+      {/* Archive list */}
+      {(backups || []).length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            borderTop: '1px solid var(--border-primary)',
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {(backups || []).map(b => (
+            <div key={b.filename} style={{ ...rowStyle, gap: 'var(--space-2)' }}>
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--text-primary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={b.filename}
+              >
+                {fmtWhen(b.ts)}
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {' '}· {TRIGGER_LABELS[b.trigger] || b.trigger} · {fmtSize(b.size)}
+                </span>
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<RotateCcw size={13} />}
+                onClick={() => handleRestore(b.filename, b.ts)}
+                disabled={busy}
+                title="Restore this backup"
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Trash2 size={13} />}
+                onClick={() => handleDeleteEntry(b.filename, b.ts)}
+                disabled={busy}
+                title="Delete this backup"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ConfirmModal {...confirmModalProps} />
     </div>
   )
 }

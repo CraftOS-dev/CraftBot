@@ -243,6 +243,35 @@ class FactoryHost:
         except (TypeError, ValueError):
             return None
 
+    # ── backup bookkeeping (sidecar-backed; spec living-ui-backups-plan) ───
+    # last_at drives the scheduler's due check (absent -> due now, which is
+    # also the catch-up-after-restart path); last_error is surfaced on the
+    # settings card and cleared by the next success.
+    def record_backup_ok(self, project_id: str, ts: float) -> None:
+        side = self._sidecar_read(project_id)
+        side["backup"] = {"last_at": float(ts)}
+        self._sidecar_write(project_id, side)
+
+    def record_backup_error(self, project_id: str, message: str) -> None:
+        side = self._sidecar_read(project_id)
+        state = side.get("backup")
+        state = dict(state) if isinstance(state, dict) else {}
+        state["last_error"] = str(message)[:500]
+        side["backup"] = state
+        self._sidecar_write(project_id, side)
+
+    def backup_state(self, project_id: str) -> Dict[str, Any]:
+        """{"last_at": float|None, "last_error": str|None} — always both keys."""
+        state = self._sidecar_read(project_id).get("backup")
+        state = state if isinstance(state, dict) else {}
+        try:
+            last_at = (
+                float(state["last_at"]) if state.get("last_at") is not None else None
+            )
+        except (TypeError, ValueError):
+            last_at = None
+        return {"last_at": last_at, "last_error": state.get("last_error") or None}
+
     def begin_modify(self, project_id: str) -> None:
         """A modify of an app with a live database is starting (called from
         open_dev success — deterministic, never agent-dependent):

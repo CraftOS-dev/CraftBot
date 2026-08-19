@@ -62,6 +62,12 @@ class LivingUIProject:
     session_id: Optional[str] = None
     auto_launch: bool = False  # Auto-launch on CraftBot startup
     log_cleanup: bool = True  # Clean logs on restart
+    # Backups of live pb_data (spec docs/plans/living-ui-backups-plan.md).
+    # Default ON (D1): the user who never opens settings is the one who
+    # needs a backup. No-ops until a live DB exists; external apps N/A.
+    backups_enabled: bool = True
+    backup_interval: str = "daily"  # hourly | 6h | daily | weekly
+    backup_keep: int = 7  # scheduled-pool retention (1-30)
     style_pack: str = ""  # wizard-chosen default style pack (host may override)
     # Display icon: "lucide:<name>" (picker) or "file:<relpath>" (uploaded,
     # doubles as the app's favicon).
@@ -100,6 +106,9 @@ class LivingUIProject:
             "sessionId": self.session_id,
             "autoLaunch": self.auto_launch,
             "logCleanup": self.log_cleanup,
+            "backupsEnabled": self.backups_enabled,
+            "backupInterval": self.backup_interval,
+            "backupKeep": self.backup_keep,
             "stylePack": self.style_pack,
             "icon": self.icon,
             "uiTheme": self.ui_theme,
@@ -160,6 +169,23 @@ class LivingUIManager:
             self._run_launch_pipeline,
             self.launch_and_verify,
         )
+
+        # Backups of live pb_data (spec docs/plans/living-ui-backups-plan.md).
+        # Composed like the lifecycle: the service never reaches back. The
+        # watchdog drives the schedule; ONE lock serializes captures; the
+        # in-flight set keeps the scheduler out of promotes/restores (and
+        # vice versa).
+        from app.living_ui.lifecycle import BackupService
+
+        self.backups = BackupService(self.living_ui_dir)
+        self._backup_lock = asyncio.Lock()
+        self._live_ops: set = set()  # project ids mid-promote/mid-restore
+        self._backups_inflight: set = set()  # ids with a capture task queued/running
+        # Pre-promote backup (lifecycle plan deferred issue #1): snapshot the
+        # live pb_data right before every promote boot over existing data.
+        # Sync hook by contract; a raising capture ABORTS the promote — never
+        # deploy over data we just failed to protect.
+        self.lifecycle.promoter.add_before_live_boot_hook(self._pre_promote_backup)
 
         # Load existing projects
         self._load_projects()
@@ -292,6 +318,17 @@ class LivingUIManager:
                 await asyncio.sleep(self.WATCHDOG_INTERVAL)
 
                 for project_id, project in list(self.projects.items()):
+                    # Backups are due-checked for EVERY project, before the
+                    # running gate — a stopped app with a live DB still backs
+                    # up (via the stopped capture path).
+                    try:
+                        self._maybe_schedule_backup(project)
+                    except Exception as e:
+                        logger.warning(
+                            f"[LIVING_UI:BACKUP] schedule check failed for "
+                            f"{project_id}: {e}"
+                        )
+
                     if project.status != "running":
                         # Clear retry count if project is no longer running
                         retry_counts.pop(project_id, None)
@@ -390,6 +427,134 @@ class LivingUIManager:
             except Exception as e:
                 logger.error(f"[LIVING_UI:WATCHDOG] Unexpected error: {e}")
                 await asyncio.sleep(self.WATCHDOG_INTERVAL)
+
+    # ========================================================================
+    # Backups (spec docs/plans/living-ui-backups-plan.md)
+    # ========================================================================
+
+    _BACKUP_INTERVALS = {
+        "hourly": 3600,
+        "6h": 6 * 3600,
+        "daily": 86400,
+        "weekly": 7 * 86400,
+    }
+
+    def _maybe_schedule_backup(self, project) -> None:
+        """Watchdog tick: start a due scheduled backup as a background task.
+        Sync and cheap — one sidecar read past the structural gates."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+
+        if (
+            not project.backups_enabled
+            or getattr(project, "project_type", "native") == "external"
+            or project.id in self._live_ops
+            or project.id in self._backups_inflight
+            or not live_db_exists(project.path)
+        ):
+            return
+        state = get_factory_host().backup_state(project.id)
+        interval = self._BACKUP_INTERVALS.get(project.backup_interval, 86400)
+        # Absent last_at -> due now: first-enable AND catch-up after a
+        # restart/overdue sleep both fall out of the same rule.
+        if state["last_at"] is not None and time.time() - state["last_at"] < interval:
+            return
+        self._backups_inflight.add(project.id)
+        asyncio.create_task(self._run_scheduled_backup(project))
+
+    async def _run_scheduled_backup(self, project) -> None:
+        """One scheduled capture + prune + sidecar record. Failure never
+        touches the app (FR10): log, record, retry at the next due tick."""
+        from app.factory.host_craftbot import get_factory_host
+
+        host = get_factory_host()
+        try:
+            async with self._backup_lock:  # serialize captures globally (NFR)
+                if project.id in self._live_ops:
+                    return  # promote/restore began while queued — next tick
+                entry = await self._capture_auto(project, "scheduled")
+            self.backups.store.prune(project.id, "scheduled", project.backup_keep)
+            host.record_backup_ok(project.id, entry.ts)
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:BACKUP] scheduled backup failed for {project.id}: {e}"
+            )
+            try:
+                host.record_backup_error(project.id, str(e))
+            except Exception:
+                pass
+        finally:
+            self._backups_inflight.discard(project.id)
+
+    async def _capture_auto(self, project, trigger: str):
+        """Running app → PB's atomic backup API; stopped → snapshot path
+        (off-loop — sqlite backup + zip can take seconds)."""
+        if project.status == "running" and project.port:
+            return await self.backups.capture_running(project, trigger)
+        return await asyncio.to_thread(self.backups.capture_stopped, project, trigger)
+
+    async def backup_now(self, project_id: str) -> dict:
+        """User-driven manual backup (FR8). Manual-pool: never auto-pruned."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+
+        project = self.projects.get(project_id)
+        if not project:
+            return {"status": "error", "errors": [f"Unknown project: {project_id}"]}
+        if getattr(project, "project_type", "native") == "external":
+            return {"status": "error", "errors": ["External apps have no pb_data."]}
+        if not live_db_exists(project.path):
+            return {
+                "status": "error",
+                "errors": ["No live database yet — nothing to back up."],
+            }
+        if project_id in self._live_ops:
+            return {
+                "status": "error",
+                "errors": ["A promote/restore is in flight — retry shortly."],
+            }
+        host = get_factory_host()
+        try:
+            async with self._backup_lock:
+                entry = await self._capture_auto(project, "manual")
+            host.record_backup_ok(project_id, entry.ts)
+            return {
+                "status": "success",
+                "filename": entry.filename,
+                "size": entry.size,
+            }
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:BACKUP] manual backup failed for {project_id}: {e}"
+            )
+            try:
+                host.record_backup_error(project_id, str(e))
+            except Exception:
+                pass
+            return {"status": "error", "errors": [str(e)]}
+
+    def _pre_promote_backup(self, project) -> None:
+        """before_live_boot hook (lifecycle deferred issue #1): snapshot live
+        pb_data right before the promote boot. First deliveries (no live DB)
+        and externals (no pb/) no-op. RAISES on failure — the promoter
+        aborts, by contract: never deploy over data we failed to protect."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+        from app.living_ui.lifecycle.backups import PRE_PROMOTE_KEEP
+
+        if getattr(project, "project_type", "native") == "external":
+            return
+        if not live_db_exists(project.path):
+            return
+        entry = self.backups.capture_stopped(project, "pre_promote")
+        self.backups.store.prune(project.id, "pre_promote", PRE_PROMOTE_KEEP)
+        try:
+            # A fresh capture is a fresh capture: reset the scheduled clock
+            # so promote-heavy days don't also stack near-identical
+            # scheduled archives minutes later.
+            get_factory_host().record_backup_ok(project.id, entry.ts)
+        except Exception:
+            pass
 
     async def _escalate_crash(self, project_id: str, crash_targets: List[str]) -> None:
         """
@@ -558,6 +723,9 @@ UI in {project.path}/frontend/src/app/."""
                             session_id=project_data.get("sessionId"),
                             auto_launch=project_data.get("autoLaunch", False),
                             log_cleanup=project_data.get("logCleanup", True),
+                            backups_enabled=project_data.get("backupsEnabled", True),
+                            backup_interval=project_data.get("backupInterval", "daily"),
+                            backup_keep=project_data.get("backupKeep", 7),
                             style_pack=project_data.get("stylePack", ""),
                             icon=project_data.get("icon"),
                             ui_theme=project_data.get("uiTheme"),
@@ -1139,7 +1307,149 @@ UI in {project.path}/frontend/src/app/."""
                 "step": "promote",
                 "errors": [f"Unknown project: {project_id}"],
             }
-        return await self.lifecycle.promote(project)
+        # Visible to the backup scheduler: no scheduled capture may start
+        # mid-promote (the pre-promote hook is the sanctioned one).
+        self._live_ops.add(project_id)
+        try:
+            return await self.lifecycle.promote(project)
+        finally:
+            self._live_ops.discard(project_id)
+
+    async def restore_backup(self, project_id: str, filename: str) -> dict:
+        """User-initiated restore of a pb_data backup (FR9) — the SECOND
+        sanctioned live-write path (the first is migration replay during
+        promote; see lifecycle/__init__). Made reversible rather than
+        friction-guarded: the current live state is captured first, so a
+        wrong restore is undone by restoring THAT archive.
+
+        stop → pre-restore capture (abort if it fails: never destroy state
+        we failed to save) → replace pb_data → full-pipeline relaunch
+        (migrations newer than the archive re-apply at boot) → refetch
+        broadcast. Never agent-invocable — settings surface only.
+        """
+        from app.living_ui.pb_data_io import restore_pb_data
+
+        project = self.projects.get(project_id)
+        if not project:
+            return {
+                "status": "error",
+                "step": "restore",
+                "errors": [f"Unknown project: {project_id}"],
+            }
+        if getattr(project, "project_type", "native") == "external":
+            return {
+                "status": "error",
+                "step": "restore",
+                "errors": ["External apps have no pb_data backups."],
+            }
+        entry = next(
+            (
+                e
+                for e in self.backups.store.list_backups(project_id)
+                if e.filename == filename
+            ),
+            None,
+        )
+        if entry is None:
+            return {
+                "status": "error",
+                "step": "restore",
+                "errors": [f"No such backup: {filename}"],
+            }
+        if project_id in self._live_ops:
+            return {
+                "status": "error",
+                "step": "restore",
+                "errors": ["Another promote/restore is in flight — retry shortly."],
+            }
+
+        self._live_ops.add(project_id)
+        try:
+            was_running = project.status == "running"
+            await self.stop_project(project_id)
+
+            # FR9 2a — the abort-on-failure safety net.
+            try:
+                pre = await asyncio.to_thread(
+                    self.backups.capture_stopped, project, "manual"
+                )
+                try:
+                    from app.factory.host_craftbot import get_factory_host
+
+                    get_factory_host().record_backup_ok(project_id, pre.ts)
+                except Exception:
+                    pass
+            except Exception as e:
+                result = await self.launch_and_verify(project_id) if was_running else {}
+                return {
+                    "status": "error",
+                    "step": "pre_restore_backup",
+                    "errors": [
+                        f"Could not back up the CURRENT state ({e}) — restore "
+                        "aborted, nothing was changed."
+                        + (
+                            ""
+                            if result.get("status") in ("success", None)
+                            else " Relaunch of the untouched app also failed."
+                        )
+                    ],
+                }
+
+            restore_error = None
+            try:
+                snapshot = await asyncio.to_thread(self.backups.prepare_restore, entry)
+                await asyncio.to_thread(
+                    restore_pb_data,
+                    snapshot,
+                    Path(project.path) / "pb" / "pb_data",
+                    self.living_ui_dir,
+                )
+            except Exception as e:
+                restore_error = str(e)
+            finally:
+                self.backups.cleanup_restore(entry)
+
+            # Relaunch through the full pipeline either way: on success the
+            # restored DB boots (newer migrations re-apply); on failure
+            # pb_data may be partial and the gate/boot is the honest probe.
+            result = await self.launch_and_verify(project_id)
+            if restore_error is not None:
+                return {
+                    "status": "error",
+                    "step": "restore",
+                    "errors": [
+                        f"Restore failed: {restore_error}. A backup of the "
+                        f"pre-restore state was kept ({pre.filename}).",
+                        *result.get("errors", [])[:5],
+                    ],
+                }
+            if result.get("status") != "success":
+                return {
+                    "status": "error",
+                    "step": "relaunch",
+                    "errors": [
+                        "pb_data was restored but the app failed to relaunch. "
+                        f"Pre-restore state is kept as {pre.filename}.",
+                        *result.get("errors", [])[:5],
+                    ],
+                }
+
+            # Open tabs still paint pre-restore rows through the restart.
+            try:
+                from app.living_ui.broadcast import dispatch_living_ui_data_changed
+
+                dispatch_living_ui_data_changed(project_id)
+            except Exception:
+                pass
+            logger.info(f"[LIVING_UI:BACKUP] {project_id} restored from {filename}")
+            return {
+                "status": "success",
+                "restored": filename,
+                "pre_restore_backup": pre.filename,
+                "url": result.get("url"),
+            }
+        finally:
+            self._live_ops.discard(project_id)
 
     async def launch_and_verify(self, project_id: str) -> dict:
         """
@@ -1563,12 +1873,15 @@ UI in {project.path}/frontend/src/app/."""
         tracked_paths = {Path(p.path) for p in self.projects.values()}
         orphan_count = 0
 
-        # _staging is workspace infrastructure, not an orphan project: the
-        # wizard stages reference files under it (with its own age-based
-        # sweeper) and DevProvisioner keeps dev-env app copies there
-        # (reaped deliberately — kill recorded pid, then delete — by
-        # reap_dev(), not by this blind rmtree).
-        skip_names = {"_staging"}
+        # _staging and _backups are workspace infrastructure, not orphan
+        # projects: the wizard stages reference files under _staging (with
+        # its own age-based sweeper) and DevProvisioner keeps dev-env app
+        # copies there (reaped deliberately — kill recorded pid, then delete
+        # — by reap_dev(), not by this blind rmtree). _backups holds pb_data
+        # archives that must OUTLIVE their project (orphan dirs there are
+        # user-deleted only, D5) — deleting them at boot would defeat the
+        # feature.
+        skip_names = {"_staging", "_backups"}
 
         for folder in self.living_ui_dir.iterdir():
             if folder.name in skip_names:
@@ -3201,12 +3514,17 @@ UI in {project.path}/frontend/src/app/."""
         logger.info(f"[LIVING_UI] Stopped project: {project_id}")
         return True
 
-    async def delete_project(self, project_id: str) -> bool:
+    async def delete_project(
+        self, project_id: str, delete_backups: bool = False
+    ) -> bool:
         """
         Delete a Living UI project.
 
         Args:
             project_id: Project ID to delete
+            delete_backups: Also remove its pb_data backup archives.
+                Default KEEP (D5): backups exist precisely to outlive
+                mistakes, and deleting the app may be one.
 
         Returns:
             True if deletion was successful
@@ -3215,6 +3533,14 @@ UI in {project.path}/frontend/src/app/."""
         if not project:
             logger.error(f"[LIVING_UI] Project not found: {project_id}")
             return False
+
+        if delete_backups:
+            try:
+                self.backups.store.delete_project_backups(project_id)
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI:BACKUP] backup cleanup failed for {project_id}: {e}"
+                )
 
         # Stop tunnel if active
         await self.stop_tunnel(project_id)

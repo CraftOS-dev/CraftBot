@@ -52,6 +52,27 @@ class LivingUIRunnerUnavailable(RuntimeError):
     """Node or the living-ui workspace is missing."""
 
 
+def read_superuser_creds(project_dir: Path):
+    """(email, password) from the project's 0600 `.superuser` file, or None
+    when the file is absent/unreadable/incomplete. The ONE parser of that
+    file — ensure_superuser writes it and reads through here; the backup
+    service reads through here to call the PocketBase admin API. Never log
+    the values."""
+    import json as _json
+
+    try:
+        stored = _json.loads(
+            (Path(project_dir) / ".superuser").read_text(encoding="utf-8")
+        )
+        email = stored.get("email") or ""
+        password = stored.get("password") or ""
+        if email and password:
+            return (email, password)
+    except Exception:
+        pass
+    return None
+
+
 class LivingUIRunner:
     """Drives Living UI projects through scaffold → install → gate → serve."""
 
@@ -296,17 +317,9 @@ class LivingUIRunner:
         pb_dir = project_dir / "pb"
         cred_file = project_dir / ".superuser"
 
-        email = "agent@lui.local"
-        password = ""
-        if cred_file.exists():
-            try:
-                stored = _json.loads(cred_file.read_text(encoding="utf-8"))
-                email = stored.get("email") or email
-                password = stored.get("password") or ""
-            except Exception:
-                password = ""
-        if password == "":
-            password = secrets.token_urlsafe(18)
+        creds = read_superuser_creds(project_dir)
+        email = creds[0] if creds else "agent@lui.local"
+        password = creds[1] if creds else secrets.token_urlsafe(18)
 
         code, out = await self._run(
             [

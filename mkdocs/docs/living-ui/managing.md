@@ -58,6 +58,18 @@ flowchart LR
 
 Mid-arc writes to the live app's real data are refused while an evolution is in flight, so the two paths cannot interleave.
 
+## Backups
+
+Every native app's live data (database + uploaded files) is backed up automatically — **daily, keeping the last 7**, by default. Configure it per app in **Settings → Living UI**: switch scheduled backups off, pick a frequency (hourly / 6 h / daily / weekly), set how many to keep, or take a manual backup with **Back up now**. Three kinds of archives accumulate:
+
+- **Scheduled** — taken on the interval you chose; the oldest beyond your keep-count are pruned automatically.
+- **Pre-update** — taken automatically right before every code change is deployed to an app with live data (the last 3 are kept). If this backup fails, the deploy is aborted rather than risked.
+- **Manual** — taken with the button; never removed automatically.
+
+Archives live outside the app's own directory (`living_ui/_backups/`), so they survive anything that happens to the app — including deleting it: a deleted app's backups are kept and listed under **Leftover backups** in the same settings tab until you remove them yourself. Backups never leave your machine and are not part of project exports.
+
+**Restoring** (from the app's backup list in settings) returns the app to the archived state: data created after that point is removed, but the current state is backed up first — so a restore can itself be undone. Restore is a user action only; the agent cannot trigger it.
+
 ## Restarting
 
 Ask the agent to restart an app (or use its tab). A restart runs the full launch pipeline: dependency check, validation gate, boot (PocketBase plus frontend), health check. Launch also re-stamps the [A2App adapter](a2app-protocol.md) and refreshes the agent token, which is how apps a user already had pick up adapter fixes; delivery at create, install, import, **and every launch** is what keeps the whole installed base current.

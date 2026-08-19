@@ -11,14 +11,19 @@ copy is destroyed.
 
 The single invariant this package enforces:
 
-    Nothing writes to a live environment's pb_data except PocketBase's
-    migration replay during Promoter.promote().
+    Nothing writes to a live environment's pb_data except (a) PocketBase's
+    migration replay during Promoter.promote(), and (b) a USER-CONFIRMED
+    restore of a backup archive (manager.restore_backup, spec
+    docs/plans/living-ui-backups-requirements.md FR9 — reversible by
+    design: the pre-restore state is captured first, and the restore
+    aborts if that capture fails). The agent has no restore action.
 
 There is no stored "delivered" mode flag — the one thing it used to decide
 (first vs update promote) is derived from filesystem state via
 live_db_exists(), which cannot go stale the way the sidecar flag did.
 """
 
+from app.living_ui.lifecycle.backups import BackupEntry, BackupService, BackupStore
 from app.living_ui.lifecycle.environment import (
     DevInstance,
     has_live_env,
@@ -30,6 +35,9 @@ from app.living_ui.lifecycle.provisioner import DEV_PORT_RANGE, DevProvisioner
 
 __all__ = [
     "AppLifecycle",
+    "BackupEntry",
+    "BackupService",
+    "BackupStore",
     "DevInstance",
     "DevProvisioner",
     "DEV_PORT_RANGE",
