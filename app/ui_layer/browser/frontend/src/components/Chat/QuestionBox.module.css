@@ -1,0 +1,159 @@
+/* Pinned agent question above the composer. Sits inside .inputArea (so it
+   shares the timeline's width cap) but outside the scrolling timeline —
+   the question stays put while the chat updates underneath it. */
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-left: 3px solid var(--color-primary, var(--border-hover));
+  border-radius: var(--radius-md);
+  animation: questionBoxIn 0.18s ease-out;
+}
+
+@keyframes questionBoxIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.title {
+  flex: 1;
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queueBadge {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-2);
+  flex-shrink: 0;
+}
+
+.dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.dismiss:hover {
+  color: var(--color-error);
+}
+
+/* Long questions scroll inside the box instead of shrinking the timeline. */
+.questionText {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--bg-primary);
+  border-color: var(--border-hover);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.freeTextRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.freeTextInput {
+  flex: 1;
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.freeTextInput:focus {
+  border-color: var(--border-hover);
+}
+
+.freeTextInput::placeholder {
+  color: var(--text-muted);
+}
+
+.freeTextSend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.freeTextSend:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.freeTextSend:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

@@ -8,6 +8,7 @@ import type {
   // Living UI types
   LivingUIProject, LivingUICreateRequest, LivingUIStatusUpdate, LivingUIStateUpdate,
 } from '../types'
+import { QUESTION_DISMISSED } from '../types'
 import { scheduleRefreshIframe } from '../pages/LivingUI/iframePool'
 import { getSocketClient } from '../store/socket/socketInstance'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
@@ -202,6 +203,8 @@ interface WebSocketContextType extends WebSocketState {
   pullOllamaModel: (model: string) => void
   // Option click (interactive buttons in chat)
   sendOptionClick: (value: string, messageId: string, sessionId: string) => void
+  // Pinned agent question: answer with a suggestion/free text, or dismiss
+  sendQuestionAnswer: (messageId: string, value: string, sessionId: string, dismissed?: boolean) => void
   // Agent profile picture
   uploadAgentProfilePicture: (name: string, mimeType: string, contentBase64: string) => void
   removeAgentProfilePicture: () => void
@@ -520,6 +523,29 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [dispatch])
 
+  // Answer (or dismiss) a pinned agent question. Optimistically records the
+  // selection — which un-pins the box instantly — then round-trips through
+  // the backend, which paints the answer as a user bubble and hands it to
+  // the agent as a regular user-message trigger.
+  const sendQuestionAnswer = useCallback((
+    messageId: string,
+    value: string,
+    sessionId: string,
+    dismissed = false,
+  ) => {
+    dispatch(messagesMarkOptionSelected({
+      sessionId,
+      messageId,
+      value: dismissed ? QUESTION_DISMISSED : value,
+    }))
+    if (!dismissed) {
+      // The answer wakes/feeds the agent — show the typing indicator now,
+      // exactly like a normal send. The server's session_busy takes over.
+      dispatch(setSessionRunState({ sessionId, state: 'running' }))
+    }
+    sendOrQueue(JSON.stringify({ type: 'question_response', messageId, value, sessionId, dismissed }))
+  }, [sendOrQueue, dispatch])
+
   const uploadAgentProfilePicture = useCallback(
     (name: string, mimeType: string, contentBase64: string) => {
       if (client.isConnected) {
@@ -770,6 +796,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         enhancePrompt,
         clearEnhancedPrompt,
         sendOptionClick,
+        sendQuestionAnswer,
         uploadAgentProfilePicture,
         removeAgentProfilePicture,
         // Living UI methods

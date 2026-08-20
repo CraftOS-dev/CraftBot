@@ -342,6 +342,8 @@ class InternalActionInterface:
         platform: Optional[str] = None,
         session_id: Optional[str] = None,
         continue_work: bool = False,
+        suggested_responses: Optional[List[str]] = None,
+        allow_free_text: bool = True,
     ) -> None:
         """Record an agent-authored chat message to the event stream.
 
@@ -353,6 +355,11 @@ class InternalActionInterface:
             session_id: Optional task/session ID for multi-task isolation.
             continue_work: True when this is a mid-run progress update and
                 the agent keeps working after sending it.
+            suggested_responses: When the message is a question, the one-click
+                answers to offer. A non-empty list marks the message as a
+                question the UI pins above the chat composer.
+            allow_free_text: Whether the pinned question also accepts a typed
+                custom answer (only meaningful with suggested_responses).
         """
         if InternalActionInterface.state_manager is None:
             raise RuntimeError(
@@ -366,6 +373,8 @@ class InternalActionInterface:
             session_id=session_id,
             platform=resolved_platform,
             continue_work=continue_work,
+            suggested_responses=suggested_responses,
+            allow_free_text=allow_free_text,
         )
 
     @staticmethod

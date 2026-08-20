@@ -20,6 +20,15 @@ export const selectSessionOldestMessageTimestamp = (
 ): number | undefined =>
   state.messages.bySession[sessionId]?.items[0]?.timestamp
 
+// Unanswered agent questions of one session, oldest first — the pinned
+// question queue. Derived entirely from the messages bucket: a question is
+// pending until markOptionSelected records an answer (or dismissal), so it
+// survives reloads via chat history with no extra state.
+export const selectPendingQuestions = createSelector(
+  [selectSessionMessages],
+  (items): ChatMessage[] => items.filter(m => m.isQuestion && !m.optionSelected),
+)
+
 // All messages across every session, in timestamp order. Used by global
 // consumers (mascot, dashboard status) that watch overall agent activity.
 export const selectAllMessages = createSelector(

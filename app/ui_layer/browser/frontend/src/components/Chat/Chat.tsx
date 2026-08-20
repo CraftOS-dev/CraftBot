@@ -26,7 +26,9 @@ import {
   selectSessionHasMoreMessages,
   selectSessionLoadingOlderMessages,
   selectSessionOldestMessageTimestamp,
+  selectPendingQuestions,
 } from '../../store/selectors/messages'
+import { QuestionBox } from './QuestionBox'
 import { selectSessionActivity } from '../../store/selectors/activity'
 import { selectSessionBusy, selectSessionRunState } from '../../store/selectors/agent'
 import type { ActionItem, ChatMessage } from '../../types'
@@ -160,6 +162,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     sendCommand,
     stopSession,
     sendOptionClick,
+    sendQuestionAnswer,
     openFile,
     openFolder,
     lastSeenBySession,
@@ -178,6 +181,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
 
   const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
+  // Unanswered agent questions (oldest first). The first one is pinned in a
+  // QuestionBox above the composer; answering/dismissing advances the queue.
+  const pendingQuestions = useAppSelector(state => selectPendingQuestions(state, sessionId))
   const hasMoreMessages = useAppSelector(state => selectSessionHasMoreMessages(state, sessionId))
   const loadingOlderMessages = useAppSelector(state => selectSessionLoadingOlderMessages(state, sessionId))
   const oldestMessageTimestamp = useAppSelector(state => selectSessionOldestMessageTimestamp(state, sessionId))
@@ -852,6 +858,16 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     sendOptionClick(value, messageId, sessionId)
   }, [navigate, sendOptionClick, sessionId])
 
+  const handleQuestionAnswer = useCallback((value: string) => {
+    const q = pendingQuestions[0]
+    if (q) sendQuestionAnswer(q.messageId, value, sessionId)
+  }, [pendingQuestions, sendQuestionAnswer, sessionId])
+
+  const handleQuestionDismiss = useCallback(() => {
+    const q = pendingQuestions[0]
+    if (q) sendQuestionAnswer(q.messageId, '', sessionId, true)
+  }, [pendingQuestions, sendQuestionAnswer, sessionId])
+
   // Reply action from an agent bubble — arm the reply bar and focus the
   // input so the user can type straight away.
   const handleChatReply = useCallback((displayName: string, originalContent: string) => {
@@ -1354,6 +1370,19 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           row inside it ("+" menu on the left, mic/lang + send on the
           right). The area is width-capped and centered like the timeline. */}
       <div className={styles.inputArea}>
+        {/* Pinned agent question — above the composer, outside the scrolling
+            timeline, so it stays put while the agent keeps working and the
+            chat updates. Keyed by messageId so the free-text draft resets
+            when the queue advances to the next question. */}
+        {pendingQuestions.length > 0 && (
+          <QuestionBox
+            key={pendingQuestions[0].messageId}
+            question={pendingQuestions[0]}
+            queueTotal={pendingQuestions.length}
+            onAnswer={handleQuestionAnswer}
+            onDismiss={handleQuestionDismiss}
+          />
+        )}
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
         <div
           className={`${styles.inputShell}${isDragOver ? ` ${styles.inputShellDragOver}` : ''}`}
