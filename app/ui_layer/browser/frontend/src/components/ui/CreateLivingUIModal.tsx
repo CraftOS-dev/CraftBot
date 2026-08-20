@@ -4,7 +4,15 @@ import { Button } from './Button'
 import { Modal } from './Modal'
 import { CreateCustomWizard } from './CreateCustomWizard'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
+import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import styles from './CreateLivingUIModal.module.css'
+
+// The modal's tabs, in the order the guided tour walks them.
+const TAB_TOUR_ANCHORS: Record<'marketplace' | 'custom' | 'import', TourAnchorId> = {
+  marketplace: 'livingui-tab-marketplace',
+  custom: 'livingui-tab-custom',
+  import: 'livingui-tab-import',
+}
 
 export interface CreateLivingUIModalProps {
   isOpen: boolean
@@ -62,6 +70,13 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
   useEffect(() => { onInstalledRef.current = onInstalled }, [onInstalled])
   useEffect(() => () => { installTimeoutsRef.current.forEach(t => clearTimeout(t)) }, [])
+
+  // Let the guided tour switch the modal's tab so each creation method is shown.
+  useTourEnvAction('openLivingUITab', (arg) => {
+    if (arg === 'marketplace' || arg === 'custom' || arg === 'import') {
+      setActiveTab(arg)
+    }
+  })
 
   // Chat-path requirements phase: living_ui_scaffold generated setup
   // questions (creating nothing yet) and the backend summons the SAME
@@ -348,6 +363,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`${styles.tab} ${activeTab === tab.id ? styles.tabActive : ''}`}
+              {...tourAnchorProps(TAB_TOUR_ANCHORS[tab.id])}
             >
               {tab.icon}
               {tab.label}

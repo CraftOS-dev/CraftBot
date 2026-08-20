@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { Cloud, Users, Github, Box, ChevronRight, ArrowLeft, ExternalLink } from 'lucide-react'
+import { Cloud, Users, Github, Box, ChevronRight, ArrowLeft, ExternalLink, Compass } from 'lucide-react'
 import { CraftBotMascot, useMascotState, getPose } from '@mascot'
 import type { MascotState } from '@mascot'
 import { Button } from '../../../components/ui'
+import { useTour } from '../../../tour'
 import styles from './widgets.module.css'
 
 interface IntroCard {
@@ -99,6 +100,7 @@ const CARDS: IntroCard[] = [
 ]
 
 export function CraftBotIntroWidget() {
+  const { startTour } = useTour()
   const mascotState = useMascotState()
   // This widget's mascot never sleeps: any state whose pose renders the
   // sleeping silhouette shows the awake 'resting' pose here instead. Scoped to
@@ -347,6 +349,20 @@ export function CraftBotIntroWidget() {
       >
         Learn More
       </Button>
+
+      {/* Replay the first-run walkthrough. Hidden at the smallest widget size
+          so it never crowds the mascot + Learn More stack. */}
+      {isEnlarged && (
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Compass size={14} />}
+          onClick={() => startTour('core', { restart: true })}
+          style={{ marginTop: 'var(--space-2)' }}
+        >
+          Take a tour
+        </Button>
+      )}
     </div>
   )
 }

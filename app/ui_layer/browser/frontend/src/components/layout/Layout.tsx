@@ -3,7 +3,12 @@ import { useLocation } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { NavBar } from './NavBar'
 import { useFullscreen } from '../../contexts/FullscreenContext'
+import { useTourEnvAction } from '../../tour'
 import styles from './Layout.module.css'
+
+// Matches the mobile breakpoint in Layout.module.css, where the sidebar
+// becomes an off-canvas drawer.
+const MOBILE_QUERY = '(max-width: 768px)'
 
 interface LayoutProps {
   children: ReactNode
@@ -53,6 +58,16 @@ export function Layout({ children }: LayoutProps) {
       return next
     })
   }
+
+  // Let the guided tour reveal the sidebar before highlighting a nav item.
+  // Expanding it in memory only (not persisting COLLAPSED_KEY) keeps the user's
+  // saved preference intact for their next session.
+  useTourEnvAction('ensureSidebarVisible', () => {
+    setCollapsed(false)
+    if (window.matchMedia(MOBILE_QUERY).matches) {
+      setMobileOpen(true)
+    }
+  })
 
   return (
     <div className={styles.layout}>
