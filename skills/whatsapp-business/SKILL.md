@@ -536,35 +536,32 @@ import os
 import requests
 
 headers = {
-    'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}',
-    'Content-Type': 'application/json'
+    "Authorization": f"Bearer {os.environ['MATON_API_KEY']}",
+    "Content-Type": "application/json",
 }
 
 # Send text message
 response = requests.post(
-    'https://gateway.maton.ai/whatsapp-business/v21.0/PHONE_NUMBER_ID/messages',
+    "https://gateway.maton.ai/whatsapp-business/v21.0/PHONE_NUMBER_ID/messages",
     headers=headers,
     json={
-        'messaging_product': 'whatsapp',
-        'to': '1234567890',
-        'type': 'text',
-        'text': {'body': 'Hello from WhatsApp!'}
-    }
+        "messaging_product": "whatsapp",
+        "to": "1234567890",
+        "type": "text",
+        "text": {"body": "Hello from WhatsApp!"},
+    },
 )
 
 # Send template message
 response = requests.post(
-    'https://gateway.maton.ai/whatsapp-business/v21.0/PHONE_NUMBER_ID/messages',
+    "https://gateway.maton.ai/whatsapp-business/v21.0/PHONE_NUMBER_ID/messages",
     headers=headers,
     json={
-        'messaging_product': 'whatsapp',
-        'to': '1234567890',
-        'type': 'template',
-        'template': {
-            'name': 'hello_world',
-            'language': {'code': 'en_US'}
-        }
-    }
+        "messaging_product": "whatsapp",
+        "to": "1234567890",
+        "type": "template",
+        "template": {"name": "hello_world", "language": {"code": "en_US"}},
+    },
 )
 ```
 

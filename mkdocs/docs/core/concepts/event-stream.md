@@ -16,12 +16,12 @@ Every event carries a typed category. This is a closed set. Consumers route on i
 | Event type | Recorded when |
 |---|---|
 | `user_message` | You send a message (locally or via a connected platform) |
-| `agent_message` | The agent replies — this is what appears as a chat bubble |
+| `agent_message` | The agent replies; this is what appears as a chat bubble |
 | `reasoning` | The LLM explains why it picked the next action(s) |
 | `action_start` / `action_end` | An action begins / finishes; carries the action name, a paired id, and structured input/output |
-| `trigger` | A trigger woke the session (what caused this run/turn) |
+| `task_start` / `task_end` | A task's boundaries; `task_end` carries the final status |
 | `todos` | The todo list changed |
-| `waiting_for_user` | The run ended on a question for you |
+| `waiting_for_user` | The task paused for your reply |
 | `relevant_memories` | Memory retrieval injected context pointers |
 | `system` / `error` | Harness notices and failures |
 | `internal` | Bookkeeping the UI hides |
@@ -30,14 +30,14 @@ Every event carries a typed category. This is a closed set. Consumers route on i
 
 The chat and the action panel are direct projections of streams:
 
-- The UI watches all streams (one per session) and routes each event **by its `event_type` only**: `agent_message` becomes a chat bubble, `action_start`/`action_end` become the live activity rows, `todos` updates the checklist, `waiting_for_user` flips the status bar.
+- The UI watches all streams (main + every task) and routes each event **by its `event_type` only**: `agent_message` becomes a chat bubble, `action_start`/`action_end` become the live action rows, `todos` updates the checklist, `waiting_for_user` flips the status bar.
 - `action_start` and `action_end` share an `action_id`, so the panel can pair them even when several copies of the same action run in parallel.
 - Events may carry a shorter `display_message` for the UI while keeping the full `message` for the LLM and for debugging.
 
 Nothing happens off the record: if the agent did it, there is an event for it, and the UI shows the ones that concern you.
 
 !!! note "Implementation files"
-    The event model and type enum are `agent_core/core/event_stream/event.py`. The per-stream mechanics (tail, summary, snapshots) are `agent_core/core/impl/event_stream/event_stream.py`. Stream creation per session and the file logging below are `EventStreamManager` in `agent_core/core/impl/event_stream/manager.py`.
+    The event model and type enum are `agent_core/core/event_stream/event.py`. The per-stream mechanics (tail, summary, snapshots) are `agent_core/core/impl/event_stream/event_stream.py`. Stream creation per task and the file logging below are `EventStreamManager` in `agent_core/core/impl/event_stream/manager.py`.
 
 ## EVENT.md and EVENT_UNPROCESSED.md
 
@@ -45,8 +45,8 @@ Every event is also appended to markdown files in `agent_file_system/` (see [Age
 
 | File | Contents |
 |---|---|
-| `EVENT.md` | The complete history — every event from every stream, in `[YYYY/MM/DD HH:MM:SS] [kind]: message` format. Auto-rotated when it grows too large. |
-| `EVENT_UNPROCESSED.md` | The staging buffer for the [memory pipeline](memory.md) — the subset of events awaiting distillation into `MEMORY.md`, cleared after each processing run. |
+| `EVENT.md` | The complete history: every event from every stream, in `[YYYY/MM/DD HH:MM:SS] [kind]: message` format. Auto-rotated when it grows too large. |
+| `EVENT_UNPROCESSED.md` | The staging buffer for the [memory pipeline](memory.md): the subset of events awaiting distillation into `MEMORY.md`, cleared after each processing run. |
 
 Routine event kinds that the memory processor would always discard (action starts/ends, reasoning, todos, errors, waiting notices, memory-retrieval pointers) are filtered out at write time, so `EVENT_UNPROCESSED.md` contains only dialogue and meaningful state changes. During a memory-processing task the buffer is frozen entirely, so the processor's own events can't loop back into it.
 
@@ -96,11 +96,11 @@ tail -f agent_file_system/EVENT.md
 
 - The summarization thresholds (30k trigger / 10k keep) are constructor defaults of the stream, not user settings. They are tuned to balance context quality against per-turn cost.
 - A summary is lossy by design. Recent events are exact. Older history is the LLM's condensation of it. Durable facts belong in [memory](memory.md), not in the stream.
-- A session's stream lives as long as the session. The permanent records are `EVENT.md` and whatever memory distilled.
+- Task streams are removed when their task ends. The permanent records are `EVENT.md`, `TASK_HISTORY.md`, and whatever memory distilled.
 
 ## Next
 
 - [Agent loop](agent-loop.md): the producer: every turn writes here
-- [Sessions](task-sessions.md): why each session gets its own stream
+- [Task sessions](task-sessions.md): why each task gets its own stream
 - [Context engine](context-engine.md): how snapshots and deltas reach the LLM
 - [Memory](memory.md): how events become long-term memory

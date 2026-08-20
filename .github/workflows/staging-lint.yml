@@ -18,7 +18,10 @@ jobs:
           python-version: "3.10"
 
       - name: Install ruff
-        run: pip install ruff
+        # Pinned: unpinned latest broke CI when ruff 0.16 started formatting
+        # markdown code blocks and expanded its default lint rules. Bump
+        # deliberately (upgrade, run `ruff format .`, commit both together).
+        run: pip install ruff==0.16.1
 
       - name: Check formatting
         run: ruff format --check .

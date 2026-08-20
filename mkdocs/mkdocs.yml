@@ -98,7 +98,7 @@ nav:
       - Concepts:
           - Agent loop: core/concepts/agent-loop.md
           - Triggers: core/concepts/triggers.md
-          - Sessions: core/concepts/task-sessions.md
+          - Task sessions: core/concepts/task-sessions.md
           - Event stream: core/concepts/event-stream.md
           - Actions & action sets: core/concepts/actions-and-action-sets.md
           - Default actions: core/concepts/default-actions.md
@@ -111,11 +111,11 @@ nav:
           - Agent bundles: core/concepts/agent-bundles.md
           - Agent file system: core/concepts/agent-file-system.md
           - Logs: core/concepts/logs.md
-      - Runs & workflows:
+      - Task modes:
           - core/modes/index.md
-          - Quick requests: core/modes/simple-task.md
-          - Substantial work: core/modes/complex-task.md
-          - Background workflows: core/modes/special-workflows.md
+          - Simple task: core/modes/simple-task.md
+          - Complex task: core/modes/complex-task.md
+          - Special workflows: core/modes/special-workflows.md
           - Proactive: core/modes/proactive.md
       - Interfaces:
           - core/interfaces/index.md
@@ -137,6 +137,9 @@ nav:
           - Agent bundle config: core/configuration/agent-config-yaml.md
   - Living UI:
       - living-ui/index.md
+      - The framework: living-ui/framework.md
+      - A2App protocol: living-ui/a2app-protocol.md
+      - Managing apps: living-ui/managing.md
   - Integrations:
       - integrations/index.md
       - Credentials: integrations/credentials.md

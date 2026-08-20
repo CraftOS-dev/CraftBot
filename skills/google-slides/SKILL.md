@@ -450,32 +450,32 @@ import os
 import requests
 
 headers = {
-    'Content-Type': 'application/json',
-    'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {os.environ['MATON_API_KEY']}",
 }
 
 # Create a presentation
 response = requests.post(
-    'https://gateway.maton.ai/google-slides/v1/presentations',
+    "https://gateway.maton.ai/google-slides/v1/presentations",
     headers=headers,
-    json={'title': 'My Presentation'}
+    json={"title": "My Presentation"},
 )
 presentation = response.json()
-presentation_id = presentation['presentationId']
+presentation_id = presentation["presentationId"]
 
 # Add a slide
 requests.post(
-    f'https://gateway.maton.ai/google-slides/v1/presentations/{presentation_id}:batchUpdate',
+    f"https://gateway.maton.ai/google-slides/v1/presentations/{presentation_id}:batchUpdate",
     headers=headers,
     json={
-        'requests': [
+        "requests": [
             {
-                'createSlide': {
-                    'slideLayoutReference': {'predefinedLayout': 'TITLE_AND_BODY'}
+                "createSlide": {
+                    "slideLayoutReference": {"predefinedLayout": "TITLE_AND_BODY"}
                 }
             }
         ]
-    }
+    },
 )
 ```
 

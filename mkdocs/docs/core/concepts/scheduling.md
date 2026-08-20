@@ -1,6 +1,6 @@
 # Scheduling
 
-Scheduling is how CraftBot works while you're not at the keyboard: a reminder at 3pm, a briefing every Monday, the nightly memory job. You create schedules by asking in chat. The agent stores them, and the scheduler turns each one into a run at the right moment.
+Scheduling is how CraftBot works while you're not at the keyboard: a reminder at 3pm, a briefing every Monday, the nightly memory job. You create schedules by asking in chat. The agent stores them, and the scheduler turns each one into a running task at the right moment.
 
 ## Overview
 A schedule is three things: a **name**, an **instruction** (what the agent should do), and a **schedule expression** (when). All of them live in one JSON file, `app/config/scheduler_config.json`, alongside the system schedules CraftBot ships with.
@@ -50,12 +50,11 @@ What `schedule_task` records, beyond name/instruction/schedule:
 
 | Field | Default | Meaning |
 |---|---|---|
+| `mode` | `simple` | Task mode when it fires; `complex` for multi-step work. See [Task modes](../modes/index.md) |
 | `priority` | `50` | Trigger priority; lower fires first when multiple triggers are due |
 | `enabled` | `true` | Created paused if `false` |
-| `action_sets` / `skills` | none | Pre-load specific capabilities for the run (`core` covers most work) |
-| `payload` | `{}` | Extra context passed into the run's trigger |
-
-The spawned run scales itself to the instruction — see [Runs](../modes/index.md).
+| `action_sets` / `skills` | auto-selected | Pre-load specific capabilities for the task |
+| `payload` | `{}` | Extra context passed into the task |
 
 ## Managing schedules
 
@@ -64,7 +63,7 @@ All from chat, each backed by an action:
 | You say | Action | What happens |
 |---|---|---|
 | "What do you have scheduled?" | `scheduled_task_list` | Every schedule with its ID, expression, enabled state, last/next run time, and run count |
-| "Pause the morning briefing" | `schedule_task_toggle` | Disables (or re-enables) by ID — the schedule stays in config, its loop stops |
+| "Pause the morning briefing" | `schedule_task_toggle` | Disables (or re-enables) by ID; the schedule stays in config, its loop stops |
 | "Delete the bread reminder" | `remove_scheduled_task` | Removes it permanently |
 
 For recurring **proactive** tasks in `PROACTIVE.md`, the equivalent actions are `recurring_add` (name, `hourly`/`daily`/`weekly`/`monthly` frequency, instruction, time/day, permission tier), `recurring_read` to list them, `recurring_update_task` to change or pause one, and `recurring_remove` to delete it. The agent asks for your consent before adding one. Same conversational surface: "show my recurring tasks", "disable the morning briefing habit".
@@ -87,7 +86,7 @@ CraftBot ships with five schedules in `scheduler_config.json`. They power memory
 
 | ID | When | What |
 |---|---|---|
-| `memory-processing` | every day at 3am | Distills unprocessed events into long-term memory — see [Memory](memory.md) |
+| `memory-processing` | every day at 3am | Distills unprocessed events into long-term memory; see [Memory](memory.md) |
 | `heartbeat` | `0,30 * * * *` (every half hour) | Executes due recurring tasks from `PROACTIVE.md` |
 | `day-planner` | every day at 7am | Plans today's proactive tasks |
 | `week-planner` | every Sunday at 5pm | Weekly proactive planning |

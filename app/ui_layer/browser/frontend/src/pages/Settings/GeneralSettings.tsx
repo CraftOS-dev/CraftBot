@@ -13,6 +13,7 @@ import {
   Trash2,
   Package,
   PackageOpen,
+  Compass,
 } from 'lucide-react'
 import {
   Button,
@@ -26,6 +27,7 @@ import {
 } from '../../components/ui'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { useTour } from '../../tour'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
@@ -73,6 +75,7 @@ function getInitialAgentName(): string {
 export function GeneralSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
+  const { startTour } = useTour()
   const version = useAppSelector(selectVersion)
   const dispatch = useAppDispatch()
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
@@ -712,6 +715,22 @@ export function GeneralSettings() {
             <option value="light">Light</option>
             <option value="system">System</option>
           </select>
+        </div>
+
+        <div className={styles.formGroup}>
+          <label>Product Tour</label>
+          <div>
+            <Button
+              variant="secondary"
+              icon={<Compass size={14} />}
+              onClick={() => startTour('core', { restart: true })}
+            >
+              Take the tour
+            </Button>
+          </div>
+          <span className={styles.hint}>
+            Replay the guided walkthrough of the CraftBot interface.
+          </span>
         </div>
       </div>
 

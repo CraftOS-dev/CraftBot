@@ -23,9 +23,9 @@ An action is a Python function with an `@action` decorator that registers it at 
 | `description` | What the LLM reads to decide when to pick this action |
 | `input_schema` / `output_schema` | Parameter and result contracts, shown to the LLM |
 | `action_sets` | Which sets contain this action (an action can be in several) |
-| `mode` | Interface visibility — which interface contexts offer the action; `"ALL"` means everywhere |
+| `mode` | Interface visibility (which interface contexts offer the action); `"ALL"` means everywhere |
 | `execution_mode` | `"internal"` (in-process) or `"sandboxed"` (isolated venv) |
-| `platforms` | `windows` / `linux` / `darwin` / `all` — see platform dispatch below |
+| `platforms` | `windows` / `linux` / `darwin` / `all`; see platform dispatch below |
 | `requirement` | pip packages the action needs; installed automatically before it runs |
 | `parallelizable` | Whether it may run alongside other actions in one turn (`False` for writes, state changes, `send_message`) |
 | `irreversible` | Marks side effects that can't be undone once they reach the outside world (send email, post publicly) |
@@ -58,7 +58,7 @@ When a task starts, one LLM call selects both the [skills](skills.md) and the ac
 
 This compile-once design is deliberate: during execution there is no retrieval step and no searching for tools. The task's vocabulary is a fixed list the router reads directly.
 
-The list can still change, though. Mid-run, the agent can call `list_action_sets`, `add_action_sets`, and `remove_action_sets` (all in `core`, so always available) to expand or trim its own vocabulary when it discovers it needs something. These calls appear in the activity view when a run discovers mid-way that it needs another capability.
+The list can still change, though. Mid-task, the agent can call `list_action_sets`, `add_action_sets`, and `remove_action_sets` (all in `core`, so always available) to expand or trim its own vocabulary when it discovers it needs something. These calls appear in the action panel when a task discovers mid-way that it needs another capability.
 
 ## Per-turn selection
 
@@ -66,17 +66,17 @@ Every iteration of the [agent loop](agent-loop.md), the router makes **one LLM c
 
 ```json
 {"reasoning": "...", "actions": [{"action_name": "web_search", "parameters": {...}},
-                                 {"action_name": "update_todos", "parameters": {...}}]}
+                                 {"action_name": "task_update_todos", "parameters": {...}}]}
 ```
 
 Rules applied to that list before execution:
 
 - **Parallel execution.** Multiple actions in one decision run concurrently, up to 10 per batch.
 - **Non-parallelizable wins alone.** If any selected action has `parallelizable=False`, it runs by itself and the rest are dropped with an error the agent sees next turn.
-- **Format errors retry, then abort.** Malformed LLM output gets up to 3 retries with the parse error fed back. After that the run halts rather than wasting tokens.
-- **Run-ending actions end the run.** When the only selected actions are a final `send_message` or `end_turn`, the run is over; anything else queues a continuation for the next turn.
+- **Format errors retry, then abort.** Malformed LLM output gets up to 3 retries with the parse error fed back. After that the task aborts rather than wasting tokens.
+- **Conversation mode is narrow.** Outside a task, the candidates are only `send_message`, `task_start`, `ignore`, plus messaging actions for connected platforms. Real work requires a task.
 
-Each execution logs `action_start` / `action_end` events to the session's [event stream](event-stream.md), which is what the activity view in the browser renders live.
+Each execution logs `action_start` / `action_end` events to the task's [event stream](event-stream.md), which is what the action panel in the browser renders live.
 
 ## Internal vs sandboxed execution
 

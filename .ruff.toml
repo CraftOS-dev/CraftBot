@@ -2,6 +2,14 @@ extend-exclude = [
     "app/data/living_ui_template",
 ]
 
+# Pin the rule set explicitly. The repo was linted against ruff's classic
+# defaults (E4/E7/E9/F); ruff 0.16 expanded its default selection (UP, BLE,
+# S, I, …), which turned a clean tree into 9,618 errors overnight because CI
+# installs unpinned latest. Selecting explicitly makes `ruff check .` mean
+# the same thing on every ruff version.
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
 # E402 (module-level imports not at top) is triggered in files that deliberately
 # run setup code before imports — logging suppression, sys.path manipulation,
 # asyncio compatibility shims, or state-registry initialization that other

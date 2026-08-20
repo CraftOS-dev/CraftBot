@@ -116,8 +116,10 @@ rapid.Check(t, func(t *rapid.T) {
    ```python
    valid_users = st.builds(User, ...)
 
+
    @given(valid_users)
    def test_one(user): ...
+
 
    @given(valid_users)
    def test_two(user): ...

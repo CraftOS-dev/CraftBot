@@ -1,75 +1,90 @@
-# Quick requests
+# Simple task mode
 
-Most day-to-day requests fit in a short answer or one to three actions: look something up, send one message, convert one file. For these, the agent skips all ceremony. There is no todo list, no requirement contract, and no planning step. It does the work, delivers the result, and the delivery itself ends the run. This page is the complete behavior reference for that path; for the guided version, see [Your first task](../../start/first-task.md).
+Simple task mode is CraftBot's lightweight path for work that fits in two or three actions: look something up, send one message, convert one file. There is no todo list, no planning step, and no approval gate. The agent does the work, delivers the result, and ends the task by itself. Most day-to-day requests run this way.
 
-## When a request stays quick
+For the guided version, see [Your first task](../../start/first-task.md#walkthrough-1-a-simple-task). This page is the complete behavior reference.
 
-Nothing is chosen up front. The agent simply keeps the process minimal when all of these hold:
+## When the agent picks simple
 
-- The work is completable in roughly 1-3 actions (a weather lookup, a calculation, a single search-and-summarize, one message send).
+The mode is chosen once, when the agent calls `task_start` with `task_mode: "simple"`. You don't set it, and it doesn't change for the task's lifetime. The agent is trained to pick simple when all of these hold:
+
+- The work is completable in roughly 2–3 actions (weather lookup, calculation, a single search-and-summarize, one message send).
 - The result **is** the reply, with no file or artifact you need to review.
 - Nothing irreversible happens externally (no purchases, no destructive writes).
 
-Anything heavier gets the full [substantial work](complex-task.md) treatment: a requirement contract, a todo plan, and verification.
+Anything heavier routes to [complex task](complex-task.md) instead. If the agent guessed wrong and answered actionable work in plain conversation, phrase the request as a deliverable and it will start a task.
 
 ## Lifecycle
 
 ```
-trigger (your message)
+task_start(task_mode="simple")     ← from conversation mode
         │
         ▼
-execute the 1-3 work actions       ← may be parallel in one turn
+(optional) send_message            ← brief acknowledgement
         │
         ▼
-send_message                       ← the result; final message, ends the run
+execute the 1–3 work actions       ← may be parallel in one turn
+        │
+        ▼
+send_message                       ← deliver the result
+        │
+        ▼
+task_end                           ← auto-completes; no approval gate
 ```
 
-Rules the agent follows on this path:
+Rules the agent follows in this mode:
 
-- **No todos.** Quick runs never call `update_todos` and never use phase prefixes. The work is small enough that planning would only slow it down.
-- **Never ends silently after doing work.** A run that produced something always ends with a final `send_message` summarizing the result.
-- **The reply is the terminator.** A `send_message` without `continue_work=true` is what ends the run; there is no separate completion action.
+- **No todos.** Simple tasks never call `task_update_todos` and never use phase prefixes. The work is small enough that planning would only slow it down.
+- **Never ends silently.** The final `send_message` with the result always precedes (or accompanies) `task_end`.
+- **Auto-completion.** Unlike complex tasks, there is no confirmation step. The task card flips to completed the moment the agent calls `task_end`.
 
-## When no reply is needed at all
+Each turn of a running simple task goes through the same four-phase beat as every other workflow (select actions, prepare them, execute them, finalize) but action selection uses a streamlined simple-task prompt with no todo-management instructions. See [Agent loop](../concepts/agent-loop.md).
 
-Some inputs deserve no response: an emoji-only acknowledgement, or noise from a group-chat integration where the message isn't addressed to the agent. For these the agent calls `end_turn`, which ends the run silently. `end_turn` is only for inputs that need no response; using it to skip a deserved reply is a hard rule violation, and it refuses to fire while a Living UI project is still building.
+## What the agent can do inside a simple task
 
-## What the agent can do inside a quick run
+Starting a task is what unlocks the real action surface. Conversation mode can only reply, start tasks, or ignore. At `task_start`, CraftBot automatically selects **action sets** (groups of related actions) and **skills** based on your request; those selections are locked in when the task starts. Mid-task, the agent can add or remove action sets via the `action_set_management` action, but skills cannot be swapped. A different skill means a new task. See [Actions and action sets](../concepts/actions-and-action-sets.md) and [Skills](../concepts/skills.md).
 
-Any loaded action is callable on any turn, and the agent can expand or shrink its own action surface in place: `add_action_sets` / `remove_action_sets` load and unload action-set bundles, and `use_skill` / `unload_skill` do the same for skills, all mid-run. The new actions appear in the next turn's prompt. So a quick request that needs one integration action is still quick: the agent loads the set, fires the action, and replies. See [Actions and action sets](../concepts/actions-and-action-sets.md) and [Skills](../concepts/skills.md).
+One structural limit: `task_start` cannot be called from inside a task. If a simple task needs to spawn separate work, the agent uses `schedule_task` with `schedule="immediate"` instead.
 
-To spin off separate work without holding up the reply, the agent uses `schedule_task` with `schedule="immediate"`, which queues a trigger that starts its own run within seconds.
+## Caching and cost
 
-## Follow-ups
+Simple tasks use **session-level prompt caching**: across the task's few turns, the context prefix is reused and only new events are appended, so multi-turn execution stays cheap. Conversation mode, by contrast, gets prefix caching only. Combined with the short action count, this makes simple tasks the fastest and cheapest way CraftBot does real work. See [Context engine](../concepts/context-engine.md).
 
-There is no waiting state. Once the final message lands, the session sleeps. Your next message wakes a **new run in the same session**, and the session's event stream carries the full context over, so "actually, make that Celsius" just works. See [Sessions](../concepts/task-sessions.md).
+## Waiting for you
 
-## When the work grows mid-run
+A simple task can pause on you: if the agent sends a question with `wait_for_user_reply=true`, the task's `waiting_for_user_reply` flag is set and trigger scheduling pauses. Your next reply routes straight back into the task ([session routing](../concepts/task-sessions.md)). If no reply arrives, the agent re-queues a silent wait trigger every 3 hours, so the task idles without consuming tokens.
 
-Nothing is locked in at the start, so a request that turns out bigger than it looked doesn't need to be restarted or handed off. The agent scales up in place: it locks the deliverable with `set_requirement`, sends a one-line acknowledgement (`send_message` with `continue_work=true`), lays out a phase-prefixed plan with `update_todos`, and continues as [substantial work](complex-task.md). Independent side-work it discovers along the way gets spun off with `schedule_task(schedule="immediate", ...)` as its own run.
+## When the work grows mid-task
+
+Simple mode has a deliberate escape hatch, and it is *not* silently chaining more actions. If the agent discovers mid-task that the job is bigger than simple:
+
+1. It stops, delivers the partial result via `send_message`, and calls `task_end`.
+2. It schedules the remainder as a new complex task: `schedule_task(schedule="immediate", mode="complex", ...)`.
+
+The task's `mode` field never changes mid-task. A task that started simple ends simple, and the heavier work gets a proper complex task with todos and an approval gate.
 
 ## Limits and failure paths
 
-Quick runs sit on the same safety machinery as everything else, even though they rarely hit it:
+Simple tasks run on the same safety machinery as complex ones, even though they rarely hit it:
 
-- **Per-run counters.** Every run tracks `action_count` and `token_count` against `max_actions_per_task` and `max_tokens_per_task` (defaults 150 actions and 6,000,000 tokens, in `agent_core/core/state/types.py`). At 100% of either, the run pauses and you get a Continue/Stop choice in chat. Details in [Substantial work](complex-task.md#action-and-token-limits).
-- **Errors.** Failed actions return `status: "error"` and the agent adapts: one retry for transient failures, a changed approach otherwise. If it can't recover, the final message tells you what failed and why.
-- **Fatal LLM failures.** Repeated consecutive LLM call failures (bad key, exhausted credits) halt the run to prevent infinite retries. You'll see a clear error message, and sending any new chat message (for example "continue") resumes normally once the provider configuration is fixed. See [LLM providers](../providers/llm.md).
+- **Per-task counters.** Every task tracks `action_count` and `token_count`. Defaults are 500 actions and 12,000,000 tokens per task (`app/config.py`). At 80% the agent gets a warning event telling it to wrap up; at 100% the task pauses and you get a Continue/Abort choice in chat. Details in [Complex task limits](complex-task.md#action-and-token-limits).
+- **Errors.** Failed actions return `status: "error"` and the agent adapts (retry once for transient failures, change approach otherwise). If it can't recover, it tells you what failed and ends the task with `task_end(status="abort")`.
+- **Fatal LLM failures.** Repeated consecutive LLM call failures (bad key, exhausted credits) cancel the task automatically to prevent infinite retries. You'll see a clear error dialog, and fixing the provider configuration is on you. See [LLM providers](../providers/llm.md).
 
-## Observing a quick run
+## Observing a simple task
 
 | Where | What you see |
 |---|---|
-| Chat | The final reply (and nothing else: no narration, no status pings) |
-| Action panel | Each action with inputs and results, nothing hidden |
-| `agent_file_system/EVENT.md` | The main session's full event log |
-| `logs/<run>/all.log` | Grep `[REACT]` for the run flow, `[ACTION]` for execution |
+| Task panel | A task card with no todo list; flips to completed on `task_end` |
+| Action panel | Each action with inputs and results; nothing is hidden |
+| `agent_file_system/TASK_HISTORY.md` | A summary record appended when the task ends (name, status, summary, instruction, skills, action sets) |
+| `logs/<run>/main.log` | Grep `[TASK]` for lifecycle events, `[ACTION]` for execution; the simple-task workflow logs at debug level |
 
 More on logs in [Logs](../concepts/logs.md).
 
 ## Related
 
-- [Substantial work](complex-task.md): the path for everything that needs a plan
-- [Runs overview](index.md): how the agent scales its process
-- [Sessions](../concepts/task-sessions.md): reply routing and parallel sessions
+- [Complex task](complex-task.md): the mode for everything that needs a plan
+- [Task modes overview](index.md): the decision map
+- [Task sessions](../concepts/task-sessions.md): parallel tasks and reply routing
 - [Agent loop](../concepts/agent-loop.md): the shared turn cycle

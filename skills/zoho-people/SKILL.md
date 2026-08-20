@@ -538,9 +538,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/zoho-people/people/api/forms/employee/getRecords',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'sIndex': 1, 'limit': 10}
+    "https://gateway.maton.ai/zoho-people/people/api/forms/employee/getRecords",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"sIndex": 1, "limit": 10},
 )
 data = response.json()
 ```

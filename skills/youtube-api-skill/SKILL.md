@@ -507,30 +507,30 @@ await fetch(
 import os
 import requests
 
-headers = {'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+headers = {"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"}
 
 # Search videos
 results = requests.get(
-    'https://gateway.maton.ai/youtube/youtube/v3/search',
+    "https://gateway.maton.ai/youtube/youtube/v3/search",
     headers=headers,
-    params={'part': 'snippet', 'q': 'tutorial', 'type': 'video', 'maxResults': 10}
+    params={"part": "snippet", "q": "tutorial", "type": "video", "maxResults": 10},
 ).json()
 
 # Get video details
 video = requests.get(
-    'https://gateway.maton.ai/youtube/youtube/v3/videos',
+    "https://gateway.maton.ai/youtube/youtube/v3/videos",
     headers=headers,
-    params={'part': 'snippet,statistics', 'id': 'dQw4w9WgXcQ'}
+    params={"part": "snippet,statistics", "id": "dQw4w9WgXcQ"},
 ).json()
 
 # Create playlist
 response = requests.post(
-    'https://gateway.maton.ai/youtube/youtube/v3/playlists?part=snippet,status',
+    "https://gateway.maton.ai/youtube/youtube/v3/playlists?part=snippet,status",
     headers=headers,
     json={
-        'snippet': {'title': 'My Playlist', 'description': 'Videos I like'},
-        'status': {'privacyStatus': 'private'}
-    }
+        "snippet": {"title": "My Playlist", "description": "Videos I like"},
+        "status": {"privacyStatus": "private"},
+    },
 )
 ```
 

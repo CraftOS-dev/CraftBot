@@ -24,7 +24,7 @@ There is no code to touch. The active provider, model overrides, and keys all li
 2. **`/provider` command**: `/provider anthropic sk-ant-...` switches provider and key in one line from chat.
 3. **Settings → Model**: the full surface, with per-capability providers, model overrides, base URLs, connection testing, and subscription sign-in.
 
-Changes made through the wizard, the command, or Settings reinitialize the model client immediately, with no restart — and every model change, including a same-provider model swap, needs that reinitialize, because the live client never re-reads `settings.json` on its own. If you hand-edit `settings.json`, restart the agent to pick it up.
+Changes made through the wizard, the command, or Settings reinitialize the model client immediately, with no restart. If you hand-edit `settings.json`, restart the agent to pick it up.
 
 Every provider has a default model, so picking a provider is enough to start. Set an explicit model only when you want something other than the default. `model.llm_model`, `model.vlm_model`, and friends override per capability.
 

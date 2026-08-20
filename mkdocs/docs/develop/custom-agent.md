@@ -24,9 +24,9 @@ Each agent lives in its own folder under `agent_bundle/agents/<slug>/`. The `ads
 
 ```
 agent_bundle/agents/ads-specialist/
-├── agent.yaml        # Manifest — what the agent is and ships with
-├── soul.md           # Persona + decision rules — becomes SOUL.md, always in context
-├── role.md           # Deep playbooks + SOTA tool reference — becomes AGENT.md, grepped on demand
+├── agent.yaml        # Manifest: what the agent is and ships with
+├── soul.md           # Persona + decision rules; becomes SOUL.md, always in context
+├── role.md           # Deep playbooks + SOTA tool reference; becomes AGENT.md, grepped on demand
 ├── USE_CASES.md      # What the agent covers and what it can execute (ships, not in context)
 ├── SOURCES.md        # Section-to-source provenance map (ships, not in context)
 ├── reference/        # Downloaded research + INVENTORY.md + SOTA_USE_CASES.md

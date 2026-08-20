@@ -485,24 +485,20 @@ await fetch(
 import os
 import requests
 
-headers = {'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+headers = {"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"}
 
 # List open deals
 deals = requests.get(
-    'https://gateway.maton.ai/pipedrive/api/v1/deals',
+    "https://gateway.maton.ai/pipedrive/api/v1/deals",
     headers=headers,
-    params={'status': 'open'}
+    params={"status": "open"},
 ).json()
 
 # Create a deal
 response = requests.post(
-    'https://gateway.maton.ai/pipedrive/api/v1/deals',
+    "https://gateway.maton.ai/pipedrive/api/v1/deals",
     headers=headers,
-    json={
-        'title': 'New Deal',
-        'value': 10000,
-        'currency': 'USD'
-    }
+    json={"title": "New Deal", "value": 10000, "currency": "USD"},
 )
 ```
 

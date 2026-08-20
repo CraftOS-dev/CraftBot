@@ -50,8 +50,8 @@ class AsanaCredential:
 
 
 ASANA = IntegrationSpec(
-    name="asana",          # handler registry key, also the slash command
-    platform_id="asana",   # client registry key; defaults to name
+    name="asana",  # handler registry key, also the slash command
+    platform_id="asana",  # client registry key; defaults to name
     cred_class=AsanaCredential,
     cred_file="asana.json",
 )
@@ -74,8 +74,11 @@ Implement `login`, `logout`, and `status`. The `login` method validates the cred
 ```python
 from typing import List, Tuple
 from .. import (
-    IntegrationHandler, register_handler,
-    has_credential, save_credential, remove_credential,
+    IntegrationHandler,
+    register_handler,
+    has_credential,
+    save_credential,
+    remove_credential,
 )
 from ..helpers import request as http_request
 
@@ -88,8 +91,12 @@ class AsanaHandler(IntegrationHandler):
     auth_type = "token"
     icon = "asana"
     fields = [
-        {"key": "access_token", "label": "Personal Access Token",
-         "placeholder": "1/12345...", "password": True},
+        {
+            "key": "access_token",
+            "label": "Personal Access Token",
+            "placeholder": "1/12345...",
+            "password": True,
+        },
     ]
     connect_help = [
         "Open https://app.asana.com/0/my-apps",
@@ -101,8 +108,10 @@ class AsanaHandler(IntegrationHandler):
         if not token:
             return False, "Personal access token is required."
         result = http_request(
-            "GET", "https://app.asana.com/api/1.0/users/me",
-            headers={"Authorization": f"Bearer {token}"}, expected=(200,),
+            "GET",
+            "https://app.asana.com/api/1.0/users/me",
+            headers={"Authorization": f"Bearer {token}"},
+            expected=(200,),
         )
         if "error" in result:
             return False, f"Asana auth failed: {result['error']}"
@@ -155,7 +164,8 @@ class AsanaClient(BasePlatformClient):
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
         cred = self._load()
         return http_request(
-            "POST", f"https://app.asana.com/api/1.0/tasks/{recipient}/stories",
+            "POST",
+            f"https://app.asana.com/api/1.0/tasks/{recipient}/stories",
             headers={"Authorization": f"Bearer {cred.access_token}"},
             json={"data": {"text": text}},
             transform=lambda d: d.get("data"),
@@ -164,7 +174,8 @@ class AsanaClient(BasePlatformClient):
     def list_tasks(self, project_gid: str, per_page: int = 30) -> Result:
         cred = self._load()
         return http_request(
-            "GET", "https://app.asana.com/api/1.0/tasks",
+            "GET",
+            "https://app.asana.com/api/1.0/tasks",
             headers={"Authorization": f"Bearer {cred.access_token}"},
             params={"project": project_gid, "limit": per_page},
         )
@@ -187,8 +198,16 @@ from agent_core import action
     description="List tasks in an Asana project by GID. Returns task GIDs, names, and assignees.",
     action_sets=["asana_tasks", "asana"],
     input_schema={
-        "project_gid": {"type": "string", "description": "Asana project GID.", "example": "1234567890"},
-        "per_page": {"type": "integer", "description": "Max results (default 30, max 100).", "example": 30},
+        "project_gid": {
+            "type": "string",
+            "description": "Asana project GID.",
+            "example": "1234567890",
+        },
+        "per_page": {
+            "type": "integer",
+            "description": "Max results (default 30, max 100).",
+            "example": 30,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -196,7 +215,8 @@ async def list_asana_tasks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "asana", "list_tasks",
+        "asana",
+        "list_tasks",
         project_gid=input_data["project_gid"],
         per_page=input_data.get("per_page", 30),
     )
@@ -247,8 +267,9 @@ class AsanaHandler(IntegrationHandler):
         result = await self.oauth.run()
         if "error" in result and not result.get("access_token"):
             return False, f"Asana OAuth failed: {result['error']}"
-        save_credential(self.spec.cred_file,
-                        AsanaCredential(access_token=result["access_token"]))
+        save_credential(
+            self.spec.cred_file, AsanaCredential(access_token=result["access_token"])
+        )
         return True, "Asana connected"
 ```
 

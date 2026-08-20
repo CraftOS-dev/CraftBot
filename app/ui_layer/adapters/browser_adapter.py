@@ -1224,10 +1224,39 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._handle_chat_attachment_upload(data)
 
         elif msg_type == "command":
-            # User sent a command
+            # User sent a slash command. Mirror the "message" branch's lazy
+            # draft-session creation, but only for commands that operate on or
+            # produce the conversation they were typed in (skills, /clear —
+            # they declare requires_session). A draft must materialize a real
+            # session before those run: otherwise a skill turn leaks into the
+            # main session and session-scoped output orphans in the never-
+            # committed draft. Global informational commands (/help, /mcp, …)
+            # run in place — their output stays in the draft as immediate
+            # feedback without spawning an empty session in the sidebar.
             command = data.get("command", "")
             session_id = data.get("sessionId") or "main"
+            client_id = data.get("clientId")
             if command:
+                if session_id == "new":
+                    name = command.strip().split()[0].lower() if command.strip() else ""
+                    cmd = self._controller.command_registry.get(name) if name else None
+                    if cmd is not None and cmd.requires_session:
+                        session = self._controller.agent.create_chat_session()
+                        session_id = session.id
+                        await self._broadcast(
+                            {
+                                "type": "session_created",
+                                "data": {
+                                    "session": self._session_info(session),
+                                    "clientId": client_id,
+                                    # Only skills launch a turn; a state command
+                                    # like /clear commits a session but starts no
+                                    # run, so the draft handoff must not show a
+                                    # phantom typing indicator on it.
+                                    "startsRun": cmd.starts_run,
+                                },
+                            }
+                        )
                 await self.submit_message(command, session_id=session_id)
 
         elif msg_type == "enhance_prompt":

@@ -8,6 +8,8 @@ import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { LivingUIPage } from './pages/LivingUI'
 import { useWebSocket } from './contexts/WebSocketContext'
+import { TourProvider } from './tour'
+import { LoadingMascot } from '@mascot'
 
 // Forces LivingUIPage to remount per-project so useState initializers
 // (theme, custom colors) always start fresh — not carried over from a previous project.
@@ -46,22 +48,24 @@ function App() {
         <style>{`
           /* dvh with vh fallback (inline styles can't express the pair) */
           .cb-splash { height: 100vh; height: 100dvh; }
-          @keyframes cb-dot {
-            0%, 80%, 100% { transform: scale(0.45); opacity: 0.25; }
-            40%            { transform: scale(1);    opacity: 1;    }
+          /* Cycling loading dots: . -> .. -> ... -> repeat. inline-block with a
+             reserved width so the phrase before it doesn't jitter as dots grow. */
+          .cb-dots { display: inline-block; width: 1.4em; text-align: left; }
+          .cb-dots::after { content: '.'; animation: cb-dots 1.4s steps(1, end) infinite; }
+          @keyframes cb-dots {
+            0%, 100% { content: '.'; }
+            33%      { content: '..'; }
+            66%      { content: '...'; }
           }
         `}</style>
 
-        <img
-          src="/craftbot_logo_text_no_border_dark.png"
-          alt="CraftBot"
-          style={{ width: '210px', pointerEvents: 'none' }}
-        />
-
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f04a00', animation: 'cb-dot 1.4s ease-in-out infinite 0s' }} />
-          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f04a00', animation: 'cb-dot 1.4s ease-in-out infinite 0.18s' }} />
-          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f04a00', animation: 'cb-dot 1.4s ease-in-out infinite 0.36s' }} />
+        {/* Loading indicator: the mascot jumping in place (same character +
+            jump beats as the Living UI build view). */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+          <LoadingMascot size={64} />
+          <p style={{ margin: 0, color: '#8a8a8a', fontSize: '14px' }}>
+            Waking up CraftBot<span className="cb-dots" />
+          </p>
         </div>
       </div>
     )
@@ -71,19 +75,24 @@ function App() {
     return <OnboardingPage />
   }
 
+  // TourProvider wraps the ready app (past hard onboarding), so the first-run
+  // walkthrough can never collide with the onboarding wizard. It sits inside
+  // the router, so the tour can navigate between pages.
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
-        <Route path="/session/:id" element={<SessionChatRoute />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/screen" element={<ScreenPage />} />
-        <Route path="/workspace" element={<WorkspacePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    <TourProvider autoStartEnabled>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
+          <Route path="/session/:id" element={<SessionChatRoute />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/screen" element={<ScreenPage />} />
+          <Route path="/workspace" element={<WorkspacePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    </TourProvider>
   )
 }
 

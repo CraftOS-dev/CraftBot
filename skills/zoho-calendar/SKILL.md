@@ -571,8 +571,8 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/zoho-calendar/api/v1/calendars',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+    "https://gateway.maton.ai/zoho-calendar/api/v1/calendars",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
 )
 data = response.json()
 ```

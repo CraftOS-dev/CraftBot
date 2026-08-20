@@ -578,8 +578,8 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/zoho-mail/api/accounts',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+    "https://gateway.maton.ai/zoho-mail/api/accounts",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
 )
 data = response.json()
 ```

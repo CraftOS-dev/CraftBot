@@ -112,13 +112,13 @@ from craftos_integrations.integrations.llm_oauth import tokens
 configure(project_root=".")
 
 # Open browser, sign in:
-asyncio.run(tokens.connect("grok"))   # or "openai"
+asyncio.run(tokens.connect("grok"))  # or "openai"
 
 # Inspect the stored credential:
 print(tokens.status("grok"))
 
 # What the factory will see:
-print(tokens.get_bearer("grok"))      # (access_token, base_url, extra_headers)
+print(tokens.get_bearer("grok"))  # (access_token, base_url, extra_headers)
 
 # Disconnect:
 print(tokens.disconnect("grok"))

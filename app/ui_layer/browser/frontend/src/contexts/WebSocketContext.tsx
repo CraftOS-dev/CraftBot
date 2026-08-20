@@ -311,9 +311,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         // by a message THIS client sent from /session/new, drop the draft
         // bucket (the server echoes the user message into the real session)
         // and replace the route with the real session's.
-        const { session, clientId } = (msg.data || {}) as {
+        const { session, clientId, startsRun } = (msg.data || {}) as {
           session?: SessionInfo
           clientId?: string | null
+          startsRun?: boolean
         }
         if (session && clientId && pendingDraftClientIdsRef.current.has(clientId)) {
           pendingDraftClientIdsRef.current.delete(clientId)
@@ -327,9 +328,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           // this reply arrived, so it isn't lost when the route switches.
           dispatch(chatInputTransferDraft({ from: 'new', to: session.id }))
           // Transfer the optimistic busy flag from the draft to the real
-          // session so the typing indicator survives the handoff.
+          // session so the typing indicator survives the handoff. A message
+          // or skill send omits/sets startsRun and shows the indicator; a
+          // state command like /clear sets startsRun=false and must NOT —
+          // it starts no turn, so nothing would ever clear a phantom one.
           dispatch(setSessionRunState({ sessionId: 'new', state: 'idle' }))
-          dispatch(setSessionRunState({ sessionId: session.id, state: 'running' }))
+          dispatch(setSessionRunState({
+            sessionId: session.id,
+            state: startsRun === false ? 'idle' : 'running',
+          }))
           navigateRef.current(`/session/${session.id}`, { replace: true })
         }
         break
@@ -430,7 +437,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [sendOrQueue, dispatch])
 
   const sendCommand = useCallback((command: string, sessionId: string) => {
-    sendOrQueue(JSON.stringify({ type: 'command', command, sessionId }))
+    const clientId = newClientId()
+
+    // Draft view: a conversation-producing command (skills, /clear) makes the
+    // backend create a real session and broadcast session_created carrying
+    // this clientId. Register it so the handoff handler recognizes the new
+    // session as ours and navigates /session/new -> /session/{id}, exactly
+    // like a message send. Global commands produce no session_created and this
+    // entry simply never matches — harmless.
+    if (sessionId === 'new') {
+      pendingDraftClientIdsRef.current.add(clientId)
+    }
+
+    sendOrQueue(JSON.stringify({ type: 'command', command, sessionId, clientId }))
   }, [sendOrQueue])
 
   // Force-stop a session's in-flight run (chat input's stop button).

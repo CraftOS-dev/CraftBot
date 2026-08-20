@@ -49,7 +49,7 @@ reader = PdfReader("input.pdf")
 for i, page in enumerate(reader.pages):
     writer = PdfWriter()
     writer.add_page(page)
-    with open(f"page_{i+1}.pdf", "wb") as output:
+    with open(f"page_{i + 1}.pdf", "wb") as output:
         writer.write(output)
 ```
 
@@ -94,7 +94,7 @@ with pdfplumber.open("document.pdf") as pdf:
     for i, page in enumerate(pdf.pages):
         tables = page.extract_tables()
         for j, table in enumerate(tables):
-            print(f"Table {j+1} on page {i+1}:")
+            print(f"Table {j + 1} on page {i + 1}:")
             for row in table:
                 print(row)
 ```
@@ -181,17 +181,17 @@ styles = getSampleStyleSheet()
 story = []
 
 # Add content
-title = Paragraph("Report Title", styles['Title'])
+title = Paragraph("Report Title", styles["Title"])
 story.append(title)
 story.append(Spacer(1, 12))
 
-body = Paragraph("This is the body of the report. " * 20, styles['Normal'])
+body = Paragraph("This is the body of the report. " * 20, styles["Normal"])
 story.append(body)
 story.append(PageBreak())
 
 # Page 2
-story.append(Paragraph("Page 2", styles['Heading1']))
-story.append(Paragraph("Content for page 2", styles['Normal']))
+story.append(Paragraph("Page 2", styles["Heading1"]))
+story.append(Paragraph("Content for page 2", styles["Normal"]))
 
 # Build PDF
 doc.build(story)
@@ -209,10 +209,10 @@ from reportlab.lib.styles import getSampleStyleSheet
 styles = getSampleStyleSheet()
 
 # Subscripts: use <sub> tag
-chemical = Paragraph("H<sub>2</sub>O", styles['Normal'])
+chemical = Paragraph("H<sub>2</sub>O", styles["Normal"])
 
 # Superscripts: use <super> tag
-squared = Paragraph("x<super>2</super> + y<super>2</super>", styles['Normal'])
+squared = Paragraph("x<super>2</super> + y<super>2</super>", styles["Normal"])
 ```
 
 For canvas-drawn text (not Paragraph objects), manually adjust font the size and position rather than using Unicode subscripts/superscripts.
@@ -268,12 +268,12 @@ import pytesseract
 from pdf2image import convert_from_path
 
 # Convert PDF to images
-images = convert_from_path('scanned.pdf')
+images = convert_from_path("scanned.pdf")
 
 # OCR each page
 text = ""
 for i, image in enumerate(images):
-    text += f"Page {i+1}:\n"
+    text += f"Page {i + 1}:\n"
     text += pytesseract.image_to_string(image)
     text += "\n\n"
 

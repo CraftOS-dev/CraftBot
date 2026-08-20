@@ -276,8 +276,8 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/xero/api.xro/2.0/Contacts',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'}
+    "https://gateway.maton.ai/xero/api.xro/2.0/Contacts",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
 )
 ```
 

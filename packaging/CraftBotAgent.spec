@@ -66,9 +66,8 @@ datas = [
     (_root('app/config/external_comms_config.json'), 'app/config'),
     (_root('app/data'), 'app/data'),
     (_root('app/ui_layer/browser/frontend/dist'), 'app/ui_layer/browser/frontend/dist'),
-    (_root('app/gui/docker-compose.yaml'), 'app/gui'),
-    (_root('app/gui/Dockerfile'), 'app/gui'),
-    (_root('app/gui/custom-cont-init.d'), 'app/gui/custom-cont-init.d'),
+    # app/gui was deleted with GUI mode (901ad92e); its docker files broke
+    # the first tag build afterwards — PyInstaller fails hard on missing datas.
     (_root('agents'), 'agents'),
     (_root('skills'), 'skills'),
 ]

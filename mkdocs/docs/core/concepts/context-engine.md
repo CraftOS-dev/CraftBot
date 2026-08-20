@@ -7,8 +7,8 @@ Every LLM call is two halves:
 
 | Half | Contents | Changes between calls? | Cached? |
 |---|---|---|---|
-| **Static prefix** (system prompt) | Agent identity, your profile, personality, policy, environment, file-system map | No — byte-identical within a session | Yes — provider KV cache |
-| **Dynamic tail** (user prompt) | The decision template, current task, conversation history, live event stream, your query | Yes — every call | Only incrementally |
+| **Static prefix** (system prompt) | Agent identity, your profile, personality, policy, environment, file-system map | No; byte-identical within a session | Yes (provider KV cache) |
+| **Dynamic tail** (user prompt) | The decision template, current task, conversation history, live event stream, your query | Yes, every call | Only incrementally |
 
 The split is the whole design. LLM providers cache a prompt *prefix*: as long as the opening bytes of a call are identical to a previous call, those tokens are nearly free and fast. So the engine pushes everything stable to the front and everything volatile to the back. A follow-up call in a long task pays full price only for the events that happened since the last call, not for the agent's entire identity again.
 
@@ -20,15 +20,15 @@ The engine assembles the system prompt from fixed sections in a fixed order:
 
 | # | Section | What it contains | You control it via |
 |---|---|---|---|
-| 1 | Agent info | Capabilities, task system, working ethic, format standards | — (built-in) |
+| 1 | Agent info | Capabilities, task system, working ethic, format standards | Nothing (built-in) |
 | 2 | User profile | Your `USER.md`, verbatim | Edit [`USER.md`](agent-file-system.md) |
-| 3 | Soul | Your `SOUL.md`, verbatim — personality and tone | Edit [`SOUL.md`](agent-file-system.md) |
+| 3 | Soul | Your `SOUL.md`, verbatim: personality and tone | Edit [`SOUL.md`](agent-file-system.md) |
 | 4 | Language instruction | "Use the user's preferred language" rule | Language preference in `USER.md` |
-| 5 | Policy | Safety, privacy, prompt-injection defense | — (built-in) |
+| 5 | Policy | Safety, privacy, prompt-injection defense | Nothing (built-in) |
 | 6 | Role info | Agent name + role persona | [Onboarding](../../start/onboarding.md) sets the name |
-| 7 | Environment | Timezone, working directory, OS — stable facts only | — (detected) |
-| 8 | File system | Map of `agent_file_system/` — what each file is for | — (built-in) |
-| 9 | Base instruction | One-line closing instruction | — (built-in) |
+| 7 | Environment | Timezone, working directory, OS (stable facts only) | Nothing (detected) |
+| 8 | File system | Map of `agent_file_system/`: what each file is for | Nothing (built-in) |
+| 9 | Base instruction | One-line closing instruction | Nothing (built-in) |
 
 Sections 2 and 3 are read from disk at prompt-build time, which is why editing `USER.md` or `SOUL.md` changes behavior on the very next call, with no restart. It also means an edit invalidates the cached prefix once. The first call after the edit pays full price, then caching resumes. The prompt templates behind each section are covered in [Prompts](prompts.md).
 

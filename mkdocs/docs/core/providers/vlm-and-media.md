@@ -33,7 +33,7 @@ The `generate_image` action turns a text prompt into a PNG. Two providers suppor
 
 | Provider | Default model | Notes |
 |---|---|---|
-| **OpenAI** | `gpt-image-2` | Three canvas sizes only — 16:9 and 9:16 requests map to the nearest fit (1536×1024 / 1024×1536); tops out at ~1536px regardless of the requested resolution |
+| **OpenAI** | `gpt-image-2` | Three canvas sizes only; 16:9 and 9:16 requests map to the nearest fit (1536×1024 / 1024×1536); tops out at ~1536px regardless of the requested resolution |
 | **Google Gemini** | `gemini-3-pro-image` | Native negative prompts; reference images act as style guidance |
 
 Set the provider with `model.image_gen_provider` (default `openai`) and override the model with `model.image_gen_model`. If unset, generation follows your VLM provider when it can generate images, otherwise falls back to OpenAI.
@@ -69,8 +69,8 @@ Generation is long-running: the action blocks while it submits, polls, and downl
 | "VLM not available" | LLM provider has no vision model (DeepSeek, Fugu) and no `vlm_provider` set | Set `vlm_provider` to a vision-capable provider and configure its key |
 | `generate_image` / `generate_video` errors about provider | Configured provider doesn't support that capability | Set `image_gen_provider` to `openai`/`gemini`, `video_gen_provider` to `gemini`/`openai`/`byteplus` |
 | Generated image ignores 16:9 | OpenAI has no true 16:9 canvas | Use Gemini for exact wide/tall ratios |
-| `understand_video` falls back to keyframes | No Google API key configured | Add a `GOOGLE_API_KEY` — the native path activates even if Gemini isn't your VLM provider |
-| Video generation appears stuck | Generation blocks by design | Wait — typical calls take 60–300 s; check logs for polling progress |
+| `understand_video` falls back to keyframes | No Google API key configured | Add a `GOOGLE_API_KEY`; the native path activates even if Gemini isn't your VLM provider |
+| Video task appears stuck | Generation blocks by design | Wait; typical runs are 60–300 s, and logs show polling progress |
 
 More cases: [Provider troubleshooting](../../reference/troubleshooting/providers.md).
 

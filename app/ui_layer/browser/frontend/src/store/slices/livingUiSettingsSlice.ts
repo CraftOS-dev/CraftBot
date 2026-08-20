@@ -19,18 +19,11 @@ interface LivingUiSettingsState {
   // Per-project settings list from `living_ui_settings_get`.
   projects: LivingUISettingsProject[]
   hasLoadedProjects: boolean
-
-  // Contents of GLOBAL_LIVING_UI.md. Source of truth for design prefs and
-  // global rules. Loaded via `agent_file_read` filtered on the filename.
-  globalConfig: string
-  hasLoadedGlobalConfig: boolean
 }
 
 const initialState: LivingUiSettingsState = {
   projects: [],
   hasLoadedProjects: false,
-  globalConfig: '',
-  hasLoadedGlobalConfig: false,
 }
 
 const livingUiSettingsSlice = createSlice({
@@ -40,10 +33,6 @@ const livingUiSettingsSlice = createSlice({
     setSettings(state, action: PayloadAction<LivingUISettingsProject[]>) {
       state.projects = action.payload
       state.hasLoadedProjects = true
-    },
-    setGlobalConfig(state, action: PayloadAction<string>) {
-      state.globalConfig = action.payload
-      state.hasLoadedGlobalConfig = true
     },
     // Optimistic per-project setting flip so the toggle doesn't lag on the
     // round-trip back from the backend.
@@ -61,7 +50,7 @@ const livingUiSettingsSlice = createSlice({
   },
 })
 
-export const { setSettings, setGlobalConfig, updateProjectSetting } =
+export const { setSettings, updateProjectSetting } =
   livingUiSettingsSlice.actions
 
 export default livingUiSettingsSlice.reducer
@@ -71,24 +60,6 @@ export default livingUiSettingsSlice.reducer
 register('living_ui_settings_get', (data, dispatch) => {
   const d = data as { success: boolean; projects?: LivingUISettingsProject[] }
   if (d.success) dispatch(setSettings(d.projects || []))
-})
-
-// `agent_file_read` is shared across settings tabs (GeneralSettings handles
-// USER.md / AGENT.md / SOUL.md). Filter strictly by filename so we only
-// react to our own file.
-register('agent_file_read', (data, dispatch) => {
-  const d = data as { filename: string; content: string; success: boolean }
-  if (d.filename === 'GLOBAL_LIVING_UI.md' && d.success) {
-    dispatch(setGlobalConfig(d.content))
-  }
-})
-
-// Same filename filter applies to restore (returns the freshly-reset content).
-register('agent_file_restore', (data, dispatch) => {
-  const d = data as { filename: string; content: string; success: boolean }
-  if (d.filename === 'GLOBAL_LIVING_UI.md' && d.success) {
-    dispatch(setGlobalConfig(d.content))
-  }
 })
 
 // Project setting update response is intentionally not registered here: the

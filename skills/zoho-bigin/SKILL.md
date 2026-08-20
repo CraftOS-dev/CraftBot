@@ -550,9 +550,9 @@ import os
 import requests
 
 response = requests.get(
-    'https://gateway.maton.ai/zoho-bigin/bigin/v2/Contacts',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    params={'fields': 'First_Name,Last_Name,Email'}
+    "https://gateway.maton.ai/zoho-bigin/bigin/v2/Contacts",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    params={"fields": "First_Name,Last_Name,Email"},
 )
 data = response.json()
 ```

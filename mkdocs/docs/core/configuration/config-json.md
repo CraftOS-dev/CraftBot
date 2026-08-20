@@ -8,7 +8,7 @@
 ## How it's read and written
 
 - `app/config.py` (`get_settings()`) reads the file and caches it in memory. A parallel `SettingsManager` singleton in `agent_core` merges it over built-in defaults.
-- A **config watcher** hot-reloads the file within seconds of a change, with no restart for most edits. An LLM call already in flight finishes on the old config. The next call uses the new one. The `model` block is the exception: the live LLM client is rebuilt only by a reinitialize (`/provider`, a Settings → Model save, or a restart), never by the hot reload alone.
+- A **config watcher** hot-reloads the file within seconds of a change, with no restart for most edits. An LLM call already in flight finishes on the old config. The next call uses the new one.
 - The Settings UI, slash commands (`/provider`, …), the onboarding wizard, and the agent itself all write to this file.
 - **Pitfall:** a JSON syntax error doesn't crash anything. The reload fails and the *previous* config stays active. Read the file back after hand-editing.
 
@@ -59,7 +59,7 @@ Edited in **Settings → Model** or via `/provider`.
 | `image_gen_provider` | `"openai"` | Image generation provider. Falls back to `vlm_provider`. |
 | `video_gen_provider` | `"gemini"` | Video generation provider. Falls back to `image_gen_provider`, then `gemini`. |
 | `llm_model` / `vlm_model` / `image_gen_model` / `video_gen_model` | `null` | Explicit model ID per interface. `null` means the provider's registry default. |
-| `slow_mode` | `false` | Throttles LLM requests through a rate limiter — for providers with strict quotas. |
+| `slow_mode` | `false` | Throttles LLM requests through a rate limiter, for providers with strict quotas. |
 | `slow_mode_tpm_limit` | `30000` | Tokens-per-minute budget the rate limiter enforces when `slow_mode` is on. |
 
 ## `api_keys`
@@ -70,7 +70,7 @@ Edited in **Settings → Model** or `/provider <name> <key>`.
 |---|---|---|
 | `openai` | `""` | OpenAI API key. |
 | `anthropic` | `""` | Anthropic API key. |
-| `google` | `""` | Gemini API key. The Gemini provider reads `google` — there is no `gemini` key. |
+| `google` | `""` | Gemini API key. The Gemini provider reads `google`; there is no `gemini` key. |
 | `byteplus` | `""` | BytePlus (Volc Engine) key. |
 | `openrouter` | `""` | OpenRouter key. |
 
@@ -98,7 +98,7 @@ Used only by the **Bedrock** provider. Managed from **Settings → Model** when 
 | `access_key_id` | `""` | AWS access key. Falls back to `AWS_ACCESS_KEY_ID` env var. |
 | `secret_access_key` | `""` | AWS secret key. Falls back to `AWS_SECRET_ACCESS_KEY`. |
 | `session_token` | `""` | Optional session token. Falls back to `AWS_SESSION_TOKEN`. |
-| *(all empty)* | | boto3's default credential chain applies — an EC2/ECS IAM role still works. |
+| *(all empty)* | | boto3's default credential chain applies; an EC2/ECS IAM role still works. |
 
 ## `oauth`
 
@@ -110,7 +110,7 @@ Bring-your-own OAuth apps for integration connect flows. CraftBot ships shared O
 | `linkedin.client_id` / `linkedin.client_secret` | `""` | Your LinkedIn OAuth app. |
 | `slack.client_id` / `slack.client_secret` | `""` | Your Slack OAuth app. |
 | `notion.client_id` / `notion.client_secret` | `""` | Your Notion OAuth integration. |
-| `outlook.client_id` | `""` | Your Microsoft app registration (PKCE — no secret needed). |
+| `outlook.client_id` | `""` | Your Microsoft app registration (PKCE, no secret needed). |
 
 The ChatGPT and Grok **subscription logins** use their own OAuth clients. Those accept `OPENAI_OAUTH_CLIENT_ID` / `GROK_OAUTH_CLIENT_ID` overrides set as environment variables (see [Subscription authentication](../providers/subscription-auth.md)).
 
@@ -118,7 +118,7 @@ The ChatGPT and Grok **subscription logins** use their own OAuth clients. Those 
 
 | Key | Default | What it does |
 |---|---|---|
-| `<provider>` | *(absent)* | `"subscription"` or `"api_key"` per provider. Written automatically when you connect or disconnect a subscription login; the Settings UI reads it to show which auth is active. Don't hand-edit — connect/disconnect instead. |
+| `<provider>` | *(absent)* | `"subscription"` or `"api_key"` per provider. Written automatically when you connect or disconnect a subscription login; the Settings UI reads it to show which auth is active. Don't hand-edit; connect/disconnect instead. |
 
 ## `web_search`
 
@@ -133,7 +133,7 @@ Prompt-cache tuning for providers with explicit cache APIs (BytePlus prefix/sess
 | Key | Default | What it does |
 |---|---|---|
 | `prefix_ttl` | `3600` | TTL in seconds for the system-prompt prefix cache. |
-| `session_ttl` | `7200` | TTL in seconds for per-session cache state (long runs). |
+| `session_ttl` | `7200` | TTL in seconds for per-session cache state (long tasks). |
 | `min_tokens` | `500` | Prompts below this size skip caching. |
 
 The LLM layer reads its effective values from the matching `CACHE_PREFIX_TTL` / `CACHE_SESSION_TTL` / `CACHE_MIN_TOKENS` environment variables (same defaults); set those if you need to actually change cache behavior.
@@ -151,15 +151,6 @@ The LLM layer reads its effective values from the matching `CACHE_PREFIX_TTL` / 
 |---|---|---|
 | `prewarm_all_drives` | `true` | Pre-warms the `find_files` index for all local drives at startup, so the agent's first file search is fast. Set `false` on machines with many/slow drives. |
 
-## `gui`
-
-Legacy block. GUI (desktop screen-control) mode is not part of the runtime, so these keys have no effect; they remain in the file for compatibility.
-
-| Key | Default | What it does |
-|---|---|---|
-| `enabled` | `true` | Ignored by the runtime. |
-| `use_omniparser` / `omniparser_url` | `false` / `http://127.0.0.1:7861` | Ignored by the runtime. |
-
 ## `api_keys_configured`
 
 | Key | Default | What it does |
@@ -168,14 +159,14 @@ Legacy block. GUI (desktop screen-control) mode is not part of the runtime, so t
 
 ## Constants not in the JSON
 
-A few limits are Python constants. Change them by editing the file:
+A few limits are Python constants in `app/config.py`. Change them by editing the file:
 
 | Constant | Default | Purpose |
 |---|---|---|
-| `DEFAULT_MAX_ACTIONS_PER_TASK` (`agent_core/core/state/types.py`) | `150` | Per-run action cap; at 100% the agent pauses on a Continue/Stop choice |
-| `DEFAULT_MAX_TOKEN_PER_TASK` (`agent_core/core/state/types.py`) | `6,000,000` | Per-run token budget; counts only uncached tokens, same Continue/Stop gate |
-| `PROCESS_MEMORY_AT_STARTUP` (`app/config.py`) | `False` | Run memory processing at launch |
-| `MEMORY_PROCESSING_SCHEDULE_HOUR` (`app/config.py`) | `3` | Hour (0–23) of the daily memory distillation |
+| `MAX_ACTIONS_PER_TASK` | `500` | Action cap to stop runaway tasks |
+| `MAX_TOKEN_PER_TASK` | `12,000,000` | Per-task token budget |
+| `PROCESS_MEMORY_AT_STARTUP` | `False` | Run memory processing at launch |
+| `MEMORY_PROCESSING_SCHEDULE_HOUR` | `3` | Hour (0–23) of the daily memory distillation |
 
 ## Other files in app/config/
 
@@ -185,10 +176,10 @@ A few limits are Python constants. Change them by editing the file:
 |---|---|---|
 | `mcp_config.json` | [MCP server](../../integrations/mcp.md) definitions: name, transport, command/URL, env, enabled flag. Hot-reloaded. | `/mcp`, **Settings → MCP** |
 | `skills_config.json` | Which [skills](../concepts/skills.md) are enabled/disabled, plus `auto_load`. Hot-reloaded. | `/skill`, **Settings → Skills** |
-| `scheduler_config.json` | All [schedules](../concepts/scheduling.md) — including the built-in memory-processing and heartbeat entries. Hot-reloaded. | The agent's scheduling actions, **Settings → Proactive** |
-| `external_comms_config.json` | Telegram and WhatsApp listener config (tokens, mode, auto-reply). Other platforms keep credentials in `.credentials/` instead. Not hot-reloaded — hand-edits need a restart. | **Settings → Integrations** |
-| `onboarding_config.json` | [Onboarding](../../start/onboarding.md) completion flags, your name, the agent's name. Not hot-reloaded. | The onboarding flow only — don't hand-edit |
-| `connection_test_models.json` | Cheap model IDs used per provider for the "test connection" check. | You, rarely — when a test model is deprecated |
+| `scheduler_config.json` | All [schedules](../concepts/scheduling.md), including the built-in memory-processing and heartbeat entries. Hot-reloaded. | The agent's scheduling actions, **Settings → Proactive** |
+| `external_comms_config.json` | Telegram and WhatsApp listener config (tokens, mode, auto-reply). Other platforms keep credentials in `.credentials/` instead. | **Settings → Integrations** |
+| `onboarding_config.json` | [Onboarding](../../start/onboarding.md) completion flags, your name, the agent's name. Not hot-reloaded. | The onboarding flow only; don't hand-edit |
+| `connection_test_models.json` | Cheap model IDs used per provider for the "test connection" check. | You, rarely, when a test model is deprecated |
 
 ## Related
 

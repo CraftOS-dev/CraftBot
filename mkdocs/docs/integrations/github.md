@@ -8,7 +8,7 @@ The GitHub integration connects the agent to your GitHub account with a personal
 |---|---|
 | GitHub account | The agent acts as this account for every API call |
 | Personal access token (classic) | Generate at [github.com/settings/tokens](https://github.com/settings/tokens) with the `repo` scope |
-| `workflow` scope | Optional — needed only for the workflow actions (trigger, cancel, re-run) |
+| `workflow` scope | Optional; needed only for the workflow actions (trigger, cancel, re-run) |
 | Network access | CraftBot calls `api.github.com` over HTTPS |
 
 ## Setup
@@ -102,7 +102,7 @@ The 107 GitHub actions are grouped into action sets (`github_issues`, `github_pu
 | `get_github_repo` | Get repository metadata (default branch, description, stars) |
 | `create_github_repo` | Create a new repository |
 | `update_github_repo` | Update repository settings (name, visibility, default branch, archive) |
-| `delete_github_repo` | Delete a repository — irreversible, requires admin scope |
+| `delete_github_repo` | Delete a repository (irreversible, requires admin scope) |
 | `fork_github_repo` | Fork a repository under your account or an organization |
 | `list_github_forks` | List forks of a repository |
 | `list_github_collaborators` | List collaborators and their permissions |

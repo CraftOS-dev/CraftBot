@@ -602,9 +602,9 @@ import requests
 
 # Query company records
 response = requests.post(
-    'https://gateway.maton.ai/attio/v2/objects/companies/records/query',
-    headers={'Authorization': f'Bearer {os.environ["MATON_API_KEY"]}'},
-    json={'limit': 10}
+    "https://gateway.maton.ai/attio/v2/objects/companies/records/query",
+    headers={"Authorization": f"Bearer {os.environ['MATON_API_KEY']}"},
+    json={"limit": 10},
 )
 data = response.json()
 ```

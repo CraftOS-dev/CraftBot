@@ -466,8 +466,10 @@ def append_to(item, target=[]):
     target.append(item)
     return target
 
+
 append_to(1)  # [1]
 append_to(2)  # [1, 2] - same list!
+
 
 # SAFE: Use None sentinel
 def append_to(item, target=None):
@@ -481,9 +483,9 @@ def append_to(item, target=None):
 
 ```python
 # DANGEROUS: Arbitrary code execution
-eval(user_input)      # Executes Python expression
-exec(user_input)      # Executes Python statements
-compile(user_input, '', 'exec')  # Compiles for later exec
+eval(user_input)  # Executes Python expression
+exec(user_input)  # Executes Python statements
+compile(user_input, "", "exec")  # Compiles for later exec
 
 # Also via:
 input()  # In Python 2, equivalent to eval(raw_input())

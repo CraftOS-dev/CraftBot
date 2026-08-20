@@ -66,8 +66,8 @@ export const { setAgentFile, setUpdateInfo, resetUpdateCheck } = generalSettings
 export default generalSettingsSlice.reducer
 
 // Multi-handler: GeneralSettings cares about USER.md, AGENT.md, SOUL.md.
-// (LivingUISettings registers its own agent_file_read handler for the
-// GLOBAL_LIVING_UI.md filename — handlers are additive.)
+// Filter strictly by filename so other tabs' agent_file_read traffic is
+// ignored (handlers are additive across slices).
 register('agent_file_read', (data, dispatch) => {
   const d = data as { filename: string; content: string; success: boolean }
   if (!d.success) return

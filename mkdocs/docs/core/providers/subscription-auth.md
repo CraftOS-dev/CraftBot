@@ -8,12 +8,10 @@ Subscription auth is a layer in front of the model factory. Before building a cl
 
 | Provider | Qualifying plans | Endpoint in subscription mode |
 |---|---|---|
-| **OpenAI (ChatGPT)** | Plus, Pro, Team (Enterprise/Business also accepted) | `https://chatgpt.com/backend-api/codex` — CraftBot translates its calls to the Responses API this backend serves |
-| **Grok (xAI)** | SuperGrok, X Premium+ | `https://api.x.ai/v1` — same host as API-key mode |
+| **OpenAI (ChatGPT)** | Plus, Pro, Team (Enterprise/Business also accepted) | `https://chatgpt.com/backend-api/codex`; CraftBot translates its calls to the Responses API this backend serves |
+| **Grok (xAI)** | SuperGrok, X Premium+ | `https://api.x.ai/v1` (same host as API-key mode) |
 
 A free ChatGPT account can complete the sign-in, but you'll get a warning and every model call will fail until you upgrade or switch back to API-key auth.
-
-The Codex backend serves everything CraftBot needs: the agent's action decisions ride ordinary JSON-mode completions, which work transparently. Only native tool-calls and streaming are unsupported there, and CraftBot uses neither on this path, so agent behavior under a subscription matches API-key mode.
 
 **Model list narrows.** Under a ChatGPT subscription only the Codex-accepted models are reachable: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`. If your configured model isn't one of them, CraftBot substitutes `gpt-5.4` and logs a warning. Set one of the accepted models in Settings → Model to silence it. Grok subscriptions serve `grok-4-0709` and `grok-3`.
 
@@ -57,10 +55,10 @@ Anthropic's terms of service explicitly forbid third-party applications from usi
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Browser opens but Connect never completes | The loopback callback didn't fire — port `1455` (ChatGPT) or `56121` (Grok) is busy, or the provider showed a code page | Free the port and retry, or use the paste-back field in Settings when the code page appears |
+| Browser opens but Connect never completes | The loopback callback didn't fire: port `1455` (ChatGPT) or `56121` (Grok) is busy, or the provider showed a code page | Free the port and retry, or use the paste-back field in Settings when the code page appears |
 | Repeated sign-in loop | A stale pending attempt | Click Connect again to start a fresh attempt, then complete it in one go |
-| "ChatGPT connected — this account has no Plus/Pro/Team plan" | Free-tier account | Upgrade the subscription, or use an API key instead |
-| Calls fail with `429` after working fine | Subscription quota exhausted — neither provider exposes a live quota endpoint, so this is how you find out | Wait for the quota window to reset, or disconnect and fall back to an API key |
+| "ChatGPT connected: this account has no Plus/Pro/Team plan" | Free-tier account | Upgrade the subscription, or use an API key instead |
+| Calls fail with `429` after working fine | Subscription quota exhausted; neither provider exposes a live quota endpoint, so this is how you find out | Wait for the quota window to reset, or disconnect and fall back to an API key |
 | Grok: `400` "OAuth2 access token could not be validated" | Expired/revoked token (xAI returns 400, not 401) | Reconnect from Settings → Model |
 | "subscription session expired and refresh failed" | Refresh token no longer valid | Reconnect from Settings → Model |
 | Configured model silently changed (OpenAI) | Model not in the Codex-accepted list; `gpt-5.4` substituted | Pick `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, or `gpt-5.3-codex-spark` in Settings |

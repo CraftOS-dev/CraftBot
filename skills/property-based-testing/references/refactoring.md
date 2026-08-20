@@ -22,16 +22,18 @@ Identify code that could be refactored to enable or improve property-based testi
 ```python
 # BEFORE - hard to test
 def process_order(order_id: str) -> None:
-    order = db.fetch(order_id)           # I/O
+    order = db.fetch(order_id)  # I/O
     discount = calculate_discount(order)  # Pure logic
     total = apply_discount(order, discount)  # Pure logic
-    db.save(order_id, total)             # I/O
+    db.save(order_id, total)  # I/O
+
 
 # AFTER - pure core extracted
 def calculate_order_total(order: Order, rules: DiscountRules) -> Decimal:
     """Pure function - easy to property test."""
     discount = calculate_discount(order, rules)
     return apply_discount(order, discount)
+
 
 def process_order(order_id: str) -> None:
     """Thin I/O wrapper."""
@@ -51,9 +53,11 @@ def process_order(order_id: str) -> None:
 def encode_message(msg: dict) -> bytes:
     return msgpack.packb(msg)
 
+
 # AFTER - add decode for roundtrip testing
 def encode_message(msg: dict) -> bytes:
     return msgpack.packb(msg)
+
 
 def decode_message(data: bytes) -> dict:
     return msgpack.unpackb(data)
@@ -70,6 +74,7 @@ def decode_message(data: bytes) -> dict:
 def validate_input(data: str) -> bool:
     return len(data) <= CONFIG.max_length
 
+
 # AFTER - dependencies injected
 def validate_input(data: str, max_length: int) -> bool:
     return len(data) <= max_length
@@ -85,6 +90,7 @@ def validate_input(data: str, max_length: int) -> bool:
 # BEFORE
 def sort_tasks(tasks: list[Task]) -> None:
     tasks.sort(key=lambda t: t.priority)
+
 
 # AFTER - returns new list
 def sorted_tasks(tasks: list[Task]) -> list[Task]:
@@ -105,11 +111,13 @@ def build_query(table: str, filters: dict) -> str:
         q += " WHERE " + " AND ".join(...)
     return q
 
+
 # AFTER - structured representation
 @dataclass
 class Query:
     table: str
     filters: dict
+
 
 def render_query(q: Query) -> str: ...
 def parse_query(sql: str) -> Query: ...  # Add inverse!
@@ -124,11 +132,12 @@ def parse_query(sql: str) -> Query: ...  # Add inverse!
 def is_valid_email(s: str) -> bool:
     return EMAIL_REGEX.match(s) is not None
 
+
 # AFTER - add generator
 @st.composite
 def valid_emails(draw):
-    local = draw(st.from_regex(r'[a-z][a-z0-9]{1,20}'))
-    domain = draw(st.sampled_from(['gmail.com', 'example.com']))
+    local = draw(st.from_regex(r"[a-z][a-z0-9]{1,20}"))
+    domain = draw(st.sampled_from(["gmail.com", "example.com"]))
     return f"{local}@{domain}"
 ```
 
@@ -144,8 +153,10 @@ def allocate_buffer(size: int) -> bytes:
     """Size must be positive and <= 1MB."""
     return bytes(size)
 
+
 # AFTER - enforced
 MAX_BUFFER_SIZE = 1024 * 1024
+
 
 def allocate_buffer(size: int) -> bytes:
     if not (0 < size <= MAX_BUFFER_SIZE):

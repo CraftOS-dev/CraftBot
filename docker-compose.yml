@@ -1,41 +1,5 @@
 services:
   # ──────────────────────────────────────────────
-  # GUI Desktop VM (Xfce over WebRTC)
-  # ──────────────────────────────────────────────
-  desktop:
-    build:
-      context: ./app/gui
-      dockerfile: Dockerfile
-    container_name: simple-agent-desktop
-    security_opt:
-      - seccomp:unconfined
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Etc/UTC
-      - CUSTOM_USER=agent
-      - PASSWORD=password
-      - RESOLUTION=1064x1064
-      - SELKIES_IS_MANUAL_RESOLUTION_MODE=true
-      - SELKIES_MANUAL_WIDTH=1064
-      - SELKIES_MANUAL_HEIGHT=1064
-    volumes:
-      - ./app/gui/config:/config
-      - ./app/gui/custom-cont-init.d:/custom-cont-init.d:ro
-    ports:
-      - "3001:3000"
-    shm_size: "2gb"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-    networks:
-      - agent-net
-
-  # ──────────────────────────────────────────────
   # OmniParser (Gradio UI parser server)
   # First run downloads ~4GB model weights
   # ──────────────────────────────────────────────
@@ -78,8 +42,6 @@ services:
       - ./workspace:/app/workspace
       - ./config.json:/app/config.json
     depends_on:
-      desktop:
-        condition: service_healthy
       omniparser:
         condition: service_healthy
     stdin_open: true
