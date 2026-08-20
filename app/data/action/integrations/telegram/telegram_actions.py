@@ -56,7 +56,6 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
         run_client,
     )
 
-    record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
     res = await run_client(
         "telegram_bot",
         "send_message",
@@ -67,6 +66,8 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
         disable_web_page_preview=input_data.get("disable_web_page_preview"),
         reply_markup=input_data.get("reply_markup"),
     )
+    if res.get("status") == "success":
+        record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
     return pick_result(res, ["message_id"])
 
 
@@ -2386,13 +2387,15 @@ async def send_telegram_user_message(input_data: dict) -> dict:
         run_client,
     )
 
-    record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
-    return await run_client(
+    res = await run_client(
         "telegram_user",
         "send_message",
         recipient=input_data["chat_id"],
         text=input_data["text"],
     )
+    if res.get("status") == "success":
+        record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
+    return res
 
 
 @action(

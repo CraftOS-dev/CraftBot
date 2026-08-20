@@ -279,10 +279,11 @@ def _bridge_result(result: Dict[str, Any], ok: Optional[bool] = None) -> Dict[st
     shipping both doubled the envelope on every WhatsApp action result.
 
     ``ok`` overrides the derived status; when omitted, a missing ``success``
-    key counts as success (matching the call sites that hard-coded it).
+    key counts as failure — the bridge always sets it, so its absence means
+    a malformed/partial response and must not be reported as a sent message.
     """
     if ok is None:
-        ok = bool(result.get("success", True))
+        ok = bool(result.get("success", False))
     return {
         "status": "success" if ok else "error",
         **{k: v for k, v in result.items() if k != "success"},

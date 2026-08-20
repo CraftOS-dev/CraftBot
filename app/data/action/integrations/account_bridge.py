@@ -15,10 +15,7 @@ halves of account selection are handled centrally:
 ``BRIDGED_ACTION_DIRS`` maps an action directory name under
 ``app/data/action/integrations/`` to the display label used in the
 injected description. Add a directory here when its platform(s) get a
-v2 provider. The ``whatsapp`` directory intentionally stays out until
-whatsapp_web is bridged (wave 3): whatsapp_business shares the
-directory, and advertising ``account`` on whatsapp_web actions before
-its provider exists would only produce resolution errors.
+v2 provider.
 """
 
 from __future__ import annotations
@@ -46,6 +43,9 @@ BRIDGED_ACTION_DIRS: Dict[str, str] = {
     "lark_drive": "Lark Drive",
     "telegram": "Telegram",
     "twitter": "Twitter/X",
+    # Wave 3: whatsapp_web + whatsapp_business both have v2 providers;
+    # every action in the dir resolves through the v2 accounts system.
+    "whatsapp": "WhatsApp",
 }
 
 _MARKER = os.sep + "integrations" + os.sep

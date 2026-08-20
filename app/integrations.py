@@ -224,6 +224,7 @@ class CraftBotEventSink:
                     break
         except Exception:
             pass  # best-effort: fall back to the bare identity
+        payload["account_alias"] = alias
         payload["source"] = f"{payload.get('source', provider_id)} ({alias or identity})"
 
         await on_message(payload)

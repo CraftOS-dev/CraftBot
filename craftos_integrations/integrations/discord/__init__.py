@@ -263,6 +263,11 @@ class DiscordClient(BasePlatformClient):
         # Refreshed on miss / 10-minute expiry so role renames or new roles
         # propagate without an agent restart.
         self._role_name_cache: Dict[str, Tuple[Dict[str, str], float]] = {}
+        # Channel/guild display-label caches for incoming messages, so the
+        # agent sees "#general in server 'X'" instead of a bare snowflake
+        # (with a bot in several guilds, snowflakes are indistinguishable).
+        self._channel_label_cache: Dict[str, Tuple[str, float]] = {}
+        self._guild_name_cache: Optional[Tuple[Dict[str, str], float]] = None
 
     def has_credentials(self) -> bool:
         return has_credential(self.spec.cred_file)
@@ -538,7 +543,9 @@ class DiscordClient(BasePlatformClient):
         author_name = author.get("username", "Unknown")
         channel_id = d.get("channel_id", "")
         guild_id = d.get("guild_id", "")
-        channel_name = f"#{channel_id}" if guild_id else "DM"
+        channel_name = (
+            await self._channel_label(channel_id, guild_id) if guild_id else "DM"
+        )
 
         ts = None
         try:
@@ -647,6 +654,52 @@ class DiscordClient(BasePlatformClient):
             f"{DISCORD_API_BASE}/channels/{channel_id}",
             headers=self._bot_headers(),
         )
+
+    async def _guild_name(self, guild_id: str) -> str:
+        """Best-effort guild display name via the (cached) bot guild list."""
+        if not guild_id:
+            return ""
+        now = time.time()
+        if self._guild_name_cache is None or self._guild_name_cache[1] <= now:
+            mapping: Dict[str, str] = {}
+            try:
+                res = await asyncio.to_thread(self.get_bot_guilds)
+                guilds = (res.get("result") or {}).get("guilds", []) if "error" not in res else []
+                mapping = {
+                    str(g.get("id")): (g.get("name") or "")
+                    for g in guilds
+                    if isinstance(g, dict)
+                }
+            except Exception as e:
+                logger.debug(f"[DISCORD] guild list lookup failed: {e}")
+            self._guild_name_cache = (mapping, now + 600.0)
+        return self._guild_name_cache[0].get(str(guild_id), "")
+
+    async def _channel_label(self, channel_id: str, guild_id: str) -> str:
+        """Human-readable location for an incoming guild message, cached 10 min.
+
+        Falls back to raw snowflakes on any REST failure — labeling must
+        never delay or drop message delivery.
+        """
+        now = time.time()
+        cached = self._channel_label_cache.get(channel_id)
+        if cached and cached[1] > now:
+            return cached[0]
+        label = f"#{channel_id}"
+        try:
+            res = await asyncio.to_thread(self.get_channel, channel_id)
+            ch = (res.get("result") or {}) if "error" not in res else {}
+            if ch.get("name"):
+                label = f"#{ch['name']}"
+        except Exception as e:
+            logger.debug(f"[DISCORD] channel lookup for {channel_id} failed: {e}")
+        gname = await self._guild_name(guild_id)
+        if gname:
+            label = f"{label} in server '{gname}'"
+        elif guild_id:
+            label = f"{label} in server {guild_id}"
+        self._channel_label_cache[channel_id] = (label, now + 600.0)
+        return label
 
     def bot_send_message(
         self,

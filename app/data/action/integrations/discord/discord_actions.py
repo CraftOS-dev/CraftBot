@@ -14,7 +14,7 @@ from agent_core import action
     input_schema={
         "channel_id": {
             "type": "string",
-            "description": "Discord channel ID.",
+            "description": "Discord text-channel ID (bare numeric snowflake). NOT a server/guild ID — guild and channel IDs look alike but are different; get channel IDs from get_discord_channels.",
             "example": "123456789012345678",
         },
         "content": {
@@ -32,26 +32,62 @@ from agent_core import action
     parallelizable=False,
 )
 def send_discord_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import (
+        record_outgoing_message,
+        run_client_sync,
+    )
 
-    # Tolerate the generic "to" shape other messaging actions use
-    # (e.g. "channel:123..."), instead of KeyError-ing on channel_id.
-    channel_id = input_data.get("channel_id") or ""
+    # Tolerate the generic "to" shape other messaging actions use, and any
+    # LLM-invented "<label>:<id>" prefix (observed live: "channel1:<id>")
+    # — the REST API only ever takes the bare snowflake.
+    channel_id = str(input_data.get("channel_id") or "").strip()
     if not channel_id:
-        to = str(input_data.get("to") or "")
-        channel_id = to.split(":", 1)[1] if to.startswith("channel:") else to
+        channel_id = str(input_data.get("to") or "").strip()
+    if ":" in channel_id:
+        channel_id = channel_id.rsplit(":", 1)[-1].strip()
     if not channel_id:
         return {
             "status": "error",
             "message": "Missing 'channel_id'. Provide the Discord channel ID to send to.",
         }
-    return run_client_sync(
+    res = run_client_sync(
         "discord",
         "bot_send_message",
         channel_id=channel_id,
         content=input_data["content"],
         reply_to=input_data.get("reply_to") or None,
     )
+    if res.get("status") != "success":
+        msg = str(res.get("message") or "")
+        if "Unknown Channel" in msg or "404" in msg:
+            res = {
+                **res,
+                "message": (
+                    f"{msg} — '{channel_id}' is not a channel the bot can post "
+                    "to. If this is a server (guild) ID it will never work: "
+                    "guild and channel IDs are different snowflakes. Call "
+                    "get_discord_channels with the server ID to list its text "
+                    "channels, then send to a channel ID from that list."
+                ),
+            }
+        return res
+    # Success: name the destination so the transcript/agent can tell the
+    # servers apart (snowflakes are near-identical across guilds), and
+    # record the send into conversation history.
+    result = res.get("result") if isinstance(res.get("result"), dict) else {}
+    destination = f"channel {channel_id}"
+    lookup = run_client_sync("discord", "get_channel", channel_id=channel_id)
+    if lookup.get("status") == "success" and isinstance(lookup.get("result"), dict):
+        ch = lookup["result"]
+        result = {
+            **result,
+            "channel_name": ch.get("name"),
+            "guild_id": ch.get("guild_id"),
+        }
+        res = {**res, "result": result}
+        destination = f"#{ch.get('name') or channel_id} (server {ch.get('guild_id')})"
+    record_outgoing_message("Discord", destination, input_data["content"])
+    return res
 
 
 @action(

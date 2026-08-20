@@ -309,7 +309,7 @@ def build_operations() -> List[Operation]:
         client_op(
             "forward_gmail",
             "forward_message",
-            description="Forward a Gmail message to another address.",
+            description="Forward a Gmail message to another address. The original message's body and attachments are included automatically.",
             destructive=True,  # outward-facing send
             parallelizable=False,
             tags=("gmail_mail", "gmail"),
@@ -328,12 +328,12 @@ def build_operations() -> List[Operation]:
                 },
                 "body": {
                     "type": "string",
-                    "description": "Optional intro text.",
+                    "description": "Optional intro text, prepended above the forwarded content. The original body is always included — do not copy it here.",
                     "example": "",
                 },
                 "attachments": {
                     "type": "array",
-                    "description": "Optional attachment file paths.",
+                    "description": "Optional EXTRA local file paths to attach. The original message's attachments are forwarded automatically.",
                     "example": [],
                 },
             },

@@ -815,10 +815,11 @@ async function handleCommand(line) {
           chatId = wid._serialized;
         }
         const sent = await client.sendMessage(chatId, args.text);
-        if (sent?.id?._serialized) ownSentIds.add(sent.id._serialized);
+        const sentId = msgIdOf(sent);
+        if (sentId) ownSentIds.add(sentId);
         emitResponse(id, {
           success: true,
-          message_id: sent?.id?._serialized || null,
+          message_id: sentId || null,
           timestamp: new Date().toISOString(),
         });
         break;
@@ -1023,10 +1024,11 @@ async function handleCommand(line) {
         if (args.send_as_document) opts.sendMediaAsDocument = true;
         if (args.quoted_message_id) opts.quotedMessageId = args.quoted_message_id;
         const sent = await client.sendMessage(chatId, media, opts);
-        if (sent?.id?._serialized) ownSentIds.add(sent.id._serialized);
+        const sentId = msgIdOf(sent);
+        if (sentId) ownSentIds.add(sentId);
         emitResponse(id, {
           success: true,
-          message_id: sent?.id?._serialized || null,
+          message_id: sentId || null,
           timestamp: new Date().toISOString(),
         });
         break;
@@ -1044,7 +1046,7 @@ async function handleCommand(line) {
         const sent = await client.sendMessage(chatId, loc);
         emitResponse(id, {
           success: true,
-          message_id: sent?.id?._serialized || null,
+          message_id: msgIdOf(sent) || null,
         });
         break;
       }
@@ -1058,8 +1060,9 @@ async function handleCommand(line) {
           chatId = wid._serialized;
         }
         const sent = await client.sendMessage(chatId, args.text, { quotedMessageId: args.quoted_message_id });
-        if (sent?.id?._serialized) ownSentIds.add(sent.id._serialized);
-        emitResponse(id, { success: true, message_id: sent?.id?._serialized || null });
+        const sentId = msgIdOf(sent);
+        if (sentId) ownSentIds.add(sentId);
+        emitResponse(id, { success: true, message_id: sentId || null });
         break;
       }
 
