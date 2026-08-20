@@ -15,14 +15,10 @@ interface ResetItem {
 
 export const RESET_ITEMS: ResetItem[] = [
   {
-    id: 'conversation',
-    label: 'Conversation history',
-    description: 'Chat messages and the action log.',
-  },
-  {
     id: 'sessions',
-    label: 'Chat sessions',
-    description: 'All chat sessions and their history.',
+    label: 'Chats',
+    description:
+      'Delete extra chats, clear Main, and clear Living UI chat history. Apps are kept.',
   },
   {
     id: 'memory',

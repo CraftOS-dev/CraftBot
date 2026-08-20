@@ -4091,12 +4091,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
-            # Only clear the UI panels whose data was actually reset. A full
-            # reset (components is None) clears both.
-            if components is None or "conversation" in components:
+            # Chats (id "sessions", plus the legacy "conversation" alias):
+            # clear transcripts, the action panel, and push the session list
+            # so extra chats drop from the sidebar without a refresh.
+            chats_reset = (
+                components is None
+                or "sessions" in components
+                or "conversation" in components
+            )
+            if chats_reset:
                 await self._chat.clear()
-            if components is None or "sessions" in components:
                 await self._action_panel.clear()
+                await self._handle_session_list()
 
             # If LivingUI apps were deleted, push refreshed (now-empty) lists so
             # the frontend reflects the deletion. Both the main LivingUI page

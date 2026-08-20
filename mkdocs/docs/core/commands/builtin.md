@@ -35,7 +35,7 @@ Clears the conversation of the session it's typed in: the persisted chat message
 
 ## /reset
 
-Resets the agent to its initial state: deletes every chat session (a fresh main session is created), clears the action history and conversation context, restores the agent's markdown files in `agent_file_system/` from their templates, rebuilds the memory index, and clears dashboard usage data. Workspace outputs are wiped too, except Living UI projects, which are preserved. Saved settings and credentials are **not** affected. Feedback arrives as system messages while the reset runs in the background.
+Resets the agent to its initial state: deletes extra chat sessions, clears Main, and clears Living UI chat history (Living UI **apps** are kept unless you choose that option in Settings → Reset Agent). It also restores the agent's markdown files in `agent_file_system/` from their templates, rebuilds the memory index, and clears dashboard usage data. Workspace outputs are wiped too. Saved settings and credentials are **not** affected. Feedback arrives as system messages while the reset runs in the background.
 
 ## /exit
 
