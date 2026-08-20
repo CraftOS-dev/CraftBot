@@ -444,11 +444,14 @@ with tempfile.TemporaryDirectory() as tmp:
     _touch_archive(mgr.backups.store, "gone0001", 100.0, "manual")  # orphan's
     (mgr.living_ui_dir / "app_orphan_project").mkdir()
 
-    # the boot cleaner rmtrees unregistered dirs but NEVER _backups/_staging
+    # the boot cleaner LOGS unregistered dirs but NEVER deletes them, and
+    # always skips _backups/_staging
     (mgr.living_ui_dir / "_staging").mkdir(exist_ok=True)
-    removed = mgr._cleanup_orphan_folders()
-    assert removed == 1
-    assert not (mgr.living_ui_dir / "app_orphan_project").exists()
+    found = mgr._log_orphan_folders()
+    assert found == 1
+    assert (mgr.living_ui_dir / "app_orphan_project").exists(), (
+        "boot cleaner must NEVER delete orphan folders (only log them)"
+    )
     assert (mgr.living_ui_dir / "_backups").exists(), (
         "boot cleaner must NEVER touch _backups"
     )

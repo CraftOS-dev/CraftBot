@@ -1822,10 +1822,11 @@ UI in {project.path}/frontend/src/app/."""
         if killed_count > 0:
             logger.info(f"[LIVING_UI] Killed {killed_count} orphan process(es)")
 
-        # 2. Clean up orphan project folders
-        orphan_count = self._cleanup_orphan_folders()
+        # 2. Log orphan project folders (do NOT delete — deleting them at boot
+        # has destroyed real user projects; logging is the safe behavior).
+        orphan_count = self._log_orphan_folders()
         if orphan_count > 0:
-            logger.info(f"[LIVING_UI] Removed {orphan_count} orphan folder(s)")
+            logger.info(f"[LIVING_UI] Found {orphan_count} orphan folder(s) (left in place)")
 
         # 2b. Reap dev environments. None is legitimately alive at boot
         # (their build/modify missions died with the previous process), but
@@ -1860,12 +1861,16 @@ UI in {project.path}/frontend/src/app/."""
 
         logger.info("[LIVING_UI] Startup cleanup complete")
 
-    def _cleanup_orphan_folders(self) -> int:
+    def _log_orphan_folders(self) -> int:
         """
-        Delete project folders that are not tracked in the registry.
+        Log project folders that are not tracked in the registry.
+
+        Orphan folders are deliberately NOT deleted: deleting them at boot has
+        destroyed real user projects. We only surface them so they can be
+        recovered or removed manually.
 
         Returns:
-            Number of orphan folders deleted
+            Number of orphan folders found
         """
         if not self.living_ui_dir.exists():
             return 0
@@ -1876,25 +1881,19 @@ UI in {project.path}/frontend/src/app/."""
         # _staging and _backups are workspace infrastructure, not orphan
         # projects: the wizard stages reference files under _staging (with
         # its own age-based sweeper) and DevProvisioner keeps dev-env app
-        # copies there (reaped deliberately — kill recorded pid, then delete
-        # — by reap_dev(), not by this blind rmtree). _backups holds pb_data
-        # archives that must OUTLIVE their project (orphan dirs there are
-        # user-deleted only, D5) — deleting them at boot would defeat the
-        # feature.
+        # copies there. _backups holds pb_data archives that must OUTLIVE
+        # their project. Skip both so they never show up as orphans.
         skip_names = {"_staging", "_backups"}
 
         for folder in self.living_ui_dir.iterdir():
             if folder.name in skip_names:
                 continue
             if folder.is_dir() and folder not in tracked_paths:
-                try:
-                    shutil.rmtree(folder)
-                    logger.info(f"[LIVING_UI] Deleted orphan folder: {folder.name}")
-                    orphan_count += 1
-                except Exception as e:
-                    logger.warning(
-                        f"[LIVING_UI] Failed to delete orphan folder {folder}: {e}"
-                    )
+                logger.warning(
+                    f"[LIVING_UI] Orphan folder (not tracked in registry, left "
+                    f"in place): {folder.name}"
+                )
+                orphan_count += 1
 
         return orphan_count
 
