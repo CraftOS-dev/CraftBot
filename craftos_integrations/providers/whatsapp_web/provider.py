@@ -6,9 +6,9 @@ the battle-tested legacy ``WhatsAppWebClient`` keeps its entire API
 surface; the binding mixin injects the per-account credential and — the
 whatsapp-specific part — binds the client to that account's OWN
 ``WhatsAppBridge`` from the registry in ``_bridge_client``. One account
-= one Node subprocess = one headless Chromium = one LocalAuth dir
-(``whatsapp_wwebjs_auth/<identity>/``); the old process-wide singleton
-is gone.
+= one Node subprocess speaking WhatsApp's WebSocket protocol via Baileys
+= one auth dir (``whatsapp_wwebjs_auth/<identity>/`` of plain key
+files); the old process-wide singleton is gone.
 
 Auth is a QR scan, not a token and not OAuth: ``oauth_spec()`` raises
 NotImplementedError and there is deliberately NO ``run_login`` and NO
@@ -27,10 +27,10 @@ present in pre-bridge legacy credentials, so ``identity_of`` resolves
 those too and the core's legacy-file migration lands on the right
 identity instead of LEGACY_IDENTITY).
 
-Sessions live in wwebjs's LocalAuth dir, not in the credential — nothing
+Sessions live in the bridge's auth dir, not in the credential — nothing
 to rotate, so ``refresh()`` returns None. A revoked session surfaces as
-a ``qr`` event on the next listener start (the legacy client tears down
-and waits for a fresh login).
+a ``qr`` event on the next listener start (the session actor parks the
+account as needs-relink until a fresh QR link).
 
 Listener safety — how two accounts' events stay apart: each bound client
 holds its own bridge instance, and a bridge fans events out to exactly
@@ -53,7 +53,7 @@ Account removal: the core's ``remove_account`` knows nothing about Node
 processes, so the host must ALSO call ``teardown_account(identity)``
 (module-level here, or the provider method of the same name) on
 disconnect — it stops that account's bridge, attempts a server-side
-logout, deletes its LocalAuth dir, and forgets it in the registry.
+logout, deletes its auth dir, and forgets it in the registry.
 """
 
 from __future__ import annotations

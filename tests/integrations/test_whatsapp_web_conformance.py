@@ -229,75 +229,84 @@ def test_registry_peek_and_drop(bridge_env):
     assert bc.get_whatsapp_bridge("14155552671") is not a  # fresh after drop
 
 
-def test_no_identity_and_no_legacy_credential_raises(bridge_env, monkeypatch):
-    """Legacy removal (§2.8): the ``default`` slot is gone — an
-    identity-less request with nothing to resolve from fails loudly."""
-    monkeypatch.setattr(bc, "_legacy_owner_identity", lambda: None)
-    with pytest.raises(RuntimeError):
-        bc.get_whatsapp_bridge()
-
-
-def test_legacy_resolution_uses_credential_identity(bridge_env, monkeypatch):
-    # One-release straggler path: a surviving whatsapp_web.json still
-    # resolves the identity for identity-less callers.
-    monkeypatch.setattr(bc, "_legacy_owner_identity", lambda: "14155552671")
-    bridge = bc.get_whatsapp_bridge()
-    assert Path(bridge.auth_dir).name == "14155552671"
-    # Same account requested by identity → same instance.
-    assert bc.get_whatsapp_bridge("14155552671") is bridge
+def test_identity_is_required(bridge_env):
+    """Full legacy removal: no ``default`` slot, no whatsapp_web.json
+    resolution — every caller names the account."""
+    with pytest.raises(TypeError):
+        bc.get_whatsapp_bridge()  # identity is a required argument now
+    with pytest.raises(ValueError):
+        bc.get_whatsapp_bridge("no digits")
 
 
 def test_legacy_guard_machinery_is_gone(bridge_env):
     """§2.8: the legacy_guard orphan-wipe (one misplaced call away from
-    wiping a v2 account's LocalAuth) no longer exists at all."""
+    wiping a v2 account's session data) no longer exists at all."""
     bridge = bc.get_whatsapp_bridge("14155552671")
     assert not hasattr(bridge, "_legacy_guard")
     assert not hasattr(bridge, "_wipe_orphan_localauth_if_disconnected")
+    assert not hasattr(bridge, "_clear_stale_session_locks")  # Chromium-era
+    assert not hasattr(bc, "promote_pending_bridge")  # adoption is THE path
 
 
-# ── pending → promote (rekey) ────────────────────────────────────────────
+# ── pending → adopt (live re-key) ────────────────────────────────────────
 
 
-def test_pending_bridge_lifecycle_and_promote(fake_bridges):
+def test_pending_bridge_lifecycle_and_adopt(fake_bridges):
     root = fake_bridges / ".credentials" / "whatsapp_wwebjs_auth"
-    pending = bc.create_pending_bridge("sess1")
-    assert bc.create_pending_bridge("sess1") is pending  # stable per session
-    assert Path(pending.auth_dir) == root / "pending-sess1"
 
-    run(pending.start())
-    (Path(pending.auth_dir) / "session" / "creds.json").write_text("fresh")
+    async def scenario():
+        pending = bc.create_pending_bridge("sess1")
+        assert bc.create_pending_bridge("sess1") is pending  # stable per session
+        assert Path(pending.auth_dir) == root / "pending-sess1"
 
-    promoted = run(bc.promote_pending_bridge("sess1", "+1 415 555 2671"))
-    assert Path(promoted.auth_dir) == root / "14155552671"
-    assert (root / "14155552671" / "session" / "creds.json").read_text() == "fresh"
-    assert not (root / "pending-sess1").exists()
-    # Re-keyed: identity registered, session key gone, pending stopped.
-    assert bc.peek_whatsapp_bridge("14155552671") is promoted
-    assert bc._bridges.get("sess1") is None
-    assert not pending.is_running
-    assert not promoted.is_running  # host starts it (LocalAuth restores)
+        await pending.start()
+        (Path(pending.auth_dir) / "session" / "creds.json").write_text("fresh")
+
+        adopted = await bc.adopt_pending_bridge("sess1", "+1 415 555 2671")
+        # The LIVE bridge is the account's bridge now — never restarted.
+        assert adopted is pending and adopted.is_running
+        assert bc.peek_whatsapp_bridge("14155552671") is adopted
+        assert bc._bridges.get("sess1") is None
+        # Dir keeps its pending name + adoption marker until the deferred
+        # rename (clean stop / next boot).
+        assert (root / "pending-sess1" / ".adopted").read_text() == "14155552671"
+
+        await adopted.stop()
+        bc._migrate_adopted_dirs()
+        assert (root / "14155552671" / "session" / "creds.json").read_text() == "fresh"
+        assert not (root / "pending-sess1").exists()
+
+    run(scenario())
 
 
-def test_promote_same_account_relogin_prefers_fresh_session(fake_bridges):
+def test_adopt_same_account_relogin_prefers_fresh_session(fake_bridges):
     root = fake_bridges / ".credentials" / "whatsapp_wwebjs_auth"
-    # Existing connected account with an old session on disk + live bridge.
-    old = bc.get_whatsapp_bridge("14155552671")
-    run(old.start())
-    (Path(old.auth_dir) / "session" / "creds.json").write_text("stale")
 
-    pending = bc.create_pending_bridge("sess2")
-    run(pending.start())
-    (Path(pending.auth_dir) / "session" / "creds.json").write_text("fresh")
+    async def scenario():
+        # Existing connected account with an old session on disk + live bridge.
+        old = bc.get_whatsapp_bridge("14155552671")
+        await old.start()
+        (Path(old.auth_dir) / "session" / "creds.json").write_text("stale")
 
-    promoted = run(bc.promote_pending_bridge("sess2", "14155552671"))
-    assert (root / "14155552671" / "session" / "creds.json").read_text() == "fresh"
-    assert not old.is_running  # old bridge stopped and replaced
-    assert bc.peek_whatsapp_bridge("14155552671") is promoted
+        pending = bc.create_pending_bridge("sess2")
+        await pending.start()
+        (Path(pending.auth_dir) / "session" / "creds.json").write_text("fresh")
+
+        adopted = await bc.adopt_pending_bridge("sess2", "14155552671")
+        assert adopted is pending and adopted.is_running
+        assert not old.is_running  # old bridge stopped and replaced
+        assert not (root / "14155552671").exists()  # stale dir deleted
+        assert bc.peek_whatsapp_bridge("14155552671") is adopted
+        assert (
+            Path(adopted.auth_dir) / "session" / "creds.json"
+        ).read_text() == "fresh"
+
+    run(scenario())
 
 
-def test_promote_unknown_session_raises(fake_bridges):
+def test_adopt_unknown_session_raises(fake_bridges):
     with pytest.raises(KeyError):
-        run(bc.promote_pending_bridge("nope", "14155552671"))
+        run(bc.adopt_pending_bridge("nope", "14155552671"))
 
 
 def test_discard_pending_bridge_cleans_dir_and_registry(fake_bridges):
@@ -320,7 +329,7 @@ def test_capacity_cap_blocks_pending_beyond_max(fake_bridges, monkeypatch):
     with pytest.raises(BridgeCapacityError) as excinfo:
         bc.create_pending_bridge("sess2")
     message = str(excinfo.value)
-    assert "RAM" in message and "max_accounts" in message  # names the cost + the knob
+    assert "max_accounts" in message  # names the knob to raise
 
 
 def test_capacity_counts_identity_dirs_on_disk(fake_bridges, monkeypatch):
@@ -335,49 +344,12 @@ def test_capacity_counts_identity_dirs_on_disk(fake_bridges, monkeypatch):
 
 
 def test_max_accounts_config_default_and_clamp(bridge_env):
-    assert bc.max_whatsapp_accounts() == 2  # no config file → default
+    assert bc.max_whatsapp_accounts() == 4  # no config file → default
     cfg = bridge_env / ".credentials" / "whatsapp_web_config.json"
     cfg.write_text(json.dumps({"self_messages_only": False, "max_accounts": 5}))
     assert bc.max_whatsapp_accounts() == 5
     cfg.write_text(json.dumps({"max_accounts": 0}))
     assert bc.max_whatsapp_accounts() == 1  # clamped — 0 would brick logins
-
-
-# ── old-layout migration ─────────────────────────────────────────────────
-
-
-def test_old_layout_migrates_into_identity_dir(bridge_env, monkeypatch):
-    root = bridge_env / ".credentials" / "whatsapp_wwebjs_auth"
-    (root / "session").mkdir(parents=True)
-    (root / "session" / "creds.json").write_text("old-session")
-    monkeypatch.setattr(bc, "_legacy_owner_identity", lambda: "14155552671")
-
-    bridge = bc.get_whatsapp_bridge("14155552671")  # triggers migration
-    assert (root / "14155552671" / "session" / "creds.json").read_text() == "old-session"
-    assert not (root / "session").exists()
-    assert Path(bridge.auth_dir) == root / "14155552671"
-
-
-def test_old_layout_without_legacy_credential_left_in_place(bridge_env, monkeypatch):
-    root = bridge_env / ".credentials" / "whatsapp_wwebjs_auth"
-    (root / "session").mkdir(parents=True)
-    (root / "session" / "creds.json").write_text("orphan")
-    monkeypatch.setattr(bc, "_legacy_owner_identity", lambda: None)
-
-    bc.get_whatsapp_bridge("923001234567")
-    assert (root / "session" / "creds.json").exists()  # untouched, just logged
-
-
-def test_migration_runs_once(bridge_env, monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        bc, "_legacy_owner_identity", lambda: calls.append(1) or "14155552671"
-    )
-    root = bridge_env / ".credentials" / "whatsapp_wwebjs_auth"
-    (root / "session").mkdir(parents=True)
-    bc.get_whatsapp_bridge("14155552671")
-    bc.get_whatsapp_bridge("923001234567")
-    assert len(calls) == 1
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -429,7 +401,7 @@ def test_start_qr_session_refused_beyond_cap(fake_bridges, monkeypatch):
         assert (await start_qr_session())["status"] == "qr_ready"
         refused = await start_qr_session()
         assert refused["success"] is False and refused["status"] == "error"
-        assert "RAM" in refused["message"]
+        assert "max_accounts" in refused["message"]
 
     run(scenario())
 

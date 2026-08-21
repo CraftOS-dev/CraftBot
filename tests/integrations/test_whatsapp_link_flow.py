@@ -24,6 +24,8 @@ class FlowFakeBridge:
 
     def __init__(self, auth_dir: str):
         self.auth_dir = auth_dir
+        self.fail_restart = False  # when True, start() raises
+        self.start_calls = 0
         self._running = False
         self._ready = False
         self.owner_phone = ""
@@ -43,6 +45,9 @@ class FlowFakeBridge:
         self._event_callback = cb
 
     async def start(self):
+        self.start_calls += 1
+        if self.fail_restart:
+            raise RuntimeError("scripted restart failure")
         self._running = True
         Path(self.auth_dir, "session").mkdir(parents=True, exist_ok=True)
 
@@ -260,6 +265,70 @@ def test_boot_sweep_removes_only_old_orphan_pending_dirs(flow_env):
     assert keep.exists()  # identity dirs are sacred
 
     asyncio.run(asyncio.sleep(0))  # no lingering tasks
+
+
+def test_dead_pending_bridge_is_relaunched_and_flow_completes(flow_env, monkeypatch):
+    """A pending bridge that dies mid-flow (INJECT watchdog on a slow
+    post-scan sync) is relaunched from its scan-time auth — the flow keeps
+    going instead of failing with 'bridge stopped unexpectedly' (observed
+    live 2026-08-21 15:14)."""
+    monkeypatch.setattr(sess.LinkFlow, "WATCH_INTERVAL", 0.01)
+
+    async def scenario():
+        started = await manager().start_link_flow()
+        sid = started["session_id"]
+        flow = manager()._flows[sid]
+        fake = flow._bridge
+        await fake.emit("authenticated", {})
+        assert (await manager().link_flow_status(sid))["status"] == "scanned"
+
+        # Process dies post-scan; the saved auth will restore straight to
+        # ready on relaunch.
+        fake.scanned_by("14155552671")
+        fake._running = False
+
+        # Polls during the outage report the live state, not an error.
+        polled = await manager().link_flow_status(sid)
+        assert polled["status"] in ("scanned", "promoting")
+
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if flow.state == sess.FLOW_DONE:
+                break
+        assert flow.state == sess.FLOW_DONE
+        assert flow.relaunches == 1
+        assert fake.start_calls == 2
+        result = await manager().link_flow_status(sid)
+        assert result["status"] == "connected"
+        assert result["identity"] == "14155552671"
+
+    asyncio.run(scenario())
+
+
+def test_pending_bridge_relaunch_cap_fails_flow(flow_env, monkeypatch):
+    monkeypatch.setattr(sess.LinkFlow, "WATCH_INTERVAL", 0.01)
+    monkeypatch.setattr(sess.LinkFlow, "MAX_RELAUNCHES", 2)
+
+    async def scenario():
+        started = await manager().start_link_flow()
+        sid = started["session_id"]
+        flow = manager()._flows[sid]
+        fake = flow._bridge
+        await fake.emit("authenticated", {})
+        fake._running = False
+        fake.fail_restart = True  # every relaunch attempt dies again
+
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if flow.state == sess.FLOW_FAILED:
+                break
+        assert flow.state == sess.FLOW_FAILED
+        assert flow.relaunches == sess.LinkFlow.MAX_RELAUNCHES + 1
+        result = await manager().link_flow_status(sid)
+        assert result["success"] is False
+        assert "try again" in result["message"].lower()
+
+    asyncio.run(scenario())
 
 
 def test_boot_finishes_deferred_adopted_rename(flow_env):

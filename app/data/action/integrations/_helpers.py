@@ -735,7 +735,7 @@ _teardown_tasks: set = set()
 async def platform_teardown_accounts_async(integration_id: str, identities) -> None:
     """Platform-specific teardown of live per-account resources.
 
-    whatsapp_web accounts own a live Node/Chromium bridge and a per-account
+    whatsapp_web accounts own a live Node bridge process and a per-account
     session dir; core ``remove_account`` only deletes the AccountSet entry.
     Runs to completion: server-side logout (removes the entry from the
     phone's Linked Devices), process exit, auth-dir delete. Best-effort per

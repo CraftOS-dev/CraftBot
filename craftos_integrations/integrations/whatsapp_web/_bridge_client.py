@@ -1,22 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Python client for the WhatsApp Node.js bridge process.
+"""Python client for the WhatsApp Node.js bridge process (Baileys).
 
 Manages the Node.js subprocess lifecycle and provides an async API for
 sending commands and receiving events via stdin/stdout JSON lines.
 
-Multi-account model (legacy-to-v2 migration plan §5): one
-``WhatsAppBridge`` — one Node subprocess driving one headless Chromium —
-per connected WhatsApp account. Instances live in a module registry
-keyed by the normalized account identity (see ``normalize_wa_identity``)
-and each gets its own LocalAuth directory
-``.credentials/whatsapp_wwebjs_auth/<identity>/`` so Chromium profile
-locks, session data, and logout cleanup are account-scoped. ``bridge.js``
-already takes the auth dir as argv — the Node side needs no changes.
+One ``WhatsAppBridge`` — one Node subprocess speaking WhatsApp's
+WebSocket protocol via Baileys (~50MB, no browser) — per connected
+account. Instances live in a module registry keyed by the normalized
+account identity (see ``normalize_wa_identity``) and each gets its own
+auth directory ``.credentials/whatsapp_wwebjs_auth/<identity>/`` holding
+plain Baileys key files, so session data and logout cleanup are
+account-scoped. ``bridge.js`` takes the auth dir as argv.
 
 Pending logins (QR scan in progress, identity unknown until the
 ``ready`` event reports the wid) run under a temporary key — the QR
-session id — with a fresh ``pending-<session_id>/`` dir, then get
-re-keyed to the identity via ``promote_pending_bridge``.
+session id — with a fresh ``pending-<session_id>/`` dir; on success the
+LIVE bridge is re-keyed to the identity via ``adopt_pending_bridge``.
 """
 
 from __future__ import annotations
@@ -98,128 +97,9 @@ class WhatsAppBridge:
     def set_event_callback(self, callback: Optional[EventCallback]) -> None:
         self._event_callback = callback
 
-    def _clear_stale_session_locks(self) -> None:
-        """Best-effort cleanup of orphaned Chromium state in the auth dir.
-
-        wwebjs uses Puppeteer to launch a Chromium pinned to ``auth_dir``.
-        If the agent or the Node bridge is killed without going through
-        ``client.destroy()``, Chromium leaves singleton lock files behind
-        and (on Windows) the ``chrome.exe`` child process can outlive its
-        Node parent. The next bridge launch then fails with
-        "The browser is already running for ..." because Chromium thinks
-        another instance owns the directory.
-
-        We:
-          1. Find any orphan Chromium processes whose ``--user-data-dir``
-             argument resolves to OUR auth directory, and kill them.
-          2. Remove all known singleton/lock files Chromium leaves
-             (``SingletonLock``, ``SingletonSocket``, ``SingletonCookie``,
-             ``lockfile`` etc.) under the session subdirectory.
-
-        Matched by absolute path, not basename, so we don't kill unrelated
-        Chrome processes.
-        """
-        auth_dir = Path(self._auth_dir).resolve()
-        session_dir = auth_dir / "session"
-        # Substring used to match the auth dir anywhere in a Chromium
-        # process's command line. We deliberately avoid ``Path.resolve()``
-        # equality on Windows because puppeteer launches some children
-        # with the path quoted, some unquoted, some with a trailing
-        # backslash, and ``Path.resolve()`` does not always round-trip
-        # — every miss leaks another zombie tree.
-        auth_dir_marker = str(auth_dir).lower()
-
-        def _marker_matches(joined_cmdline: str) -> bool:
-            # Boundary-checked: identity dirs are digit strings under one
-            # shared root, so plain substring would let account "1"'s
-            # cleanup match (and kill) account "1234"'s Chromium. The
-            # marker must be followed by a path separator, quote,
-            # whitespace, or end-of-string.
-            start = 0
-            while True:
-                idx = joined_cmdline.find(auth_dir_marker, start)
-                if idx == -1:
-                    return False
-                end = idx + len(auth_dir_marker)
-                if end >= len(joined_cmdline) or joined_cmdline[end] in "\\/\" '":
-                    return True
-                start = idx + 1
-
-        # 1. Kill orphan Chromium processes pinned to our auth dir
-        killed = 0
-        try:
-            import psutil  # type: ignore[import-untyped]
-
-            for proc in psutil.process_iter(attrs=["pid", "name", "cmdline"]):
-                try:
-                    name = (proc.info.get("name") or "").lower()
-                    if name not in ("chrome.exe", "chrome", "chromium", "chromium.exe"):
-                        continue
-                    cmdline = proc.info.get("cmdline") or []
-                    if not cmdline:
-                        continue
-                    joined = " ".join(a for a in cmdline if isinstance(a, str)).lower()
-                    if not _marker_matches(joined):
-                        continue
-                    proc.kill()
-                    killed += 1
-                except (
-                    psutil.NoSuchProcess,
-                    psutil.AccessDenied,
-                    psutil.ZombieProcess,
-                ):
-                    continue
-        except ImportError:
-            # No psutil — fall back to taskkill on Windows. Best-effort
-            # match on the full path string in command line.
-            if os.name == "nt":
-                try:
-                    subprocess.run(
-                        [
-                            "taskkill",
-                            "/F",
-                            "/IM",
-                            "chrome.exe",
-                            "/FI",
-                            f"WINDOWTITLE eq *{session_dir.name}*",
-                        ],
-                        capture_output=True,
-                        timeout=5,
-                    )
-                except Exception:
-                    pass
-
-        # 2. Delete singleton/lock files. Chromium creates these in the
-        # user-data-dir at every launch and uses them to detect
-        # already-running instances.
-        lock_names = (
-            "SingletonLock",
-            "SingletonSocket",
-            "SingletonCookie",
-            "lockfile",
-            "Singleton",
-        )
-        removed = 0
-        for name in lock_names:
-            f = session_dir / name
-            try:
-                if f.is_symlink() or f.exists():
-                    f.unlink(missing_ok=True)
-                    removed += 1
-            except Exception as e:
-                logger.debug(f"[WA-Bridge] could not remove {f}: {e}")
-
-        if killed or removed:
-            logger.info(
-                f"[WA-Bridge] cleared stale session state "
-                f"(killed {killed} orphan Chromium proc(s), removed {removed} lock file(s))"
-            )
-
     async def start(self) -> None:
         if self.is_running:
             return
-
-        self._clear_stale_session_locks()
 
         if _BRIDGE_EXEC_OVERRIDE is None:
             node_modules = BRIDGE_DIR / "node_modules"
@@ -300,7 +180,7 @@ class WhatsAppBridge:
     async def logout(self) -> None:
         """Full disconnect: server-side unlink + local LocalAuth wipe.
 
-        The ``logout`` command makes wwebjs run ``client.logout()``, which
+        The ``logout`` command makes the bridge run a server-side logout, which
         removes the linked device from the user's phone (Desktop-parity:
         disconnect must not leave a ghost entry in Linked Devices).
         bridge.js acks the command immediately and then logs out + exits,
@@ -339,11 +219,10 @@ class WhatsAppBridge:
 
             # Send the command while the bridge still accepts commands —
             # send_command refuses once _running is False, so flipping the
-            # flag first meant no shutdown/logout EVER reached Node: wwebjs
-            # never ran client.destroy()/logout(), every stop was a hard
-            # kill of a live Chromium (locked profiles, phone kept showing
-            # the linked device). bridge.js responds before exiting, so
-            # this returns quickly on a healthy bridge.
+            # flag first meant no shutdown/logout EVER reached Node —
+            # every stop was a hard kill (phone kept showing the linked
+            # device). bridge.js responds before exiting, so this returns
+            # quickly on a healthy bridge.
             try:
                 await self.send_command(cmd, timeout=send_timeout)
             except Exception:
@@ -375,9 +254,9 @@ class WhatsAppBridge:
                             self._process.kill()
                     else:
                         self._process.kill()
-                    # The kill is asynchronous — Chromium's tree holds file
-                    # locks until it fully exits. Callers rmtree/move the
-                    # auth dir right after us, so never return while the
+                    # The kill is asynchronous and the process holds
+                    # file handles until it fully exits. Callers rmtree/move
+                    # the auth dir right after us, so never return while the
                     # process may still be dying.
                     try:
                         await asyncio.wait_for(self._process.wait(), timeout=10.0)
@@ -891,9 +770,9 @@ _PENDING_DIR_PREFIX = "pending-"
 # (contains the identity). Adoption keeps the freshly-linked browser
 # running instead of restarting it from a half-written profile — the dir
 # is renamed to the conventional <identity>/ later, at a clean stop or the
-# next boot, when no Chromium holds it (Windows can't rename under a live
-# browser; killing the browser to rename was exactly the old
-# torn-LocalAuth bug).
+# next boot, when no bridge process holds it (Windows can't rename under a live
+# process; killing the freshly-linked client to rename was exactly the
+# old torn-session bug).
 _ADOPTED_MARKER = ".adopted"
 
 _bridges: Dict[str, WhatsAppBridge] = {}
@@ -955,26 +834,11 @@ def _resolve_identity_dir(identity: str) -> Path:
     return conventional
 
 
-def _legacy_owner_identity() -> Optional[str]:
-    """Normalized identity from the legacy single-account
-    ``whatsapp_web.json``, or None if it doesn't exist / has no phone."""
-    try:
-        from ...credentials_store import load_credential
-        from . import WHATSAPP_WEB, WhatsAppWebCredential
-
-        cred = load_credential(WHATSAPP_WEB.cred_file, WhatsAppWebCredential)
-    except Exception:
-        return None
-    if cred is None:
-        return None
-    return normalize_wa_identity(cred.owner_phone)
-
-
 def max_whatsapp_accounts() -> int:
-    """The ``max_accounts`` knob from whatsapp_web_config.json (default 2).
+    """The ``max_accounts`` knob from whatsapp_web_config.json (default 4).
 
-    A RAM guard, not a hard platform limit: every connected account runs
-    its own headless Chromium (~300–500 MB)."""
+    A sanity cap, not a hard platform limit: each account is one Baileys
+    Node process (~50–100 MB) plus one linked-device slot on the phone."""
     try:
         from ...credentials_store import load_config
         from . import WhatsAppWebConfig, _whatsapp_web_config_file
@@ -983,9 +847,9 @@ def max_whatsapp_accounts() -> int:
             load_config(_whatsapp_web_config_file(), WhatsAppWebConfig)
             or WhatsAppWebConfig()
         )
-        value = int(getattr(cfg, "max_accounts", 2))
+        value = int(getattr(cfg, "max_accounts", 4))
     except Exception:
-        return 2
+        return 4
     return max(1, value)
 
 
@@ -1022,95 +886,31 @@ def _account_slots_used() -> int:
 
 
 def _ensure_layout_migrated() -> None:
-    """One-time move of the OLD single-account layout
-    (``whatsapp_wwebjs_auth/session/`` directly under the root) into the
-    per-identity layout (``whatsapp_wwebjs_auth/<identity>/session/``),
-    using the identity from the legacy whatsapp_web.json. If no legacy
-    credential exists we can't name the account — leave the old layout in
-    place and log (a fresh QR login will simply use a new identity dir).
-    """
+    """Once per process, at the one moment no bridge is running: finish any
+    deferred adopted-dir renames. (The old wwebjs single-account layout
+    migration is gone with the legacy system — pre-multi-account wwebjs
+    session data can't be used by the Baileys bridge anyway; those
+    accounts re-link once via QR.)"""
     global _layout_migrated
     if _layout_migrated:
         return
     _layout_migrated = True
-
-    # Boot is the one moment no bridge is running — finish any deferred
-    # adopted-dir renames first.
     _migrate_adopted_dirs()
 
-    root = _auth_root()
-    old_session = root / "session"
-    if not old_session.exists():
-        return
 
-    identity = _legacy_owner_identity()
-    if not identity:
-        logger.info(
-            f"[WA-Bridge] old single-account auth layout found at {root} but "
-            "no legacy whatsapp_web.json to derive an identity from — "
-            "leaving it in place"
-        )
-        return
-
-    target = _identity_auth_dir(identity)
-    if target.exists():
-        logger.warning(
-            f"[WA-Bridge] both the old auth layout and {target} exist — "
-            "keeping the identity dir, leaving the old layout untouched"
-        )
-        return
-
-    import shutil
-
-    target.mkdir(parents=True, exist_ok=True)
-    moved = 0
-    for child in list(root.iterdir()):
-        name = child.name
-        # Only old-layout content: never touch identity dirs (all-digit
-        # names), pending dirs, or the target itself.
-        if child == target or name.isdigit() or name.startswith(_PENDING_DIR_PREFIX):
-            continue
-        try:
-            shutil.move(str(child), str(target / name))
-            moved += 1
-        except OSError as e:
-            logger.warning(f"[WA-Bridge] migration could not move {child}: {e}")
-    logger.info(
-        f"[WA-Bridge] migrated old single-account auth layout into {target} "
-        f"({moved} entrie(s)) for identity {identity}"
-    )
-
-
-def get_whatsapp_bridge(identity: Optional[str] = None) -> WhatsAppBridge:
+def get_whatsapp_bridge(identity: str) -> WhatsAppBridge:
     """The per-account bridge for ``identity`` (any phone/wid spelling —
-    normalized here), creating it (stopped) on first use.
-
-    ``identity=None`` is tolerated for one release for stragglers of the
-    legacy single-account path: the identity is resolved from a surviving
-    whatsapp_web.json. With no such file the call fails loudly — the
-    ``default`` slot semantics are gone (legacy removal, session-durability
-    plan §2.8); every v2 caller passes an identity.
-    """
+    normalized here), creating it (stopped) on first use. Every caller
+    passes an identity — the legacy identity-less resolution is gone."""
     _ensure_layout_migrated()
-    if identity is None:
-        resolved = _legacy_owner_identity()
-        if resolved is None:
-            raise RuntimeError(
-                "whatsapp_web bridge requested without an account identity "
-                "and no legacy credential exists — connect an account via "
-                "the Settings → Integrations QR flow first"
-            )
-        key = resolved
-    else:
-        normalized = normalize_wa_identity(identity)
-        if normalized is None:
-            raise ValueError(f"invalid whatsapp identity: {identity!r}")
-        key = normalized
+    normalized = normalize_wa_identity(identity)
+    if normalized is None:
+        raise ValueError(f"invalid whatsapp identity: {identity!r}")
 
-    bridge = _bridges.get(key)
+    bridge = _bridges.get(normalized)
     if bridge is None:
-        bridge = WhatsAppBridge(auth_dir=str(_resolve_identity_dir(key)))
-        _bridges[key] = bridge
+        bridge = WhatsAppBridge(auth_dir=str(_resolve_identity_dir(normalized)))
+        _bridges[normalized] = bridge
     return bridge
 
 
@@ -1137,7 +937,7 @@ def drop_whatsapp_bridge(identity: str) -> Optional[WhatsAppBridge]:
 def create_pending_bridge(session_id: str) -> WhatsAppBridge:
     """A fresh bridge for a QR login in progress, registered under the QR
     ``session_id`` with its own ``pending-<session_id>/`` auth dir (so
-    concurrent QR sessions never share Chromium state). Raises
+    concurrent QR sessions never share key state). Raises
     ``BridgeCapacityError`` when the ``max_accounts`` cap is reached."""
     _ensure_layout_migrated()
     existing = _bridges.get(session_id)
@@ -1147,10 +947,9 @@ def create_pending_bridge(session_id: str) -> WhatsAppBridge:
     used = _account_slots_used()
     if used >= limit:
         raise BridgeCapacityError(
-            f"WhatsApp account limit reached ({used}/{limit}). Every connected "
-            "account runs its own headless Chromium browser (~300-500 MB RAM). "
-            "Disconnect an account first, or raise 'max_accounts' in the "
-            "WhatsApp integration settings if this machine has RAM to spare."
+            f"WhatsApp account limit reached ({used}/{limit}). Disconnect an "
+            "account first, or raise 'max_accounts' in the WhatsApp "
+            "integration settings."
         )
     bridge = WhatsAppBridge(auth_dir=str(_pending_auth_dir(session_id)))
     _bridges[session_id] = bridge
@@ -1169,55 +968,6 @@ async def discard_pending_bridge(session_id: str) -> None:
         except Exception as e:
             logger.warning(f"[WA-Bridge] pending-bridge abandon failed: {e}")
     await _rmtree_with_retry(_pending_auth_dir(session_id))
-
-
-async def promote_pending_bridge(session_id: str, identity: str) -> WhatsAppBridge:
-    """Re-key a connected pending-login bridge to its account identity.
-
-    The pending Node/Chromium is STOPPED first — Windows cannot rename a
-    profile dir under a live browser — then the fresh auth dir is moved to
-    ``<identity>/`` and a stopped bridge is registered under the identity.
-    The next ``start()`` (host listener wiring) restores the session from
-    LocalAuth without a new QR scan.
-
-    Re-login of an already-connected account: the FRESH session wins — the
-    old bridge is stopped/dropped and its auth dir replaced. (The fresh
-    scan is the one the user just performed; the old LocalAuth may be the
-    very stale state that forced the re-login.)
-    """
-    normalized = normalize_wa_identity(identity)
-    if normalized is None:
-        raise ValueError(f"invalid whatsapp identity: {identity!r}")
-
-    _pending_keys.discard(session_id)
-    pending = _bridges.pop(session_id, None)
-    if pending is None:
-        raise KeyError(f"no pending whatsapp bridge for session {session_id}")
-    if pending.is_running:
-        try:
-            await pending.stop()
-        except Exception as e:
-            logger.warning(f"[WA-Bridge] pending-bridge stop before promote: {e}")
-
-    previous = _bridges.pop(normalized, None)
-    if previous is not None and previous.is_running:
-        try:
-            await previous.stop()
-        except Exception as e:
-            logger.warning(f"[WA-Bridge] old bridge stop during re-login: {e}")
-
-    target = _identity_auth_dir(normalized)
-    if target.exists():
-        await _rmtree_with_retry(target)
-
-    src = _pending_auth_dir(session_id)
-    if src.exists():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        await _move_with_retry(src, target)
-
-    bridge = WhatsAppBridge(auth_dir=str(target))
-    _bridges[normalized] = bridge
-    return bridge
 
 
 async def adopt_pending_bridge(session_id: str, identity: str) -> WhatsAppBridge:
@@ -1305,7 +1055,7 @@ def _migrate_adopted_dirs() -> None:
         bridge = _bridges.get(identity)
         holds_dir = bridge is not None and Path(bridge.auth_dir) == child
         if holds_dir and bridge.is_running:
-            continue  # live Chromium owns it — next clean stop gets it
+            continue  # a live bridge owns it — next clean stop gets it
         target = _identity_auth_dir(identity)
         try:
             if target.exists():
@@ -1362,7 +1112,7 @@ async def _teardown_account_impl(normalized: str) -> None:
 
 
 async def _rmtree_with_retry(path: Path, attempts: int = 5) -> None:
-    """Windows: Chromium file locks linger briefly after process exit."""
+    """Windows: file locks can linger briefly after process exit."""
     import shutil
 
     for i in range(attempts):

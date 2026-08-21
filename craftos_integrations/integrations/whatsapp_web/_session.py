@@ -21,10 +21,10 @@ State machine::
 
 - ``NEEDS_RELINK`` is terminal-until-user-acts: stale LocalAuth stops the
   bridge once, records a marker file in the identity's auth dir (so the
-  state survives restarts), and never respawns — the Chromium hot loop is
+  state survives restarts), and never respawns — the relaunch hot loop is
   structurally impossible. Cleared by a fresh QR link (promote replaces
   the auth dir) or teardown.
-- ``RECONNECTING`` covers both wwebjs ``disconnected`` events and
+- ``RECONNECTING`` covers both bridge ``disconnected`` events and
   unexpected process exit: exponential backoff 5s → 10min with jitter.
   A ``LOGOUT`` disconnect reason (user unlinked from their phone) maps to
   ``NEEDS_RELINK`` instead — respawning would loop.
@@ -527,13 +527,21 @@ class LinkFlow:
     concurrent poller can never hit 'Session not found' after success —
     ``DONE`` is idempotent."""
 
-    QR_CYCLE_SECONDS = 300.0  # fresh QR window; wwebjs refreshes within it
+    QR_CYCLE_SECONDS = 300.0  # fresh QR window; the bridge refreshes within it
     MAX_QR_CYCLES = 3
     # No poll for this long while a QR is pending = the modal was abandoned
-    # — stop burning a Chromium for it. Generous enough for the agent
+    # — stop holding a connection open for it. Generous enough for the agent
     # action path, which polls at LLM speed.
     ABANDON_AFTER = 120.0
     WATCH_INTERVAL = 5.0
+    # A pending bridge that dies mid-flow (e.g. the INJECT watchdog fired
+    # because the post-scan sync outran its budget) gets relaunched from
+    # its own pending dir — the auth saved at scan time restores without a
+    # new QR. The session actor supervises its bridges; the flow must
+    # supervise its own (observed live 2026-08-21 15:14: a successful scan
+    # turned into "bridge stopped unexpectedly" because nobody restarted
+    # the pending bridge).
+    MAX_RELAUNCHES = 2
 
     def __init__(self, manager: "WhatsAppSessionManager", session_id: str) -> None:
         self._manager = manager
@@ -543,11 +551,13 @@ class LinkFlow:
         self.result: Optional[Dict[str, Any]] = None
         self.error = ""
         self.cycles = 1
+        self.relaunches = 0
         self.created = time.time()
         self.last_poll = time.time()
         self.cycle_started = time.time()
         self._bridge = None
         self._completing = False
+        self._relaunching = False
         self._watch_task: Optional[asyncio.Task] = None
 
     # ── lifecycle ────────────────────────────────────────────────────────
@@ -629,11 +639,9 @@ class LinkFlow:
         bridge = self._bridge
         if bridge is not None and bridge.is_ready:
             return await self._complete()
-        if bridge is not None and not bridge.is_running:
-            await self.cancel(reason="WhatsApp bridge stopped unexpectedly.")
-            self.state = FLOW_FAILED
-            self.error = "WhatsApp bridge stopped unexpectedly. Please try again."
-            return self._terminal_dict()
+        # A dead pending bridge is NOT an instant failure — the watcher
+        # relaunches it (bounded); until then keep reporting the live state
+        # so the UI shows "connecting…" instead of an error flash.
         if self.state == FLOW_SCANNED:
             return {
                 "success": True,
@@ -680,7 +688,7 @@ class LinkFlow:
         if self.state in _FLOW_TERMINAL:
             return
         if event == "qr":
-            # wwebjs refreshes the code periodically — always show the
+            # The bridge refreshes the code periodically — always show the
             # newest one.
             fresh = _qr_to_data_url(data)
             if fresh:
@@ -720,8 +728,8 @@ class LinkFlow:
             identity = normalize_wa_identity(wid or owner_phone)
 
             if identity is None:
-                # Connected but no usable identity — don't leave a nameless
-                # Chromium running.
+                # Connected but no usable identity — don't leave a
+                # nameless bridge running.
                 await discard_pending_bridge(self.session_id)
                 self.state = FLOW_FAILED
                 self.error = (
@@ -776,14 +784,24 @@ class LinkFlow:
             self._completing = False
 
     async def _watch(self) -> None:
-        """Abandon detection + QR-cycle recycling. Event-driven transitions
-        happen elsewhere; this only enforces time policy."""
+        """Flow supervision: dead-bridge relaunch, abandon detection, and
+        QR-cycle recycling. Event-driven transitions happen elsewhere; this
+        enforces time/liveness policy."""
         try:
             while self.state in (FLOW_QR_READY, FLOW_SCANNED):
                 await asyncio.sleep(self.WATCH_INTERVAL)
                 now = time.time()
                 if self.state not in (FLOW_QR_READY, FLOW_SCANNED):
                     return
+                bridge = self._bridge
+                if (
+                    bridge is not None
+                    and not bridge.is_running
+                    and not self._completing
+                    and not self._relaunching
+                ):
+                    await self._relaunch_bridge()
+                    continue
                 if now - self.last_poll > self.ABANDON_AFTER:
                     logger.info(
                         f"[WA-Link] flow {self.session_id[:8]} abandoned "
@@ -800,6 +818,60 @@ class LinkFlow:
                     await self._recycle()
         except asyncio.CancelledError:
             pass
+
+    async def _relaunch_bridge(self) -> None:
+        """The pending bridge's process died mid-flow (INJECT watchdog on a
+        slow post-scan sync, crash). Relaunch it from its own pending dir:
+        the auth saved at scan time restores WITHOUT a new QR, so from the
+        user's side the flow just keeps 'connecting…'. Bounded — after
+        MAX_RELAUNCHES the flow fails honestly."""
+        self.relaunches += 1
+        if self.relaunches > self.MAX_RELAUNCHES:
+            logger.warning(
+                f"[WA-Link] flow {self.session_id[:8]}: bridge died "
+                f"{self.relaunches}x — giving up"
+            )
+            self.state = FLOW_FAILED
+            self.error = (
+                "WhatsApp kept disconnecting while finishing the link. "
+                "Please try again."
+            )
+            await self._dispose()
+            return
+        self._relaunching = True
+        logger.info(
+            f"[WA-Link] flow {self.session_id[:8]}: pending bridge died — "
+            f"relaunching from saved auth "
+            f"({self.relaunches}/{self.MAX_RELAUNCHES})"
+        )
+        try:
+            bridge = self._bridge
+            bridge.set_event_callback(self._on_bridge_event)
+            await bridge.start()
+            event_type, event_data = await bridge.wait_for_qr_or_ready(
+                timeout=60.0
+            )
+            if self.state in _FLOW_TERMINAL:
+                return
+            if event_type == "ready":
+                await self._complete()
+            elif event_type == "qr":
+                # The scan-time auth didn't survive — back to a fresh QR;
+                # the user has to re-scan (the UI shows the new code).
+                fresh = _qr_to_data_url(event_data)
+                if fresh:
+                    self.qr_code = fresh
+                self.state = FLOW_QR_READY
+                self.cycle_started = time.time()
+            # timeout / error: the process either lives (ready may still
+            # arrive via the event handler) or died again — the next watch
+            # tick re-enters here and the relaunch counter caps it.
+        except Exception as e:
+            logger.warning(
+                f"[WA-Link] flow {self.session_id[:8]}: relaunch failed: {e}"
+            )
+        finally:
+            self._relaunching = False
 
     async def _recycle(self) -> None:
         """Fresh QR for a new window — event-driven renewal, never a

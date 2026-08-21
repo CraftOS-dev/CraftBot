@@ -50,10 +50,11 @@ class WhatsAppWebConfig:
     # wants WhatsApp to act as a personal command channel only.
     self_messages_only: bool = False
 
-    # RAM guard for multi-account: every connected WhatsApp account runs
-    # its own Node bridge with a headless Chromium (~300-500 MB each).
-    # Starting a QR login beyond this cap is refused with a clear error.
-    max_accounts: int = 2
+    # Sanity cap for multi-account: each connected WhatsApp account runs
+    # its own Baileys Node bridge (~50-100 MB) and takes one linked-device
+    # slot on the phone. Starting a QR login beyond this cap is refused
+    # with a clear error.
+    max_accounts: int = 4
 
 
 WHATSAPP_WEB = IntegrationSpec(
@@ -95,7 +96,8 @@ class WhatsAppWebHandler(IntegrationHandler):
             "label": "Max accounts",
             "type": "number",
             "help": "Maximum WhatsApp accounts connected at once. Each account "
-            "runs its own headless browser (~300-500 MB RAM).",
+            "runs its own lightweight bridge process and uses one linked-device "
+            "slot on its phone.",
         },
     ]
     icon = "whatsapp"
@@ -646,7 +648,7 @@ class WhatsAppWebClient(BasePlatformClient):
             # Already subscribed — just point at the new callback. Lets a
             # new integration manager rewire onto a still-running session
             # (e.g. between test_live tests) without tearing down the
-            # wwebjs session.
+            # bridge session.
             self._message_callback = callback
             return
         self._cred = None
@@ -666,9 +668,9 @@ class WhatsAppWebClient(BasePlatformClient):
             return
         self._listening = False
         # Graceful stop through the session actor: clean ``shutdown`` so
-        # wwebjs runs ``client.destroy()`` and LocalAuth flushes — WhatsApp
-        # sees a proper disconnect (like the desktop app on quit) instead
-        # of a crash, which directly extends session credential lifetime.
+        # the bridge closes its socket properly — WhatsApp sees a proper
+        # disconnect (like the desktop app on quit) instead of a crash,
+        # which directly extends session credential lifetime.
         session = None
         try:
             from ._session import get_session_manager
@@ -751,7 +753,7 @@ class WhatsAppWebClient(BasePlatformClient):
         except Exception as e:
             logger.warning(f"[WHATSAPP_WEB] owner-info refresh failed: {e}")
 
-    # wwebjs message ``type`` → normalized attachment kind. Text messages
+    # Bridge message ``type`` → normalized attachment kind. Text messages
     # are type "chat"; anything here is media fetchable by message_id via
     # download_message_media (docs/plans/attachment-reception-plan.md).
     _MEDIA_KINDS = {

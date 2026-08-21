@@ -1,44 +1,42 @@
 #!/usr/bin/env node
 /**
- * CraftBot WhatsApp Bridge
+ * CraftBot WhatsApp Bridge — Baileys edition (protocol-native, no browser).
  *
- * Standalone Node.js process that wraps whatsapp-web.js and communicates
- * with the Python agent via stdin/stdout JSON lines.
+ * Standalone Node.js process that speaks WhatsApp's WebSocket protocol via
+ * Baileys and communicates with the Python agent via stdin/stdout JSON
+ * lines. Replaces the whatsapp-web.js + headless-Chromium bridge: sessions
+ * are plain key files under <auth_dir>/session (no browser profile to
+ * corrupt), reconnects are seconds, and one account costs ~50MB.
  *
- * Protocol:
- *   Python → Node (stdin):  JSON command per line
- *     { "id": "req_1", "cmd": "send_message", "args": { "to": "...", "text": "..." } }
+ * Protocol (unchanged from the wwebjs bridge — Python is agnostic):
+ *   Python → Node (stdin):  { "id": "req_1", "cmd": "...", "args": {...} }
+ *   Node → Python (stdout): { "type": "event", "event": "...", "data": {...} }
+ *                           { "type": "response", "id": "req_1", "data": {...} }
+ *   Logs go to stderr.
  *
- *   Node → Python (stdout): JSON event/response per line
- *     { "type": "event", "event": "message", "data": { ... } }
- *     { "type": "response", "id": "req_1", "data": { ... } }
+ * Events kept identical: qr, authenticated, ready, catchup, disconnected,
+ * message, message_sent, auth_failure, error{fatal}.
  *
- *   Logs go to stderr so they don't interfere with the JSON protocol.
- *
- * Lifecycle (session-durability redesign §2.4): all client state lives in
- * a ClientGeneration — one wweb.js client, its handlers, and its timers.
- * Events from a superseded/disposed generation are dropped at a single
- * gate, so an old generation can never destroy the live client or emit
- * stale events. The watchdog is phase-aware:
- *
- *   LAUNCH  (initialize → qr|authenticated): 90s — a genuine hang detector.
- *            On expiry: dispose + retry (bounded), then fatal exit.
- *   QR_WAIT (after qr): watchdog SUSPENDED. A human scanning a QR is not a
- *            hang; wweb.js refreshes the code itself, and the Python
- *            LinkFlow owns total-QR-time policy (recycle/timeout).
- *   INJECT  (authenticated → ready): 60s. On expiry: fatal error + clean
- *            exit — NO synthetic ready (a lying ready masks a dead receive
- *            path; the Python supervisor restarts us with backoff).
- *
- * The process never lingers in a broken state: unhandledRejection and
- * uncaughtException emit a fatal error event and exit(1) deliberately so
- * the Python supervisor sees the exit and applies backoff.
+ * Lifecycle: ONE internal reconnect case — Baileys' post-pairing
+ * restartRequired (a normal part of linking). Every other close emits
+ * `disconnected` (reason "LOGOUT" when the phone unlinked us — Python
+ * parks NEEDS_RELINK) and exits so the Python session actor supervises the
+ * restart with backoff, exactly like the old bridge contract.
  */
 
-const { Client, LocalAuth, MessageMedia, Location, Buttons, List, Poll } = require("whatsapp-web.js");
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  DisconnectReason,
+  downloadMediaMessage,
+  jidNormalizedUser,
+  isJidGroup,
+  getContentType,
+  Browsers,
+} = require("@whiskeysockets/baileys");
 const qrcode = require("qrcode");
 const path = require("path");
-const readline = require("readline");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,17 +46,14 @@ function log(...args) {
   process.stderr.write(`[WA-Bridge] ${args.join(" ")}\n`);
 }
 
-/** Send a JSON line to stdout (Python reads this). */
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
-/** Send an event to Python. */
 function emitEvent(event, data = {}) {
   emit({ type: "event", event, data });
 }
 
-/** Send a command response to Python. */
 function emitResponse(id, data = {}) {
   emit({ type: "response", id, data });
 }
@@ -67,210 +62,6 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-const AUTH_DIR = process.argv[2] || path.join(process.cwd(), ".credentials", "whatsapp_wwebjs_auth");
-
-const LAUNCH_TIMEOUT_MS = parseInt(process.env.WA_BRIDGE_LAUNCH_TIMEOUT_MS || "", 10) || 90_000;
-const INJECT_TIMEOUT_MS = parseInt(process.env.WA_BRIDGE_INJECT_TIMEOUT_MS || "", 10) || 60_000;
-const MAX_LAUNCH_RETRIES = 2; // total attempts = MAX_LAUNCH_RETRIES + 1
-
-log(`Auth directory: ${AUTH_DIR}`);
-
-// ---------------------------------------------------------------------------
-// WhatsApp Client
-// ---------------------------------------------------------------------------
-
-// We deliberately do NOT pin a webVersionCache. Pinning ties us to a
-// snapshot from wppconnect-team/wa-version, which (a) prunes old entries
-// after a few months → 404 → ``Runtime.callFunctionOn timed out`` during
-// init, and (b) drifts away from whatever wwebjs's internal selectors
-// actually expect → ``authenticated`` fires but ``ready`` never does.
-//
-// Without webVersionCache, wwebjs loads web.whatsapp.com directly, using
-// the same JS that the user's actual browser uses. That tracks WhatsApp's
-// current build and matches wwebjs's selectors most reliably. If a future
-// WhatsApp update breaks wwebjs's selectors, the fix is to bump the
-// ``whatsapp-web.js`` package version, not to re-introduce a pinned HTML
-// that will go stale a few months later.
-
-function buildClient() {
-  return new Client({
-    authStrategy: new LocalAuth({ dataPath: AUTH_DIR }),
-    puppeteer: {
-      headless: true,
-      protocolTimeout: 120000,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-extensions",
-        "--disable-background-timer-throttling",
-      ],
-    },
-  });
-}
-
-// ``client`` always points at the CURRENT generation's wweb.js client so
-// the command handlers below (which reference it lazily) act on the live
-// instance.
-let client = null;
-
-// Track message IDs sent by us so we can skip them in message_create
-const ownSentIds = new Set();
-let isReady = false;
-let catchupDone = false;
-let readyTimestamp = 0; // Unix timestamp (seconds) when client became ready
-let ownerPhone = "";
-let ownerName = "";
-let selfChatId = "";
-let ownerLid = ""; // owner's @lid identity (WhatsApp's anonymized addressing)
-let lastLidAttempt = 0;
-
-function resetSessionState() {
-  isReady = false;
-  catchupDone = false;
-  readyTimestamp = 0;
-  selfChatId = "";
-  ownerLid = "";
-  lastLidAttempt = 0;
-  checkedLids.clear();
-}
-
-// msg.id._serialized can come back undefined when WhatsApp ships a build
-// ahead of whatsapp-web.js (observed live 2026-08-17: a self-chat photo
-// arrived with no id, so the agent had no handle for downloadMedia).
-// Rebuild it from the id parts — the serialized form IS
-// `${fromMe}_${remote}_${id}` — and log loudly when even that fails,
-// since an id-less media message cannot be downloaded later.
-function msgIdOf(msg) {
-  const mid = msg && msg.id;
-  if (!mid) return "";
-  if (mid._serialized) return mid._serialized;
-  const remote =
-    mid.remote && mid.remote._serialized ? mid.remote._serialized : mid.remote;
-  if (mid.id && remote !== undefined) {
-    const rebuilt = [mid.fromMe === true ? "true" : "false", String(remote), String(mid.id)].join("_");
-    log(`msg.id._serialized missing — rebuilt as ${rebuilt}`);
-    return rebuilt;
-  }
-  log("msg.id._serialized missing and could not be rebuilt — media download by id will not work for this message");
-  return "";
-}
-
-// getMessageById needs the exact serialized key WhatsApp uses internally.
-// A rebuilt id (msgIdOf fallback) can disagree on the `remote` component —
-// observed live 2026-08-17: a @lid self-chat photo rebuilt as
-// `true_…@lid_HASH` while the store key used a different remote, so
-// getMessageById returned nothing. The hash component is unique, so on a
-// miss, find the real key in the in-page message store (same
-// window.require pattern as leanUnreadChats) and retry with it.
-async function resolveMessage(messageId) {
-  let msg = null;
-  try {
-    msg = await client.getMessageById(messageId);
-  } catch (err) {
-    log(`getMessageById(${messageId}) threw: ${errStr(err)}`);
-  }
-  if (msg) return msg;
-  // Fallback that never touches id._serialized (broken store-wide on the
-  // builds where msgIdOf had to rebuild the id, so getMessageById — and
-  // any recovered "real" key — is unusable): fetch recent messages from
-  // the chat named inside the id and match on the raw unique hash.
-  const parts = String(messageId || "").split("_");
-  if (parts.length < 3) return null;
-  const hash = parts[parts.length - 1];
-  const chatId = parts.slice(1, parts.length - 1).join("_");
-  try {
-    const chat = await client.getChatById(chatId);
-    const recent = await chat.fetchMessages({ limit: 100 });
-    for (const m of recent) {
-      if (m.id && m.id.id === hash) {
-        log(`Resolved message ${hash} via fetchMessages fallback`);
-        return m;
-      }
-    }
-    log(`Message hash ${hash} not in the last ${recent.length} messages of ${chatId}`);
-  } catch (err) {
-    log(`fetchMessages fallback for ${chatId} failed: ${errStr(err)}`);
-  }
-  return null;
-}
-
-// In-page media download that never touches wwebjs's high-level message
-// APIs — getMessageById / fetchMessages / getChat are all broken when
-// WhatsApp's build outruns wwebjs (observed live 2026-08-17: minified "r"
-// errors from each). Same window.require pattern as leanUnreadChats,
-// which keeps working through the drift. Mirrors the body of wwebjs
-// Message.downloadMedia, but finds the message model by its unique id
-// hash instead of the (broken) serialized key.
-async function leanDownloadMedia(hash) {
-  return await client.pupPage.evaluate(async (h) => {
-    const coll = window
-      .require("WAWebMsgCollection")
-      .MsgCollection.getModelsArray();
-    let msg = null;
-    for (const m of coll) {
-      try {
-        if (m.id && m.id.id === h) { msg = m; break; }
-      } catch (_) { /* skip malformed models */ }
-    }
-    if (!msg) return { error: "message not in store (ask the sender to resend, or open the chat)" };
-    // Fresh media carries directPath/mediaKey/hashes on the model already —
-    // decrypt directly. msg.downloadMedia() (the re-fetch path for expired
-    // media) is itself drift-broken on this build ("addAnnotations"
-    // TypeError, 2026-08-17), so it is a last resort only.
-    if (!msg.directPath || !msg.mediaKey) {
-      try {
-        await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
-      } catch (e1) {
-        try {
-          await msg.downloadMedia();
-        } catch (e2) {
-          return { error: `media not resolvable: ${(e2 && e2.message) || (e1 && e1.message) || "unknown"}` };
-        }
-      }
-      if (!msg.directPath || !msg.mediaKey) {
-        return { error: "message media has no directPath/mediaKey (expired or unsupported type)" };
-      }
-    }
-    const dm = window.require("WAWebDownloadManager").downloadManager;
-    // downloadQpl: WhatsApp's newer builds require a QPL (perf logger)
-    // object and call addAnnotations/addPoint on it — omitting it is the
-    // "reading 'addAnnotations'" TypeError (wwebjs PR #4010's fix).
-    const mockQpl = {
-      addAnnotations: function () { return this; },
-      addPoint: function () { return this; },
-    };
-    const buf = await dm.downloadAndMaybeDecrypt({
-      directPath: msg.directPath,
-      encFilehash: msg.encFilehash,
-      filehash: msg.filehash,
-      mediaKey: msg.mediaKey,
-      mediaKeyTimestamp: msg.mediaKeyTimestamp,
-      type: msg.type,
-      signal: new AbortController().signal,
-      downloadQpl: mockQpl,
-    });
-    const bytes = new Uint8Array(buf);
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-    }
-    return {
-      data_b64: btoa(bin),
-      mimetype: msg.mimetype || "",
-      filename: msg.filename || "",
-    };
-  }, hash);
-}
-
-// Minified errors from inside WhatsApp Web's bundle carry messages like
-// "r" — useless alone. Always log the first stack frames too.
 function errStr(err) {
   const stack = String(err && err.stack ? err.stack : "")
     .split("\n")
@@ -279,471 +70,475 @@ function errStr(err) {
   return `${err && err.message ? err.message : err}${stack ? ` [${stack}]` : ""}`;
 }
 
-// getChat()/getContact() reach into WhatsApp Web's minified internals and
-// are the FIRST thing to break when WhatsApp ships a build ahead of
-// whatsapp-web.js (observed live 2026-08-05: every message failed with
-// "Error handling message: r" — zero messages reached CraftBot although the
-// core msg object was fine). Enrichment is best-effort: a message with a
-// fallback chat/contact beats a dropped message.
-async function safeChat(msg) {
-  try {
-    return await msg.getChat();
-  } catch (err) {
-    log(`getChat failed (degrading): ${errStr(err)}`);
-    return null;
+// Baileys wants a pino-like logger; keep it silent — our diagnostics go
+// through log() on stderr.
+const silentLogger = {
+  level: "silent",
+  child() { return this; },
+  trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {},
+};
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+const AUTH_DIR = process.argv[2] || path.join(process.cwd(), ".credentials", "whatsapp_wwebjs_auth");
+// Key files live in a subdir so the dir root stays free for the Python
+// side's marker files (.adopted / .needs_relink).
+const SESSION_DIR = path.join(AUTH_DIR, "session");
+
+// First signal (qr or open) must arrive within this budget, else exit for
+// supervised restart.
+const CONNECT_TIMEOUT_MS = parseInt(process.env.WA_BRIDGE_LAUNCH_TIMEOUT_MS || "", 10) || 90_000;
+
+log(`Auth directory: ${AUTH_DIR}`);
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+let sock = null;
+let saveCreds = null;
+let isReady = false;
+let shuttingDown = false;
+let sawQr = false;
+let catchupEmitted = false;
+let readyTimestamp = 0; // unix seconds
+let ownerPhone = "";
+let ownerName = "";
+let ownerJid = ""; // normalized own jid (…@s.whatsapp.net)
+let ownerLid = ""; // own @lid identity when known
+let connectWatchdog = null;
+
+// Track message IDs sent by us so we can skip them in the fromMe stream
+// (the Python client also dedupes by returned message_id — belt+braces).
+const ownSentIds = new Set();
+
+// In-memory stores (Baileys keeps no store by itself). Populated from the
+// initial history sync + live events; enough for the agent's read surface.
+const chats = new Map();    // jid -> {id,name,unread_count,is_group,is_muted,last_message,timestamp}
+const contacts = new Map(); // jid -> {id,name,number}
+const messages = new Map(); // serializedId -> full Baileys message (FIFO-capped)
+const lastMessages = new Map(); // jid -> last message key info (for chatModify)
+const MESSAGE_CACHE_MAX = 3000;
+
+function rememberMessage(m) {
+  const sid = serializeId(m.key);
+  if (!sid) return;
+  messages.set(sid, m);
+  if (messages.size > MESSAGE_CACHE_MAX) {
+    const oldest = messages.keys().next().value;
+    messages.delete(oldest);
+  }
+  if (m.key.remoteJid) {
+    lastMessages.set(m.key.remoteJid, {
+      key: m.key,
+      messageTimestamp: Number(m.messageTimestamp) || Math.floor(Date.now() / 1000),
+    });
   }
 }
 
-async function safeContact(msg) {
-  try {
-    return await msg.getContact();
-  } catch (err) {
-    log(`getContact failed (degrading): ${errStr(err)}`);
-    return null;
-  }
+function lastMessagesFor(jid) {
+  const entry = lastMessages.get(jid);
+  return entry ? [entry] : [];
 }
 
-function chatFallback(chat, jid) {
-  if (chat) {
-    return {
-      id: chat.id._serialized,
-      name: chat.name || chat.id._serialized,
-      is_group: chat.isGroup,
-      is_muted: chat.isMuted,
-    };
-  }
-  return {
-    id: jid || "",
-    name: jid || "",
-    is_group: String(jid || "").endsWith("@g.us"),
-    is_muted: false,
-  };
-}
-
-function contactFallback(contact, jid) {
-  if (contact) {
-    return {
-      id: contact.id._serialized,
-      name: contact.pushname || contact.name || "",
-      number: contact.number || "",
-      is_group: contact.isGroup,
-    };
-  }
-  return {
-    id: jid || "",
-    name: "",
-    number: String(jid || "").split("@")[0],
-    is_group: String(jid || "").endsWith("@g.us"),
-  };
-}
+// ---------------------------------------------------------------------------
+// JID + message shaping
+// ---------------------------------------------------------------------------
 
 function jidUser(jid) {
-  // "447…:12@c.us" → "447…" (":12" is a per-device suffix, same account)
   return String(jid || "").split("@")[0].split(":")[0];
 }
 
-/** Same account, addressing-scheme-blind: compares the user part only. */
 function sameUser(a, b) {
   const ua = jidUser(a);
   const ub = jidUser(b);
   return !!ua && !!ub && ua === ub;
 }
 
-// Resolve the owner's @lid identity straight from WhatsApp's Store. Under
-// the @lid rollout the self chat is addressed as xxx@lid, which matches
-// neither the wid (447…@c.us) nor msg.from — so without this, self-chat
-// detection has nothing to compare against when getChatById() is broken.
-// This is a far smaller internals surface than getChat()/getChatById()
-// (observed 2026-08-05: those threw minified "r" on every call while the
-// page itself was healthy), so it tends to survive builds that break the
-// chat getters. Throttled: at most one attempt per minute.
-async function resolveOwnerLid() {
-  const now = Date.now();
-  if (ownerLid || now - lastLidAttempt < 60_000) return ownerLid;
-  lastLidAttempt = now;
-  try {
-    // wwebjs ≥1.31 does NOT define window.Store — page internals are
-    // reached via window.require('WAWeb…') modules, the same way wwebjs's
-    // own injected code does (see src/Client.js: WAWebUserPrefsMeUser).
-    // Probing window.Store.* here silently returns empty (observed
-    // 2026-08-05, two rounds).
-    const lid = await client.pupPage.evaluate(() => {
-      const ser = (x) => {
-        try {
-          return (x && (x._serialized || (x.toString ? x.toString() : ""))) || "";
-        } catch (e) {
-          return "";
-        }
-      };
-      try {
-        const me = window.require("WAWebUserPrefsMeUser");
-        // Source 1: the lid identity WhatsApp already knows for this session
-        const direct = ser(me.getMaybeMeLidUser?.());
-        if (direct) return direct;
-        // Source 2: map own phone-number wid → current lid
-        const pn = me.getMaybeMePnUser?.();
-        if (pn) {
-          const mapped = ser(
-            window.require("WAWebApiContact").getCurrentLid?.(pn)
-          );
-          if (mapped) return mapped;
-        }
-      } catch (e) {}
-      return "";
-    });
-    if (lid) {
-      ownerLid = String(lid);
-      log(`Owner lid resolved: ${ownerLid}`);
-    } else {
-      log("Owner lid not available (getMaybeMeLidUser + getCurrentLid empty)");
-    }
-  } catch (err) {
-    log(`Owner lid resolution failed: ${errStr(err)}`);
-  }
-  return ownerLid;
+/** Accept legacy wwebjs-style jids (…@c.us) and bare numbers. */
+function toBaileysJid(value) {
+  const v = String(value || "").trim();
+  if (v.endsWith("@c.us")) return `${jidUser(v)}@s.whatsapp.net`;
+  if (v.includes("@")) return v; // s.whatsapp.net / g.us / lid pass through
+  return null; // bare number — caller resolves via onWhatsApp
 }
 
-// Lids we already tested against the owner's phone number — each lid is
-// checked at most once per session so a busy non-self chat can't spam
-// page evaluations.
-const checkedLids = new Set();
-
-// Decisive per-lid check: does this @lid map back to the owner's phone
-// number? Uses WAWebApiContact.getPhoneNumber — the same lid→phone
-// mapping wwebjs's own injected helpers use (src/util/Injected/Utils.js).
-async function lidMatchesOwner(lidJid) {
-  if (!lidJid || !ownerPhone || checkedLids.has(lidJid)) return false;
-  checkedLids.add(lidJid);
-  try {
-    const matches = await client.pupPage.evaluate((lid, phone) => {
-      try {
-        const wid = window.require("WAWebWidFactory").createWid(lid);
-        const pn = window.require("WAWebApiContact").getPhoneNumber?.(wid);
-        const s = (pn && (pn._serialized || (pn.toString ? pn.toString() : ""))) || "";
-        const user = String(s).split("@")[0].split(":")[0];
-        return !!user && user === phone;
-      } catch (e) {
-        return false;
-      }
-    }, lidJid, jidUser(ownerPhone));
-    if (matches) {
-      ownerLid = lidJid;
-      log(`Owner lid resolved via contact lookup: ${ownerLid}`);
-    } else {
-      log(`Lid ${lidJid} does not map to owner phone (not the self chat)`);
-    }
-    return matches;
-  } catch (err) {
-    log(`Lid owner check failed for ${lidJid}: ${errStr(err)}`);
-    return false;
-  }
+async function resolveTo(to) {
+  const direct = toBaileysJid(to);
+  if (direct) return direct;
+  const clean = String(to || "").replace(/[\s\-\+\(\)]/g, "");
+  const results = await sock.onWhatsApp(clean);
+  const hit = (results || []).find((r) => r.exists);
+  if (!hit) throw new Error(`Number ${clean} is not on WhatsApp`);
+  return hit.jid;
 }
 
-// ---------------------------------------------------------------------------
-// Lean in-page reads — survive wwebjs/WhatsApp build drift
-// ---------------------------------------------------------------------------
-
-// Lean unread-chat scan that bypasses wwebjs's getChats(). getChats()
-// serializes every chat model and is the first thing to break when
-// WhatsApp ships a build ahead of whatsapp-web.js; catchup only needs
-// ids + unread counters, which we can read straight off the page's chat
-// collection (same window.require pattern as resolveOwnerLid — probing
-// window.Store.* here silently returns empty on wwebjs ≥1.31).
-async function leanUnreadChats() {
-  return await client.pupPage.evaluate(() => {
-    const out = [];
-    const models = window
-      .require("WAWebChatCollection")
-      .ChatCollection.getModelsArray();
-    for (const chat of models) {
-      try {
-        if (!chat.unreadCount || chat.unreadCount <= 0) continue;
-        const id = chat.id && chat.id._serialized;
-        if (!id) continue;
-        out.push({
-          id,
-          name: chat.formattedTitle || chat.name || id,
-          unread_count: chat.unreadCount,
-          is_group: !!(chat.isGroup || (chat.id && chat.id.server === "g.us")),
-          is_muted: !!(chat.mute && (chat.mute.isMuted || chat.mute.expiration > 0)),
-        });
-      } catch (e) { /* skip malformed chat model */ }
-    }
-    return out;
-  });
+/** Same serialized shape the old bridge used: `${fromMe}_${remote}_${id}`. */
+function serializeId(key) {
+  if (!key || !key.id || !key.remoteJid) return "";
+  return [key.fromMe ? "true" : "false", key.remoteJid, key.id].join("_");
 }
 
-// Full-chat twin of leanUnreadChats for the get_chats/search paths: reads
-// the fields the command consumers need straight off the page's chat
-// collection, no wwebjs serialization involved.
-async function leanChats(limit) {
-  return await client.pupPage.evaluate((lim) => {
-    const out = [];
-    const models = window
-      .require("WAWebChatCollection")
-      .ChatCollection.getModelsArray();
-    for (const chat of models) {
-      try {
-        const id = chat.id && chat.id._serialized;
-        if (!id) continue;
-        let lastBody = "";
-        let lastTs = 0;
-        try {
-          const msgs = chat.msgs && chat.msgs.getModelsArray ? chat.msgs.getModelsArray() : [];
-          const last = msgs.length ? msgs[msgs.length - 1] : null;
-          lastBody = (last && last.body) || "";
-          lastTs = (last && last.t) || 0;
-        } catch (e) { /* last message is best-effort */ }
-        out.push({
-          id,
-          name: chat.formattedTitle || chat.name || id,
-          is_group: !!(chat.isGroup || (chat.id && chat.id.server === "g.us")),
-          is_muted: !!(chat.mute && (chat.mute.isMuted || chat.mute.expiration > 0)),
-          unread_count: chat.unreadCount || 0,
-          last_message: lastBody,
-          timestamp: lastTs,
-        });
-      } catch (e) { /* skip malformed chat model */ }
-    }
-    // Most-recent first, like wwebjs getChats().
-    out.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    return lim ? out.slice(0, lim) : out;
-  }, limit || 0);
+function messageBody(m) {
+  const msg = m.message || {};
+  return (
+    msg.conversation ||
+    msg.extendedTextMessage?.text ||
+    msg.imageMessage?.caption ||
+    msg.videoMessage?.caption ||
+    msg.documentMessage?.caption ||
+    msg.ephemeralMessage?.message?.conversation ||
+    msg.ephemeralMessage?.message?.extendedTextMessage?.text ||
+    ""
+  );
 }
 
-// getChats() with the lean fallback applied — the shape both consumers
-// (get_chats command, search_contact chat scan) need.
-async function chatsWithFallback(limit) {
-  try {
-    const chats = await client.getChats();
-    return chats.slice(0, limit || chats.length).map((c) => ({
-      id: c.id._serialized,
-      name: c.name || c.id._serialized,
-      is_group: c.isGroup,
-      is_muted: c.isMuted,
-      unread_count: c.unreadCount,
-      last_message: c.lastMessage?.body || "",
-      timestamp: c.lastMessage?.timestamp || 0,
-    }));
-  } catch (err) {
-    log(`getChats failed, using lean fallback: ${errStr(err)}`);
-    return await leanChats(limit);
+const CONTENT_TYPE_MAP = {
+  conversation: "chat",
+  extendedTextMessage: "chat",
+  imageMessage: "image",
+  videoMessage: "video",
+  audioMessage: "audio",
+  documentMessage: "document",
+  documentWithCaptionMessage: "document",
+  stickerMessage: "sticker",
+  locationMessage: "location",
+  liveLocationMessage: "location",
+  contactMessage: "vcard",
+  contactsArrayMessage: "vcard",
+};
+
+function messageType(m) {
+  let content = getContentType(m.message || {});
+  if (content === "ephemeralMessage") {
+    content = getContentType(m.message.ephemeralMessage?.message || {});
   }
+  const mapped = CONTENT_TYPE_MAP[content] || content || "unknown";
+  if (mapped === "audio" && m.message?.audioMessage?.ptt) return "ptt";
+  return mapped;
 }
 
-// In-page contact filter via window.require (window.Store.Contact is
-// silently empty on wwebjs ≥1.31 — same drift class as the chat getters).
-async function leanContactSearch(query) {
-  return await client.pupPage.evaluate((q) => {
-    const needle = (q || "").toLowerCase();
-    return window
-      .require("WAWebContactCollection")
-      .ContactCollection.getModelsArray()
-      .filter((c) => {
-        try {
-          const name = (c.pushname || c.name || c.formattedName || "").toLowerCase();
-          const number = (c.id && c.id.user) || "";
-          return name.includes(needle) || number.includes(needle);
-        } catch (e) {
-          return false;
-        }
-      })
-      .slice(0, 20)
-      .map((c) => {
-        const serialized = c.id._serialized;
-        const isLid = serialized.endsWith("@lid");
-        return {
-          id: serialized,
-          name: c.pushname || c.name || c.formattedName || "",
-          number: isLid ? serialized : ((c.id && c.id.user) || ""),
-          is_group: !!c.isGroup,
-        };
-      });
-  }, query || "");
+const MEDIA_TYPES = new Set(["image", "video", "audio", "ptt", "document", "sticker"]);
+
+function chatName(jid) {
+  const chat = chats.get(jid);
+  if (chat && chat.name) return chat.name;
+  const contact = contacts.get(jid);
+  if (contact && contact.name) return contact.name;
+  return jidUser(jid);
 }
 
-// ---------------------------------------------------------------------------
-// ClientGeneration — one client, its handlers, its timers, one dispose
-// ---------------------------------------------------------------------------
-
-let currentGen = null;
-let attempt = 0; // incremented ONLY in launchGeneration()
-
-class ClientGeneration {
-  constructor(id) {
-    this.id = id;
-    this.disposed = false;
-    this.phase = "LAUNCH"; // LAUNCH | QR_WAIT | INJECT | READY
-    this.timers = new Set();
-    this.launchWatchdog = null;
-    this.injectWatchdog = null;
-    this.client = buildClient();
-    attachHandlers(this);
-  }
-
-  /** The single event gate: only the live, current generation may act. */
-  get isCurrent() {
-    return currentGen === this && !this.disposed;
-  }
-
-  setTimer(fn, ms) {
-    const t = setTimeout(() => {
-      this.timers.delete(t);
-      fn();
-    }, ms);
-    this.timers.add(t);
-    return t;
-  }
-
-  clearTimer(t) {
-    if (t) {
-      clearTimeout(t);
-      this.timers.delete(t);
-    }
-  }
-
-  clearAllTimers() {
-    for (const t of this.timers) clearTimeout(t);
-    this.timers.clear();
-    this.launchWatchdog = null;
-    this.injectWatchdog = null;
-  }
-
-  armLaunchWatchdog() {
-    this.launchWatchdog = this.setTimer(() => {
-      this.launchWatchdog = null;
-      if (!this.isCurrent || this.phase !== "LAUNCH") return;
-      log(`Stuck in LAUNCH for ${LAUNCH_TIMEOUT_MS / 1000}s — recovering (attempt ${attempt})`);
-      recoverFrom(this, "stuck before qr/authenticated").catch(fatalCrash);
-    }, LAUNCH_TIMEOUT_MS);
-  }
-
-  armInjectWatchdog() {
-    this.injectWatchdog = this.setTimer(() => {
-      this.injectWatchdog = null;
-      if (!this.isCurrent || this.phase !== "INJECT") return;
-      // NO synthetic ready and NO in-process retry: a ready that never
-      // fires means wwebjs's injected listeners never attached — exit
-      // cleanly and let the Python supervisor restart us with backoff.
-      log(`'ready' not received within ${INJECT_TIMEOUT_MS / 1000}s of authenticated — exiting for supervised restart`);
-      emitEvent("error", {
-        message: "WhatsApp client authenticated but never became ready (message receive would not work)",
-        fatal: true,
-      });
-      this.dispose()
-        .catch(() => {})
-        .then(() => process.exit(1));
-    }, INJECT_TIMEOUT_MS);
-  }
-
-  browserPid() {
-    try {
-      const proc = this.client.pupBrowser && this.client.pupBrowser.process();
-      return (proc && proc.pid) || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /**
-   * Full teardown of THIS generation: timers → handlers → destroy →
-   * verify the Chromium tree is actually gone (PID-exact kill on
-   * timeout — never name/cmdline matching, which on Windows killed
-   * nothing and on multi-account setups risks the wrong browser).
-   */
-  async dispose() {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.clearAllTimers();
-    const pid = this.browserPid();
-    try {
-      this.client.removeAllListeners();
-    } catch (e) { /* already dead */ }
-    try {
-      await this.client.destroy();
-    } catch (err) {
-      log(`destroy during dispose: ${errStr(err)}`);
-    }
-    await ensureBrowserGone(pid);
-  }
+function chatShape(jid) {
+  const chat = chats.get(jid);
+  return {
+    id: jid,
+    name: chatName(jid),
+    is_group: isJidGroup(jid) || false,
+    is_muted: !!(chat && chat.is_muted),
+  };
 }
 
-/** Wait for a pid to vanish; returns true when gone. */
-async function pidGone(pid, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      process.kill(pid, 0); // signal 0 = existence probe
-    } catch (e) {
-      return true;
-    }
-    await sleep(200);
-  }
+function contactShape(jid) {
+  const contact = contacts.get(jid);
+  const isLid = String(jid || "").endsWith("@lid");
+  return {
+    id: jid || "",
+    name: (contact && contact.name) || "",
+    number: isLid ? jid : jidUser(jid),
+    is_group: isJidGroup(jid) || false,
+  };
+}
+
+function isSelfChat(jid) {
+  if (!jid) return false;
+  if (ownerJid && sameUser(jid, ownerJid)) return true;
+  if (ownerLid && sameUser(jid, ownerLid)) return true;
   return false;
 }
 
-/** After destroy(): verify Chromium exited; force-kill by exact PID if not. */
-async function ensureBrowserGone(pid) {
-  if (!pid) return;
-  if (await pidGone(pid, 5000)) return;
-  log(`Chromium pid ${pid} still alive after destroy — force killing`);
-  try {
-    if (process.platform === "win32") {
-      const { execSync } = require("child_process");
-      execSync(`taskkill /F /T /PID ${pid}`, { stdio: "ignore" });
-    } else {
-      process.kill(pid, "SIGKILL");
-    }
-  } catch (e) { /* raced its own exit */ }
-  if (!(await pidGone(pid, 5000))) {
-    log(`Chromium pid ${pid} survived force kill — profile may stay locked`);
-  }
+function upsertChatFromHistory(c) {
+  if (!c || !c.id) return;
+  const existing = chats.get(c.id) || {};
+  chats.set(c.id, {
+    id: c.id,
+    name: c.name || existing.name || "",
+    unread_count: typeof c.unreadCount === "number" ? c.unreadCount : (existing.unread_count || 0),
+    is_group: isJidGroup(c.id) || false,
+    is_muted: c.muteEndTime ? Number(c.muteEndTime) * 1000 > Date.now() : (existing.is_muted || false),
+    last_message: existing.last_message || "",
+    timestamp: Number(c.conversationTimestamp) || existing.timestamp || 0,
+  });
 }
 
-// Chromium teardown takes seconds; relaunching immediately collides with
-// the dying browser ("The browser is already running for …/session").
-// Between attempts: remove Chromium's Singleton* lock files and back off.
-// (Orphan processes are handled by ensureBrowserGone's PID-exact kill in
-// dispose — no name/cmdline matching anywhere.)
-async function settleBetweenAttempts(attemptNo) {
-  const fs = require("fs");
-  const sessionDir = path.join(AUTH_DIR, "session");
-  await sleep(3000 * Math.max(1, attemptNo));
-  for (const name of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
-    try { fs.rmSync(path.join(sessionDir, name), { force: true }); } catch (_) {}
-  }
+function touchChatWithMessage(m) {
+  const jid = m.key.remoteJid;
+  if (!jid || jid === "status@broadcast") return;
+  const existing = chats.get(jid) || {
+    id: jid,
+    name: "",
+    unread_count: 0,
+    is_group: isJidGroup(jid) || false,
+    is_muted: false,
+    last_message: "",
+    timestamp: 0,
+  };
+  existing.last_message = messageBody(m) || existing.last_message;
+  existing.timestamp = Number(m.messageTimestamp) || Math.floor(Date.now() / 1000);
+  if (!m.key.fromMe) existing.unread_count = (existing.unread_count || 0) + 1;
+  chats.set(jid, existing);
 }
 
-async function recoverFrom(gen, why) {
-  if (!gen.isCurrent) return;
-  await gen.dispose();
-  if (attempt > MAX_LAUNCH_RETRIES) {
-    log(`Max launch retries reached — bridge giving up (${why})`);
-    emitEvent("error", {
-      message: `WhatsApp bridge could not start: ${why}`,
-      fatal: true,
-    });
+// ---------------------------------------------------------------------------
+// Connection lifecycle
+// ---------------------------------------------------------------------------
+
+function armConnectWatchdog() {
+  clearConnectWatchdog();
+  connectWatchdog = setTimeout(() => {
+    if (isReady || sawQr || shuttingDown) return;
+    log(`No qr/open within ${CONNECT_TIMEOUT_MS / 1000}s — exiting for supervised restart`);
+    emitEvent("error", { message: "WhatsApp connection stalled before QR/open", fatal: true });
     process.exit(1);
-  }
-  await settleBetweenAttempts(attempt);
-  launchGeneration().catch(fatalCrash);
+  }, CONNECT_TIMEOUT_MS);
 }
 
-async function launchGeneration() {
-  attempt += 1; // the ONLY place the counter moves
-  resetSessionState();
-  const gen = new ClientGeneration(attempt);
-  currentGen = gen;
-  client = gen.client;
-  gen.armLaunchWatchdog();
-  log(`Initializing WhatsApp client... (attempt ${attempt}/${MAX_LAUNCH_RETRIES + 1})`);
-  try {
-    await gen.client.initialize();
-  } catch (err) {
-    if (!gen.isCurrent) return; // superseded while initializing
-    log(`Initialize error: ${errStr(err)}`);
-    await recoverFrom(gen, `initialize failed: ${errStr(err)}`);
+function clearConnectWatchdog() {
+  if (connectWatchdog) {
+    clearTimeout(connectWatchdog);
+    connectWatchdog = null;
   }
+}
+
+async function connect() {
+  const { state, saveCreds: sc } = await useMultiFileAuthState(SESSION_DIR);
+  saveCreds = sc;
+
+  let version;
+  try {
+    ({ version } = await fetchLatestBaileysVersion());
+  } catch (e) {
+    log(`fetchLatestBaileysVersion failed (using built-in): ${e.message}`);
+  }
+
+  sock = makeWASocket({
+    version,
+    auth: state,
+    logger: silentLogger,
+    // A desktop identity keeps history-sync behavior close to the
+    // Desktop app's (which is the durability model we want to match).
+    browser: Browsers.macOS("Desktop"),
+    // Don't steal the phone's notifications by looking permanently online.
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
+    generateHighQualityLinkPreview: false,
+  });
+
+  sock.ev.on("creds.update", () => {
+    Promise.resolve(saveCreds()).catch((e) => log(`saveCreds failed: ${errStr(e)}`));
+  });
+
+  sock.ev.on("connection.update", (update) => {
+    handleConnectionUpdate(update).catch((e) => log(`connection.update handler: ${errStr(e)}`));
+  });
+
+  sock.ev.on("messaging-history.set", (history) => {
+    try {
+      for (const c of history.chats || []) upsertChatFromHistory(c);
+      for (const ct of history.contacts || []) {
+        if (!ct.id) continue;
+        contacts.set(ct.id, {
+          id: ct.id,
+          name: ct.name || ct.notify || ct.verifiedName || "",
+          number: jidUser(ct.id),
+        });
+      }
+      for (const m of history.messages || []) {
+        if (m && m.key) rememberMessage(m);
+      }
+      maybeEmitCatchup();
+    } catch (e) {
+      log(`history sync handling: ${errStr(e)}`);
+    }
+  });
+
+  sock.ev.on("chats.upsert", (list) => {
+    for (const c of list || []) upsertChatFromHistory(c);
+  });
+  sock.ev.on("chats.update", (list) => {
+    for (const c of list || []) {
+      if (!c.id) continue;
+      const existing = chats.get(c.id);
+      if (existing) {
+        if (typeof c.unreadCount === "number") existing.unread_count = Math.max(0, c.unreadCount);
+        if (c.name) existing.name = c.name;
+        if (c.muteEndTime !== undefined) existing.is_muted = Number(c.muteEndTime) * 1000 > Date.now();
+        if (c.conversationTimestamp) existing.timestamp = Number(c.conversationTimestamp);
+      } else {
+        upsertChatFromHistory(c);
+      }
+    }
+  });
+  sock.ev.on("contacts.upsert", (list) => {
+    for (const ct of list || []) {
+      if (!ct.id) continue;
+      contacts.set(ct.id, {
+        id: ct.id,
+        name: ct.name || ct.notify || ct.verifiedName || "",
+        number: jidUser(ct.id),
+      });
+    }
+  });
+
+  sock.ev.on("messages.upsert", ({ messages: batch, type }) => {
+    if (type !== "notify" && type !== "append") return;
+    for (const m of batch || []) {
+      try {
+        handleIncoming(m, type);
+      } catch (e) {
+        log(`Error handling message: ${errStr(e)}`);
+      }
+    }
+  });
+
+  armConnectWatchdog();
+}
+
+async function handleConnectionUpdate(update) {
+  const { connection, lastDisconnect, qr } = update;
+
+  if (qr) {
+    sawQr = true;
+    clearConnectWatchdog();
+    log("QR code received");
+    try {
+      const dataUrl = await qrcode.toDataURL(qr);
+      emitEvent("qr", { qr_string: qr, qr_data_url: dataUrl });
+    } catch (e) {
+      emitEvent("qr", { qr_string: qr, qr_data_url: null });
+    }
+  }
+
+  if (connection === "open") {
+    clearConnectWatchdog();
+    isReady = true;
+    readyTimestamp = Math.floor(Date.now() / 1000);
+    const user = sock.user || {};
+    ownerJid = jidNormalizedUser(user.id || "");
+    ownerPhone = jidUser(ownerJid);
+    ownerName = user.name || user.verifiedName || "";
+    ownerLid = user.lid ? jidNormalizedUser(user.lid) : "";
+    log(`Connected as +${ownerPhone} (${ownerName})${ownerLid ? ` lid=${ownerLid}` : ""}`);
+    emitEvent("authenticated");
+    emitEvent("ready", {
+      owner_phone: ownerPhone,
+      owner_name: ownerName,
+      wid: user.id || "",
+    });
+    // History sync usually lands within seconds; make sure catchup goes
+    // out even if this session gets none.
+    setTimeout(() => maybeEmitCatchup(true), 5000);
+    return;
+  }
+
+  if (connection === "close") {
+    isReady = false;
+    const code = lastDisconnect?.error?.output?.statusCode;
+    if (shuttingDown) return;
+    if (code === DisconnectReason.restartRequired) {
+      // Normal immediately after pairing — reconnect in-process. This is
+      // the pairing handshake completing, so tell Python the scan worked.
+      log("Restart required (post-pairing) — reconnecting");
+      emitEvent("authenticated");
+      connect().catch(fatalCrash);
+      return;
+    }
+    if (code === DisconnectReason.loggedOut) {
+      log("Logged out by the phone (unlinked)");
+      emitEvent("disconnected", { reason: "LOGOUT" });
+      process.exit(0);
+    }
+    log(`Connection closed (code ${code ?? "unknown"}) — exiting for supervised restart`);
+    emitEvent("disconnected", { reason: String(code ?? "closed") });
+    process.exit(0);
+  }
+}
+
+function maybeEmitCatchup(force = false) {
+  if (catchupEmitted || !isReady) return;
+  const unread = [];
+  for (const chat of chats.values()) {
+    if ((chat.unread_count || 0) > 0) {
+      unread.push({
+        id: chat.id,
+        name: chat.name || chat.id,
+        unread_count: chat.unread_count,
+        is_group: chat.is_group,
+        is_muted: chat.is_muted,
+      });
+    }
+  }
+  if (unread.length === 0 && !force) return;
+  catchupEmitted = true;
+  emitEvent("catchup", { unread_chats: unread });
+  log(`Catchup complete: ${unread.length} unread chat(s)`);
+}
+
+function handleIncoming(m, upsertType) {
+  if (!m.message || !m.key || !m.key.remoteJid) return;
+  const jid = m.key.remoteJid;
+  if (jid === "status@broadcast") return;
+  rememberMessage(m);
+  touchChatWithMessage(m);
+
+  // Skip anything from before this bridge became ready (offline backlog is
+  // 'append'; the agent's catchup covers unread state instead).
+  const ts = Number(m.messageTimestamp) || 0;
+  if (upsertType === "append" || (ts && ts < readyTimestamp)) return;
+  if (!isReady) return;
+
+  const sid = serializeId(m.key);
+  const body = messageBody(m);
+  const mtype = messageType(m);
+  const author = m.key.participant || jid;
+
+  if (m.key.fromMe) {
+    if (sid && ownSentIds.has(sid)) {
+      ownSentIds.delete(sid);
+      return;
+    }
+    emitEvent("message_sent", {
+      id: sid,
+      from: ownerJid,
+      to: jid,
+      body,
+      timestamp: ts,
+      type: mtype,
+      is_self_chat: isSelfChat(jid),
+      chat: {
+        id: jid,
+        name: chatName(jid),
+        is_group: isJidGroup(jid) || false,
+      },
+    });
+    return;
+  }
+
+  emitEvent("message", {
+    id: sid,
+    from: jid,
+    to: ownerJid,
+    body,
+    timestamp: ts,
+    from_me: false,
+    type: mtype,
+    has_media: MEDIA_TYPES.has(mtype),
+    is_forwarded: !!m.message?.extendedTextMessage?.contextInfo?.isForwarded,
+    mentioned_ids: m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [],
+    chat: chatShape(jid),
+    contact: contactShape(author),
+  });
 }
 
 function fatalCrash(err) {
@@ -755,242 +550,74 @@ function fatalCrash(err) {
 }
 
 // ---------------------------------------------------------------------------
-// Client Events — attached per generation, gated on gen.isCurrent
+// Command helpers
 // ---------------------------------------------------------------------------
 
-function attachHandlers(gen) {
-  const c = gen.client;
+function requireReady(id) {
+  if (!isReady) {
+    emitResponse(id, { success: false, error: "Client not ready" });
+    return false;
+  }
+  return true;
+}
 
-  c.on("qr", async (qr) => {
-    if (!gen.isCurrent) return;
-    // QR on screen = a human is (maybe) reaching for their phone. The
-    // watchdog is suspended: total-QR-time policy (recycle after N
-    // minutes, abandon when nobody is polling) belongs to the Python
-    // LinkFlow, never to a destroy-and-retry loop down here (that loop
-    // is exactly what used to kill the browser mid-scan).
-    gen.phase = "QR_WAIT";
-    gen.clearTimer(gen.launchWatchdog);
-    gen.launchWatchdog = null;
-    log("QR code received");
-    try {
-      const dataUrl = await qrcode.toDataURL(qr);
-      if (!gen.isCurrent) return;
-      emitEvent("qr", { qr_string: qr, qr_data_url: dataUrl });
-    } catch (err) {
-      if (!gen.isCurrent) return;
-      emitEvent("qr", { qr_string: qr, qr_data_url: null });
-    }
-  });
+function storedMessage(messageId) {
+  return messages.get(String(messageId || "")) || null;
+}
 
-  c.on("authenticated", () => {
-    if (!gen.isCurrent) return;
-    log("Authenticated");
-    gen.phase = "INJECT";
-    gen.clearTimer(gen.launchWatchdog);
-    gen.launchWatchdog = null;
-    gen.armInjectWatchdog();
-    emitEvent("authenticated");
-  });
+function keyFromSerialized(messageId) {
+  const parts = String(messageId || "").split("_");
+  if (parts.length < 3) return null;
+  return {
+    fromMe: parts[0] === "true",
+    remoteJid: parts.slice(1, parts.length - 1).join("_"),
+    id: parts[parts.length - 1],
+  };
+}
 
-  c.on("auth_failure", (msg) => {
-    if (!gen.isCurrent) return;
-    log(`Auth failure: ${msg}`);
-    emitEvent("auth_failure", { message: String(msg) });
-  });
+const EXT_MIME = {
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+  ".gif": "image/gif", ".webp": "image/webp",
+  ".mp4": "video/mp4", ".mov": "video/quicktime", ".3gp": "video/3gpp",
+  ".mp3": "audio/mpeg", ".ogg": "audio/ogg; codecs=opus", ".m4a": "audio/mp4",
+  ".wav": "audio/wav", ".aac": "audio/aac", ".opus": "audio/ogg; codecs=opus",
+  ".pdf": "application/pdf",
+};
 
-  c.on("ready", async () => {
-    if (!gen.isCurrent) return;
-    gen.phase = "READY";
-    gen.clearTimer(gen.injectWatchdog);
-    gen.injectWatchdog = null;
-    isReady = true;
-    readyTimestamp = Math.floor(Date.now() / 1000);
-    log("Client ready");
+function guessMime(filePath) {
+  return EXT_MIME[path.extname(String(filePath)).toLowerCase()] || "application/octet-stream";
+}
 
-    // Extract owner phone
-    try {
-      if (c.info && c.info.wid) {
-        ownerPhone = c.info.wid.user || "";
-        ownerName = c.info.pushname || "";
-        log(`Connected as +${ownerPhone} (${ownerName})`);
-        // Discover self-chat ID (may be @lid or @c.us)
-        try {
-          const ownJid = c.info.wid._serialized;
-          const selfChat = await c.getChatById(ownJid);
-          selfChatId = selfChat?.id?._serialized || ownJid;
-          log(`Self-chat ID: ${selfChatId}`);
-        } catch (e) {
-          selfChatId = c.info.wid._serialized;
-          log(`Self-chat fallback to wid: ${selfChatId}`);
-        }
-        // The wid alone can't match a @lid-addressed self chat, so grab the
-        // lid identity too — especially important when getChatById() above
-        // just failed and selfChatId is only the wid fallback.
-        await resolveOwnerLid();
-      }
-    } catch (err) {
-      log(`Could not extract owner info: ${err.message}`);
-    }
+function mediaContentFor(args) {
+  const filePath = args.file_path;
+  const mime = guessMime(filePath);
+  const fileName = path.basename(String(filePath));
+  if (args.send_as_document) {
+    return { document: { url: filePath }, mimetype: mime, fileName };
+  }
+  if (args.send_as_sticker) {
+    return { sticker: { url: filePath } };
+  }
+  if (args.send_as_voice) {
+    return { audio: { url: filePath }, ptt: true, mimetype: "audio/ogg; codecs=opus" };
+  }
+  if (mime.startsWith("image/")) return { image: { url: filePath } };
+  if (mime.startsWith("video/")) return { video: { url: filePath } };
+  if (mime.startsWith("audio/")) return { audio: { url: filePath }, mimetype: mime };
+  return { document: { url: filePath }, mimetype: mime, fileName };
+}
 
-    if (!gen.isCurrent) return;
-    emitEvent("ready", {
-      owner_phone: ownerPhone,
-      owner_name: ownerName,
-      wid: c.info?.wid?._serialized || "",
-    });
-
-    // Catch-up: send current unread chats. Prefer wwebjs getChats() (richer),
-    // falling back immediately to the lean in-page scan when getChats() is
-    // broken by a WhatsApp build ahead of whatsapp-web.js (observed live
-    // 2026-08-12: getChats() consistently failed with minified "r" while the
-    // lean scan worked — retrying only delayed catchup, so we don't).
-    let unread = null;
-    try {
-      const chats = await c.getChats();
-      unread = chats
-        .filter((chat) => chat.unreadCount > 0)
-        .map((chat) => ({
-          id: chat.id._serialized,
-          name: chat.name || chat.id._serialized,
-          unread_count: chat.unreadCount,
-          is_group: chat.isGroup,
-          is_muted: chat.isMuted,
-        }));
-    } catch (err) {
-      log(`Catchup getChats failed, using lean fallback: ${errStr(err)}`);
-    }
-    if (unread === null) {
-      try {
-        unread = await leanUnreadChats();
-        log("Catchup used lean in-page fallback");
-      } catch (err) {
-        log(`Catchup lean fallback failed: ${errStr(err)}`);
-      }
-    }
-    if (!gen.isCurrent) return;
-    if (unread !== null) {
-      emitEvent("catchup", { unread_chats: unread });
-      log(`Catchup complete: ${unread.length} unread chat(s)`);
-    }
-    catchupDone = true; // proceed even if every path failed
-  });
-
-  c.on("disconnected", (reason) => {
-    if (!gen.isCurrent) return;
-    gen.clearTimer(gen.injectWatchdog);
-    gen.injectWatchdog = null;
-    resetSessionState();
-    log(`Disconnected: ${reason}`);
-    // Reason "LOGOUT" = the user unlinked this device from their phone;
-    // Python maps it to NEEDS_RELINK instead of a reconnect loop.
-    emitEvent("disconnected", { reason: String(reason) });
-    // A disconnected wweb.js client does not reliably recover in-process.
-    // Exit cleanly and let the Python supervisor relaunch with backoff
-    // (uniform with crash handling — one restart path, no zombie bridge).
-    // Not during shutdown/logout: those paths own their own exit.
-    if (!shuttingDown) {
-      log("Exiting after disconnect for supervised restart");
-      gen.dispose()
-        .catch(() => {})
-        .then(() => process.exit(0));
-    }
-  });
-
-  // ── Message events ──────────────────────────────────────────────────────
-
-  c.on("message", async (msg) => {
-    if (!gen.isCurrent) return;
-    // Skip messages from before the bridge was ready (historical sync)
-    if (msg.timestamp && msg.timestamp < readyTimestamp) return;
-
-    try {
-      const chat = await safeChat(msg);
-      const contact = await safeContact(msg);
-      if (!gen.isCurrent) return;
-
-      emitEvent("message", {
-        id: msgIdOf(msg),
-        from: msg.from,
-        to: msg.to,
-        body: msg.body || "",
-        timestamp: msg.timestamp,
-        from_me: msg.fromMe,
-        type: msg.type,
-        has_media: msg.hasMedia,
-        is_forwarded: msg.isForwarded || false,
-        mentioned_ids: msg.mentionedIds || [],
-        chat: chatFallback(chat, msg.from),
-        contact: contactFallback(contact, msg.author || msg.from),
-      });
-    } catch (err) {
-      log(`Error handling message: ${errStr(err)}`);
-    }
-  });
-
-  c.on("message_create", async (msg) => {
-    if (!gen.isCurrent) return;
-    // Skip messages from before the bridge was ready (historical sync)
-    if (msg.timestamp && msg.timestamp < readyTimestamp) return;
-    if (!msg.fromMe) return;
-
-    // Skip messages sent by us via the bridge
-    const msgId = msgIdOf(msg);
-    if (msgId && ownSentIds.has(msgId)) {
-      ownSentIds.delete(msgId);
-      return;
-    }
-
-    try {
-      const chat = await safeChat(msg);
-      const chatInfo = chatFallback(chat, msg.to);
-      const ownJid = c.info?.wid?._serialized || "";
-      // A @lid-addressed self chat matches nothing we know until the owner's
-      // lid is resolved — do it now (throttled no-op once resolved) rather
-      // than lose the message.
-      if (!ownerLid && String(msg.to || "").endsWith("@lid")) {
-        await resolveOwnerLid();
-      }
-      // Self-chat test, layered by addressing scheme. NOTE: `to === from`
-      // does NOT hold in the self chat under @lid — `from` stays the wid
-      // (447…@c.us) while `to` is the lid (xxx@lid), which is exactly how
-      // the 2026-08-05 drop happened. sameUser() compares user parts so a
-      // scheme-consistent pair still matches without exact-JID equality.
-      let isSelfChat = (msg.from && msg.to === msg.from) ||
-        (ownJid && (msg.to === ownJid || sameUser(msg.to, ownJid))) ||
-        (ownerLid && (msg.to === ownerLid || sameUser(msg.to, ownerLid))) ||
-        (selfChatId && (msg.to === selfChatId || chatInfo.id === selfChatId));
-
-      // Last resort for an unrecognized @lid destination: ask WhatsApp's
-      // contact store whether this lid belongs to the owner's own number
-      // (once per lid per session). This is what actually catches the self
-      // chat when both discovery paths above came up empty at ready.
-      if (!isSelfChat && String(msg.to || "").endsWith("@lid")) {
-        isSelfChat = await lidMatchesOwner(msg.to);
-      }
-
-      if (!gen.isCurrent) return;
-      emitEvent("message_sent", {
-        id: msgIdOf(msg),
-        from: msg.from,
-        to: msg.to,
-        body: msg.body || "",
-        timestamp: msg.timestamp,
-        type: msg.type,
-        is_self_chat: isSelfChat,
-        chat: {
-          id: chatInfo.id,
-          name: chatInfo.name,
-          is_group: chatInfo.is_group,
-        },
-      });
-    } catch (err) {
-      log(`Error handling message_create: ${errStr(err)}`);
-    }
-  });
+async function groupJidOrRespond(id, groupId) {
+  const jid = await resolveTo(groupId);
+  if (!isJidGroup(jid)) {
+    emitResponse(id, { success: false, error: "Not a group" });
+    return null;
+  }
+  return jid;
 }
 
 // ---------------------------------------------------------------------------
-// Command Handler (stdin)
+// Command handler (stdin)
 // ---------------------------------------------------------------------------
 
 async function handleCommand(line) {
@@ -1001,42 +628,22 @@ async function handleCommand(line) {
     log(`Invalid JSON: ${line}`);
     return;
   }
-
-  const { id, cmd, args } = parsed;
+  const { id, cmd, args = {} } = parsed;
 
   try {
     switch (cmd) {
       case "send_message": {
-        if (!isReady) {
-          emitResponse(id, { success: false, error: "Client not ready" });
-          return;
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.to);
+        const sent = await sock.sendMessage(jid, { text: args.text });
+        const sid = serializeId(sent.key);
+        if (sid) {
+          ownSentIds.add(sid);
+          rememberMessage(sent);
         }
-        let chatId;
-        if (args.to.includes("@")) {
-          chatId = args.to;
-        } else {
-          // Resolve number → canonical JID via the server. WhatsApp's
-          // LID-based protocol means a locally-constructed `${num}@c.us`
-          // can fail with "No LID for user" for contacts the local Store
-          // has never seen. getNumberId() primes the LID mapping and
-          // also returns null for numbers not on WhatsApp.
-          const cleanNum = args.to.replace(/[\s\-\+\(\)]/g, "");
-          const wid = await client.getNumberId(cleanNum);
-          if (!wid) {
-            emitResponse(id, {
-              success: false,
-              error: `Number ${cleanNum} is not on WhatsApp`,
-            });
-            return;
-          }
-          chatId = wid._serialized;
-        }
-        const sent = await client.sendMessage(chatId, args.text);
-        const sentId = msgIdOf(sent);
-        if (sentId) ownSentIds.add(sentId);
         emitResponse(id, {
           success: true,
-          message_id: sentId || null,
+          message_id: sid || null,
           timestamp: new Date().toISOString(),
         });
         break;
@@ -1048,575 +655,557 @@ async function handleCommand(line) {
           ready: isReady,
           owner_phone: ownerPhone,
           owner_name: ownerName,
-          wid: client?.info?.wid?._serialized || "",
+          wid: (sock && sock.user && sock.user.id) || "",
         });
         break;
       }
 
       case "ping": {
-        // Heartbeat for the Python session supervisor: answered from the
-        // Node side without touching the page, so a hung Chromium still
-        // answers — pair with `ready` so the supervisor can tell "page
-        // alive" from "process alive".
         emitResponse(id, { success: true, ready: isReady, ts: Date.now() });
         break;
       }
 
       case "get_chats": {
-        if (!isReady) {
-          emitResponse(id, { success: false, error: "Client not ready" });
-          return;
-        }
-        const result = await chatsWithFallback(args.limit || 50);
-        emitResponse(id, { success: true, chats: result });
+        if (!requireReady(id)) return;
+        const list = [...chats.values()]
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+          .slice(0, args.limit || 50)
+          .map((c) => ({
+            id: c.id,
+            name: c.name || c.id,
+            is_group: c.is_group,
+            is_muted: c.is_muted,
+            unread_count: c.unread_count || 0,
+            last_message: c.last_message || "",
+            timestamp: c.timestamp || 0,
+          }));
+        emitResponse(id, { success: true, chats: list });
         break;
       }
 
       case "get_chat_messages": {
-        if (!isReady) {
-          emitResponse(id, { success: false, error: "Client not ready" });
-          return;
-        }
-        const chatId = args.chat_id.includes("@")
-          ? args.chat_id
-          : `${args.chat_id}@c.us`;
-        const chat = await client.getChatById(chatId);
-        const messages = await chat.fetchMessages({ limit: args.limit || 50 });
-        const result = messages.map((m) => ({
-          id: m.id._serialized,
-          body: m.body || "",
-          from: m.from,
-          from_me: m.fromMe,
-          timestamp: m.timestamp,
-          type: m.type,
-          has_media: m.hasMedia,
-        }));
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        const result = [...messages.values()]
+          .filter((m) => m.key.remoteJid === jid)
+          .sort((a, b) => Number(a.messageTimestamp || 0) - Number(b.messageTimestamp || 0))
+          .slice(-(args.limit || 50))
+          .map((m) => ({
+            id: serializeId(m.key),
+            body: messageBody(m),
+            from: m.key.fromMe ? ownerJid : (m.key.participant || m.key.remoteJid),
+            from_me: !!m.key.fromMe,
+            timestamp: Number(m.messageTimestamp) || 0,
+            type: messageType(m),
+            has_media: MEDIA_TYPES.has(messageType(m)),
+          }));
         emitResponse(id, { success: true, messages: result });
         break;
       }
 
       case "search_contact": {
-        // Strategy: search chats first (fast, robust, covers the
-        // overwhelming case of "find someone I've messaged"). Only if
-        // that returns nothing do we fall back to filtering the full
-        // address book inside the browser page. We can't use
-        // client.getContacts() here — on large accounts the per-contact
-        // RPC serialization exceeds Puppeteer's protocolTimeout.
-        if (!isReady) {
-          emitResponse(id, { success: false, error: "Client not ready" });
-          return;
-        }
+        if (!requireReady(id)) return;
         const query = (args.name || "").toLowerCase();
-
-        const chats = await chatsWithFallback(0);
-        let matches = chats
-          .filter((ch) => {
-            const name = (ch.name || "").toLowerCase();
-            const number = String(ch.id || "").split("@")[0];
-            return name.includes(query) || number.includes(query);
-          })
-          .slice(0, 20)
-          .map((ch) => {
-            // LID-based chats don't have a phone number — surface the
-            // full JID instead so the agent round-trips a valid send
-            // target through `number`.
-            const isLid = String(ch.id || "").endsWith("@lid");
-            return {
-              id: ch.id,
-              name: ch.name || "",
-              number: isLid ? ch.id : String(ch.id || "").split("@")[0],
-              is_group: ch.is_group,
-            };
-          });
-
-        if (matches.length === 0) {
-          // Fallback: filter the address book in-page (only the matches
-          // cross the RPC boundary).
-          try {
-            matches = await leanContactSearch(args.name || "");
-          } catch (err) {
-            emitResponse(id, {
-              success: false,
-              error: `In-page contact filter failed: ${err.message}`,
+        const seen = new Set();
+        const matches = [];
+        for (const c of chats.values()) {
+          const name = (c.name || "").toLowerCase();
+          if (name.includes(query) || jidUser(c.id).includes(query)) {
+            seen.add(c.id);
+            const isLid = c.id.endsWith("@lid");
+            matches.push({
+              id: c.id,
+              name: c.name || "",
+              number: isLid ? c.id : jidUser(c.id),
+              is_group: c.is_group,
             });
-            return;
+          }
+          if (matches.length >= 20) break;
+        }
+        if (matches.length < 20) {
+          for (const ct of contacts.values()) {
+            if (seen.has(ct.id)) continue;
+            const name = (ct.name || "").toLowerCase();
+            if (name.includes(query) || (ct.number || "").includes(query)) {
+              const isLid = ct.id.endsWith("@lid");
+              matches.push({
+                id: ct.id,
+                name: ct.name || "",
+                number: isLid ? ct.id : ct.number || "",
+                is_group: false,
+              });
+            }
+            if (matches.length >= 20) break;
           }
         }
-
         emitResponse(id, { success: true, contacts: matches });
         break;
       }
 
       case "get_unread_chats": {
-        if (!isReady) {
-          emitResponse(id, { success: false, error: "Client not ready" });
-          return;
-        }
-        let unreadChats;
-        try {
-          const allChats = await client.getChats();
-          unreadChats = allChats
-            .filter((c) => c.unreadCount > 0)
-            .map((c) => ({
-              id: c.id._serialized,
-              name: c.name || c.id._serialized,
-              unread_count: c.unreadCount,
-              is_group: c.isGroup,
-              is_muted: c.isMuted,
-            }));
-        } catch (err) {
-          log(`get_unread_chats getChats failed, using lean fallback: ${errStr(err)}`);
-          unreadChats = await leanUnreadChats();
-        }
-        emitResponse(id, { success: true, unread_chats: unreadChats });
+        if (!requireReady(id)) return;
+        const unread = [...chats.values()]
+          .filter((c) => (c.unread_count || 0) > 0)
+          .map((c) => ({
+            id: c.id,
+            name: c.name || c.id,
+            unread_count: c.unread_count,
+            is_group: c.is_group,
+            is_muted: c.is_muted,
+          }));
+        emitResponse(id, { success: true, unread_chats: unread });
         break;
       }
 
       case "shutdown": {
         log("Shutdown requested");
-        emitResponse(id, { success: true });
-        await gracefulShutdown();
-        break;
-      }
-
-      case "logout": {
-        // Full disconnect: logs out of WhatsApp server-side (removes the
-        // linked device from the user's phone) AND wipes the LocalAuth
-        // data on disk, so the next connect demands a fresh QR.
-        log("Logout requested");
-        shuttingDown = true; // the LOGOUT 'disconnected' event must not double-exit
+        shuttingDown = true;
         emitResponse(id, { success: true });
         try {
-          // client.logout() can hang 30+s on a half-broken connection —
-          // give the server-side flush a bounded window, then exit; the
-          // Python side force-kills after its own wait anyway.
-          if (client) {
-            await Promise.race([
-              client.logout(),
-              sleep(6000).then(() => {
-                throw new Error("logout timed out after 6s");
-              }),
-            ]);
-          }
-          log("Logged out");
-        } catch (err) {
-          log(`Logout error: ${err.message}`);
-          // Fall through to dispose/exit — even a partial logout is
-          // better than leaving the bridge running.
-        }
-        try {
-          if (currentGen) await currentGen.dispose();
+          sock?.end(undefined);
         } catch (_) {}
         process.exit(0);
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────
-      // Resolve a number/JID to a canonical chat ID. Helper, not a command.
-      // Used by every command that takes a `to` field.
-      // ─────────────────────────────────────────────────────────────────
+      case "logout": {
+        // Full disconnect: server-side unlink (removes the entry from the
+        // phone's Linked Devices). Python wipes the auth dir afterwards.
+        log("Logout requested");
+        shuttingDown = true;
+        emitResponse(id, { success: true });
+        try {
+          await Promise.race([
+            sock.logout(),
+            sleep(6000).then(() => { throw new Error("logout timed out after 6s"); }),
+          ]);
+          log("Logged out");
+        } catch (e) {
+          log(`Logout error: ${e.message}`);
+        }
+        process.exit(0);
+        break;
+      }
 
       case "send_media": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        let chatId = args.to;
-        if (!chatId.includes("@")) {
-          const wid = await client.getNumberId(chatId.replace(/[\s\-\+\(\)]/g, ""));
-          if (!wid) { emitResponse(id, { success: false, error: `Number ${chatId} not on WhatsApp` }); return; }
-          chatId = wid._serialized;
-        }
-        let media;
-        try {
-          media = MessageMedia.fromFilePath(args.file_path);
-        } catch (e) {
-          emitResponse(id, { success: false, error: `Cannot read file: ${e.message}` });
-          return;
-        }
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.to);
+        const content = mediaContentFor(args);
+        if (args.caption && !content.audio && !content.sticker) content.caption = args.caption;
         const opts = {};
-        if (args.caption) opts.caption = args.caption;
-        if (args.send_as_sticker) opts.sendMediaAsSticker = true;
-        if (args.send_as_voice) opts.sendAudioAsVoice = true;
-        if (args.send_as_document) opts.sendMediaAsDocument = true;
-        if (args.quoted_message_id) opts.quotedMessageId = args.quoted_message_id;
-        const sent = await client.sendMessage(chatId, media, opts);
-        const sentId = msgIdOf(sent);
-        if (sentId) ownSentIds.add(sentId);
+        if (args.quoted_message_id) {
+          const quoted = storedMessage(args.quoted_message_id);
+          if (quoted) opts.quoted = quoted;
+        }
+        const sent = await sock.sendMessage(jid, content, opts);
+        const sid = serializeId(sent.key);
+        if (sid) {
+          ownSentIds.add(sid);
+          rememberMessage(sent);
+        }
         emitResponse(id, {
           success: true,
-          message_id: sentId || null,
+          message_id: sid || null,
           timestamp: new Date().toISOString(),
         });
         break;
       }
 
       case "send_location": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        let chatId = args.to;
-        if (!chatId.includes("@")) {
-          const wid = await client.getNumberId(chatId.replace(/[\s\-\+\(\)]/g, ""));
-          if (!wid) { emitResponse(id, { success: false, error: `Number ${chatId} not on WhatsApp` }); return; }
-          chatId = wid._serialized;
-        }
-        const loc = new Location(args.latitude, args.longitude, args.description || "");
-        const sent = await client.sendMessage(chatId, loc);
-        emitResponse(id, {
-          success: true,
-          message_id: msgIdOf(sent) || null,
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.to);
+        const sent = await sock.sendMessage(jid, {
+          location: {
+            degreesLatitude: args.latitude,
+            degreesLongitude: args.longitude,
+            name: args.description || "",
+          },
         });
+        emitResponse(id, { success: true, message_id: serializeId(sent.key) || null });
         break;
       }
 
       case "send_reply": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        let chatId = args.to;
-        if (!chatId.includes("@")) {
-          const wid = await client.getNumberId(chatId.replace(/[\s\-\+\(\)]/g, ""));
-          if (!wid) { emitResponse(id, { success: false, error: `Number ${chatId} not on WhatsApp` }); return; }
-          chatId = wid._serialized;
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.to);
+        const quoted = storedMessage(args.quoted_message_id);
+        const sent = await sock.sendMessage(
+          jid,
+          { text: args.text },
+          quoted ? { quoted } : {}
+        );
+        const sid = serializeId(sent.key);
+        if (sid) {
+          ownSentIds.add(sid);
+          rememberMessage(sent);
         }
-        const sent = await client.sendMessage(chatId, args.text, { quotedMessageId: args.quoted_message_id });
-        const sentId = msgIdOf(sent);
-        if (sentId) ownSentIds.add(sentId);
-        emitResponse(id, { success: true, message_id: sentId || null });
+        emitResponse(id, { success: true, message_id: sid || null });
         break;
       }
 
       case "edit_message": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await resolveMessage(args.message_id);
-        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
-        await msg.edit(args.new_body);
+        if (!requireReady(id)) return;
+        const key = keyFromSerialized(args.message_id);
+        if (!key) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        await sock.sendMessage(key.remoteJid, { text: args.new_body, edit: key });
         emitResponse(id, { success: true, message_id: args.message_id });
         break;
       }
 
       case "delete_message": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await resolveMessage(args.message_id);
-        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
-        await msg.delete(args.everyone === true);
-        emitResponse(id, { success: true, message_id: args.message_id, deleted_for_everyone: args.everyone === true });
+        if (!requireReady(id)) return;
+        const key = keyFromSerialized(args.message_id);
+        if (!key) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        if (args.everyone === true) {
+          await sock.sendMessage(key.remoteJid, { delete: key });
+        } else {
+          await sock.chatModify(
+            {
+              deleteForMe: {
+                deleteMedia: false,
+                key,
+                timestamp: Date.now(),
+              },
+            },
+            key.remoteJid
+          );
+        }
+        emitResponse(id, {
+          success: true,
+          message_id: args.message_id,
+          deleted_for_everyone: args.everyone === true,
+        });
         break;
       }
 
       case "forward_message": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await resolveMessage(args.message_id);
-        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
-        let chatId = args.to;
-        if (!chatId.includes("@")) {
-          const wid = await client.getNumberId(chatId.replace(/[\s\-\+\(\)]/g, ""));
-          if (!wid) { emitResponse(id, { success: false, error: `Number ${chatId} not on WhatsApp` }); return; }
-          chatId = wid._serialized;
-        }
-        const chat = await client.getChatById(chatId);
-        await msg.forward(chat);
-        emitResponse(id, { success: true, forwarded_to: chatId });
+        if (!requireReady(id)) return;
+        const original = storedMessage(args.message_id);
+        if (!original) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        const jid = await resolveTo(args.to);
+        const sent = await sock.sendMessage(jid, { forward: original });
+        const sid = serializeId(sent.key);
+        if (sid) ownSentIds.add(sid);
+        emitResponse(id, { success: true, forwarded_to: jid });
         break;
       }
 
       case "react_message": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await resolveMessage(args.message_id);
-        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
-        await msg.react(args.emoji || "");  // empty string removes the reaction
+        if (!requireReady(id)) return;
+        const key = keyFromSerialized(args.message_id);
+        if (!key) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        await sock.sendMessage(key.remoteJid, { react: { text: args.emoji || "", key } });
         emitResponse(id, { success: true, message_id: args.message_id, emoji: args.emoji });
         break;
       }
 
       case "star_message": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await resolveMessage(args.message_id);
-        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
-        if (args.starred === false) await msg.unstar(); else await msg.star();
-        emitResponse(id, { success: true, message_id: args.message_id, starred: args.starred !== false });
+        if (!requireReady(id)) return;
+        const key = keyFromSerialized(args.message_id);
+        if (!key) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        await sock.chatModify(
+          {
+            star: {
+              messages: [{ id: key.id, fromMe: key.fromMe }],
+              star: args.starred !== false,
+            },
+          },
+          key.remoteJid
+        );
+        emitResponse(id, {
+          success: true,
+          message_id: args.message_id,
+          starred: args.starred !== false,
+        });
         break;
       }
 
       case "download_message_media": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        // Preferred path: wwebjs high-level download.
-        const msg = await resolveMessage(args.message_id);
-        if (msg && msg.hasMedia) {
-          try {
-            const media = await msg.downloadMedia();
-            if (media) {
-              emitResponse(id, {
-                success: true,
-                mimetype: media.mimetype,
-                filename: media.filename || "",
-                data_b64: media.data,
-              });
-              break;
-            }
-          } catch (err) {
-            log(`downloadMedia failed, trying lean path: ${errStr(err)}`);
-          }
+        if (!requireReady(id)) return;
+        const original = storedMessage(args.message_id);
+        if (!original) {
+          emitResponse(id, {
+            success: false,
+            error: "Message not found (not in this session's cache — ask the sender to resend)",
+          });
+          return;
         }
-        // Lean in-page path — survives wwebjs build drift.
-        const idParts = String(args.message_id || "").split("_");
-        const idHash = idParts.length >= 3 ? idParts[idParts.length - 1] : "";
-        if (!idHash) { emitResponse(id, { success: false, error: "Message not found" }); return; }
-        try {
-          const lean = await leanDownloadMedia(idHash);
-          if (lean && lean.data_b64) {
-            log(`Lean media download succeeded for ${idHash}`);
-            emitResponse(id, {
-              success: true,
-              mimetype: lean.mimetype,
-              filename: lean.filename,
-              data_b64: lean.data_b64,
-            });
-          } else {
-            const reason = (lean && lean.error) || "unknown";
-            log(`Lean media download failed for ${idHash}: ${reason}`);
-            emitResponse(id, { success: false, error: `Media download failed: ${reason}` });
-          }
-        } catch (err) {
-          log(`Lean media download threw for ${idHash}: ${errStr(err)}`);
-          emitResponse(id, { success: false, error: `Media download failed: ${errStr(err)}` });
+        const buffer = await downloadMediaMessage(
+          original,
+          "buffer",
+          {},
+          { logger: silentLogger, reuploadRequest: sock.updateMediaMessage }
+        );
+        let content = getContentType(original.message || {});
+        if (content === "ephemeralMessage") {
+          content = getContentType(original.message.ephemeralMessage?.message || {});
         }
+        const inner =
+          (original.message && (original.message[content] ||
+            original.message.ephemeralMessage?.message?.[content])) || {};
+        emitResponse(id, {
+          success: true,
+          mimetype: inner.mimetype || "",
+          filename: inner.fileName || "",
+          data_b64: Buffer.from(buffer).toString("base64"),
+        });
         break;
       }
 
       case "get_quoted_message": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const msg = await resolveMessage(args.message_id);
-        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
-        const quoted = await msg.getQuotedMessage();
-        if (!quoted) { emitResponse(id, { success: true, quoted: null }); return; }
-        emitResponse(id, { success: true, quoted: {
-          id: quoted.id._serialized, body: quoted.body || "",
-          from: quoted.from, from_me: quoted.fromMe, timestamp: quoted.timestamp,
-        }});
+        if (!requireReady(id)) return;
+        const original = storedMessage(args.message_id);
+        const ctx =
+          original?.message?.extendedTextMessage?.contextInfo ||
+          original?.message?.imageMessage?.contextInfo ||
+          original?.message?.videoMessage?.contextInfo ||
+          original?.message?.documentMessage?.contextInfo ||
+          null;
+        if (!ctx || !ctx.quotedMessage) {
+          emitResponse(id, { success: true, quoted: null });
+          return;
+        }
+        const qBody =
+          ctx.quotedMessage.conversation ||
+          ctx.quotedMessage.extendedTextMessage?.text ||
+          ctx.quotedMessage.imageMessage?.caption || "";
+        const participant = ctx.participant || "";
+        emitResponse(id, {
+          success: true,
+          quoted: {
+            id: [sameUser(participant, ownerJid) ? "true" : "false", original.key.remoteJid, ctx.stanzaId].join("_"),
+            body: qBody,
+            from: participant,
+            from_me: sameUser(participant, ownerJid),
+            timestamp: 0,
+          },
+        });
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────
-      // Chat operations
-      // ─────────────────────────────────────────────────────────────────
+      // ── Chat operations ────────────────────────────────────────────────
 
       case "mark_chat_read": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.chat_id);
-        await chat.sendSeen();
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        await sock.chatModify({ markRead: true, lastMessages: lastMessagesFor(jid) }, jid);
+        const chat = chats.get(jid);
+        if (chat) chat.unread_count = 0;
         emitResponse(id, { success: true, chat_id: args.chat_id });
         break;
       }
 
       case "mark_chat_unread": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.chat_id);
-        await chat.markUnread();
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        await sock.chatModify({ markRead: false, lastMessages: lastMessagesFor(jid) }, jid);
         emitResponse(id, { success: true, chat_id: args.chat_id });
         break;
       }
 
       case "archive_chat": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.chat_id);
-        if (args.archive === false) await chat.unarchive(); else await chat.archive();
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        await sock.chatModify(
+          { archive: args.archive !== false, lastMessages: lastMessagesFor(jid) },
+          jid
+        );
         emitResponse(id, { success: true, chat_id: args.chat_id, archived: args.archive !== false });
         break;
       }
 
       case "pin_chat": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.chat_id);
-        if (args.pin === false) await chat.unpin(); else await chat.pin();
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        await sock.chatModify({ pin: args.pin !== false }, jid);
         emitResponse(id, { success: true, chat_id: args.chat_id, pinned: args.pin !== false });
         break;
       }
 
       case "mute_chat": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.chat_id);
-        if (args.mute === false) {
-          await chat.unmute();
-        } else {
-          // unmute_date is unix seconds (optional, otherwise mute forever)
-          const date = args.unmute_date ? new Date(args.unmute_date * 1000) : null;
-          await chat.mute(date);
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        let mute = null;
+        if (args.mute !== false) {
+          mute = args.unmute_date
+            ? Math.max(0, args.unmute_date * 1000 - Date.now())
+            : 365 * 24 * 60 * 60 * 1000; // "forever" ≈ 1 year
         }
+        await sock.chatModify({ mute }, jid);
+        const chat = chats.get(jid);
+        if (chat) chat.is_muted = args.mute !== false;
         emitResponse(id, { success: true, chat_id: args.chat_id, muted: args.mute !== false });
         break;
       }
 
       case "clear_chat_messages": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.chat_id);
-        await chat.clearMessages();
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        await sock.chatModify({ clear: true, lastMessages: lastMessagesFor(jid) }, jid);
         emitResponse(id, { success: true, chat_id: args.chat_id });
         break;
       }
 
       case "delete_chat": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.chat_id);
-        await chat.delete();
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        await sock.chatModify({ delete: true, lastMessages: lastMessagesFor(jid) }, jid);
+        chats.delete(jid);
         emitResponse(id, { success: true, chat_id: args.chat_id });
         break;
       }
 
       case "send_typing_state": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.chat_id);
-        const state = args.state || "typing";  // typing | recording | clear
-        if (state === "recording") await chat.sendStateRecording();
-        else if (state === "clear") await chat.clearState();
-        else await chat.sendStateTyping();
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.chat_id);
+        const state = args.state || "typing";
+        const presence =
+          state === "recording" ? "recording" : state === "clear" ? "paused" : "composing";
+        await sock.sendPresenceUpdate(presence, jid);
         emitResponse(id, { success: true, chat_id: args.chat_id, state });
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────
-      // Groups
-      // ─────────────────────────────────────────────────────────────────
+      // ── Groups ─────────────────────────────────────────────────────────
 
       case "create_group": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        // Resolve participants: phone numbers → JIDs
+        if (!requireReady(id)) return;
         const participants = [];
-        for (const p of (args.participants || [])) {
-          if (p.includes("@")) {
-            participants.push(p);
-          } else {
-            const wid = await client.getNumberId(p.replace(/[\s\-\+\(\)]/g, ""));
-            if (wid) participants.push(wid._serialized);
+        for (const p of args.participants || []) {
+          try {
+            participants.push(await resolveTo(p));
+          } catch (e) {
+            log(`create_group: skipping ${p}: ${e.message}`);
           }
         }
-        const result = await client.createGroup(args.name, participants);
+        const result = await sock.groupCreate(args.name, participants);
         emitResponse(id, {
           success: true,
-          group_id: result.gid?._serialized || result.gid || null,
-          missing_participants: result.missingParticipants || [],
+          group_id: result.id || null,
+          missing_participants: [],
         });
         break;
       }
 
-      case "group_add_participants": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        const result = await chat.addParticipants(args.participants);
-        emitResponse(id, { success: true, result });
-        break;
-      }
-
-      case "group_remove_participants": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        const result = await chat.removeParticipants(args.participants);
-        emitResponse(id, { success: true, result });
-        break;
-      }
-
-      case "group_promote_participants": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        const result = await chat.promoteParticipants(args.participants);
-        emitResponse(id, { success: true, result });
-        break;
-      }
-
+      case "group_add_participants":
+      case "group_remove_participants":
+      case "group_promote_participants":
       case "group_demote_participants": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        const result = await chat.demoteParticipants(args.participants);
+        if (!requireReady(id)) return;
+        const jid = await groupJidOrRespond(id, args.group_id);
+        if (!jid) return;
+        const action = {
+          group_add_participants: "add",
+          group_remove_participants: "remove",
+          group_promote_participants: "promote",
+          group_demote_participants: "demote",
+        }[cmd];
+        const jids = [];
+        for (const p of args.participants || []) jids.push(await resolveTo(p));
+        const result = await sock.groupParticipantsUpdate(jid, jids, action);
         emitResponse(id, { success: true, result });
         break;
       }
 
       case "group_set_subject": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        await chat.setSubject(args.subject);
+        if (!requireReady(id)) return;
+        const jid = await groupJidOrRespond(id, args.group_id);
+        if (!jid) return;
+        await sock.groupUpdateSubject(jid, args.subject);
         emitResponse(id, { success: true, group_id: args.group_id, subject: args.subject });
         break;
       }
 
       case "group_set_description": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        await chat.setDescription(args.description);
+        if (!requireReady(id)) return;
+        const jid = await groupJidOrRespond(id, args.group_id);
+        if (!jid) return;
+        await sock.groupUpdateDescription(jid, args.description);
         emitResponse(id, { success: true, group_id: args.group_id });
         break;
       }
 
       case "group_get_info": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        emitResponse(id, { success: true, info: {
-          id: chat.id._serialized,
-          name: chat.name,
-          description: chat.description || "",
-          owner: chat.owner?._serialized || "",
-          created_at: chat.createdAt || null,
-          participants: (chat.participants || []).map(p => ({
-            id: p.id._serialized,
-            is_admin: p.isAdmin,
-            is_super_admin: p.isSuperAdmin,
-          })),
-        }});
+        if (!requireReady(id)) return;
+        const jid = await groupJidOrRespond(id, args.group_id);
+        if (!jid) return;
+        const meta = await sock.groupMetadata(jid);
+        emitResponse(id, {
+          success: true,
+          info: {
+            id: meta.id,
+            name: meta.subject,
+            description: meta.desc || "",
+            owner: meta.owner || "",
+            created_at: meta.creation || null,
+            participants: (meta.participants || []).map((p) => ({
+              id: p.id,
+              is_admin: p.admin === "admin" || p.admin === "superadmin",
+              is_super_admin: p.admin === "superadmin",
+            })),
+          },
+        });
         break;
       }
 
       case "group_leave": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        await chat.leave();
+        if (!requireReady(id)) return;
+        const jid = await groupJidOrRespond(id, args.group_id);
+        if (!jid) return;
+        await sock.groupLeave(jid);
         emitResponse(id, { success: true, group_id: args.group_id });
         break;
       }
 
       case "group_invite_code": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        const code = await chat.getInviteCode();
-        emitResponse(id, { success: true, invite_code: code, invite_url: `https://chat.whatsapp.com/${code}` });
+        if (!requireReady(id)) return;
+        const jid = await groupJidOrRespond(id, args.group_id);
+        if (!jid) return;
+        const code = await sock.groupInviteCode(jid);
+        emitResponse(id, {
+          success: true,
+          invite_code: code,
+          invite_url: `https://chat.whatsapp.com/${code}`,
+        });
         break;
       }
 
       case "group_revoke_invite": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const chat = await client.getChatById(args.group_id);
-        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
-        const code = await chat.revokeInvite();
+        if (!requireReady(id)) return;
+        const jid = await groupJidOrRespond(id, args.group_id);
+        if (!jid) return;
+        const code = await sock.groupRevokeInvite(jid);
         emitResponse(id, { success: true, new_invite_code: code });
         break;
       }
 
       case "accept_group_invite": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const code = args.invite_code.replace(/^https?:\/\/chat\.whatsapp\.com\//, "");
-        const groupId = await client.acceptInvite(code);
+        if (!requireReady(id)) return;
+        const code = String(args.invite_code || "").replace(/^https?:\/\/chat\.whatsapp\.com\//, "");
+        const groupId = await sock.groupAcceptInvite(code);
         emitResponse(id, { success: true, group_id: groupId });
         break;
       }
 
-      // ─────────────────────────────────────────────────────────────────
-      // Contacts
-      // ─────────────────────────────────────────────────────────────────
+      // ── Contacts ───────────────────────────────────────────────────────
 
       case "block_contact": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const contact = await client.getContactById(args.contact_id);
-        if (args.block === false) await contact.unblock(); else await contact.block();
-        emitResponse(id, { success: true, contact_id: args.contact_id, blocked: args.block !== false });
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.contact_id);
+        await sock.updateBlockStatus(jid, args.block === false ? "unblock" : "block");
+        emitResponse(id, {
+          success: true,
+          contact_id: args.contact_id,
+          blocked: args.block !== false,
+        });
         break;
       }
 
       case "get_profile_pic_url": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        if (!requireReady(id)) return;
         try {
-          const url = await client.getProfilePicUrl(args.contact_id);
+          const jid = await resolveTo(args.contact_id);
+          const url = await sock.profilePictureUrl(jid, "image");
           emitResponse(id, { success: true, url: url || "" });
         } catch (e) {
           emitResponse(id, { success: true, url: "" });
@@ -1625,53 +1214,55 @@ async function handleCommand(line) {
       }
 
       case "get_contact": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const contact = await client.getContactById(args.contact_id);
-        let about = "";
-        try { about = await contact.getAbout() || ""; } catch (_) {}
-        emitResponse(id, { success: true, contact: {
-          id: contact.id._serialized,
-          name: contact.name || "",
-          pushname: contact.pushname || "",
-          short_name: contact.shortName || "",
-          number: contact.number || "",
-          is_business: contact.isBusiness,
-          is_my_contact: contact.isMyContact,
-          is_blocked: contact.isBlocked,
-          is_user: contact.isUser,
-          is_group: contact.isGroup,
-          about,
-        }});
+        if (!requireReady(id)) return;
+        const jid = await resolveTo(args.contact_id);
+        const contact = contacts.get(jid) || {};
+        emitResponse(id, {
+          success: true,
+          contact: {
+            id: jid,
+            name: contact.name || "",
+            pushname: contact.name || "",
+            short_name: "",
+            number: jidUser(jid),
+            is_business: false,
+            is_my_contact: contacts.has(jid),
+            is_blocked: false,
+            is_user: !isJidGroup(jid),
+            is_group: isJidGroup(jid) || false,
+            about: "",
+          },
+        });
         break;
       }
 
       case "get_all_contacts": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        // getContacts() can be slow on large accounts; filter to "my contacts" by default.
-        const contacts = await client.getContacts();
-        const filtered = args.my_contacts_only === false
-          ? contacts
-          : contacts.filter(c => c.isMyContact);
-        const result = filtered.slice(0, args.limit || 500).map(c => ({
-          id: c.id._serialized,
+        if (!requireReady(id)) return;
+        let list = [...contacts.values()];
+        if (args.my_contacts_only !== false) {
+          list = list.filter((c) => !!c.name);
+        }
+        const result = list.slice(0, args.limit || 500).map((c) => ({
+          id: c.id,
           name: c.name || "",
-          pushname: c.pushname || "",
-          number: c.number || "",
-          is_business: c.isBusiness,
-          is_my_contact: c.isMyContact,
+          pushname: c.name || "",
+          number: c.number || jidUser(c.id),
+          is_business: false,
+          is_my_contact: true,
         }));
         emitResponse(id, { success: true, contacts: result, count: result.length });
         break;
       }
 
       case "check_number_on_whatsapp": {
-        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
-        const clean = args.number.replace(/[\s\-\+\(\)]/g, "");
-        const wid = await client.getNumberId(clean);
+        if (!requireReady(id)) return;
+        const clean = String(args.number || "").replace(/[\s\-\+\(\)]/g, "");
+        const results = await sock.onWhatsApp(clean);
+        const hit = (results || []).find((r) => r.exists);
         emitResponse(id, {
           success: true,
-          on_whatsapp: !!wid,
-          jid: wid?._serialized || "",
+          on_whatsapp: !!hit,
+          jid: (hit && hit.jid) || "",
         });
         break;
       }
@@ -1686,45 +1277,30 @@ async function handleCommand(line) {
 }
 
 // ---------------------------------------------------------------------------
-// Stdin reader
+// Stdin reader + lifecycle
 // ---------------------------------------------------------------------------
 
+const readline = require("readline");
 const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   const trimmed = line.trim();
   if (trimmed) handleCommand(trimmed).catch((err) => log(`handleCommand crashed: ${errStr(err)}`));
 });
-
 rl.on("close", () => {
+  if (shuttingDown) return;
   log("stdin closed, shutting down");
-  gracefulShutdown().catch(() => process.exit(0));
+  shuttingDown = true;
+  try {
+    sock?.end(undefined);
+  } catch (_) {}
+  process.exit(0);
 });
 
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
+process.on("SIGINT", () => { shuttingDown = true; try { sock?.end(undefined); } catch (_) {} process.exit(0); });
+process.on("SIGTERM", () => { shuttingDown = true; try { sock?.end(undefined); } catch (_) {} process.exit(0); });
 
-let shuttingDown = false;
-
-async function gracefulShutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  log("Shutting down...");
-  try {
-    if (currentGen) await currentGen.dispose();
-  } catch (err) {
-    log(`Dispose error during shutdown: ${errStr(err)}`);
-  }
-  process.exit(0);
-}
-
-process.on("SIGINT", () => { gracefulShutdown().catch(() => process.exit(0)); });
-process.on("SIGTERM", () => { gracefulShutdown().catch(() => process.exit(0)); });
-
-// A floating rejection or sync throw anywhere means undefined state
-// (TargetCloseError/EBUSY used to kill the process silently mid-recovery).
-// Exit DELIBERATELY with a fatal event so the Python supervisor sees a
-// classified crash and applies backoff, instead of a zombie bridge.
+// A floating rejection means undefined state — exit deliberately with a
+// fatal event so the Python supervisor sees a classified crash.
 process.on("unhandledRejection", (reason) => {
   if (shuttingDown) return;
   fatalCrash(reason instanceof Error ? reason : new Error(String(reason)));
@@ -1734,6 +1310,4 @@ process.on("uncaughtException", (err) => {
   fatalCrash(err);
 });
 
-// Start the first generation. launchGeneration handles its own retries and
-// final exit on failure.
-launchGeneration().catch(fatalCrash);
+connect().catch(fatalCrash);
