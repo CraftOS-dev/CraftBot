@@ -53,8 +53,15 @@ def _count(path: Path, table: str = "items") -> int:
         con.close()
 
 
+# Base epoch for fabricated archives: local-time filenames round-trip
+# through mktime, which (on Windows) rejects near-epoch values — so the
+# tests' relative offsets ride on a modern instant.
+_T0 = 1_700_000_000.0
+
+
 def _touch_archive(store: BackupStore, pid: str, ts: float, trigger: str) -> Path:
-    p = store.project_dir(pid) / f"{_ts_name(ts)}__{trigger}.zip"
+    ts += _T0
+    p = store.project_dir(pid) / f"app__{_ts_name(ts)}__{trigger}.zip"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(b"zip" + bytes(int(ts) % 251))
     return p
@@ -80,11 +87,18 @@ with tempfile.TemporaryDirectory() as tmp:
     store = BackupStore(living)
 
     # canonical naming round-trips; claim_path bumps same-second collisions
-    p1 = store.claim_path("proj0001", "scheduled", ts=1000000.0)
+    p1 = store.claim_path(
+        "proj0001", "scheduled", ts=_T0 + 1000000.0, name="My CRM App!"
+    )
+    assert p1.name.startswith("my-crm-app__"), "filename must carry the app slug"
     p1.write_bytes(b"a")
-    p2 = store.claim_path("proj0001", "scheduled", ts=1000000.0)
+    p2 = store.claim_path(
+        "proj0001", "scheduled", ts=_T0 + 1000000.0, name="My CRM App!"
+    )
     assert p1 != p2 and _NAME_RE.match(p2.name), "collision must bump, stay canonical"
     p2.write_bytes(b"b")
+    # nameless captures still get a valid slug
+    assert store.claim_path("proj0001", "manual", ts=_T0).name.startswith("app__")
 
     # unsafe ids refused before any path is built
     for bad in ("", "..", "a/b", "x" * 65):
@@ -115,8 +129,8 @@ with tempfile.TemporaryDirectory() as tmp:
     _touch_archive(store, "proj0002", 15.0, "manual")
     assert store.prune("proj0002", "scheduled", keep=2) == 2
     kept = store.list_backups("proj0002")
-    assert [e.ts for e in kept if e.trigger == "scheduled"] == [40.0, 30.0]
-    assert [e.ts for e in kept if e.trigger == "manual"] == [15.0], (
+    assert [e.ts for e in kept if e.trigger == "scheduled"] == [_T0 + 40.0, _T0 + 30.0]
+    assert [e.ts for e in kept if e.trigger == "manual"] == [_T0 + 15.0], (
         "other pools survive"
     )
     assert store.prune("proj0002", "scheduled", keep=2) == 0, "idempotent"
@@ -139,6 +153,15 @@ with tempfile.TemporaryDirectory() as tmp:
     assert outside.exists()
     assert (store.project_dir("proj0001") / "README.txt").exists()
     assert (store.project_dir("proj0001") / "20990101T000000Z__evil.zip").exists()
+
+    # legacy-named archives (pre 2026-08-21) stay listed, attributed and
+    # deletable — old backups must never become invisible
+    legacy = store.project_dir("proj0001") / "20200101T000000Z__manual.zip"
+    legacy.write_bytes(b"old-format")
+    got = [e for e in store.list_backups("proj0001") if e.filename == legacy.name]
+    assert got and got[0].trigger == "manual"
+    store.delete("proj0001", legacy.name)
+    assert not legacy.exists()
 
     # delete_project_backups removes the dir; orphans are reported, not reaped
     store.delete_project_backups("proj0002")
@@ -457,11 +480,19 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     assert mgr.backups.store.list_backups("keep0001"), "archives must survive boot"
 
-    # delete_project default: project dir dies, backups become a listed orphan
+    # delete_project default: a final pre_delete backup is captured, the
+    # project dir dies, and the backups become a listed orphan
     asyncio.run(mgr.delete_project("keep0001"))
     assert "keep0001" not in mgr.projects and not Path(project.path).exists()
     assert mgr.backups.store.list_backups("keep0001"), (
         "default delete must KEEP backups (D5)"
+    )
+    assert any(
+        e.trigger == "pre_delete" and e.size > 0
+        for e in mgr.backups.store.list_backups("keep0001")
+    ), "delete must capture the live data one last time first"
+    assert mgr.backups.store.project_name("keep0001") == "k", (
+        "capture must record the app's human name for the orphan listing"
     )
     assert set(mgr.backups.store.orphan_dirs(mgr.projects.keys())) == {
         "keep0001",
@@ -496,11 +527,17 @@ with tempfile.TemporaryDirectory() as tmp:
     living_ui_mod.get_living_ui_manager = lambda: mgr
     host_mod._HOST = None
 
-    # DTO carries the backup settings + status + orphans
+    # DTO carries the backup settings + status + orphans (with human names
+    # from the meta sidecar; id fallback when a dir predates the sidecar)
     _touch_archive(mgr.backups.store, "sett0001", 100.0, "manual")
     _touch_archive(mgr.backups.store, "olddead1", 100.0, "manual")
     out = get_living_ui_projects()
-    assert out["success"] and out["backupOrphans"] == ["olddead1"]
+    assert out["success"] and out["backupOrphans"] == [
+        {"id": "olddead1", "name": "olddead1"}
+    ]
+    mgr.backups.store.write_meta("olddead1", "Old Dead App")
+    out = get_living_ui_projects()
+    assert out["backupOrphans"] == [{"id": "olddead1", "name": "Old Dead App"}]
     dto = out["projects"][0]
     assert dto["backupsEnabled"] is True and dto["backupInterval"] == "daily"
     assert dto["backupKeep"] == 7 and dto["backupStatus"]["count"] == 1
@@ -527,7 +564,9 @@ with tempfile.TemporaryDirectory() as tmp:
         for e in mgr.backups.store.list_backups("sett0001")
         if e.trigger == "scheduled"
     ]
-    assert [e.ts for e in pool] == [40.0, 30.0], "shrink must prune immediately"
+    assert [e.ts for e in pool] == [_T0 + 40.0, _T0 + 30.0], (
+        "shrink must prune immediately"
+    )
 print("§7 settings surface: OK")
 
 # ── §8 capture_running against a REAL PocketBase ───────────────────────────

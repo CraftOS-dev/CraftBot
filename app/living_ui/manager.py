@@ -3578,6 +3578,29 @@ UI in {project.path}/frontend/src/app/."""
         if project.status == "running":
             await self.stop_project(project_id)
 
+        # Final safety net: capture the live data one last time before the
+        # files go away — the same courtesy for a singular delete and for
+        # reset-all, which funnels through here. Best-effort by design:
+        # deletion is the user's explicit intent and must stay possible even
+        # when a capture cannot succeed (corrupt DB, full disk).
+        if not delete_backups:
+            try:
+                from app.living_ui.lifecycle import live_db_exists
+
+                if (
+                    getattr(project, "project_type", "native") != "external"
+                    and live_db_exists(project.path)
+                ):
+                    async with self._backup_lock:
+                        await asyncio.to_thread(
+                            self.backups.capture_stopped, project, "pre_delete"
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI:BACKUP] pre-delete backup failed for "
+                    f"{project_id}: {e} — deleting without a final backup"
+                )
+
         # Release ports
         if project.port:
             self._release_port(project.port)

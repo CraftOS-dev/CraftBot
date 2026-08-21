@@ -14,8 +14,15 @@ export interface LivingUIBackupStatus {
 export interface LivingUIBackupEntry {
   filename: string
   ts: number // ms epoch
-  trigger: 'scheduled' | 'pre_promote' | 'manual'
+  trigger: 'scheduled' | 'pre_promote' | 'manual' | 'pre_delete'
   size: number
+}
+
+// A deleted project's leftover backup dir: opaque id + the app's human name
+// (from the store's meta.json sidecar; falls back to the id).
+export interface LivingUIBackupOrphan {
+  id: string
+  name: string
 }
 
 export interface LivingUISettingsProject {
@@ -39,7 +46,7 @@ interface LivingUiSettingsState {
   projects: LivingUISettingsProject[]
   hasLoadedProjects: boolean
   // Backup dirs of deleted projects (kept on delete by default — D5).
-  backupOrphans: string[]
+  backupOrphans: LivingUIBackupOrphan[]
   // Per-project backup archive list from `living_ui_backups_list`.
   backupsByProject: Record<string, LivingUIBackupEntry[]>
   // Per-project in-flight marker for "Back up now" / restore buttons.
@@ -62,7 +69,7 @@ const livingUiSettingsSlice = createSlice({
       state,
       action: PayloadAction<{
         projects: LivingUISettingsProject[]
-        backupOrphans: string[]
+        backupOrphans: LivingUIBackupOrphan[]
       }>,
     ) {
       state.projects = action.payload.projects
@@ -117,7 +124,7 @@ register('living_ui_settings_get', (data, dispatch) => {
   const d = data as {
     success: boolean
     projects?: LivingUISettingsProject[]
-    backupOrphans?: string[]
+    backupOrphans?: LivingUIBackupOrphan[]
   }
   if (d.success)
     dispatch(

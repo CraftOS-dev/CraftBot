@@ -91,14 +91,9 @@ export function LivingUISettings() {
   }
 
   const handleDelete = (project: LivingUIProject) => {
-    const backupCount = project.backupStatus?.count || 0
-    const backupNote =
-      backupCount > 0
-        ? ` Its ${backupCount} data backup${backupCount === 1 ? '' : 's'} will be KEPT and can be removed below afterwards.`
-        : ''
     confirm({
       title: 'Delete Living UI',
-      message: `Are you sure you want to delete "${project.name}"? This will remove all project files and cannot be undone.${backupNote}`,
+      message: `Are you sure you want to delete "${project.name}"? This will remove all project files. If the app has any live data, a final backup is saved first and KEPT — leftover backups can be removed below afterwards.`,
       confirmText: 'Delete',
       variant: 'danger',
     }, () => {
@@ -108,14 +103,14 @@ export function LivingUISettings() {
   }
 
   const backupOrphans = useAppSelector(s => s.livingUiSettings.backupOrphans)
-  const handleDeleteOrphanBackups = (orphanId: string) => {
+  const handleDeleteOrphanBackups = (orphan: { id: string; name: string }) => {
     confirm({
       title: 'Delete leftover backups',
-      message: `Permanently delete all backup archives of the deleted app "${orphanId}"? They are the only remaining copy of its data.`,
+      message: `Permanently delete all backup archives of the deleted app "${orphan.name}"? They are the only remaining copy of its data.`,
       confirmText: 'Delete backups',
       variant: 'danger',
     }, () => {
-      send('living_ui_backup_delete', { projectId: orphanId, filename: '', orphan: true })
+      send('living_ui_backup_delete', { projectId: orphan.id, filename: '', orphan: true })
       send('living_ui_settings_get')
     })
   }
@@ -186,9 +181,9 @@ export function LivingUISettings() {
             Backup archives of deleted apps. They are kept when an app is deleted; remove them here when you no longer need the data.
           </p>
           <div className={styles.scheduleList}>
-            {backupOrphans.map(orphanId => (
+            {backupOrphans.map(orphan => (
               <div
-                key={orphanId}
+                key={orphan.id}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -204,20 +199,25 @@ export function LivingUISettings() {
                   style={{
                     flex: 1,
                     fontSize: 'var(--text-sm)',
-                    fontFamily: 'var(--font-mono)',
                     color: 'var(--text-primary)',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
+                  title={orphan.id}
                 >
-                  {orphanId}
+                  {orphan.name}
+                  {orphan.name !== orphan.id && (
+                    <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+                      {' '}· {orphan.id}
+                    </span>
+                  )}
                 </span>
                 <Button
                   size="sm"
                   variant="ghost"
                   icon={<Trash2 size={14} />}
-                  onClick={() => handleDeleteOrphanBackups(orphanId)}
+                  onClick={() => handleDeleteOrphanBackups(orphan)}
                   title="Delete these backups"
                 />
               </div>
@@ -620,6 +620,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   scheduled: 'scheduled',
   pre_promote: 'pre-update',
   manual: 'manual',
+  pre_delete: 'before delete',
 }
 
 function fmtSize(bytes: number): string {

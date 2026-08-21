@@ -57,10 +57,11 @@ def get_living_ui_projects() -> Dict[str, Any]:
             )
 
         # Orphan backup dirs (project deleted, archives kept — D5): listed
-        # for manual cleanup, never auto-reaped.
+        # for manual cleanup, never auto-reaped. {id, name} — the name comes
+        # from the meta.json sidecar so the user sees the app, not its id.
         orphans = []
         try:
-            orphans = manager.backups.store.orphan_dirs(manager.projects.keys())
+            orphans = manager.backups.store.orphan_info(manager.projects.keys())
         except Exception:
             pass
 

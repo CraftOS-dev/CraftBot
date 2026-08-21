@@ -3,9 +3,14 @@
 Spec: docs/plans/living-ui-backups-requirements.md (+ -plan.md). One archive
 format for every trigger: a ZIP of the snapshot layout snapshot_pb_data
 produces (every *.db consistent via sqlite's backup API + storage/), named
-<utc-ts>__<trigger>.zip under living_ui/_backups/<project_id>/ — OUTSIDE the
-project dir, so it survives anything that deletes or restores the project's
-own pb_data (the 2026-08-19 incident class this feature answers).
+<app-slug>__<local-ts>__<trigger>.zip under living_ui/_backups/<project_id>/
+— OUTSIDE the project dir, so it survives anything that deletes or restores
+the project's own pb_data (the 2026-08-19 incident class this feature
+answers). The app slug + local timestamp make the file self-describing to a
+human browsing the folder; a meta.json sidecar carries the app's full name
+so a backup dir stays identifiable after its project is deleted (orphan
+listing). Archives in the pre-2026-08-21 name <utc-ts>__<trigger>.zip are
+still listed, restored, pruned and deleted — just never produced.
 
 Two capture paths, one output:
   - capture_stopped: sync, snapshot_pb_data + zip. Also correct while the
@@ -23,6 +28,7 @@ touch only filenames matching the canonical pattern — files we cannot
 attribute to a pool are never deleted (FR5).
 """
 
+import json
 import re
 import shutil
 import time
@@ -41,16 +47,27 @@ except ImportError:
 
 from app.living_ui.pb_data_io import snapshot_pb_data
 
-TRIGGERS = ("scheduled", "pre_promote", "manual")
+TRIGGERS = ("scheduled", "pre_promote", "manual", "pre_delete")
 
 # pre_promote-pool retention — a deliberate constant, not a setting (resolved
 # question §7.2 in the requirements: a second retention knob on the card
 # requires understanding what a promote is; the scheduled pool owns depth).
 PRE_PROMOTE_KEEP = 3
 
-# <utc-ts>__<trigger>.zip — the trigger token doubles as the retention pool.
+# <app-slug>__<local-ts>__<trigger>.zip — the trigger token doubles as the
+# retention pool; the slug exists purely for humans browsing the folder
+# (the dir name is the opaque project id). Slug charset excludes "_", so
+# the "__" separators stay unambiguous.
 _NAME_RE = re.compile(
-    r"^(?P<ts>\d{8}T\d{6}Z)__(?P<trigger>scheduled|pre_promote|manual)\.zip$"
+    r"^(?P<slug>[a-z0-9][a-z0-9-]{0,39})__"
+    r"(?P<ts>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})__"
+    r"(?P<trigger>scheduled|pre_promote|manual|pre_delete)\.zip$"
+)
+# Pre-2026-08-21 archives: <utc-ts>__<trigger>.zip. Recognized forever so
+# existing backups keep listing/restoring/pruning; never produced any more.
+_LEGACY_NAME_RE = re.compile(
+    r"^(?P<ts>\d{8}T\d{6}Z)__"
+    r"(?P<trigger>scheduled|pre_promote|manual|pre_delete)\.zip$"
 )
 # Same guard the provisioner/wizard use: nothing outside this pattern ever
 # becomes part of a deleted path.
@@ -71,15 +88,39 @@ class BackupEntry:
 
 
 def _ts_name(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    """LOCAL wall-clock time — the filename exists for the user's eyes, and
+    a backup made at 12:29 must say 12:29. Retention only needs ordering,
+    so the (at most one-hour, DST-only) parse ambiguity is harmless."""
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d_%H-%M-%S")
 
 
-def _parse_ts(token: str) -> float:
-    return (
-        datetime.strptime(token, "%Y%m%dT%H%M%SZ")
-        .replace(tzinfo=timezone.utc)
-        .timestamp()
-    )
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return slug[:40].rstrip("-") or "app"
+
+
+def _parse_name(filename: str):
+    """(epoch_ts, trigger) for a canonical or legacy archive name, else None
+    — the single authority on what counts as one of our archives."""
+    m = _NAME_RE.match(filename or "")
+    if m:
+        dt = datetime.strptime(m.group("ts"), "%Y-%m-%d_%H-%M-%S")
+        try:
+            ts = dt.timestamp()
+        except (OSError, OverflowError, ValueError):
+            # Windows mktime rejects near-epoch local times; a slightly-off
+            # ts beats an archive going invisible.
+            ts = dt.replace(tzinfo=timezone.utc).timestamp()
+        return ts, m.group("trigger")
+    m = _LEGACY_NAME_RE.match(filename or "")
+    if m:
+        return (
+            datetime.strptime(m.group("ts"), "%Y%m%dT%H%M%SZ")
+            .replace(tzinfo=timezone.utc)
+            .timestamp(),
+            m.group("trigger"),
+        )
+    return None
 
 
 class BackupStore:
@@ -97,19 +138,25 @@ class BackupStore:
         return self.root / project_id
 
     def claim_path(
-        self, project_id: str, trigger: str, ts: Optional[float] = None
+        self,
+        project_id: str,
+        trigger: str,
+        ts: Optional[float] = None,
+        name: str = "",
     ) -> Path:
         """Reserve a canonical archive path (parent created, name unique —
-        same-second collisions bump the timestamp forward)."""
+        same-second collisions bump the timestamp forward). `name` is the
+        app's human name; it becomes the filename's slug."""
         if trigger not in TRIGGERS:
             raise ValueError(f"unknown backup trigger: {trigger!r}")
         pdir = self.project_dir(project_id)
         pdir.mkdir(parents=True, exist_ok=True)
+        slug = _slugify(name)
         ts = time.time() if ts is None else ts
-        path = pdir / f"{_ts_name(ts)}__{trigger}.zip"
+        path = pdir / f"{slug}__{_ts_name(ts)}__{trigger}.zip"
         while path.exists():
             ts += 1
-            path = pdir / f"{_ts_name(ts)}__{trigger}.zip"
+            path = pdir / f"{slug}__{_ts_name(ts)}__{trigger}.zip"
         return path
 
     # ── listing ────────────────────────────────────────────────────────────
@@ -122,15 +169,16 @@ class BackupStore:
         if not pdir.is_dir():
             return entries
         for f in pdir.iterdir():
-            m = _NAME_RE.match(f.name)
-            if not m or not f.is_file():
+            parsed = _parse_name(f.name)
+            if not parsed or not f.is_file():
                 continue
+            ts, trigger = parsed
             entries.append(
                 BackupEntry(
                     project_id=project_id,
                     path=f,
-                    ts=_parse_ts(m.group("ts")),
-                    trigger=m.group("trigger"),
+                    ts=ts,
+                    trigger=trigger,
                     size=f.stat().st_size,
                 )
             )
@@ -149,6 +197,35 @@ class BackupStore:
         return sorted(
             d.name for d in self.root.iterdir() if d.is_dir() and d.name not in known
         )
+
+    def orphan_info(self, registered_ids) -> List[dict]:
+        """orphan_dirs + the app's human name from meta.json — the id alone
+        means nothing to a user once the project is gone."""
+        return [
+            {"id": oid, "name": self.project_name(oid) or oid}
+            for oid in self.orphan_dirs(registered_ids)
+        ]
+
+    # ── meta sidecar ───────────────────────────────────────────────────────
+    def write_meta(self, project_id: str, name: str) -> None:
+        """Refresh the human-name sidecar. Cosmetic — never fails a capture."""
+        try:
+            pdir = self.project_dir(project_id)
+            pdir.mkdir(parents=True, exist_ok=True)
+            (pdir / "meta.json").write_text(
+                json.dumps({"id": project_id, "name": name}), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    def project_name(self, project_id: str) -> str:
+        try:
+            raw = (self.project_dir(project_id) / "meta.json").read_text(
+                encoding="utf-8"
+            )
+            return str(json.loads(raw).get("name") or "")
+        except Exception:
+            return ""
 
     # ── deletion ───────────────────────────────────────────────────────────
     def prune(self, project_id: str, trigger: str, keep: int) -> int:
@@ -169,8 +246,8 @@ class BackupStore:
         return len(doomed)
 
     def delete(self, project_id: str, filename: str) -> None:
-        """Delete one archive by its canonical filename (user-driven)."""
-        if not _NAME_RE.match(filename or ""):
+        """Delete one archive by its canonical/legacy filename (user-driven)."""
+        if _parse_name(filename) is None:
             raise ValueError(f"not a backup archive name: {filename!r}")
         self._guarded_delete(self.project_dir(project_id) / filename)
 
@@ -207,7 +284,9 @@ class BackupService:
         via the sqlite backup API; storage/ may skew by the copy window) —
         the pre-promote and pre-restore path. Raises on failure; callers
         decide fatality (scheduler: log+retry; pre-promote hook: abort)."""
-        final = self.store.claim_path(project.id, trigger)
+        final = self.store.claim_path(
+            project.id, trigger, name=getattr(project, "name", "")
+        )
         tmp_root = final.parent / ".tmp"
         if tmp_root.exists():
             self.store._guarded_delete(tmp_root)  # crashed prior capture
@@ -220,10 +299,11 @@ class BackupService:
         finally:
             if tmp_root.exists():
                 self.store._guarded_delete(tmp_root)
+        self.store.write_meta(project.id, getattr(project, "name", ""))
         entry = BackupEntry(
             project_id=project.id,
             path=final,
-            ts=_parse_ts(_NAME_RE.match(final.name).group("ts")),
+            ts=_parse_name(final.name)[0],
             trigger=trigger,
             size=final.stat().st_size,
         )
@@ -278,12 +358,15 @@ class BackupService:
         produced = Path(project.path) / "pb" / "pb_data" / "backups" / pb_name
         if not produced.exists():
             raise RuntimeError(f"PocketBase reported success but {pb_name} is missing")
-        final = self.store.claim_path(project.id, trigger)
+        final = self.store.claim_path(
+            project.id, trigger, name=getattr(project, "name", "")
+        )
         shutil.move(str(produced), str(final))
+        self.store.write_meta(project.id, getattr(project, "name", ""))
         entry = BackupEntry(
             project_id=project.id,
             path=final,
-            ts=_parse_ts(_NAME_RE.match(final.name).group("ts")),
+            ts=_parse_name(final.name)[0],
             trigger=trigger,
             size=final.stat().st_size,
         )
