@@ -568,7 +568,11 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     }
   })
 
-  if (firstUnreadMessageIdRef.current === undefined && messages.length > 0) {
+  // Wait for the session's real history page before locking in the unread
+  // marker — computing it against the partial init seed picks an id that
+  // ends up mid-timeline once the fetched page lands above it.
+  const historyReady = isDraft || historyStatus === 'fetched'
+  if (firstUnreadMessageIdRef.current === undefined && messages.length > 0 && historyReady) {
     if (!lastSeenMessageId) {
       firstUnreadMessageIdRef.current = null
     } else {
@@ -744,6 +748,11 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     prevRowCountRef.current = rowCount
 
     if (!hasInitialScrolled.current) {
+      // One-shot initial placement runs only once the session's history
+      // page has loaded. Placing against the partial init seed and then
+      // prepending the fetched page above it shifts every row and strands
+      // the viewport mid-timeline.
+      if (!isDraft && historyStatus !== 'fetched') return
       hasInitialScrolled.current = true
       const firstUnreadIdx = getFirstUnreadIndex()
       setTimeout(() => {
@@ -760,7 +769,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       pinToBottom()
       if (!isDraft) markSessionSeen(sessionId)
     }
-  }, [rowCount, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId, isDraft, pinToBottom])
+  }, [rowCount, historyStatus, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId, isDraft, pinToBottom])
 
   // Follow content that grows IN PLACE — streaming reasoning text makes an
   // existing row taller and pushes the live status row below the fold

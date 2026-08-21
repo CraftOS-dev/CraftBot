@@ -448,8 +448,13 @@ class EventStream:
             logger.info(
                 f"[EventStream] Running synchronous summarization ({self._total_tokens} tokens)"
             )
+            # json_mode=False: this prompt asks for a prose summary, and
+            # forcing a provider's JSON mode onto it degenerates (DeepSeek
+            # returns whitespace-only output that reads as empty).
             llm_output = self.llm.generate_response(
-                user_prompt=prompt, prompt_name="EVENT_STREAM_SUMMARIZATION"
+                user_prompt=prompt,
+                prompt_name="EVENT_STREAM_SUMMARIZATION",
+                json_mode=False,
             )
             new_summary = (llm_output or "").strip()
 

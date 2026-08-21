@@ -117,8 +117,13 @@ class InternalActionInterface:
             raise RuntimeError(
                 "InternalActionInterface not initialized with LLMInterface."
             )
+        # json_mode=False: use_llm carries arbitrary agent-authored prompts
+        # (translations, drafts, analyses, ...) whose output is returned as
+        # text. If a prompt wants JSON it says so itself; forcing the
+        # provider's JSON mode onto prose prompts degenerates on several
+        # providers.
         response = await cls.llm_interface.generate_response_async(
-            system_message, prompt, prompt_name="USE_LLM"
+            system_message, prompt, prompt_name="USE_LLM", json_mode=False
         )
         return {"llm_response": response}
 
