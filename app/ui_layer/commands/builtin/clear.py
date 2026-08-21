@@ -40,21 +40,23 @@ class ClearCommand(Command):
         """Execute the clear command for the session it was typed in."""
         target = session_id or MAIN_SESSION_ID
 
-        # Clear persisted chat rows for this session
-        from app.usage import get_chat_storage
+        # Clear persisted chat + activity rows for this session
+        from app.usage import get_action_storage, get_chat_storage
 
         get_chat_storage().clear_messages(target)
+        get_action_storage().clear_items(target)
 
         # Clear the agent-side session state (event stream, todos, budgets)
         await self._controller.agent.clear_session(target)
 
-        # Tell the UI to drop the session's rendered conversation
+        # Tell the UI to drop the session's rendered conversation. Always
+        # session-scoped: a /clear must never touch other sessions.
         adapter = self._controller.active_adapter
         broadcast = getattr(adapter, "broadcast_session_cleared", None)
         if broadcast is not None:
             await broadcast(target)
         elif adapter:
-            await adapter.chat_component.clear()
+            await adapter.chat_component.clear(target)
 
         # Confirm in the now-empty conversation (emitted after the clear so
         # it survives instead of being wiped with the old rows).

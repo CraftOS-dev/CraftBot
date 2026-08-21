@@ -168,7 +168,17 @@ class SessionStorage:
     # ─────────────────────── Event Stream Persistence ───────────────────────
 
     def persist_event_stream(self, stream_id: str, stream: EventStream) -> None:
-        """Persist an event stream's head_summary and tail_events."""
+        """Persist an event stream's head_summary and tail_events.
+
+        Called during live operation (run end, session persist hook), not
+        just at shutdown, so other threads may be appending events or
+        summarizing while this runs. Snapshot the tail BEFORE reading the
+        head: summarization writes head_summary first and swaps the tail
+        second, so this order can at worst capture a folded chunk twice in
+        one snapshot (corrected by the next persist) — never lose it.
+        """
+        records = list(stream.tail_events)
+        head_summary = stream.head_summary
         now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self._db_path) as conn:
             # Upsert stream metadata
@@ -180,13 +190,13 @@ class SessionStorage:
                     head_summary = excluded.head_summary,
                     updated_at = excluded.updated_at
                 """,
-                (stream_id, stream.head_summary, now),
+                (stream_id, head_summary, now),
             )
 
             # Replace all event records for this stream
             conn.execute("DELETE FROM event_records WHERE stream_id = ?", (stream_id,))
 
-            for position, record in enumerate(stream.tail_events):
+            for position, record in enumerate(records):
                 event_json = json.dumps(record.to_dict(), default=str)
                 conn.execute(
                     """

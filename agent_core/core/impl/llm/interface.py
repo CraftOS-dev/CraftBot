@@ -628,8 +628,17 @@ class LLMInterface:
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         log_response: bool = True,
+        json_mode: bool = True,
     ) -> str:
-        """Synchronous implementation shared by sync/async entry points."""
+        """Synchronous implementation shared by sync/async entry points.
+
+        ``json_mode`` declares the caller's expected output format. Callers
+        whose prompts instruct JSON keep the default; prose callers
+        (summarization, title generation, ...) MUST pass False — forcing a
+        provider's JSON mode onto a prompt that never asks for JSON is
+        out-of-contract and degenerates on several providers (DeepSeek
+        emits whitespace-only output, OpenAI rejects the request).
+        """
         if user_prompt is None:
             raise ValueError("`user_prompt` cannot be None.")
 
@@ -656,11 +665,17 @@ class LLMInterface:
                 "glm",
                 "fugu",
             ):
-                response = self._generate_openai(system_prompt, user_prompt)
+                response = self._generate_openai(
+                    system_prompt, user_prompt, json_mode=json_mode
+                )
             elif self.provider == "remote":
-                response = self._generate_ollama(system_prompt, user_prompt)
+                response = self._generate_ollama(
+                    system_prompt, user_prompt, json_mode=json_mode
+                )
             elif self.provider == "gemini":
-                response = self._generate_gemini(system_prompt, user_prompt)
+                response = self._generate_gemini(
+                    system_prompt, user_prompt, json_mode=json_mode
+                )
             elif self.provider == "byteplus":
                 response = self._generate_byteplus(system_prompt, user_prompt)
             elif self.provider == "anthropic":
@@ -742,10 +757,17 @@ class LLMInterface:
         user_prompt: Optional[str] = None,
         log_response: bool = True,
         prompt_name: Optional[str] = None,
+        json_mode: bool = True,
     ) -> str:
-        """Generate a single response from the configured provider."""
+        """Generate a single response from the configured provider.
+
+        Pass ``json_mode=False`` when the prompt asks for prose — see
+        ``_generate_response_sync``.
+        """
         self._begin_call(prompt_name=prompt_name)
-        return self._generate_response_sync(system_prompt, user_prompt, log_response)
+        return self._generate_response_sync(
+            system_prompt, user_prompt, log_response, json_mode=json_mode
+        )
 
     @profile("llm_generate_response_async", OperationCategory.LLM)
     async def generate_response_async(
@@ -754,8 +776,13 @@ class LLMInterface:
         user_prompt: Optional[str] = None,
         log_response: bool = True,
         prompt_name: Optional[str] = None,
+        json_mode: bool = True,
     ) -> str:
-        """Async wrapper that defers the blocking call to a worker thread."""
+        """Async wrapper that defers the blocking call to a worker thread.
+
+        Pass ``json_mode=False`` when the prompt asks for prose — see
+        ``_generate_response_sync``.
+        """
         # Stamp the context here, in the caller's context, so asyncio.to_thread
         # copies it into the worker thread where the capture runs.
         self._begin_call(prompt_name=prompt_name)
@@ -764,6 +791,7 @@ class LLMInterface:
             system_prompt,
             user_prompt,
             log_response,
+            json_mode,
         )
 
     def reset_failure_counter(self) -> None:
@@ -1849,6 +1877,7 @@ class LLMInterface:
         user_prompt: str,
         call_type: Optional[str] = None,
         messages_override: Optional[List[Dict[str, Any]]] = None,
+        json_mode: bool = True,
     ) -> Dict[str, Any]:
         """Generate response using OpenAI with automatic prompt caching.
 
@@ -1924,8 +1953,13 @@ class LLMInterface:
             else:
                 request_kwargs["max_tokens"] = self.max_tokens
 
-            # Always enforce JSON output format
-            request_kwargs["response_format"] = {"type": "json_object"}
+            # JSON output format only for calls whose prompt instructs JSON.
+            # Forcing json_object onto a prose prompt is out-of-contract:
+            # OpenAI rejects it (messages must mention JSON) and DeepSeek
+            # degenerates into whitespace-only output that reads as an
+            # empty response.
+            if json_mode:
+                request_kwargs["response_format"] = {"type": "json_object"}
 
             # Build provider-specific cache hints in extra_body.
             # - prompt_cache_key (OpenAI/DeepSeek/OpenRouter/Grok): improves
@@ -2083,7 +2117,7 @@ class LLMInterface:
 
     @profile("llm_ollama_call", OperationCategory.LLM)
     def _generate_ollama(
-        self, system_prompt: str | None, user_prompt: str
+        self, system_prompt: str | None, user_prompt: str, json_mode: bool = True
     ) -> Dict[str, Any]:
         token_count_input = token_count_output = 0
         total_tokens = 0
@@ -2096,11 +2130,15 @@ class LLMInterface:
                 "model": self.model,
                 "prompt": user_prompt,
                 "stream": False,
-                "format": "json",
                 "options": {
                     "temperature": self.temperature,
                 },
             }
+            # JSON grammar only for calls whose prompt instructs JSON —
+            # Ollama's format=json on a prose prompt degenerates into
+            # whitespace/brace spam.
+            if json_mode:
+                payload["format"] = "json"
             if system_prompt:
                 payload["system"] = system_prompt
             url: str = f"{self.remote_url.rstrip('/')}/api/generate"
@@ -2159,6 +2197,7 @@ class LLMInterface:
         user_prompt: str,
         call_type: Optional[str] = None,
         contents_override: Optional[List[Dict[str, Any]]] = None,
+        json_mode: bool = True,
     ) -> Dict[str, Any]:
         """Generate response using Gemini with explicit or implicit caching.
 
@@ -2214,7 +2253,7 @@ class LLMInterface:
                     system_prompt=system_prompt,
                     temperature=self.temperature,
                     max_output_tokens=self.max_tokens,
-                    json_mode=True,
+                    json_mode=json_mode,
                 )
             else:
                 # Use explicit caching when:
@@ -2223,6 +2262,10 @@ class LLMInterface:
                 # 3. cache manager is available
                 # Note: GeminiCacheManager will automatically fall back to implicit
                 # caching if the system prompt is below Gemini's 1024 token minimum
+                # Explicit caching is only reachable from the session paths,
+                # whose calls are all JSON — a prose (json_mode=False) call
+                # never passes call_type, so it always lands on the
+                # generate_text fallback below where json_mode is honored.
                 use_explicit_cache = (
                     call_type
                     and system_prompt
@@ -2250,7 +2293,7 @@ class LLMInterface:
                         system_prompt=system_prompt,
                         temperature=self.temperature,
                         max_output_tokens=self.max_tokens,
-                        json_mode=True,
+                        json_mode=json_mode,
                     )
 
             # Extract response data
@@ -3039,5 +3082,5 @@ class LLMInterface:
             user_prompt = input("\nEnter prompt (or 'exit'): ").strip()
             if user_prompt.lower() in {"exit", "quit"}:
                 break
-            response = self.generate_response(user_prompt=user_prompt)
+            response = self.generate_response(user_prompt=user_prompt, json_mode=False)
             logger.debug(f"AI Response:\n{response}\n")

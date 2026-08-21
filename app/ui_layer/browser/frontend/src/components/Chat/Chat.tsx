@@ -24,9 +24,12 @@ import { DraftMascot, DRAFT_MASCOT_EXIT_MS } from '@mascot'
 import {
   selectSessionMessages,
   selectSessionHasMoreMessages,
+  selectSessionHistoryStatus,
   selectSessionLoadingOlderMessages,
   selectSessionOldestMessageTimestamp,
+  selectPendingQuestions,
 } from '../../store/selectors/messages'
+import { QuestionBox } from './QuestionBox'
 import { selectSessionActivity } from '../../store/selectors/activity'
 import { selectSessionBusy, selectSessionRunState } from '../../store/selectors/agent'
 import type { ActionItem, ChatMessage } from '../../types'
@@ -160,6 +163,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     sendCommand,
     stopSession,
     sendOptionClick,
+    sendQuestionAnswer,
     openFile,
     openFolder,
     lastSeenBySession,
@@ -178,9 +182,25 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
 
   const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
+  // Unanswered agent questions (oldest first). The first one is pinned in a
+  // QuestionBox above the composer; answering/dismissing advances the queue.
+  const pendingQuestions = useAppSelector(state => selectPendingQuestions(state, sessionId))
   const hasMoreMessages = useAppSelector(state => selectSessionHasMoreMessages(state, sessionId))
+  const historyStatus = useAppSelector(state => selectSessionHistoryStatus(state, sessionId))
   const loadingOlderMessages = useAppSelector(state => selectSessionLoadingOlderMessages(state, sessionId))
   const oldestMessageTimestamp = useAppSelector(state => selectSessionOldestMessageTimestamp(state, sessionId))
+
+  // Load the session's history from storage the first time it is viewed on
+  // this connection (and again after every reconnect, which resets the
+  // bucket to 'unfetched'). The init payload only carries the backend's
+  // in-memory snapshot, so without this fetch a session whose messages are
+  // older than that snapshot would render empty forever even though every
+  // row is still in chat storage. No beforeTimestamp = the session's most
+  // recent page; scroll-up pagination takes over from there.
+  useEffect(() => {
+    if (isDraft || !connected || historyStatus !== 'unfetched') return
+    requestChatHistory(sessionId)
+  }, [isDraft, connected, historyStatus, requestChatHistory, sessionId])
 
   // Live status row: while a run is in flight, the timeline ends with ONE
   // persistent row that is EITHER the currently-running action OR the
@@ -554,7 +574,11 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     }
   })
 
-  if (firstUnreadMessageIdRef.current === undefined && messages.length > 0) {
+  // Wait for the session's real history page before locking in the unread
+  // marker — computing it against the partial init seed picks an id that
+  // ends up mid-timeline once the fetched page lands above it.
+  const historyReady = isDraft || historyStatus === 'fetched'
+  if (firstUnreadMessageIdRef.current === undefined && messages.length > 0 && historyReady) {
     if (!lastSeenMessageId) {
       firstUnreadMessageIdRef.current = null
     } else {
@@ -730,6 +754,11 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     prevRowCountRef.current = rowCount
 
     if (!hasInitialScrolled.current) {
+      // One-shot initial placement runs only once the session's history
+      // page has loaded. Placing against the partial init seed and then
+      // prepending the fetched page above it shifts every row and strands
+      // the viewport mid-timeline.
+      if (!isDraft && historyStatus !== 'fetched') return
       hasInitialScrolled.current = true
       const firstUnreadIdx = getFirstUnreadIndex()
       setTimeout(() => {
@@ -746,7 +775,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       pinToBottom()
       if (!isDraft) markSessionSeen(sessionId)
     }
-  }, [rowCount, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId, isDraft, pinToBottom])
+  }, [rowCount, historyStatus, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId, isDraft, pinToBottom])
 
   // Follow content that grows IN PLACE — streaming reasoning text makes an
   // existing row taller and pushes the live status row below the fold
@@ -851,6 +880,16 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     }
     sendOptionClick(value, messageId, sessionId)
   }, [navigate, sendOptionClick, sessionId])
+
+  const handleQuestionAnswer = useCallback((value: string) => {
+    const q = pendingQuestions[0]
+    if (q) sendQuestionAnswer(q.messageId, value, sessionId)
+  }, [pendingQuestions, sendQuestionAnswer, sessionId])
+
+  const handleQuestionDismiss = useCallback(() => {
+    const q = pendingQuestions[0]
+    if (q) sendQuestionAnswer(q.messageId, '', sessionId, true)
+  }, [pendingQuestions, sendQuestionAnswer, sessionId])
 
   // Reply action from an agent bubble — arm the reply bar and focus the
   // input so the user can type straight away.
@@ -1196,16 +1235,21 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
         <div className={styles.messagesContainer} ref={parentRef}>
+          {/* Pagination indicator. Must live OUTSIDE timelineColumn: the
+              column's virtual rows are absolutely positioned from its top
+              (translateY(0) onward), so anything placed inside it in normal
+              flow gets painted over by the first row (the date chip). As an
+              in-flow sibling it pushes the whole column down instead. */}
+          {loadingOlderMessages && (
+            <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
+              <Loader2 size={14} style={{ display: 'inline', animation: 'spin 1s linear infinite' }} /> Loading older messages...
+            </div>
+          )}
           {rowCount === 0 ? null : (
             <div
               className={styles.timelineColumn}
               style={{ height: `${virtualizer.getTotalSize()}px` }}
             >
-              {loadingOlderMessages && (
-                <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
-                  <Loader2 size={14} style={{ display: 'inline', animation: 'spin 1s linear infinite' }} /> Loading older messages...
-                </div>
-              )}
               {virtualizer.getVirtualItems().map((virtualItem) => {
                 // The row after the last timeline entry is the live status
                 // row (only present while a run is in flight). Its key is
@@ -1354,6 +1398,19 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           row inside it ("+" menu on the left, mic/lang + send on the
           right). The area is width-capped and centered like the timeline. */}
       <div className={styles.inputArea}>
+        {/* Pinned agent question — above the composer, outside the scrolling
+            timeline, so it stays put while the agent keeps working and the
+            chat updates. Keyed by messageId so the free-text draft resets
+            when the queue advances to the next question. */}
+        {pendingQuestions.length > 0 && (
+          <QuestionBox
+            key={pendingQuestions[0].messageId}
+            question={pendingQuestions[0]}
+            queueTotal={pendingQuestions.length}
+            onAnswer={handleQuestionAnswer}
+            onDismiss={handleQuestionDismiss}
+          />
+        )}
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
         <div
           className={`${styles.inputShell}${isDragOver ? ` ${styles.inputShellDragOver}` : ''}`}

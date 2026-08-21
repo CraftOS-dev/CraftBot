@@ -58,6 +58,13 @@
   width: 100%;
   max-width: 780px;
   margin: 0 auto;
+  /* The inline height is the virtualizer's total canvas size and MUST be
+     honored. As a flex item the default flex-shrink:1 let the container
+     compress the column to the viewport height, so scrollHeight never
+     matched the virtualizer total — scrollTop = scrollHeight then pinned
+     to the bottom of the RENDERED rows only, stranding session revisits
+     (warm measurement cache = no growth events to re-pin) mid-timeline. */
+  flex-shrink: 0;
 }
 
 /* Draft-hero mascot dock: pinned to the bottom of the messages area so

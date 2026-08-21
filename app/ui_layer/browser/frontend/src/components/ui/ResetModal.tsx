@@ -39,7 +39,8 @@ export const RESET_ITEMS: ResetItem[] = [
   {
     id: 'livingui',
     label: 'LivingUI apps',
-    description: 'Deletes every app the agent has built.',
+    description:
+      'Deletes every app the agent has built. A final backup of each app’s data is saved and kept.',
     destructive: true,
   },
 ]

@@ -104,7 +104,12 @@ from app.ui_layer.components.protocols import (
     StatusBarProtocol,
     FootageComponentProtocol,
 )
-from app.ui_layer.components.types import ChatMessage, ActionItem, Attachment
+from app.ui_layer.components.types import (
+    ChatMessage,
+    ActionItem,
+    Attachment,
+    QUESTION_DISMISSED_VALUE,
+)
 from app.ui_layer.events import UIEvent, UIEventType
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
@@ -203,47 +208,53 @@ class BrowserChatComponent(ChatComponentProtocol):
             # Load recent messages from storage (initial page)
             stored_messages = self._storage.get_recent_messages(limit=50)
             for stored in stored_messages:
-                attachments = None
-                if stored.attachments:
-                    attachments = [
-                        Attachment(
-                            name=att.get("name", ""),
-                            path=att.get("path", ""),
-                            type=att.get("type", ""),
-                            size=att.get("size", 0),
-                            url=att.get("url", ""),
-                        )
-                        for att in stored.attachments
-                    ]
-                options = None
-                if stored.options:
-                    from app.ui_layer.components.types import ChatMessageOption
-
-                    options = [
-                        ChatMessageOption(
-                            label=o.get("label", ""),
-                            value=o.get("value", ""),
-                            style=o.get("style", "default"),
-                        )
-                        for o in stored.options
-                    ]
-                self._messages.append(
-                    ChatMessage(
-                        sender=stored.sender,
-                        content=stored.content,
-                        style=stored.style,
-                        timestamp=stored.timestamp,
-                        message_id=stored.message_id,
-                        attachments=attachments,
-                        session_id=stored.session_id,
-                        options=options,
-                        option_selected=stored.option_selected,
-                        continue_work=stored.continue_work,
-                    )
-                )
+                self._messages.append(self._stored_to_chat_message(stored))
         except Exception:
             # Storage may not be available, continue without persistence
             pass
+
+    @staticmethod
+    def _stored_to_chat_message(stored) -> ChatMessage:
+        """Rehydrate a StoredChatMessage row into the live ChatMessage shape."""
+        from app.ui_layer.components.types import ChatMessageOption
+
+        attachments = None
+        if stored.attachments:
+            attachments = [
+                Attachment(
+                    name=att.get("name", ""),
+                    path=att.get("path", ""),
+                    type=att.get("type", ""),
+                    size=att.get("size", 0),
+                    url=att.get("url", ""),
+                )
+                for att in stored.attachments
+            ]
+        options = None
+        if stored.options:
+            options = [
+                ChatMessageOption(
+                    label=o.get("label", ""),
+                    value=o.get("value", ""),
+                    style=o.get("style", "default"),
+                )
+                for o in stored.options
+            ]
+        return ChatMessage(
+            sender=stored.sender,
+            content=stored.content,
+            style=stored.style,
+            timestamp=stored.timestamp,
+            message_id=stored.message_id,
+            attachments=attachments,
+            session_id=stored.session_id,
+            options=options,
+            option_selected=stored.option_selected,
+            continue_work=stored.continue_work,
+            is_question=stored.is_question,
+            allow_free_text=stored.allow_free_text,
+            requires_choice=not stored.is_question,
+        )
 
     async def append_message(self, message: ChatMessage) -> None:
         """Append message and broadcast to clients."""
@@ -283,6 +294,8 @@ class BrowserChatComponent(ChatComponentProtocol):
                     session_id=message.session_id,
                     options=options_data,
                     continue_work=message.continue_work,
+                    is_question=message.is_question,
+                    allow_free_text=message.allow_free_text,
                 )
                 self._storage.insert_message(stored)
             except Exception:
@@ -343,47 +356,7 @@ class BrowserChatComponent(ChatComponentProtocol):
             stored = self._storage.get_messages_before(
                 before_timestamp, session_id=session_id, limit=limit
             )
-            messages = []
-            for s in stored:
-                attachments = None
-                if s.attachments:
-                    attachments = [
-                        Attachment(
-                            name=att.get("name", ""),
-                            path=att.get("path", ""),
-                            type=att.get("type", ""),
-                            size=att.get("size", 0),
-                            url=att.get("url", ""),
-                        )
-                        for att in s.attachments
-                    ]
-                options = None
-                if s.options:
-                    from app.ui_layer.components.types import ChatMessageOption
-
-                    options = [
-                        ChatMessageOption(
-                            label=o.get("label", ""),
-                            value=o.get("value", ""),
-                            style=o.get("style", "default"),
-                        )
-                        for o in s.options
-                    ]
-                messages.append(
-                    ChatMessage(
-                        sender=s.sender,
-                        content=s.content,
-                        style=s.style,
-                        timestamp=s.timestamp,
-                        message_id=s.message_id,
-                        attachments=attachments,
-                        session_id=s.session_id,
-                        options=options,
-                        option_selected=s.option_selected,
-                        continue_work=s.continue_work,
-                    )
-                )
-            return messages
+            return [self._stored_to_chat_message(s) for s in stored]
         except Exception:
             return []
 
@@ -401,13 +374,77 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
     """Browser activity feed component.
 
     Holds the per-session activity items (actions and reasoning) rendered
-    inline in each session's chat. In-memory only: activity is ephemeral
-    run telemetry, the durable record is the session's event stream.
+    inline in each session's chat. Write-through persisted to ActionStorage
+    (like chat messages), so the feed survives restarts and crashes
+    independently of the session's event stream, which summarizes and
+    prunes itself for LLM context.
     """
+
+    # How many items per session to load back into memory at boot. Bounds
+    # the init payload; the full history stays in storage.
+    RESTORE_PER_SESSION_LIMIT = 100
 
     def __init__(self, adapter: "BrowserAdapter") -> None:
         self._adapter = adapter
         self._items: List[ActionItem] = []
+        self._storage = None
+        self._init_storage()
+
+    def _init_storage(self) -> None:
+        """Initialize storage and load each session's recent items."""
+        try:
+            from app.usage.action_storage import get_action_storage
+
+            self._storage = get_action_storage()
+
+            # Anything still 'running' in storage died with the previous
+            # process — close it out before loading.
+            self._storage.mark_running_interrupted()
+
+            for stored in self._storage.get_recent_items_by_session(
+                self.RESTORE_PER_SESSION_LIMIT
+            ):
+                self._items.append(
+                    ActionItem(
+                        id=stored.id,
+                        name=stored.name,
+                        status=stored.status,
+                        item_type=stored.item_type,
+                        session_id=stored.session_id,
+                        created_at=stored.created_at,
+                        completed_at=stored.completed_at,
+                        input_data=stored.input_data,
+                        output_data=stored.output_data,
+                        error_message=stored.error_message,
+                    )
+                )
+        except Exception:
+            # Storage may not be available, continue without persistence
+            logger.exception("[ActionStorage] Failed to initialize activity storage")
+
+    def _persist_item(self, item: ActionItem) -> None:
+        """Write-through an item's full current state to storage."""
+        if not self._storage:
+            return
+        try:
+            from app.usage.action_storage import StoredActionItem
+
+            self._storage.save_item(
+                StoredActionItem(
+                    id=item.id,
+                    name=item.name,
+                    status=item.status,
+                    item_type=item.item_type,
+                    session_id=item.session_id,
+                    created_at=item.created_at,
+                    completed_at=item.completed_at,
+                    input_data=item.input_data,
+                    output_data=item.output_data,
+                    error_message=item.error_message,
+                )
+            )
+        except Exception as e:
+            logger.warning(f"[ActionStorage] Failed to persist item {item.id}: {e}")
 
     @staticmethod
     def _item_payload(item: ActionItem) -> Dict[str, Any]:
@@ -429,7 +466,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         }
 
     async def add_item(self, item: ActionItem) -> None:
-        """Add item and broadcast. Prevents duplicates by ID."""
+        """Add item, persist it, and broadcast. Prevents duplicates by ID."""
         # Check if item with same ID already exists
         for existing in self._items:
             if existing.id == item.id:
@@ -439,6 +476,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 return
 
         self._items.append(item)
+        self._persist_item(item)
 
         await self._adapter._broadcast(
             {
@@ -467,13 +505,14 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         )
 
     async def update_item(self, item_id: str, status: str) -> None:
-        """Update item status by ID and broadcast."""
+        """Update item status by ID, persist, and broadcast."""
         for item in self._items:
             if item.id == item_id:
                 item.status = status
                 # Record completion time for terminal statuses
                 if status in ("completed", "error") and item.completed_at is None:
                     item.completed_at = time.time()
+                self._persist_item(item)
                 await self._broadcast_update(item)
                 return
 
@@ -530,6 +569,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             if error is not None:
                 matched_item.error_message = error
 
+            self._persist_item(matched_item)
             await self._broadcast_update(matched_item)
 
     async def update_item_data(
@@ -545,6 +585,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     item.output_data = output
                 if error is not None:
                     item.error_message = error
+                self._persist_item(item)
                 await self._broadcast_update(item)
                 return
 
@@ -552,6 +593,11 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         """Remove item and broadcast."""
         removed = next((i for i in self._items if i.id == item_id), None)
         self._items = [i for i in self._items if i.id != item_id]
+        if self._storage:
+            try:
+                self._storage.delete_item(item_id)
+            except Exception:
+                pass
 
         await self._adapter._broadcast(
             {
@@ -564,14 +610,26 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         )
 
     async def clear(self) -> None:
-        """Clear all items and broadcast."""
+        """Clear all items (memory + storage) and broadcast."""
         self._items.clear()
+        if self._storage:
+            try:
+                self._storage.clear_items()
+            except Exception:
+                pass
 
         await self._adapter._broadcast(
             {
                 "type": "action_clear",
             }
         )
+
+    def drop_session_items(self, session_id: str) -> None:
+        """Drop a session's items from memory only (storage rows are cleared
+        by the owner of the operation — session deletion purges them via the
+        session-delete hook, conversation clears purge them alongside the
+        chat rows)."""
+        self._items = [i for i in self._items if i.session_id != session_id]
 
     def get_items(self) -> List[ActionItem]:
         """Get all loaded items."""
@@ -679,10 +737,6 @@ class BrowserAdapter(InterfaceAdapter):
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
-        # One-shot flag: the activity feed is rebuilt from persisted event
-        # streams on the first init request after boot (see
-        # _restore_activity_items).
-        self._activity_restored = False
         self._status_bar = BrowserStatusBarComponent(self)
         self._footage = BrowserFootageComponent(self)
         self._app: Optional["web.Application"] = None
@@ -1353,6 +1407,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             message_id = data.get("messageId", "")
             await self._handle_option_click(value, session_id, message_id)
 
+        elif msg_type == "question_response":
+            value = data.get("value", "")
+            session_id = data.get("sessionId", "")
+            message_id = data.get("messageId", "")
+            dismissed = bool(data.get("dismissed", False))
+            await self._handle_question_response(
+                value, session_id, message_id, dismissed
+            )
+
         # Settings operations
         elif msg_type == "settings_get":
             await self._handle_settings_get()
@@ -1658,6 +1721,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 project_id, setting, value
             )
 
+        elif msg_type == "living_ui_backups_list":
+            await self._handle_living_ui_backups_list(data.get("projectId", ""))
+
+        elif msg_type == "living_ui_backup_now":
+            await self._handle_living_ui_backup_now(data.get("projectId", ""))
+
+        elif msg_type == "living_ui_backup_restore":
+            await self._handle_living_ui_backup_restore(
+                data.get("projectId", ""),
+                data.get("filename", ""),
+                data.get("sourceProjectId") or None,
+            )
+
+        elif msg_type == "living_ui_backup_delete":
+            await self._handle_living_ui_backup_delete(
+                data.get("projectId", ""),
+                data.get("filename", ""),
+                orphan=bool(data.get("orphan", False)),
+            )
+
         elif msg_type == "living_ui_marketplace_list":
             await self._handle_marketplace_list()
 
@@ -1762,7 +1845,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "living_ui_delete":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_delete(project_id)
+            await self._handle_living_ui_delete(
+                project_id, delete_backups=bool(data.get("deleteBackups", False))
+            )
 
         elif msg_type == "living_ui_state_update":
             await self._handle_living_ui_state_update(data)
@@ -3040,13 +3125,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_delete(self, project_id: str) -> None:
+    async def _handle_living_ui_delete(
+        self, project_id: str, delete_backups: bool = False
+    ) -> None:
         """Delete a Living UI project (and its dedicated session)."""
         try:
             project = self._living_ui_manager.get_project(project_id)
             session_id = project.session_id if project else None
 
-            success = await self._living_ui_manager.delete_project(project_id)
+            success = await self._living_ui_manager.delete_project(
+                project_id, delete_backups=delete_backups
+            )
             try:
                 from app.living_ui import construction_events
 
@@ -3821,6 +3910,65 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 f"[OPTION_CLICK] Error handling option click: {e}", exc_info=True
             )
 
+    async def _handle_question_response(
+        self, value: str, session_id: str, message_id: str, dismissed: bool
+    ) -> None:
+        """Handle the user answering (or dismissing) a pinned agent question.
+
+        Marks the question message answered (which un-pins it everywhere),
+        then feeds the answer back into the agent as a regular user message
+        so the normal trigger queue/merge behavior applies.
+        """
+        try:
+            question_text = ""
+            recorded = QUESTION_DISMISSED_VALUE if dismissed else value
+            pending_questions: list = []
+            if self._chat and message_id:
+                for m in self._chat._messages:
+                    if m.message_id == message_id:
+                        question_text = m.content
+                        m.option_selected = recorded
+                        break
+                if self._chat._storage:
+                    try:
+                        self._chat._storage.update_option_selected(
+                            message_id, recorded
+                        )
+                        # After marking this one, whatever question messages
+                        # remain unanswered are still pinned in the user's UI.
+                        pending_questions = self._chat._storage.get_pending_questions(
+                            session_id
+                        )
+                    except Exception:
+                        pass
+
+            # Un-pin on every connected client (the answering client already
+            # marked the selection optimistically).
+            await self._broadcast(
+                {
+                    "type": "question_answered",
+                    "data": {
+                        "sessionId": session_id,
+                        "messageId": message_id,
+                        "value": recorded,
+                    },
+                }
+            )
+
+            await self._controller.submit_question_answer(
+                value,
+                question_text,
+                session_id,
+                dismissed,
+                adapter_id=self._adapter_id,
+                pending_questions=pending_questions,
+            )
+        except Exception as e:
+            logger.error(
+                f"[QUESTION_RESPONSE] Error handling question response: {e}",
+                exc_info=True,
+            )
+
     # ─────────────────────────────────────────────────────────────────────
     # Session Handlers (sidebar surface)
     # ─────────────────────────────────────────────────────────────────────
@@ -3846,13 +3994,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.warning(f"[SESSION] Refusing to delete session {session_id!r}")
             return
         try:
-            await self._controller.agent.delete_session(session_id)
+            # Durable rows (session, event stream, chat, activity) are purged
+            # by the session-delete hook; here we drop the in-memory feeds
+            # and notify clients.
+            if not await self._controller.agent.delete_session(session_id):
+                logger.warning(f"[SESSION] Delete refused for {session_id}")
+                return
             self._chat.drop_session_messages(session_id)
-            if self._chat._storage:
-                try:
-                    self._chat._storage.clear_messages(session_id)
-                except Exception:
-                    pass
+            self._action_panel.drop_session_items(session_id)
             await self._broadcast(
                 {
                     "type": "session_deleted",
@@ -3875,14 +4024,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.error(f"[SESSION] Rename failed for {session_id}: {e}")
 
     async def _handle_session_clear(self, data: Dict[str, Any]) -> None:
-        """Clear a session's conversation (chat rows + agent-side state)."""
+        """Clear a session's conversation (chat + activity rows and
+        agent-side state)."""
         session_id = (data.get("sessionId") or "").strip() or "main"
         try:
-            if self._chat._storage:
-                try:
-                    self._chat._storage.clear_messages(session_id)
-                except Exception:
-                    pass
+            from app.usage import get_action_storage, get_chat_storage
+
+            try:
+                get_chat_storage().clear_messages(session_id)
+            except Exception:
+                pass
+            try:
+                get_action_storage().clear_items(session_id)
+            except Exception:
+                pass
             await self._controller.agent.clear_session(session_id)
             await self.broadcast_session_cleared(session_id)
         except Exception as e:
@@ -3923,9 +4078,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Drop a session's rendered conversation on every client.
 
         Called by the /clear command (which has already cleared storage and
-        agent-side state) and by the session_clear handler.
+        agent-side state) and by the session_clear handler. The activity
+        feed is part of the conversation, so its items go with it.
         """
         self._chat.drop_session_messages(session_id)
+        self._action_panel.drop_session_items(session_id)
         await self._broadcast(
             {
                 "type": "session_cleared",
@@ -4117,6 +4274,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if isinstance(raw, list):
                 components = [str(c) for c in raw]
 
+        # Snapshot session ids before the reset: sessions deleted inside
+        # reset_agent_state bypass _handle_session_delete, so no
+        # session_deleted broadcasts happen — we diff and emit them below.
+        sessions_before = {
+            s.id
+            for s in self._controller.agent.session_manager.list_sessions(
+                include_archived=True
+            )
+        }
+
         result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
@@ -4132,6 +4299,59 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 await self._chat.clear()
                 await self._action_panel.clear()
                 await self._handle_session_list()
+            # Only clear the UI panels whose data was actually reset.
+            if components is None:
+                # Full reset: everything is gone.
+                await self._chat.clear()
+                await self._action_panel.clear()
+            else:
+                if "conversation" in components:
+                    # Conversation reset is scoped to the main session —
+                    # other sessions' history is untouched.
+                    from agent_core.core.session import MAIN_SESSION_ID
+
+                    await self._chat.clear(MAIN_SESSION_ID)
+                    self._action_panel.drop_session_items(MAIN_SESSION_ID)
+                if "sessions" in components:
+                    # Chat sessions were deleted (rows purged via the
+                    # session-delete hook) — drop the in-memory feeds of
+                    # sessions that no longer exist.
+                    live = {
+                        s.id
+                        for s in self._controller.agent.session_manager.list_sessions(
+                            include_archived=True
+                        )
+                    }
+                    dead = {
+                        i.session_id
+                        for i in self._action_panel.get_items()
+                        if i.session_id not in live
+                    } | {
+                        m.session_id
+                        for m in self._chat.get_messages()
+                        if m.session_id not in live
+                    }
+                    for sid in dead:
+                        self._action_panel.drop_session_items(sid)
+                        self._chat.drop_session_messages(sid)
+
+            # Tell clients which sessions the reset deleted so the sidebar
+            # (and each session's messages/activity/draft state) updates
+            # without a page refresh — the frontend session list is
+            # server-owned and only reacts to session_* events.
+            sessions_after = {
+                s.id
+                for s in self._controller.agent.session_manager.list_sessions(
+                    include_archived=True
+                )
+            }
+            for sid in sessions_before - sessions_after:
+                await self._broadcast(
+                    {
+                        "type": "session_deleted",
+                        "data": {"sessionId": sid},
+                    }
+                )
 
             # If LivingUI apps were deleted, push refreshed (now-empty) lists so
             # the frontend reflects the deletion. Both the main LivingUI page
@@ -6720,6 +6940,107 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             {"type": "living_ui_project_setting_update", "data": result}
         )
 
+    # Backups (spec docs/plans/living-ui-backups-plan.md Phase 4). Thin
+    # handlers: all policy lives in the manager/BackupStore. Restore and
+    # backup-now run as background tasks (stop+relaunch can take a minute)
+    # so the WS loop stays responsive; results broadcast with *_result types.
+
+    async def _handle_living_ui_backups_list(self, project_id: str) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        payload = {"projectId": project_id, "backups": [], "totalSize": 0}
+        try:
+            manager = get_living_ui_manager()
+            entries = manager.backups.store.list_backups(project_id)
+            payload["backups"] = [
+                {
+                    "filename": e.filename,
+                    "ts": int(e.ts * 1000),
+                    "trigger": e.trigger,
+                    "size": e.size,
+                }
+                for e in entries
+            ]
+            payload["totalSize"] = sum(e.size for e in entries)
+        except Exception as e:
+            payload["error"] = str(e)
+        await self._broadcast({"type": "living_ui_backups_list", "data": payload})
+
+    async def _handle_living_ui_backup_now(self, project_id: str) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        async def _run() -> None:
+            try:
+                result = await get_living_ui_manager().backup_now(project_id)
+            except Exception as e:
+                result = {"status": "error", "errors": [str(e)]}
+            await self._broadcast(
+                {
+                    "type": "living_ui_backup_now_result",
+                    "data": {"projectId": project_id, **result},
+                }
+            )
+            await self._handle_living_ui_backups_list(project_id)
+
+        asyncio.create_task(_run())
+
+    async def _handle_living_ui_backup_restore(
+        self, project_id: str, filename: str, source_project_id: str | None = None
+    ) -> None:
+        """source_project_id: restore an archive from ANOTHER project's
+        backup dir (a deleted app's leftovers) into project_id."""
+        from app.living_ui import get_living_ui_manager
+
+        async def _run() -> None:
+            try:
+                result = await get_living_ui_manager().restore_backup(
+                    project_id, filename, source_project_id=source_project_id
+                )
+            except Exception as e:
+                result = {"status": "error", "errors": [str(e)]}
+            await self._broadcast(
+                {
+                    "type": "living_ui_backup_restore_result",
+                    "data": {"projectId": project_id, "filename": filename, **result},
+                }
+            )
+            await self._handle_living_ui_backups_list(project_id)
+
+        asyncio.create_task(_run())
+
+    async def _handle_living_ui_backup_delete(
+        self, project_id: str, filename: str, orphan: bool = False
+    ) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        data = {"projectId": project_id, "filename": filename, "success": True}
+        orphan_reaped = False
+        try:
+            manager = get_living_ui_manager()
+            if orphan:
+                # Whole-dir cleanup of a deleted project's leftovers (D5) —
+                # refuse if the id is (again) a registered project.
+                if project_id in manager.projects:
+                    raise ValueError("not an orphan — project exists")
+                manager.backups.store.delete_project_backups(project_id)
+            else:
+                manager.backups.store.delete(project_id, filename)
+                # An unregistered (deleted-app) dir whose last archive just
+                # went is pure residue (meta.json only) — reap it so the
+                # orphan row disappears instead of lingering empty.
+                if project_id not in manager.projects and not (
+                    manager.backups.store.list_backups(project_id)
+                ):
+                    manager.backups.store.delete_project_backups(project_id)
+                    orphan_reaped = True
+        except Exception as e:
+            data = {**data, "success": False, "error": str(e)}
+        await self._broadcast({"type": "living_ui_backup_delete", "data": data})
+        if not orphan:
+            await self._handle_living_ui_backups_list(project_id)
+        if orphan or orphan_reaped:
+            await self._handle_living_ui_settings_get()
+
     # =====================
     # Playbook Handlers
     # =====================
@@ -7643,46 +7964,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     if storage
                     else []
                 )
-                messages = []
-                for s in stored:
-                    attachments = None
-                    if s.attachments:
-                        attachments = [
-                            Attachment(
-                                name=att.get("name", ""),
-                                path=att.get("path", ""),
-                                type=att.get("type", ""),
-                                size=att.get("size", 0),
-                                url=att.get("url", ""),
-                            )
-                            for att in s.attachments
-                        ]
-                    options = None
-                    if s.options:
-                        from app.ui_layer.components.types import ChatMessageOption
-
-                        options = [
-                            ChatMessageOption(
-                                label=o.get("label", ""),
-                                value=o.get("value", ""),
-                                style=o.get("style", "default"),
-                            )
-                            for o in s.options
-                        ]
-                    messages.append(
-                        ChatMessage(
-                            sender=s.sender,
-                            content=s.content,
-                            style=s.style,
-                            timestamp=s.timestamp,
-                            message_id=s.message_id,
-                            attachments=attachments,
-                            session_id=s.session_id,
-                            options=options,
-                            option_selected=s.option_selected,
-                            continue_work=s.continue_work,
-                        )
-                    )
+                messages = [
+                    BrowserChatComponent._stored_to_chat_message(s) for s in stored
+                ]
 
             await _reply(
                 {
@@ -8251,108 +8535,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._chat.append_message(error_message)
             return {"success": False, "files_sent": 0, "errors": [str(e)]}
 
-    def _restore_activity_items(self) -> None:
-        """Rebuild the in-memory activity feed from persisted event streams.
-
-        The action panel is a process-lifetime cache; the durable record of
-        actions + reasoning is each session's event stream. Replaying the
-        restored streams through the same EventTransformer used for live
-        events reconstructs the inline activity feed after a backend
-        restart. Runs once, lazily, on the first init request (streams are
-        guaranteed loaded by then).
-        """
-        if self._activity_restored:
-            return
-        self._activity_restored = True
-
-        from app.ui_layer.events.transformer import EventTransformer
-        from app.ui_layer.events import UIEventType
-
-        # Bound the restore so ancient sessions don't bloat the init payload.
-        PER_SESSION_ITEM_CAP = 100
-
-        try:
-            streams = (
-                self._controller.agent.event_stream_manager.get_all_streams_with_ids()
-            )
-        except Exception as e:
-            logger.warning(f"[ACTIVITY] Restore skipped — streams unavailable: {e}")
-            return
-
-        restored: List[ActionItem] = []
-        for session_id, stream in streams:
-            session_items: List[ActionItem] = []
-            by_action_id: Dict[str, ActionItem] = {}
-            for event in stream.as_list():
-                try:
-                    ui = EventTransformer.transform(event, session_id)
-                except Exception:
-                    continue
-                if ui is None:
-                    continue
-                ts = ui.timestamp.timestamp() if ui.timestamp else time.time()
-
-                if ui.type == UIEventType.REASONING:
-                    session_items.append(
-                        ActionItem(
-                            id=ui.data.get("reasoning_id", ""),
-                            name="Reasoning",
-                            status="completed",
-                            item_type="reasoning",
-                            session_id=session_id,
-                            created_at=ts,
-                            completed_at=ts,
-                            output_data=ui.data.get("content"),
-                        )
-                    )
-                elif ui.type == UIEventType.ACTION_START:
-                    item = ActionItem(
-                        id=ui.data.get("action_id", ""),
-                        name=ui.data.get("action_name", "Action"),
-                        status="running",
-                        item_type="action",
-                        session_id=session_id,
-                        created_at=ts,
-                        input_data=ui.data.get("input"),
-                    )
-                    session_items.append(item)
-                    by_action_id[item.id] = item
-                elif ui.type == UIEventType.ACTION_END:
-                    item = by_action_id.get(ui.data.get("action_id", ""))
-                    if item is None:
-                        continue  # start fell out of the stream head
-                    item.status = ui.data.get("status", "completed")
-                    item.completed_at = ts
-                    item.output_data = ui.data.get("output")
-                    item.error_message = ui.data.get("error_message")
-
-            # Anything still "running" died with the previous process.
-            for item in session_items:
-                if item.item_type == "action" and item.status == "running":
-                    item.status = "error"
-                    item.error_message = "Interrupted by restart"
-                    item.completed_at = item.created_at
-
-            restored.extend(session_items[-PER_SESSION_ITEM_CAP:])
-
-        if restored:
-            restored.sort(key=lambda i: i.created_at)
-            self._action_panel._items = restored + self._action_panel._items
-            logger.info(
-                f"[ACTIVITY] Restored {len(restored)} activity item(s) from "
-                f"{len(streams)} session stream(s)"
-            )
-
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
         from app.onboarding import onboarding_manager
         from app.ui_layer.settings.general_settings import (
             get_agent_profile_picture_info,
         )
-
-        # Rebuild the activity feed from persisted streams on first use so
-        # actions + reasoning survive backend restarts.
-        self._restore_activity_items()
 
         state = self._controller.state
         metrics = self._metrics_collector.get_metrics()

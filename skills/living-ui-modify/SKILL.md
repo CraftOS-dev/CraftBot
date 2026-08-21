@@ -65,24 +65,31 @@ this skill covers only what differs.
 ## Finish
 
 ```
-living_ui_notify_ready(project_id="<PROJECT_ID>")   # gate + boot STAGING copy
-living_ui_walk_verify(project_id="<PROJECT_ID>")    # verify staging + DEPLOY
+living_ui_notify_ready(project_id="<PROJECT_ID>")   # gate + boot DEV env
+living_ui_walk_verify(project_id="<PROJECT_ID>")    # verify dev + PROMOTE
 ```
 
-On a delivered app these run in **staging mode**: `notify_ready` gates and
-boots a disposable COPY of the app (code + cloned data) on a hidden port —
-the user's live app keeps running the previous version, untouched. Test
-freely against the staging URL it returns: every record you create there is
-thrown away. `walk_verify` drives the staging copy in a real (headless)
-browser; a clean verdict is what DEPLOYS your change to the live app (new
-migrations apply to the real data at boot) and announces it.
+These run in the **dev environment**: `notify_ready` gates and boots a
+disposable copy of your new CODE on a hidden port with a **FRESH, EMPTY
+database** — migrations replay at boot, so only data your migrations seed
+exists. The user's live app keeps running the previous version, untouched,
+and its data is NEVER cloned into dev. Test freely against the dev URL it
+returns (create whatever test records you need — they are thrown away).
+`walk_verify` drives the dev instance in a real (headless) browser; a clean
+verdict is what PROMOTES your change to the live app (new migrations apply
+to the real data at its boot) and announces it.
 
-- **Never run `lui validate` or `lui dev` against the real project dir of a
-  delivered app** — the build overwrites the served frontend in place and
-  blanks the user's live UI. `notify_ready` gates the staging copy for you.
+- **The dev DB starts empty every time.** If a feature needs data to be
+  visible, either seed it in a migration (survives promote) or create test
+  records through the app/API after `notify_ready` (dev-only, disposable).
+- **Never run `lui validate` or `lui dev` against the real project dir** —
+  the build overwrites the served frontend in place and blanks the user's
+  live UI. `notify_ready` gates the dev copy for you.
 - **Never write test data to the live app** (its DB is the user's real
-  data; writes outside staging are refused). Do all testing after
-  `notify_ready`, against the staging URL.
+  data; agent test writes outside the dev env are refused). Do all testing
+  after `notify_ready`, against the dev URL. `GET /api/_a2app` answers
+  `env: "dev"` or `env: "live"` if you need to confirm which instance a
+  port is.
 
 HONESTY RULE: the change is live only when `living_ui_walk_verify` returns
 `status: success` — never tell the user a change is live when the relaunch,

@@ -916,6 +916,10 @@ class AgentBase:
         """
         if state == "idle":
             self.busy_sessions.discard(session_id)
+            # A run just settled: persist the session's event stream so the
+            # actions/reasoning it produced survive a crash or hard kill
+            # (graceful shutdown is not the only exit path).
+            self._persist_session_stream(session_id)
         else:
             self.busy_sessions.add(session_id)
         if self.ui_controller:
@@ -936,6 +940,26 @@ class AgentBase:
                 )
             except Exception:
                 pass
+
+    def _persist_session_stream(self, session_id: str) -> None:
+        """Persist one session's event stream to SessionStorage.
+
+        Only persists sessions that own a stream — never falls back to the
+        main stream, which would write main's events under another
+        session's id.
+        """
+        try:
+            if not self.event_stream_manager.has_stream(session_id):
+                return
+            from app.usage.session_storage import get_session_storage
+
+            get_session_storage().persist_event_stream(
+                session_id, self.event_stream_manager.get_stream_by_id(session_id)
+            )
+        except Exception as e:
+            logger.warning(
+                f"[PERSIST] Event stream persist failed for {session_id}: {e}"
+            )
 
     def _invalidate_session_caches(self, session_id: str) -> None:
         """Rebuild a session's LLM caches after a capability change."""
@@ -3148,9 +3172,15 @@ class AgentBase:
             for session_id, session in self.session_manager.sessions.items():
                 try:
                     storage.persist_session(session)
-                    stream = self.event_stream_manager.get_stream_by_id(session_id)
-                    if stream:
-                        storage.persist_event_stream(session_id, stream)
+                    # Persist only sessions that own a stream —
+                    # get_stream_by_id falls back to the MAIN stream for
+                    # unknown ids, which would write main's events under
+                    # this session's id.
+                    if self.event_stream_manager.has_stream(session_id):
+                        storage.persist_event_stream(
+                            session_id,
+                            self.event_stream_manager.get_stream_by_id(session_id),
+                        )
                     count += 1
                 except Exception as e:
                     logger.warning(
