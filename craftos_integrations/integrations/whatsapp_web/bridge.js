@@ -14,6 +14,25 @@
  *     { "type": "response", "id": "req_1", "data": { ... } }
  *
  *   Logs go to stderr so they don't interfere with the JSON protocol.
+ *
+ * Lifecycle (session-durability redesign §2.4): all client state lives in
+ * a ClientGeneration — one wweb.js client, its handlers, and its timers.
+ * Events from a superseded/disposed generation are dropped at a single
+ * gate, so an old generation can never destroy the live client or emit
+ * stale events. The watchdog is phase-aware:
+ *
+ *   LAUNCH  (initialize → qr|authenticated): 90s — a genuine hang detector.
+ *            On expiry: dispose + retry (bounded), then fatal exit.
+ *   QR_WAIT (after qr): watchdog SUSPENDED. A human scanning a QR is not a
+ *            hang; wweb.js refreshes the code itself, and the Python
+ *            LinkFlow owns total-QR-time policy (recycle/timeout).
+ *   INJECT  (authenticated → ready): 60s. On expiry: fatal error + clean
+ *            exit — NO synthetic ready (a lying ready masks a dead receive
+ *            path; the Python supervisor restarts us with backoff).
+ *
+ * The process never lingers in a broken state: unhandledRejection and
+ * uncaughtException emit a fatal error event and exit(1) deliberately so
+ * the Python supervisor sees the exit and applies backoff.
  */
 
 const { Client, LocalAuth, MessageMedia, Location, Buttons, List, Poll } = require("whatsapp-web.js");
@@ -44,11 +63,19 @@ function emitResponse(id, data = {}) {
   emit({ type: "response", id, data });
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
 const AUTH_DIR = process.argv[2] || path.join(process.cwd(), ".credentials", "whatsapp_wwebjs_auth");
+
+const LAUNCH_TIMEOUT_MS = parseInt(process.env.WA_BRIDGE_LAUNCH_TIMEOUT_MS || "", 10) || 90_000;
+const INJECT_TIMEOUT_MS = parseInt(process.env.WA_BRIDGE_INJECT_TIMEOUT_MS || "", 10) || 60_000;
+const MAX_LAUNCH_RETRIES = 2; // total attempts = MAX_LAUNCH_RETRIES + 1
 
 log(`Auth directory: ${AUTH_DIR}`);
 
@@ -60,9 +87,7 @@ log(`Auth directory: ${AUTH_DIR}`);
 // snapshot from wppconnect-team/wa-version, which (a) prunes old entries
 // after a few months → 404 → ``Runtime.callFunctionOn timed out`` during
 // init, and (b) drifts away from whatever wwebjs's internal selectors
-// actually expect → ``authenticated`` fires but ``ready`` never does, so
-// the synthetic-ready fallback kicks in but messages don't actually flow
-// because wwebjs's internal listeners haven't attached.
+// actually expect → ``authenticated`` fires but ``ready`` never does.
 //
 // Without webVersionCache, wwebjs loads web.whatsapp.com directly, using
 // the same JS that the user's actual browser uses. That tracks WhatsApp's
@@ -70,12 +95,6 @@ log(`Auth directory: ${AUTH_DIR}`);
 // WhatsApp update breaks wwebjs's selectors, the fix is to bump the
 // ``whatsapp-web.js`` package version, not to re-introduce a pinned HTML
 // that will go stale a few months later.
-
-// ``client`` is module-level + ``let`` (not ``const``) so the watchdog/retry
-// path can replace it with a fresh instance after a stuck-init recovery.
-// Command handlers below reference ``client`` lazily — they always pick up
-// the current binding.
-let client;
 
 function buildClient() {
   return new Client({
@@ -95,9 +114,31 @@ function buildClient() {
   });
 }
 
+// ``client`` always points at the CURRENT generation's wweb.js client so
+// the command handlers below (which reference it lazily) act on the live
+// instance.
+let client = null;
+
 // Track message IDs sent by us so we can skip them in message_create
 const ownSentIds = new Set();
 let isReady = false;
+let catchupDone = false;
+let readyTimestamp = 0; // Unix timestamp (seconds) when client became ready
+let ownerPhone = "";
+let ownerName = "";
+let selfChatId = "";
+let ownerLid = ""; // owner's @lid identity (WhatsApp's anonymized addressing)
+let lastLidAttempt = 0;
+
+function resetSessionState() {
+  isReady = false;
+  catchupDone = false;
+  readyTimestamp = 0;
+  selfChatId = "";
+  ownerLid = "";
+  lastLidAttempt = 0;
+  checkedLids.clear();
+}
 
 // msg.id._serialized can come back undefined when WhatsApp ships a build
 // ahead of whatsapp-web.js (observed live 2026-08-17: a self-chat photo
@@ -295,13 +336,6 @@ function contactFallback(contact, jid) {
     is_group: String(jid || "").endsWith("@g.us"),
   };
 }
-let catchupDone = false;
-let readyTimestamp = 0; // Unix timestamp (seconds) when client became ready
-let ownerPhone = "";
-let ownerName = "";
-let selfChatId = "";
-let ownerLid = ""; // owner's @lid identity (WhatsApp's anonymized addressing)
-let lastLidAttempt = 0;
 
 function jidUser(jid) {
   // "447…:12@c.us" → "447…" (":12" is a per-device suffix, same account)
@@ -406,75 +440,8 @@ async function lidMatchesOwner(lidJid) {
 }
 
 // ---------------------------------------------------------------------------
-// Client Events
+// Lean in-page reads — survive wwebjs/WhatsApp build drift
 // ---------------------------------------------------------------------------
-
-// Attach all wwebjs event handlers to ``c``. Called once per buildClient() —
-// the watchdog/retry path re-runs this against the freshly built client so
-// every retry has the same wiring.
-function attachHandlers(c) {
-
-c.on("qr", async (qr) => {
-  log("QR code received");
-  try {
-    const dataUrl = await qrcode.toDataURL(qr);
-    emitEvent("qr", { qr_string: qr, qr_data_url: dataUrl });
-  } catch (err) {
-    emitEvent("qr", { qr_string: qr, qr_data_url: null });
-  }
-});
-
-c.on("authenticated", () => {
-  log("Authenticated");
-  authedThisAttempt = true;
-  if (initWatchdog) { clearTimeout(initWatchdog); initWatchdog = null; }
-  emitEvent("authenticated");
-
-  // Ready-watchdog: when wwebjs's selectors drift from what WhatsApp's
-  // current bundle exposes, ``authenticated`` fires but ``ready`` never
-  // does — and crucially wwebjs's internal message listeners don't attach,
-  // so messages don't flow. We wait 60s for the real ``ready``; if it
-  // doesn't arrive, we treat it as a stuck-init failure and reuse the
-  // existing watchdog/retry path (destroy → rebuild → reinitialize).
-  // Only after the retry budget is exhausted do we fall through to a
-  // synthetic ``ready`` so sends still work — receive will be broken in
-  // that fallback state, but the bridge is at least usable for outbound.
-  setTimeout(async () => {
-    if (isReady) return;
-    if (initAttempt <= MAX_INIT_RETRIES) {
-      log(`'ready' not received within 60s of authenticated — treating as stuck init, retrying (attempt ${initAttempt}/${MAX_INIT_RETRIES + 1})`);
-      initAttempt += 1;
-      try { await client.destroy(); } catch (err) { log(`destroy during ready-retry: ${err.message}`); }
-      client = buildClient();
-      attachHandlers(client);
-      authedThisAttempt = false;
-      startClientWithWatchdog();
-      return;
-    }
-    // Retry budget exhausted — fall through to synthetic so sends still work.
-    log("'ready' not received and retries exhausted — synthesizing (sends only, receive will not work)");
-    try {
-      if (client.info && client.info.wid) {
-        ownerPhone = client.info.wid.user || ownerPhone;
-        ownerName = client.info.pushname || ownerName;
-      }
-    } catch (_) { /* best-effort */ }
-    isReady = true;
-    readyTimestamp = Math.floor(Date.now() / 1000);
-    emitEvent("ready", {
-      owner_phone: ownerPhone,
-      owner_name: ownerName,
-      wid: client.info?.wid?._serialized || "",
-      synthetic: true,
-    });
-    emitEvent("error", { message: "ready event never fired — message receive will not work. Try restarting the agent or updating whatsapp-web.js.", fatal: false });
-  }, 60_000);
-});
-
-c.on("auth_failure", (msg) => {
-  log(`Auth failure: ${msg}`);
-  emitEvent("auth_failure", { message: String(msg) });
-});
 
 // Lean unread-chat scan that bypasses wwebjs's getChats(). getChats()
 // serializes every chat model and is the first thing to break when
@@ -506,270 +473,520 @@ async function leanUnreadChats() {
   });
 }
 
-c.on("ready", async () => {
-  isReady = true;
-  readyTimestamp = Math.floor(Date.now() / 1000);
-  log("Client ready");
-
-  // Extract owner phone
-  try {
-    if (client.info && client.info.wid) {
-      ownerPhone = client.info.wid.user || "";
-      ownerName = client.info.pushname || "";
-      log(`Connected as +${ownerPhone} (${ownerName})`);
-      // Discover self-chat ID (may be @lid or @c.us)
+// Full-chat twin of leanUnreadChats for the get_chats/search paths: reads
+// the fields the command consumers need straight off the page's chat
+// collection, no wwebjs serialization involved.
+async function leanChats(limit) {
+  return await client.pupPage.evaluate((lim) => {
+    const out = [];
+    const models = window
+      .require("WAWebChatCollection")
+      .ChatCollection.getModelsArray();
+    for (const chat of models) {
       try {
-        const ownJid = client.info.wid._serialized;
-        const selfChat = await client.getChatById(ownJid);
-        selfChatId = selfChat?.id?._serialized || ownJid;
-        log(`Self-chat ID: ${selfChatId}`);
-      } catch (e) {
-        selfChatId = client.info.wid._serialized;
-        log(`Self-chat fallback to wid: ${selfChatId}`);
-      }
-      // The wid alone can't match a @lid-addressed self chat, so grab the
-      // lid identity too — especially important when getChatById() above
-      // just failed and selfChatId is only the wid fallback.
-      await resolveOwnerLid();
+        const id = chat.id && chat.id._serialized;
+        if (!id) continue;
+        let lastBody = "";
+        let lastTs = 0;
+        try {
+          const msgs = chat.msgs && chat.msgs.getModelsArray ? chat.msgs.getModelsArray() : [];
+          const last = msgs.length ? msgs[msgs.length - 1] : null;
+          lastBody = (last && last.body) || "";
+          lastTs = (last && last.t) || 0;
+        } catch (e) { /* last message is best-effort */ }
+        out.push({
+          id,
+          name: chat.formattedTitle || chat.name || id,
+          is_group: !!(chat.isGroup || (chat.id && chat.id.server === "g.us")),
+          is_muted: !!(chat.mute && (chat.mute.isMuted || chat.mute.expiration > 0)),
+          unread_count: chat.unreadCount || 0,
+          last_message: lastBody,
+          timestamp: lastTs,
+        });
+      } catch (e) { /* skip malformed chat model */ }
     }
-  } catch (err) {
-    log(`Could not extract owner info: ${err.message}`);
-  }
+    // Most-recent first, like wwebjs getChats().
+    out.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    return lim ? out.slice(0, lim) : out;
+  }, limit || 0);
+}
 
-  emitEvent("ready", {
-    owner_phone: ownerPhone,
-    owner_name: ownerName,
-    wid: client.info?.wid?._serialized || "",
-  });
-
-  // Catch-up: send current unread chats. Prefer wwebjs getChats() (richer),
-  // falling back immediately to the lean in-page scan when getChats() is
-  // broken by a WhatsApp build ahead of whatsapp-web.js (observed live
-  // 2026-08-12: getChats() consistently failed with minified "r" while the
-  // lean scan worked — retrying only delayed catchup, so we don't).
-  let unread = null;
+// getChats() with the lean fallback applied — the shape both consumers
+// (get_chats command, search_contact chat scan) need.
+async function chatsWithFallback(limit) {
   try {
     const chats = await client.getChats();
-    unread = chats
-      .filter((chat) => chat.unreadCount > 0)
-      .map((chat) => ({
-        id: chat.id._serialized,
-        name: chat.name || chat.id._serialized,
-        unread_count: chat.unreadCount,
-        is_group: chat.isGroup,
-        is_muted: chat.isMuted,
-      }));
+    return chats.slice(0, limit || chats.length).map((c) => ({
+      id: c.id._serialized,
+      name: c.name || c.id._serialized,
+      is_group: c.isGroup,
+      is_muted: c.isMuted,
+      unread_count: c.unreadCount,
+      last_message: c.lastMessage?.body || "",
+      timestamp: c.lastMessage?.timestamp || 0,
+    }));
   } catch (err) {
-    log(`Catchup getChats failed, using lean fallback: ${errStr(err)}`);
+    log(`getChats failed, using lean fallback: ${errStr(err)}`);
+    return await leanChats(limit);
   }
-  if (unread === null) {
+}
+
+// In-page contact filter via window.require (window.Store.Contact is
+// silently empty on wwebjs ≥1.31 — same drift class as the chat getters).
+async function leanContactSearch(query) {
+  return await client.pupPage.evaluate((q) => {
+    const needle = (q || "").toLowerCase();
+    return window
+      .require("WAWebContactCollection")
+      .ContactCollection.getModelsArray()
+      .filter((c) => {
+        try {
+          const name = (c.pushname || c.name || c.formattedName || "").toLowerCase();
+          const number = (c.id && c.id.user) || "";
+          return name.includes(needle) || number.includes(needle);
+        } catch (e) {
+          return false;
+        }
+      })
+      .slice(0, 20)
+      .map((c) => {
+        const serialized = c.id._serialized;
+        const isLid = serialized.endsWith("@lid");
+        return {
+          id: serialized,
+          name: c.pushname || c.name || c.formattedName || "",
+          number: isLid ? serialized : ((c.id && c.id.user) || ""),
+          is_group: !!c.isGroup,
+        };
+      });
+  }, query || "");
+}
+
+// ---------------------------------------------------------------------------
+// ClientGeneration — one client, its handlers, its timers, one dispose
+// ---------------------------------------------------------------------------
+
+let currentGen = null;
+let attempt = 0; // incremented ONLY in launchGeneration()
+
+class ClientGeneration {
+  constructor(id) {
+    this.id = id;
+    this.disposed = false;
+    this.phase = "LAUNCH"; // LAUNCH | QR_WAIT | INJECT | READY
+    this.timers = new Set();
+    this.launchWatchdog = null;
+    this.injectWatchdog = null;
+    this.client = buildClient();
+    attachHandlers(this);
+  }
+
+  /** The single event gate: only the live, current generation may act. */
+  get isCurrent() {
+    return currentGen === this && !this.disposed;
+  }
+
+  setTimer(fn, ms) {
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      fn();
+    }, ms);
+    this.timers.add(t);
+    return t;
+  }
+
+  clearTimer(t) {
+    if (t) {
+      clearTimeout(t);
+      this.timers.delete(t);
+    }
+  }
+
+  clearAllTimers() {
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+    this.launchWatchdog = null;
+    this.injectWatchdog = null;
+  }
+
+  armLaunchWatchdog() {
+    this.launchWatchdog = this.setTimer(() => {
+      this.launchWatchdog = null;
+      if (!this.isCurrent || this.phase !== "LAUNCH") return;
+      log(`Stuck in LAUNCH for ${LAUNCH_TIMEOUT_MS / 1000}s — recovering (attempt ${attempt})`);
+      recoverFrom(this, "stuck before qr/authenticated").catch(fatalCrash);
+    }, LAUNCH_TIMEOUT_MS);
+  }
+
+  armInjectWatchdog() {
+    this.injectWatchdog = this.setTimer(() => {
+      this.injectWatchdog = null;
+      if (!this.isCurrent || this.phase !== "INJECT") return;
+      // NO synthetic ready and NO in-process retry: a ready that never
+      // fires means wwebjs's injected listeners never attached — exit
+      // cleanly and let the Python supervisor restart us with backoff.
+      log(`'ready' not received within ${INJECT_TIMEOUT_MS / 1000}s of authenticated — exiting for supervised restart`);
+      emitEvent("error", {
+        message: "WhatsApp client authenticated but never became ready (message receive would not work)",
+        fatal: true,
+      });
+      this.dispose()
+        .catch(() => {})
+        .then(() => process.exit(1));
+    }, INJECT_TIMEOUT_MS);
+  }
+
+  browserPid() {
     try {
-      unread = await leanUnreadChats();
-      log("Catchup used lean in-page fallback");
+      const proc = this.client.pupBrowser && this.client.pupBrowser.process();
+      return (proc && proc.pid) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Full teardown of THIS generation: timers → handlers → destroy →
+   * verify the Chromium tree is actually gone (PID-exact kill on
+   * timeout — never name/cmdline matching, which on Windows killed
+   * nothing and on multi-account setups risks the wrong browser).
+   */
+  async dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.clearAllTimers();
+    const pid = this.browserPid();
+    try {
+      this.client.removeAllListeners();
+    } catch (e) { /* already dead */ }
+    try {
+      await this.client.destroy();
     } catch (err) {
-      log(`Catchup lean fallback failed: ${errStr(err)}`);
+      log(`destroy during dispose: ${errStr(err)}`);
     }
+    await ensureBrowserGone(pid);
   }
-  if (unread !== null) {
-    emitEvent("catchup", { unread_chats: unread });
-    log(`Catchup complete: ${unread.length} unread chat(s)`);
+}
+
+/** Wait for a pid to vanish; returns true when gone. */
+async function pidGone(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0); // signal 0 = existence probe
+    } catch (e) {
+      return true;
+    }
+    await sleep(200);
   }
-  catchupDone = true; // proceed even if every path failed
-});
+  return false;
+}
 
-c.on("disconnected", (reason) => {
-  isReady = false;
-  catchupDone = false;
-  readyTimestamp = 0;
-  ownerLid = "";
-  lastLidAttempt = 0;
-  checkedLids.clear();
-  log(`Disconnected: ${reason}`);
-  emitEvent("disconnected", { reason: String(reason) });
-});
-
-// ---------------------------------------------------------------------------
-// Message Events
-// ---------------------------------------------------------------------------
-
-c.on("message", async (msg) => {
-  // Skip messages from before the bridge was ready (historical sync)
-  if (msg.timestamp && msg.timestamp < readyTimestamp) return;
-
+/** After destroy(): verify Chromium exited; force-kill by exact PID if not. */
+async function ensureBrowserGone(pid) {
+  if (!pid) return;
+  if (await pidGone(pid, 5000)) return;
+  log(`Chromium pid ${pid} still alive after destroy — force killing`);
   try {
-    const chat = await safeChat(msg);
-    const contact = await safeContact(msg);
-
-    emitEvent("message", {
-      id: msgIdOf(msg),
-      from: msg.from,
-      to: msg.to,
-      body: msg.body || "",
-      timestamp: msg.timestamp,
-      from_me: msg.fromMe,
-      type: msg.type,
-      has_media: msg.hasMedia,
-      is_forwarded: msg.isForwarded || false,
-      mentioned_ids: msg.mentionedIds || [],
-      chat: chatFallback(chat, msg.from),
-      contact: contactFallback(contact, msg.author || msg.from),
-    });
-  } catch (err) {
-    log(`Error handling message: ${errStr(err)}`);
-  }
-});
-
-c.on("message_create", async (msg) => {
-  // Skip messages from before the bridge was ready (historical sync)
-  if (msg.timestamp && msg.timestamp < readyTimestamp) return;
-  if (!msg.fromMe) return;
-
-  // Skip messages sent by us via the bridge
-  const msgId = msgIdOf(msg);
-  if (msgId && ownSentIds.has(msgId)) {
-    ownSentIds.delete(msgId);
-    return;
-  }
-
-  try {
-    const chat = await safeChat(msg);
-    const chatInfo = chatFallback(chat, msg.to);
-    const ownJid = client.info?.wid?._serialized || "";
-    // A @lid-addressed self chat matches nothing we know until the owner's
-    // lid is resolved — do it now (throttled no-op once resolved) rather
-    // than lose the message.
-    if (!ownerLid && String(msg.to || "").endsWith("@lid")) {
-      await resolveOwnerLid();
+    if (process.platform === "win32") {
+      const { execSync } = require("child_process");
+      execSync(`taskkill /F /T /PID ${pid}`, { stdio: "ignore" });
+    } else {
+      process.kill(pid, "SIGKILL");
     }
-    // Self-chat test, layered by addressing scheme. NOTE: `to === from`
-    // does NOT hold in the self chat under @lid — `from` stays the wid
-    // (447…@c.us) while `to` is the lid (xxx@lid), which is exactly how
-    // the 2026-08-05 drop happened. sameUser() compares user parts so a
-    // scheme-consistent pair still matches without exact-JID equality.
-    let isSelfChat = (msg.from && msg.to === msg.from) ||
-      (ownJid && (msg.to === ownJid || sameUser(msg.to, ownJid))) ||
-      (ownerLid && (msg.to === ownerLid || sameUser(msg.to, ownerLid))) ||
-      (selfChatId && (msg.to === selfChatId || chatInfo.id === selfChatId));
-
-    // Last resort for an unrecognized @lid destination: ask WhatsApp's
-    // contact store whether this lid belongs to the owner's own number
-    // (once per lid per session). This is what actually catches the self
-    // chat when both discovery paths above came up empty at ready.
-    if (!isSelfChat && String(msg.to || "").endsWith("@lid")) {
-      isSelfChat = await lidMatchesOwner(msg.to);
-    }
-
-    emitEvent("message_sent", {
-      id: msgIdOf(msg),
-      from: msg.from,
-      to: msg.to,
-      body: msg.body || "",
-      timestamp: msg.timestamp,
-      type: msg.type,
-      is_self_chat: isSelfChat,
-      chat: {
-        id: chatInfo.id,
-        name: chatInfo.name,
-        is_group: chatInfo.is_group,
-      },
-    });
-  } catch (err) {
-    log(`Error handling message_create: ${errStr(err)}`);
+  } catch (e) { /* raced its own exit */ }
+  if (!(await pidGone(pid, 5000))) {
+    log(`Chromium pid ${pid} survived force kill — profile may stay locked`);
   }
-});
+}
 
-}  // end attachHandlers(c)
-
-// ---------------------------------------------------------------------------
-// Init watchdog + retry — auto-recovers from "stuck before authenticated"
-//
-// Failure mode this protects against: wwebjs's ``client.initialize()`` hangs
-// for 2+ minutes during the WhatsApp Web page load (most often when the
-// pinned ``webVersionCache`` URL 404s, when leftover Chromium zombies hold
-// the auth dir lock, or when WhatsApp pushes a protocol change). The
-// "Initialize error: Runtime.callFunctionOn timed out" we see in logs is
-// puppeteer's protocolTimeout firing on a wwebjs JS call that never returns.
-//
-// Strategy: set a 60s watchdog when initialize() is called. If we don't
-// reach the ``authenticated`` event within that window, kill Chromium with
-// ``client.destroy()``, build a fresh client, re-attach handlers, and
-// re-run initialize. After ``MAX_INIT_RETRIES`` failures we emit a fatal
-// error and exit non-zero so the Python parent can decide what to do (in
-// practice it logs and continues without WhatsApp).
-// ---------------------------------------------------------------------------
-
-const MAX_INIT_RETRIES = 2;
-const INIT_WATCHDOG_MS = 60_000;
-let initAttempt = 0;
-let authedThisAttempt = false;
-let initWatchdog = null;
-
-// Chromium teardown after client.destroy() takes SECONDS; relaunching
-// immediately collides with the dying browser ("The browser is already
-// running for …/session") and an instantly-failing attempt recurses into
-// the next one milliseconds later — observed live 2026-08-05: attempt 2 and
-// 3 fired 183ms apart and all three burned, leaving an orphan Chromium
-// holding the profile lock. Between attempts: kill anything still holding
-// our session profile, remove Chromium's Singleton* lock files (same
-// cleanup the Python parent does at bridge start), and back off.
-async function settleChromium(attempt) {
-  const { execSync } = require("child_process");
+// Chromium teardown takes seconds; relaunching immediately collides with
+// the dying browser ("The browser is already running for …/session").
+// Between attempts: remove Chromium's Singleton* lock files and back off.
+// (Orphan processes are handled by ensureBrowserGone's PID-exact kill in
+// dispose — no name/cmdline matching anywhere.)
+async function settleBetweenAttempts(attemptNo) {
   const fs = require("fs");
   const sessionDir = path.join(AUTH_DIR, "session");
-  await new Promise((r) => setTimeout(r, 3000 * Math.max(1, attempt)));
-  if (process.platform !== "win32") {
-    try {
-      execSync(`pkill -f -- "--user-data-dir=${sessionDir}"`, { stdio: "ignore" });
-      // pkill'd processes need a beat to actually release the profile.
-      await new Promise((r) => setTimeout(r, 1500));
-    } catch (_) { /* no matches / not fatal */ }
-  }
+  await sleep(3000 * Math.max(1, attemptNo));
   for (const name of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
     try { fs.rmSync(path.join(sessionDir, name), { force: true }); } catch (_) {}
   }
 }
 
-async function startClientWithWatchdog() {
-  initAttempt += 1;
-  authedThisAttempt = false;
-
-  // Cancel any prior watchdog before arming a new one (defensive — should
-  // already be cleared by the time we get here).
-  if (initWatchdog) clearTimeout(initWatchdog);
-
-  initWatchdog = setTimeout(async () => {
-    if (authedThisAttempt) return;  // raced with the auth event
-    log(`Stuck before 'authenticated' for ${INIT_WATCHDOG_MS / 1000}s — recovering (attempt ${initAttempt})`);
-    if (initAttempt > MAX_INIT_RETRIES) {
-      log(`Max init retries reached — bridge giving up`);
-      emitEvent("error", { message: "WhatsApp bridge stuck before authentication after retries", fatal: true });
-      try { await client.destroy(); } catch (_) {}
-      process.exit(1);
-    }
-    // Tear down the dead Chromium, WAIT for it to actually die, try fresh
-    try { await client.destroy(); } catch (err) { log(`destroy during retry: ${errStr(err)}`); }
-    await settleChromium(initAttempt);
-    client = buildClient();
-    attachHandlers(client);
-    startClientWithWatchdog();
-  }, INIT_WATCHDOG_MS);
-
-  log(`Initializing WhatsApp client... (attempt ${initAttempt}/${MAX_INIT_RETRIES + 1})`);
-  try {
-    await client.initialize();
-  } catch (err) {
-    if (initWatchdog) { clearTimeout(initWatchdog); initWatchdog = null; }
-    log(`Initialize error: ${errStr(err)}`);
-    if (initAttempt > MAX_INIT_RETRIES) {
-      emitEvent("error", { message: err.message, fatal: true });
-      process.exit(1);
-    }
-    try { await client.destroy(); } catch (_) {}
-    await settleChromium(initAttempt);
-    client = buildClient();
-    attachHandlers(client);
-    return startClientWithWatchdog();
+async function recoverFrom(gen, why) {
+  if (!gen.isCurrent) return;
+  await gen.dispose();
+  if (attempt > MAX_LAUNCH_RETRIES) {
+    log(`Max launch retries reached — bridge giving up (${why})`);
+    emitEvent("error", {
+      message: `WhatsApp bridge could not start: ${why}`,
+      fatal: true,
+    });
+    process.exit(1);
   }
+  await settleBetweenAttempts(attempt);
+  launchGeneration().catch(fatalCrash);
+}
+
+async function launchGeneration() {
+  attempt += 1; // the ONLY place the counter moves
+  resetSessionState();
+  const gen = new ClientGeneration(attempt);
+  currentGen = gen;
+  client = gen.client;
+  gen.armLaunchWatchdog();
+  log(`Initializing WhatsApp client... (attempt ${attempt}/${MAX_LAUNCH_RETRIES + 1})`);
+  try {
+    await gen.client.initialize();
+  } catch (err) {
+    if (!gen.isCurrent) return; // superseded while initializing
+    log(`Initialize error: ${errStr(err)}`);
+    await recoverFrom(gen, `initialize failed: ${errStr(err)}`);
+  }
+}
+
+function fatalCrash(err) {
+  log(`FATAL: ${errStr(err)}`);
+  try {
+    emitEvent("error", { message: `WhatsApp bridge crashed: ${errStr(err)}`, fatal: true });
+  } catch (_) {}
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Client Events — attached per generation, gated on gen.isCurrent
+// ---------------------------------------------------------------------------
+
+function attachHandlers(gen) {
+  const c = gen.client;
+
+  c.on("qr", async (qr) => {
+    if (!gen.isCurrent) return;
+    // QR on screen = a human is (maybe) reaching for their phone. The
+    // watchdog is suspended: total-QR-time policy (recycle after N
+    // minutes, abandon when nobody is polling) belongs to the Python
+    // LinkFlow, never to a destroy-and-retry loop down here (that loop
+    // is exactly what used to kill the browser mid-scan).
+    gen.phase = "QR_WAIT";
+    gen.clearTimer(gen.launchWatchdog);
+    gen.launchWatchdog = null;
+    log("QR code received");
+    try {
+      const dataUrl = await qrcode.toDataURL(qr);
+      if (!gen.isCurrent) return;
+      emitEvent("qr", { qr_string: qr, qr_data_url: dataUrl });
+    } catch (err) {
+      if (!gen.isCurrent) return;
+      emitEvent("qr", { qr_string: qr, qr_data_url: null });
+    }
+  });
+
+  c.on("authenticated", () => {
+    if (!gen.isCurrent) return;
+    log("Authenticated");
+    gen.phase = "INJECT";
+    gen.clearTimer(gen.launchWatchdog);
+    gen.launchWatchdog = null;
+    gen.armInjectWatchdog();
+    emitEvent("authenticated");
+  });
+
+  c.on("auth_failure", (msg) => {
+    if (!gen.isCurrent) return;
+    log(`Auth failure: ${msg}`);
+    emitEvent("auth_failure", { message: String(msg) });
+  });
+
+  c.on("ready", async () => {
+    if (!gen.isCurrent) return;
+    gen.phase = "READY";
+    gen.clearTimer(gen.injectWatchdog);
+    gen.injectWatchdog = null;
+    isReady = true;
+    readyTimestamp = Math.floor(Date.now() / 1000);
+    log("Client ready");
+
+    // Extract owner phone
+    try {
+      if (c.info && c.info.wid) {
+        ownerPhone = c.info.wid.user || "";
+        ownerName = c.info.pushname || "";
+        log(`Connected as +${ownerPhone} (${ownerName})`);
+        // Discover self-chat ID (may be @lid or @c.us)
+        try {
+          const ownJid = c.info.wid._serialized;
+          const selfChat = await c.getChatById(ownJid);
+          selfChatId = selfChat?.id?._serialized || ownJid;
+          log(`Self-chat ID: ${selfChatId}`);
+        } catch (e) {
+          selfChatId = c.info.wid._serialized;
+          log(`Self-chat fallback to wid: ${selfChatId}`);
+        }
+        // The wid alone can't match a @lid-addressed self chat, so grab the
+        // lid identity too — especially important when getChatById() above
+        // just failed and selfChatId is only the wid fallback.
+        await resolveOwnerLid();
+      }
+    } catch (err) {
+      log(`Could not extract owner info: ${err.message}`);
+    }
+
+    if (!gen.isCurrent) return;
+    emitEvent("ready", {
+      owner_phone: ownerPhone,
+      owner_name: ownerName,
+      wid: c.info?.wid?._serialized || "",
+    });
+
+    // Catch-up: send current unread chats. Prefer wwebjs getChats() (richer),
+    // falling back immediately to the lean in-page scan when getChats() is
+    // broken by a WhatsApp build ahead of whatsapp-web.js (observed live
+    // 2026-08-12: getChats() consistently failed with minified "r" while the
+    // lean scan worked — retrying only delayed catchup, so we don't).
+    let unread = null;
+    try {
+      const chats = await c.getChats();
+      unread = chats
+        .filter((chat) => chat.unreadCount > 0)
+        .map((chat) => ({
+          id: chat.id._serialized,
+          name: chat.name || chat.id._serialized,
+          unread_count: chat.unreadCount,
+          is_group: chat.isGroup,
+          is_muted: chat.isMuted,
+        }));
+    } catch (err) {
+      log(`Catchup getChats failed, using lean fallback: ${errStr(err)}`);
+    }
+    if (unread === null) {
+      try {
+        unread = await leanUnreadChats();
+        log("Catchup used lean in-page fallback");
+      } catch (err) {
+        log(`Catchup lean fallback failed: ${errStr(err)}`);
+      }
+    }
+    if (!gen.isCurrent) return;
+    if (unread !== null) {
+      emitEvent("catchup", { unread_chats: unread });
+      log(`Catchup complete: ${unread.length} unread chat(s)`);
+    }
+    catchupDone = true; // proceed even if every path failed
+  });
+
+  c.on("disconnected", (reason) => {
+    if (!gen.isCurrent) return;
+    gen.clearTimer(gen.injectWatchdog);
+    gen.injectWatchdog = null;
+    resetSessionState();
+    log(`Disconnected: ${reason}`);
+    // Reason "LOGOUT" = the user unlinked this device from their phone;
+    // Python maps it to NEEDS_RELINK instead of a reconnect loop.
+    emitEvent("disconnected", { reason: String(reason) });
+    // A disconnected wweb.js client does not reliably recover in-process.
+    // Exit cleanly and let the Python supervisor relaunch with backoff
+    // (uniform with crash handling — one restart path, no zombie bridge).
+    // Not during shutdown/logout: those paths own their own exit.
+    if (!shuttingDown) {
+      log("Exiting after disconnect for supervised restart");
+      gen.dispose()
+        .catch(() => {})
+        .then(() => process.exit(0));
+    }
+  });
+
+  // ── Message events ──────────────────────────────────────────────────────
+
+  c.on("message", async (msg) => {
+    if (!gen.isCurrent) return;
+    // Skip messages from before the bridge was ready (historical sync)
+    if (msg.timestamp && msg.timestamp < readyTimestamp) return;
+
+    try {
+      const chat = await safeChat(msg);
+      const contact = await safeContact(msg);
+      if (!gen.isCurrent) return;
+
+      emitEvent("message", {
+        id: msgIdOf(msg),
+        from: msg.from,
+        to: msg.to,
+        body: msg.body || "",
+        timestamp: msg.timestamp,
+        from_me: msg.fromMe,
+        type: msg.type,
+        has_media: msg.hasMedia,
+        is_forwarded: msg.isForwarded || false,
+        mentioned_ids: msg.mentionedIds || [],
+        chat: chatFallback(chat, msg.from),
+        contact: contactFallback(contact, msg.author || msg.from),
+      });
+    } catch (err) {
+      log(`Error handling message: ${errStr(err)}`);
+    }
+  });
+
+  c.on("message_create", async (msg) => {
+    if (!gen.isCurrent) return;
+    // Skip messages from before the bridge was ready (historical sync)
+    if (msg.timestamp && msg.timestamp < readyTimestamp) return;
+    if (!msg.fromMe) return;
+
+    // Skip messages sent by us via the bridge
+    const msgId = msgIdOf(msg);
+    if (msgId && ownSentIds.has(msgId)) {
+      ownSentIds.delete(msgId);
+      return;
+    }
+
+    try {
+      const chat = await safeChat(msg);
+      const chatInfo = chatFallback(chat, msg.to);
+      const ownJid = c.info?.wid?._serialized || "";
+      // A @lid-addressed self chat matches nothing we know until the owner's
+      // lid is resolved — do it now (throttled no-op once resolved) rather
+      // than lose the message.
+      if (!ownerLid && String(msg.to || "").endsWith("@lid")) {
+        await resolveOwnerLid();
+      }
+      // Self-chat test, layered by addressing scheme. NOTE: `to === from`
+      // does NOT hold in the self chat under @lid — `from` stays the wid
+      // (447…@c.us) while `to` is the lid (xxx@lid), which is exactly how
+      // the 2026-08-05 drop happened. sameUser() compares user parts so a
+      // scheme-consistent pair still matches without exact-JID equality.
+      let isSelfChat = (msg.from && msg.to === msg.from) ||
+        (ownJid && (msg.to === ownJid || sameUser(msg.to, ownJid))) ||
+        (ownerLid && (msg.to === ownerLid || sameUser(msg.to, ownerLid))) ||
+        (selfChatId && (msg.to === selfChatId || chatInfo.id === selfChatId));
+
+      // Last resort for an unrecognized @lid destination: ask WhatsApp's
+      // contact store whether this lid belongs to the owner's own number
+      // (once per lid per session). This is what actually catches the self
+      // chat when both discovery paths above came up empty at ready.
+      if (!isSelfChat && String(msg.to || "").endsWith("@lid")) {
+        isSelfChat = await lidMatchesOwner(msg.to);
+      }
+
+      if (!gen.isCurrent) return;
+      emitEvent("message_sent", {
+        id: msgIdOf(msg),
+        from: msg.from,
+        to: msg.to,
+        body: msg.body || "",
+        timestamp: msg.timestamp,
+        type: msg.type,
+        is_self_chat: isSelfChat,
+        chat: {
+          id: chatInfo.id,
+          name: chatInfo.name,
+          is_group: chatInfo.is_group,
+        },
+      });
+    } catch (err) {
+      log(`Error handling message_create: ${errStr(err)}`);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -831,8 +1048,17 @@ async function handleCommand(line) {
           ready: isReady,
           owner_phone: ownerPhone,
           owner_name: ownerName,
-          wid: client.info?.wid?._serialized || "",
+          wid: client?.info?.wid?._serialized || "",
         });
+        break;
+      }
+
+      case "ping": {
+        // Heartbeat for the Python session supervisor: answered from the
+        // Node side without touching the page, so a hung Chromium still
+        // answers — pair with `ready` so the supervisor can tell "page
+        // alive" from "process alive".
+        emitResponse(id, { success: true, ready: isReady, ts: Date.now() });
         break;
       }
 
@@ -841,16 +1067,7 @@ async function handleCommand(line) {
           emitResponse(id, { success: false, error: "Client not ready" });
           return;
         }
-        const chats = await client.getChats();
-        const result = chats.slice(0, args.limit || 50).map((c) => ({
-          id: c.id._serialized,
-          name: c.name || c.id._serialized,
-          is_group: c.isGroup,
-          is_muted: c.isMuted,
-          unread_count: c.unreadCount,
-          last_message: c.lastMessage?.body || "",
-          timestamp: c.lastMessage?.timestamp || 0,
-        }));
+        const result = await chatsWithFallback(args.limit || 50);
         emitResponse(id, { success: true, chats: result });
         break;
       }
@@ -891,53 +1108,32 @@ async function handleCommand(line) {
         }
         const query = (args.name || "").toLowerCase();
 
-        const chats = await client.getChats();
+        const chats = await chatsWithFallback(0);
         let matches = chats
           .filter((ch) => {
             const name = (ch.name || "").toLowerCase();
-            const number = (ch.id && ch.id.user) || "";
+            const number = String(ch.id || "").split("@")[0];
             return name.includes(query) || number.includes(query);
           })
           .slice(0, 20)
           .map((ch) => {
-            const serialized = ch.id._serialized;
-            // LID-based chats don't have a phone number — ch.id.user is
-            // the LID's user portion, which fails as a `to` value in
-            // send_message. Surface the full JID instead so the agent
-            // round-trips a valid send target through `number`.
-            const isLid = serialized.endsWith("@lid");
+            // LID-based chats don't have a phone number — surface the
+            // full JID instead so the agent round-trips a valid send
+            // target through `number`.
+            const isLid = String(ch.id || "").endsWith("@lid");
             return {
-              id: serialized,
+              id: ch.id,
               name: ch.name || "",
-              number: isLid ? serialized : ((ch.id && ch.id.user) || ""),
-              is_group: ch.isGroup,
+              number: isLid ? ch.id : String(ch.id || "").split("@")[0],
+              is_group: ch.is_group,
             };
           });
 
         if (matches.length === 0) {
-          // Fallback: reach into the page's Store. Filter runs in-page
-          // so only the matches cross the RPC boundary.
+          // Fallback: filter the address book in-page (only the matches
+          // cross the RPC boundary).
           try {
-            matches = await client.pupPage.evaluate((q) => {
-              const query = (q || "").toLowerCase();
-              return window.Store.Contact.getModelsArray()
-                .filter((c) => {
-                  const name = (c.pushname || c.name || c.formattedName || "").toLowerCase();
-                  const number = (c.id && c.id.user) || "";
-                  return name.includes(query) || number.includes(query);
-                })
-                .slice(0, 20)
-                .map((c) => {
-                  const serialized = c.id._serialized;
-                  const isLid = serialized.endsWith("@lid");
-                  return {
-                    id: serialized,
-                    name: c.pushname || c.name || c.formattedName || "",
-                    number: isLid ? serialized : ((c.id && c.id.user) || ""),
-                    is_group: c.isGroup,
-                  };
-                });
-            }, args.name || "");
+            matches = await leanContactSearch(args.name || "");
           } catch (err) {
             emitResponse(id, {
               success: false,
@@ -956,16 +1152,22 @@ async function handleCommand(line) {
           emitResponse(id, { success: false, error: "Client not ready" });
           return;
         }
-        const allChats = await client.getChats();
-        const unreadChats = allChats
-          .filter((c) => c.unreadCount > 0)
-          .map((c) => ({
-            id: c.id._serialized,
-            name: c.name || c.id._serialized,
-            unread_count: c.unreadCount,
-            is_group: c.isGroup,
-            is_muted: c.isMuted,
-          }));
+        let unreadChats;
+        try {
+          const allChats = await client.getChats();
+          unreadChats = allChats
+            .filter((c) => c.unreadCount > 0)
+            .map((c) => ({
+              id: c.id._serialized,
+              name: c.name || c.id._serialized,
+              unread_count: c.unreadCount,
+              is_group: c.isGroup,
+              is_muted: c.isMuted,
+            }));
+        } catch (err) {
+          log(`get_unread_chats getChats failed, using lean fallback: ${errStr(err)}`);
+          unreadChats = await leanUnreadChats();
+        }
         emitResponse(id, { success: true, unread_chats: unreadChats });
         break;
       }
@@ -978,21 +1180,33 @@ async function handleCommand(line) {
       }
 
       case "logout": {
-        // Full disconnect: logs out of WhatsApp server-side AND wipes the
-        // LocalAuth data on disk, so the next connect demands a fresh QR.
-        // Without this, ``client.destroy()`` alone leaves the session
-        // restorable and the bridge auto-reconnects on next start.
+        // Full disconnect: logs out of WhatsApp server-side (removes the
+        // linked device from the user's phone) AND wipes the LocalAuth
+        // data on disk, so the next connect demands a fresh QR.
         log("Logout requested");
+        shuttingDown = true; // the LOGOUT 'disconnected' event must not double-exit
         emitResponse(id, { success: true });
         try {
-          if (client) await client.logout();
+          // client.logout() can hang 30+s on a half-broken connection —
+          // give the server-side flush a bounded window, then exit; the
+          // Python side force-kills after its own wait anyway.
+          if (client) {
+            await Promise.race([
+              client.logout(),
+              sleep(6000).then(() => {
+                throw new Error("logout timed out after 6s");
+              }),
+            ]);
+          }
           log("Logged out");
         } catch (err) {
           log(`Logout error: ${err.message}`);
-          // Fall through to destroy/exit — even a partial logout is
+          // Fall through to dispose/exit — even a partial logout is
           // better than leaving the bridge running.
-          try { if (client) await client.destroy(); } catch (_) {}
         }
+        try {
+          if (currentGen) await currentGen.dispose();
+        } catch (_) {}
         process.exit(0);
         break;
       }
@@ -1478,33 +1692,48 @@ async function handleCommand(line) {
 const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   const trimmed = line.trim();
-  if (trimmed) handleCommand(trimmed);
+  if (trimmed) handleCommand(trimmed).catch((err) => log(`handleCommand crashed: ${errStr(err)}`));
 });
 
 rl.on("close", () => {
   log("stdin closed, shutting down");
-  gracefulShutdown();
+  gracefulShutdown().catch(() => process.exit(0));
 });
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+let shuttingDown = false;
+
 async function gracefulShutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   log("Shutting down...");
   try {
-    if (client) await client.destroy();
+    if (currentGen) await currentGen.dispose();
   } catch (err) {
-    log(`Destroy error: ${err.message}`);
+    log(`Dispose error during shutdown: ${errStr(err)}`);
   }
   process.exit(0);
 }
 
-process.on("SIGINT", gracefulShutdown);
-process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", () => { gracefulShutdown().catch(() => process.exit(0)); });
+process.on("SIGTERM", () => { gracefulShutdown().catch(() => process.exit(0)); });
 
-// Start: build the initial client, attach handlers, run with watchdog.
-// startClientWithWatchdog() handles its own retries + final exit on failure.
-client = buildClient();
-attachHandlers(client);
-startClientWithWatchdog();
+// A floating rejection or sync throw anywhere means undefined state
+// (TargetCloseError/EBUSY used to kill the process silently mid-recovery).
+// Exit DELIBERATELY with a fatal event so the Python supervisor sees a
+// classified crash and applies backoff, instead of a zombie bridge.
+process.on("unhandledRejection", (reason) => {
+  if (shuttingDown) return;
+  fatalCrash(reason instanceof Error ? reason : new Error(String(reason)));
+});
+process.on("uncaughtException", (err) => {
+  if (shuttingDown) return;
+  fatalCrash(err);
+});
+
+// Start the first generation. launchGeneration handles its own retries and
+// final exit on failure.
+launchGeneration().catch(fatalCrash);

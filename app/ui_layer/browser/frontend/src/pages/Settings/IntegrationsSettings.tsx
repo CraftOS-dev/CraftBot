@@ -399,6 +399,7 @@ const AccountsManager = ({
   onListenChange,
   onToggleDisconnect,
   onAddAccount,
+  onRelink,
   onDiscard,
   onSave,
 }: {
@@ -412,6 +413,10 @@ const AccountsManager = ({
   onListenChange: (account: ManagedAccount, value: boolean) => void
   onToggleDisconnect: (account: ManagedAccount, marked: boolean) => void
   onAddAccount: () => void
+  // Re-link a whatsapp_web account whose stored session died (sessionState
+  // 'needs_relink'): opens the QR connect flow — a fresh scan replaces the
+  // dead session in place.
+  onRelink?: (account: ManagedAccount) => void
   onDiscard: () => void
   onSave: () => void
 }) => {
@@ -495,6 +500,27 @@ const AccountsManager = ({
                     />
                   )}
                 </div>
+                {!marked && account.sessionState === 'needs_relink' && (
+                  <div className={styles.formError}>
+                    <span>Session expired — WhatsApp needs re-linking via QR.</span>{' '}
+                    {onRelink && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onRelink(account)}
+                      >
+                        Re-link
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {!marked && (account.sessionState === 'reconnecting' || account.sessionState === 'failed') && (
+                  <p className={styles.hint}>
+                    {account.sessionState === 'reconnecting'
+                      ? 'Connection lost — reconnecting automatically…'
+                      : 'Repeated connection failures — retrying hourly. Check the logs or re-link.'}
+                  </p>
+                )}
                 {marked ? (
                   <p className={styles.accountRemovalNote}>
                     Will be disconnected when you save changes.
@@ -710,11 +736,15 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   const [configLoading, setConfigLoading] = useState(false)
   const [configSaving, setConfigSaving] = useState(false)
 
-  // WhatsApp QR code state
+  // WhatsApp QR code state — states mirror the backend LinkFlow verbatim:
+  // qr_ready → scanned → promoting → connected, plus timeout/error.
   const [whatsappQrCode, setWhatsappQrCode] = useState<string | null>(null)
   const [whatsappSessionId, setWhatsappSessionId] = useState<string | null>(null)
-  const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'loading' | 'qr_ready' | 'connected' | 'error'>('idle')
+  const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'loading' | 'qr_ready' | 'scanned' | 'promoting' | 'connected' | 'timeout' | 'error'>('idle')
   const [whatsappError, setWhatsappError] = useState<string | null>(null)
+  // Seconds left in the current QR window (the backend refreshes the code
+  // in cycles); updated on every poll result.
+  const [whatsappExpiresIn, setWhatsappExpiresIn] = useState<number | null>(null)
   const whatsappPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Confirm modal
@@ -917,43 +947,58 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
       }),
       // WhatsApp QR code handlers
       onMessage('whatsapp_qr_result', (data: unknown) => {
-        const d = data as { success: boolean; session_id?: string; qr_code?: string; status?: string; message?: string }
+        const d = data as { success: boolean; session_id?: string; qr_code?: string; status?: string; message?: string; expires_in?: number }
         if (d.success && d.qr_code) {
           setWhatsappQrCode(d.qr_code)
           setWhatsappSessionId(d.session_id || null)
           setWhatsappStatus('qr_ready')
           setWhatsappError(null)
+          setWhatsappExpiresIn(typeof d.expires_in === 'number' ? d.expires_in : null)
         } else {
           setWhatsappStatus('error')
           setWhatsappError(d.message || 'Failed to get QR code')
         }
       }),
       onMessage('whatsapp_status_result', (data: unknown) => {
-        const d = data as { success: boolean; status?: string; connected?: boolean; message?: string }
-        if (d.connected) {
-          setWhatsappStatus('connected')
-          setShowConnectModal(false)
-          showToast('success', d.message || 'WhatsApp connected successfully')
+        const d = data as { success: boolean; status?: string; connected?: boolean; message?: string; qr_code?: string; expires_in?: number }
+        const stopPolling = () => {
           if (whatsappPollRef.current) {
             clearInterval(whatsappPollRef.current)
             whatsappPollRef.current = null
           }
+        }
+        if (d.connected) {
+          setWhatsappStatus('connected')
+          setShowConnectModal(false)
+          showToast('success', d.message || 'WhatsApp connected successfully')
+          stopPolling()
           setWhatsappQrCode(null)
           setWhatsappSessionId(null)
           setWhatsappStatus('idle')
+          setWhatsappExpiresIn(null)
           const just = selectedIntegrationRef.current
           if (just && just.has_config && (just.config_fields?.length ?? 0) > 0) {
             // Deliberate modal open: follow-up to the user's own connect.
             manageRequestedRef.current = true
             send('integration_info', { id: just.id })
           }
+        } else if (d.status === 'qr_ready') {
+          // The backend recycles the QR in cycles — always show the newest
+          // code and window.
+          if (d.qr_code) setWhatsappQrCode(d.qr_code)
+          if (typeof d.expires_in === 'number') setWhatsappExpiresIn(d.expires_in)
+          setWhatsappStatus('qr_ready')
+        } else if (d.status === 'scanned' || d.status === 'promoting') {
+          // Keep polling — completion arrives as `connected`.
+          setWhatsappStatus(d.status)
+        } else if (d.status === 'timeout' || d.status === 'cancelled') {
+          setWhatsappStatus('timeout')
+          setWhatsappError(d.message || 'QR code expired — try again.')
+          stopPolling()
         } else if (d.status === 'error' || d.status === 'disconnected') {
           setWhatsappStatus('error')
           setWhatsappError(d.message || 'Session failed')
-          if (whatsappPollRef.current) {
-            clearInterval(whatsappPollRef.current)
-            whatsappPollRef.current = null
-          }
+          stopPolling()
         }
       }),
       onMessage('whatsapp_cancel_result', (_data: unknown) => {
@@ -972,9 +1017,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     return () => cleanups.forEach(c => c())
   }, [isConnected, send, onMessage, hasLoaded, showToast, closeManageModal, pruneStagedFor, refreshManagedAccounts])
 
-  // Start WhatsApp polling when QR is ready
+  // Poll while a link flow is live (QR pending, scanned, or promoting).
   useEffect(() => {
-    if (whatsappStatus === 'qr_ready' && whatsappSessionId) {
+    const live = whatsappStatus === 'qr_ready' || whatsappStatus === 'scanned' || whatsappStatus === 'promoting'
+    if (live && whatsappSessionId) {
       startWhatsAppPolling(whatsappSessionId)
     }
     return () => {
@@ -1009,7 +1055,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     setWhatsappQrCode(null)
     setWhatsappSessionId(null)
     setWhatsappError(null)
-    send('whatsapp_start_qr')
+    setWhatsappExpiresIn(null)
+    // force: an explicit user click may always start a flow — the backend
+    // guard only blocks non-user-initiated (ghost) starts after a connect.
+    send('whatsapp_start_qr', { force: true })
   }
 
   const startWhatsAppPolling = (sessionId: string) => {
@@ -1033,6 +1082,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     setWhatsappSessionId(null)
     setWhatsappStatus('idle')
     setWhatsappError(null)
+    setWhatsappExpiresIn(null)
     setShowConnectModal(false)
   }
 
@@ -1594,6 +1644,34 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                       <p className={styles.whatsappQrHint}>
                         Open WhatsApp &rarr; Settings &rarr; Linked Devices &rarr; Link a Device
                       </p>
+                      {whatsappExpiresIn !== null && (
+                        <p className={styles.whatsappQrHint}>
+                          {whatsappExpiresIn > 0
+                            ? `Code refreshes in ${Math.floor(whatsappExpiresIn / 60)}:${String(whatsappExpiresIn % 60).padStart(2, '0')}`
+                            : 'Refreshing code…'}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {(whatsappStatus === 'scanned' || whatsappStatus === 'promoting') && (
+                    <div className={styles.whatsappLoading}>
+                      <Loader2 size={32} className={styles.spinning} />
+                      <p>
+                        {whatsappStatus === 'scanned'
+                          ? 'QR scanned — connecting to WhatsApp…'
+                          : 'Almost done — finishing the connection…'}
+                      </p>
+                    </div>
+                  )}
+
+                  {whatsappStatus === 'timeout' && (
+                    <div className={styles.whatsappError}>
+                      <AlertTriangle size={24} />
+                      <p>{whatsappError || 'The QR code expired before it was scanned.'}</p>
+                      <Button variant="primary" onClick={handleStartWhatsAppQR}>
+                        Start Again
+                      </Button>
                     </div>
                   )}
 
@@ -1618,7 +1696,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     </div>
                   )}
 
-                  {(whatsappStatus === 'loading' || whatsappStatus === 'qr_ready') && (
+                  {(whatsappStatus === 'loading' || whatsappStatus === 'qr_ready' || whatsappStatus === 'scanned') && (
                     <Button variant="secondary" onClick={handleCancelWhatsApp}>
                       Cancel
                     </Button>
@@ -1659,6 +1737,14 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   onToggleDisconnect={(account, marked) =>
                     stageDisconnect(managingIntegration.id, account.identity, marked)}
                   onAddAccount={handleAddAccount}
+                  onRelink={() => {
+                    // Same path as "Add account" for QR integrations: the
+                    // Connect modal starts a fresh link flow; scanning with
+                    // the same phone replaces the dead session in place.
+                    const target = managingIntegration
+                    setManagingIntegration(null)
+                    handleOpenConnect(target)
+                  }}
                   onDiscard={() => {
                     setStagedEdits(prev => {
                       const { [managingIntegration.id]: _gone, ...rest } = prev

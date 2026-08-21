@@ -96,6 +96,14 @@ class FakeSystem:
         self.applied.append((provider_id, batch))
         return list(self._accounts)
 
+    def resolve(self, provider_id: str, hint: Optional[str]) -> str:
+        match = next(
+            (a for a in self._accounts if hint in (a.identity, a.alias)), None
+        )
+        if match is None:
+            raise AccountResolutionError(f"No account matching '{hint}'")
+        return match.identity
+
     def remove_account(self, provider_id: str, hint: Optional[str]) -> str:
         match = next(
             (a for a in self._accounts if hint in (a.identity, a.alias)), None

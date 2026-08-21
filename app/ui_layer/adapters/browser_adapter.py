@@ -1671,17 +1671,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "playbook_list":
             await self._handle_playbook_list()
 
-        # WhatsApp QR code flow handlers
+        # WhatsApp QR code flow handlers — session-scoped: QR/status results
+        # go to the requesting connection only, never broadcast (a second
+        # settings tab used to pick up the broadcast, run its own poll loop
+        # and double-complete the link).
         elif msg_type == "whatsapp_start_qr":
-            await self._handle_whatsapp_start_qr()
+            await self._handle_whatsapp_start_qr(
+                ws, force=bool(data.get("force", False))
+            )
 
         elif msg_type == "whatsapp_check_status":
             session_id = data.get("session_id", "")
-            await self._handle_whatsapp_check_status(session_id)
+            await self._handle_whatsapp_check_status(session_id, ws)
 
         elif msg_type == "whatsapp_cancel":
             session_id = data.get("session_id", "")
-            await self._handle_whatsapp_cancel(session_id)
+            await self._handle_whatsapp_cancel(session_id, ws)
 
         elif msg_type == "subscribe_dashboard_metrics":
             if ws is not None:
@@ -6410,17 +6415,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         return None
 
     @staticmethod
-    def _accounts_payload(accounts) -> List[Dict[str, Any]]:
-        """Serialize AccountInfo objects into the wire shape."""
-        return [
-            {
-                "identity": a.identity,
-                "alias": a.alias,
-                "isPrimary": a.is_primary,
-                "listen": a.listen,
-            }
-            for a in accounts
-        ]
+    def _accounts_payload(accounts, integration_id: str = "") -> List[Dict[str, Any]]:
+        """Serialize AccountInfo objects into the wire shape. whatsapp_web
+        rows gain ``sessionState`` (relink CTA / reconnect notice)."""
+        try:
+            from app.data.action.integrations._helpers import accounts_payload
+
+            return accounts_payload(accounts, integration_id)
+        except Exception:
+            return [
+                {
+                    "identity": a.identity,
+                    "alias": a.alias,
+                    "isPrimary": a.is_primary,
+                    "listen": a.listen,
+                }
+                for a in accounts
+            ]
 
     def _current_accounts(self, integration_id: str) -> Optional[List[Dict[str, Any]]]:
         """Best-effort current account list for error payloads.
@@ -6434,7 +6445,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             system = self._system_for(integration_id)
             if system is not None:
-                return self._accounts_payload(system.list_accounts(integration_id))
+                return self._accounts_payload(
+                    system.list_accounts(integration_id), integration_id
+                )
         except Exception:
             pass
         return None
@@ -6468,7 +6481,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     system = self._system_for(integration_id)
                     if system is not None:
                         managed_accounts = self._accounts_payload(
-                            system.list_accounts(integration_id)
+                            system.list_accounts(integration_id), integration_id
                         )
                 except Exception as e:
                     logger.error(
@@ -6748,10 +6761,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 system = self._system_for(integration_id)
 
                 if system is not None and account_id:
-                    # Targeted removal — handled entirely by the integration system.
+                    # Targeted removal — handled entirely by the integration
+                    # system. Platform teardown (whatsapp_web: server-side
+                    # logout + bridge stop + session-dir delete) runs FIRST,
+                    # while the account still exists — record removal
+                    # triggers a listener reconcile that would race a
+                    # trailing teardown on the same bridge.
                     try:
+                        from app.data.action.integrations._helpers import (
+                            platform_teardown_accounts_async,
+                        )
+
                         identity = await asyncio.to_thread(
-                            system.remove_account, integration_id, account_id
+                            system.resolve, integration_id, account_id
+                        )
+                        await platform_teardown_accounts_async(
+                            integration_id, [identity]
+                        )
+                        await asyncio.to_thread(
+                            system.remove_account, integration_id, identity
                         )
                         success, message = (
                             True,
@@ -6785,11 +6813,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if system is not None:
                     # Disconnect-all: drop every account, then fall through
                     # to the legacy disconnect below for file cleanup.
+                    # Platform teardown before each record removal — same
+                    # ordering rationale as the targeted path above.
                     try:
+                        from app.data.action.integrations._helpers import (
+                            platform_teardown_accounts_async,
+                        )
+
                         for account in await asyncio.to_thread(
                             system.list_accounts, integration_id
                         ):
                             try:
+                                await platform_teardown_accounts_async(
+                                    integration_id, [account.identity]
+                                )
                                 await asyncio.to_thread(
                                     system.remove_account,
                                     integration_id,
@@ -6892,7 +6929,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "requestId": request_id,
                         "ok": bool(ok),
                         "message": message,
-                        "accounts": self._accounts_payload(accounts or []),
+                        "accounts": self._accounts_payload(
+                            accounts or [], integration_id
+                        ),
                     },
                 }
             )
@@ -6965,10 +7004,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 # session dir) — core removal only edits the AccountSet.
                 try:
                     from app.data.action.integrations._helpers import (
-                        platform_teardown_accounts,
+                        platform_teardown_accounts_async,
                     )
 
-                    platform_teardown_accounts(
+                    # Awaited (we're already off the WS handler in a task):
+                    # the result broadcast below must reflect completed
+                    # teardown, not a fire-and-forget race.
+                    await platform_teardown_accounts_async(
                         integration_id, (changes or {}).get("disconnect") or []
                     )
                 except Exception as e:
@@ -6983,7 +7025,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "id": integration_id,
                             "requestId": request_id,
                             "ok": True,
-                            "accounts": self._accounts_payload(accounts),
+                            "accounts": self._accounts_payload(
+                                accounts, integration_id
+                            ),
                         },
                     }
                 )
@@ -7370,18 +7414,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
         return
 
-    async def _handle_whatsapp_start_qr(self) -> None:
-        """Start WhatsApp Web session and return QR code."""
+    async def _send_to(self, ws, message: Dict[str, Any]) -> None:
+        """Send to one connection (session-scoped flows); falls back to a
+        broadcast when the requesting socket is unknown/closed."""
+        if ws is not None:
+            try:
+                await ws.send_json(message)
+                return
+            except Exception:
+                pass
+        await self._broadcast(message)
+
+    async def _handle_whatsapp_start_qr(self, ws=None, force: bool = False) -> None:
+        """Start a WhatsApp link flow and return the QR to the requesting
+        connection only. ``force`` (explicit user click) bypasses the
+        just-connected ghost-flow guard."""
         try:
-            result = await start_whatsapp_qr_session()
-            await self._broadcast(
-                {
-                    "type": "whatsapp_qr_result",
-                    "data": result,
-                }
-            )
+            result = await start_whatsapp_qr_session(force=force)
+            await self._send_to(ws, {"type": "whatsapp_qr_result", "data": result})
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_qr_result",
                     "data": {
@@ -7389,11 +7442,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "status": "error",
                         "message": str(e),
                     },
-                }
+                },
             )
 
-    async def _handle_whatsapp_check_status(self, session_id: str) -> None:
-        """Check WhatsApp session status."""
+    async def _handle_whatsapp_check_status(self, session_id: str, ws=None) -> None:
+        """Poll a WhatsApp link flow (states: qr_ready / scanned / promoting /
+        connected / timeout / cancelled / error). Idempotent completion —
+        a second poller gets the same connected result, and the account
+        upsert below is an idempotent write."""
         try:
             result = await check_whatsapp_session_status(session_id)
             # On connect, store the account into the AccountSet — the QR flow
@@ -7419,16 +7475,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         f"[INTEGRATIONS] storing whatsapp_web QR account "
                         f"failed (session {session_id}): {e!r}"
                     )
-            await self._broadcast(
-                {
-                    "type": "whatsapp_status_result",
-                    "data": result,
-                }
-            )
+            await self._send_to(ws, {"type": "whatsapp_status_result", "data": result})
             if result.get("connected"):
+                # The integrations *list* refresh stays a broadcast — every
+                # tab should see the new account.
                 await self._handle_integration_list()
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_status_result",
                     "data": {
@@ -7437,28 +7491,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "connected": False,
                         "message": str(e),
                     },
-                }
+                },
             )
 
-    async def _handle_whatsapp_cancel(self, session_id: str) -> None:
-        """Cancel WhatsApp session."""
+    async def _handle_whatsapp_cancel(self, session_id: str, ws=None) -> None:
+        """Cancel a WhatsApp link flow."""
         try:
             result = cancel_whatsapp_session(session_id)
-            await self._broadcast(
-                {
-                    "type": "whatsapp_cancel_result",
-                    "data": result,
-                }
-            )
+            await self._send_to(ws, {"type": "whatsapp_cancel_result", "data": result})
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_cancel_result",
                     "data": {
                         "success": False,
                         "message": str(e),
                     },
-                }
+                },
             )
 
     async def _broadcast(self, message: Dict[str, Any]) -> None:

@@ -455,10 +455,27 @@ def system_for(integration_id: str):
     return None
 
 
-def accounts_payload(accounts) -> list:
+def whatsapp_session_state(identity: str):
+    """Live session-actor state for a whatsapp_web account (connected /
+    launching / reconnecting / needs_relink / failed / stopped), or None
+    when unknown. needs_relink is read from the persisted marker, so it
+    survives restarts."""
+    try:
+        from craftos_integrations.integrations.whatsapp_web._session import (
+            get_session_manager,
+        )
+
+        return get_session_manager().state_of(identity)
+    except Exception:
+        return None
+
+
+def accounts_payload(accounts, provider_id: str = "") -> list:
     """Serialize AccountInfo objects into the structured action-result shape
-    (same wire shape the settings UI uses — plan §6)."""
-    return [
+    (same wire shape the settings UI uses — plan §6). For whatsapp_web,
+    each row also carries ``sessionState`` so the UI can render a relink
+    CTA / reconnect notice per account."""
+    rows = [
         {
             "identity": a.identity,
             "alias": a.alias,
@@ -467,6 +484,12 @@ def accounts_payload(accounts) -> list:
         }
         for a in accounts
     ]
+    if provider_id == "whatsapp_web":
+        for row in rows:
+            state = whatsapp_session_state(row["identity"])
+            if state:
+                row["sessionState"] = state
+    return rows
 
 
 def account_lines(accounts) -> list:
@@ -516,7 +539,7 @@ async def list_integrations_merged_async() -> list:
             if info is None:
                 continue
             infos = system.list_accounts(name)
-            info["accounts"] = accounts_payload(infos)
+            info["accounts"] = accounts_payload(infos, name)
             info["connected"] = bool(infos)
         else:
             info = await get_integration_info(name)
@@ -703,19 +726,24 @@ def system_connect_token(system, integration_id: str, credentials: Dict[str, str
     return True, message
 
 
-def platform_teardown_accounts(integration_id: str, identities) -> None:
-    """Platform-specific post-removal cleanup the core can't do.
+# Strong references to scheduled teardown tasks: a bare create_task result
+# that nobody holds can be garbage-collected mid-flight, silently dropping
+# the auth-dir cleanup (observed as session dirs surviving "complete reset").
+_teardown_tasks: set = set()
+
+
+async def platform_teardown_accounts_async(integration_id: str, identities) -> None:
+    """Platform-specific teardown of live per-account resources.
 
     whatsapp_web accounts own a live Node/Chromium bridge and a per-account
     session dir; core ``remove_account`` only deletes the AccountSet entry.
-    Best-effort, never raises; async teardown is scheduled on the running
-    loop when there is one, else run inline.
+    Runs to completion: server-side logout (removes the entry from the
+    phone's Linked Devices), process exit, auth-dir delete. Best-effort per
+    identity, never raises.
     """
     identities = [i for i in (identities or []) if i]
     if integration_id != "whatsapp_web" or not identities:
         return
-    import asyncio as _asyncio
-
     try:
         from craftos_integrations.providers.whatsapp_web import teardown_account
     except Exception:
@@ -725,25 +753,44 @@ def platform_teardown_accounts(integration_id: str, identities) -> None:
 
     _log = get_logger(__name__)
 
-    async def _run() -> None:
-        for identity in identities:
-            try:
-                await teardown_account(identity)
-            except Exception as e:
-                _log.warning(
-                    f"[INTEGRATIONS] whatsapp_web teardown for '{identity}' failed: {e}"
-                )
+    for identity in identities:
+        try:
+            await teardown_account(identity)
+        except Exception as e:
+            _log.warning(
+                f"[INTEGRATIONS] whatsapp_web teardown for '{identity}' failed: {e}"
+            )
+
+
+def platform_teardown_accounts(integration_id: str, identities) -> None:
+    """Sync entry for :func:`platform_teardown_accounts_async`.
+
+    Runs inline (blocking) when no event loop is running; otherwise
+    schedules on the running loop, holding a strong task reference so the
+    cleanup cannot be dropped by GC. Async callers should prefer awaiting
+    ``platform_teardown_accounts_async`` directly.
+    """
+    identities = [i for i in (identities or []) if i]
+    if integration_id != "whatsapp_web" or not identities:
+        return
+    import asyncio as _asyncio
 
     try:
         loop = _asyncio.get_running_loop()
     except RuntimeError:
         loop = None
     if loop is not None:
-        loop.create_task(_run())
+        task = loop.create_task(
+            platform_teardown_accounts_async(integration_id, identities)
+        )
+        _teardown_tasks.add(task)
+        task.add_done_callback(_teardown_tasks.discard)
     else:
         loop = _asyncio.new_event_loop()
         try:
-            loop.run_until_complete(_run())
+            loop.run_until_complete(
+                platform_teardown_accounts_async(integration_id, identities)
+            )
         finally:
             loop.close()
 
@@ -766,10 +813,38 @@ def system_disconnect(system, integration_id: str, account_id=None):
     """
     import asyncio as _asyncio
 
+    def _teardown_then_remove(identity: str) -> None:
+        # Teardown BEFORE record removal: the bridge needs the live,
+        # authenticated session to do a server-side logout, and the session
+        # dir must be deleted while nothing is respawning it. (The old
+        # order deleted records first and fire-and-forgot the teardown —
+        # reconcile raced it and locked dirs survived "complete reset".)
+        async def _ordered() -> None:
+            await platform_teardown_accounts_async(integration_id, [identity])
+            await _asyncio.to_thread(system.remove_account, integration_id, identity)
+
+        try:
+            loop = _asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            # Defensive fallback — actions normally run loop-less. Order is
+            # still guaranteed inside the task; only the return message is
+            # optimistic here.
+            task = loop.create_task(_ordered())
+            _teardown_tasks.add(task)
+            task.add_done_callback(_teardown_tasks.discard)
+        else:
+            inner = _asyncio.new_event_loop()
+            try:
+                inner.run_until_complete(_ordered())
+            finally:
+                inner.close()
+
     if account_id:
         try:
-            identity = system.remove_account(integration_id, account_id)
-            platform_teardown_accounts(integration_id, [identity])
+            identity = system.resolve(integration_id, account_id)
+            _teardown_then_remove(identity)
             return True, f"Removed account '{identity}' from {integration_id}."
         except Exception as e:
             return False, str(e)
@@ -778,12 +853,11 @@ def system_disconnect(system, integration_id: str, account_id=None):
     removed_identities = []
     for info in system.list_accounts(integration_id):
         try:
-            system.remove_account(integration_id, info.identity)
+            _teardown_then_remove(info.identity)
             removed.append(info.alias or info.identity)
             removed_identities.append(info.identity)
         except Exception:
             pass
-    platform_teardown_accounts(integration_id, removed_identities)
 
     legacy_success, legacy_message = False, ""
     try:

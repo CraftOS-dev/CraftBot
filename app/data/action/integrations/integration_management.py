@@ -536,6 +536,28 @@ def check_integration_status(input_data: dict) -> dict:
             finally:
                 loop.close()
 
+            # On connect, store the account into the AccountSet — the QR
+            # flow itself can't (craftos_integrations never imports the
+            # host). Idempotent: repeated polls upsert the same identity.
+            if result.get("connected") and result.get("credential"):
+                try:
+                    from app.integrations import get_system
+
+                    system = get_system()
+                    system.store_credential(
+                        "whatsapp_web",
+                        result.get("identity"),
+                        result["credential"],
+                    )
+                    system.reconcile_listeners()
+                except Exception as e:
+                    return {
+                        "status": "error",
+                        "connected": False,
+                        "accounts": [],
+                        "message": f"WhatsApp connected but storing the account failed: {e}",
+                    }
+
             return {
                 "status": result.get("status", "error"),
                 "connected": result.get("connected", False),
@@ -558,7 +580,7 @@ def check_integration_status(input_data: dict) -> dict:
         v2_system = system_for(integration_id)
         if v2_system is not None:
             infos = v2_system.list_accounts(integration_id)
-            accounts = accounts_payload(infos)
+            accounts = accounts_payload(infos, integration_id)
             name = v2_display_name(v2_system, integration_id)
             if accounts:
                 lines = "\n".join(account_lines(infos))

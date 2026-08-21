@@ -134,27 +134,25 @@ def test_qr_only_no_oauth_no_run_login_no_verify_token():
 @pytest.fixture
 def bridge_env(tmp_path, monkeypatch):
     """Isolated registry: tmp project root, no legacy credential, clean
-    registry before and after."""
+    registry (and session manager / link flows) before and after."""
     monkeypatch.setattr(bc.ConfigStore, "project_root", tmp_path)
     bc._reset_bridge_registry_for_tests()
-    wa_mod._qr_sessions.clear()
     yield tmp_path
     bc._reset_bridge_registry_for_tests()
-    wa_mod._qr_sessions.clear()
 
 
 class FakeBridge:
     """WhatsAppBridge stand-in: same lifecycle surface, zero processes."""
 
-    def __init__(self, auth_dir: str, legacy_guard: bool = False):
+    def __init__(self, auth_dir: str):
         self.auth_dir = auth_dir
-        self._legacy_guard = legacy_guard
         self._running = False
         self._ready = False
         self.owner_phone = ""
         self.owner_name = ""
         self.wid = ""
         self.logged_out = False
+        self._event_callback = None
 
     @property
     def is_running(self):
@@ -164,12 +162,23 @@ class FakeBridge:
     def is_ready(self):
         return self._ready and self._running
 
+    def set_event_callback(self, cb):
+        self._event_callback = cb
+
     async def start(self):
         self._running = True
         Path(self.auth_dir, "session").mkdir(parents=True, exist_ok=True)
 
     async def wait_for_qr_or_ready(self, timeout=60.0):
+        if self._ready:
+            return "ready", {}
         return "qr", {"qr_data_url": "data:image/png;base64,QUFBQQ=="}
+
+    async def wait_exited(self):
+        await asyncio.sleep(3600)
+
+    async def ping(self, timeout=10.0):
+        return {"success": True, "ready": self.is_ready}
 
     async def stop(self):
         self._running = False
@@ -218,14 +227,17 @@ def test_registry_peek_and_drop(bridge_env):
     assert bc.get_whatsapp_bridge("14155552671") is not a  # fresh after drop
 
 
-def test_legacy_no_identity_resolution_uses_default_slot(bridge_env, monkeypatch):
+def test_no_identity_and_no_legacy_credential_raises(bridge_env, monkeypatch):
+    """Legacy removal (§2.8): the ``default`` slot is gone — an
+    identity-less request with nothing to resolve from fails loudly."""
     monkeypatch.setattr(bc, "_legacy_owner_identity", lambda: None)
-    bridge = bc.get_whatsapp_bridge()  # legacy caller, no credential yet
-    assert Path(bridge.auth_dir).name == "default"
-    assert bridge._legacy_guard  # orphan-wipe stays legacy-only
+    with pytest.raises(RuntimeError):
+        bc.get_whatsapp_bridge()
 
 
 def test_legacy_resolution_uses_credential_identity(bridge_env, monkeypatch):
+    # One-release straggler path: a surviving whatsapp_web.json still
+    # resolves the identity for identity-less callers.
     monkeypatch.setattr(bc, "_legacy_owner_identity", lambda: "14155552671")
     bridge = bc.get_whatsapp_bridge()
     assert Path(bridge.auth_dir).name == "14155552671"
@@ -233,8 +245,12 @@ def test_legacy_resolution_uses_credential_identity(bridge_env, monkeypatch):
     assert bc.get_whatsapp_bridge("14155552671") is bridge
 
 
-def test_v2_bridges_have_no_legacy_guard(bridge_env):
-    assert not bc.get_whatsapp_bridge("14155552671")._legacy_guard
+def test_legacy_guard_machinery_is_gone(bridge_env):
+    """§2.8: the legacy_guard orphan-wipe (one misplaced call away from
+    wiping a v2 account's LocalAuth) no longer exists at all."""
+    bridge = bc.get_whatsapp_bridge("14155552671")
+    assert not hasattr(bridge, "_legacy_guard")
+    assert not hasattr(bridge, "_wipe_orphan_localauth_if_disconnected")
 
 
 # ── pending → promote (rekey) ────────────────────────────────────────────
@@ -363,7 +379,7 @@ def test_migration_runs_once(bridge_env, monkeypatch):
 
 
 # ════════════════════════════════════════════════════════════════════════
-# QR session bookkeeping — mocked bridges
+# QR link flow — mocked bridges, whole lifecycle per event loop
 # ════════════════════════════════════════════════════════════════════════
 
 
@@ -371,90 +387,128 @@ def _legacy_json(tmp_root: Path) -> Path:
     return tmp_root / ".credentials" / "whatsapp_web.json"
 
 
+def _flows():
+    from craftos_integrations.integrations.whatsapp_web._session import (
+        get_session_manager,
+    )
+
+    return get_session_manager()._flows
+
+
 def test_start_qr_session_uses_real_uuid_ids(fake_bridges):
-    first = run(start_qr_session())
-    second = run(start_qr_session())
-    for result in (first, second):
-        assert result["success"] and result["status"] == "qr_ready"
-        assert result["qr_code"].startswith("data:image/")
-        sid = result["session_id"]
-        assert sid != "bridge" and len(sid) == 32 and sid in wa_mod._qr_sessions
-    assert first["session_id"] != second["session_id"]
-    # Concurrent sessions don't collide: distinct bridges, distinct dirs.
-    b1 = wa_mod._qr_sessions[first["session_id"]]
-    b2 = wa_mod._qr_sessions[second["session_id"]]
-    assert b1 is not b2 and b1.auth_dir != b2.auth_dir
+    async def scenario():
+        first = await start_qr_session()
+        second = await start_qr_session()
+        for result in (first, second):
+            assert result["success"] and result["status"] == "qr_ready"
+            assert result["qr_code"].startswith("data:image/")
+            sid = result["session_id"]
+            assert sid != "bridge" and len(sid) == 32 and sid in _flows()
+        assert first["session_id"] != second["session_id"]
+        # Concurrent sessions don't collide: distinct bridges, distinct dirs.
+        b1 = _flows()[first["session_id"]]._bridge
+        b2 = _flows()[second["session_id"]]._bridge
+        assert b1 is not b2 and b1.auth_dir != b2.auth_dir
+        for sid in (first["session_id"], second["session_id"]):
+            await check_qr_session_status(sid)  # poll shape sanity
+            from craftos_integrations.integrations.whatsapp_web._session import (
+                get_session_manager,
+            )
+
+            await get_session_manager().cancel_link_flow(sid)
+
+    run(scenario())
 
 
 def test_start_qr_session_refused_beyond_cap(fake_bridges, monkeypatch):
     monkeypatch.setattr(bc, "max_whatsapp_accounts", lambda: 1)
-    assert run(start_qr_session())["status"] == "qr_ready"
-    refused = run(start_qr_session())
-    assert refused["success"] is False and refused["status"] == "error"
-    assert "RAM" in refused["message"]
+
+    async def scenario():
+        assert (await start_qr_session())["status"] == "qr_ready"
+        refused = await start_qr_session()
+        assert refused["success"] is False and refused["status"] == "error"
+        assert "RAM" in refused["message"]
+
+    run(scenario())
 
 
 def test_check_qr_session_lifecycle_returns_identity_and_credential(fake_bridges):
     root = fake_bridges / ".credentials" / "whatsapp_wwebjs_auth"
-    started = run(start_qr_session())
-    sid = started["session_id"]
 
-    waiting = run(check_qr_session_status(sid))
-    assert waiting["status"] == "qr_ready" and waiting["connected"] is False
+    async def scenario():
+        started = await start_qr_session()
+        sid = started["session_id"]
 
-    fake = wa_mod._qr_sessions[sid]
-    fake.owner_phone = "14155552671"
-    fake.owner_name = "Ada Lovelace"
-    fake.wid = "14155552671:7@c.us"
-    fake._ready = True
+        waiting = await check_qr_session_status(sid)
+        assert waiting["status"] == "qr_ready" and waiting["connected"] is False
 
-    result = run(check_qr_session_status(sid))
-    assert result["success"] and result["status"] == "connected"
-    assert result["connected"] is True
-    assert result["identity"] == "14155552671"
-    assert result["owner_phone"] == "14155552671"
-    assert result["owner_name"] == "Ada Lovelace"
-    assert result["credential"] == {
-        "session_id": "14155552671",
-        "owner_phone": "14155552671",
-        "owner_name": "Ada Lovelace",
-        "wid": "14155552671:7@c.us",
-    }
-    # Provider identity agrees with the QR flow — one rule everywhere.
-    assert WhatsAppWebProvider().identity_of(result["credential"]) == result["identity"]
+        fake = _flows()[sid]._bridge
+        fake.owner_phone = "14155552671"
+        fake.owner_name = "Ada Lovelace"
+        fake.wid = "14155552671:7@c.us"
+        fake._ready = True
 
-    # Session bookkeeping: pending gone, bridge promoted to identity.
-    assert sid not in wa_mod._qr_sessions
-    assert not (root / f"pending-{sid}").exists()
-    assert bc.peek_whatsapp_bridge("14155552671") is not None
+        result = await check_qr_session_status(sid)
+        assert result["success"] and result["status"] == "connected"
+        assert result["connected"] is True
+        assert result["identity"] == "14155552671"
+        assert result["owner_phone"] == "14155552671"
+        assert result["owner_name"] == "Ada Lovelace"
+        assert result["credential"] == {
+            "session_id": "14155552671",
+            "owner_phone": "14155552671",
+            "owner_name": "Ada Lovelace",
+            "wid": "14155552671:7@c.us",
+        }
+        # Provider identity agrees with the QR flow — one rule everywhere.
+        assert (
+            WhatsAppWebProvider().identity_of(result["credential"])
+            == result["identity"]
+        )
 
-    # First account mirrors into the legacy json (interim compatibility).
-    legacy = json.loads(_legacy_json(fake_bridges).read_text())
-    assert legacy["owner_phone"] == "14155552671"
+        # Flow bookkeeping: pending dir promoted to the identity dir.
+        assert not (root / f"pending-{sid}").exists()
+        assert bc.peek_whatsapp_bridge("14155552671") is not None
 
-    # A finished session polls as not-found.
-    assert run(check_qr_session_status(sid))["status"] == "error"
+        # §2.8: the legacy whatsapp_web.json is NEVER written anymore.
+        assert not _legacy_json(fake_bridges).exists()
+
+        # A finished flow polls idempotently — same connected result, no
+        # "Session not found" error after success (D10).
+        again = await check_qr_session_status(sid)
+        assert again["status"] == "connected"
+        assert again["identity"] == "14155552671"
+
+    run(scenario())
 
 
-def test_second_account_never_touches_legacy_json(fake_bridges):
+def test_second_account_leaves_existing_legacy_json_untouched(fake_bridges):
     _legacy_json(fake_bridges).parent.mkdir(parents=True, exist_ok=True)
     _legacy_json(fake_bridges).write_text(
         json.dumps(
             {"session_id": "14155552671", "owner_phone": "14155552671", "owner_name": "Ada"}
         )
     )
-    started = run(start_qr_session())
-    sid = started["session_id"]
-    fake = wa_mod._qr_sessions[sid]
-    fake.owner_phone = "923001234567"
-    fake.owner_name = "Bea"
-    fake.wid = "923001234567:1@c.us"
-    fake._ready = True
 
-    result = run(check_qr_session_status(sid))
-    assert result["status"] == "connected" and result["identity"] == "923001234567"
-    # Account #1's legacy file is untouched — no overwrite bug.
-    assert json.loads(_legacy_json(fake_bridges).read_text())["owner_phone"] == "14155552671"
+    async def scenario():
+        started = await start_qr_session()
+        sid = started["session_id"]
+        fake = _flows()[sid]._bridge
+        fake.owner_phone = "923001234567"
+        fake.owner_name = "Bea"
+        fake.wid = "923001234567:1@c.us"
+        fake._ready = True
+
+        result = await check_qr_session_status(sid)
+        assert result["status"] == "connected" and result["identity"] == "923001234567"
+        # A surviving legacy file (pre-migration installs) is never
+        # overwritten by new links.
+        assert (
+            json.loads(_legacy_json(fake_bridges).read_text())["owner_phone"]
+            == "14155552671"
+        )
+
+    run(scenario())
 
 
 def test_check_unknown_session(fake_bridges):
@@ -463,19 +517,26 @@ def test_check_unknown_session(fake_bridges):
 
 
 def test_cancel_qr_session_cleans_pending_bridge_and_temp_dir(fake_bridges):
-    started = run(start_qr_session())
-    sid = started["session_id"]
-    fake = wa_mod._qr_sessions[sid]
-    assert Path(fake.auth_dir).exists()
+    async def scenario():
+        from craftos_integrations.integrations.whatsapp_web._session import (
+            get_session_manager,
+        )
 
-    cancelled = cancel_qr_session(sid)
-    assert cancelled["success"]
-    assert sid not in wa_mod._qr_sessions
-    assert bc._bridges.get(sid) is None
-    assert not fake.is_running
-    assert not Path(fake.auth_dir).exists()  # temp dir deleted
+        started = await start_qr_session()
+        sid = started["session_id"]
+        fake = _flows()[sid]._bridge
+        assert Path(fake.auth_dir).exists()
 
-    assert cancel_qr_session(sid)["success"]  # idempotent
+        cancelled = await get_session_manager().cancel_link_flow(sid)
+        assert cancelled["success"]
+        assert sid not in _flows()
+        assert bc._bridges.get(sid) is None
+        assert not fake.is_running
+        assert not Path(fake.auth_dir).exists()  # temp dir deleted
+
+        assert (await get_session_manager().cancel_link_flow(sid))["success"]
+
+    run(scenario())
 
 
 # ════════════════════════════════════════════════════════════════════════

@@ -11,10 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
-import tempfile
-import uuid
-import webbrowser
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,7 +26,6 @@ from ... import (
     register_client,
     register_handler,
     remove_credential,
-    save_credential,
 )
 from ...config import ConfigStore
 from ...logger import get_logger
@@ -111,149 +106,41 @@ class WhatsAppWebHandler(IntegrationHandler):
         return ["login", "logout", "status"]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
-        try:
-            from ._bridge_client import get_whatsapp_bridge
-        except ImportError:
-            return (
-                False,
-                "WhatsApp bridge not available. Ensure Node.js >= 18 is installed.",
-            )
-
-        bridge = get_whatsapp_bridge()
-        if not bridge.is_running:
-            try:
-                await bridge.start()
-            except Exception as e:
-                return False, f"Failed to start WhatsApp bridge: {e}"
-
-        event_type, event_data = await bridge.wait_for_qr_or_ready(timeout=60.0)
-
-        if event_type == "ready":
-            owner_phone = bridge.owner_phone or ""
-            owner_name = bridge.owner_name or ""
-            save_credential(
-                self.spec.cred_file,
-                WhatsAppWebCredential(
-                    session_id="bridge",
-                    owner_phone=owner_phone,
-                    owner_name=owner_name,
-                ),
-            )
-            display = owner_phone or owner_name or "connected"
-            return True, f"WhatsApp Web connected: +{display}"
-
-        if event_type == "qr":
-            qr_string = (event_data or {}).get("qr_string", "")
-            if qr_string:
-                try:
-                    import qrcode
-
-                    qr = qrcode.QRCode(border=1)
-                    qr.add_data(qr_string)
-                    qr.make(fit=True)
-                    matrix = qr.get_matrix()
-                    lines = [
-                        "".join("##" if cell else "  " for cell in row)
-                        for row in matrix
-                    ]
-                    sys.stderr.write("\n" + "\n".join(lines) + "\n\n")
-                    sys.stderr.write(
-                        "Scan the QR code above with WhatsApp on your phone\n\n"
-                    )
-                    sys.stderr.flush()
-                except Exception:
-                    pass
-
-            qr_data_url = (event_data or {}).get("qr_data_url")
-            if qr_data_url:
-                import base64 as b64
-
-                qr_b64 = qr_data_url
-                if qr_b64.startswith("data:image"):
-                    qr_b64 = qr_b64.split(",", 1)[1]
-                qr_path = os.path.join(tempfile.gettempdir(), "whatsapp_qr_bridge.png")
-                with open(qr_path, "wb") as f:
-                    f.write(b64.b64decode(qr_b64))
-                webbrowser.open(f"file://{qr_path}")
-
-            ready = await bridge.wait_for_ready(timeout=120.0)
-            if not ready:
-                return (
-                    False,
-                    "Timed out waiting for QR scan. Run /whatsapp_web login again.",
-                )
-
-            owner_phone = bridge.owner_phone or ""
-            owner_name = bridge.owner_name or ""
-            save_credential(
-                self.spec.cred_file,
-                WhatsAppWebCredential(
-                    session_id="bridge",
-                    owner_phone=owner_phone,
-                    owner_name=owner_name,
-                ),
-            )
-            display = owner_phone or owner_name or "connected"
-            return True, f"WhatsApp Web connected: +{display}"
-
-        if event_type == "error":
-            detail = (event_data or {}).get("message") or "unknown bridge error"
-            return False, f"WhatsApp bridge failed to start: {detail}"
-
+        # The CLI QR-in-terminal flow went with the legacy single-account
+        # path (session-durability plan §2.8): it could only persist into
+        # whatsapp_web.json, which no longer exists as a write target. The
+        # LinkFlow + account-store path is the one connect path.
         return (
             False,
-            "Timed out waiting for WhatsApp bridge. Run /whatsapp_web login again.",
+            "WhatsApp connects via QR from the Settings → Integrations page "
+            "(or the connect_integration action). The CLI login flow was "
+            "removed with the legacy single-account path.",
         )
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
+        """Cleanup for a stray/surviving legacy whatsapp_web.json — the
+        real disconnect path is ``system_disconnect`` → ``teardown_account``
+        per account. Only does work when a legacy file still exists."""
         if not has_credential(self.spec.cred_file):
             return False, "No WhatsApp credentials found."
-        # Resolve the bridge BEFORE removing the credential: the
-        # legacy-path lookup derives the identity (and therefore the
-        # auth dir) from whatsapp_web.json — once that file is gone it
-        # would resolve to the wrong (default) dir.
         identity = None
-        bridge = None
         try:
-            from ._bridge_client import (
-                drop_whatsapp_bridge,
-                get_whatsapp_bridge,
-                normalize_wa_identity,
-            )
+            from ._bridge_client import normalize_wa_identity
 
             cred = load_credential(self.spec.cred_file, WhatsAppWebCredential)
             identity = normalize_wa_identity(cred.owner_phone if cred else None)
-            bridge = get_whatsapp_bridge()
         except Exception:
             pass
         remove_credential(self.spec.cred_file)
-        try:
-            if bridge is None:
-                raise RuntimeError("whatsapp bridge unavailable")
-            # ``logout()`` (not ``stop()``) — calls wwebjs's ``client.logout()``
-            # which invalidates the session server-side and wipes the LocalAuth
-            # data on disk. Without this, the next connect would silently
-            # auto-restore the session and skip the QR scan, which makes the
-            # disconnect ineffectual from the user's point of view.
-            if bridge.is_running:
-                await bridge.logout()
-            else:
-                # Bridge isn't running but LocalAuth data may still exist
-                # from a previous session — wipe this account's own auth
-                # dir directly (never the shared multi-account root).
-                import shutil
-                from pathlib import Path
+        if identity:
+            try:
+                from ._session import get_session_manager
 
-                shutil.rmtree(Path(bridge.auth_dir), ignore_errors=True)
-            if identity:
-                drop_whatsapp_bridge(identity)
-            from ...manager import get_external_comms_manager
-
-            manager = get_external_comms_manager()
-            if manager:
-                await manager.stop_platform(self.spec.platform_id)
-        except Exception:
-            pass
+                await get_session_manager().teardown(identity)
+            except Exception as e:
+                logger.warning(
+                    f"[WHATSAPP_WEB] legacy logout teardown for '{identity}': {e}"
+                )
         return True, "WhatsApp disconnected."
 
     async def status(self) -> Tuple[bool, str]:
@@ -336,9 +223,9 @@ class WhatsAppWebClient(BasePlatformClient):
     def _store_updated_credential(self, updated: WhatsAppWebCredential) -> None:
         """Persist refreshed owner info captured from the bridge's ready
         event. Bound multi-account clients (the v2 provider binding)
-        override this to route through the account store instead of the
-        legacy whatsapp_web.json."""
-        save_credential(self.spec.cred_file, updated)
+        override this to route through the account store; the base client
+        keeps it in memory only — the legacy whatsapp_web.json is never
+        written anymore (legacy removal, session-durability plan §2.8)."""
         self._cred = updated
 
     async def connect(self) -> None:
@@ -732,84 +619,84 @@ class WhatsAppWebClient(BasePlatformClient):
     def supports_listening(self) -> bool:
         return True
 
+    def _session_identity(self) -> str:
+        """This client's account identity — the bound identity (v2 binding)
+        or, for a bare legacy client, the credential's owner phone."""
+        identity = getattr(self, "_identity", None)
+        if identity:
+            return identity
+        from ._bridge_client import normalize_wa_identity
+
+        resolved = normalize_wa_identity(self._load().owner_phone)
+        if resolved is None:
+            raise RuntimeError(
+                "whatsapp_web credential has no owner phone/wid — cannot "
+                "resolve which account's session to use"
+            )
+        return resolved
+
     async def start_listening(self, callback) -> None:
+        """Delegate lifecycle to this account's session actor and subscribe
+        to its events. The listener supervisor re-invokes this ~1Hz; the
+        actor makes every repeat call a cheap state check — LAUNCHING,
+        RECONNECTING (backoff), NEEDS_RELINK (parked until a fresh QR link)
+        all spawn nothing here. The actor owns start/stop, supervision,
+        heartbeat, and reconnect policy."""
         if self._listening:
-            # Already wired to the bridge — just point at the new callback.
-            # Lets a new integration manager rewire onto a still-running
-            # bridge (e.g. between test_live tests) without tearing down
-            # and reattaching the wwebjs Playwright session. Production
-            # only calls start_listening once at boot, so this is a no-op
-            # there.
+            # Already subscribed — just point at the new callback. Lets a
+            # new integration manager rewire onto a still-running session
+            # (e.g. between test_live tests) without tearing down the
+            # wwebjs session.
             self._message_callback = callback
             return
         self._cred = None
-        bridge = self._get_bridge()
+        from ._session import CONNECTED, get_session_manager
 
-        # Register the callback up-front so any event the bridge emits during
-        # startup (incl. a late "ready" after we return) flows through to us.
+        identity = self._session_identity()
+        session = get_session_manager().session_for(identity)
+        # Register the callback up-front so any event the session forwards
+        # during startup (incl. a late "ready" after we return) reaches us.
         self._message_callback = callback
-        bridge.set_event_callback(self._on_bridge_event)
-
-        if bridge.is_running and bridge.is_ready:
-            event_type = "ready"
-        else:
-            if bridge.is_running:
-                await bridge.stop()
-                await asyncio.sleep(2)
-            await bridge.start()
-            # 180s gives whatsapp-web.js room to finish post-auth chat sync;
-            # on slower restarts the "ready" event can lag well behind the
-            # "authenticated" event.
-            event_type, _ = await bridge.wait_for_qr_or_ready(timeout=180.0)
-
-        if event_type == "qr":
-            # Need a fresh QR scan — credentials are stale, tear down.
-            bridge.set_event_callback(None)
-            await bridge.abandon()
-            self._message_callback = None
-            return
-
-        # If wwebjs hasn't fired "ready" yet (timeout), don't fail —
-        # leave the bridge running with our callback wired. The "ready"
-        # event will arrive eventually (or won't, but the user will see
-        # status="waiting" rather than us tearing the session down).
-        if event_type != "ready":
-            logger.warning(
-                "[WHATSAPP_WEB] Bridge authenticated but 'ready' event not "
-                "received within 180s — leaving bridge running, listener will "
-                "activate when wwebjs finishes syncing."
-            )
-            self._listening = True
-            return
-
-        if bridge.owner_phone or bridge.owner_name:
-            cred = self._load()
-            if (
-                cred.owner_phone != bridge.owner_phone
-                or cred.owner_name != bridge.owner_name
-            ):
-                updated = WhatsAppWebCredential(
-                    session_id=cred.session_id,
-                    owner_phone=bridge.owner_phone or cred.owner_phone,
-                    owner_name=bridge.owner_name or cred.owner_name,
-                )
-                self._store_updated_credential(updated)
-
+        state = await session.ensure_started(self._on_bridge_event)
         self._listening = True
-        self._connected = True
+        self._connected = state == CONNECTED
 
     async def stop_listening(self) -> None:
         if not self._listening:
             return
         self._listening = False
-        bridge = self._get_bridge()
+        # Graceful stop through the session actor: clean ``shutdown`` so
+        # wwebjs runs ``client.destroy()`` and LocalAuth flushes — WhatsApp
+        # sees a proper disconnect (like the desktop app on quit) instead
+        # of a crash, which directly extends session credential lifetime.
+        session = None
+        try:
+            from ._session import get_session_manager
+
+            session = get_session_manager().peek(self._session_identity())
+        except Exception:
+            session = None
+        if session is not None:
+            try:
+                await session.stop()
+            except Exception as e:
+                logger.warning(f"[WHATSAPP_WEB] Session stop error: {e}")
+            return
+        # No session actor (direct-wired bridge in tests / already-torn-down
+        # account). Peek only — resolving via _get_bridge here would
+        # re-register a bridge for a removed identity and leak a capacity
+        # slot.
+        bridge = self._bridge
+        if bridge is None:
+            try:
+                from ._bridge_client import peek_whatsapp_bridge
+
+                bridge = peek_whatsapp_bridge(self._session_identity())
+            except Exception:
+                bridge = None
+        if bridge is None:
+            return
         bridge.set_event_callback(None)
-        # Send the bridge a clean ``shutdown`` command so wwebjs runs
-        # ``client.destroy()`` before the Node subprocess exits. Without this,
-        # the agent's Python process dies and Node gets killed by OS cleanup
-        # — WhatsApp's server treats that as a crash and invalidates the
-        # session faster than it would for a clean disconnect (which is what
-        # the desktop app sends on quit).
         try:
             await bridge.stop()
         except Exception as e:
@@ -842,6 +729,27 @@ class WhatsAppWebClient(BasePlatformClient):
             self._connected = False
         elif event == "ready":
             self._connected = True
+            self._refresh_owner_info(data)
+
+    def _refresh_owner_info(self, data: Dict[str, Any]) -> None:
+        """Persist owner phone/name captured from the ready event when they
+        drifted from the stored credential (renames, first fill-in)."""
+        owner_phone = (data or {}).get("owner_phone", "") or ""
+        owner_name = (data or {}).get("owner_name", "") or ""
+        if not owner_phone and not owner_name:
+            return
+        try:
+            cred = self._load()
+            if cred.owner_phone != owner_phone or cred.owner_name != owner_name:
+                self._store_updated_credential(
+                    WhatsAppWebCredential(
+                        session_id=cred.session_id,
+                        owner_phone=owner_phone or cred.owner_phone,
+                        owner_name=owner_name or cred.owner_name,
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"[WHATSAPP_WEB] owner-info refresh failed: {e}")
 
     # wwebjs message ``type`` → normalized attachment kind. Text messages
     # are type "chat"; anything here is media fetchable by message_id via
@@ -1036,295 +944,61 @@ class WhatsAppWebClient(BasePlatformClient):
 
 
 # ════════════════════════════════════════════════════════════════════════
-# QR-session helpers — for non-blocking UIs that poll
+# QR-session API — thin delegates over the LinkFlow actor (_session.py)
 # ════════════════════════════════════════════════════════════════════════
 #
-# Multi-account flow: every ``start_qr_session`` gets a real uuid session
-# id and a fresh *pending* bridge (own Node process, own temp auth dir),
-# so concurrent QR logins never collide. When the scan completes, the
-# identity is read from the bridge's ready event, the pending bridge is
-# re-keyed to that identity (``promote_pending_bridge``), and
-# ``check_qr_session_status`` returns ``status="connected"`` **with the
-# identity and the full credential dict** — the HOST stores the account
-# via the IntegrationSystem (this package must not import from app/, so
-# it cannot write the AccountSet itself).
-#
-# Legacy-json compatibility: the legacy single-account whatsapp_web.json
-# is still written for the FIRST account only (when no such file exists
-# yet) so the pre-wiring host path and the core's legacy-file migration
-# keep working; later accounts never touch it.
-
-_qr_sessions: Dict[str, Any] = {}  # session_id -> pending WhatsAppBridge
+# Every ``start_qr_session`` gets a uuid session id and a LinkFlow with a
+# fresh *pending* bridge (own Node process, own temp auth dir), so
+# concurrent QR logins never collide. States the caller can see:
+# ``qr_ready`` → ``scanned`` → ``promoting`` → ``connected`` (with the
+# identity and full credential dict — the HOST stores the account via the
+# IntegrationSystem; this package must not import from app/), plus
+# ``timeout`` / ``cancelled`` / ``error``. Completed flows stay registered
+# and return the same ``connected`` result on every poll — no
+# pop-before-promote race, no "Session not found" after success. The
+# legacy whatsapp_web.json is never written (legacy removal, §2.8).
 
 
-def _write_legacy_credential_if_first(
-    identity: str, owner_phone: str, owner_name: str
-) -> bool:
-    """Mirror the FIRST connected account into the legacy whatsapp_web.json
-    (zero-cost interim compatibility); never overwrite it for later
-    accounts — that was exactly the single-account overwrite bug class."""
-    if has_credential(WHATSAPP_WEB.cred_file):
-        return False
-    save_credential(
-        WHATSAPP_WEB.cred_file,
-        WhatsAppWebCredential(
-            session_id=identity,
-            owner_phone=owner_phone,
-            owner_name=owner_name,
-        ),
-    )
-    return True
-
-
-async def _complete_qr_session(session_id: str, bridge: Any) -> Dict[str, Any]:
-    """A pending bridge reached ``ready``: capture identity + owner info,
-    promote the bridge to its identity key, and hand the credential back
-    for the host to store."""
-    from ._bridge_client import (
-        discard_pending_bridge,
-        normalize_wa_identity,
-        promote_pending_bridge,
-    )
-
-    owner_phone = bridge.owner_phone or ""
-    owner_name = bridge.owner_name or ""
-    wid = getattr(bridge, "wid", "") or ""
-    identity = normalize_wa_identity(wid or owner_phone)
-
-    _qr_sessions.pop(session_id, None)
-
-    if identity is None:
-        # Connected but no usable identity — should not happen (the ready
-        # event always carries the wid); don't leave a nameless Chromium
-        # running.
-        await discard_pending_bridge(session_id)
-        return {
-            "success": False,
-            "status": "error",
-            "connected": False,
-            "message": (
-                "WhatsApp connected but did not report a phone number/wid. "
-                "Please try again."
-            ),
-        }
-
-    await promote_pending_bridge(session_id, identity)
-
-    credential = {
-        "session_id": identity,
-        "owner_phone": owner_phone,
-        "owner_name": owner_name,
-        "wid": wid,
-    }
-
-    if _write_legacy_credential_if_first(identity, owner_phone, owner_name):
-        # First account, legacy path still wired: best-effort listener
-        # start exactly as before. Later accounts are started by the v2
-        # host wiring after it stores the credential.
-        try:
-            from ...manager import get_external_comms_manager
-
-            manager = get_external_comms_manager()
-            if manager:
-                await manager.start_platform(WHATSAPP_WEB.platform_id)
-        except Exception:
-            pass
-
-    display = owner_phone or owner_name or identity
-    return {
-        "success": True,
-        "status": "connected",
-        "connected": True,
-        "session_id": session_id,
-        "identity": identity,
-        "owner_phone": owner_phone,
-        "owner_name": owner_name,
-        "credential": credential,
-        "message": f"WhatsApp connected: +{display}",
-    }
-
-
-async def start_qr_session() -> Dict[str, Any]:
-    """Start a fresh pending login bridge and return either ``qr_ready``
-    (with QR data URL and a uuid ``session_id``) or — should the fresh
-    session somehow already be authenticated — ``connected`` (with
-    ``identity`` + ``credential`` for the host to store). Caller polls
-    ``check_qr_session_status(session_id)`` until ``connected``.
-
-    Refused with a clear error when the ``max_accounts`` cap is reached
-    (each account costs a headless Chromium, ~300-500 MB RAM)."""
+async def start_qr_session(force: bool = False) -> Dict[str, Any]:
+    """Start a fresh QR link flow. ``force`` bypasses the just-connected
+    guard (explicit user clicks pass True; stale pollers can't ghost-start
+    a flow). Refused with a clear error at the ``max_accounts`` cap."""
     try:
-        from ._bridge_client import (
-            BridgeCapacityError,
-            create_pending_bridge,
-            discard_pending_bridge,
-        )
+        from ._session import get_session_manager
     except ImportError:
         return {
             "success": False,
             "status": "error",
             "message": "WhatsApp bridge not available. Ensure Node.js >= 18 is installed.",
         }
-
-    session_id = uuid.uuid4().hex
-    try:
-        bridge = create_pending_bridge(session_id)
-    except BridgeCapacityError as e:
-        return {"success": False, "status": "error", "message": str(e)}
-
-    try:
-        await bridge.start()
-        event_type, event_data = await bridge.wait_for_qr_or_ready(timeout=60.0)
-
-        if event_type == "ready":
-            # A pending dir is always fresh, so this is belt-and-braces —
-            # but if it happens, finish the login properly.
-            return await _complete_qr_session(session_id, bridge)
-
-        if event_type == "qr":
-            qr_data = (event_data or {}).get("qr_data_url", "")
-            if not qr_data:
-                qr_string = (event_data or {}).get("qr_string", "")
-                if qr_string:
-                    try:
-                        import qrcode
-                        import io
-                        import base64
-
-                        qr = qrcode.QRCode(border=1)
-                        qr.add_data(qr_string)
-                        qr.make(fit=True)
-                        img = qr.make_image(fill_color="black", back_color="white")
-                        buf = io.BytesIO()
-                        img.save(buf, format="PNG")
-                        qr_data = f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
-                    except Exception as e:
-                        logger.warning(f"Failed to generate QR image: {e}")
-
-            if not qr_data:
-                await discard_pending_bridge(session_id)
-                return {
-                    "success": False,
-                    "status": "error",
-                    "message": "Failed to generate QR code.",
-                }
-            if qr_data and not qr_data.startswith("data:"):
-                qr_data = f"data:image/png;base64,{qr_data}"
-
-            _qr_sessions[session_id] = bridge
-            return {
-                "success": True,
-                "session_id": session_id,
-                "qr_code": qr_data,
-                "status": "qr_ready",
-                "message": "Scan the QR code with your WhatsApp mobile app",
-            }
-
-        await discard_pending_bridge(session_id)
-        if event_type == "error":
-            detail = (event_data or {}).get("message") or "unknown bridge error"
-            return {
-                "success": False,
-                "status": "error",
-                "message": f"WhatsApp bridge failed to start: {detail}",
-            }
-        return {
-            "success": False,
-            "status": "error",
-            "message": "Timed out waiting for WhatsApp bridge.",
-        }
-    except Exception as e:
-        logger.error(f"Failed to start WhatsApp QR session: {e}")
-        try:
-            from ._bridge_client import discard_pending_bridge
-
-            await discard_pending_bridge(session_id)
-        except Exception:
-            pass
-        return {
-            "success": False,
-            "status": "error",
-            "message": f"Failed to start session: {e}",
-        }
+    return await get_session_manager().start_link_flow(force=force)
 
 
 async def check_qr_session_status(session_id: str) -> Dict[str, Any]:
-    """Poll a started QR session.
+    """Poll a started QR flow. On ``connected`` the result carries
+    ``identity`` and ``credential`` for the host to store; polling a
+    finished flow returns the same result again (idempotent)."""
+    from ._session import get_session_manager
 
-    On ``connected`` the result carries everything the host needs to
-    store the account: ``identity`` (normalized owner phone/wid) and
-    ``credential`` (the full dict — session_id, owner_phone, owner_name,
-    wid). This function does NOT write the AccountSet itself (layering:
-    craftos_integrations never imports from app/); the host does that via
-    the IntegrationSystem. Only the legacy first-account json mirror is
-    written here (see ``_write_legacy_credential_if_first``)."""
-    bridge = _qr_sessions.get(session_id)
-    if bridge is None:
-        return {
-            "success": False,
-            "status": "error",
-            "connected": False,
-            "message": "Session not found. Please start a new session.",
-        }
-
-    try:
-        if bridge.is_ready:
-            return await _complete_qr_session(session_id, bridge)
-        elif not bridge.is_running:
-            _qr_sessions.pop(session_id, None)
-            try:
-                from ._bridge_client import discard_pending_bridge
-
-                await discard_pending_bridge(session_id)
-            except Exception:
-                pass
-            return {
-                "success": False,
-                "status": "error",
-                "connected": False,
-                "message": "WhatsApp bridge stopped unexpectedly. Please try again.",
-            }
-        else:
-            return {
-                "success": True,
-                "status": "qr_ready",
-                "connected": False,
-                "message": "Waiting for QR code scan...",
-            }
-    except Exception as e:
-        logger.error(f"Failed to check WhatsApp session status: {e}")
-        return {
-            "success": False,
-            "status": "error",
-            "connected": False,
-            "message": f"Status check failed: {e}",
-        }
+    return await get_session_manager().link_flow_status(session_id)
 
 
 def cancel_qr_session(session_id: str) -> Dict[str, Any]:
-    """Cancel a pending QR login: stop its bridge AND delete its temp auth
-    dir (via ``discard_pending_bridge``). Safe for unknown/finished ids."""
-    bridge = _qr_sessions.pop(session_id, None)
-    if bridge is None:
-        return {"success": True, "message": "Session not found or already cancelled."}
+    """Cancel a pending QR flow: stop its bridge AND delete its temp auth
+    dir. Safe for unknown/finished ids. Sync entry — schedules on the
+    running loop when there is one."""
+    from ._session import get_session_manager
 
-    async def _cleanup() -> None:
-        try:
-            from ._bridge_client import discard_pending_bridge
-
-            await discard_pending_bridge(session_id)
-        except Exception as e:
-            logger.warning(f"Failed to clean up WhatsApp QR session: {e}")
-
+    manager = get_session_manager()
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
     try:
         if loop is not None:
-            asyncio.ensure_future(_cleanup())
-        else:
-            asyncio.run(_cleanup())
-    except Exception:
-        pass
-    return {"success": True, "message": "Session cancelled."}
+            asyncio.ensure_future(manager.cancel_link_flow(session_id))
+            return {"success": True, "message": "Session cancelled."}
+        return asyncio.run(manager.cancel_link_flow(session_id))
+    except Exception as e:
+        logger.warning(f"Failed to cancel WhatsApp QR session: {e}")
+        return {"success": True, "message": "Session cancelled."}

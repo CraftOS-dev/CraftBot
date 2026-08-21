@@ -3773,6 +3773,26 @@ class AgentBase:
                 logger.warning(f"[SHUTDOWN] Living UI cleanup error: {e}")
             # Gracefully shutdown MCP connections
             await self._shutdown_mcp()
+            # Stop the v2 per-account listeners (whatsapp_web sessions get a
+            # clean `shutdown` to Node here — WhatsApp sees a proper
+            # disconnect instead of a crash, which directly extends how long
+            # the server trusts the stored session).
+            try:
+                from app.integrations import stop_listeners
+
+                await stop_listeners()
+            except Exception as e:
+                logger.warning(f"[SHUTDOWN] Listener manager stop failed: {e}")
+            # Belt-and-braces for whatsapp sessions/link-flows not owned by a
+            # listener (listen=False accounts, pending QR flows).
+            try:
+                from craftos_integrations.integrations.whatsapp_web._session import (
+                    get_session_manager,
+                )
+
+                await get_session_manager().shutdown_all()
+            except Exception as e:
+                logger.warning(f"[SHUTDOWN] WhatsApp session shutdown failed: {e}")
             # Stop external communications
             if hasattr(self, "_external_comms"):
                 await self._external_comms.stop()

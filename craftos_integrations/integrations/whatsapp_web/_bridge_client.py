@@ -40,20 +40,22 @@ BRIDGE_SCRIPT = BRIDGE_DIR / "bridge.js"
 EventCallback = Callable[[str, Dict[str, Any]], Coroutine[Any, Any, None]]
 
 
+# Test hook: when set, ``WhatsAppBridge.start`` execs this argv (list)
+# instead of ``node bridge.js <auth_dir>`` — lets lifecycle tests drive the
+# full subprocess protocol against a controllable fake script.
+_BRIDGE_EXEC_OVERRIDE: Optional[list] = None
+
+
 class WhatsAppBridge:
-    def __init__(self, auth_dir: str, legacy_guard: bool = False):
+    def __init__(self, auth_dir: str):
         """``auth_dir`` is this instance's private LocalAuth directory —
         always account-scoped (``whatsapp_wwebjs_auth/<identity>/`` or a
-        ``pending-<session_id>/`` dir), never the shared root.
-
-        ``legacy_guard`` is set only for bridges resolved through the
-        legacy single-account path (``get_whatsapp_bridge()`` with no
-        identity): it enables the whatsapp_web.json orphan-wipe check,
-        which is meaningless for v2 accounts (their lifecycle is the
-        AccountSet + ``teardown_account``, not the legacy json)."""
+        ``pending-<session_id>/`` dir), never the shared root."""
         self._process: Optional[asyncio.subprocess.Process] = None
         self._reader_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
+        self._exit_watcher: Optional[asyncio.Task] = None
+        self._exit_future: Optional[asyncio.Future] = None
         self._pending: Dict[str, asyncio.Future] = {}
         self._event_callback: Optional[EventCallback] = None
         self._running = False
@@ -62,7 +64,7 @@ class WhatsAppBridge:
         self._owner_name = ""
         self._wid = ""
         self._auth_dir = auth_dir
-        self._legacy_guard = legacy_guard
+        self._teardown_lock = asyncio.Lock()
 
     @property
     def is_running(self) -> bool:
@@ -127,6 +129,22 @@ class WhatsAppBridge:
         # — every miss leaks another zombie tree.
         auth_dir_marker = str(auth_dir).lower()
 
+        def _marker_matches(joined_cmdline: str) -> bool:
+            # Boundary-checked: identity dirs are digit strings under one
+            # shared root, so plain substring would let account "1"'s
+            # cleanup match (and kill) account "1234"'s Chromium. The
+            # marker must be followed by a path separator, quote,
+            # whitespace, or end-of-string.
+            start = 0
+            while True:
+                idx = joined_cmdline.find(auth_dir_marker, start)
+                if idx == -1:
+                    return False
+                end = idx + len(auth_dir_marker)
+                if end >= len(joined_cmdline) or joined_cmdline[end] in "\\/\" '":
+                    return True
+                start = idx + 1
+
         # 1. Kill orphan Chromium processes pinned to our auth dir
         killed = 0
         try:
@@ -141,7 +159,7 @@ class WhatsAppBridge:
                     if not cmdline:
                         continue
                     joined = " ".join(a for a in cmdline if isinstance(a, str)).lower()
-                    if auth_dir_marker not in joined:
+                    if not _marker_matches(joined):
                         continue
                     proc.kill()
                     killed += 1
@@ -197,70 +215,35 @@ class WhatsAppBridge:
                 f"(killed {killed} orphan Chromium proc(s), removed {removed} lock file(s))"
             )
 
-    def _wipe_orphan_localauth_if_disconnected(self) -> None:
-        """Defense-in-depth: if the user's top-level credential file is gone
-        but wwebjs's LocalAuth data still exists, the user has disconnected
-        but the logout RPC didn't finish wiping the session before reconnect.
-        Force-wipe the auth dir so the next connect demands a fresh QR
-        instead of silently restoring the stale session.
-
-        LEGACY-ONLY: applies only to bridges resolved through the legacy
-        single-account path (``legacy_guard``). For v2 multi-account
-        bridges the legacy whatsapp_web.json says nothing about whether
-        THIS account is connected — using it here would wipe account #2's
-        session because account #1's legacy file was migrated away. v2
-        cleanup happens via ``teardown_account``.
-        """
-        if not self._legacy_guard:
-            return
-        import shutil
-
-        cred_path = (
-            Path(ConfigStore.project_root) / ".credentials" / "whatsapp_web.json"
-        )
-        auth_path = Path(self._auth_dir)
-        if cred_path.exists():
-            return  # User is still connected; LocalAuth is legitimate.
-        if not auth_path.exists():
-            return  # Already clean.
-        try:
-            shutil.rmtree(auth_path, ignore_errors=True)
-            logger.info(
-                "[WA-Bridge] wiped orphan LocalAuth — credential was removed "
-                "but session data remained; forcing fresh QR on this connect"
-            )
-        except Exception as e:
-            logger.warning(f"[WA-Bridge] could not wipe orphan LocalAuth: {e}")
-
     async def start(self) -> None:
         if self.is_running:
             return
 
         self._clear_stale_session_locks()
-        self._wipe_orphan_localauth_if_disconnected()
 
-        node_modules = BRIDGE_DIR / "node_modules"
-        if not node_modules.exists():
-            logger.info("[WA-Bridge] Installing npm dependencies...")
-            npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
-            proc = await asyncio.create_subprocess_exec(
-                npm_cmd,
-                "install",
-                cwd=str(BRIDGE_DIR),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-            if proc.returncode != 0:
-                stderr = await proc.stderr.read()
-                raise RuntimeError(f"npm install failed: {stderr.decode()}")
+        if _BRIDGE_EXEC_OVERRIDE is None:
+            node_modules = BRIDGE_DIR / "node_modules"
+            if not node_modules.exists():
+                logger.info("[WA-Bridge] Installing npm dependencies...")
+                npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
+                proc = await asyncio.create_subprocess_exec(
+                    npm_cmd,
+                    "install",
+                    cwd=str(BRIDGE_DIR),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+                if proc.returncode != 0:
+                    stderr = await proc.stderr.read()
+                    raise RuntimeError(f"npm install failed: {stderr.decode()}")
 
         logger.info(f"[WA-Bridge] Starting bridge (auth_dir={self._auth_dir})")
 
         node_cmd = "node.exe" if os.name == "nt" else "node"
+        argv = _BRIDGE_EXEC_OVERRIDE or [node_cmd, str(BRIDGE_SCRIPT)]
         self._process = await asyncio.create_subprocess_exec(
-            node_cmd,
-            str(BRIDGE_SCRIPT),
+            *argv,
             self._auth_dir,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
@@ -279,6 +262,30 @@ class WhatsAppBridge:
         self._reader_task = asyncio.create_task(self._read_stdout())
         self._stderr_task = asyncio.create_task(self._read_stderr())
 
+        # Exit supervision hook: the session actor awaits ``wait_exited``
+        # to catch crashes/disconnect-exits the moment they happen (D3 —
+        # bridge death used to be silent and permanent until app restart).
+        loop = asyncio.get_event_loop()
+        self._exit_future = loop.create_future()
+        proc, fut = self._process, self._exit_future
+
+        async def _watch_exit() -> None:
+            rc = await proc.wait()
+            if not fut.done():
+                fut.set_result(rc)
+
+        self._exit_watcher = asyncio.create_task(_watch_exit())
+
+    async def wait_exited(self) -> Optional[int]:
+        """Block until the current Node process exits; returns its return
+        code. Returns immediately (None) when no process was ever started.
+        Shielded so multiple waiters can share one future and a cancelled
+        waiter doesn't kill it for the others."""
+        fut = self._exit_future
+        if fut is None:
+            return None
+        return await asyncio.shield(fut)
+
     async def stop(self) -> None:
         await self._teardown(cmd="shutdown")
 
@@ -291,21 +298,19 @@ class WhatsAppBridge:
         await self._teardown(cmd="shutdown", send_timeout=2.0, wait_timeout=3.0)
 
     async def logout(self) -> None:
-        """Full disconnect — fire-and-forget, with a tight timeout.
+        """Full disconnect: server-side unlink + local LocalAuth wipe.
 
-        wwebjs's ``client.logout()`` can hang for 30+ seconds on a stuck
-        session because it tries to flush the WhatsApp server-side
-        invalidation through a half-broken connection. Waiting for that
-        gives terrible UX (user clicks Disconnect → 2 minutes of silence).
-
-        Trade-off: we give Node ~3s to start the server-side logout, then
-        force-kill the process and wipe LocalAuth ourselves. The user's
-        local state (no cred, no auth dir) is the source-of-truth for
-        "disconnected"; WhatsApp will eventually expire the server session
-        on its own. Net effect: disconnect feels instant, fresh QR every
-        reconnect.
+        The ``logout`` command makes wwebjs run ``client.logout()``, which
+        removes the linked device from the user's phone (Desktop-parity:
+        disconnect must not leave a ghost entry in Linked Devices).
+        bridge.js acks the command immediately and then logs out + exits,
+        so send returns fast; we then give the process up to 8s to finish
+        the server-side flush before force-killing — ``client.logout()``
+        can hang 30+s on a half-broken connection and we won't hold a
+        disconnect hostage to that. Local state (no cred, no auth dir) is
+        the source of truth either way.
         """
-        await self._teardown(cmd="logout", send_timeout=3.0, wait_timeout=3.0)
+        await self._teardown(cmd="logout", send_timeout=3.0, wait_timeout=8.0)
         from pathlib import Path
         import shutil
 
@@ -323,49 +328,87 @@ class WhatsAppBridge:
         """Send ``cmd`` to the bridge, wait for the Node process to exit,
         and clean up reader tasks. Used by both ``stop`` and ``logout``.
         Tighter timeouts give logout a snappy UX; ``stop`` keeps the
-        original generous timeouts for graceful agent-shutdown paths."""
-        if not self.is_running:
-            return
-        self._running = False
-        self._ready = False
+        original generous timeouts for graceful agent-shutdown paths.
 
-        try:
-            await self.send_command(cmd, timeout=send_timeout)
-        except Exception:
-            pass
+        Serialized: reconcile-driven stop() and teardown_account's logout()
+        can race on the same bridge; the second caller must see the first
+        teardown's completed state, not a half-dead process."""
+        async with self._teardown_lock:
+            if not self.is_running:
+                return
 
-        if self._process:
+            # Send the command while the bridge still accepts commands —
+            # send_command refuses once _running is False, so flipping the
+            # flag first meant no shutdown/logout EVER reached Node: wwebjs
+            # never ran client.destroy()/logout(), every stop was a hard
+            # kill of a live Chromium (locked profiles, phone kept showing
+            # the linked device). bridge.js responds before exiting, so
+            # this returns quickly on a healthy bridge.
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=wait_timeout)
-            except asyncio.TimeoutError:
-                if os.name == "nt":
-                    try:
-                        subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", str(self._process.pid)],
-                            capture_output=True,
-                            timeout=5,
-                        )
-                    except Exception:
-                        self._process.kill()
-                else:
-                    self._process.kill()
+                await self.send_command(cmd, timeout=send_timeout)
+            except Exception:
+                pass
 
-        for task in [self._reader_task, self._stderr_task]:
-            if task and not task.done():
-                task.cancel()
+            self._running = False
+            self._ready = False
+
+            if self._process:
                 try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+                    await asyncio.wait_for(
+                        self._process.wait(), timeout=wait_timeout
+                    )
+                except asyncio.TimeoutError:
+                    if os.name == "nt":
+                        try:
+                            subprocess.run(
+                                [
+                                    "taskkill",
+                                    "/F",
+                                    "/T",
+                                    "/PID",
+                                    str(self._process.pid),
+                                ],
+                                capture_output=True,
+                                timeout=5,
+                            )
+                        except Exception:
+                            self._process.kill()
+                    else:
+                        self._process.kill()
+                    # The kill is asynchronous — Chromium's tree holds file
+                    # locks until it fully exits. Callers rmtree/move the
+                    # auth dir right after us, so never return while the
+                    # process may still be dying.
+                    try:
+                        await asyncio.wait_for(self._process.wait(), timeout=10.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "[WA-Bridge] process did not exit after force "
+                            "kill; auth dir may still be locked"
+                        )
 
-        self._process = None
-        self._reader_task = None
-        self._stderr_task = None
+            for task in [self._reader_task, self._stderr_task]:
+                if task and not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
 
-        for req_id, future in self._pending.items():
-            if not future.done():
-                future.set_exception(RuntimeError("Bridge stopped"))
-        self._pending.clear()
+            self._process = None
+            self._reader_task = None
+            self._stderr_task = None
+            # The exit watcher resolved (or will resolve) the exit future
+            # when the process died above — drop our handle so a later
+            # start() arms a fresh future.
+            self._exit_watcher = None
+
+            # Copy: a concurrently-timing-out send_command pops from
+            # self._pending while we iterate.
+            for req_id, future in list(self._pending.items()):
+                if not future.done():
+                    future.set_exception(RuntimeError("Bridge stopped"))
+            self._pending.clear()
 
     async def send_command(
         self, cmd: str, args: Optional[Dict[str, Any]] = None, timeout: float = 30.0
@@ -395,6 +438,12 @@ class WhatsAppBridge:
 
     async def get_status(self) -> Dict[str, Any]:
         return await self.send_command("get_status")
+
+    async def ping(self, timeout: float = 10.0) -> Dict[str, Any]:
+        """Cheap liveness probe (answered Node-side without touching the
+        page). The session supervisor's heartbeat — two consecutive misses
+        mean the process is alive but hung."""
+        return await self.send_command("ping", timeout=timeout)
 
     async def get_chats(self, limit: int = 50) -> Dict[str, Any]:
         return await self.send_command("get_chats", {"limit": limit})
@@ -838,11 +887,6 @@ def normalize_wa_identity(value: Any) -> Optional[str]:
 # ════════════════════════════════════════════════════════════════════════
 
 _PENDING_DIR_PREFIX = "pending-"
-# Legacy CLI login path only: no identity known and no legacy credential
-# to derive one from — the bridge lives under this key/dir until the
-# credential exists, then the dir is adopted into the identity dir on the
-# next resolution (see _adopt_default_dir).
-_DEFAULT_IDENTITY_KEY = "default"
 
 _bridges: Dict[str, WhatsAppBridge] = {}
 _pending_keys: set = set()  # session ids currently registered as pending
@@ -971,47 +1015,25 @@ def _ensure_layout_migrated() -> None:
     )
 
 
-def _adopt_default_dir(identity: str) -> None:
-    """Legacy CLI login quirk: a login that started with no credential ran
-    under the ``default`` dir; once the credential names the identity,
-    move that session into the identity dir so the next start doesn't
-    demand a fresh QR. Skipped while a live bridge holds the dir."""
-    default_dir = _identity_auth_dir(_DEFAULT_IDENTITY_KEY)
-    target = _identity_auth_dir(identity)
-    if target.exists() or not (default_dir / "session").exists():
-        return
-    stale = _bridges.get(_DEFAULT_IDENTITY_KEY)
-    if stale is not None:
-        if stale.is_running:
-            return  # Chromium holds the dir — can't move it out from under it.
-        _bridges.pop(_DEFAULT_IDENTITY_KEY, None)
-    import shutil
-
-    try:
-        shutil.move(str(default_dir), str(target))
-        logger.info(f"[WA-Bridge] adopted default auth dir as {target}")
-    except OSError as e:
-        logger.warning(f"[WA-Bridge] could not adopt default auth dir: {e}")
-
-
 def get_whatsapp_bridge(identity: Optional[str] = None) -> WhatsAppBridge:
     """The per-account bridge for ``identity`` (any phone/wid spelling —
     normalized here), creating it (stopped) on first use.
 
-    ``identity=None`` is the legacy single-account path (CLI handler,
-    unbound legacy client): the identity is resolved from the legacy
-    whatsapp_web.json, falling back to a ``default`` slot when no
-    credential exists yet. v2 callers always pass an identity.
+    ``identity=None`` is tolerated for one release for stragglers of the
+    legacy single-account path: the identity is resolved from a surviving
+    whatsapp_web.json. With no such file the call fails loudly — the
+    ``default`` slot semantics are gone (legacy removal, session-durability
+    plan §2.8); every v2 caller passes an identity.
     """
     _ensure_layout_migrated()
-    legacy_guard = False
     if identity is None:
-        legacy_guard = True
         resolved = _legacy_owner_identity()
         if resolved is None:
-            resolved = _DEFAULT_IDENTITY_KEY
-        else:
-            _adopt_default_dir(resolved)
+            raise RuntimeError(
+                "whatsapp_web bridge requested without an account identity "
+                "and no legacy credential exists — connect an account via "
+                "the Settings → Integrations QR flow first"
+            )
         key = resolved
     else:
         normalized = normalize_wa_identity(identity)
@@ -1021,9 +1043,7 @@ def get_whatsapp_bridge(identity: Optional[str] = None) -> WhatsAppBridge:
 
     bridge = _bridges.get(key)
     if bridge is None:
-        bridge = WhatsAppBridge(
-            auth_dir=str(_identity_auth_dir(key)), legacy_guard=legacy_guard
-        )
+        bridge = WhatsAppBridge(auth_dir=str(_identity_auth_dir(key)))
         _bridges[key] = bridge
     return bridge
 
@@ -1135,14 +1155,19 @@ async def promote_pending_bridge(session_id: str, identity: str) -> WhatsAppBrid
 
 
 async def teardown_account(identity: str) -> None:
-    """Host hook for account removal: stop and forget ``identity``'s bridge
-    and delete its LocalAuth dir. A server-side logout is attempted first
-    (mirrors the legacy disconnect semantics — without it the next QR
-    login could silently restore the old session). Safe to call for an
-    identity with no live bridge; idempotent."""
-    normalized = normalize_wa_identity(identity)
-    if normalized is None:
-        return
+    """Host hook for account removal: routed through the per-identity
+    session actor so it can never race the actor's own supervision or a
+    concurrent reconcile stop (D9 — two unserialized teardowns of one
+    bridge). Server-side logout first, then process exit, then auth-dir
+    delete. Safe for an identity with no live bridge; idempotent."""
+    from ._session import get_session_manager
+
+    await get_session_manager().teardown(identity)
+
+
+async def _teardown_account_impl(normalized: str) -> None:
+    """The raw teardown primitive — only the session manager calls this
+    (inside the identity's actor lock)."""
     _ensure_layout_migrated()
     bridge = _bridges.pop(normalized, None)
     if bridge is not None:
@@ -1188,3 +1213,9 @@ def _reset_bridge_registry_for_tests() -> None:
     _bridges.clear()
     _pending_keys.clear()
     _layout_migrated = False
+    try:
+        from ._session import _reset_session_manager_for_tests
+
+        _reset_session_manager_for_tests()
+    except Exception:
+        pass

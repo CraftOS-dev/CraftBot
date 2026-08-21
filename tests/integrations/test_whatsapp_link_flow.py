@@ -1,0 +1,245 @@
+"""LinkFlow behavior (session-durability plan §2.5): state progression
+qr_ready → scanned → promoting → connected with idempotent completion,
+cancel cleanup, QR-cycle timeout, abandoned-flow self-cancel, the
+recent-connect ghost-flow guard, and the boot sweep for orphan pending
+dirs. Mocked bridges — no Node, no Chromium.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import time
+from pathlib import Path
+
+import pytest
+
+import craftos_integrations.integrations.whatsapp_web._bridge_client as bc
+import craftos_integrations.integrations.whatsapp_web._session as sess
+
+
+class FlowFakeBridge:
+    """Pending-bridge double for LinkFlow: emits a QR on start, the test
+    flips it to ready (scan) or emits events through the stored callback."""
+
+    def __init__(self, auth_dir: str):
+        self.auth_dir = auth_dir
+        self._running = False
+        self._ready = False
+        self.owner_phone = ""
+        self.owner_name = ""
+        self.wid = ""
+        self._event_callback = None
+
+    @property
+    def is_running(self):
+        return self._running
+
+    @property
+    def is_ready(self):
+        return self._ready and self._running
+
+    def set_event_callback(self, cb):
+        self._event_callback = cb
+
+    async def start(self):
+        self._running = True
+        Path(self.auth_dir, "session").mkdir(parents=True, exist_ok=True)
+
+    async def wait_for_qr_or_ready(self, timeout=60.0):
+        if self._ready:
+            return "ready", {}
+        return "qr", {"qr_data_url": "data:image/png;base64,QUFBQQ=="}
+
+    async def stop(self):
+        self._running = False
+
+    async def abandon(self):
+        self._running = False
+
+    async def logout(self):
+        self._running = False
+        import shutil
+
+        shutil.rmtree(self.auth_dir, ignore_errors=True)
+
+    async def emit(self, event, data=None):
+        if self._event_callback is not None:
+            await self._event_callback(event, data or {})
+
+    def scanned_by(self, phone: str, name: str = "Ada"):
+        self.owner_phone = phone
+        self.owner_name = name
+        self.wid = f"{phone}:1@c.us"
+        self._ready = True
+
+
+@pytest.fixture
+def flow_env(tmp_path, monkeypatch):
+    monkeypatch.setattr(bc.ConfigStore, "project_root", tmp_path)
+    bc._reset_bridge_registry_for_tests()
+    monkeypatch.setattr(bc, "WhatsAppBridge", FlowFakeBridge)
+    yield tmp_path
+    bc._reset_bridge_registry_for_tests()
+
+
+def manager():
+    return sess.get_session_manager()
+
+
+def test_full_flow_states_and_idempotent_done(flow_env):
+    async def scenario():
+        started = await manager().start_link_flow()
+        assert started["status"] == "qr_ready"
+        assert started["expires_in"] > 0
+        sid = started["session_id"]
+        flow = manager()._flows[sid]
+
+        # Phone scanned → wwebjs fires authenticated before ready.
+        await flow._bridge.emit("authenticated", {})
+        polled = await manager().link_flow_status(sid)
+        assert polled["status"] == "scanned"
+
+        flow._bridge.scanned_by("14155552671")
+        result = await manager().link_flow_status(sid)
+        assert result["status"] == "connected" and result["connected"] is True
+        assert result["identity"] == "14155552671"
+        assert result["credential"]["wid"] == "14155552671:1@c.us"
+
+        # D10: completion is idempotent — a concurrent/late poller gets the
+        # same result, never "Session not found".
+        for _ in range(3):
+            again = await manager().link_flow_status(sid)
+            assert again["status"] == "connected"
+            assert again["identity"] == "14155552671"
+
+        # Promotion re-keyed the pending dir to the identity.
+        root = flow_env / ".credentials" / "whatsapp_wwebjs_auth"
+        assert not (root / f"pending-{sid}").exists()
+        assert (root / "14155552671").exists()
+
+    asyncio.run(scenario())
+
+
+def test_recent_connect_guard_blocks_ghost_flows(flow_env):
+    """Log-4 ghost flow: a stale poller restarting a QR right after a
+    successful link is refused; an explicit user click (force) is not."""
+
+    async def scenario():
+        started = await manager().start_link_flow()
+        sid = started["session_id"]
+        manager()._flows[sid]._bridge.scanned_by("14155552671")
+        assert (await manager().link_flow_status(sid))["status"] == "connected"
+
+        ghost = await manager().start_link_flow()
+        assert ghost["success"] is False and ghost["status"] == "error"
+
+        forced = await manager().start_link_flow(force=True)
+        assert forced["status"] == "qr_ready"
+        await manager().cancel_link_flow(forced["session_id"])
+
+    asyncio.run(scenario())
+
+
+def test_qr_cycles_then_timeout(flow_env, monkeypatch):
+    """Unscanned QR: cycles renew the code (event-driven, never a
+    destructive recovery), then the flow parks as TIMEOUT with a
+    start-again CTA — no Chromium burns forever."""
+    monkeypatch.setattr(sess.LinkFlow, "QR_CYCLE_SECONDS", 0.05)
+    monkeypatch.setattr(sess.LinkFlow, "WATCH_INTERVAL", 0.01)
+    monkeypatch.setattr(sess.LinkFlow, "MAX_QR_CYCLES", 2)
+    monkeypatch.setattr(sess.LinkFlow, "ABANDON_AFTER", 10.0)
+
+    async def scenario():
+        started = await manager().start_link_flow()
+        sid = started["session_id"]
+        deadline = time.time() + 3.0
+        status = None
+        while time.time() < deadline:
+            status = await manager().link_flow_status(sid)
+            if status["status"] == "timeout":
+                break
+            await asyncio.sleep(0.02)
+        assert status is not None and status["status"] == "timeout"
+        # Pending dir cleaned up on park.
+        root = flow_env / ".credentials" / "whatsapp_wwebjs_auth"
+        assert not (root / f"pending-{sid}").exists()
+
+    asyncio.run(scenario())
+
+
+def test_abandoned_flow_cancels_itself(flow_env, monkeypatch):
+    """Nobody polling (modal closed without cancel): the flow stops
+    burning a browser for an abandoned QR."""
+    monkeypatch.setattr(sess.LinkFlow, "ABANDON_AFTER", 0.05)
+    monkeypatch.setattr(sess.LinkFlow, "WATCH_INTERVAL", 0.01)
+
+    async def scenario():
+        started = await manager().start_link_flow()
+        sid = started["session_id"]
+        flow = manager()._flows[sid]
+        await asyncio.sleep(0.3)
+        assert flow.state == sess.FLOW_CANCELLED
+        assert not flow._bridge.is_running
+
+    asyncio.run(scenario())
+
+
+def test_link_reset_clears_relink_marker_and_old_session(flow_env):
+    """Re-linking a NEEDS_RELINK account: promotion replaces the dead
+    LocalAuth and resets the parked actor — the account comes back."""
+
+    async def scenario():
+        identity = "14155552671"
+        sess._write_relink_marker(identity)
+        parked = manager().session_for(identity)
+        assert await parked.ensure_started() == sess.NEEDS_RELINK
+
+        started = await manager().start_link_flow(force=True)
+        sid = started["session_id"]
+        manager()._flows[sid]._bridge.scanned_by(identity)
+        result = await manager().link_flow_status(sid)
+        assert result["status"] == "connected"
+
+        assert not sess._has_relink_marker(identity)
+        fresh = manager().session_for(identity)
+        assert fresh is not parked
+        assert fresh.state == sess.STOPPED  # ready for the next reconcile
+
+    asyncio.run(scenario())
+
+
+def test_boot_sweep_removes_only_old_orphan_pending_dirs(flow_env):
+    root = flow_env / ".credentials" / "whatsapp_wwebjs_auth"
+    old = root / "pending-deadbeef"
+    young = root / "pending-cafebabe"
+    keep = root / "14155552671"
+    for d in (old, young, keep):
+        d.mkdir(parents=True)
+    stale = time.time() - 2 * 3600
+    os.utime(old, (stale, stale))
+
+    manager().boot_sweep()
+
+    assert not old.exists()  # interrupted promote reclaimed
+    assert young.exists()  # too fresh to judge
+    assert keep.exists()  # identity dirs are sacred
+
+    asyncio.run(asyncio.sleep(0))  # no lingering tasks
+
+
+def test_capacity_freed_after_timeout_and_cancel(flow_env, monkeypatch):
+    monkeypatch.setattr(bc, "max_whatsapp_accounts", lambda: 1)
+
+    async def scenario():
+        first = await manager().start_link_flow()
+        assert first["status"] == "qr_ready"
+        refused = await manager().start_link_flow(force=True)
+        assert refused["success"] is False  # cap holds while flow is live
+
+        await manager().cancel_link_flow(first["session_id"])
+        second = await manager().start_link_flow(force=True)
+        assert second["status"] == "qr_ready"  # slot released
+        await manager().cancel_link_flow(second["session_id"])
+
+    asyncio.run(scenario())

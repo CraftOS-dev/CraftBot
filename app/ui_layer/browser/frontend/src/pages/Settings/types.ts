@@ -35,6 +35,10 @@ export interface ManagedAccount {
   alias: string | null
   isPrimary: boolean
   listen: boolean
+  // whatsapp_web only: live session-actor state — 'connected' | 'launching'
+  // | 'reconnecting' | 'needs_relink' | 'failed' | 'stopped'. Absent for
+  // other integrations (and when the state is unknown).
+  sessionState?: string
 }
 
 // Locally staged (uncommitted) edits for one integration's accounts.
