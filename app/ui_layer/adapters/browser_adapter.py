@@ -1666,7 +1666,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "living_ui_backup_restore":
             await self._handle_living_ui_backup_restore(
-                data.get("projectId", ""), data.get("filename", "")
+                data.get("projectId", ""),
+                data.get("filename", ""),
+                data.get("sourceProjectId") or None,
             )
 
         elif msg_type == "living_ui_backup_delete":
@@ -6783,14 +6785,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         asyncio.create_task(_run())
 
     async def _handle_living_ui_backup_restore(
-        self, project_id: str, filename: str
+        self, project_id: str, filename: str, source_project_id: str | None = None
     ) -> None:
+        """source_project_id: restore an archive from ANOTHER project's
+        backup dir (a deleted app's leftovers) into project_id."""
         from app.living_ui import get_living_ui_manager
 
         async def _run() -> None:
             try:
                 result = await get_living_ui_manager().restore_backup(
-                    project_id, filename
+                    project_id, filename, source_project_id=source_project_id
                 )
             except Exception as e:
                 result = {"status": "error", "errors": [str(e)]}
@@ -6810,6 +6814,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from app.living_ui import get_living_ui_manager
 
         data = {"projectId": project_id, "filename": filename, "success": True}
+        orphan_reaped = False
         try:
             manager = get_living_ui_manager()
             if orphan:
@@ -6820,11 +6825,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 manager.backups.store.delete_project_backups(project_id)
             else:
                 manager.backups.store.delete(project_id, filename)
+                # An unregistered (deleted-app) dir whose last archive just
+                # went is pure residue (meta.json only) — reap it so the
+                # orphan row disappears instead of lingering empty.
+                if project_id not in manager.projects and not (
+                    manager.backups.store.list_backups(project_id)
+                ):
+                    manager.backups.store.delete_project_backups(project_id)
+                    orphan_reaped = True
         except Exception as e:
             data = {**data, "success": False, "error": str(e)}
         await self._broadcast({"type": "living_ui_backup_delete", "data": data})
         if not orphan:
             await self._handle_living_ui_backups_list(project_id)
+        if orphan or orphan_reaped:
+            await self._handle_living_ui_settings_get()
 
     # =====================
     # Playbook Handlers

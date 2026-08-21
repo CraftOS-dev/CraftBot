@@ -12,6 +12,7 @@ section prints — run directly:
 """
 
 import asyncio
+import shutil
 import sqlite3
 import tempfile
 import time
@@ -412,13 +413,14 @@ with tempfile.TemporaryDirectory() as tmp:
         assert "rest0001" not in mgr._live_ops
 
         # ...and it is REVERSIBLE: the pre-restore capture holds the 8 rows
+        # in its own pre_restore pool (pruned to a constant, like pre_promote)
         pre_name = res["pre_restore_backup"]
-        manual_pool = [
+        pre_pool = [
             e
             for e in mgr.backups.store.list_backups("rest0001")
-            if e.trigger == "manual"
+            if e.trigger == "pre_restore"
         ]
-        assert any(e.filename == pre_name for e in manual_pool)
+        assert any(e.filename == pre_name for e in pre_pool)
         res2 = await mgr.restore_backup("rest0001", pre_name)
         assert res2["status"] == "success"
         assert _count(db) == 8, "restoring the pre-restore backup must undo"
@@ -448,6 +450,49 @@ with tempfile.TemporaryDirectory() as tmp:
         assert _count(db) == rows_before, "aborted restore must not touch pb_data"
         mgr.backups.capture_stopped = real_capture
         assert "rest0001" not in mgr._live_ops
+
+        # ── cross-project restore: a deleted app's leftover archive ────────
+        dead_dir = mgr.living_ui_dir / "app_dead0001"
+        _mkdb(dead_dir / "pb" / "pb_data" / "data.db", 5)
+        dead = SimpleNamespace(
+            id="dead0001",
+            name="Dead App",
+            path=str(dead_dir),
+            status="stopped",
+            port=0,
+        )
+        dead_entry = await asyncio.to_thread(
+            mgr.backups.capture_stopped, dead, "pre_delete"
+        )
+        shutil.rmtree(dead_dir)  # the app is gone; only the archive remains
+
+        res = await mgr.restore_backup(
+            "rest0001", dead_entry.filename, source_project_id="dead0001"
+        )
+        assert res["status"] == "success", res
+        assert _count(db) == 5, "target must now hold the dead app's data"
+
+        # "try if it can, fail CLEAN if it can't": an archive the app can't
+        # boot on (relaunch fails) rolls the target back automatically
+        _mkdb(db, 6)
+        calls = {"n": 0}
+
+        async def _flaky_relaunch(pid):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"status": "error", "errors": ["schema mismatch"]}
+            lp.status = "running"
+            return {"status": "success", "url": "http://127.0.0.1:3131"}
+
+        mgr.launch_and_verify = _flaky_relaunch
+        res = await mgr.restore_backup(
+            "rest0001", dead_entry.filename, source_project_id="dead0001"
+        )
+        assert res["status"] == "error" and "rolled back" in res["errors"][0]
+        assert _count(db) == 6, "failed restore must leave the data as it was"
+        assert calls["n"] == 2, "rollback must relaunch the app"
+        assert "rest0001" not in mgr._live_ops
+        mgr.launch_and_verify = _fake_relaunch
 
     asyncio.run(_t5())
 print("§5 restore round-trip: OK")

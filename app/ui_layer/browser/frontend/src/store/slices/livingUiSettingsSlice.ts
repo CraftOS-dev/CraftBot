@@ -14,7 +14,7 @@ export interface LivingUIBackupStatus {
 export interface LivingUIBackupEntry {
   filename: string
   ts: number // ms epoch
-  trigger: 'scheduled' | 'pre_promote' | 'manual' | 'pre_delete'
+  trigger: 'scheduled' | 'pre_promote' | 'manual' | 'pre_delete' | 'pre_restore'
   size: number
 }
 
@@ -51,6 +51,9 @@ interface LivingUiSettingsState {
   backupsByProject: Record<string, LivingUIBackupEntry[]>
   // Per-project in-flight marker for "Back up now" / restore buttons.
   backupBusy: Record<string, boolean>
+  // Outcome of the last restore per target project — surfaced inline so the
+  // user sees "restoring… / restored / failed" instead of silence.
+  backupRestoreResult: Record<string, { ok: boolean; message: string } | undefined>
 }
 
 const initialState: LivingUiSettingsState = {
@@ -59,6 +62,7 @@ const initialState: LivingUiSettingsState = {
   backupOrphans: [],
   backupsByProject: {},
   backupBusy: {},
+  backupRestoreResult: {},
 }
 
 const livingUiSettingsSlice = createSlice({
@@ -105,6 +109,18 @@ const livingUiSettingsSlice = createSlice({
       action: PayloadAction<{ projectId: string; busy: boolean }>,
     ) {
       state.backupBusy[action.payload.projectId] = action.payload.busy
+      // A new operation clears the previous outcome message.
+      if (action.payload.busy)
+        state.backupRestoreResult[action.payload.projectId] = undefined
+    },
+    setBackupRestoreResult(
+      state,
+      action: PayloadAction<{
+        projectId: string
+        result: { ok: boolean; message: string }
+      }>,
+    ) {
+      state.backupRestoreResult[action.payload.projectId] = action.payload.result
     },
   },
 })
@@ -114,6 +130,7 @@ export const {
   updateProjectSetting,
   setProjectBackups,
   setBackupBusy,
+  setBackupRestoreResult,
 } = livingUiSettingsSlice.actions
 
 export default livingUiSettingsSlice.reducer
@@ -153,9 +170,24 @@ register('living_ui_backup_now_result', (data, dispatch) => {
 })
 
 register('living_ui_backup_restore_result', (data, dispatch) => {
-  const d = data as { projectId?: string }
-  if (d.projectId)
+  const d = data as {
+    projectId?: string
+    status?: string
+    restored?: string
+    errors?: string[]
+  }
+  if (d.projectId) {
     dispatch(setBackupBusy({ projectId: d.projectId, busy: false }))
+    dispatch(
+      setBackupRestoreResult({
+        projectId: d.projectId,
+        result:
+          d.status === 'success'
+            ? { ok: true, message: 'Backup restored — the app was relaunched.' }
+            : { ok: false, message: d.errors?.[0] || 'Restore failed.' },
+      }),
+    )
+  }
 })
 
 // Project setting update response is intentionally not registered here: the

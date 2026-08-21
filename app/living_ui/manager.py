@@ -1345,12 +1345,23 @@ UI in {project.path}/frontend/src/app/."""
         finally:
             self._live_ops.discard(project_id)
 
-    async def restore_backup(self, project_id: str, filename: str) -> dict:
+    async def restore_backup(
+        self,
+        project_id: str,
+        filename: str,
+        source_project_id: Optional[str] = None,
+    ) -> dict:
         """User-initiated restore of a pb_data backup (FR9) — the SECOND
         sanctioned live-write path (the first is migration replay during
         promote; see lifecycle/__init__). Made reversible rather than
         friction-guarded: the current live state is captured first, so a
         wrong restore is undone by restoring THAT archive.
+
+        `source_project_id` lets the archive come from ANOTHER project's
+        backup dir — the leftover backups of a deleted app, restored into a
+        (usually rebuilt) live one. The safety story is unchanged: the
+        target's state is captured first, and the relaunch is the honest
+        probe of whether the foreign data fits the app.
 
         stop → pre-restore capture (abort if it fails: never destroy state
         we failed to save) → replace pb_data → full-pipeline relaunch
@@ -1372,14 +1383,12 @@ UI in {project.path}/frontend/src/app/."""
                 "step": "restore",
                 "errors": ["External apps have no pb_data backups."],
             }
-        entry = next(
-            (
-                e
-                for e in self.backups.store.list_backups(project_id)
-                if e.filename == filename
-            ),
-            None,
-        )
+        source_id = source_project_id or project_id
+        try:
+            available = self.backups.store.list_backups(source_id)
+        except ValueError as e:
+            return {"status": "error", "step": "restore", "errors": [str(e)]}
+        entry = next((e for e in available if e.filename == filename), None)
         if entry is None:
             return {
                 "status": "error",
@@ -1398,11 +1407,15 @@ UI in {project.path}/frontend/src/app/."""
             was_running = project.status == "running"
             await self.stop_project(project_id)
 
-            # FR9 2a — the abort-on-failure safety net.
+            # FR9 2a — the abort-on-failure safety net. Its own pool: each
+            # restore's undo point, pruned to a constant like pre_promote.
             try:
+                from app.living_ui.lifecycle.backups import PRE_RESTORE_KEEP
+
                 pre = await asyncio.to_thread(
-                    self.backups.capture_stopped, project, "manual"
+                    self.backups.capture_stopped, project, "pre_restore"
                 )
+                self.backups.store.prune(project_id, "pre_restore", PRE_RESTORE_KEEP)
                 try:
                     from app.factory.host_craftbot import get_factory_host
 
@@ -1439,27 +1452,60 @@ UI in {project.path}/frontend/src/app/."""
             finally:
                 self.backups.cleanup_restore(entry)
 
+            async def _rollback() -> Optional[str]:
+                """Put the pre-restore capture back and reboot. None on
+                success, error text on failure."""
+                try:
+                    snap = await asyncio.to_thread(self.backups.prepare_restore, pre)
+                    try:
+                        await asyncio.to_thread(
+                            restore_pb_data,
+                            snap,
+                            Path(project.path) / "pb" / "pb_data",
+                            self.living_ui_dir,
+                        )
+                    finally:
+                        self.backups.cleanup_restore(pre)
+                    rb = await self.launch_and_verify(project_id)
+                    if rb.get("status") != "success":
+                        return "; ".join(rb.get("errors", ["relaunch failed"])[:3])
+                    return None
+                except Exception as e:
+                    return str(e)
+
             # Relaunch through the full pipeline either way: on success the
             # restored DB boots (newer migrations re-apply); on failure
-            # pb_data may be partial and the gate/boot is the honest probe.
+            # pb_data may be partial and the gate/boot is the honest probe —
+            # the deliberate policy for archives of ANOTHER (deleted) app or
+            # of an app whose schema has since moved on: try it if it can
+            # work, and when it can't, fail CLEAN by rolling the app back to
+            # the state captured moments ago.
             result = await self.launch_and_verify(project_id)
-            if restore_error is not None:
-                return {
-                    "status": "error",
-                    "step": "restore",
-                    "errors": [
-                        f"Restore failed: {restore_error}. A backup of the "
-                        f"pre-restore state was kept ({pre.filename}).",
-                        *result.get("errors", [])[:5],
-                    ],
-                }
-            if result.get("status") != "success":
+            if restore_error is not None or result.get("status") != "success":
+                failure = (
+                    f"Restore failed: {restore_error}"
+                    if restore_error is not None
+                    else "The app failed to relaunch on the restored data "
+                    "(likely an incompatible backup)"
+                )
+                rollback_error = await _rollback()
+                if rollback_error is None:
+                    return {
+                        "status": "error",
+                        "step": "restore",
+                        "errors": [
+                            f"{failure}. The app was rolled back to its "
+                            "pre-restore state — nothing was lost.",
+                            *result.get("errors", [])[:5],
+                        ],
+                    }
                 return {
                     "status": "error",
                     "step": "relaunch",
                     "errors": [
-                        "pb_data was restored but the app failed to relaunch. "
-                        f"Pre-restore state is kept as {pre.filename}.",
+                        f"{failure}. Automatic rollback also failed "
+                        f"({rollback_error}) — the pre-restore state is "
+                        f"kept as {pre.filename}; restore it to recover.",
                         *result.get("errors", [])[:5],
                     ],
                 }
@@ -1471,7 +1517,14 @@ UI in {project.path}/frontend/src/app/."""
                 dispatch_living_ui_data_changed(project_id)
             except Exception:
                 pass
-            logger.info(f"[LIVING_UI:BACKUP] {project_id} restored from {filename}")
+            logger.info(
+                f"[LIVING_UI:BACKUP] {project_id} restored from {filename}"
+                + (
+                    f" (backup of deleted app {source_id})"
+                    if source_id != project_id
+                    else ""
+                )
+            )
             return {
                 "status": "success",
                 "restored": filename,

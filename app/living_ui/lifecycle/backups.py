@@ -47,12 +47,15 @@ except ImportError:
 
 from app.living_ui.pb_data_io import snapshot_pb_data
 
-TRIGGERS = ("scheduled", "pre_promote", "manual", "pre_delete")
+TRIGGERS = ("scheduled", "pre_promote", "manual", "pre_delete", "pre_restore")
 
 # pre_promote-pool retention — a deliberate constant, not a setting (resolved
 # question §7.2 in the requirements: a second retention knob on the card
 # requires understanding what a promote is; the scheduled pool owns depth).
 PRE_PROMOTE_KEEP = 3
+# pre_restore-pool retention — same reasoning: each restore captures the
+# then-current state as its own undo; only the last few matter.
+PRE_RESTORE_KEEP = 3
 
 # <app-slug>__<local-ts>__<trigger>.zip — the trigger token doubles as the
 # retention pool; the slug exists purely for humans browsing the folder
@@ -61,13 +64,13 @@ PRE_PROMOTE_KEEP = 3
 _NAME_RE = re.compile(
     r"^(?P<slug>[a-z0-9][a-z0-9-]{0,39})__"
     r"(?P<ts>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})__"
-    r"(?P<trigger>scheduled|pre_promote|manual|pre_delete)\.zip$"
+    r"(?P<trigger>scheduled|pre_promote|manual|pre_delete|pre_restore)\.zip$"
 )
 # Pre-2026-08-21 archives: <utc-ts>__<trigger>.zip. Recognized forever so
 # existing backups keep listing/restoring/pruning; never produced any more.
 _LEGACY_NAME_RE = re.compile(
     r"^(?P<ts>\d{8}T\d{6}Z)__"
-    r"(?P<trigger>scheduled|pre_promote|manual|pre_delete)\.zip$"
+    r"(?P<trigger>scheduled|pre_promote|manual|pre_delete|pre_restore)\.zip$"
 )
 # Same guard the provisioner/wizard use: nothing outside this pattern ever
 # becomes part of a deleted path.

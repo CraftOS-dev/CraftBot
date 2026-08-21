@@ -20,6 +20,7 @@ import {
   updateProjectSetting,
   setBackupBusy,
   type LivingUISettingsProject as LivingUIProject,
+  type LivingUIBackupOrphan,
 } from '../../store/slices/livingUiSettingsSlice'
 import {
   selectLivingUiSettingsProjects,
@@ -182,45 +183,13 @@ export function LivingUISettings() {
           </p>
           <div className={styles.scheduleList}>
             {backupOrphans.map(orphan => (
-              <div
+              <OrphanBackupsRow
                 key={orphan.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--space-3)',
-                  padding: 'var(--space-2) var(--space-3)',
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border-primary)',
-                  borderRadius: 'var(--radius-md)',
-                }}
-              >
-                <Archive size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                <span
-                  style={{
-                    flex: 1,
-                    fontSize: 'var(--text-sm)',
-                    color: 'var(--text-primary)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={orphan.id}
-                >
-                  {orphan.name}
-                  {orphan.name !== orphan.id && (
-                    <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
-                      {' '}· {orphan.id}
-                    </span>
-                  )}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon={<Trash2 size={14} />}
-                  onClick={() => handleDeleteOrphanBackups(orphan)}
-                  title="Delete these backups"
-                />
-              </div>
+                orphan={orphan}
+                projects={projects}
+                send={send}
+                onDeleteAll={handleDeleteOrphanBackups}
+              />
             ))}
           </div>
         </div>
@@ -621,6 +590,49 @@ const TRIGGER_LABELS: Record<string, string> = {
   pre_promote: 'pre-update',
   manual: 'manual',
   pre_delete: 'before delete',
+  pre_restore: 'before restore',
+}
+
+/** Inline "restoring… / restored / failed" line under an archive list. */
+function RestoreStatusLine({
+  busy,
+  targetName,
+  result,
+}: {
+  busy: boolean
+  targetName?: string
+  result?: { ok: boolean; message: string }
+}) {
+  if (busy)
+    return (
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-2)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--text-muted)',
+          padding: 'var(--space-2) 0',
+        }}
+      >
+        <Loader2 size={12} className={styles.spinning} />
+        Restoring{targetName ? ` into "${targetName}"` : ''}… this can take a
+        minute.
+      </span>
+    )
+  if (result)
+    return (
+      <span
+        style={{
+          fontSize: 'var(--text-xs)',
+          color: result.ok ? 'var(--color-success)' : 'var(--color-error)',
+          padding: 'var(--space-2) 0',
+        }}
+      >
+        {result.message}
+      </span>
+    )
+  return null
 }
 
 function fmtSize(bytes: number): string {
@@ -631,6 +643,244 @@ function fmtSize(bytes: number): string {
 
 function fmtWhen(msEpoch: number): string {
   return new Date(msEpoch).toLocaleString()
+}
+
+// ── Leftover (orphan) backups row ──────────────────────────────
+// A deleted app's kept archives: expandable to list them, each restorable
+// into a still-existing app (the backend rolls back automatically when the
+// data doesn't fit), the whole dir deletable.
+
+interface OrphanBackupsRowProps {
+  orphan: LivingUIBackupOrphan
+  projects: LivingUIProject[]
+  send: (type: string, data?: Record<string, unknown>) => void
+  onDeleteAll: (orphan: LivingUIBackupOrphan) => void
+}
+
+function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackupsRowProps) {
+  const dispatch = useAppDispatch()
+  const { modalProps: confirmModalProps, confirm } = useConfirmModal()
+  const [expanded, setExpanded] = useState(false)
+  const backups = useAppSelector(
+    s => s.livingUiSettings.backupsByProject[orphan.id],
+  )
+  // Only native apps have pb_data to restore into.
+  const targets = projects.filter(p => (p.projectType || 'native') !== 'external')
+  const [targetId, setTargetId] = useState('')
+  const target = targets.find(p => p.id === targetId) || targets[0]
+  const busy = useAppSelector(
+    s => (target ? s.livingUiSettings.backupBusy[target.id] : false) || false,
+  )
+  const restoreResult = useAppSelector(s =>
+    target ? s.livingUiSettings.backupRestoreResult[target.id] : undefined,
+  )
+
+  const toggle = () => {
+    const next = !expanded
+    setExpanded(next)
+    if (next && backups === undefined)
+      send('living_ui_backups_list', { projectId: orphan.id })
+  }
+
+  const handleRestore = (filename: string, ts: number) => {
+    if (!target) return
+    confirm({
+      title: 'Restore into app',
+      message: `Restore the backup from ${fmtWhen(ts)} of the deleted app "${orphan.name}" into "${target.name}"? The current data of "${target.name}" will be replaced — a backup of that state is saved first, and if the restored data doesn't fit the app it is rolled back automatically.`,
+      confirmText: 'Restore',
+      variant: 'danger',
+    }, () => {
+      dispatch(setBackupBusy({ projectId: target.id, busy: true }))
+      send('living_ui_backup_restore', {
+        projectId: target.id,
+        filename,
+        sourceProjectId: orphan.id,
+      })
+    })
+  }
+
+  const handleDeleteEntry = (filename: string, ts: number) => {
+    confirm({
+      title: 'Delete backup',
+      message: `Permanently delete the backup from ${fmtWhen(ts)} of the deleted app "${orphan.name}"?`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    }, () => {
+      send('living_ui_backup_delete', { projectId: orphan.id, filename })
+    })
+  }
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--bg-tertiary)',
+        border: '1px solid var(--border-primary)',
+        borderRadius: 'var(--radius-md)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-3)',
+          padding: 'var(--space-2) var(--space-3)',
+          cursor: 'pointer',
+        }}
+        onClick={toggle}
+      >
+        <ChevronRight
+          size={14}
+          style={{
+            color: 'var(--text-muted)',
+            flexShrink: 0,
+            transform: expanded ? 'rotate(90deg)' : 'none',
+            transition: 'transform 0.15s',
+          }}
+        />
+        <Archive size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+        <span
+          style={{
+            flex: 1,
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-primary)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={orphan.id}
+        >
+          {orphan.name}
+          {orphan.name !== orphan.id && (
+            <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+              {' '}· {orphan.id}
+            </span>
+          )}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<Trash2 size={14} />}
+          onClick={e => {
+            e.stopPropagation()
+            onDeleteAll(orphan)
+          }}
+          title="Delete these backups"
+        />
+      </div>
+
+      {expanded && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            borderTop: '1px solid var(--border-primary)',
+            padding: 'var(--space-1) var(--space-3) var(--space-2)',
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {targets.length > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-2) 0',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              Restore into
+              <select
+                value={target?.id || ''}
+                onChange={e => setTargetId(e.target.value)}
+                style={{
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-primary)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '2px 6px',
+                  fontSize: 'var(--text-xs)',
+                }}
+              >
+                {targets.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <RestoreStatusLine
+            busy={busy}
+            targetName={target?.name}
+            result={restoreResult}
+          />
+          {backups === undefined && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', padding: 'var(--space-2) 0' }}>
+              Loading…
+            </span>
+          )}
+          {backups !== undefined && backups.length === 0 && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', padding: 'var(--space-2) 0' }}>
+              No archives.
+            </span>
+          )}
+          {(backups || []).map(b => (
+            <div
+              key={b.filename}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-1) 0',
+              }}
+            >
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--text-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={b.filename}
+              >
+                {fmtWhen(b.ts)}
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {' '}· {TRIGGER_LABELS[b.trigger] || b.trigger} · {fmtSize(b.size)}
+                </span>
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<RotateCcw size={13} />}
+                onClick={() => handleRestore(b.filename, b.ts)}
+                disabled={busy || !target}
+                title={
+                  target
+                    ? `Restore this backup into "${target.name}"`
+                    : 'No app to restore into'
+                }
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Trash2 size={13} />}
+                onClick={() => handleDeleteEntry(b.filename, b.ts)}
+                disabled={busy}
+                title="Delete this backup"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      <ConfirmModal {...confirmModalProps} />
+    </div>
+  )
 }
 
 interface BackupsSectionProps {
@@ -648,6 +898,14 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
   const busy = useAppSelector(
     s => s.livingUiSettings.backupBusy[project.id] || false,
   )
+  const restoreResult = useAppSelector(
+    s => s.livingUiSettings.backupRestoreResult[project.id],
+  )
+  // busy is shared with "Back up now" — only flag restores as such.
+  const [restoring, setRestoring] = useState(false)
+  useEffect(() => {
+    if (!busy) setRestoring(false)
+  }, [busy])
   const status = project.backupStatus || {}
 
   // Fetch the archive list when the section first shows (card expanded).
@@ -672,6 +930,7 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
       confirmText: 'Restore',
       variant: 'danger',
     }, () => {
+      setRestoring(true)
       dispatch(setBackupBusy({ projectId: project.id, busy: true }))
       send('living_ui_backup_restore', { projectId: project.id, filename })
     })
@@ -788,6 +1047,14 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
           Back up now
         </Button>
       </div>
+
+      {/* Restore progress/outcome (busy is shared with Back up now — the
+          "restoring" line only shows for actual restores) */}
+      <RestoreStatusLine
+        busy={busy && restoring}
+        targetName={project.name}
+        result={restoreResult}
+      />
 
       {/* Archive list */}
       {(backups || []).length > 0 && (
