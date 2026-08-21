@@ -2507,7 +2507,6 @@ class AgentBase:
     # Components a selective reset can target. Order matters only for the
     # human-readable summary; each block is independent.
     RESET_COMPONENTS = (
-        "conversation",
         "sessions",
         "memory",
         "workspace",
@@ -2601,9 +2600,10 @@ class AgentBase:
         rest. Unknown component names are ignored (logged).
         """
         selected = {str(c).strip().lower() for c in components if str(c).strip()}
-        # Legacy name from the old task system maps onto sessions.
-        if "tasks" in selected:
+        # Legacy names map onto the single chats component.
+        if "tasks" in selected or "conversation" in selected:
             selected.discard("tasks")
+            selected.discard("conversation")
             selected.add("sessions")
         unknown = selected - set(self.RESET_COMPONENTS)
         if unknown:
@@ -2616,10 +2616,9 @@ class AgentBase:
 
         done: list[str] = []
 
-        # Conversation: the MAIN session's conversation (chat + activity
-        # rows) plus global usage events. Other sessions' history is their
-        # own — deleting it belongs to the "sessions" component.
-        if "conversation" in selected:
+        # Chats: delete extra chat sessions, empty Main, and wipe Living UI
+        # conversation history only (apps stay unless "livingui" is selected).
+        if "sessions" in selected:
             try:
                 from app.usage import (
                     get_chat_storage,
@@ -2627,19 +2626,15 @@ class AgentBase:
                     get_usage_storage,
                 )
 
-                get_chat_storage().clear_messages(MAIN_SESSION_ID)
-                get_action_storage().clear_items(MAIN_SESSION_ID)
+                count = await self._delete_all_chat_sessions()
+                get_chat_storage().clear_messages()
+                get_action_storage().clear_items()
                 get_usage_storage().clear_events()
                 self.session_manager.clear_session(MAIN_SESSION_ID)
-                done.append("conversation")
-            except Exception as e:
-                logger.warning(f"[RESET] conversation reset failed: {e}")
-
-        # Sessions: delete all chat sessions (main + living UI stay).
-        if "sessions" in selected:
-            try:
-                count = await self._delete_all_chat_sessions()
-                done.append(f"sessions ({count} deleted)")
+                for session in list(self.session_manager.sessions.values()):
+                    if session.type == SessionType.LIVING_UI:
+                        self.session_manager.clear_session(session.id)
+                done.append(f"sessions ({count} chats deleted)")
             except Exception as e:
                 logger.warning(f"[RESET] sessions reset failed: {e}")
 

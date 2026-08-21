@@ -4287,6 +4287,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
+            # Chats (id "sessions", plus the legacy "conversation" alias):
+            # clear transcripts, the action panel, and push the session list
+            # so extra chats drop from the sidebar without a refresh.
+            chats_reset = (
+                components is None
+                or "sessions" in components
+                or "conversation" in components
+            )
+            if chats_reset:
+                await self._chat.clear()
+                await self._action_panel.clear()
+                await self._handle_session_list()
             # Only clear the UI panels whose data was actually reset.
             if components is None:
                 # Full reset: everything is gone.

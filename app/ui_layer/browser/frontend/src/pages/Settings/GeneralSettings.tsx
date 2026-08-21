@@ -829,8 +829,8 @@ export function GeneralSettings() {
           <h4>Reset Agent</h4>
         </div>
         <p className={styles.dangerDescription}>
-          Reset the agent to its initial state. This will clear chat sessions, conversation history,
-          and restore the agent file system from templates. Saved settings and credentials are preserved.
+          Reset selected parts of the agent. Chats can be wiped without deleting
+          Living UI apps. Saved settings and credentials are preserved.
         </p>
         <Button
           variant="danger"
