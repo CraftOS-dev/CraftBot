@@ -51,6 +51,14 @@ class FlowFakeBridge:
             return "ready", {}
         return "qr", {"qr_data_url": "data:image/png;base64,QUFBQQ=="}
 
+    async def wait_exited(self):
+        while self._running:
+            await asyncio.sleep(0.01)
+        return 0
+
+    async def ping(self, timeout=10.0):
+        return {"success": True, "ready": self.is_ready}
+
     async def stop(self):
         self._running = False
 
@@ -113,10 +121,36 @@ def test_full_flow_states_and_idempotent_done(flow_env):
             assert again["status"] == "connected"
             assert again["identity"] == "14155552671"
 
-        # Promotion re-keyed the pending dir to the identity.
+        # Adoption: the live pending bridge IS the account's bridge now —
+        # still running, re-keyed by identity, dir rename deferred behind
+        # an adoption marker.
+        flow = manager()._flows[sid]
+        adopted = bc.peek_whatsapp_bridge("14155552671")
+        assert adopted is flow._bridge and adopted.is_running
         root = flow_env / ".credentials" / "whatsapp_wwebjs_auth"
-        assert not (root / f"pending-{sid}").exists()
+        pending_dir = root / f"pending-{sid}"
+        assert (pending_dir / ".adopted").read_text() == "14155552671"
+        assert not (root / "14155552671").exists()
+
+        # The session actor adopts the running+ready bridge without a
+        # relaunch — the user's session simply continues.
+        session = sess.get_session_manager().session_for("14155552671")
+        state = await session.ensure_started()
+        assert state in (sess.LAUNCHING, sess.CONNECTED)
+        for _ in range(50):
+            if session.state == sess.CONNECTED:
+                break
+            await asyncio.sleep(0.01)
+        assert session.state == sess.CONNECTED
+        assert adopted.is_running  # never stopped
+
+        # Clean stop performs the deferred rename; the actor comes back
+        # from the renamed conventional dir.
+        await session.stop()
+        assert not pending_dir.exists()
         assert (root / "14155552671").exists()
+        assert not (root / "14155552671" / ".adopted").exists()
+        assert adopted.auth_dir == str(root / "14155552671")
 
     asyncio.run(scenario())
 
@@ -226,6 +260,42 @@ def test_boot_sweep_removes_only_old_orphan_pending_dirs(flow_env):
     assert keep.exists()  # identity dirs are sacred
 
     asyncio.run(asyncio.sleep(0))  # no lingering tasks
+
+
+def test_boot_finishes_deferred_adopted_rename(flow_env):
+    """An adopted dir left behind by an app exit is renamed to the
+    conventional <identity>/ at the next boot, before any bridge starts."""
+    root = flow_env / ".credentials" / "whatsapp_wwebjs_auth"
+    adopted = root / "pending-deadbeef"
+    (adopted / "session").mkdir(parents=True)
+    (adopted / "session" / "creds.json").write_text("fresh")
+    (adopted / ".adopted").write_text("14155552671")
+
+    # An adopted dir counts as a connected account for the capacity cap.
+    assert bc._account_slots_used() == 1
+
+    bridge = bc.get_whatsapp_bridge("14155552671")  # boot-path resolution
+    assert not adopted.exists()
+    assert (root / "14155552671" / "session" / "creds.json").read_text() == "fresh"
+    assert not (root / "14155552671" / ".adopted").exists()
+    assert bridge.auth_dir == str(root / "14155552671")
+
+
+def test_teardown_deletes_not_yet_renamed_adopted_dir(flow_env):
+    async def scenario():
+        started = await manager().start_link_flow()
+        sid = started["session_id"]
+        manager()._flows[sid]._bridge.scanned_by("14155552671")
+        assert (await manager().link_flow_status(sid))["status"] == "connected"
+        root = flow_env / ".credentials" / "whatsapp_wwebjs_auth"
+        assert (root / f"pending-{sid}").exists()
+
+        await manager().teardown("14155552671")
+        assert not (root / f"pending-{sid}").exists()
+        assert not (root / "14155552671").exists()
+        assert bc.peek_whatsapp_bridge("14155552671") is None
+
+    asyncio.run(scenario())
 
 
 def test_capacity_freed_after_timeout_and_cancel(flow_env, monkeypatch):

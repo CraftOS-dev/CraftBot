@@ -132,8 +132,9 @@ class FakeQrBridge:
         return "qr", None
 
     async def wait_exited(self):
-        # Never resolves — the fake process "lives" until cancelled.
-        await asyncio.sleep(3600)
+        while self.is_running:
+            await asyncio.sleep(0.01)
+        return 0
 
 
 def test_stale_session_parks_instead_of_respawning(tmp_path, monkeypatch):

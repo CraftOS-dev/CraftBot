@@ -175,7 +175,9 @@ class FakeBridge:
         return "qr", {"qr_data_url": "data:image/png;base64,QUFBQQ=="}
 
     async def wait_exited(self):
-        await asyncio.sleep(3600)
+        while self._running:
+            await asyncio.sleep(0.01)
+        return 0
 
     async def ping(self, timeout=10.0):
         return {"success": True, "ready": self.is_ready}
@@ -466,9 +468,16 @@ def test_check_qr_session_lifecycle_returns_identity_and_credential(fake_bridges
             == result["identity"]
         )
 
-        # Flow bookkeeping: pending dir promoted to the identity dir.
-        assert not (root / f"pending-{sid}").exists()
-        assert bc.peek_whatsapp_bridge("14155552671") is not None
+        # Adoption: the LIVE pending bridge becomes the account's bridge —
+        # no stop-move-restart (that restored a half-written LocalAuth and
+        # bricked the account). The dir keeps its pending-* name with an
+        # adoption marker until the deferred rename at stop/boot.
+        adopted = bc.peek_whatsapp_bridge("14155552671")
+        assert adopted is fake and adopted.is_running
+        pending_dir = root / f"pending-{sid}"
+        assert pending_dir.exists()
+        assert (pending_dir / ".adopted").read_text() == "14155552671"
+        assert not (root / "14155552671").exists()
 
         # §2.8: the legacy whatsapp_web.json is NEVER written anymore.
         assert not _legacy_json(fake_bridges).exists()

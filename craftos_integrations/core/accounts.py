@@ -203,6 +203,14 @@ class AccountManager:
         for identity, record in account_set.accounts.items():
             if record.alias and record.alias.lower() == needle:
                 return identity
+        # 2b. the literal words "primary"/"default" mean the primary account
+        #     (models routinely pass account="primary"; observed live
+        #     2026-08-21 — the send failed with a resolution error even
+        #     though omitting the hint would have used the primary). An
+        #     account aliased "primary" wins above; this is only the
+        #     fallback meaning.
+        if needle in ("primary", "default"):
+            return account_set.primary
         # 3. unique substring of identity or alias
         matches = [
             identity

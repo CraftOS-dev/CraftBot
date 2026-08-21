@@ -231,6 +231,30 @@ def test_failure_cap_parks_in_failed_then_retries(env):
     asyncio.run(scenario())
 
 
+def test_never_connected_failure_cap_parks_needs_relink(env):
+    """Escape hatch: exhausting the failure cap WITHOUT ever reaching
+    CONNECTED means the stored session is unusable (torn profile, revoked)
+    — park with the re-link CTA instead of hourly FAILED retries that can
+    never succeed (observed live 2026-08-21, account 923334055616)."""
+
+    async def scenario():
+        bridge = install("111")
+        bridge.fail_starts = True  # unusable from the very first launch
+        manager = sess.get_session_manager()
+        session = manager.session_for("111")
+        await session.ensure_started()
+
+        assert await until(lambda: session.state == sess.NEEDS_RELINK, timeout=3.0)
+        assert sess._has_relink_marker("111")
+        assert manager.state_of("111") == sess.NEEDS_RELINK
+        # Parked means parked: no hourly retry, no respawn.
+        starts = bridge.start_calls
+        await asyncio.sleep(0.3)
+        assert bridge.start_calls == starts
+
+    asyncio.run(scenario())
+
+
 def test_heartbeat_hang_restarts(env):
     """Process alive but unresponsive: two ping misses → restart through
     the reconnect path (the state synthetic-ready used to paper over)."""

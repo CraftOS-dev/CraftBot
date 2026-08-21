@@ -36,6 +36,21 @@ def test_exact_alias_match(two_accounts):
     assert two_accounts.resolve("gmail", "SCHOOL") == "b@y.com"
 
 
+def test_literal_primary_keyword_resolves_to_primary(two_accounts):
+    # Models routinely pass account="primary" (observed live 2026-08-21 —
+    # the send failed although omitting the hint would have worked).
+    assert two_accounts.resolve("gmail", "primary") == "a@x.com"
+    assert two_accounts.resolve("gmail", "Default") == "a@x.com"
+
+
+def test_primary_alias_outranks_primary_keyword(mgr):
+    # An account explicitly aliased "primary" wins over the keyword.
+    mgr.upsert_account("gmail", "one@x.com", cred("one@x.com"))
+    mgr.upsert_account("gmail", "two@x.com", cred("two@x.com"))
+    mgr.set_alias("gmail", "two@x.com", "primary")
+    assert mgr.resolve("gmail", "primary") == "two@x.com"
+
+
 def test_unique_substring_of_identity(two_accounts):
     assert two_accounts.resolve("gmail", "b@y") == "b@y.com"
 

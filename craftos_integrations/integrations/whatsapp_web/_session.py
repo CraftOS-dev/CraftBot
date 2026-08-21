@@ -92,9 +92,9 @@ def _spawn(coro: Coroutine) -> asyncio.Task:
 
 
 def _relink_marker_path(identity: str) -> Path:
-    from ._bridge_client import _identity_auth_dir
+    from ._bridge_client import _resolve_identity_dir
 
-    return _identity_auth_dir(identity) / _RELINK_MARKER
+    return _resolve_identity_dir(identity) / _RELINK_MARKER
 
 
 def _write_relink_marker(identity: str) -> None:
@@ -147,6 +147,11 @@ class WhatsAppSession:
         self._failures = 0
         self._stopping = False
         self._relink_flagged = False
+        # Has this actor EVER reached CONNECTED this process? A session
+        # that exhausts the failure cap without ever connecting is not a
+        # transient outage — its LocalAuth is unusable (torn profile,
+        # revoked session) and no amount of hourly retries will fix it.
+        self._ever_connected = False
         self._subscriber: Optional[Callable[[str, Dict[str, Any]], Any]] = None
         self._spawn_lock = asyncio.Lock()
         self._launch_task: Optional[asyncio.Task] = None
@@ -206,6 +211,14 @@ class WhatsAppSession:
                     logger.warning(
                         f"[WA-Session] {self.identity}: stop error: {e}"
                     )
+        # The browser is down — a good moment to finish any deferred
+        # adopted-dir rename (cheap no-op otherwise).
+        try:
+            from ._bridge_client import _migrate_adopted_dirs
+
+            _migrate_adopted_dirs()
+        except Exception:
+            pass
         self._set_state(STOPPED)
 
     def halt_nowait(self) -> None:
@@ -223,6 +236,8 @@ class WhatsAppSession:
                 f"[WA-Session] {self.identity}: {self.state} → {state}"
                 + (f" ({error})" if error else "")
             )
+        if state == CONNECTED:
+            self._ever_connected = True
         self.state = state
         self.state_since = time.time()
         self.last_error = error
@@ -315,6 +330,7 @@ class WhatsAppSession:
         """Watch the Node process: exit → classify (crash vs expected),
         plus the ping heartbeat while it lives."""
         misses = 0
+        exit_wait = None
         try:
             while True:
                 exit_wait = asyncio.ensure_future(bridge.wait_exited())
@@ -355,6 +371,12 @@ class WhatsAppSession:
                         return
         except asyncio.CancelledError:
             pass
+        finally:
+            # asyncio.wait never cancels its awaitables — without this, a
+            # cancelled supervisor leaks its exit-watch task into the loop
+            # forever (the shielded exit future itself is unaffected).
+            if exit_wait is not None and not exit_wait.done():
+                exit_wait.cancel()
 
     def _on_bridge_exit(self, rc) -> None:
         if self._relink_flagged:
@@ -373,6 +395,27 @@ class WhatsAppSession:
 
     def _register_failure(self, reason: str) -> None:
         self._failures += 1
+        if self._failures >= self.MAX_FAILURES and not self._ever_connected:
+            # Escape hatch: the failure cap was reached without EVER
+            # reaching CONNECTED since the session started — the stored
+            # LocalAuth is unusable (torn profile, revoked session) and
+            # hourly FAILED retries would strand the account forever. Park
+            # with the re-link CTA instead. (Cost if it was actually a
+            # very long outage: one QR re-scan.)
+            _write_relink_marker(self.identity)
+            self._set_state(
+                NEEDS_RELINK,
+                f"session never became ready ({reason}) — the stored "
+                "session appears unusable; re-link via QR",
+            )
+            logger.warning(
+                f"[WA-Session] WhatsApp account {self.identity} failed "
+                f"{self._failures}x without ever connecting — the stored "
+                "session appears unusable (or the network was down "
+                "throughout). Parked; re-link via QR from the integrations "
+                "settings page."
+            )
+            return
         if self._failures >= self.MAX_FAILURES:
             delay = self.FAILED_RETRY_INTERVAL
             self._set_state(FAILED, reason)
@@ -665,9 +708,9 @@ class LinkFlow:
         self.state = FLOW_PROMOTING
         try:
             from ._bridge_client import (
+                adopt_pending_bridge,
                 discard_pending_bridge,
                 normalize_wa_identity,
-                promote_pending_bridge,
             )
 
             bridge = self._bridge
@@ -691,8 +734,18 @@ class LinkFlow:
                 self._watch_task.cancel()
                 self._watch_task = None
 
-            await promote_pending_bridge(self.session_id, identity)
+            # Halt any old session actor for this identity BEFORE its bridge
+            # is stopped/replaced, so its supervisor can't misread the
+            # replacement as a crash.
             self._manager.on_link_completed(identity)
+            # Adopt the LIVE bridge — the freshly-linked browser keeps
+            # running as the account's session. Never a stop-move-restart:
+            # restarting seconds after `ready` restored a half-written
+            # LocalAuth and bricked the account (torn-profile bug,
+            # 2026-08-21). The listener reconcile that follows the host's
+            # store_credential finds it running+ready and goes straight to
+            # CONNECTED.
+            await adopt_pending_bridge(self.session_id, identity)
 
             display = owner_phone or owner_name or identity
             self.result = {
@@ -918,7 +971,12 @@ class WhatsAppSessionManager:
             return
         self._boot_swept = True
         try:
-            from ._bridge_client import _PENDING_DIR_PREFIX, _auth_root, _pending_keys
+            from ._bridge_client import (
+                _ADOPTED_MARKER,
+                _PENDING_DIR_PREFIX,
+                _auth_root,
+                _pending_keys,
+            )
 
             root = _auth_root()
             if not root.exists():
@@ -931,6 +989,8 @@ class WhatsAppSessionManager:
                     _PENDING_DIR_PREFIX
                 ):
                     continue
+                if (child / _ADOPTED_MARKER).exists():
+                    continue  # a live account awaiting its deferred rename
                 sid = child.name[len(_PENDING_DIR_PREFIX):]
                 if sid in _pending_keys:
                     continue  # live link flow

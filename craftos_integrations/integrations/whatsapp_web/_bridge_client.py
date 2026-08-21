@@ -887,6 +887,14 @@ def normalize_wa_identity(value: Any) -> Optional[str]:
 # ════════════════════════════════════════════════════════════════════════
 
 _PENDING_DIR_PREFIX = "pending-"
+# Marker file inside a pending-* dir that was ADOPTED as a live account
+# (contains the identity). Adoption keeps the freshly-linked browser
+# running instead of restarting it from a half-written profile — the dir
+# is renamed to the conventional <identity>/ later, at a clean stop or the
+# next boot, when no Chromium holds it (Windows can't rename under a live
+# browser; killing the browser to rename was exactly the old
+# torn-LocalAuth bug).
+_ADOPTED_MARKER = ".adopted"
 
 _bridges: Dict[str, WhatsAppBridge] = {}
 _pending_keys: set = set()  # session ids currently registered as pending
@@ -902,11 +910,49 @@ def _auth_root() -> Path:
 
 
 def _identity_auth_dir(identity: str) -> Path:
+    """The CONVENTIONAL dir for an identity. Prefer
+    ``_resolve_identity_dir`` for reads — a freshly-adopted account lives
+    in its pending-* dir until the deferred rename."""
     return _auth_root() / identity
 
 
 def _pending_auth_dir(session_id: str) -> Path:
     return _auth_root() / f"{_PENDING_DIR_PREFIX}{session_id}"
+
+
+def _adopted_dirs_for(identity: str) -> list:
+    """Every pending-* dir whose adoption marker names ``identity``
+    (normally 0 or 1; >1 only after an interrupted re-link)."""
+    root = _auth_root()
+    out = []
+    try:
+        if not root.exists():
+            return out
+        for child in root.iterdir():
+            if not child.is_dir() or not child.name.startswith(_PENDING_DIR_PREFIX):
+                continue
+            marker = child / _ADOPTED_MARKER
+            try:
+                if marker.exists() and marker.read_text(encoding="utf-8").strip() == identity:
+                    out.append(child)
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return out
+
+
+def _resolve_identity_dir(identity: str) -> Path:
+    """Where ``identity``'s LocalAuth actually lives right now: the
+    conventional dir when present, else an adopted pending dir awaiting
+    its deferred rename, else the conventional path (for creation)."""
+    conventional = _identity_auth_dir(identity)
+    if conventional.exists():
+        return conventional
+    adopted = _adopted_dirs_for(identity)
+    if adopted:
+        return adopted[0]
+    return conventional
 
 
 def _legacy_owner_identity() -> Optional[str]:
@@ -952,8 +998,24 @@ def _account_slots_used() -> int:
     try:
         if root.exists():
             for child in root.iterdir():
-                if child.is_dir() and child.name.isdigit():
+                if not child.is_dir():
+                    continue
+                if child.name.isdigit():
                     identities.add(child.name)
+                elif child.name.startswith(_PENDING_DIR_PREFIX):
+                    # An adopted pending dir IS a connected account (its
+                    # rename is merely deferred) — count it by identity so
+                    # it can never double-count with the registry key.
+                    marker = child / _ADOPTED_MARKER
+                    try:
+                        if marker.exists():
+                            adopted_identity = marker.read_text(
+                                encoding="utf-8"
+                            ).strip()
+                            if adopted_identity:
+                                identities.add(adopted_identity)
+                    except OSError:
+                        continue
     except OSError:
         pass
     return len(identities) + len(_pending_keys)
@@ -971,6 +1033,10 @@ def _ensure_layout_migrated() -> None:
     if _layout_migrated:
         return
     _layout_migrated = True
+
+    # Boot is the one moment no bridge is running — finish any deferred
+    # adopted-dir renames first.
+    _migrate_adopted_dirs()
 
     root = _auth_root()
     old_session = root / "session"
@@ -1043,7 +1109,7 @@ def get_whatsapp_bridge(identity: Optional[str] = None) -> WhatsAppBridge:
 
     bridge = _bridges.get(key)
     if bridge is None:
-        bridge = WhatsAppBridge(auth_dir=str(_identity_auth_dir(key)))
+        bridge = WhatsAppBridge(auth_dir=str(_resolve_identity_dir(key)))
         _bridges[key] = bridge
     return bridge
 
@@ -1154,6 +1220,118 @@ async def promote_pending_bridge(session_id: str, identity: str) -> WhatsAppBrid
     return bridge
 
 
+async def adopt_pending_bridge(session_id: str, identity: str) -> WhatsAppBridge:
+    """Adopt a freshly-linked pending bridge as ``identity``'s live bridge —
+    WITHOUT stopping it.
+
+    The old promote path killed the pending browser milliseconds after
+    ``ready`` so the dir could be renamed; the companion-registration
+    handshake wasn't finished, so the moved LocalAuth was torn and the
+    restore hung forever (observed live 2026-08-21, account 923334055616).
+    Adoption keeps the healthy browser as the session (Desktop parity —
+    Desktop never restarts your session right after a scan); the dir keeps
+    its ``pending-*`` name with an adoption marker and is renamed later by
+    ``_migrate_adopted_dirs`` at a clean stop or the next boot.
+
+    Any previous bridge/dirs for the identity are stopped and deleted —
+    the fresh scan the user just performed always wins (its predecessor
+    may be the very stale/torn state that forced the re-link).
+    """
+    normalized = normalize_wa_identity(identity)
+    if normalized is None:
+        raise ValueError(f"invalid whatsapp identity: {identity!r}")
+
+    _pending_keys.discard(session_id)
+    pending = _bridges.pop(session_id, None)
+    if pending is None:
+        raise KeyError(f"no pending whatsapp bridge for session {session_id}")
+
+    previous = _bridges.pop(normalized, None)
+    if previous is not None and previous is not pending and previous.is_running:
+        try:
+            await previous.stop()
+        except Exception as e:
+            logger.warning(f"[WA-Bridge] old bridge stop during re-link: {e}")
+
+    # Old on-disk state (conventional dir and/or stale adopted dirs from an
+    # interrupted earlier re-link) is superseded by the fresh session.
+    old_conventional = _identity_auth_dir(normalized)
+    if old_conventional.exists():
+        await _rmtree_with_retry(old_conventional)
+    for stale in _adopted_dirs_for(normalized):
+        if Path(pending.auth_dir).resolve() != stale.resolve():
+            await _rmtree_with_retry(stale)
+
+    try:
+        marker = Path(pending.auth_dir) / _ADOPTED_MARKER
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(normalized, encoding="utf-8")
+    except OSError as e:
+        logger.warning(f"[WA-Bridge] could not write adoption marker: {e}")
+
+    _bridges[normalized] = pending
+    logger.info(
+        f"[WA-Bridge] adopted live pending bridge as account {normalized} "
+        f"(dir rename deferred: {Path(pending.auth_dir).name})"
+    )
+    return pending
+
+
+def _migrate_adopted_dirs() -> None:
+    """Deferred rename: adopted ``pending-*`` dirs → ``<identity>/``, done
+    only when no live browser holds the dir (boot, or after a clean stop).
+    Safe to call any time; skips anything in use."""
+    root = _auth_root()
+    try:
+        if not root.exists():
+            return
+        children = list(root.iterdir())
+    except OSError:
+        return
+    import shutil
+
+    for child in children:
+        if not child.is_dir() or not child.name.startswith(_PENDING_DIR_PREFIX):
+            continue
+        marker = child / _ADOPTED_MARKER
+        try:
+            if not marker.exists():
+                continue
+            identity = marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if not identity:
+            continue
+        bridge = _bridges.get(identity)
+        holds_dir = bridge is not None and Path(bridge.auth_dir) == child
+        if holds_dir and bridge.is_running:
+            continue  # live Chromium owns it — next clean stop gets it
+        target = _identity_auth_dir(identity)
+        try:
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+            if target.exists():
+                continue  # locked stale dir — retry at the next opportunity
+            shutil.move(str(child), str(target))
+            (target / _ADOPTED_MARKER).unlink(missing_ok=True)
+            if holds_dir:
+                bridge._auth_dir = str(target)
+                if bridge.auth_dir != str(target):
+                    # Test doubles expose auth_dir as a plain attribute.
+                    try:
+                        bridge.auth_dir = str(target)
+                    except AttributeError:
+                        pass
+            logger.info(
+                f"[WA-Bridge] finished adopted-dir rename: {child.name} → {identity}"
+            )
+        except OSError as e:
+            logger.warning(
+                f"[WA-Bridge] adopted-dir rename for {identity} failed "
+                f"(will retry at next stop/boot): {e}"
+            )
+
+
 async def teardown_account(identity: str) -> None:
     """Host hook for account removal: routed through the per-identity
     session actor so it can never race the actor's own supervision or a
@@ -1178,6 +1356,9 @@ async def _teardown_account_impl(normalized: str) -> None:
         except Exception as e:
             logger.warning(f"[WA-Bridge] teardown logout for {normalized}: {e}")
     await _rmtree_with_retry(_identity_auth_dir(normalized))
+    # A not-yet-renamed adopted dir is this account's LocalAuth too.
+    for adopted in _adopted_dirs_for(normalized):
+        await _rmtree_with_retry(adopted)
 
 
 async def _rmtree_with_retry(path: Path, attempts: int = 5) -> None:
