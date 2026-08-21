@@ -104,7 +104,12 @@ from app.ui_layer.components.protocols import (
     StatusBarProtocol,
     FootageComponentProtocol,
 )
-from app.ui_layer.components.types import ChatMessage, ActionItem, Attachment
+from app.ui_layer.components.types import (
+    ChatMessage,
+    ActionItem,
+    Attachment,
+    QUESTION_DISMISSED_VALUE,
+)
 from app.ui_layer.events import UIEvent, UIEventType
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
@@ -203,47 +208,53 @@ class BrowserChatComponent(ChatComponentProtocol):
             # Load recent messages from storage (initial page)
             stored_messages = self._storage.get_recent_messages(limit=50)
             for stored in stored_messages:
-                attachments = None
-                if stored.attachments:
-                    attachments = [
-                        Attachment(
-                            name=att.get("name", ""),
-                            path=att.get("path", ""),
-                            type=att.get("type", ""),
-                            size=att.get("size", 0),
-                            url=att.get("url", ""),
-                        )
-                        for att in stored.attachments
-                    ]
-                options = None
-                if stored.options:
-                    from app.ui_layer.components.types import ChatMessageOption
-
-                    options = [
-                        ChatMessageOption(
-                            label=o.get("label", ""),
-                            value=o.get("value", ""),
-                            style=o.get("style", "default"),
-                        )
-                        for o in stored.options
-                    ]
-                self._messages.append(
-                    ChatMessage(
-                        sender=stored.sender,
-                        content=stored.content,
-                        style=stored.style,
-                        timestamp=stored.timestamp,
-                        message_id=stored.message_id,
-                        attachments=attachments,
-                        session_id=stored.session_id,
-                        options=options,
-                        option_selected=stored.option_selected,
-                        continue_work=stored.continue_work,
-                    )
-                )
+                self._messages.append(self._stored_to_chat_message(stored))
         except Exception:
             # Storage may not be available, continue without persistence
             pass
+
+    @staticmethod
+    def _stored_to_chat_message(stored) -> ChatMessage:
+        """Rehydrate a StoredChatMessage row into the live ChatMessage shape."""
+        from app.ui_layer.components.types import ChatMessageOption
+
+        attachments = None
+        if stored.attachments:
+            attachments = [
+                Attachment(
+                    name=att.get("name", ""),
+                    path=att.get("path", ""),
+                    type=att.get("type", ""),
+                    size=att.get("size", 0),
+                    url=att.get("url", ""),
+                )
+                for att in stored.attachments
+            ]
+        options = None
+        if stored.options:
+            options = [
+                ChatMessageOption(
+                    label=o.get("label", ""),
+                    value=o.get("value", ""),
+                    style=o.get("style", "default"),
+                )
+                for o in stored.options
+            ]
+        return ChatMessage(
+            sender=stored.sender,
+            content=stored.content,
+            style=stored.style,
+            timestamp=stored.timestamp,
+            message_id=stored.message_id,
+            attachments=attachments,
+            session_id=stored.session_id,
+            options=options,
+            option_selected=stored.option_selected,
+            continue_work=stored.continue_work,
+            is_question=stored.is_question,
+            allow_free_text=stored.allow_free_text,
+            requires_choice=not stored.is_question,
+        )
 
     async def append_message(self, message: ChatMessage) -> None:
         """Append message and broadcast to clients."""
@@ -283,6 +294,8 @@ class BrowserChatComponent(ChatComponentProtocol):
                     session_id=message.session_id,
                     options=options_data,
                     continue_work=message.continue_work,
+                    is_question=message.is_question,
+                    allow_free_text=message.allow_free_text,
                 )
                 self._storage.insert_message(stored)
             except Exception:
@@ -343,47 +356,7 @@ class BrowserChatComponent(ChatComponentProtocol):
             stored = self._storage.get_messages_before(
                 before_timestamp, session_id=session_id, limit=limit
             )
-            messages = []
-            for s in stored:
-                attachments = None
-                if s.attachments:
-                    attachments = [
-                        Attachment(
-                            name=att.get("name", ""),
-                            path=att.get("path", ""),
-                            type=att.get("type", ""),
-                            size=att.get("size", 0),
-                            url=att.get("url", ""),
-                        )
-                        for att in s.attachments
-                    ]
-                options = None
-                if s.options:
-                    from app.ui_layer.components.types import ChatMessageOption
-
-                    options = [
-                        ChatMessageOption(
-                            label=o.get("label", ""),
-                            value=o.get("value", ""),
-                            style=o.get("style", "default"),
-                        )
-                        for o in s.options
-                    ]
-                messages.append(
-                    ChatMessage(
-                        sender=s.sender,
-                        content=s.content,
-                        style=s.style,
-                        timestamp=s.timestamp,
-                        message_id=s.message_id,
-                        attachments=attachments,
-                        session_id=s.session_id,
-                        options=options,
-                        option_selected=s.option_selected,
-                        continue_work=s.continue_work,
-                    )
-                )
-            return messages
+            return [self._stored_to_chat_message(s) for s in stored]
         except Exception:
             return []
 
@@ -1433,6 +1406,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             session_id = data.get("sessionId", "")
             message_id = data.get("messageId", "")
             await self._handle_option_click(value, session_id, message_id)
+
+        elif msg_type == "question_response":
+            value = data.get("value", "")
+            session_id = data.get("sessionId", "")
+            message_id = data.get("messageId", "")
+            dismissed = bool(data.get("dismissed", False))
+            await self._handle_question_response(
+                value, session_id, message_id, dismissed
+            )
 
         # Settings operations
         elif msg_type == "settings_get":
@@ -3900,6 +3882,65 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(
                 f"[OPTION_CLICK] Error handling option click: {e}", exc_info=True
+            )
+
+    async def _handle_question_response(
+        self, value: str, session_id: str, message_id: str, dismissed: bool
+    ) -> None:
+        """Handle the user answering (or dismissing) a pinned agent question.
+
+        Marks the question message answered (which un-pins it everywhere),
+        then feeds the answer back into the agent as a regular user message
+        so the normal trigger queue/merge behavior applies.
+        """
+        try:
+            question_text = ""
+            recorded = QUESTION_DISMISSED_VALUE if dismissed else value
+            pending_questions: list = []
+            if self._chat and message_id:
+                for m in self._chat._messages:
+                    if m.message_id == message_id:
+                        question_text = m.content
+                        m.option_selected = recorded
+                        break
+                if self._chat._storage:
+                    try:
+                        self._chat._storage.update_option_selected(
+                            message_id, recorded
+                        )
+                        # After marking this one, whatever question messages
+                        # remain unanswered are still pinned in the user's UI.
+                        pending_questions = self._chat._storage.get_pending_questions(
+                            session_id
+                        )
+                    except Exception:
+                        pass
+
+            # Un-pin on every connected client (the answering client already
+            # marked the selection optimistically).
+            await self._broadcast(
+                {
+                    "type": "question_answered",
+                    "data": {
+                        "sessionId": session_id,
+                        "messageId": message_id,
+                        "value": recorded,
+                    },
+                }
+            )
+
+            await self._controller.submit_question_answer(
+                value,
+                question_text,
+                session_id,
+                dismissed,
+                adapter_id=self._adapter_id,
+                pending_questions=pending_questions,
+            )
+        except Exception as e:
+            logger.error(
+                f"[QUESTION_RESPONSE] Error handling question response: {e}",
+                exc_info=True,
             )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -7784,46 +7825,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     if storage
                     else []
                 )
-                messages = []
-                for s in stored:
-                    attachments = None
-                    if s.attachments:
-                        attachments = [
-                            Attachment(
-                                name=att.get("name", ""),
-                                path=att.get("path", ""),
-                                type=att.get("type", ""),
-                                size=att.get("size", 0),
-                                url=att.get("url", ""),
-                            )
-                            for att in s.attachments
-                        ]
-                    options = None
-                    if s.options:
-                        from app.ui_layer.components.types import ChatMessageOption
-
-                        options = [
-                            ChatMessageOption(
-                                label=o.get("label", ""),
-                                value=o.get("value", ""),
-                                style=o.get("style", "default"),
-                            )
-                            for o in s.options
-                        ]
-                    messages.append(
-                        ChatMessage(
-                            sender=s.sender,
-                            content=s.content,
-                            style=s.style,
-                            timestamp=s.timestamp,
-                            message_id=s.message_id,
-                            attachments=attachments,
-                            session_id=s.session_id,
-                            options=options,
-                            option_selected=s.option_selected,
-                            continue_work=s.continue_work,
-                        )
-                    )
+                messages = [
+                    BrowserChatComponent._stored_to_chat_message(s) for s in stored
+                ]
 
             await _reply(
                 {

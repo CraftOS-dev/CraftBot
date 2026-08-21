@@ -12,7 +12,12 @@ from agent_core import action
         "you need the user's answer before you can continue), and the session will wait "
         "for the user's next input. Set continue_work=true ONLY for progress updates "
         "sent while you still have more work to do. Do not use multiple send_message "
-        "actions at the same time - combine messages into one."
+        "actions at the same time - combine messages into one. When your message is a "
+        "QUESTION to the user, provide suggested_responses: the UI pins the question "
+        "above the chat input with one-click answer buttons, so the user can answer "
+        "even while you keep working or other messages scroll by. Questions stay "
+        "pinned until answered or dismissed — NEVER re-send a question that is still "
+        "awaiting the user's answer."
     ),
     default=True,
     action_sets=["core"],
@@ -30,6 +35,23 @@ from agent_core import action
                 "False (default): this is your final message for now — the run ends and "
                 "the session waits for the user. True: this is a progress update and you "
                 "will keep working after sending it."
+            ),
+        },
+        "suggested_responses": {
+            "type": "array",
+            "example": ["Yes, go ahead", "No, skip it"],
+            "description": (
+                "Only when the message is a question: 2-5 short suggested answers "
+                "(plain strings) shown as one-click buttons. Cover the likely answers; "
+                "keep each under ~8 words. Omit for non-questions."
+            ),
+        },
+        "allow_free_text": {
+            "type": "boolean",
+            "example": True,
+            "description": (
+                "Only with suggested_responses. True (default): the user can also type "
+                "a custom answer. Set False when only the listed answers are valid."
             ),
         },
     },
@@ -58,13 +80,20 @@ async def send_message(input_data: dict) -> dict:
     simulated_mode = input_data.get("simulated_mode", False)
     # Extract session_id injected by ActionManager for multi-session isolation
     session_id = input_data.get("_session_id")
+    raw_suggestions = input_data.get("suggested_responses") or []
+    suggested_responses = [str(s).strip() for s in raw_suggestions if str(s).strip()]
+    allow_free_text = bool(input_data.get("allow_free_text", True))
 
     # In simulated mode, skip the actual interface call for testing
     if not simulated_mode:
         import app.internal_action_interface as internal_action_interface
 
         await internal_action_interface.InternalActionInterface.do_chat(
-            message, session_id=session_id, continue_work=continue_work
+            message,
+            session_id=session_id,
+            continue_work=continue_work,
+            suggested_responses=suggested_responses,
+            allow_free_text=allow_free_text,
         )
 
     # Return 'success' for test compatibility, but keep 'ok' in production if needed

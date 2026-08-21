@@ -1,4 +1,4 @@
-from typing import Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
 from agent_core.core.state.types import MainState
 from agent_core.core.state.session import StateSession
@@ -136,6 +136,8 @@ class StateManager:
         session_id: Optional[str] = None,
         platform: Optional[str] = None,
         continue_work: bool = False,
+        suggested_responses: Optional[List[str]] = None,
+        allow_free_text: bool = True,
     ) -> None:
         """Record an agent message to a session's event stream.
 
@@ -147,6 +149,13 @@ class StateManager:
                 the agent keeps working after sending it (send_message's
                 continue_work=true). Carried on the event so the UI keeps
                 its "Working…" indicator up across the bubble.
+            suggested_responses: Non-empty when the message is a question
+                with one-click answers. Carried on the event as `question`
+                so the UI renders answer chips and pins the question above
+                the composer; the stream copy also lists the offered answers
+                so the agent remembers what it suggested.
+            allow_free_text: Whether the pinned question also accepts a
+                typed custom answer.
         """
         target = session_id or MAIN_SESSION_ID
 
@@ -155,13 +164,24 @@ class StateManager:
         else:
             event_label = "agent message"
 
+        question = None
+        stream_content = content
+        if suggested_responses:
+            question = {
+                "options": list(suggested_responses),
+                "allow_free_text": allow_free_text,
+            }
+            offered = " | ".join(suggested_responses)
+            stream_content = f"{content}\n[Offered suggested responses: {offered}]"
+
         self.event_stream_manager.log(
             event_label,
-            content,
+            stream_content,
             event_type=EventType.AGENT_MESSAGE,
             display_message=content,
             platform=platform,
             continue_work=continue_work,
+            question=question,
             task_id=target,
         )
 

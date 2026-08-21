@@ -118,7 +118,10 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         <div className={styles.messageContent}>
           <MarkdownContent content={userMessage} />
         </div>
-        {message.options && message.options.length > 0 && (
+        {/* Question messages (isQuestion) don't render their options here:
+            the pinned QuestionBox above the composer is the single answer
+            surface, and the user's answer shows up as a user bubble. */}
+        {message.options && message.options.length > 0 && !message.isQuestion && (
           <div className={styles.messageOptions}>
             {message.requiresChoice !== false && (
               <span className={styles.optionsPrompt}>Please select a response to continue:</span>

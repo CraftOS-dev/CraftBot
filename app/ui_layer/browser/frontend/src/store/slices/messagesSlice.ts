@@ -210,3 +210,12 @@ register('session_deleted', (data, dispatch) => {
   const d = data as { sessionId?: string } | undefined
   if (d?.sessionId) dispatch(dropSession({ sessionId: d.sessionId }))
 })
+
+// A pinned question was answered/dismissed (possibly on another client):
+// recording the selection un-pins it and locks the bubble's chips.
+register('question_answered', (data, dispatch) => {
+  const d = data as { sessionId?: string; messageId?: string; value?: string } | undefined
+  if (d?.sessionId && d.messageId && d.value) {
+    dispatch(markOptionSelected({ sessionId: d.sessionId, messageId: d.messageId, value: d.value }))
+  }
+})
