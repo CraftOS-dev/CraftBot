@@ -4207,6 +4207,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if isinstance(raw, list):
                 components = [str(c) for c in raw]
 
+        # Snapshot session ids before the reset: sessions deleted inside
+        # reset_agent_state bypass _handle_session_delete, so no
+        # session_deleted broadcasts happen — we diff and emit them below.
+        sessions_before = {
+            s.id
+            for s in self._controller.agent.session_manager.list_sessions(
+                include_archived=True
+            )
+        }
+
         result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
@@ -4245,6 +4255,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     for sid in dead:
                         self._action_panel.drop_session_items(sid)
                         self._chat.drop_session_messages(sid)
+
+            # Tell clients which sessions the reset deleted so the sidebar
+            # (and each session's messages/activity/draft state) updates
+            # without a page refresh — the frontend session list is
+            # server-owned and only reacts to session_* events.
+            sessions_after = {
+                s.id
+                for s in self._controller.agent.session_manager.list_sessions(
+                    include_archived=True
+                )
+            }
+            for sid in sessions_before - sessions_after:
+                await self._broadcast(
+                    {
+                        "type": "session_deleted",
+                        "data": {"sessionId": sid},
+                    }
+                )
 
             # If LivingUI apps were deleted, push refreshed (now-empty) lists so
             # the frontend reflects the deletion. Both the main LivingUI page

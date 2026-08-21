@@ -16,8 +16,8 @@ interface ResetItem {
 export const RESET_ITEMS: ResetItem[] = [
   {
     id: 'conversation',
-    label: 'Conversation history',
-    description: 'Chat messages and the action log.',
+    label: 'Main chat history',
+    description: 'Chat messages and the action log of the Main chat.',
   },
   {
     id: 'sessions',
