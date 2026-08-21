@@ -1721,6 +1721,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 project_id, setting, value
             )
 
+        elif msg_type == "living_ui_backups_list":
+            await self._handle_living_ui_backups_list(data.get("projectId", ""))
+
+        elif msg_type == "living_ui_backup_now":
+            await self._handle_living_ui_backup_now(data.get("projectId", ""))
+
+        elif msg_type == "living_ui_backup_restore":
+            await self._handle_living_ui_backup_restore(
+                data.get("projectId", ""),
+                data.get("filename", ""),
+                data.get("sourceProjectId") or None,
+            )
+
+        elif msg_type == "living_ui_backup_delete":
+            await self._handle_living_ui_backup_delete(
+                data.get("projectId", ""),
+                data.get("filename", ""),
+                orphan=bool(data.get("orphan", False)),
+            )
+
         elif msg_type == "living_ui_marketplace_list":
             await self._handle_marketplace_list()
 
@@ -1825,7 +1845,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "living_ui_delete":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_delete(project_id)
+            await self._handle_living_ui_delete(
+                project_id, delete_backups=bool(data.get("deleteBackups", False))
+            )
 
         elif msg_type == "living_ui_state_update":
             await self._handle_living_ui_state_update(data)
@@ -3103,13 +3125,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_delete(self, project_id: str) -> None:
+    async def _handle_living_ui_delete(
+        self, project_id: str, delete_backups: bool = False
+    ) -> None:
         """Delete a Living UI project (and its dedicated session)."""
         try:
             project = self._living_ui_manager.get_project(project_id)
             session_id = project.session_id if project else None
 
-            success = await self._living_ui_manager.delete_project(project_id)
+            success = await self._living_ui_manager.delete_project(
+                project_id, delete_backups=delete_backups
+            )
             try:
                 from app.living_ui import construction_events
 
@@ -6901,6 +6927,107 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         await self._broadcast(
             {"type": "living_ui_project_setting_update", "data": result}
         )
+
+    # Backups (spec docs/plans/living-ui-backups-plan.md Phase 4). Thin
+    # handlers: all policy lives in the manager/BackupStore. Restore and
+    # backup-now run as background tasks (stop+relaunch can take a minute)
+    # so the WS loop stays responsive; results broadcast with *_result types.
+
+    async def _handle_living_ui_backups_list(self, project_id: str) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        payload = {"projectId": project_id, "backups": [], "totalSize": 0}
+        try:
+            manager = get_living_ui_manager()
+            entries = manager.backups.store.list_backups(project_id)
+            payload["backups"] = [
+                {
+                    "filename": e.filename,
+                    "ts": int(e.ts * 1000),
+                    "trigger": e.trigger,
+                    "size": e.size,
+                }
+                for e in entries
+            ]
+            payload["totalSize"] = sum(e.size for e in entries)
+        except Exception as e:
+            payload["error"] = str(e)
+        await self._broadcast({"type": "living_ui_backups_list", "data": payload})
+
+    async def _handle_living_ui_backup_now(self, project_id: str) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        async def _run() -> None:
+            try:
+                result = await get_living_ui_manager().backup_now(project_id)
+            except Exception as e:
+                result = {"status": "error", "errors": [str(e)]}
+            await self._broadcast(
+                {
+                    "type": "living_ui_backup_now_result",
+                    "data": {"projectId": project_id, **result},
+                }
+            )
+            await self._handle_living_ui_backups_list(project_id)
+
+        asyncio.create_task(_run())
+
+    async def _handle_living_ui_backup_restore(
+        self, project_id: str, filename: str, source_project_id: str | None = None
+    ) -> None:
+        """source_project_id: restore an archive from ANOTHER project's
+        backup dir (a deleted app's leftovers) into project_id."""
+        from app.living_ui import get_living_ui_manager
+
+        async def _run() -> None:
+            try:
+                result = await get_living_ui_manager().restore_backup(
+                    project_id, filename, source_project_id=source_project_id
+                )
+            except Exception as e:
+                result = {"status": "error", "errors": [str(e)]}
+            await self._broadcast(
+                {
+                    "type": "living_ui_backup_restore_result",
+                    "data": {"projectId": project_id, "filename": filename, **result},
+                }
+            )
+            await self._handle_living_ui_backups_list(project_id)
+
+        asyncio.create_task(_run())
+
+    async def _handle_living_ui_backup_delete(
+        self, project_id: str, filename: str, orphan: bool = False
+    ) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        data = {"projectId": project_id, "filename": filename, "success": True}
+        orphan_reaped = False
+        try:
+            manager = get_living_ui_manager()
+            if orphan:
+                # Whole-dir cleanup of a deleted project's leftovers (D5) —
+                # refuse if the id is (again) a registered project.
+                if project_id in manager.projects:
+                    raise ValueError("not an orphan — project exists")
+                manager.backups.store.delete_project_backups(project_id)
+            else:
+                manager.backups.store.delete(project_id, filename)
+                # An unregistered (deleted-app) dir whose last archive just
+                # went is pure residue (meta.json only) — reap it so the
+                # orphan row disappears instead of lingering empty.
+                if project_id not in manager.projects and not (
+                    manager.backups.store.list_backups(project_id)
+                ):
+                    manager.backups.store.delete_project_backups(project_id)
+                    orphan_reaped = True
+        except Exception as e:
+            data = {**data, "success": False, "error": str(e)}
+        await self._broadcast({"type": "living_ui_backup_delete", "data": data})
+        if not orphan:
+            await self._handle_living_ui_backups_list(project_id)
+        if orphan or orphan_reaped:
+            await self._handle_living_ui_settings_get()
 
     # =====================
     # Playbook Handlers

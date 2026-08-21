@@ -35,7 +35,7 @@ async def run_walk_verify(
     """Run the walk_verify sub-agent for a running project.
 
     base_url/project_path override where the verifier drives and reads —
-    used by staging mode on delivered apps, where the app under test is a
+    used to point it at the DEV environment, where the app under test is a
     disposable copy on a hidden port, never the user's live instance.
     Defaults preserve the original behavior (the registered project).
 

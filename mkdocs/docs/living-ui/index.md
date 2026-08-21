@@ -22,7 +22,7 @@ Two pieces make that trustworthy:
 
     ---
 
-    Operating a delivered app's data and verbs, evolving it safely through a staging copy, restarting, importing, converting foreign apps, and the marketplace.
+    Operating a delivered app's data and verbs, evolving it safely through a dev environment, restarting, importing, converting foreign apps, and the marketplace.
 
 </div>
 
@@ -33,7 +33,7 @@ The agent's relationship with a Living UI has three distinct capabilities, and t
 | Capability | What it means | What guarantees it |
 |---|---|---|
 | **Build** | Turn a requirements interview into a working app: schema, verbs, UI | The validation gate plus browser verification; an app that does not demonstrably work is never announced as working |
-| **Evolve** | Change a delivered app's code and schema on request | A staging copy with cloned data; the live app is replaced only by a verified successor |
+| **Evolve** | Change a delivered app's code and schema on request | A dev environment with a fresh schema-only DB (live data is never cloned); the live app is replaced only by a verified successor |
 | **Operate** | Act on the app's data and declared verbs in seconds ("add a todo for tomorrow" becomes a row) | The A2App protocol: schema discovery, write guards, and system-authored receipts |
 
 The distinction between operating and evolving is decided per request by the agent, and it matters: a data write never triggers a rebuild, and a code change never touches live data until it verifies. See [Managing apps](managing.md).
@@ -54,7 +54,7 @@ flowchart LR
     G --> W["walk_verify<br/><i>real browser, every feature</i>"]
     W --> D(["Delivered<br/><i>live URL, sidebar tab</i>"])
     D --> OP["Operate<br/><i>data + declared verbs</i>"]
-    D --> MOD["Evolve<br/><i>staging copy → verify → live</i>"]
+    D --> MOD["Evolve<br/><i>dev env → verify → promote</i>"]
     MOD --> G
 ```
 
