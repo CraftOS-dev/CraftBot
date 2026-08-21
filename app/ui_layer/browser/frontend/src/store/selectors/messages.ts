@@ -14,6 +14,12 @@ export const selectSessionHasMoreMessages = (state: RootState, sessionId: string
 export const selectSessionLoadingOlderMessages = (state: RootState, sessionId: string): boolean =>
   state.messages.bySession[sessionId]?.loadingOlder ?? false
 
+// State of the session's initial history load this connection
+// ('unfetched' | 'loading' | 'fetched'). Drives the mount-time
+// chat_history fetch.
+export const selectSessionHistoryStatus = (state: RootState, sessionId: string) =>
+  state.messages.bySession[sessionId]?.historyStatus ?? 'unfetched'
+
 export const selectSessionOldestMessageTimestamp = (
   state: RootState,
   sessionId: string,

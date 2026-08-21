@@ -24,6 +24,7 @@ import { DraftMascot, DRAFT_MASCOT_EXIT_MS } from '@mascot'
 import {
   selectSessionMessages,
   selectSessionHasMoreMessages,
+  selectSessionHistoryStatus,
   selectSessionLoadingOlderMessages,
   selectSessionOldestMessageTimestamp,
 } from '../../store/selectors/messages'
@@ -179,8 +180,21 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
   const hasMoreMessages = useAppSelector(state => selectSessionHasMoreMessages(state, sessionId))
+  const historyStatus = useAppSelector(state => selectSessionHistoryStatus(state, sessionId))
   const loadingOlderMessages = useAppSelector(state => selectSessionLoadingOlderMessages(state, sessionId))
   const oldestMessageTimestamp = useAppSelector(state => selectSessionOldestMessageTimestamp(state, sessionId))
+
+  // Load the session's history from storage the first time it is viewed on
+  // this connection (and again after every reconnect, which resets the
+  // bucket to 'unfetched'). The init payload only carries the backend's
+  // in-memory snapshot, so without this fetch a session whose messages are
+  // older than that snapshot would render empty forever even though every
+  // row is still in chat storage. No beforeTimestamp = the session's most
+  // recent page; scroll-up pagination takes over from there.
+  useEffect(() => {
+    if (isDraft || !connected || historyStatus !== 'unfetched') return
+    requestChatHistory(sessionId)
+  }, [isDraft, connected, historyStatus, requestChatHistory, sessionId])
 
   // Live status row: while a run is in flight, the timeline ends with ONE
   // persistent row that is EITHER the currently-running action OR the
@@ -1196,16 +1210,21 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
         <div className={styles.messagesContainer} ref={parentRef}>
+          {/* Pagination indicator. Must live OUTSIDE timelineColumn: the
+              column's virtual rows are absolutely positioned from its top
+              (translateY(0) onward), so anything placed inside it in normal
+              flow gets painted over by the first row (the date chip). As an
+              in-flow sibling it pushes the whole column down instead. */}
+          {loadingOlderMessages && (
+            <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
+              <Loader2 size={14} style={{ display: 'inline', animation: 'spin 1s linear infinite' }} /> Loading older messages...
+            </div>
+          )}
           {rowCount === 0 ? null : (
             <div
               className={styles.timelineColumn}
               style={{ height: `${virtualizer.getTotalSize()}px` }}
             >
-              {loadingOlderMessages && (
-                <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
-                  <Loader2 size={14} style={{ display: 'inline', animation: 'spin 1s linear infinite' }} /> Loading older messages...
-                </div>
-              )}
               {virtualizer.getVirtualItems().map((virtualItem) => {
                 // The row after the last timeline entry is the live status
                 // row (only present while a run is in flight). Its key is

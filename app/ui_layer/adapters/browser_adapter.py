@@ -401,13 +401,77 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
     """Browser activity feed component.
 
     Holds the per-session activity items (actions and reasoning) rendered
-    inline in each session's chat. In-memory only: activity is ephemeral
-    run telemetry, the durable record is the session's event stream.
+    inline in each session's chat. Write-through persisted to ActionStorage
+    (like chat messages), so the feed survives restarts and crashes
+    independently of the session's event stream, which summarizes and
+    prunes itself for LLM context.
     """
+
+    # How many items per session to load back into memory at boot. Bounds
+    # the init payload; the full history stays in storage.
+    RESTORE_PER_SESSION_LIMIT = 100
 
     def __init__(self, adapter: "BrowserAdapter") -> None:
         self._adapter = adapter
         self._items: List[ActionItem] = []
+        self._storage = None
+        self._init_storage()
+
+    def _init_storage(self) -> None:
+        """Initialize storage and load each session's recent items."""
+        try:
+            from app.usage.action_storage import get_action_storage
+
+            self._storage = get_action_storage()
+
+            # Anything still 'running' in storage died with the previous
+            # process — close it out before loading.
+            self._storage.mark_running_interrupted()
+
+            for stored in self._storage.get_recent_items_by_session(
+                self.RESTORE_PER_SESSION_LIMIT
+            ):
+                self._items.append(
+                    ActionItem(
+                        id=stored.id,
+                        name=stored.name,
+                        status=stored.status,
+                        item_type=stored.item_type,
+                        session_id=stored.session_id,
+                        created_at=stored.created_at,
+                        completed_at=stored.completed_at,
+                        input_data=stored.input_data,
+                        output_data=stored.output_data,
+                        error_message=stored.error_message,
+                    )
+                )
+        except Exception:
+            # Storage may not be available, continue without persistence
+            logger.exception("[ActionStorage] Failed to initialize activity storage")
+
+    def _persist_item(self, item: ActionItem) -> None:
+        """Write-through an item's full current state to storage."""
+        if not self._storage:
+            return
+        try:
+            from app.usage.action_storage import StoredActionItem
+
+            self._storage.save_item(
+                StoredActionItem(
+                    id=item.id,
+                    name=item.name,
+                    status=item.status,
+                    item_type=item.item_type,
+                    session_id=item.session_id,
+                    created_at=item.created_at,
+                    completed_at=item.completed_at,
+                    input_data=item.input_data,
+                    output_data=item.output_data,
+                    error_message=item.error_message,
+                )
+            )
+        except Exception as e:
+            logger.warning(f"[ActionStorage] Failed to persist item {item.id}: {e}")
 
     @staticmethod
     def _item_payload(item: ActionItem) -> Dict[str, Any]:
@@ -429,7 +493,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         }
 
     async def add_item(self, item: ActionItem) -> None:
-        """Add item and broadcast. Prevents duplicates by ID."""
+        """Add item, persist it, and broadcast. Prevents duplicates by ID."""
         # Check if item with same ID already exists
         for existing in self._items:
             if existing.id == item.id:
@@ -439,6 +503,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 return
 
         self._items.append(item)
+        self._persist_item(item)
 
         await self._adapter._broadcast(
             {
@@ -467,13 +532,14 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         )
 
     async def update_item(self, item_id: str, status: str) -> None:
-        """Update item status by ID and broadcast."""
+        """Update item status by ID, persist, and broadcast."""
         for item in self._items:
             if item.id == item_id:
                 item.status = status
                 # Record completion time for terminal statuses
                 if status in ("completed", "error") and item.completed_at is None:
                     item.completed_at = time.time()
+                self._persist_item(item)
                 await self._broadcast_update(item)
                 return
 
@@ -530,6 +596,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             if error is not None:
                 matched_item.error_message = error
 
+            self._persist_item(matched_item)
             await self._broadcast_update(matched_item)
 
     async def update_item_data(
@@ -545,6 +612,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     item.output_data = output
                 if error is not None:
                     item.error_message = error
+                self._persist_item(item)
                 await self._broadcast_update(item)
                 return
 
@@ -552,6 +620,11 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         """Remove item and broadcast."""
         removed = next((i for i in self._items if i.id == item_id), None)
         self._items = [i for i in self._items if i.id != item_id]
+        if self._storage:
+            try:
+                self._storage.delete_item(item_id)
+            except Exception:
+                pass
 
         await self._adapter._broadcast(
             {
@@ -564,14 +637,26 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         )
 
     async def clear(self) -> None:
-        """Clear all items and broadcast."""
+        """Clear all items (memory + storage) and broadcast."""
         self._items.clear()
+        if self._storage:
+            try:
+                self._storage.clear_items()
+            except Exception:
+                pass
 
         await self._adapter._broadcast(
             {
                 "type": "action_clear",
             }
         )
+
+    def drop_session_items(self, session_id: str) -> None:
+        """Drop a session's items from memory only (storage rows are cleared
+        by the owner of the operation — session deletion purges them via the
+        session-delete hook, conversation clears purge them alongside the
+        chat rows)."""
+        self._items = [i for i in self._items if i.session_id != session_id]
 
     def get_items(self) -> List[ActionItem]:
         """Get all loaded items."""
@@ -679,10 +764,6 @@ class BrowserAdapter(InterfaceAdapter):
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
-        # One-shot flag: the activity feed is rebuilt from persisted event
-        # streams on the first init request after boot (see
-        # _restore_activity_items).
-        self._activity_restored = False
         self._status_bar = BrowserStatusBarComponent(self)
         self._footage = BrowserFootageComponent(self)
         self._app: Optional["web.Application"] = None
@@ -3846,13 +3927,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.warning(f"[SESSION] Refusing to delete session {session_id!r}")
             return
         try:
-            await self._controller.agent.delete_session(session_id)
+            # Durable rows (session, event stream, chat, activity) are purged
+            # by the session-delete hook; here we drop the in-memory feeds
+            # and notify clients.
+            if not await self._controller.agent.delete_session(session_id):
+                logger.warning(f"[SESSION] Delete refused for {session_id}")
+                return
             self._chat.drop_session_messages(session_id)
-            if self._chat._storage:
-                try:
-                    self._chat._storage.clear_messages(session_id)
-                except Exception:
-                    pass
+            self._action_panel.drop_session_items(session_id)
             await self._broadcast(
                 {
                     "type": "session_deleted",
@@ -3875,14 +3957,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.error(f"[SESSION] Rename failed for {session_id}: {e}")
 
     async def _handle_session_clear(self, data: Dict[str, Any]) -> None:
-        """Clear a session's conversation (chat rows + agent-side state)."""
+        """Clear a session's conversation (chat + activity rows and
+        agent-side state)."""
         session_id = (data.get("sessionId") or "").strip() or "main"
         try:
-            if self._chat._storage:
-                try:
-                    self._chat._storage.clear_messages(session_id)
-                except Exception:
-                    pass
+            from app.usage import get_action_storage, get_chat_storage
+
+            try:
+                get_chat_storage().clear_messages(session_id)
+            except Exception:
+                pass
+            try:
+                get_action_storage().clear_items(session_id)
+            except Exception:
+                pass
             await self._controller.agent.clear_session(session_id)
             await self.broadcast_session_cleared(session_id)
         except Exception as e:
@@ -3923,9 +4011,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Drop a session's rendered conversation on every client.
 
         Called by the /clear command (which has already cleared storage and
-        agent-side state) and by the session_clear handler.
+        agent-side state) and by the session_clear handler. The activity
+        feed is part of the conversation, so its items go with it.
         """
         self._chat.drop_session_messages(session_id)
+        self._action_panel.drop_session_items(session_id)
         await self._broadcast(
             {
                 "type": "session_cleared",
@@ -4120,12 +4210,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
-            # Only clear the UI panels whose data was actually reset. A full
-            # reset (components is None) clears both.
-            if components is None or "conversation" in components:
+            # Only clear the UI panels whose data was actually reset.
+            if components is None:
+                # Full reset: everything is gone.
                 await self._chat.clear()
-            if components is None or "sessions" in components:
                 await self._action_panel.clear()
+            else:
+                if "conversation" in components:
+                    # Conversation reset is scoped to the main session —
+                    # other sessions' history is untouched.
+                    from agent_core.core.session import MAIN_SESSION_ID
+
+                    await self._chat.clear(MAIN_SESSION_ID)
+                    self._action_panel.drop_session_items(MAIN_SESSION_ID)
+                if "sessions" in components:
+                    # Chat sessions were deleted (rows purged via the
+                    # session-delete hook) — drop the in-memory feeds of
+                    # sessions that no longer exist.
+                    live = {
+                        s.id
+                        for s in self._controller.agent.session_manager.list_sessions(
+                            include_archived=True
+                        )
+                    }
+                    dead = {
+                        i.session_id
+                        for i in self._action_panel.get_items()
+                        if i.session_id not in live
+                    } | {
+                        m.session_id
+                        for m in self._chat.get_messages()
+                        if m.session_id not in live
+                    }
+                    for sid in dead:
+                        self._action_panel.drop_session_items(sid)
+                        self._chat.drop_session_messages(sid)
 
             # If LivingUI apps were deleted, push refreshed (now-empty) lists so
             # the frontend reflects the deletion. Both the main LivingUI page
@@ -8245,108 +8364,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._chat.append_message(error_message)
             return {"success": False, "files_sent": 0, "errors": [str(e)]}
 
-    def _restore_activity_items(self) -> None:
-        """Rebuild the in-memory activity feed from persisted event streams.
-
-        The action panel is a process-lifetime cache; the durable record of
-        actions + reasoning is each session's event stream. Replaying the
-        restored streams through the same EventTransformer used for live
-        events reconstructs the inline activity feed after a backend
-        restart. Runs once, lazily, on the first init request (streams are
-        guaranteed loaded by then).
-        """
-        if self._activity_restored:
-            return
-        self._activity_restored = True
-
-        from app.ui_layer.events.transformer import EventTransformer
-        from app.ui_layer.events import UIEventType
-
-        # Bound the restore so ancient sessions don't bloat the init payload.
-        PER_SESSION_ITEM_CAP = 100
-
-        try:
-            streams = (
-                self._controller.agent.event_stream_manager.get_all_streams_with_ids()
-            )
-        except Exception as e:
-            logger.warning(f"[ACTIVITY] Restore skipped — streams unavailable: {e}")
-            return
-
-        restored: List[ActionItem] = []
-        for session_id, stream in streams:
-            session_items: List[ActionItem] = []
-            by_action_id: Dict[str, ActionItem] = {}
-            for event in stream.as_list():
-                try:
-                    ui = EventTransformer.transform(event, session_id)
-                except Exception:
-                    continue
-                if ui is None:
-                    continue
-                ts = ui.timestamp.timestamp() if ui.timestamp else time.time()
-
-                if ui.type == UIEventType.REASONING:
-                    session_items.append(
-                        ActionItem(
-                            id=ui.data.get("reasoning_id", ""),
-                            name="Reasoning",
-                            status="completed",
-                            item_type="reasoning",
-                            session_id=session_id,
-                            created_at=ts,
-                            completed_at=ts,
-                            output_data=ui.data.get("content"),
-                        )
-                    )
-                elif ui.type == UIEventType.ACTION_START:
-                    item = ActionItem(
-                        id=ui.data.get("action_id", ""),
-                        name=ui.data.get("action_name", "Action"),
-                        status="running",
-                        item_type="action",
-                        session_id=session_id,
-                        created_at=ts,
-                        input_data=ui.data.get("input"),
-                    )
-                    session_items.append(item)
-                    by_action_id[item.id] = item
-                elif ui.type == UIEventType.ACTION_END:
-                    item = by_action_id.get(ui.data.get("action_id", ""))
-                    if item is None:
-                        continue  # start fell out of the stream head
-                    item.status = ui.data.get("status", "completed")
-                    item.completed_at = ts
-                    item.output_data = ui.data.get("output")
-                    item.error_message = ui.data.get("error_message")
-
-            # Anything still "running" died with the previous process.
-            for item in session_items:
-                if item.item_type == "action" and item.status == "running":
-                    item.status = "error"
-                    item.error_message = "Interrupted by restart"
-                    item.completed_at = item.created_at
-
-            restored.extend(session_items[-PER_SESSION_ITEM_CAP:])
-
-        if restored:
-            restored.sort(key=lambda i: i.created_at)
-            self._action_panel._items = restored + self._action_panel._items
-            logger.info(
-                f"[ACTIVITY] Restored {len(restored)} activity item(s) from "
-                f"{len(streams)} session stream(s)"
-            )
-
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
         from app.onboarding import onboarding_manager
         from app.ui_layer.settings.general_settings import (
             get_agent_profile_picture_info,
         )
-
-        # Rebuild the activity feed from persisted streams on first use so
-        # actions + reasoning survive backend restarts.
-        self._restore_activity_items()
 
         state = self._controller.state
         metrics = self._metrics_collector.get_metrics()

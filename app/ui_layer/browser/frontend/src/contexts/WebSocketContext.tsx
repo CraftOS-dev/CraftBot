@@ -14,6 +14,7 @@ import { useAppDispatch, useAppSelector } from '../store/hooks'
 import {
   addOptimistic as messagesAddOptimistic,
   setLoadingOlder as messagesSetLoadingOlder,
+  historyRequested as messagesHistoryRequested,
   markOptionSelected as messagesMarkOptionSelected,
   transferSession as messagesTransferSession,
 } from '../store/slices/messagesSlice'
@@ -481,7 +482,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     limit: number = 50,
   ) => {
     if (!client.isConnected) return
-    dispatch(messagesSetLoadingOlder({ sessionId, loading: true }))
+    // Scroll-up pagination shows the "Loading older messages" row; the
+    // initial page load (no beforeTimestamp) only tracks its in-flight
+    // state so the mount effect doesn't re-request.
+    if (beforeTimestamp !== undefined) {
+      dispatch(messagesSetLoadingOlder({ sessionId, loading: true }))
+    } else {
+      dispatch(messagesHistoryRequested({ sessionId }))
+    }
     client.sendString(JSON.stringify({
       type: 'chat_history',
       sessionId,
