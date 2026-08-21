@@ -1165,7 +1165,9 @@ def install_nodejs_linux():
 
 
 def install_playwright_browser(use_conda: bool = False):
-    """Install Playwright Chromium browser for WhatsApp Web support."""
+    """Install Playwright Chromium for the agent's browser-automation
+    actions. (The WhatsApp bridge no longer uses a browser — it speaks the
+    protocol directly via Baileys.)"""
     print("\nInstalling Playwright Chromium browser...")
     try:
         if use_conda:
@@ -1203,12 +1205,12 @@ def install_playwright_browser(use_conda: bool = False):
                 error_msg = result.stderr[:300].strip()
                 if error_msg:
                     print(f"  Error details: {error_msg}")
-            print("  WhatsApp Web integration may not work")
+            print("  Browser-automation actions may not work")
             print("  You can manually install later with: playwright install chromium")
             return False
     except Exception as e:
         print(f"⚠ Warning: Failed to install Playwright browser: {e}")
-        print("  WhatsApp Web integration may not work")
+        print("  Browser-automation actions may not work")
         print("  You can manually install later with: playwright install chromium")
         return False
 
@@ -1338,6 +1340,61 @@ def install_browser_frontend():
         print("\n   You can manually install with:")
         print("   cd app/ui_layer/browser/frontend")
         print("   npm install")
+        return False
+
+
+def install_whatsapp_bridge():
+    """Install npm dependencies for the WhatsApp bridge (Baileys).
+
+    The bridge is a Node subprocess speaking WhatsApp's protocol via
+    Baileys — no browser involved. Installing here (instead of lazily at
+    the first bridge start) means the first QR link isn't blocked behind
+    an npm download. Uses the same staleness check as the frontend, so a
+    pulled branch that bumps the Baileys version reinstalls automatically.
+    """
+    bridge_dir = os.path.join(
+        BASE_DIR, "craftos_integrations", "integrations", "whatsapp_web"
+    )
+
+    if not os.path.exists(os.path.join(bridge_dir, "package.json")):
+        print(f"\n⚠ Warning: WhatsApp bridge directory not found at {bridge_dir}")
+        print("   WhatsApp integration will not work")
+        return False
+
+    npm_cmd = shutil.which("npm")
+    if not npm_cmd:
+        # install_browser_frontend (which runs after this on failure paths)
+        # already walks the user through Node.js installation; keep this
+        # message short.
+        print("\n⚠ Warning: npm not found — WhatsApp bridge dependencies skipped")
+        print("   After installing Node.js, run:")
+        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        return False
+
+    stale_reason = _frontend_deps_stale(bridge_dir)
+    if stale_reason is None:
+        print("\n✓ WhatsApp bridge dependencies already installed")
+        return True
+
+    print(f"\n🔧 Installing WhatsApp bridge dependencies ({stale_reason})...")
+    try:
+        result = run_command_with_progress(
+            [npm_cmd, "install"],
+            message="Installing WhatsApp bridge (Baileys)",
+            cwd=bridge_dir,
+            check=False,
+        )
+        if result and hasattr(result, "returncode") and result.returncode == 0:
+            print("✓ WhatsApp bridge dependencies installed")
+            return True
+        print("\n⚠ Warning: npm install for the WhatsApp bridge failed")
+        print("   WhatsApp integration will not work until it succeeds:")
+        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        return False
+    except Exception as e:
+        print(f"\n⚠ Warning: Failed to install WhatsApp bridge deps: {e}")
+        print("   You can manually install with:")
+        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
         return False
 
 
@@ -2415,11 +2472,15 @@ if __name__ == "__main__":
         setup_pip_environment()
         print()
 
-    # Install Playwright browser (needed for WhatsApp Web)
+    # Install Playwright browser (needed for browser-automation actions)
     install_playwright_browser(use_conda=use_conda)
 
     # Install browser frontend dependencies — required for browser mode
     frontend_ok = install_browser_frontend()
+
+    # Install the WhatsApp bridge's npm deps (Baileys) so the first QR
+    # link isn't blocked behind an npm download.
+    install_whatsapp_bridge()
     if not frontend_ok:
         print(f"\n  {RED}✗{RESET} {WHITE}Browser frontend setup failed.{RESET}")
         print(
