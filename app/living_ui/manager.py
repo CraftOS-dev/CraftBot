@@ -60,7 +60,7 @@ class LivingUIProject:
     # The project's dedicated agent session (persisted — every Living UI
     # project owns one standalone session for its builds, fixes and chat).
     session_id: Optional[str] = None
-    auto_launch: bool = False  # Auto-launch on CraftBot startup
+    auto_launch: bool = True  # Auto-launch on CraftBot startup
     log_cleanup: bool = True  # Clean logs on restart
     # Backups of live pb_data (spec docs/plans/living-ui-backups-plan.md).
     # Default ON (D1): the user who never opens settings is the one who
@@ -274,6 +274,11 @@ class LivingUIManager:
     WATCHDOG_INTERVAL = 30  # seconds between checks
     WATCHDOG_RETRY_DELAYS = [5, 15, 30]  # seconds to wait between restart attempts
 
+    # Max projects auto-launched at once on startup. Each launch spawns a
+    # PocketBase boot + a headless verify browser, so this caps the boot
+    # storm's peak load while still overlapping the waits.
+    AUTO_LAUNCH_CONCURRENCY = 3
+
     def start_watchdog(self) -> None:
         """Start the background watchdog that monitors running projects."""
         if self._watchdog_running:
@@ -421,6 +426,9 @@ class LivingUIManager:
                                 "[LIVING_UI:WATCHDOG] Restart succeeded but "
                                 "state could not be persisted"
                             )
+                        # The iframe was pointing at a dead port until now;
+                        # tell open tabs to repoint at the revived process.
+                        await self._broadcast_ready(project)
 
             except asyncio.CancelledError:
                 break
@@ -721,7 +729,7 @@ UI in {project.path}/frontend/src/app/."""
                             features=project_data.get("features", []),
                             theme=project_data.get("theme", "system"),
                             session_id=project_data.get("sessionId"),
-                            auto_launch=project_data.get("autoLaunch", False),
+                            auto_launch=project_data.get("autoLaunch", True),
                             log_cleanup=project_data.get("logCleanup", True),
                             backups_enabled=project_data.get("backupsEnabled", True),
                             backup_interval=project_data.get("backupInterval", "daily"),
@@ -1276,6 +1284,15 @@ UI in {project.path}/frontend/src/app/."""
         project.error = None
         self._save_projects()
 
+        # Tell already-connected browser clients this app is live. Every launch
+        # routes through here, so this is the ONE place that covers the paths
+        # that don't broadcast themselves — startup auto-launch and restore.
+        # Without it those flip a project to running silently and an open page
+        # keeps spinning until a manual refresh re-fetches the list. The action
+        # path (manual UI launch) also emits its own living_ui_launch reply;
+        # both markReady/markRunning are idempotent, so the overlap is benign.
+        await self._broadcast_ready(project)
+
         logger.info(f"[LIVING_UI] {project.name} running at {project.url}")
         return {
             "status": "success",
@@ -1283,6 +1300,19 @@ UI in {project.path}/frontend/src/app/."""
             "backend_url": project.url,
             "port": project.port,
         }
+
+    async def _broadcast_ready(self, project: LivingUIProject) -> None:
+        """Push a living_ui_ready event so open browser tabs clear the launch
+        spinner and pick up the URL. Fail-silent: a broadcast problem must
+        never fail an otherwise-successful launch."""
+        try:
+            from app.living_ui.broadcast import broadcast_living_ui_ready
+
+            await broadcast_living_ui_ready(project.id, project.url, project.port)
+        except Exception as e:
+            logger.debug(
+                f"[LIVING_UI] ready broadcast skipped for {project.id}: {e}"
+            )
 
     async def open_dev(self, project_id: str) -> dict:
         """Boot the DEV environment for a code change (first build or
@@ -3918,17 +3948,48 @@ UI in {project.path}/frontend/src/app/."""
 
         If project_ids provided, launches those. Otherwise launches all
         projects with auto_launch=True.
+
+        Launches run concurrently under AUTO_LAUNCH_CONCURRENCY: a sequential
+        loop stacked every project's PocketBase boot + headless verify
+        back-to-back, and one launch raising aborted every project after it.
+        Bounded concurrency overlaps the waits while capping peak load, and
+        each launch is isolated so one failure never stops the rest.
         """
         if project_ids is None:
             # Launch all projects with auto_launch enabled
             project_ids = [p.id for p in self.projects.values() if p.auto_launch]
 
-        for project_id in project_ids:
+        targets = [
+            pid
+            for pid in project_ids
+            if self.projects.get(pid) and self.projects[pid].status != "error"
+        ]
+        if not targets:
+            return
+
+        sem = asyncio.Semaphore(self.AUTO_LAUNCH_CONCURRENCY)
+
+        async def _launch_one(project_id: str) -> None:
             project = self.projects.get(project_id)
-            if project and project.status != "error":
+            if not project:
+                return
+            async with sem:
                 logger.info(
                     f"[LIVING_UI] Auto-launching: {project.name} ({project_id})"
                 )
                 project.status = "launching"
                 self._save_projects()
-                await self.launch_project(project_id)
+                try:
+                    await self.launch_project(project_id)
+                except Exception as e:
+                    # launch_project normally returns an error dict, but an
+                    # unexpected raise must not abort the other launches.
+                    logger.warning(
+                        f"[LIVING_UI] Auto-launch crashed for {project.name} "
+                        f"({project_id}): {e}"
+                    )
+                    project.status = "error"
+                    project.error = str(e)[:500]
+                    self._save_projects()
+
+        await asyncio.gather(*(_launch_one(pid) for pid in targets))
