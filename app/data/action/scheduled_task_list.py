@@ -40,7 +40,6 @@ def scheduled_task_list(input_data: dict) -> dict:
                     "schedule": s.schedule.raw_expression,
                     "enabled": s.enabled,
                     "priority": s.priority,
-                    "mode": s.mode,
                     "last_run": datetime.fromtimestamp(s.last_run).isoformat()
                     if s.last_run
                     else None,
