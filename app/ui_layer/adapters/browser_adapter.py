@@ -4299,41 +4299,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 await self._chat.clear()
                 await self._action_panel.clear()
                 await self._handle_session_list()
-            # Only clear the UI panels whose data was actually reset.
-            if components is None:
-                # Full reset: everything is gone.
-                await self._chat.clear()
-                await self._action_panel.clear()
-            else:
-                if "conversation" in components:
-                    # Conversation reset is scoped to the main session —
-                    # other sessions' history is untouched.
-                    from agent_core.core.session import MAIN_SESSION_ID
-
-                    await self._chat.clear(MAIN_SESSION_ID)
-                    self._action_panel.drop_session_items(MAIN_SESSION_ID)
-                if "sessions" in components:
-                    # Chat sessions were deleted (rows purged via the
-                    # session-delete hook) — drop the in-memory feeds of
-                    # sessions that no longer exist.
-                    live = {
-                        s.id
-                        for s in self._controller.agent.session_manager.list_sessions(
-                            include_archived=True
-                        )
-                    }
-                    dead = {
-                        i.session_id
-                        for i in self._action_panel.get_items()
-                        if i.session_id not in live
-                    } | {
-                        m.session_id
-                        for m in self._chat.get_messages()
-                        if m.session_id not in live
-                    }
-                    for sid in dead:
-                        self._action_panel.drop_session_items(sid)
-                        self._chat.drop_session_messages(sid)
 
             # Tell clients which sessions the reset deleted so the sidebar
             # (and each session's messages/activity/draft state) updates
