@@ -11,9 +11,8 @@ import {
   Power,
   Wrench,
   HelpCircle,
-  Star,
-  UserPlus,
-  Undo2,
+  ChevronRight,
+  ChevronLeft,
 } from 'lucide-react'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
@@ -237,33 +236,29 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
   return <span className={styles.integrationIconSvg}><Globe size={size} /></span>
 }
 
-// Schema-driven Configure form. Renders one input per ``ConfigField`` and
-// flushes its values back to the parent via ``onChange``. Adding a new
-// supported ``type`` is one ``case`` in the renderField switch — no other
-// file changes needed.
-const ConfigForm = ({
+// Schema-driven settings fields for the integration-settings page of the
+// Manage modal. Renders one control per ``ConfigField`` and flushes values
+// back to the parent via ``onChange``; the single Save lives in the modal
+// footer, so this component has no save button of its own. Checkboxes render
+// as the same label+description toggle row used across the Settings tabs;
+// every other type is a labeled input.
+const ConfigFields = ({
   integrationId,
   schema,
   values,
   onChange,
-  saving,
-  onSave,
 }: {
   integrationId: string
   schema: ConfigField[]
   values: Record<string, any>
   onChange: (values: Record<string, any>) => void
-  saving: boolean
-  onSave: () => void
 }) => {
   const setField = (key: string, value: any) => {
     onChange({ ...values, [key]: value })
   }
 
-  const renderField = (field: ConfigField) => {
+  const renderInput = (field: ConfigField, id: string) => {
     const cur = values[field.key]
-    const id = `cfg-${integrationId}-${field.key}`
-
     switch (field.type) {
       case 'textarea':
         return (
@@ -279,10 +274,9 @@ const ConfigForm = ({
 
       case 'list': {
         // Comma-separated <input>. The backend coerces "a, b, c" → ["a","b","c"]
-        // on save (see service.py:_coerce). Crucially, we keep the raw string
-        // in state while the user is typing — converting to an array on every
-        // keystroke would strip trailing commas/spaces and stop the user from
-        // typing a second item.
+        // on save (see service.py:_coerce). Keep the raw string in state while
+        // the user types — converting to an array on every keystroke would
+        // strip trailing commas and stop the user typing a second item.
         const display = Array.isArray(cur) ? cur.join(', ') : (cur ?? '')
         return (
           <input
@@ -295,22 +289,6 @@ const ConfigForm = ({
           />
         )
       }
-
-      case 'checkbox':
-        return (
-          <label htmlFor={id} className={styles.checkboxRow}>
-            <input
-              id={id}
-              type="checkbox"
-              checked={Boolean(cur)}
-              onChange={e => setField(field.key, e.target.checked)}
-            />
-            <span className={styles.checkboxText}>
-              <span className={styles.checkboxLabel}>{field.label}</span>
-              {field.help && <span className={styles.checkboxHint}>{field.help}</span>}
-            </span>
-          </label>
-        )
 
       case 'select':
         return (
@@ -354,249 +332,42 @@ const ConfigForm = ({
   }
 
   return (
-    <div className={styles.connectForm}>
-      {schema.map(field => (
-        <div key={field.key} className={styles.formGroup}>
-          {/* Checkbox renders its own label (next to the box). For every
-              other type the label sits above the input. */}
-          {field.type !== 'checkbox' && (
-            <label htmlFor={`cfg-${integrationId}-${field.key}`}>
-              {field.label}
+    <div className={styles.mSettingsList}>
+      {schema.map(field => {
+        const id = `cfg-${integrationId}-${field.key}`
+        if (field.type === 'checkbox') {
+          return (
+            <label key={field.key} htmlFor={id} className={styles.toggleGroup}>
+              <div className={styles.toggleInfo}>
+                <span className={styles.toggleLabel}>{field.label}</span>
+                {field.help && <span className={styles.toggleDesc}>{field.help}</span>}
+              </div>
+              <input
+                id={id}
+                type="checkbox"
+                className={styles.toggle}
+                checked={Boolean(values[field.key])}
+                onChange={e => setField(field.key, e.target.checked)}
+              />
             </label>
-          )}
-          {renderField(field)}
-          {field.help && field.type !== 'checkbox' && (
-            <p className={styles.hint}>{field.help}</p>
-          )}
-        </div>
-      ))}
-      <div className={styles.modalActions}>
-        <Button variant="secondary" size="sm" onClick={onSave} disabled={saving}>
-          {saving ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save settings'}
-        </Button>
-      </div>
+          )
+        }
+        return (
+          <div key={field.key} className={styles.formGroup}>
+            <label htmlFor={id}>{field.label}</label>
+            {renderInput(field, id)}
+            {field.help && <p className={styles.hint}>{field.help}</p>}
+          </div>
+        )
+      })}
     </div>
   )
 }
 
-// Multi-account manager, rendered in the Manage modal for integrations whose
-// ``integration_info`` payload carries a multi-account ``accounts`` array. Rename /
-// set-primary / listen-toggle / mark-disconnect are STAGED locally (the
-// ``staged`` prop) and committed as one ``integration_apply_account_changes``
-// request on "Save changes". The save bar (Save changes + Discard) renders
-// ONLY while staged edits exist, so it can never be confused with the
-// Configure section's own save button. "Add account" launches the real OAuth
-// flow immediately — no staged step — and may take minutes to resolve, so it
-// shows an in-progress state until the result broadcast arrives (no timers).
-const AccountsManager = ({
-  accounts,
-  staged,
-  adding,
-  saving,
-  error,
-  onAliasChange,
-  onSetPrimary,
-  onListenChange,
-  onToggleDisconnect,
-  onAddAccount,
-  onRelink,
-  onDiscard,
-  onSave,
-}: {
-  accounts: ManagedAccount[]
-  staged: StagedAccountEdits | undefined
-  adding: boolean
-  saving: boolean
-  error: string
-  onAliasChange: (account: ManagedAccount, value: string) => void
-  onSetPrimary: (account: ManagedAccount) => void
-  onListenChange: (account: ManagedAccount, value: boolean) => void
-  onToggleDisconnect: (account: ManagedAccount, marked: boolean) => void
-  onAddAccount: () => void
-  // Re-link a whatsapp_web account whose stored session died (sessionState
-  // 'needs_relink'): opens the QR connect flow — a fresh scan replaces the
-  // dead session in place.
-  onRelink?: (account: ManagedAccount) => void
-  onDiscard: () => void
-  onSave: () => void
-}) => {
-  // Effective primary = staged override, falling back to the real primary.
-  // pruneStagedFor() guarantees a staged primary always refers to a live
-  // account (a vanished staged primary is reset to null = real primary).
-  // A staged primary that is ALSO marked for disconnect is ignored here,
-  // mirroring handleSaveAccountChanges' payload stripping.
-  const realPrimary = accounts.find(a => a.isPrimary)?.identity ?? null
-  const stagedPrimary =
-    staged && staged.primary !== null && !staged.disconnect.includes(staged.primary)
-      ? staged.primary
-      : null
-  const effectivePrimary = stagedPrimary ?? realPrimary
-  const hasStaged = staged !== undefined && !stagedIsEmpty(staged)
-
-  return (
-    <>
-      {accounts.length === 0 ? (
-        <p className={styles.noAccounts}>No accounts connected</p>
-      ) : (
-        <div className={styles.accountsList}>
-          {accounts.map(account => {
-            const marked = staged?.disconnect.includes(account.identity) ?? false
-            // Staged values override real ones; ``in`` checks matter because
-            // a staged alias of null (= clear) is a real override.
-            const aliasValue =
-              staged && account.identity in staged.aliases
-                ? (staged.aliases[account.identity] ?? '')
-                : (account.alias ?? '')
-            const listenValue =
-              staged && account.identity in staged.listen
-                ? staged.listen[account.identity]
-                : account.listen
-            const isPrimary = account.identity === effectivePrimary
-            const aliasInputId = `alias-${account.identity}`
-            return (
-              <div
-                key={account.identity}
-                className={`${styles.accountCard} ${marked ? styles.accountCardRemoving : ''}`}
-              >
-                <div className={styles.accountCardHeader}>
-                  <div className={styles.accountCardIdentity}>
-                    <span className={styles.accountEmail} title={account.identity}>
-                      {account.identity}
-                    </span>
-                    {isPrimary ? (
-                      <Badge variant="primary">
-                        {stagedPrimary === account.identity ? 'Primary (unsaved)' : 'Primary'}
-                      </Badge>
-                    ) : (
-                      <button
-                        type="button"
-                        className={styles.setPrimaryAction}
-                        onClick={() => onSetPrimary(account)}
-                        disabled={marked}
-                        title="Use this account when no account is specified"
-                      >
-                        <Star size={12} />
-                        Set as primary
-                      </button>
-                    )}
-                  </div>
-                  {marked ? (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => onToggleDisconnect(account, false)}
-                      icon={<Undo2 size={13} />}
-                    >
-                      Undo
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={styles.disconnectGhost}
-                      onClick={() => onToggleDisconnect(account, true)}
-                      icon={<Power size={13} />}
-                      title="Disconnect this account (applied on save)"
-                    />
-                  )}
-                </div>
-                {!marked && account.sessionState === 'needs_relink' && (
-                  <div className={styles.formError}>
-                    <span>Session expired — WhatsApp needs re-linking via QR.</span>{' '}
-                    {onRelink && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => onRelink(account)}
-                      >
-                        Re-link
-                      </Button>
-                    )}
-                  </div>
-                )}
-                {!marked && (account.sessionState === 'reconnecting' || account.sessionState === 'failed') && (
-                  <p className={styles.hint}>
-                    {account.sessionState === 'reconnecting'
-                      ? 'Connection lost — reconnecting automatically…'
-                      : 'Repeated connection failures — retrying hourly. Check the logs or re-link.'}
-                  </p>
-                )}
-                {marked ? (
-                  <p className={styles.accountRemovalNote}>
-                    Will be disconnected when you save changes.
-                  </p>
-                ) : (
-                  <div className={styles.accountCardControls}>
-                    <div className={styles.accountAliasField}>
-                      <label htmlFor={aliasInputId}>Alias</label>
-                      <input
-                        id={aliasInputId}
-                        type="text"
-                        className={styles.accountAliasInput}
-                        placeholder="e.g. work"
-                        value={aliasValue}
-                        onChange={e => onAliasChange(account, e.target.value)}
-                      />
-                    </div>
-                    <label
-                      className={styles.accountListenLabel}
-                      title="Deliver this account's incoming events to the agent"
-                    >
-                      <input
-                        type="checkbox"
-                        className={styles.toggle}
-                        checked={listenValue}
-                        onChange={e => onListenChange(account, e.target.checked)}
-                      />
-                      <span>Listen</span>
-                    </label>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      <div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onAddAccount}
-          disabled={adding}
-          icon={
-            adding
-              ? <Loader2 size={14} className={styles.spinning} />
-              : <UserPlus size={14} />
-          }
-        >
-          {adding ? 'Waiting for sign-in…' : 'Add account'}
-        </Button>
-        {adding && (
-          <p className={styles.hint}>
-            Complete the sign-in in the browser window that opened. This can take a few minutes.
-          </p>
-        )}
-      </div>
-
-      {error && <div className={styles.formError}>{error}</div>}
-
-      {/* Dirty-state save bar: exists only while there is something to save,
-          so the modal never shows two competing idle save buttons. */}
-      {(hasStaged || saving) && (
-        <div className={styles.accountsSaveBar}>
-          <span className={styles.accountsSaveHint}>Unsaved account changes</span>
-          <Button variant="ghost" size="sm" onClick={onDiscard} disabled={saving}>
-            Discard
-          </Button>
-          <Button variant="primary" size="sm" onClick={onSave} disabled={!hasStaged || saving}>
-            {saving ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save changes'}
-          </Button>
-        </div>
-      )}
-    </>
-  )
-}
+// Account list + per-account detail are rendered inline in the Manage modal
+// (see the drill-down pages in IntegrationsSettings' render). Staging helpers
+// (stageAlias / stagePrimary / stageListen / stageDisconnect) live on the
+// parent and are committed as one ``integration_apply_account_changes``.
 
 export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
@@ -717,6 +488,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     setAccountsSaving(false)
     setAccountsError('')
     setStagedEdits({})
+    setManagePage('list')
+    setSelectedAccountIdentity(null)
+    setConfigValues({})
+    setConfigBaseline({})
   }, [])
 
   // Slow operation overlay — shown during long disconnects (WhatsApp Web's
@@ -733,8 +508,16 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // ``configValues`` is keyed by config_field.key. The form is fully driven
   // by ``managingIntegration.config_fields`` (the schema from the backend).
   const [configValues, setConfigValues] = useState<Record<string, any>>({})
+  // Last saved/loaded config values — the baseline the current form is diffed
+  // against to decide whether the footer shows "unsaved changes".
+  const [configBaseline, setConfigBaseline] = useState<Record<string, any>>({})
   const [configLoading, setConfigLoading] = useState(false)
   const [configSaving, setConfigSaving] = useState(false)
+
+  // Manage modal has two pages: the main page (accounts LIST + integration
+  // settings) and one account's DETAIL. Reset to 'list' on every open/close.
+  const [managePage, setManagePage] = useState<'list' | 'account'>('list')
+  const [selectedAccountIdentity, setSelectedAccountIdentity] = useState<string | null>(null)
 
   // WhatsApp QR code state — states mirror the backend LinkFlow verbatim:
   // qr_ready → scanned → promoting → connected, plus timeout/error.
@@ -756,13 +539,16 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // closes (disconnect flows, disconnect_result) still use closeManageModal
   // directly: their outcome supersedes any staged edits.
   const requestCloseManage = () => {
-    const dirty = managingIntegration
+    const staged = managingIntegration
       ? stagedEdits[managingIntegration.id]
       : undefined
-    if (managingIntegration && dirty && !stagedIsEmpty(dirty)) {
+    const accountsDirty = staged !== undefined && !stagedIsEmpty(staged)
+    const settingsDirty =
+      JSON.stringify(configValues) !== JSON.stringify(configBaseline)
+    if (managingIntegration && (accountsDirty || settingsDirty)) {
       confirm({
         title: 'Discard unsaved changes?',
-        message: `Your account changes for ${managingIntegration.name} haven't been saved yet.`,
+        message: `Your changes to ${managingIntegration.name} haven't been saved yet.`,
         confirmText: 'Discard',
         cancelText: 'Keep editing',
         variant: 'danger',
@@ -839,22 +625,26 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
             manageRequestedRef.current = false
             setManagingIntegration(d.integration)
             setShowManageModal(true)
+            // Always open on the accounts list (never a stale detail page).
+            setManagePage('list')
+            setSelectedAccountIdentity(null)
             setManagedAccounts(d.accounts ?? null)
             if (d.accounts) pruneStagedFor(d.integration.id, d.accounts)
             // If this integration has runtime config, kick off a fetch so the
-            // Configure section is populated by the time the user scrolls to it.
+            // Settings page is populated by the time the user opens it.
             if (d.integration.has_config) {
               setConfigLoading(true)
               setConfigValues({})
+              setConfigBaseline({})
               send('integration_get_config', { id: d.integration.id })
             }
           } else if (managingIntegrationRef.current?.id === d.integration.id) {
             // Unsolicited info for the integration already on screen —
             // refresh the data silently. Never opens the modal. A payload
             // WITHOUT ``accounts`` (transient v2 lookup failure server-side)
-            // must not null out an active AccountsManager: that would swap
-            // the whole section to the legacy view mid-edit and hide the
-            // user's staged changes. Keep the last good list instead.
+            // must not null out the live account list: that would blank the
+            // Manage modal mid-edit and hide the user's staged changes.
+            // Keep the last good list instead.
             setManagingIntegration(d.integration)
             if (d.accounts) {
               setManagedAccounts(d.accounts)
@@ -927,7 +717,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         }
         setConfigLoading(false)
         if (d.success) {
-          setConfigValues(d.values || {})
+          const loaded = d.values || {}
+          setConfigValues(loaded)
+          setConfigBaseline(loaded)
         } else if (d.error) {
           showToast('error', d.error)
         }
@@ -940,7 +732,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         setConfigSaving(false)
         if (d.success) {
           showToast('success', d.message || 'Settings saved')
-          if (d.values) setConfigValues(d.values)
+          if (d.values) {
+            setConfigValues(d.values)
+            setConfigBaseline(d.values)
+          }
         } else {
           showToast('error', d.error || d.message || 'Failed to save settings')
         }
@@ -1708,102 +1503,323 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         </div>
       )}
 
-      {/* Manage Modal */}
-      {showManageModal && managingIntegration && (
+      {/* Manage Modal — the accounts list + integration settings live on the
+          main page; tapping an account opens its own detail page. One Save in
+          the footer commits everything that's changed. */}
+      {showManageModal && managingIntegration && (() => {
+        const integration = managingIntegration
+        const accounts = managedAccounts ?? []
+        const staged = stagedEdits[integration.id]
+        const accountsDirty = staged !== undefined && !stagedIsEmpty(staged)
+        const settingsDirty =
+          JSON.stringify(configValues) !== JSON.stringify(configBaseline)
+        const anyDirty = accountsDirty || settingsDirty
+        const busy = accountsSaving || configSaving
+        const hasConfig =
+          integration.has_config && (integration.config_fields?.length ?? 0) > 0
+
+        // Effective primary = staged override falling back to the real one.
+        const realPrimary = accounts.find(a => a.isPrimary)?.identity ?? null
+        const stagedPrimary =
+          staged && staged.primary !== null && !staged.disconnect.includes(staged.primary)
+            ? staged.primary
+            : null
+        const effectivePrimary = stagedPrimary ?? realPrimary
+
+        // Plain-language session labels (only whatsapp_web carries state).
+        const stateLabel = (a: ManagedAccount): string => {
+          switch (a.sessionState) {
+            case 'needs_relink': return 'Signed out'
+            case 'reconnecting': return 'Reconnecting…'
+            case 'failed': return 'Connection problem'
+            case 'launching': return 'Connecting…'
+            default: return 'Connected'
+          }
+        }
+        const isProblem = (a: ManagedAccount): boolean =>
+          a.sessionState === 'needs_relink' || a.sessionState === 'failed'
+        // Status dot color: green = live, amber = transient, red = needs you.
+        const dotClass = (a: ManagedAccount): string => {
+          if (isProblem(a)) return styles.mLiveBad
+          if (a.sessionState === 'reconnecting' || a.sessionState === 'launching') return styles.mLiveWarn
+          return styles.mLiveOk
+        }
+
+        const selectedAccount =
+          accounts.find(a => a.identity === selectedAccountIdentity) ?? null
+        // Guard: a detail page for an account that vanished falls back to list.
+        const page: 'list' | 'account' =
+          managePage === 'account' && !selectedAccount ? 'list' : managePage
+        const selectedMarked =
+          selectedAccount ? (staged?.disconnect.includes(selectedAccount.identity) ?? false) : false
+
+        const goList = () => {
+          setManagePage('list')
+          setSelectedAccountIdentity(null)
+        }
+        const relink = () => {
+          // QR integrations: the Connect modal starts a fresh link flow;
+          // scanning with the same phone replaces the dead session in place.
+          setManagingIntegration(null)
+          handleOpenConnect(integration)
+        }
+        const saveAll = () => {
+          if (accountsDirty) handleSaveAccountChanges()
+          if (settingsDirty) {
+            setConfigSaving(true)
+            send('integration_update_config', { id: integration.id, values: configValues })
+          }
+        }
+        const discardAll = () => {
+          setStagedEdits(prev => {
+            const { [integration.id]: _gone, ...rest } = prev
+            return rest
+          })
+          setAccountsError('')
+          setConfigValues(configBaseline)
+        }
+
+        return (
         <div className={styles.modalOverlay} onClick={requestCloseManage}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3>Manage {managingIntegration.name}</h3>
+              {page === 'list' ? (
+                <div className={styles.mHeaderTitle}>
+                  <IntegrationIcon id={integration.id} icon={integration.icon} size={22} />
+                  <h3>{integration.name}</h3>
+                </div>
+              ) : (
+                <button className={styles.mBack} onClick={goList}>
+                  <ChevronLeft size={18} />
+                  <IntegrationIcon id={integration.id} icon={integration.icon} size={18} />
+                  {integration.name}
+                </button>
+              )}
               <button className={styles.modalClose} onClick={requestCloseManage}>
                 <X size={18} />
               </button>
             </div>
+
             <div className={styles.modalBody}>
-              <h4 className={styles.manageSubtitle}>Connected accounts</h4>
-              {managedAccounts !== null ? (
-                /* multi-account manager — staged edits, one batched save */
-                <AccountsManager
-                  accounts={managedAccounts}
-                  staged={stagedEdits[managingIntegration.id]}
-                  adding={addingAccountFor === managingIntegration.id}
-                  saving={accountsSaving}
-                  error={accountsError}
-                  onAliasChange={(account, value) =>
-                    stageAlias(managingIntegration.id, account, value)}
-                  onSetPrimary={account =>
-                    stagePrimary(managingIntegration.id, account)}
-                  onListenChange={(account, value) =>
-                    stageListen(managingIntegration.id, account, value)}
-                  onToggleDisconnect={(account, marked) =>
-                    stageDisconnect(managingIntegration.id, account.identity, marked)}
-                  onAddAccount={handleAddAccount}
-                  onRelink={() => {
-                    // Same path as "Add account" for QR integrations: the
-                    // Connect modal starts a fresh link flow; scanning with
-                    // the same phone replaces the dead session in place.
-                    const target = managingIntegration
-                    setManagingIntegration(null)
-                    handleOpenConnect(target)
-                  }}
-                  onDiscard={() => {
-                    setStagedEdits(prev => {
-                      const { [managingIntegration.id]: _gone, ...rest } = prev
-                      return rest
-                    })
-                    setAccountsError('')
-                  }}
-                  onSave={handleSaveAccountChanges}
-                />
-              ) : (
-                /* Every integration is multi-account now, so a missing
-                   accounts payload means the backend couldn't load them
-                   (see the degrade log in _handle_integration_info) —
-                   not a legacy integration. */
+              {managedAccounts === null ? (
                 <p className={styles.noAccounts}>
                   Couldn&apos;t load accounts — close and reopen Manage, or check
                   the backend logs.
                 </p>
-              )}
-              {/* Configure — schema-driven form, only shown for integrations
-                  whose handler declared ``config_class`` + ``config_fields``.
-                  Boxed into its own section with its own save action, so it
-                  reads as a separate scope from the accounts above (the live
-                  bug: its "Save" was mistaken for the accounts save). */}
-              {managingIntegration.has_config && (managingIntegration.config_fields?.length ?? 0) > 0 && (
-                <div className={styles.configSection}>
-                  <div className={styles.configSectionHeader}>
-                    <h4 className={styles.manageSubtitle}>Integration settings</h4>
-                    <p className={styles.configSectionDesc}>
-                      Applies to {managingIntegration.name} as a whole, not to a single account.
-                    </p>
+              ) : page === 'list' ? (
+                /* ---- Main page: account list + integration settings ---- */
+                <>
+                  <div className={styles.mList}>
+                    {accounts.length === 0 && (
+                      <p className={styles.noAccounts}>No accounts connected</p>
+                    )}
+                    {accounts.map(account => {
+                      const marked = staged?.disconnect.includes(account.identity) ?? false
+                      const meta = account.identity === effectivePrimary
+                        ? 'Default'
+                        : marked
+                          ? 'Will disconnect'
+                          : isProblem(account) || account.sessionState === 'reconnecting'
+                            ? stateLabel(account)
+                            : ''
+                      return (
+                        <button
+                          key={account.identity}
+                          className={styles.mRow}
+                          onClick={() => {
+                            setSelectedAccountIdentity(account.identity)
+                            setManagePage('account')
+                          }}
+                        >
+                          <span className={`${styles.mLive} ${dotClass(account)}`} />
+                          <span className={styles.mRowId} title={account.identity}>
+                            {account.identity}
+                          </span>
+                          <span className={styles.mRowSpacer} />
+                          {meta && <span className={styles.mRowMeta}>{meta}</span>}
+                          <ChevronRight size={16} className={styles.mChev} />
+                        </button>
+                      )
+                    })}
+
+                    <button
+                      className={styles.mAddRow}
+                      onClick={handleAddAccount}
+                      disabled={addingAccountFor === integration.id}
+                    >
+                      {addingAccountFor === integration.id
+                        ? <Loader2 size={15} className={styles.spinning} />
+                        : <Plus size={16} />}
+                      <span>
+                        {addingAccountFor === integration.id
+                          ? 'Waiting for sign-in…'
+                          : 'Add account'}
+                      </span>
+                    </button>
+
+                    {accountsError && <div className={styles.formError}>{accountsError}</div>}
                   </div>
-                  {configLoading ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
-                      <Loader2 size={16} className={styles.spinning} />
-                      <span>Loading settings…</span>
+
+                  {hasConfig && (
+                    <div className={styles.mSettings}>
+                      <div>
+                        <h4 className={styles.mSettingsHeading}>{integration.name} settings</h4>
+                        <p className={styles.mSettingsScope}>
+                          Applies to every {integration.name} account you&apos;ve connected.
+                        </p>
+                      </div>
+                      {configLoading ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
+                          <Loader2 size={16} className={styles.spinning} />
+                          <span>Loading settings…</span>
+                        </div>
+                      ) : (
+                        <ConfigFields
+                          integrationId={integration.id}
+                          schema={integration.config_fields ?? []}
+                          values={configValues}
+                          onChange={setConfigValues}
+                        />
+                      )}
                     </div>
-                  ) : (
-                    <ConfigForm
-                      integrationId={managingIntegration.id}
-                      schema={managingIntegration.config_fields ?? []}
-                      values={configValues}
-                      onChange={setConfigValues}
-                      saving={configSaving}
-                      onSave={() => {
-                        setConfigSaving(true)
-                        send('integration_update_config', {
-                          id: managingIntegration.id,
-                          values: configValues,
-                        })
-                      }}
-                    />
                   )}
-                </div>
-              )}
+                </>
+              ) : selectedAccount ? (
+                /* ---- Account detail page ---- */
+                (() => {
+                  const aliasValue =
+                    staged && selectedAccount.identity in staged.aliases
+                      ? (staged.aliases[selectedAccount.identity] ?? '')
+                      : (selectedAccount.alias ?? '')
+                  const listenValue =
+                    staged && selectedAccount.identity in staged.listen
+                      ? staged.listen[selectedAccount.identity]
+                      : selectedAccount.listen
+                  const isDefault = selectedAccount.identity === effectivePrimary
+                  return (
+                    <div className={styles.mDetail}>
+                      <div className={styles.mDetailHead}>
+                        <div className={styles.mDetailHeadMain}>
+                          <div className={styles.mDetailId}>{selectedAccount.identity}</div>
+                          <div className={styles.mDetailState}>{stateLabel(selectedAccount)}</div>
+                        </div>
+                        {isDefault ? (
+                          <span className={styles.mDefaultTag}>Default</span>
+                        ) : !selectedMarked ? (
+                          <button
+                            className={styles.mMakeDefault}
+                            onClick={() => stagePrimary(integration.id, selectedAccount)}
+                          >
+                            Make default
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {selectedAccount.sessionState === 'needs_relink' && (
+                        <div className={styles.mNotice}>
+                          <span>This account was signed out. Scan the QR code again to reconnect it.</span>
+                          <Button variant="primary" size="sm" onClick={relink}>Re-link</Button>
+                        </div>
+                      )}
+
+                      <div className={styles.formGroup}>
+                        <label htmlFor={`alias-${selectedAccount.identity}`}>Nickname</label>
+                        <input
+                          id={`alias-${selectedAccount.identity}`}
+                          type="text"
+                          className={styles.input}
+                          placeholder="e.g. work"
+                          value={aliasValue}
+                          onChange={e => stageAlias(integration.id, selectedAccount, e.target.value)}
+                        />
+                        <p className={styles.hint}>
+                          A short name to use instead of the full address.
+                        </p>
+                      </div>
+
+                      <label
+                        className={styles.toggleGroup}
+                        htmlFor={`listen-${selectedAccount.identity}`}
+                      >
+                        <div className={styles.toggleInfo}>
+                          <span className={styles.toggleLabel}>Send new activity to the agent</span>
+                          <span className={styles.toggleDesc}>
+                            When on, new messages and events from this account are handed
+                            to the agent to act on. When off, it&apos;s used only for sending.
+                          </span>
+                        </div>
+                        <input
+                          id={`listen-${selectedAccount.identity}`}
+                          type="checkbox"
+                          className={styles.toggle}
+                          checked={listenValue}
+                          onChange={e => stageListen(integration.id, selectedAccount, e.target.checked)}
+                        />
+                      </label>
+
+                      {selectedMarked && (
+                        <p className={styles.mRemovalNote}>
+                          This account will be disconnected when you save.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()
+              ) : null}
             </div>
+
+            {/* One footer for the whole modal: Save commits account changes and
+                settings together. On an account page, Disconnect sits between
+                Discard and Save. */}
+            {managedAccounts !== null && (
+              <div className={styles.modalFooter}>
+                <span className={styles.mFootStatus}>
+                  {anyDirty ? 'Unsaved changes' : 'All changes saved'}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={discardAll}
+                  disabled={!anyDirty || busy}
+                >
+                  Discard
+                </Button>
+                {page === 'account' && selectedAccount && (
+                  selectedMarked ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => stageDisconnect(integration.id, selectedAccount.identity, false)}
+                      disabled={busy}
+                    >
+                      Keep account
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className={styles.mDisconnectBtn}
+                      onClick={() => stageDisconnect(integration.id, selectedAccount.identity, true)}
+                      disabled={busy}
+                    >
+                      Disconnect
+                    </Button>
+                  )
+                )}
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={saveAll}
+                  disabled={!anyDirty || busy}
+                >
+                  {busy ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save'}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Confirm Modal */}
       {/* Slow-disconnect overlay — shown until the backend confirms via
