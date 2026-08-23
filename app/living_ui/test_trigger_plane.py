@@ -173,22 +173,18 @@ with tempfile.TemporaryDirectory() as tmp:
     assert _fire(bridge).status == 403
     assert len(mgr.consent_asks) == 2, "a SUCCESSFUL ask must be hourly-capped"
 
-    # Consented but NOT delivered: build-era fires are verifier traffic.
+    # Consented + a DEV environment active: fires are agent/verifier test
+    # traffic (the walker clicks ⚡ in the dev instance, which aliases to the
+    # real project id through the shared bridge token) — must defer.
     host.set_triggers_approved("gates001")
-    resp = _fire(bridge)
-    assert resp.status == 200 and b"deferred" in resp.body, (
-        "pre-delivery fire must defer, not dispatch"
-    )
-    assert mgr.notified == []
-
-    # Delivered + staging copy active: modify-era fires must also defer.
-    host.mark_delivered("gates001")
     host.set_staging_record("gates001", {"dir": "/tmp/x", "port": 3901, "pid": 1})
     resp = _fire(bridge)
-    assert resp.status == 200 and b"deferred" in resp.body, "staging fire must defer"
+    assert resp.status == 200 and b"deferred" in resp.body, "dev-env fire must defer"
     assert mgr.notified == []
 
-    # Live era: delivered, no staging → dispatch exactly once.
+    # Live era: consented, no dev env → dispatch exactly once. (No stored
+    # "delivered" flag any more — with no dev env in flight, a consented
+    # fire from a running app is legitimate operation.)
     host.clear_staging_record("gates001")
     resp = _fire(bridge)
     assert resp.status == 200 and b"deferred" not in resp.body

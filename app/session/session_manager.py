@@ -54,18 +54,38 @@ def _make_on_stream_remove(event_stream_manager: EventStreamManager):
     return on_stream_remove
 
 
-def _on_session_persist(session: Session) -> None:
-    """Persist session state to SessionStorage."""
-    try:
-        from app.usage.session_storage import get_session_storage
+def _make_on_session_persist(event_stream_manager: EventStreamManager):
+    """Create the per-state-change persistence hook.
 
-        get_session_storage().persist_session(session)
-    except Exception as e:
-        logger.warning(f"[SessionManager] Failed to persist session {session.id}: {e}")
+    Persists the session row AND its event stream on every state change
+    (create, clear, rename, todo updates, run start, touch). Persisting the
+    stream here — instead of only at graceful shutdown — is what lets a
+    session's context survive a crash or hard kill.
+    """
+
+    def on_session_persist(session: Session) -> None:
+        try:
+            from app.usage.session_storage import get_session_storage
+
+            storage = get_session_storage()
+            storage.persist_session(session)
+            if event_stream_manager.has_stream(session.id):
+                storage.persist_event_stream(
+                    session.id, event_stream_manager.get_stream_by_id(session.id)
+                )
+        except Exception as e:
+            logger.warning(
+                f"[SessionManager] Failed to persist session {session.id}: {e}"
+            )
+
+    return on_session_persist
 
 
 def _on_session_delete(session_id: str) -> None:
-    """Remove a deleted session's persisted rows (session + event stream)."""
+    """Remove a deleted session's entire persisted footprint: session +
+    event stream rows, chat messages, and activity items. Runs for every
+    deletion path (UI handler, reset, agent-initiated), so no path can
+    leave orphaned rows or depend on the adapter to clean up."""
     try:
         from app.usage.session_storage import get_session_storage
 
@@ -73,6 +93,22 @@ def _on_session_delete(session_id: str) -> None:
     except Exception as e:
         logger.warning(
             f"[SessionManager] Failed to remove persisted session {session_id}: {e}"
+        )
+    try:
+        from app.usage.chat_storage import get_chat_storage
+
+        get_chat_storage().clear_messages(session_id)
+    except Exception as e:
+        logger.warning(
+            f"[SessionManager] Failed to clear chat rows for {session_id}: {e}"
+        )
+    try:
+        from app.usage.action_storage import get_action_storage
+
+        get_action_storage().clear_items(session_id)
+    except Exception as e:
+        logger.warning(
+            f"[SessionManager] Failed to clear activity rows for {session_id}: {e}"
         )
 
 
@@ -98,7 +134,7 @@ class SessionManager(_SessionManager):
             workspace_root=Path(AGENT_WORKSPACE_ROOT),
             on_stream_create=_make_on_stream_create(event_stream_manager),
             on_stream_remove=_make_on_stream_remove(event_stream_manager),
-            on_session_persist=_on_session_persist,
+            on_session_persist=_make_on_session_persist(event_stream_manager),
             on_session_delete=_on_session_delete,
         )
 

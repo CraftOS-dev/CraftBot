@@ -479,21 +479,23 @@ class IntegrationBridge:
                     status=403,
                 )
 
-            # Gate 4 — era. Pre-delivery fires are agent/verifier test
-            # traffic (the walk verifier clicks ⚡ buttons), and a staging
-            # copy aliases to the real project id through the shared bridge
-            # token. Neither may start real agent runs — pre-delivery rows
-            # are wiped by the baseline restore anyway. NOT keyed on the
-            # factory machine: machine_for lazily creates a BUILDING machine
-            # for any project, so a marketplace install (which never builds
-            # here) would read as mid-arc forever.
-            delivered = host.is_delivered(project_id)
-            staging = host.get_staging_record(project_id)
-            if not delivered or staging:
+            # Gate 4 — era. While a DEV environment exists, fires are
+            # agent/verifier test traffic (the walk verifier clicks ⚡
+            # buttons in the dev instance, which aliases to the real project
+            # id through the shared bridge token) — they must not start real
+            # agent runs; the dev copy and its rows die at promote anyway.
+            # With no dev env there is nothing mid-change that could fire
+            # falsely: during a first build the live app does not run yet,
+            # and after a promote fires are legitimate operation. NOT keyed
+            # on the factory machine: machine_for lazily creates a BUILDING
+            # machine for any project, so a marketplace install (which never
+            # builds here) would read as mid-arc forever.
+            dev_env = host.get_staging_record(project_id)
+            if dev_env:
                 logger.info(
                     f"[INTEGRATION_BRIDGE] trigger fire deferred (era) "
                     f"project={project_id} trigger={trigger!r} "
-                    f"delivered={delivered} staging={bool(staging)}"
+                    f"dev_env=True"
                 )
                 return web.json_response(
                     {

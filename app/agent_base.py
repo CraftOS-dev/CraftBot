@@ -1030,6 +1030,10 @@ class AgentBase:
         """
         if state == "idle":
             self.busy_sessions.discard(session_id)
+            # A run just settled: persist the session's event stream so the
+            # actions/reasoning it produced survive a crash or hard kill
+            # (graceful shutdown is not the only exit path).
+            self._persist_session_stream(session_id)
         else:
             self.busy_sessions.add(session_id)
         if self.ui_controller:
@@ -1050,6 +1054,26 @@ class AgentBase:
                 )
             except Exception:
                 pass
+
+    def _persist_session_stream(self, session_id: str) -> None:
+        """Persist one session's event stream to SessionStorage.
+
+        Only persists sessions that own a stream — never falls back to the
+        main stream, which would write main's events under another
+        session's id.
+        """
+        try:
+            if not self.event_stream_manager.has_stream(session_id):
+                return
+            from app.usage.session_storage import get_session_storage
+
+            get_session_storage().persist_event_stream(
+                session_id, self.event_stream_manager.get_stream_by_id(session_id)
+            )
+        except Exception as e:
+            logger.warning(
+                f"[PERSIST] Event stream persist failed for {session_id}: {e}"
+            )
 
     def _invalidate_session_caches(self, session_id: str) -> None:
         """Rebuild a session's LLM caches after a capability change."""
@@ -2619,7 +2643,6 @@ class AgentBase:
     # Components a selective reset can target. Order matters only for the
     # human-readable summary; each block is independent.
     RESET_COMPONENTS = (
-        "conversation",
         "sessions",
         "memory",
         "workspace",
@@ -2713,9 +2736,10 @@ class AgentBase:
         rest. Unknown component names are ignored (logged).
         """
         selected = {str(c).strip().lower() for c in components if str(c).strip()}
-        # Legacy name from the old task system maps onto sessions.
-        if "tasks" in selected:
+        # Legacy names map onto the single chats component.
+        if "tasks" in selected or "conversation" in selected:
             selected.discard("tasks")
+            selected.discard("conversation")
             selected.add("sessions")
         unknown = selected - set(self.RESET_COMPONENTS)
         if unknown:
@@ -2728,8 +2752,9 @@ class AgentBase:
 
         done: list[str] = []
 
-        # Conversation: main session's conversation + chat/action/usage rows.
-        if "conversation" in selected:
+        # Chats: delete extra chat sessions, empty Main, and wipe Living UI
+        # conversation history only (apps stay unless "livingui" is selected).
+        if "sessions" in selected:
             try:
                 from app.usage import (
                     get_chat_storage,
@@ -2737,19 +2762,15 @@ class AgentBase:
                     get_usage_storage,
                 )
 
+                count = await self._delete_all_chat_sessions()
                 get_chat_storage().clear_messages()
                 get_action_storage().clear_items()
                 get_usage_storage().clear_events()
                 self.session_manager.clear_session(MAIN_SESSION_ID)
-                done.append("conversation")
-            except Exception as e:
-                logger.warning(f"[RESET] conversation reset failed: {e}")
-
-        # Sessions: delete all chat sessions (main + living UI stay).
-        if "sessions" in selected:
-            try:
-                count = await self._delete_all_chat_sessions()
-                done.append(f"sessions ({count} deleted)")
+                for session in list(self.session_manager.sessions.values()):
+                    if session.type == SessionType.LIVING_UI:
+                        self.session_manager.clear_session(session.id)
+                done.append(f"sessions ({count} chats deleted)")
             except Exception as e:
                 logger.warning(f"[RESET] sessions reset failed: {e}")
 
@@ -3287,9 +3308,15 @@ class AgentBase:
             for session_id, session in self.session_manager.sessions.items():
                 try:
                     storage.persist_session(session)
-                    stream = self.event_stream_manager.get_stream_by_id(session_id)
-                    if stream:
-                        storage.persist_event_stream(session_id, stream)
+                    # Persist only sessions that own a stream —
+                    # get_stream_by_id falls back to the MAIN stream for
+                    # unknown ids, which would write main's events under
+                    # this session's id.
+                    if self.event_stream_manager.has_stream(session_id):
+                        storage.persist_event_stream(
+                            session_id,
+                            self.event_stream_manager.get_stream_by_id(session_id),
+                        )
                     count += 1
                 except Exception as e:
                     logger.warning(

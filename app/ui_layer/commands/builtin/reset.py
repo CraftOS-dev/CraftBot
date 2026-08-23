@@ -24,9 +24,9 @@ class ResetCommand(Command):
         return """Reset the agent to its initial state.
 
 This will:
-- Delete all chat sessions and clear the main session
-- Clear action history
-- Reset the conversation context
+- Delete extra chat sessions and clear the main session
+- Clear Living UI chat history (Living UI apps are kept)
+- Clear action history and conversation context
 
 Note: This does not affect saved settings or credentials."""
 

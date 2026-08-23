@@ -105,13 +105,26 @@ function normalizeBreakpoint(items: unknown, widgetIds: string[], bp: Breakpoint
  * bounds is pulled back to the nearest one rather than left as an odd shape.
  */
 export function normalizeLayout(layout: NamedLayout): NamedLayout {
-  const widgetIds = (Array.isArray(layout.widgetIds) ? layout.widgetIds : [])
+  const baseWidgetIds = (Array.isArray(layout.widgetIds) ? layout.widgetIds : [])
     .filter(id => typeof id === 'string' && !!WIDGET_REGISTRY[id])
+
+  // Ensure craftBotIntro is ALWAYS included at top-left by default if missing
+  const widgetIds = baseWidgetIds.includes('craftBotIntro')
+    ? baseWidgetIds
+    : ['craftBotIntro', ...baseWidgetIds]
 
   const stored = (layout.layouts ?? {}) as Partial<BreakpointLayouts>
 
   const layouts = BREAKPOINT_KEYS.reduce((acc, bp) => {
-    acc[bp] = normalizeBreakpoint(stored[bp], widgetIds, bp)
+    const bpItems = normalizeBreakpoint(stored[bp], widgetIds, bp)
+    const introIndex = bpItems.findIndex(item => item.i === 'craftBotIntro')
+    if (introIndex !== -1) {
+      bpItems[introIndex] = { ...bpItems[introIndex], x: 0, y: 0 }
+    } else {
+      const bounds = boundsFor(bp, 'craftBotIntro')
+      bpItems.unshift({ i: 'craftBotIntro', x: 0, y: 0, w: 1, h: 1, ...bounds })
+    }
+    acc[bp] = bpItems
     return acc
   }, {} as BreakpointLayouts)
 

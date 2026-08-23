@@ -8,12 +8,14 @@ import type {
   // Living UI types
   LivingUIProject, LivingUICreateRequest, LivingUIStatusUpdate, LivingUIStateUpdate,
 } from '../types'
+import { QUESTION_DISMISSED } from '../types'
 import { scheduleRefreshIframe } from '../pages/LivingUI/iframePool'
 import { getSocketClient } from '../store/socket/socketInstance'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
 import {
   addOptimistic as messagesAddOptimistic,
   setLoadingOlder as messagesSetLoadingOlder,
+  historyRequested as messagesHistoryRequested,
   markOptionSelected as messagesMarkOptionSelected,
   transferSession as messagesTransferSession,
 } from '../store/slices/messagesSlice'
@@ -202,6 +204,8 @@ interface WebSocketContextType extends WebSocketState {
   pullOllamaModel: (model: string) => void
   // Option click (interactive buttons in chat)
   sendOptionClick: (value: string, messageId: string, sessionId: string) => void
+  // Pinned agent question: answer with a suggestion/free text, or dismiss
+  sendQuestionAnswer: (messageId: string, value: string, sessionId: string, dismissed?: boolean) => void
   // Agent profile picture
   uploadAgentProfilePicture: (name: string, mimeType: string, contentBase64: string) => void
   removeAgentProfilePicture: () => void
@@ -311,9 +315,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         // by a message THIS client sent from /session/new, drop the draft
         // bucket (the server echoes the user message into the real session)
         // and replace the route with the real session's.
-        const { session, clientId } = (msg.data || {}) as {
+        const { session, clientId, startsRun } = (msg.data || {}) as {
           session?: SessionInfo
           clientId?: string | null
+          startsRun?: boolean
         }
         if (session && clientId && pendingDraftClientIdsRef.current.has(clientId)) {
           pendingDraftClientIdsRef.current.delete(clientId)
@@ -327,9 +332,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           // this reply arrived, so it isn't lost when the route switches.
           dispatch(chatInputTransferDraft({ from: 'new', to: session.id }))
           // Transfer the optimistic busy flag from the draft to the real
-          // session so the typing indicator survives the handoff.
+          // session so the typing indicator survives the handoff. A message
+          // or skill send omits/sets startsRun and shows the indicator; a
+          // state command like /clear sets startsRun=false and must NOT —
+          // it starts no turn, so nothing would ever clear a phantom one.
           dispatch(setSessionRunState({ sessionId: 'new', state: 'idle' }))
-          dispatch(setSessionRunState({ sessionId: session.id, state: 'running' }))
+          dispatch(setSessionRunState({
+            sessionId: session.id,
+            state: startsRun === false ? 'idle' : 'running',
+          }))
           navigateRef.current(`/session/${session.id}`, { replace: true })
         }
         break
@@ -430,7 +441,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [sendOrQueue, dispatch])
 
   const sendCommand = useCallback((command: string, sessionId: string) => {
-    sendOrQueue(JSON.stringify({ type: 'command', command, sessionId }))
+    const clientId = newClientId()
+
+    // Draft view: a conversation-producing command (skills, /clear) makes the
+    // backend create a real session and broadcast session_created carrying
+    // this clientId. Register it so the handoff handler recognizes the new
+    // session as ours and navigates /session/new -> /session/{id}, exactly
+    // like a message send. Global commands produce no session_created and this
+    // entry simply never matches — harmless.
+    if (sessionId === 'new') {
+      pendingDraftClientIdsRef.current.add(clientId)
+    }
+
+    sendOrQueue(JSON.stringify({ type: 'command', command, sessionId, clientId }))
   }, [sendOrQueue])
 
   // Force-stop a session's in-flight run (chat input's stop button).
@@ -462,7 +485,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     limit: number = 50,
   ) => {
     if (!client.isConnected) return
-    dispatch(messagesSetLoadingOlder({ sessionId, loading: true }))
+    // Scroll-up pagination shows the "Loading older messages" row; the
+    // initial page load (no beforeTimestamp) only tracks its in-flight
+    // state so the mount effect doesn't re-request.
+    if (beforeTimestamp !== undefined) {
+      dispatch(messagesSetLoadingOlder({ sessionId, loading: true }))
+    } else {
+      dispatch(messagesHistoryRequested({ sessionId }))
+    }
     client.sendString(JSON.stringify({
       type: 'chat_history',
       sessionId,
@@ -500,6 +530,29 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       client.sendString(JSON.stringify({ type: 'option_click', messageId, value, sessionId }))
     }
   }, [dispatch])
+
+  // Answer (or dismiss) a pinned agent question. Optimistically records the
+  // selection — which un-pins the box instantly — then round-trips through
+  // the backend, which paints the answer as a user bubble and hands it to
+  // the agent as a regular user-message trigger.
+  const sendQuestionAnswer = useCallback((
+    messageId: string,
+    value: string,
+    sessionId: string,
+    dismissed = false,
+  ) => {
+    dispatch(messagesMarkOptionSelected({
+      sessionId,
+      messageId,
+      value: dismissed ? QUESTION_DISMISSED : value,
+    }))
+    if (!dismissed) {
+      // The answer wakes/feeds the agent — show the typing indicator now,
+      // exactly like a normal send. The server's session_busy takes over.
+      dispatch(setSessionRunState({ sessionId, state: 'running' }))
+    }
+    sendOrQueue(JSON.stringify({ type: 'question_response', messageId, value, sessionId, dismissed }))
+  }, [sendOrQueue, dispatch])
 
   const uploadAgentProfilePicture = useCallback(
     (name: string, mimeType: string, contentBase64: string) => {
@@ -751,6 +804,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         enhancePrompt,
         clearEnhancedPrompt,
         sendOptionClick,
+        sendQuestionAnswer,
         uploadAgentProfilePicture,
         removeAgentProfilePicture,
         // Living UI methods

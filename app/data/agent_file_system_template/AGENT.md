@@ -1159,17 +1159,19 @@ living_ui_scaffold(name, description, ...)  Create a project: copies the bluepri
 living_ui_list_projects()                   {id, name, description, status, url, path, delivered}.
                                             Resolve "the app" to an id here, never by filesystem search.
 living_ui_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
-                                            build, migrations, ops manifest) → boot PocketBase +
-                                            frontend → health check. On a delivered app it boots a
-                                            STAGING copy (cloned data, hidden port), never the live app.
-                                            Gate failures come back in test_errors. Circuit breaker:
-                                            identical error ×3 warns, ×6 stops.
-living_ui_walk_verify(project_id)           Headless-browser sub-agent drives the running app
+                                            build, migrations, ops manifest) → boot the DEV environment
+                                            (your code on a hidden port with a FRESH schema-only DB —
+                                            migrations replay; live data is never cloned). The live app
+                                            (if any) keeps running untouched. Gate failures come back
+                                            in test_errors. Circuit breaker: identical error ×3 warns,
+                                            ×6 stops.
+living_ui_walk_verify(project_id)           Headless-browser sub-agent drives the DEV instance
                                             feature-by-feature against reference/requirements.md.
                                             Verdicts: pass | incomplete | defects | blocked | unparseable.
-                                            A clean pass is the ONLY way a build completes: first build
-                                            → project marked delivered; delivered app → staging flips
-                                            to live. 35-minute ceiling.
+                                            A clean pass is the ONLY way a change completes: it PROMOTES
+                                            the code to the live app (first build → live DB created
+                                            fresh from migrations; update → new migrations apply to the
+                                            real data) and destroys the dev copy. 35-minute ceiling.
 living_ui_restart(project_id)               Stop + full launch pipeline.
 living_ui_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
 living_ui_usage(project_id)                 Returns the project's operating manual: path, live data
@@ -1200,15 +1202,17 @@ node <craftbot_root>/living-ui/tools/src/cli.ts run  <project_path> <op-name> --
 node <craftbot_root>/living-ui/tools/src/cli.ts ops  <project_path>
 ```
 
-`living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. Writes to a delivered app's real data outside a staging arc are refused.
+`living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
 
-### Build / delivery lifecycle
+### Build / delivery lifecycle (one flow for builds and modifies)
 
 ```
-scaffold → dedicated build session writes code → notify_ready (validation gate + boot)
-        → walk_verify pass → delivered (live URL announced by the factory host)
-modify a delivered app → changes go to a STAGING clone on a hidden port
-        → notify_ready boots staging → walk_verify pass → staging flips to live
+write code in the project dir → notify_ready (validation gate + boot of the
+        DEV env: code copy, hidden port, fresh schema-only DB)
+        → walk_verify drives the dev instance → clean pass PROMOTES:
+        live app boots the new code (first build: live DB created fresh from
+        migrations; update: new migrations apply to real data), dev copy
+        destroyed, ready announced by the factory host
 ```
 
 - The factory host owns retries, fix-mission dispatch, and the "ready" announcement. Do not author success status messages for a build yourself.

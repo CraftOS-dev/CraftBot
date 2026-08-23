@@ -68,6 +68,10 @@ routerAdd('GET', '/api/_a2app', (e) => {
       livingUIVersion: manifest.livingUIVersion || null,
       kitVersion: manifest.kitVersion || null,
     },
+    // Which environment this instance IS: the dev provisioner stamps
+    // env:"dev" into its copy's manifest; anything else is the live app.
+    // Structural, so a client never has to guess which DB a port holds.
+    env: manifest.env === 'dev' ? 'dev' : 'live',
     schemaVersion: a2.schemaVersion(e.app),
     serverNow: a2.serverNowIso(),
     serverTzOffsetMinutes: -new Date().getTimezoneOffset(),
