@@ -866,7 +866,7 @@ Editing any of these triggers re-indexing via [agent_core/core/impl/memory/memor
 - Purpose: complete chronological event log. Append-only.
 - Write access: EventStreamManager. Hard rule: DO NOT edit.
 - Read pattern: `read_file` / `grep_files` for self-troubleshooting. See `## Errors` for log workflow.
-- Format: `[YYYY/MM/DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
+- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
 - Auto-rotated when size threshold is exceeded.
 
 ### EVENT_UNPROCESSED.md
@@ -3094,7 +3094,7 @@ This list is opinion, not authoritative. The user has the final say.
 Memory is your long-term recall. It is RAG-backed (relevance search over MEMORY.md and a few other files), not text-grep. Items reach MEMORY.md only after the daily memory-processing pipeline distills them from the event stream. You do NOT write MEMORY.md directly.
 
 Two ways memory reaches you:
-- **Automatic injection (passive).** On every user message, the most relevant memories (top 5, relevance ≥ 0.5) are retrieved and dropped into your context as a `relevant_memories` event — one line per pointer: `- [file_path] section_path: summary (relevance: 0.XX)`. If nothing clears the threshold, no event is emitted. You do NOT need to call `memory_search` just to see what you already know.
+- **Automatic injection (passive).** On every user message, the most relevant memories (top 5, relevance ≥ 0.5) are retrieved and dropped into your context as a `relevant_memories` event — one line per pointer: `- [file_path] section_path: summary (relevance: 0.XX)`. If nothing clears the threshold, no event is emitted. You do NOT need to call `memory_search` just to see what you already know. Each `summary` is a TRUNCATED preview (a pointer), not the full memory: it is a snippet centred on the words that matched your query, and a leading/trailing `...` marks text that was cut. Treat these as leads, not complete records — if a preview is on-topic but clipped where it matters, expand it with `memory_search` or by reading the source file before you rely on it.
 - **`memory_search` action (active).** Use it when you need to dig deeper on a specific question mid-run, beyond what got auto-injected.
 
 Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manager.py) (`MemoryManager`), [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/core/impl/memory/memory_file_watcher.py) (incremental re-indexing), [app/data/action/memory_search.py](app/data/action/memory_search.py) (action).

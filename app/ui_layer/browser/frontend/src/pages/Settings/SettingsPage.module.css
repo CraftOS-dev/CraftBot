@@ -2694,3 +2694,150 @@
   color: var(--color-red, #d33);
   margin: 0;
 }
+
+/* Daily-time row: label left, time picker right on one line. */
+.inlineRow {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  /* Separate this row from the threshold section below so the time picker
+     and the event counter are not stacked right on top of each other. */
+  margin-bottom: var(--space-5);
+}
+
+.inlineRow input[type="time"] {
+  width: auto;
+  min-width: 150px;
+}
+
+/* Threshold gate: ONE bar carries both the live event fill (orange track,
+   how many events have piled up) and the draggable threshold thumb. The
+   fill width is fed in as the --fill custom property so the track and thumb
+   stay a single element and align perfectly. */
+.gateHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gateReadout {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom slider: one track carries the orange event-count fill and the
+   draggable threshold picker. Both are positioned as a percentage of the
+   SAME track element, so they align exactly (native range thumbs drift). */
+.gateTrack {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  height: 8px;
+  margin: 10px 0 4px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.gateTrack:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 5px;
+}
+
+.gateDisabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.gateEventFill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--color-primary);
+  pointer-events: none;
+  transition: width 0.3s ease;
+}
+
+.gateThumb {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  border: 3px solid var(--color-primary);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+/* Legend under the track: names the two things on the bar (orange fill =
+   events waiting, ringed dot = the draggable minimum) so the numbers need
+   no decoding. */
+.gateLegend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-4);
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gateLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gateSwatchFill {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.gateSwatchThumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  border: 2px solid var(--color-primary);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+/* One-line verdict on the next scheduled run: green when enough events have
+   accumulated (run will fire), muted while it would still be skipped. */
+.gateStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.gateStatus svg {
+  flex-shrink: 0;
+}
+
+.gateStatusReady {
+  color: var(--color-success);
+}
+
+/* Manual "Process Memory Now" trigger, inline with its explanation. */
+.processRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}

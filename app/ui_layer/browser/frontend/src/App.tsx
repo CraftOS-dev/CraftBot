@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from './components/layout'
 import { ChatPage } from './pages/Chat'
 import { DashboardPage } from './pages/Dashboard'
+import { MemoryPage } from './pages/Memory'
 import { ScreenPage } from './pages/Screen'
 import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
@@ -80,18 +81,19 @@ function App() {
   // the router, so the tour can navigate between pages.
   return (
     <TourProvider autoStartEnabled>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
-          <Route path="/session/:id" element={<SessionChatRoute />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/screen" element={<ScreenPage />} />
-          <Route path="/workspace" element={<WorkspacePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Layout>
+    <Layout>
+      <Routes>
+        <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
+        <Route path="/session/:id" element={<SessionChatRoute />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/memory" element={<MemoryPage />} />
+        <Route path="/screen" element={<ScreenPage />} />
+        <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Layout>
     </TourProvider>
   )
 }

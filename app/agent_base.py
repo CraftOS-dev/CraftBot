@@ -154,6 +154,7 @@ RUN_START_SOURCES = {
     TriggerSource.SCHEDULED_ONCE.value,
     TriggerSource.SCHEDULED_IMMEDIATE.value,
     TriggerSource.MEMORY.value,
+    TriggerSource.ENTITY_INDEX.value,
     TriggerSource.PROACTIVE_HEARTBEAT.value,
     TriggerSource.PROACTIVE_PLANNER.value,
     TriggerSource.ONBOARDING.value,
@@ -189,6 +190,7 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
     TriggerSource.SCHEDULED_IMMEDIATE.value: ("⏰", "Scheduled task"),
     TriggerSource.MEMORY.value: ("⚙️", "Memory processing workflow"),
+    TriggerSource.ENTITY_INDEX.value: ("⚙️", "Entity indexing workflow"),
     TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Proactive check"),
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
@@ -360,9 +362,15 @@ class AgentBase:
         self.session_manager.ensure_main()
 
         # ── memory manager for proactive agent ──
+        # extra_files_provider: user-selected files from the Memory panel
+        # (settings.json memory.indexed_files), read live on every index
+        # pass so panel changes apply without a restart.
+        from app.ui_layer.settings.memory_settings import get_memory_indexed_files
+
         self.memory_manager = MemoryManager(
             agent_file_system_path=str(AGENT_FILE_SYSTEM_PATH),
             chroma_path=str(AGENT_MEMORY_CHROMA_PATH),
+            extra_files_provider=get_memory_indexed_files,
         )
         # Connect memory manager to context engine for memory-aware prompts
         self.context_engine.set_memory_manager(self.memory_manager)
@@ -577,6 +585,22 @@ class AgentBase:
                         trigger.next_action_description = desc
                     trigger.payload.update(workflow)
                     self._update_aggregated_description(trigger, desc)
+            elif trigger.source == TriggerSource.ENTITY_INDEX.value:
+                prepared = self._prepare_entity_index_run()
+                if prepared is None:
+                    if not is_aggregated_batch:
+                        return
+                    self._drop_aggregated_source(trigger, trigger.source)
+                else:
+                    desc, workflow = prepared
+                    if is_aggregated_batch:
+                        trigger.next_action_description += (
+                            f"\n\nAlso part of this turn ({trigger.source}): {desc}"
+                        )
+                    else:
+                        trigger.next_action_description = desc
+                    trigger.payload.update(workflow)
+                    self._update_aggregated_description(trigger, desc)
             elif trigger.source in (
                 TriggerSource.PROACTIVE_HEARTBEAT.value,
                 TriggerSource.PROACTIVE_PLANNER.value,
@@ -687,23 +711,21 @@ class AgentBase:
             return None
 
         unprocessed_file = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-        if not unprocessed_file.exists():
-            return None
-        try:
-            content = unprocessed_file.read_text(encoding="utf-8")
-        except Exception as e:
-            logger.warning(f"[MEMORY] Failed to read EVENT_UNPROCESSED.md: {e}")
-            return None
-        event_lines = [
-            line
-            for line in content.strip().split("\n")
-            if line.strip() and line.strip().startswith("[")
-        ]
-        if not event_lines:
-            logger.info("[MEMORY] No unprocessed events to process")
-            return None
+        event_lines: list[str] = []
+        if unprocessed_file.exists():
+            try:
+                content = unprocessed_file.read_text(encoding="utf-8")
+                event_lines = [
+                    line
+                    for line in content.strip().split("\n")
+                    if line.strip() and line.strip().startswith("[")
+                ]
+            except Exception as e:
+                logger.warning(f"[MEMORY] Failed to read EVENT_UNPROCESSED.md: {e}")
 
-        # Decide whether the pruning phase should run alongside processing.
+        # Inspect MEMORY.md purely for the pruning need (item cap). Entity
+        # work is NOT the memory-processor's job — the entity-indexer owns
+        # all entity linkage and runs, chained, after this run ends.
         needs_pruning = False
         max_items = get_memory_max_items()
         memory_file = AGENT_FILE_SYSTEM_PATH / "MEMORY.md"
@@ -715,17 +737,24 @@ class AgentBase:
                 if len(memory_items) >= max_items:
                     needs_pruning = True
             except Exception as e:
-                logger.warning(f"[MEMORY] Failed to count MEMORY.md items: {e}")
+                logger.warning(f"[MEMORY] Failed to inspect MEMORY.md: {e}")
+
+        if not event_lines and not needs_pruning:
+            logger.info("[MEMORY] No unprocessed events and no pruning needed")
+            return None
 
         # Freeze the unprocessed buffer so this run's own events don't loop
         # back into it. Reset when the run ends (_on_run_end).
         self.event_stream_manager.set_skip_unprocessed_logging(True)
 
-        instruction = (
-            f"Process the {len(event_lines)} unprocessed event(s) in "
-            f"EVENT_UNPROCESSED.md into long-term memory. Follow the "
-            f"memory-processor skill instructions."
-        )
+        parts = []
+        if event_lines:
+            parts.append(
+                f"Process the {len(event_lines)} unprocessed event(s) in "
+                f"EVENT_UNPROCESSED.md into long-term memory."
+            )
+        parts.append("Follow the memory-processor skill instructions.")
+        instruction = " ".join(parts)
         if needs_pruning:
             instruction += (
                 f" Then run the pruning phase: MEMORY.md exceeds "
@@ -737,8 +766,93 @@ class AgentBase:
             "workflow_skills": ["memory-processor"],
             "workflow_action_sets": ["file_operations"],
         }
-        logger.info(f"[MEMORY] Processing {len(event_lines)} unprocessed events")
+        logger.info(
+            f"[MEMORY] Memory run: {len(event_lines)} events, "
+            f"pruning={needs_pruning}"
+        )
         return instruction, workflow
+
+    def _prepare_entity_index_run(self) -> Optional[tuple[str, dict]]:
+        """Pre-check the entity-index trigger (fired by the indexing process).
+
+        Returns (instruction, workflow_payload) when ENTITIES.md holds
+        [pending] connection record lines awaiting judgment, or None to
+        skip the turn. The records themselves are written by the system's
+        connection sync after each graph build — building the graph here
+        refreshes them before counting.
+        """
+        if not is_memory_enabled():
+            logger.info("[ENTITY-INDEX] Memory is disabled, skipping trigger")
+            return None
+
+        pending = self._pending_connection_count()
+        if pending == 0:
+            logger.info("[ENTITY-INDEX] No pending connection records")
+            return None
+
+        # Freeze the unprocessed buffer so this run's own events don't feed
+        # back into memory processing. Reset when the run ends (_on_run_end).
+        self.event_stream_manager.set_skip_unprocessed_logging(True)
+
+        instruction = (
+            f"Judge the {pending} [pending] connection record line(s) under "
+            f"## Connections in ENTITIES.md. Each line is "
+            f"'[chunk-id] [status] names :: memory text'. For every name "
+            f"marked '?', decide from the line's text whether that memory is "
+            f"really about that entity: confirm by removing the '?', reject "
+            f"by replacing '?' with '!'. When a line has no '?' left, set "
+            f"its status to [judged]. Never add a name to any line — you "
+            f"judge marks, the system creates connections. Also add any "
+            f"genuinely new named things you see in the line texts to the "
+            f"## Entities list (one name per line); the system connects "
+            f"them on a later cycle. Work batch by batch: read about 30 "
+            f"record lines with read_file offset/limit, judge them all, and "
+            f"write the whole batch back with one stream_edit (old_string = "
+            f"the batch exactly as read, new_string = the judged batch). "
+            f"Follow the entity-indexer skill instructions. "
+            f"IMPORTANT: the pending count was re-derived from ENTITIES.md "
+            f"on disk moments ago; if the work were done, this run would "
+            f"not exist. Prior runs in the event stream claiming this work "
+            f"was already completed are wrong by construction; never skip "
+            f"this run based on history."
+        )
+        workflow = {
+            "run_source": TriggerSource.ENTITY_INDEX.value,
+            "workflow_skills": ["entity-indexer"],
+            "workflow_action_sets": ["file_operations"],
+        }
+        logger.info(f"[ENTITY-INDEX] {pending} pending connection record(s)")
+        return instruction, workflow
+
+    def _pending_connection_count(self) -> int:
+        """Count [pending] connection record lines in ENTITIES.md.
+
+        Rebuilds the graph first (a no-op when nothing changed): the build's
+        connection sync is what refreshes the records, so the count always
+        reflects the corpus as it is on disk right now.
+        """
+        from agent_core.core.impl.memory.graph import (
+            ENTITY_REGISTRY_FILE,
+            parse_entity_registry,
+        )
+
+        try:
+            self.memory_manager.graph_snapshot()
+        except Exception as e:
+            logger.warning(f"[ENTITY-INDEX] Graph refresh failed: {e}")
+        registry_path = AGENT_FILE_SYSTEM_PATH / ENTITY_REGISTRY_FILE
+        if not registry_path.exists():
+            return 0
+        try:
+            registry = parse_entity_registry(registry_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"[ENTITY-INDEX] Failed to parse {ENTITY_REGISTRY_FILE}: {e}")
+            return 0
+        return sum(
+            1
+            for record in registry.get("connections", {}).values()
+            if record.get("status") == "pending"
+        )
 
     def _prepare_proactive_run(self, trigger: Trigger) -> Optional[tuple[str, dict]]:
         """Pre-check a proactive heartbeat/planner trigger.
@@ -1382,10 +1496,32 @@ class AgentBase:
         # Unload temporary workflow skills loaded at run start.
         self._remove_workflow_capabilities(session, run_payload)
 
-        # Memory runs freeze the unprocessed buffer — release it.
-        if run_source == TriggerSource.MEMORY.value:
+        # Memory and entity-index runs freeze the unprocessed buffer while
+        # they work — release it whichever of the two just ended.
+        if run_source in (
+            TriggerSource.MEMORY.value,
+            TriggerSource.ENTITY_INDEX.value,
+        ):
             if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
                 self.event_stream_manager.set_skip_unprocessed_logging(False)
+
+        # The entity indexer runs AFTER memory processing: a finished
+        # memory run chains the ENTITY_INDEX trigger. Its pre-check
+        # decides whether any indexed file actually needs extraction
+        # (no LLM cost when none is stale). Entity runs do NOT chain
+        # anything, so this can never loop.
+        if run_source == TriggerSource.MEMORY.value:
+            try:
+                await self.trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.ENTITY_INDEX,
+                        description="Extract entities for indexed files (after memory processing)",
+                        priority=60,
+                        session_id=MAIN_SESSION_ID,
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"[ENTITY-INDEX] Failed to chain trigger: {e}")
 
         # Skill creation/improvement run finished — reload skills so the new
         # or edited skill is invocable immediately.

@@ -527,6 +527,22 @@ class SchedulerManager:
 
         logger.info(f"[SCHEDULER] Loop exited for: {schedule_id}")
 
+    def _should_fire(self, schedule: ScheduledTask) -> bool:
+        """Whether firing this schedule should proceed.
+
+        Gates the built-in memory-processing schedule by the event threshold:
+        the daily run fires only when enough unprocessed events have piled up
+        (or pruning is due), so quiet days skip instead of processing nothing
+        at the set time. Every other schedule always fires.
+        """
+        if schedule.payload.get("type") == "memory_processing":
+            from app.ui_layer.settings.memory_settings import (
+                memory_scheduled_run_due,
+            )
+
+            return memory_scheduled_run_due()
+        return True
+
     async def _fire_schedule(self, schedule: ScheduledTask) -> None:
         """
         Fire a scheduled task trigger into the MAIN session.
@@ -534,6 +550,15 @@ class SchedulerManager:
         if not self._trigger_service:
             logger.warning(
                 "[SCHEDULER] No trigger service configured, cannot fire schedule"
+            )
+            return
+
+        # Emit-gate: a built-in workflow may have nothing to do on most fires
+        # (memory processing on an idle day). Skip firing entirely so no empty
+        # run or task ever surfaces; the loop still advances next_run.
+        if not self._should_fire(schedule):
+            logger.debug(
+                f"[SCHEDULER] {schedule.id} has no work pending, skipping fire"
             )
             return
 

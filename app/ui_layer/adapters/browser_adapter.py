@@ -17,6 +17,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from aiohttp.client_exceptions import ClientConnectionResetError
 
+from agent_core.core.impl.memory.tuning import (
+    PROCESSING_THRESHOLD_DEFAULT,
+    SCHEDULE_HOUR_DEFAULT,
+    SCHEDULE_MINUTE_DEFAULT,
+)
 from agent_core.utils.logger import logger
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
@@ -49,8 +54,16 @@ from app.ui_layer.settings import (
     update_memory_item,
     remove_memory_item,
     reset_memory,
+    reset_entity_registry,
     clear_unprocessed_events,
     get_memory_stats,
+    get_memory_processing_threshold,
+    get_memory_processing_threshold_max,
+    set_memory_processing_threshold,
+    get_unprocessed_event_count,
+    memory_schedule_expression,
+    set_memory_indexed_files,
+    list_indexable_candidates,
     # Model settings
     get_available_providers,
     get_model_settings,
@@ -1507,7 +1520,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             item_id = data.get("itemId", "")
             category = data.get("category")
             content = data.get("content")
-            await self._handle_memory_item_update(item_id, category, content)
+            superseded = data.get("superseded")
+            await self._handle_memory_item_update(
+                item_id, category, content, superseded
+            )
 
         elif msg_type == "memory_item_remove":
             item_id = data.get("itemId", "")
@@ -1516,11 +1532,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "memory_reset":
             await self._handle_memory_reset()
 
+
         elif msg_type == "memory_stats_get":
             await self._handle_memory_stats_get()
 
         elif msg_type == "memory_process_trigger":
             await self._handle_memory_process_trigger()
+
+        elif msg_type == "memory_schedule_get":
+            await self._handle_memory_schedule_get()
+
+        elif msg_type == "memory_schedule_set":
+            await self._handle_memory_schedule_set(data)
+
+        elif msg_type == "memory_graph_get":
+            await self._handle_memory_graph_get()
+
+        elif msg_type == "memory_indexed_files_get":
+            await self._handle_memory_indexed_files_get()
+
+        elif msg_type == "memory_indexed_files_set":
+            paths = data.get("paths", [])
+            await self._handle_memory_indexed_files_set(paths)
 
         # Model settings operations
         elif msg_type == "model_providers_get":
@@ -4359,6 +4392,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "skill_creation",
             "skill_improvement",
             "memory_processing",
+            "entity_index",
         }
     )
 
@@ -4370,6 +4404,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "craftbot-skill-creator",
             "craftbot-skill-improve",
             "memory-processor",
+            "entity-indexer",
             "heartbeat-processor",
             "user-profile-interview",
             "day-planner",
@@ -4394,6 +4429,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "craftbot-skill-creator",
             "craftbot-skill-improve",
             "memory-processor",
+            "entity-indexer",
             "user-profile-interview",
             "heartbeat-processor",
             "day-planner",
@@ -5154,10 +5190,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_memory_item_update(
-        self, item_id: str, category: str = None, content: str = None
+        self,
+        item_id: str,
+        category: str = None,
+        content: str = None,
+        superseded: bool = None,
     ) -> None:
         """Update an existing memory item."""
-        result = update_memory_item(item_id=item_id, category=category, content=content)
+        result = update_memory_item(
+            item_id=item_id,
+            category=category,
+            content=content,
+            superseded=superseded,
+        )
 
         if result.get("success"):
             # Update memory index after updating
@@ -5218,17 +5263,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_memory_reset(self) -> None:
-        """Reset memory by restoring MEMORY.md from template."""
+        """Reset memory: restore MEMORY.md + ENTITIES.md from template, clear
+        unprocessed events, then FORCE-rebuild the index.
+
+        Force rebuild (not incremental update) so every derived cache — the
+        ChromaDB chunks, the graph, and the entity embedding collection — is
+        reseeded from the reset markdown. An incremental update() would leave
+        stale chunks and entity vectors behind.
+        """
         result = reset_memory()
 
         if result.get("success"):
-            # Also clear unprocessed events
             clear_unprocessed_events()
+            reset_entity_registry()
 
-            # Update memory index after reset
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                agent.memory_manager.index_all(force=True)
 
             await self._broadcast(
                 {
@@ -5283,6 +5334,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 )
                 return
 
+            # Same emptiness condition as the MEMORY run pre-check
+            # (_prepare_memory_run): with nothing to process the trigger
+            # would be silently dropped there — surface that here instead.
+            from app.ui_layer.settings.memory_settings import memory_needs_pruning
+
+            if get_unprocessed_event_count() == 0 and not memory_needs_pruning():
+                await self._broadcast(
+                    {
+                        "type": "memory_process_trigger",
+                        "data": {
+                            "success": False,
+                            "error": "No unprocessed events to process.",
+                        },
+                    }
+                )
+                return
+
             # Queue a memory-processing run in the main session. The agent's
             # MEMORY pre-check decides whether there is actually work to do.
             from app.triggers import TriggerSource, TriggerSpec
@@ -5312,6 +5380,169 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": str(e),
                     },
+                }
+            )
+
+    async def _handle_memory_schedule_get(self) -> None:
+        """Send the auto-processing schedule + threshold to the panel."""
+        try:
+            agent = self._controller.agent
+            task = agent.scheduler.get_schedule("memory-processing")
+            if task is None:
+                await self._broadcast(
+                    {
+                        "type": "memory_schedule_get",
+                        "data": {"success": False, "error": "Schedule not found"},
+                    }
+                )
+                return
+
+            sched = task.schedule
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_get",
+                    "data": {
+                        "success": True,
+                        "schedule": {
+                            "hour": (
+                                sched.hour
+                                if sched.hour is not None
+                                else SCHEDULE_HOUR_DEFAULT
+                            ),
+                            "minute": sched.minute or SCHEDULE_MINUTE_DEFAULT,
+                        },
+                        "threshold": get_memory_processing_threshold(),
+                        "threshold_max": get_memory_processing_threshold_max(),
+                        "unprocessed": get_unprocessed_event_count(),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_schedule_set(self, data: dict) -> None:
+        """Apply the daily auto-processing time + threshold from the panel.
+
+        Auto-processing is daily by design; only the time of day and the
+        threshold are configurable. Applied live via update_schedule
+        (persists + reschedules next run).
+        """
+        try:
+            agent = self._controller.agent
+            set_memory_processing_threshold(
+                int(data.get("threshold", PROCESSING_THRESHOLD_DEFAULT))
+            )
+            expr = memory_schedule_expression(
+                hour=int(data.get("hour", SCHEDULE_HOUR_DEFAULT)),
+                minute=int(data.get("minute", SCHEDULE_MINUTE_DEFAULT)),
+            )
+            agent.scheduler.update_schedule(
+                "memory-processing", schedule=expr, enabled=True
+            )
+            await self._broadcast(
+                {"type": "memory_schedule_set", "data": {"success": True}}
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_set",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_graph_get(self) -> None:
+        """Send the memory graph snapshot (nodes/edges/stats) to the panel."""
+        try:
+            agent = self._controller.agent
+            snapshot = await asyncio.to_thread(agent.memory_manager.graph_snapshot)
+
+            # Fold in pipeline stats the panel shows alongside the graph.
+            stats = snapshot.get("stats", {})
+            memory_stats = get_memory_stats()
+            if memory_stats.get("success"):
+                stats["unprocessed_events"] = memory_stats.get("unprocessed_events", 0)
+                stats["memory_item_count"] = memory_stats.get("total_items", 0)
+            snapshot["stats"] = stats
+
+            await self._broadcast(
+                {
+                    "type": "memory_graph_get",
+                    "data": {"success": True, "graph": snapshot},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_graph_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_indexed_files_get(self) -> None:
+        """Send the indexed-files list and addable candidates."""
+        try:
+            agent = self._controller.agent
+            files = agent.memory_manager.get_index_files_info()
+            candidates_result = list_indexable_candidates()
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_get",
+                    "data": {
+                        "success": True,
+                        "files": files,
+                        "candidates": candidates_result.get("candidates", []),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_indexed_files_set(self, paths: list) -> None:
+        """Replace the extra indexed-files list and re-index."""
+        try:
+            result = set_memory_indexed_files(paths)
+            if not result.get("success"):
+                await self._broadcast(
+                    {
+                        "type": "memory_indexed_files_set",
+                        "data": {
+                            "success": False,
+                            "error": result.get("error", "Unknown error"),
+                        },
+                    }
+                )
+                return
+
+            # Re-index so added files appear (and removed files drop out)
+            # immediately rather than waiting for the file watcher.
+            agent = self._controller.agent
+            await asyncio.to_thread(agent.memory_manager.update)
+
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_set",
+                    "data": {
+                        "success": True,
+                        "files": agent.memory_manager.get_index_files_info(),
+                        "rejected": result.get("rejected", []),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_set",
+                    "data": {"success": False, "error": str(e)},
                 }
             )
 

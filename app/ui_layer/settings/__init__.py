@@ -96,8 +96,19 @@ from app.ui_layer.settings.memory_settings import (
     update_memory_item,
     remove_memory_item,
     reset_memory,
+    reset_entity_registry,
     clear_unprocessed_events,
     get_memory_stats,
+    # Auto-processing schedule + threshold
+    get_memory_processing_threshold,
+    get_memory_processing_threshold_max,
+    set_memory_processing_threshold,
+    get_unprocessed_event_count,
+    memory_schedule_expression,
+    # Indexed files
+    get_memory_indexed_files,
+    set_memory_indexed_files,
+    list_indexable_candidates,
 )
 
 # Model settings
@@ -195,6 +206,15 @@ __all__ = [
     "update_memory_item",
     "remove_memory_item",
     "reset_memory",
+    "reset_entity_registry",
+    "get_memory_processing_threshold",
+    "get_memory_processing_threshold_max",
+    "set_memory_processing_threshold",
+    "get_unprocessed_event_count",
+    "memory_schedule_expression",
+    "get_memory_indexed_files",
+    "set_memory_indexed_files",
+    "list_indexable_candidates",
     "clear_unprocessed_events",
     "get_memory_stats",
     # Model settings

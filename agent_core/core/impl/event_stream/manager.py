@@ -234,7 +234,7 @@ class EventStreamManager:
         Append an event to EVENT.md and optionally EVENT_UNPROCESSED.md.
 
         This method is thread-safe and handles file I/O errors gracefully.
-        Events are written in the format: [YYYY/MM/DD HH:MM:SS] [kind]: message
+        Events are written in the format: [YYYY-MM-DD HH:MM:SS] [kind]: message
 
         Args:
             kind: Event category (e.g., "action", "trigger")
@@ -243,9 +243,9 @@ class EventStreamManager:
         if not self._agent_file_system_path:
             return
 
-        # Format: [YYYY/MM/DD HH:MM:SS] [kind]: message — LOCAL time, matching
-        # the loguru log files.
-        timestamp = datetime.now().astimezone().strftime("%Y/%m/%d %H:%M:%S")
+        # Format: [YYYY-MM-DD HH:MM:SS] [kind]: message — LOCAL time, in the
+        # canonical stamp format shared with MEMORY.md items.
+        timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
         event_line = f"[{timestamp}] [{kind}]: {message}\n"
 
         with self._file_lock:
