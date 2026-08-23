@@ -14,9 +14,27 @@ import {
   ChevronRight,
   ChevronLeft,
 } from 'lucide-react'
+import {
+  Gmail,
+  Slack,
+  Notion,
+  GitHubDark,
+  GitHubLight,
+  Discord,
+  LinkedIn,
+  Stripe,
+  Twitter,
+  Telegram,
+  WhatsApp,
+  GoogleCalendar,
+  GoogleDrive,
+  YouTube,
+  MicrosoftOutlook,
+} from '@ridemountainpig/svgl-react'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
+import { useTheme } from '../../contexts/ThemeContext'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -54,45 +72,56 @@ import {
   selectIntegrationsHasLoaded,
 } from '../../store/selectors/integrationsSettings'
 
+// Full-color SVGL brand components (@ridemountainpig/svgl-react) keyed by
+// integration id. GitHub is monochrome and handled separately (theme-matched
+// light/dark variant), so it is not in this map.
+type SvglIcon = (props: React.SVGProps<SVGSVGElement>) => React.JSX.Element
+const SVGL_BY_ID: Record<string, SvglIcon> = {
+  gmail: Gmail,
+  slack: Slack,
+  notion: Notion,
+  discord: Discord,
+  linkedin: LinkedIn,
+  stripe: Stripe,
+  twitter: Twitter,
+  telegram_bot: Telegram,
+  telegram_user: Telegram,
+  whatsapp_web: WhatsApp,
+  whatsapp_business: WhatsApp,
+  google_calendar: GoogleCalendar,
+  google_drive: GoogleDrive,
+  google_youtube: YouTube,
+  outlook: MicrosoftOutlook,
+}
+
 // Integration icon component. Lookup order:
-//   1. Hand-crafted brand SVG keyed by integration id (defined below)
-//   2. Lucide icon by name from the backend's ``icon`` field
-//   3. Generic globe fallback
+//   1. SVGL brand component keyed by integration id (the standard for every
+//      brand SVGL ships; GitHub resolves to a theme-matched variant).
+//   2. Hand-crafted brand SVG for the brands SVGL doesn't carry
+//      (jira, hubspot, line, lark, google_docs), keyed by the backend ``icon``.
+//   3. Lucide icon by the backend ``icon`` name (e.g. Outlook's "Inbox").
+//   4. Generic globe fallback.
 const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; size?: number }) => {
+  const { theme } = useTheme()
+
+  // 1. SVGL. GitHub's mark is monochrome: pick the variant that shows against
+  //    the active theme (GitHubDark = white mark for dark UI, GitHubLight = dark
+  //    mark for light UI).
+  const svgl: SvglIcon | undefined =
+    id === 'github'
+      ? (theme === 'dark' ? GitHubDark : GitHubLight)
+      : SVGL_BY_ID[id]
+  if (svgl) {
+    const Logo = svgl
+    return (
+      <span className={styles.integrationIconSvg}>
+        <Logo width={size} height={size} />
+      </span>
+    )
+  }
+
+  // 2. Hand-crafted brand SVGs — only for brands SVGL doesn't have.
   const icons: Record<string, React.ReactNode> = {
-    google: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-      </svg>
-    ),
-    gmail: (
-      <svg width={size} height={size} viewBox="0 0 256 193" xmlns="http://www.w3.org/2000/svg">
-        <path fill="#4285F4" d="M58.182 192.05V93.14L27.507 65.077 0 49.504v125.091c0 9.658 7.825 17.455 17.455 17.455z"/>
-        <path fill="#34A853" d="M197.818 192.05h40.727c9.659 0 17.455-7.826 17.455-17.455V49.505l-31.156 17.837-27.026 25.798z"/>
-        <path fill="#EA4335" d="M58.182 93.14l-4.174-38.605 4.174-36.927L128 69.864l69.818-52.364 4.671 33.654-4.67 39.987-69.819 52.363z"/>
-        <path fill="#FBBC04" d="M197.818 17.5V93.14L256 49.504V26.231c0-21.585-24.64-33.89-41.89-20.945z"/>
-        <path fill="#C5221F" d="M0 49.504l26.759 20.07L58.182 93.14V17.5L41.89 5.286C24.61-7.658 0 4.646 0 26.226z"/>
-      </svg>
-    ),
-    google_calendar: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <rect x="2" y="4" width="20" height="18" rx="2" fill="#fff" stroke="#dadce0" strokeWidth="0.5"/>
-        <rect x="2" y="4" width="20" height="4" rx="2" fill="#4285F4"/>
-        <rect x="6" y="2" width="2" height="4" rx="1" fill="#4285F4"/>
-        <rect x="16" y="2" width="2" height="4" rx="1" fill="#4285F4"/>
-        <text x="12" y="18" fontSize="10" fontWeight="700" textAnchor="middle" fill="#1a73e8" fontFamily="sans-serif">{new Date().getDate()}</text>
-      </svg>
-    ),
-    google_drive: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M9 2L1.5 15l3 5h7.5L9 2z" fill="#0F9D58"/>
-        <path d="M15 2L9 2l9 16h6L15 2z" fill="#FFCD40"/>
-        <path d="M4.5 20l3-5h15l-3 5h-15z" fill="#4285F4"/>
-      </svg>
-    ),
     google_docs: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <path d="M5 2h9l5 5v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#4285F4"/>
@@ -100,45 +129,6 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
         <rect x="6" y="11" width="12" height="1.2" rx="0.6" fill="#fff"/>
         <rect x="6" y="14" width="12" height="1.2" rx="0.6" fill="#fff"/>
         <rect x="6" y="17" width="9" height="1.2" rx="0.6" fill="#fff"/>
-      </svg>
-    ),
-    google_youtube: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2C.5 9.1.5 12 .5 12s0 2.9.5 4.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6a3 3 0 0 0 2.1-2.1c.5-1.9.5-4.8.5-4.8s0-2.9-.5-4.8z" fill="#FF0000"/>
-        <path d="M9.75 15.5l6-3.5-6-3.5v7z" fill="#fff"/>
-      </svg>
-    ),
-    slack: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313z" fill="#E01E5A"/>
-        <path d="M8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z" fill="#36C5F0"/>
-        <path d="M18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.27 0a2.528 2.528 0 0 1-2.522 2.521 2.528 2.528 0 0 1-2.52-2.521V2.522A2.528 2.528 0 0 1 15.165 0a2.528 2.528 0 0 1 2.521 2.522v6.312z" fill="#2EB67D"/>
-        <path d="M15.165 18.956a2.528 2.528 0 0 1 2.521 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.27a2.527 2.527 0 0 1-2.52-2.522 2.527 2.527 0 0 1 2.52-2.52h6.313A2.528 2.528 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.521h-6.313z" fill="#ECB22E"/>
-      </svg>
-    ),
-    notion: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.98-.7-2.055-.606L3.01 2.612c-.466.046-.56.28-.373.466l1.822 1.13zm.793 3.08v13.904c0 .746.373 1.026 1.213.98l14.523-.84c.839-.046.932-.559.932-1.166V6.382c0-.606-.233-.932-.746-.886l-15.176.886c-.56.047-.746.327-.746.886zm14.337.699c.094.42 0 .84-.42.886l-.699.14v10.264c-.607.327-1.166.513-1.632.513-.746 0-.933-.234-1.493-.933l-4.574-7.186v6.953l1.446.327s0 .84-1.166.84l-3.22.186c-.093-.187 0-.653.326-.746l.84-.233V9.854L7.828 9.62c-.094-.42.14-1.026.793-1.073l3.453-.234 4.76 7.28V9.107l-1.213-.14c-.093-.513.28-.886.746-.932l3.222-.186z" fillRule="evenodd"/>
-      </svg>
-    ),
-    linkedin: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#0A66C2">
-        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-      </svg>
-    ),
-    zoom: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#2D8CFF">
-        <path d="M24 12c0 6.627-5.373 12-12 12S0 18.627 0 12 5.373 0 12 0s12 5.373 12 12zm-5.2-3.2v4.8c0 .88-.72 1.6-1.6 1.6H8.4c-.88 0-1.6-.72-1.6-1.6V8.8c0-.88.72-1.6 1.6-1.6h8.8c.88 0 1.6.72 1.6 1.6zm-3.2 4.8V10.4l2.4-1.6v6.4l-2.4-1.6z"/>
-      </svg>
-    ),
-    discord: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#5865F2">
-        <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/>
-      </svg>
-    ),
-    telegram: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#26A5E4">
-        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
       </svg>
     ),
     line: (
@@ -159,31 +149,11 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
         <path d="M7.5 9.2c0-.66.54-1.2 1.2-1.2h6.4c.66 0 1.2.54 1.2 1.2v2.4c0 1.66-1.34 3-3 3H10.6l-2.6 2.2c-.3.25-.5.05-.5-.3v-7.3z" fill="#fff"/>
       </svg>
     ),
-    whatsapp: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#25D366">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-      </svg>
-    ),
-    whatsapp_business: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#25D366">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-      </svg>
-    ),
-    twitter: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-      </svg>
-    ),
     jira: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="#0052CC">
         <path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005z"/>
         <path d="M6.348 6.349H-5.224a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057a5.215 5.215 0 0 0 5.215 5.215V7.354a1.005 1.005 0 0 0-1.005-1.005z" transform="translate(5.224)"/>
         <path d="M11.571 0H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 12.487V1.005A1.005 1.005 0 0 0 11.571 0z" transform="translate(.348 1.164)"/>
-      </svg>
-    ),
-    github: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
       </svg>
     ),
     hubspot: (
@@ -201,30 +171,15 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
         <circle cx="8" cy="21.5" r="2.2" fill="#FF7A59"/>
       </svg>
     ),
-    stripe: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#635BFF">
-        <path d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305z"/>
-      </svg>
-    ),
-    recall: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-        <circle cx="12" cy="10" r="3"/>
-        <path d="M12 14c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-      </svg>
-    ),
   }
-  // 1. Brand SVG keyed by the backend's ``icon`` name (e.g. "github",
-  //    "google", "notion") — the integration file owns this declaration.
   if (icon && icons[icon]) {
     return <span className={styles.integrationIconSvg}>{icons[icon]}</span>
   }
-  // 2. Backwards-compat: legacy lookup by integration id, in case any
-  //    integration hasn't declared ``icon`` yet.
   if (icons[id]) {
     return <span className={styles.integrationIconSvg}>{icons[id]}</span>
   }
-  // 3. Lucide fallback for non-brand icons (e.g. "Inbox", "Send").
+
+  // 3. Lucide fallback for non-brand icons (e.g. Outlook's "Inbox").
   if (icon) {
     const lucideMap = LucideIcons as unknown as Record<string, React.ComponentType<{ size?: number }>>
     const LucideIcon = lucideMap[icon]
@@ -232,7 +187,8 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
       return <span className={styles.integrationIconSvg}><LucideIcon size={size} /></span>
     }
   }
-  // 4. Generic fallback
+
+  // 4. Generic fallback.
   return <span className={styles.integrationIconSvg}><Globe size={size} /></span>
 }
 
