@@ -2765,8 +2765,7 @@ class LLMInterface:
                     # Short prompt - use simple string format (no caching)
                     message_kwargs["system"] = system_prompt
 
-            # Always pass temperature for Anthropic (their default is 1.0, not 0.0)
-            message_kwargs["temperature"] = self.temperature
+            message_kwargs["extra_body"] = {"temperature": self.temperature}
 
             response = self._anthropic_client.messages.create(**message_kwargs)
 

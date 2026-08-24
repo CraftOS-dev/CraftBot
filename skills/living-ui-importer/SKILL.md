@@ -92,16 +92,44 @@ never edit its code except configuration needed to bind the assigned port.
    - health: default `{"strategy": "http_get", "url":
      "http://127.0.0.1:{{PORT}}/"}` — switch to `tcp` or `process_alive`
      for servers that 404 on `/`.
-3. **Note what the app is** in `LIVING_UI.md` (one short section — the
+3. **Map the app's controllable surface** into `<project>/operations.json`
+   (CraftBot's file — a stub exists) so agents can DRIVE the app over the
+   A2App protocol. At launch the system substitutes a hidden internal port
+   into your `{{PORT}}` verbs and serves the A2App adapter (identity,
+   describe, `/api/_ops`, guarded `/api/ops/*`, passthrough for everything
+   else) on the ASSIGNED port in front of the app. Probe in order:
+   OpenAPI/Swagger spec shipped in the repo → route definitions in the
+   code → the README. Declare the app's PUBLIC verbs with typed params;
+   each op maps `executor.path` (`/api/ops/<name with dots as slashes>`)
+   onto `executor.upstream` — the app's OWN endpoint:
+   ```json
+   { "name": "todos.create", "description": "Add a todo",
+     "params": { "title": { "type": "string", "required": true } },
+     "executor": { "type": "http", "method": "POST",
+       "path": "/api/ops/todos/create",
+       "upstream": { "method": "POST", "path": "/api/todos",
+         "body": { "title": "{{title}}" } } } }
+   ```
+   (`body` template only when the app's field names differ from your param
+   names.) Mark anything that deletes/overwrites `"destructive": true`.
+   If the app has NO server API (static site, pure client-side SPA), leave
+   `operations` empty and say so in `LIVING_UI.md` — never invent verbs,
+   never map direct DB writes.
+4. **Note what the app is** in `LIVING_UI.md` (one short section — the
    user's reference). Do NOT rewrite `reference/requirements.md`: it is
    pre-written with the adoption scope — verification covers *the app
    launches and its main screen renders*, never the foreign app's internal
    features (you can't fix those and must not try; the app ships as-is,
    quirks included).
-4. `living_ui_notify_ready(project_id="<ID>")` — launches via your pipeline
+5. `living_ui_notify_ready(project_id="<ID>")` — launches via your pipeline
    verbs. Errors come back with `logs/app.log` excerpts; fix the VERBS (or
    port binding config), not the app's features, and retry.
-5. `living_ui_walk_verify(project_id="<ID>")` — verifies the launch and
+6. `living_ui_ops_verify(project_id="<ID>")` — invokes every
+   non-destructive op FOR REAL through the adapter (destructive ops are
+   shape-checked, never fired). Fix `executor.upstream` mappings — or
+   remove ops that cannot work — and re-run until clean: a mapping that
+   does not work must not ship.
+7. `living_ui_walk_verify(project_id="<ID>")` — verifies the launch and
    announces. HONESTY RULE: adopted ONLY when this succeeds. If the app
    fundamentally cannot run here (needs a database server, private APIs,
    system deps), STOP and tell the user exactly what is missing — do not
@@ -114,7 +142,10 @@ Changes to a running external app apply LIVE (no staging): edit →
 
 - Imported/installed projects are ordinary Living UI projects afterwards:
   operate them via the lui CLI (`ops` / `run` / `data`), modify them via
-  the living-ui-modify workflow. (The lui CLI does NOT apply to external
-  apps — their surface is craftbot.json + logs/app.log.)
+  the living-ui-modify workflow. External apps speak the same ops surface
+  through their adapter — `lui ops` / `lui run` (and raw HTTP with the
+  project's `.agent-token`) work against them too; only the `data` verbs
+  don't apply (no protocol entities in v1 — the app's own API passes
+  through instead).
 - Never edit `frontend/src/kit/`, `manifest.json`, or other system files
   of a Living UI project — the validation gate hashes them.

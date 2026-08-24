@@ -8023,7 +8023,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     workflow_skill=(
                         "living-ui-importer" if is_ext else "living-ui-modify"
                     ),
-                    status=None,
+                    # External adoption is a build-like run: "creating" shows
+                    # the construction dock while the agent writes the
+                    # pipeline verbs + operations map. Native imports stay
+                    # untouched (verify-only).
+                    status=("creating" if is_ext else None),
                 )
             except Exception as e:
                 logger.warning(f"[LIVING_UI] import verify dispatch failed: {e}")

@@ -99,6 +99,43 @@ except Exception as _compat_exc:
 
 nest_asyncio.apply()
 
+# ============================================================================
+# Second half of the nest_asyncio/3.14 shim: heal asyncio.current_task().
+# nest_asyncio forces the PURE-PYTHON asyncio.Task class, whose tasks
+# register in the Python-side registry (asyncio.tasks._py_current_task) —
+# but asyncio.current_task stays bound to the C-accelerated registry, so it
+# returns None inside EVERY task, on EVERY loop, process-wide. Everything
+# built on `async with asyncio.timeout(...)` then dies with "Timeout
+# (context manager) should be used inside a task" — most visibly the entire
+# aiohttp CLIENT (every request enters a timeout context), which is what
+# broke the external A2App adapter self-check on 2026-08-24 while the
+# aiohttp SERVER (no timeout context on the request path) kept working.
+# Rebinding current_task to the Python registry fixes timeout/aiohttp under
+# both plain awaits and nested re-entry (verified on 3.14.7 + aiohttp
+# 3.14.3). The wait_for replacement above stays: its explicit
+# cancellation-wait semantics are load-bearing for force-stop (PR #410).
+try:
+    import _asyncio as _compat_c_asyncio
+
+    if asyncio.Task is not getattr(_compat_c_asyncio, "Task", None) and hasattr(
+        asyncio.tasks, "_py_current_task"
+    ):
+        asyncio.current_task = asyncio.tasks._py_current_task
+        asyncio.tasks.current_task = asyncio.tasks._py_current_task
+        try:
+            _compat_sys.stderr.write(
+                "[compat-shim] asyncio.current_task routed to the Python "
+                "task registry (action/manager)\n"
+            )
+            _compat_sys.stderr.flush()
+        except Exception:
+            pass
+except Exception as _compat_ct_exc:
+    logger.warning(
+        f"[compat-shim] current_task rebinding skipped: {_compat_ct_exc!r}"
+    )
+# ============================================================================
+
 
 def _to_pretty_json(value: Any) -> str:
     """Serialize a value to pretty-printed JSON for readable logs and event streams."""

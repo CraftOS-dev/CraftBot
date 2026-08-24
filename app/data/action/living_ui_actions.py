@@ -1090,6 +1090,118 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
 
 
 @action(
+    name="living_ui_ops_verify",
+    description=(
+        "Verify an EXTERNAL (adopted third-party) app's A2App operation "
+        "mappings against the RUNNING app: validates operations.json "
+        "structurally, probes the adapter's identity endpoint, then invokes "
+        "every non-destructive operation FOR REAL through /api/ops/* with "
+        "synthesized parameters (destructive ops are shape-checked, never "
+        "invoked). Call during adoption AFTER living_ui_notify_ready and "
+        "after every operations.json edit; a mapping that does not work "
+        "must be fixed or removed — the import is not done until this "
+        "passes. Only meaningful for external projects (natives verify ops "
+        "through the build gate)."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "abc12345",
+            "description": "The external Living UI project ID.",
+        },
+        "op_names": {
+            "type": "array",
+            "example": ["todos.create"],
+            "description": (
+                "Optional: verify only these operations. Default: all "
+                "declared operations."
+            ),
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": (
+                "'success' = manifest valid, identity answers, every "
+                "checked op passed (or is destructive and was shape-checked)."
+            ),
+        },
+        "checked": {"type": "integer", "example": 4},
+        "passed": {"type": "integer", "example": 3},
+        "failed": {"type": "integer", "example": 0},
+        "results": {
+            "type": "array",
+            "example": [
+                {"op": "todos.create", "outcome": "pass", "status": 200}
+            ],
+            "description": (
+                "Per-op outcome: pass | skipped_destructive | "
+                "unknown_operation | upstream_not_found | rejected_params | "
+                "upstream_error | unreachable | failed, with detail."
+            ),
+        },
+        "message": {
+            "type": "string",
+            "example": "A2App surface verified: 3 op(s) invoked live.",
+            "description": "Outcome summary with fix guidance on failure.",
+        },
+    },
+    test_payload={
+        "project_id": "test123",
+        "simulated_mode": True,
+    },
+)
+async def living_ui_ops_verify(input_data: dict) -> dict:
+    """Live verification of an external app's declared A2App operations."""
+    project_id = str(input_data.get("project_id", "")).strip()
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "checked": 1,
+            "passed": 1,
+            "failed": 0,
+            "results": [{"op": "todos.create", "outcome": "pass", "status": 200}],
+            "message": f"A2App surface of {project_id} verified (simulated).",
+        }
+    if not project_id:
+        return {"status": "error", "message": "project_id is required"}
+    try:
+        from app.living_ui import get_living_ui_manager
+        from app.living_ui.ops_verify import verify_external_ops
+
+        manager = get_living_ui_manager()
+        project = manager.get_project(project_id) if manager else None
+        if project is None:
+            return {"status": "error", "message": f"Unknown project: {project_id}"}
+        if getattr(project, "project_type", "native") != "external":
+            return {
+                "status": "error",
+                "message": (
+                    f"'{project_id}' is a native Living UI — its operations "
+                    "are gate-verified at build; this action is for adopted "
+                    "external apps."
+                ),
+            }
+        if project.status != "running" or not project.port:
+            return {
+                "status": "error",
+                "message": (
+                    f"Project '{project_id}' is not running — call "
+                    "living_ui_notify_ready first."
+                ),
+            }
+        op_names = input_data.get("op_names") or None
+        return await verify_external_ops(project, op_names)
+    except Exception as e:
+        return {"status": "error", "message": f"ops verify failed: {e}"}
+
+
+@action(
     name="living_ui_restart",
     description=(
         "Restart a Living UI project (backend + frontend). "
@@ -2305,7 +2417,7 @@ async def living_ui_import(input_data: dict) -> dict:
                 workflow_skill=(
                     "living-ui-importer" if _is_ext else "living-ui-modify"
                 ),
-                status=None,
+                status=("creating" if _is_ext else None),
             )
         except Exception:
             _dispatched = None

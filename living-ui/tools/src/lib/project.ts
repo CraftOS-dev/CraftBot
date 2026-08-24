@@ -13,21 +13,45 @@ export interface ProjectRef {
 export function loadProject(projectDir: string): ProjectRef {
   const dir = resolve(projectDir);
   const manifestPath = join(dir, 'manifest.json');
-  if (!existsSync(manifestPath)) {
-    throw new Error(`Not a Living UI project (no manifest.json): ${dir}`);
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      name: string;
+      id: string;
+      port: number;
+    };
+    return {
+      dir,
+      name: manifest.name,
+      id: manifest.id,
+      port: manifest.port,
+      baseUrl: `http://127.0.0.1:${manifest.port}`,
+    };
   }
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-    name: string;
-    id: string;
-    port: number;
-  };
-  return {
-    dir,
-    name: manifest.name,
-    id: manifest.id,
-    port: manifest.port,
-    baseUrl: `http://127.0.0.1:${manifest.port}`,
-  };
+  // EXTERNAL (adopted third-party) projects have no manifest.json — the
+  // CraftBot config lives in craftbot.json, and the A2App proxy on `port`
+  // serves the same ops surface, so `lui ops` / `lui run` work unchanged.
+  // (`lui data` does not apply: external describe has no entities in v1.)
+  const craftbotPath = join(dir, 'craftbot.json');
+  if (existsSync(craftbotPath)) {
+    const cfg = JSON.parse(readFileSync(craftbotPath, 'utf8')) as {
+      name?: string;
+      id?: string;
+      port?: number;
+      external?: boolean;
+    };
+    if (cfg.external === true && typeof cfg.port === 'number') {
+      return {
+        dir,
+        name: cfg.name ?? dir,
+        id: cfg.id ?? '',
+        port: cfg.port,
+        baseUrl: `http://127.0.0.1:${cfg.port}`,
+      };
+    }
+  }
+  throw new Error(
+    `Not a Living UI project (no manifest.json, no external craftbot.json): ${dir}`,
+  );
 }
 
 export interface Operation {
