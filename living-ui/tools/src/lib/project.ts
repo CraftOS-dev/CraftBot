@@ -30,7 +30,7 @@ export function loadProject(projectDir: string): ProjectRef {
   // EXTERNAL (adopted third-party) projects have no manifest.json — the
   // CraftBot config lives in craftbot.json, and the A2App proxy on `port`
   // serves the same ops surface, so `lui ops` / `lui run` work unchanged.
-  // (`lui data` does not apply: external describe has no entities in v1.)
+  // (`lui data` does not apply: external describe carries no entities.)
   const craftbotPath = join(dir, 'craftbot.json');
   if (existsSync(craftbotPath)) {
     const cfg = JSON.parse(readFileSync(craftbotPath, 'utf8')) as {

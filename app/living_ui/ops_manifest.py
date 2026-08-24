@@ -148,7 +148,7 @@ def validate_external_manifest(manifest: Any) -> List[str]:
         if etype != "http":
             problems.append(
                 f"{at}: executor.type must be 'http' — 'crud' and 'job' are "
-                "not supported for external apps (v1)"
+                "not supported for external apps yet"
             )
             continue
         if executor.get("method") not in HTTP_METHODS:

@@ -145,7 +145,8 @@ Changes to a running external app apply LIVE (no staging): edit →
   the living-ui-modify workflow. External apps speak the same ops surface
   through their adapter — `lui ops` / `lui run` (and raw HTTP with the
   project's `.agent-token`) work against them too; only the `data` verbs
-  don't apply (no protocol entities in v1 — the app's own API passes
+  don't apply (external apps expose operations only, no protocol
+  entities — the app's own API passes
   through instead).
 - Never edit `frontend/src/kit/`, `manifest.json`, or other system files
   of a Living UI project — the validation gate hashes them.

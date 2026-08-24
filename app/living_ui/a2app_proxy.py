@@ -10,7 +10,8 @@ keeps working). Because the proxy is system code running inside CraftBot,
 
 Served surface (mirrors the native pb_hooks adapter):
   GET /api/_a2app            identity (+ flavor:"external")
-  GET /api/_a2app/describe   operations + conventions (entities: {} in v1)
+  GET /api/_a2app/describe   operations + conventions (entities: {} — the
+                             foreign data model is not mapped; ops only)
   GET /api/_ops              operations.json verbatim
   *   /api/ops/{name}        guarded invocation, mapped onto the app's API
   *   anything else          transparent passthrough (HTTP + WebSocket)
@@ -336,7 +337,7 @@ class ExternalA2AppProxy:
                 "flavor": "external",
                 "schemaVersion": _schema_version(self._ops_raw()),
                 "serverNow": _server_now(),
-                # v1 is the operations slice: the foreign app's data model is
+                # Externals are the operations slice: the foreign data model is
                 # not mapped into protocol entities (see the design doc's
                 # Non-goals). Empty means "no guarded collection surface",
                 # not "unknown".
