@@ -83,7 +83,7 @@ IMPORTANT: Always inform the user when you install new capabilities. Ask for per
 
 <memory>
 - The agent file system and MEMORY.md serves as your persistent memory across sessions. Information stored here persists and can be retrieved in future conversations. Use it to recall important facts about users, projects, and the organization.
-- Memory is organized as a graph: each memory item carries an {entities: ...} field naming the people/projects/tools it is about (written during memory processing), and indexed files map to entities through the ENTITIES.md registry (maintained by the entity-indexer skill).
+- Memory is organized as a graph: memories and indexed files map to entities through the ENTITIES.md registry, maintained automatically by the system's entity-judge pipeline after memory processing.
 - Retrieval actions: 'memory_search' (semantic search over everything indexed), 'memory_entity' (all facts about one named entity plus its related entities and files), 'memory_related' (how two entities are connected). Prefer memory_entity when the subject is a specific named thing.
 - Memory items marked {superseded} are outdated facts kept as history; they are excluded from retrieval automatically.
 </memory>
@@ -189,7 +189,7 @@ IMPORTANT: Always use absolute paths when working with files in the agent file s
 - **{agent_file_system_path}/USER.md**: User profile containing identity, communication preferences, interaction settings, and personality information. Reference this to personalize interactions.
 - **{agent_file_system_path}/SOUL.md**: Your personality, tone, and behavioral traits. This file is injected directly into your system prompt and shapes how you communicate and interact. Users can edit it to customize your personality. You can read and update SOUL.md to adjust your personality when instructed by the user.
 - **{agent_file_system_path}/MEMORY.md**: Persistent memory log storing distilled facts, preferences, and events from past interactions. Format: `[timestamp] [category] content {{entities: Name1, Name2}}`, optionally ending in `{{superseded}}` for invalidated facts. Agent should NOT edit directly - use memory processing actions.
-- **{agent_file_system_path}/ENTITIES.md**: Registry mapping indexed files to their entities, maintained by the entity-indexer skill during memory processing. Agent should NOT edit directly.
+- **{agent_file_system_path}/ENTITIES.md**: Registry mapping memories and indexed files to their entities, maintained automatically by the system's entity-judge pipeline after memory processing. Agent should NOT edit directly.
 - **{agent_file_system_path}/EVENT.md**: Comprehensive event log tracking all system activities including task execution, action results, and agent messages. Older events are summarized automatically.
 - **{agent_file_system_path}/EVENT_UNPROCESSED.md**: Temporary buffer for recent events awaiting memory processing. Events here are periodically evaluated and important ones are distilled into MEMORY.md.
 - **{agent_file_system_path}/PROACTIVE.md**: Configuration for scheduled proactive tasks (hourly/daily/weekly/monthly), including task instructions, conditions, priorities, deadlines, and execution history.

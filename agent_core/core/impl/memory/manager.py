@@ -30,6 +30,7 @@ from agent_core.core.impl.memory.bm25_index import BM25Index
 from agent_core.core.impl.memory.graph import (
     CONNECTION_LINE_RE,
     ENTITY_REGISTRY_FILE,
+    _CONNECTION_TEXT_SEPARATOR,
     MemoryGraph,
     compute_item_id,
     parse_entity_registry,
@@ -44,6 +45,7 @@ from agent_core.core.impl.memory.tuning import (
     CANDIDATE_POOL_MULTIPLIER,
     CHUNK_OVERLAP,
     CHUNK_SIZE_LIMIT,
+    ENTITY_JUDGE_TEXT_CAP,
     ENTITY_MATCH_MIN_SCORE,
     GRAPH_ELIGIBILITY_SCORE,
     HYBRID_WEIGHTS,
@@ -811,6 +813,174 @@ class MemoryManager:
         if self._graph is None:
             return []
         return self._graph.shortest_path(name_a, name_b)
+
+    # ───────────────────────── Entity-judge pipeline API ─────────────────────────
+
+    def pending_judgment_records(
+        self, text_cap: int = ENTITY_JUDGE_TEXT_CAP
+    ) -> List[Dict[str, Any]]:
+        """Records awaiting the entity judge, with full chunk text as evidence.
+
+        One entry per memory whose connection record renders ``[pending]``:
+        its ``?``-marked candidate entity names plus the chunk's FULL text
+        (capped) — far richer evidence than the 160-char record preview.
+        A record with no candidates still needs one review of its text for
+        new entities.
+        """
+        self._ensure_graph_built()
+        if self._graph is None:
+            return []
+        records: List[Dict[str, Any]] = []
+        for item_id in sorted(self._graph.items):
+            item = self._graph.items[item_id]
+            if item.superseded:
+                continue
+            if item.reviewed and not item.pending_entities:
+                continue  # renders [judged] — nothing to do
+            candidates = [
+                self._graph.entities[key].name
+                for key in sorted(item.pending_entities)
+                if key in self._graph.entities
+            ]
+            text = " ".join((item.content or "").split())
+            if len(text) > text_cap:
+                text = text[: text_cap - 3] + "..."
+            records.append({"id": item_id, "candidates": candidates, "text": text})
+        return records
+
+    def registry_entity_names(self) -> List[str]:
+        """The canonical ## Entities list from ENTITIES.md, verbatim.
+
+        Read from the registry file rather than the graph so hub-pruned
+        entities (excluded from the derived graph) still appear — the judge
+        must see them to avoid re-creating them.
+        """
+        registry_path = self.agent_fs_path / ENTITY_REGISTRY_FILE
+        if not registry_path.exists():
+            return []
+        try:
+            registry = parse_entity_registry(
+                registry_path.read_text(encoding="utf-8")
+            )
+        except Exception as e:
+            logger.warning(f"[MEMORY] Failed to parse {ENTITY_REGISTRY_FILE}: {e}")
+            return []
+        return registry.get("entities", [])
+
+    def apply_entity_judgments(
+        self,
+        verdicts: Dict[str, Dict[str, str]],
+        new_entities: List[str],
+    ) -> Dict[str, int]:
+        """Write entity-judge verdicts into ENTITIES.md deterministically.
+
+        ``verdicts`` maps chunk id → {candidate name (casefolded) →
+        "confirm"|"reject"} for every record the judge reviewed (empty dict
+        for a no-candidate record: its review still flips the line to
+        ``[judged]``). Marks are flipped in place on the record lines —
+        ``?Name`` → ``Name`` (confirm) or ``!Name`` (reject); nothing else
+        on the line is touched, so a verdict can only ever decide a
+        connection the matcher established. ``new_entities`` are appended
+        under ``## Entities`` (deduped against the registry by normalized
+        name). The graph is marked dirty so the next build consumes the
+        judged state from the file — the file stays the single source of
+        truth.
+        """
+        registry_path = self.agent_fs_path / ENTITY_REGISTRY_FILE
+        current = (
+            registry_path.read_text(encoding="utf-8")
+            if registry_path.exists()
+            else ""
+        )
+
+        def _norm(name: str) -> str:
+            return re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+
+        # ── Flip marks on the judged record lines ──
+        flipped = 0
+        out: List[str] = []
+        for line in current.splitlines():
+            match = CONNECTION_LINE_RE.match(line.strip())
+            if not match:
+                out.append(line)
+                continue
+            chunk_id = match.group(1)
+            record_verdicts = verdicts.get(chunk_id)
+            if record_verdicts is None:
+                out.append(line)
+                continue
+            names_part, sep, preview = match.group(3).partition(
+                _CONNECTION_TEXT_SEPARATOR
+            )
+            parts: List[str] = []
+            pending_left = False
+            for raw in names_part.split(","):
+                name = raw.strip()
+                if not name:
+                    continue
+                if name.startswith("?"):
+                    bare = name[1:].strip()
+                    verdict = record_verdicts.get(bare.casefold())
+                    if verdict == "confirm":
+                        parts.append(bare)
+                        flipped += 1
+                    elif verdict == "reject":
+                        parts.append(f"!{bare}")
+                        flipped += 1
+                    else:
+                        parts.append(name)
+                        pending_left = True
+                else:
+                    parts.append(name)
+            status = "pending" if pending_left else "judged"
+            names = f" {', '.join(parts)}" if parts else ""
+            tail = f"{_CONNECTION_TEXT_SEPARATOR}{preview}" if sep else ""
+            out.append(f"[{chunk_id}] [{status}]{names}{tail}")
+
+        # ── Append genuinely new entities under ## Entities ──
+        existing = {_norm(n) for n in parse_entity_registry(current)["entities"]}
+        accepted: List[str] = []
+        for raw in new_entities:
+            name = " ".join(str(raw).split())
+            key = _norm(name)
+            if not name or not key or key in existing:
+                continue
+            existing.add(key)
+            accepted.append(name)
+        if accepted:
+            header_idx = next(
+                (i for i, l in enumerate(out) if l.strip() == "## Entities"), None
+            )
+            if header_idx is None:
+                conn_idx = next(
+                    (
+                        i
+                        for i, l in enumerate(out)
+                        if l.strip() == "## Connections"
+                    ),
+                    len(out),
+                )
+                out[conn_idx:conn_idx] = ["## Entities", ""]
+                header_idx = conn_idx
+            # Insert after the section's last entity line (or the header).
+            insert_at = header_idx + 1
+            for i in range(header_idx + 1, len(out)):
+                stripped = out[i].strip()
+                if stripped.startswith("#"):
+                    break
+                if stripped:
+                    insert_at = i + 1
+            out[insert_at:insert_at] = accepted
+
+        rendered = "\n".join(out).rstrip("\n") + "\n"
+        if rendered != current:
+            registry_path.write_text(rendered, encoding="utf-8")
+            self._graph_dirty = True
+            logger.info(
+                f"[MEMORY] Entity judgments applied: {flipped} mark(s) flipped, "
+                f"{len(accepted)} new entit{'y' if len(accepted) == 1 else 'ies'}"
+            )
+        return {"flipped": flipped, "entities_added": len(accepted)}
 
     # ───────────────────────── Hybrid retrieval helpers ─────────────────────────
 
@@ -1682,7 +1852,7 @@ class MemoryManager:
         "MEMORY.md",
         "USER.md",
         "EVENT_UNPROCESSED.md",
-        # Entity registry (entity-indexer skill output). Indexed so the
+        # Entity registry (entity-judge pipeline output). Indexed so the
         # file watcher picks up registry edits and dirties the graph.
         "ENTITIES.md",
     ]

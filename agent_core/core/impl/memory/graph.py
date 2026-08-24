@@ -42,7 +42,7 @@ with no hashes and no staleness bookkeeping.
 
 ENTITIES COME FROM EXACTLY ONE PLACE: the ``## Entities`` list in
 ENTITIES.md (one name per line), created and maintained solely by the
-entity-indexer skill. The matcher's known-entity set IS that list. When a
+entity-judge pipeline. The matcher's known-entity set IS that list. When a
 new entity is created, the next build matches it and the sync appends it
 as a ``?`` candidate on the affected memories' lines for judgment.
 
@@ -95,9 +95,9 @@ ENTITIES_FIELD_RE = re.compile(r"\{entities:([^{}]*)\}")
 
 # The entity registry file, with two code-defined sections:
 # - "## Entities": one entity name per line, created only by the
-#   entity-indexer skill. The graph's entire entity set.
+#   entity-judge pipeline. The graph's entire entity set.
 # - "## Connections": one record per memory, WRITTEN AND RE-SYNCED BY THE
-#   SYSTEM after every graph build. The entity-indexer only flips marks.
+#   SYSTEM after every graph build. The entity judge only flips marks.
 ENTITY_REGISTRY_FILE = "ENTITIES.md"
 
 # A connection record line under "## Connections":

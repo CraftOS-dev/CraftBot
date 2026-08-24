@@ -4402,7 +4402,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "skill_creation",
             "skill_improvement",
             "memory_processing",
-            "entity_index",
         }
     )
 
@@ -4414,7 +4413,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "craftbot-skill-creator",
             "craftbot-skill-improve",
             "memory-processor",
-            "entity-indexer",
             "heartbeat-processor",
             "user-profile-interview",
             "day-planner",
@@ -4439,7 +4437,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "craftbot-skill-creator",
             "craftbot-skill-improve",
             "memory-processor",
-            "entity-indexer",
             "user-profile-interview",
             "heartbeat-processor",
             "day-planner",

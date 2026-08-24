@@ -118,8 +118,29 @@ LOG_QUERY_MAX_CHARS: Final[int] = 300
 LOG_SUMMARY_MAX_CHARS: Final[int] = 120
 
 # Text preview appended to each ## Connections record line in ENTITIES.md —
-# enough for the entity-indexer to judge a connection from the line alone.
+# display-only context for the Memory panel and logs.
 CONNECTION_PREVIEW_MAX_CHARS: Final[int] = 160
+
+
+# ──────────────────────── Entity-judge pipeline ────────────────────────
+
+# Evidence cap per record handed to the judge LLM call — the chunk's FULL
+# text truncated here (much richer than the 160-char record preview).
+ENTITY_JUDGE_TEXT_CAP: Final[int] = 800
+
+# Records per judge call, bounded both by count and by summed evidence
+# characters so file-section-heavy batches don't balloon a single call.
+ENTITY_JUDGE_BATCH_MAX_RECORDS: Final[int] = 80
+ENTITY_JUDGE_BATCH_MAX_CHARS: Final[int] = 40_000
+
+# Convergence bound: new entities created in one pass attach as fresh "?"
+# candidates on the next graph rebuild and need one more judging pass.
+# Two passes settle the common case; the third catches entities minted
+# during pass two. Anything left after that waits for the next run.
+ENTITY_JUDGE_MAX_PASSES: Final[int] = 3
+
+# Re-asks after a schema-invalid LLM response (validation error appended).
+ENTITY_JUDGE_MAX_REASKS: Final[int] = 2
 
 
 # ──────────────────────── Trigger-driven injection ────────────────────────
