@@ -108,6 +108,8 @@ from app.ui_layer.settings.memory_settings import (
     # Indexed files
     get_memory_indexed_files,
     set_memory_indexed_files,
+    add_memory_indexed_file,
+    remove_memory_indexed_file,
     list_indexable_candidates,
 )
 
@@ -214,6 +216,8 @@ __all__ = [
     "memory_schedule_expression",
     "get_memory_indexed_files",
     "set_memory_indexed_files",
+    "add_memory_indexed_file",
+    "remove_memory_indexed_file",
     "list_indexable_candidates",
     "clear_unprocessed_events",
     "get_memory_stats",

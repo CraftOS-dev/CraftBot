@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { register } from '../socket/messageRegistry'
+import type { InboundHandler } from '../socket/messageRegistry'
 
 export interface MemoryItem {
   id: string
@@ -194,3 +195,24 @@ register('memory_indexed_files_set', (data, dispatch) => {
   const d = data as { success: boolean; files?: IndexedFileInfo[] }
   if (d.success && d.files) dispatch(setIndexedFiles(d.files))
 })
+
+// Per-file add/remove carry the full file list, candidates, AND the fresh
+// graph so a single serial round-trip updates everything for THAT file. The
+// backend piggy-backs the graph here (rather than the panel sending its own
+// memory_graph_get, which would queue behind other still-pending index jobs),
+// so each file lands in the graph the moment it finishes indexing.
+const applyIndexFileMutation: InboundHandler = (data, dispatch) => {
+  const d = data as {
+    success: boolean
+    files?: IndexedFileInfo[]
+    candidates?: IndexCandidate[]
+    graph?: MemoryGraph
+  }
+  if (!d.success) return
+  if (d.files) dispatch(setIndexedFiles(d.files))
+  if (d.candidates) dispatch(setIndexCandidates(d.candidates))
+  if (d.graph) dispatch(setGraph(d.graph))
+}
+
+register('memory_index_file_add', applyIndexFileMutation)
+register('memory_index_file_remove', applyIndexFileMutation)

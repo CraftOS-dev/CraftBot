@@ -63,6 +63,8 @@ from app.ui_layer.settings import (
     get_unprocessed_event_count,
     memory_schedule_expression,
     set_memory_indexed_files,
+    add_memory_indexed_file,
+    remove_memory_indexed_file,
     list_indexable_candidates,
     # Model settings
     get_available_providers,
@@ -1554,6 +1556,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "memory_indexed_files_set":
             paths = data.get("paths", [])
             await self._handle_memory_indexed_files_set(paths)
+
+        elif msg_type == "memory_index_file_add":
+            path = data.get("path", "")
+            await self._handle_memory_index_file_mutate("add", path)
+
+        elif msg_type == "memory_index_file_remove":
+            path = data.get("path", "")
+            await self._handle_memory_index_file_mutate("remove", path)
 
         # Model settings operations
         elif msg_type == "model_providers_get":
@@ -5455,19 +5465,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    async def _memory_graph_snapshot(self) -> dict:
+        """Graph snapshot (nodes/edges) with the panel's pipeline stats folded in.
+
+        Shared by _handle_memory_graph_get and the per-file index mutations so
+        both push an identically shaped graph payload.
+        """
+        agent = self._controller.agent
+        snapshot = await asyncio.to_thread(agent.memory_manager.graph_snapshot)
+        stats = snapshot.get("stats", {})
+        memory_stats = get_memory_stats()
+        if memory_stats.get("success"):
+            stats["unprocessed_events"] = memory_stats.get("unprocessed_events", 0)
+            stats["memory_item_count"] = memory_stats.get("total_items", 0)
+        snapshot["stats"] = stats
+        return snapshot
+
     async def _handle_memory_graph_get(self) -> None:
         """Send the memory graph snapshot (nodes/edges/stats) to the panel."""
         try:
-            agent = self._controller.agent
-            snapshot = await asyncio.to_thread(agent.memory_manager.graph_snapshot)
-
-            # Fold in pipeline stats the panel shows alongside the graph.
-            stats = snapshot.get("stats", {})
-            memory_stats = get_memory_stats()
-            if memory_stats.get("success"):
-                stats["unprocessed_events"] = memory_stats.get("unprocessed_events", 0)
-                stats["memory_item_count"] = memory_stats.get("total_items", 0)
-            snapshot["stats"] = stats
+            snapshot = await self._memory_graph_snapshot()
 
             await self._broadcast(
                 {
@@ -5543,6 +5560,67 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {
                     "type": "memory_indexed_files_set",
                     "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_index_file_mutate(self, op: str, path: str) -> None:
+        """Add or remove a single indexed file and re-index.
+
+        Additive per-file counterpart to _handle_memory_indexed_files_set.
+        Each mutation reads the persisted list fresh, so simultaneous "+"
+        clicks (processed serially by the WS loop) each add their own file
+        instead of overwriting one another. The response echoes the path so
+        the frontend clears only that file's spinner.
+        """
+        msg_type = f"memory_index_file_{op}"
+        try:
+            if op == "add":
+                result = add_memory_indexed_file(path)
+            else:
+                result = remove_memory_indexed_file(path)
+
+            if not result.get("success"):
+                await self._broadcast(
+                    {
+                        "type": msg_type,
+                        "data": {
+                            "success": False,
+                            "path": path,
+                            "error": result.get("error", "Unknown error"),
+                        },
+                    }
+                )
+                return
+
+            # Re-index so the added file appears (or removed file drops out)
+            # immediately rather than waiting for the file watcher.
+            agent = self._controller.agent
+            await asyncio.to_thread(agent.memory_manager.update)
+
+            # Push the fresh graph + file list INSIDE this completion broadcast.
+            # The WS loop is serial, so if the panel replied by sending its own
+            # memory_graph_get it would queue behind the other still-pending
+            # index jobs and only refresh once they all finished. Piggy-backing
+            # the snapshot here lets each file appear the moment it's indexed.
+            candidates_result = list_indexable_candidates()
+            await self._broadcast(
+                {
+                    "type": msg_type,
+                    "data": {
+                        "success": True,
+                        "path": path,
+                        "files": agent.memory_manager.get_index_files_info(),
+                        "candidates": candidates_result.get("candidates", []),
+                        "graph": await self._memory_graph_snapshot(),
+                        "rejected": result.get("rejected", []),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": msg_type,
+                    "data": {"success": False, "path": path, "error": str(e)},
                 }
             )
 

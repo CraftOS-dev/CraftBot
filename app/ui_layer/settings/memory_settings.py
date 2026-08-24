@@ -721,6 +721,30 @@ def set_memory_indexed_files(paths: List[str]) -> Dict[str, Any]:
         return {"success": False, "error": f"Failed to set indexed files: {str(e)}"}
 
 
+def add_memory_indexed_file(path: str) -> Dict[str, Any]:
+    """Add a single file to the extra indexed-files list.
+
+    Reads the currently persisted list fresh and appends the one path,
+    reusing set_memory_indexed_files for validation and dedup. Because the
+    browser adapter processes WebSocket messages serially, concurrent "+"
+    clicks compose additively instead of clobbering each other: each call
+    sees the result of the previous one.
+    """
+    current = get_memory_indexed_files()
+    return set_memory_indexed_files(current + [path])
+
+
+def remove_memory_indexed_file(path: str) -> Dict[str, Any]:
+    """Remove a single file from the extra indexed-files list.
+
+    Counterpart to add_memory_indexed_file; reads the persisted list fresh
+    and drops the one path, so concurrent removals also compose.
+    """
+    rel = str(path).replace("\\", "/").strip().lstrip("/")
+    current = get_memory_indexed_files()
+    return set_memory_indexed_files([p for p in current if p != rel])
+
+
 def list_indexable_candidates() -> Dict[str, Any]:
     """Markdown files under the agent file system that can be indexed.
 

@@ -213,17 +213,34 @@ export function MemoryPage() {
       onMessage('memory_item_update', () => { send('memory_items_get'); send('memory_graph_get') }),
       onMessage('memory_item_remove', () => { send('memory_items_get'); send('memory_graph_get') }),
       onMessage('memory_reset', () => refreshAll()),
-      onMessage('memory_indexed_files_set', (data) => {
-        const d = data as { success: boolean; error?: string; rejected?: { path: string; reason: string }[] }
-        setPendingPaths(new Set())
-        if (!d.success) {
-          showToast('error', d.error || 'Failed to update indexed files')
-        } else if (d.rejected && d.rejected.length > 0) {
-          showToast('error', `Skipped ${d.rejected[0].path}: ${d.rejected[0].reason}`)
-        }
-        send('memory_indexed_files_get')
-        send('memory_graph_get')
-      }),
+      // Per-file add/remove completion: clear ONLY the finished file's
+      // spinner so other still-pending files keep spinning. (The old full
+      // replace cleared every spinner on the first response, masking the
+      // clobbered files as if they had indexed.)
+      ...(['memory_index_file_add', 'memory_index_file_remove'] as const).map(msg =>
+        onMessage(msg, (data) => {
+          const d = data as {
+            success: boolean; path?: string; error?: string
+            rejected?: { path: string; reason: string }[]
+          }
+          if (d.path) {
+            setPendingPaths(prev => {
+              const next = new Set(prev)
+              next.delete(d.path as string)
+              return next
+            })
+          }
+          if (!d.success) {
+            showToast('error', d.error || 'Failed to update indexed files')
+          } else if (d.rejected && d.rejected.length > 0) {
+            showToast('error', `Skipped ${d.rejected[0].path}: ${d.rejected[0].reason}`)
+          }
+          // No memory_graph_get / memory_indexed_files_get round-trip here:
+          // the response already carries the fresh graph, files, and
+          // candidates (applied by the slice). Sending them would queue
+          // behind other still-pending index jobs and defer the refresh.
+        }),
+      ),
     ]
     return () => unsubs.forEach(u => u())
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -329,11 +346,6 @@ export function MemoryPage() {
     }
     return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]))
   }, [displayGraph, search])
-
-  const extraFiles = useMemo(
-    () => indexedFiles.filter(f => !f.core).map(f => f.path),
-    [indexedFiles],
-  )
 
   // ── File tree: indexed files + candidates merged into folders ──
   interface TreeFile {
@@ -512,14 +524,19 @@ export function MemoryPage() {
     )
   }
 
+  // Additive per-file mutations: the backend reads the persisted list fresh
+  // and adds/removes just this path. Sending the whole list (derived from the
+  // stale `extraFiles` memo) meant rapid clicks each rebuilt their payload
+  // from the same pre-update base, so the last write clobbered the rest and
+  // only one file ended up indexed.
   const handleAddFile = (path: string) => {
     setPendingPaths(prev => new Set(prev).add(path))
-    send('memory_indexed_files_set', { paths: [...extraFiles, path] })
+    send('memory_index_file_add', { path })
   }
 
   const handleRemoveFile = (path: string) => {
     setPendingPaths(prev => new Set(prev).add(path))
-    send('memory_indexed_files_set', { paths: extraFiles.filter(p => p !== path) })
+    send('memory_index_file_remove', { path })
   }
 
   // Selecting an item row focuses its node in the graph (when present).
