@@ -211,6 +211,76 @@ def pick_result(res: Dict[str, Any], keys) -> Dict[str, Any]:
     return res
 
 
+def _account_hint() -> Optional[str]:
+    """The ``account`` value of the action currently executing, if any.
+
+    Read from the executor's execution context (never threaded through
+    action signatures — legacy actions don't declare ``account``; the
+    schema is injected centrally by ``account_bridge``). Returns None
+    outside an action context (e.g. sandboxed subprocess actions, direct
+    calls from host code) — callers fall back to the primary account.
+    """
+    try:
+        from agent_core.core.impl.action.context import current_input_data
+
+        data = current_input_data.get()
+        hint = (data or {}).get("account")
+        if isinstance(hint, str) and hint.strip():
+            return hint.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _bridge_client_or_error(integration: str):
+    """Account-aware client resolution for bridged multi-account platforms.
+
+    Returns ``(client, error_dict, handled)``:
+      - ``handled=False`` → the platform has no v2 provider; caller takes
+        the legacy singleton path unchanged.
+      - ``handled=True`` → the v2 system owns this platform: ``client`` is
+        bound to the resolved account (the ``account`` hint from the
+        executing action, or the primary), or ``error_dict`` explains the
+        failure in self-correcting terms.
+
+    An explicit ``account`` hint on a NON-bridged platform is a loud
+    error, not a silent primary fallback — silently sending from the
+    wrong account is the one failure mode this whole system exists to
+    prevent.
+    """
+    from craftos_integrations.contracts import AccountResolutionError
+
+    hint = _account_hint()
+    system = system_for(integration)
+    if system is None:
+        if hint:
+            return None, {
+                "status": "error",
+                "message": (
+                    f"{integration} does not support account selection yet — "
+                    f"retry without the 'account' parameter."
+                ),
+            }, True
+        return None, None, False
+    try:
+        # list_accounts (not resolve) first: it runs the one-time legacy
+        # credential migration and gives a friendlier no-accounts message.
+        if not system.list_accounts(integration):
+            return None, {
+                "status": "error",
+                "message": _no_cred_message(integration),
+            }, True
+        identity = system.resolve(integration, hint)
+        return system.client_for(integration, identity), None, True
+    except AccountResolutionError as e:
+        return None, {"status": "error", "message": str(e)}, True
+    except Exception as e:
+        return None, {
+            "status": "error",
+            "message": f"{integration} account resolution failed: {e}",
+        }, True
+
+
 async def run_client(
     integration: str,
     method_name: str,
@@ -226,11 +296,15 @@ async def run_client(
     """
     from craftos_integrations import get_client
 
-    client = get_client(integration)
-    if client is None:
-        return {"status": "error", "message": f"Unknown integration: {integration}"}
-    if not client.has_credentials():
-        return {"status": "error", "message": _no_cred_message(integration)}
+    client, err, handled = _bridge_client_or_error(integration)
+    if err:
+        return err
+    if not handled:
+        client = get_client(integration)
+        if client is None:
+            return {"status": "error", "message": f"Unknown integration: {integration}"}
+        if not client.has_credentials():
+            return {"status": "error", "message": _no_cred_message(integration)}
     try:
         method = getattr(client, method_name, None)
         if method is None:
@@ -273,11 +347,15 @@ def run_client_sync(
     """Sync flavor of ``run_client`` for sync actions calling sync methods."""
     from craftos_integrations import get_client
 
-    client = get_client(integration)
-    if client is None:
-        return {"status": "error", "message": f"Unknown integration: {integration}"}
-    if not client.has_credentials():
-        return {"status": "error", "message": _no_cred_message(integration)}
+    client, err, handled = _bridge_client_or_error(integration)
+    if err:
+        return err
+    if not handled:
+        client = get_client(integration)
+        if client is None:
+            return {"status": "error", "message": f"Unknown integration: {integration}"}
+        if not client.has_credentials():
+            return {"status": "error", "message": _no_cred_message(integration)}
     try:
         method = getattr(client, method_name, None)
         if method is None:
@@ -329,6 +407,11 @@ def get_client_or_error(integration: str):
     """
     from craftos_integrations import get_client
 
+    client, err, handled = _bridge_client_or_error(integration)
+    if err:
+        return None, err
+    if handled:
+        return client, None
     client = get_client(integration)
     if client is None:
         return None, {
@@ -338,6 +421,467 @@ def get_client_or_error(integration: str):
     if not client.has_credentials():
         return None, {"status": "error", "message": _no_cred_message(integration)}
     return client, None
+
+
+# ════════════════════════════════════════════════════════════════════════
+# multi-account integration routing for the management actions
+#
+# The 10 multi-account providers (gmail, google_calendar, google_docs, google_drive,
+# google_youtube, outlook, linkedin, notion, hubspot, slack) get their
+# connection state, OAuth connect, token connect, and disconnect from the
+# IntegrationSystem — the legacy single-account credential files are never
+# read or written for them, except by the one-time upgrade migration
+# (legacy file present, no AccountSet document → imported as the first account;
+# see IntegrationSystem._migrate_legacy).
+# Legacy handlers remain the METADATA source (display name, icon, auth_type,
+# description, token field schemas) for all integrations.
+# ════════════════════════════════════════════════════════════════════════
+
+
+def system_for(integration_id: str):
+    """Return the IntegrationSystem when it knows this provider id.
+
+    Returns None for legacy integrations (or if bootstrap fails), so
+    callers fall back to the legacy path unchanged.
+    """
+    try:
+        from app.integrations import get_system
+
+        system = get_system()
+        if system.registry.get(integration_id) is not None:
+            return system
+    except Exception:
+        pass
+    return None
+
+
+def whatsapp_session_state(identity: str):
+    """Live session-actor state for a whatsapp_web account (connected /
+    launching / reconnecting / needs_relink / failed / stopped), or None
+    when unknown. needs_relink is read from the persisted marker, so it
+    survives restarts."""
+    try:
+        from craftos_integrations.integrations.whatsapp_web._session import (
+            get_session_manager,
+        )
+
+        return get_session_manager().state_of(identity)
+    except Exception:
+        return None
+
+
+def accounts_payload(accounts, provider_id: str = "") -> list:
+    """Serialize AccountInfo objects into the structured action-result shape
+    (same wire shape the settings UI uses — plan §6). For whatsapp_web,
+    each row also carries ``sessionState`` so the UI can render a relink
+    CTA / reconnect notice per account."""
+    rows = [
+        {
+            "identity": a.identity,
+            "alias": a.alias,
+            "isPrimary": a.is_primary,
+            "listen": a.listen,
+        }
+        for a in accounts
+    ]
+    if provider_id == "whatsapp_web":
+        for row in rows:
+            state = whatsapp_session_state(row["identity"])
+            if state:
+                row["sessionState"] = state
+    return rows
+
+
+def account_lines(accounts) -> list:
+    """Shared status-text format from plan §6:
+    ``- {alias or identity} ({identity}) [primary]``."""
+    lines = []
+    for a in accounts:
+        line = f"- {a.alias or a.identity} ({a.identity})"
+        if a.is_primary:
+            line += " [primary]"
+        lines.append(line)
+    return lines
+
+
+def v2_display_name(system, integration_id: str) -> str:
+    """Display name: legacy handler metadata first (still the metadata
+    source), falling back to the provider's own display_name."""
+    try:
+        from craftos_integrations import get_metadata
+
+        meta = get_metadata(integration_id)
+        if meta and meta.get("name"):
+            return meta["name"]
+    except Exception:
+        pass
+    provider = system.registry.get(integration_id)
+    return getattr(provider, "display_name", None) or integration_id
+
+
+async def list_integrations_merged_async() -> list:
+    """Metadata + connection status for every integration, with multi-account provider
+    ids sourcing their connection state and accounts from the
+    IntegrationSystem instead of the legacy credential files. Legacy
+    integrations keep the legacy ``handler.status()`` path unchanged.
+
+    v2 entries carry ``accounts`` in the ManagedAccount wire shape
+    ({identity, alias, isPrimary, listen}); legacy entries keep the
+    status-parsed ``{display, id}`` shape.
+    """
+    from craftos_integrations import get_integration_info, get_metadata, list_all
+
+    out = []
+    for name in list_all():
+        system = system_for(name)
+        if system is not None:
+            info = get_metadata(name)
+            if info is None:
+                continue
+            infos = system.list_accounts(name)
+            info["accounts"] = accounts_payload(infos, name)
+            info["connected"] = bool(infos)
+        else:
+            info = await get_integration_info(name)
+        if info:
+            out.append(info)
+    return out
+
+
+def list_integrations_merged() -> list:
+    """Sync wrapper. Safe both off-loop (action/handler contexts) and on the
+    event-loop thread (metrics collector on the browser WS refresh path) —
+    the latter used to attempt a nested ``run_until_complete`` that always
+    raised and left dashboard integration counts empty."""
+    import asyncio as _asyncio
+
+    try:
+        _asyncio.get_running_loop()
+    except RuntimeError:
+        loop = _asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(list_integrations_merged_async())
+        finally:
+            loop.close()
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_asyncio.run, list_integrations_merged_async()).result()
+
+
+def _v2_verify_slack_token(credentials: Dict[str, str]):
+    """Same verification the legacy SlackHandler.login() runs: prefix check
+    + ``auth.test`` with the bot token; same credential dict shape."""
+    from dataclasses import asdict
+
+    from craftos_integrations.integrations.slack import SlackCredential, _slack_call
+
+    bot_token = (credentials.get("bot_token") or "").strip()
+    if not bot_token.startswith(("xoxb-", "xoxp-")):
+        return False, "Invalid token. Expected xoxb-... or xoxp-...", None
+
+    result = _slack_call("POST", "auth.test", {"Authorization": f"Bearer {bot_token}"})
+    if "error" in result:
+        return False, f"Slack auth failed: {result['error']}", None
+    team_id = result.get("team_id", "")
+    workspace_name = (credentials.get("workspace_name") or "").strip() or result.get(
+        "team", team_id
+    )
+    credential = asdict(
+        SlackCredential(
+            bot_token=bot_token,
+            workspace_id=team_id,
+            team_name=workspace_name,
+        )
+    )
+    return True, f"Slack connected: {workspace_name} ({team_id})", credential
+
+
+def _v2_verify_notion_token(credentials: Dict[str, str]):
+    """Same verification the legacy NotionHandler.login() runs: ``GET
+    /users/me`` with the integration token; same credential dict shape,
+    plus the bot user id captured as ``bot_id`` so ``identity_of`` gets a
+    stable account key. (Without it the credential landed under the
+    LEGACY sentinel and a second token connect silently overwrote the
+    first account.)"""
+    from dataclasses import asdict
+
+    from craftos_integrations.integrations.notion import (
+        NOTION_VERSION,
+        NotionCredential,
+        _notion_call,
+    )
+
+    token = (credentials.get("token") or "").strip()
+    data = _notion_call(
+        "GET",
+        "/users/me",
+        {"Authorization": f"Bearer {token}", "Notion-Version": NOTION_VERSION},
+    )
+    if "error" in data:
+        return False, f"Notion auth failed: {data['error']}", None
+    ws_name = data.get("bot", {}).get("workspace_name", "default")
+    credential = asdict(NotionCredential(token=token))
+    # The bot user id is workspace-scoped and stable — one integration
+    # token = one workspace = one account.
+    bot_id = data.get("id")
+    if isinstance(bot_id, str) and bot_id.strip():
+        credential["bot_id"] = bot_id.strip()
+    ws_id = data.get("bot", {}).get("workspace_id")
+    if isinstance(ws_id, str) and ws_id.strip():
+        credential["workspace_id"] = ws_id.strip()
+    return True, f"Notion connected: {ws_name}", credential
+
+
+def _v2_verify_hubspot_token(credentials: Dict[str, str]):
+    """Same verification the legacy HubSpotHandler.login() runs: 'pat-'
+    prefix check + ``GET /account-info/v3/details``; same credential dict
+    shape (hub_id captured for the account identity)."""
+    from dataclasses import asdict
+
+    from craftos_integrations.helpers import request as http_request
+    from craftos_integrations.integrations.hubspot import (
+        HUBSPOT_API,
+        HubSpotCredential,
+    )
+
+    token = (credentials.get("access_token") or "").strip()
+    if not token.startswith("pat-"):
+        return False, "Invalid token. Private App tokens start with 'pat-'.", None
+
+    ping = http_request(
+        "GET",
+        f"{HUBSPOT_API}/account-info/v3/details",
+        headers={"Authorization": f"Bearer {token}"},
+        expected=(200,),
+    )
+    if "error" in ping:
+        return False, f"HubSpot auth failed: {ping['error']}", None
+    meta = ping.get("result") or {}
+    credential = asdict(
+        HubSpotCredential(
+            access_token=token,
+            hub_id=str(meta.get("portalId", "")),
+            hub_domain=meta.get("uiDomain", ""),
+            auth_kind="token",
+        )
+    )
+    label = meta.get("uiDomain") or meta.get("portalId") or "HubSpot"
+    return True, f"HubSpot connected: {label}", credential
+
+
+_V2_TOKEN_VERIFIERS = {
+    "slack": _v2_verify_slack_token,
+    "notion": _v2_verify_notion_token,
+    "hubspot": _v2_verify_hubspot_token,
+}
+
+
+def system_connect_token(system, integration_id: str, credentials: Dict[str, str]):
+    """Manual-token connect for a multi-account provider: validate the token the same
+    way the legacy handler's ``login()`` does, then store the credential
+    through the integration system (``store_credential``) — never through the legacy
+    single-account save. Returns (success, message).
+    """
+    # Providers may carry their own verifier (the bridge-provider pattern —
+    # keeps each platform's connect logic in its provider package); the
+    # central table covers the three providers that predate it.
+    provider_obj = system.registry.get(integration_id)
+    verifier = getattr(provider_obj, "verify_token", None) or _V2_TOKEN_VERIFIERS.get(
+        integration_id
+    )
+    if verifier is None:
+        # Mirrors legacy IntegrationHandler.connect_token for field-less
+        # (OAuth-only) integrations.
+        return (
+            False,
+            f"Token-based login not supported for "
+            f"{v2_display_name(system, integration_id)}",
+        )
+    try:
+        ok, message, credential = verifier(credentials)
+    except Exception as e:
+        return False, f"{integration_id} token verification failed: {e}"
+    if not ok or not credential:
+        return False, message
+
+    provider = system.registry.get(integration_id)
+    identity = provider.identity_of(credential)
+    if not identity:
+        # Refuse rather than store under the LEGACY sentinel: a second
+        # identity-less connect would land on the same sentinel key and
+        # silently REPLACE the first account's credential. The sentinel
+        # exists only for pre-multi-account files migrating in.
+        return False, (
+            f"Could not determine which account this "
+            f"{v2_display_name(system, integration_id)} token belongs to — "
+            f"connect was aborted so an existing account can't be "
+            f"overwritten. Re-check the token and try again."
+        )
+    system.store_credential(integration_id, identity, credential)
+    # Slack has a listener; reconcile so a fresh token starts listening
+    # immediately (no-op when no manager is attached / no listener exists).
+    system.reconcile_listeners()
+    return True, message
+
+
+# Strong references to scheduled teardown tasks: a bare create_task result
+# that nobody holds can be garbage-collected mid-flight, silently dropping
+# the auth-dir cleanup (observed as session dirs surviving "complete reset").
+_teardown_tasks: set = set()
+
+
+async def platform_teardown_accounts_async(integration_id: str, identities) -> None:
+    """Platform-specific teardown of live per-account resources.
+
+    whatsapp_web accounts own a live Node bridge process and a per-account
+    session dir; core ``remove_account`` only deletes the AccountSet entry.
+    Runs to completion: server-side logout (removes the entry from the
+    phone's Linked Devices), process exit, auth-dir delete. Best-effort per
+    identity, never raises.
+    """
+    identities = [i for i in (identities or []) if i]
+    if integration_id != "whatsapp_web" or not identities:
+        return
+    try:
+        from craftos_integrations.providers.whatsapp_web import teardown_account
+    except Exception:
+        return
+
+    from craftos_integrations.logger import get_logger
+
+    _log = get_logger(__name__)
+
+    for identity in identities:
+        try:
+            await teardown_account(identity)
+        except Exception as e:
+            _log.warning(
+                f"[INTEGRATIONS] whatsapp_web teardown for '{identity}' failed: {e}"
+            )
+
+
+def platform_teardown_accounts(integration_id: str, identities) -> None:
+    """Sync entry for :func:`platform_teardown_accounts_async`.
+
+    Runs inline (blocking) when no event loop is running; otherwise
+    schedules on the running loop, holding a strong task reference so the
+    cleanup cannot be dropped by GC. Async callers should prefer awaiting
+    ``platform_teardown_accounts_async`` directly.
+    """
+    identities = [i for i in (identities or []) if i]
+    if integration_id != "whatsapp_web" or not identities:
+        return
+    import asyncio as _asyncio
+
+    try:
+        loop = _asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        task = loop.create_task(
+            platform_teardown_accounts_async(integration_id, identities)
+        )
+        _teardown_tasks.add(task)
+        task.add_done_callback(_teardown_tasks.discard)
+    else:
+        loop = _asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(
+                platform_teardown_accounts_async(integration_id, identities)
+            )
+        finally:
+            loop.close()
+
+
+def system_disconnect(system, integration_id: str, account_id=None):
+    """Disconnect a multi-account provider through the IntegrationSystem.
+
+    - With ``account_id``: remove just that account (alias or identity
+      hints both resolve). Entirely system-managed — legacy has no notion of a
+      specific account.
+    - Without: remove ALL accounts, then run the legacy handler logout
+      as best-effort double-cleanup. Removing the last account also
+      deletes the legacy credential file (IntegrationSystem prevents the
+      upgrade migration from resurrecting it), so the legacy logout
+      normally reports "no credentials found" — it only does real work
+      when a stray/corrupt legacy file survived. A legacy failure never
+      masks a successful account removal.
+
+    Returns (success, message).
+    """
+    import asyncio as _asyncio
+
+    def _teardown_then_remove(identity: str) -> None:
+        # Teardown BEFORE record removal: the bridge needs the live,
+        # authenticated session to do a server-side logout, and the session
+        # dir must be deleted while nothing is respawning it. (The old
+        # order deleted records first and fire-and-forgot the teardown —
+        # reconcile raced it and locked dirs survived "complete reset".)
+        async def _ordered() -> None:
+            await platform_teardown_accounts_async(integration_id, [identity])
+            await _asyncio.to_thread(system.remove_account, integration_id, identity)
+
+        try:
+            loop = _asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            # Defensive fallback — actions normally run loop-less. Order is
+            # still guaranteed inside the task; only the return message is
+            # optimistic here.
+            task = loop.create_task(_ordered())
+            _teardown_tasks.add(task)
+            task.add_done_callback(_teardown_tasks.discard)
+        else:
+            inner = _asyncio.new_event_loop()
+            try:
+                inner.run_until_complete(_ordered())
+            finally:
+                inner.close()
+
+    if account_id:
+        try:
+            identity = system.resolve(integration_id, account_id)
+            _teardown_then_remove(identity)
+            return True, f"Removed account '{identity}' from {integration_id}."
+        except Exception as e:
+            return False, str(e)
+
+    removed = []
+    removed_identities = []
+    for info in system.list_accounts(integration_id):
+        try:
+            _teardown_then_remove(info.identity)
+            removed.append(info.alias or info.identity)
+            removed_identities.append(info.identity)
+        except Exception:
+            pass
+
+    legacy_success, legacy_message = False, ""
+    try:
+        from craftos_integrations import disconnect as _legacy_disconnect
+
+        loop = _asyncio.new_event_loop()
+        try:
+            legacy_success, legacy_message = loop.run_until_complete(
+                _legacy_disconnect(integration_id)
+            )
+        finally:
+            loop.close()
+    except Exception as e:
+        legacy_message = str(e)
+
+    if removed:
+        return (
+            True,
+            f"Disconnected {integration_id}: removed "
+            f"{len(removed)} account(s) ({', '.join(removed)}).",
+        )
+    # Nothing in the integration system — surface the legacy result unchanged (matches the old
+    # behavior for "not connected" and for stray legacy-only files).
+    return legacy_success, legacy_message
 
 
 async def with_client(

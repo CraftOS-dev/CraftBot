@@ -260,7 +260,7 @@ class OutlookClient(BasePlatformClient):
                 "$filter": f"receivedDateTime ge {self._last_poll_time}",
                 "$orderby": "receivedDateTime asc",
                 "$top": "50",
-                "$select": "id,from,subject,bodyPreview,receivedDateTime,conversationId",
+                "$select": "id,from,subject,bodyPreview,receivedDateTime,conversationId,hasAttachments",
             },
             expected=(200,),
         )
@@ -308,6 +308,29 @@ class OutlookClient(BasePlatformClient):
         except Exception:
             pass
 
+        # hasAttachments (one $select field) gates a single metadata-only
+        # /attachments list call — names/ids for the agent, no bytes
+        # (docs/plans/attachment-reception-plan.md).
+        msg_id = msg.get("id", "")
+        attachments: list = []
+        if msg.get("hasAttachments") and msg_id:
+            try:
+                listed = await asyncio.to_thread(self.list_attachments, msg_id)
+                for a in (listed.get("result") or {}).get("attachments") or []:
+                    att: Dict[str, Any] = {
+                        "kind": "document",
+                        "id": a.get("id", ""),
+                        "name": a.get("name", ""),
+                        "extra": {"message_id": msg_id},
+                    }
+                    if a.get("contentType"):
+                        att["mime"] = a["contentType"]
+                    if a.get("size"):
+                        att["size"] = a["size"]
+                    attachments.append(att)
+            except Exception as e:
+                logger.debug(f"[OUTLOOK] attachment list failed for {msg_id}: {e}")
+
         if self._message_callback:
             await self._message_callback(
                 PlatformMessage(
@@ -316,9 +339,10 @@ class OutlookClient(BasePlatformClient):
                     sender_name=sender_name,
                     text=text,
                     channel_id=msg.get("conversationId", ""),
-                    message_id=msg.get("id", ""),
+                    message_id=msg_id,
                     timestamp=timestamp,
                     raw=msg,
+                    attachments=attachments,
                 )
             )
 

@@ -56,7 +56,6 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
         run_client,
     )
 
-    record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
     res = await run_client(
         "telegram_bot",
         "send_message",
@@ -67,6 +66,8 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
         disable_web_page_preview=input_data.get("disable_web_page_preview"),
         reply_markup=input_data.get("reply_markup"),
     )
+    if res.get("status") == "success":
+        record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
     return pick_result(res, ["message_id"])
 
 
@@ -2386,13 +2387,15 @@ async def send_telegram_user_message(input_data: dict) -> dict:
         run_client,
     )
 
-    record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
-    return await run_client(
+    res = await run_client(
         "telegram_user",
         "send_message",
         recipient=input_data["chat_id"],
         text=input_data["text"],
     )
+    if res.get("status") == "success":
+        record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
+    return res
 
 
 @action(
@@ -2437,6 +2440,41 @@ async def search_telegram_user_contacts(input_data: dict) -> dict:
         "telegram_user",
         "search_contacts",
         query=input_data["query"],
+    )
+
+
+@action(
+    name="download_telegram_user_media",
+    description=(
+        "Download the media of a Telegram user-account message (photo/"
+        "document/voice/video) to a local path. Use the chat_id and "
+        "message_id from the incoming message's attachment info."
+    ),
+    action_sets=["telegram_user"],
+    input_schema={
+        "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
+        "message_id": {
+            "type": "string",
+            "description": "Message ID holding the media.",
+            "example": "456",
+        },
+        "dest_path": {
+            "type": "string",
+            "description": "Local file or directory to save to.",
+            "example": "/path/to/save",
+        },
+    },
+    output_schema={"status": {"type": "string", "example": "success"}},
+)
+async def download_telegram_user_media(input_data: dict) -> dict:
+    from app.data.action.integrations._helpers import run_client
+
+    return await run_client(
+        "telegram_user",
+        "download_media",
+        chat_id=input_data["chat_id"],
+        message_id=input_data["message_id"],
+        dest_path=input_data["dest_path"],
     )
 
 

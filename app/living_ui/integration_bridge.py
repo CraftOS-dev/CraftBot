@@ -110,11 +110,19 @@ class IntegrationBridge:
             return web.json_response({"error": "Unauthorized"}, status=401)
 
         from craftos_integrations import get_registered_platforms, get_client
+        from app.data.action.integrations._helpers import system_for
 
         integrations = []
         for platform_id in get_registered_platforms():
-            client = get_client(platform_id)
-            connected = client.has_credentials() if client else False
+            system = system_for(platform_id)
+            if system is not None:
+                try:
+                    connected = bool(system.list_accounts(platform_id))
+                except Exception:
+                    connected = False
+            else:
+                client = get_client(platform_id)
+                connected = client.has_credentials() if client else False
             integrations.append(
                 {
                     "id": platform_id,
@@ -151,6 +159,9 @@ class IntegrationBridge:
         url = data.get("url", "")
         extra_headers = data.get("headers") or {}
         body = data.get("body")
+        # Optional multi-account selector: identity, alias, or unique
+        # fragment (same resolution as agent actions). Omitted = primary.
+        account = (data.get("account") or "").strip() or None
 
         if not integration or not url:
             return web.json_response(
@@ -191,11 +202,15 @@ class IntegrationBridge:
         url = resolved
 
         # Get auth headers from platform client
-        auth_headers = self._get_auth_headers(integration)
+        auth_headers = self._get_auth_headers(integration, account)
         if auth_headers is None:
+            detail = f" (account {account!r} not found?)" if account else ""
             return web.json_response(
                 {
-                    "error": f"Integration '{integration}' not connected (no credentials)"
+                    "error": (
+                        f"Integration '{integration}' not connected "
+                        f"(no credentials){detail}"
+                    )
                 },
                 status=424,
             )
@@ -767,17 +782,45 @@ class IntegrationBridge:
                 return True, raw
         return False, f"host {host!r} is not one of {', '.join(allowed)}"
 
-    def _get_auth_headers(self, platform_id: str) -> Optional[dict]:
+    def _client_for_platform(self, platform_id: str, account: Optional[str] = None):
+        """Credentialed client for a platform, or None.
+
+        Multi-account provider ids resolve ``account`` (identity / alias /
+        unique fragment, None = primary) through the IntegrationSystem —
+        the bound client subclasses the legacy client, so the
+        header-extraction below works unchanged. Platforms without a v2
+        provider keep the legacy single-account client.
+        """
+        from app.data.action.integrations._helpers import system_for
+
+        system = system_for(platform_id)
+        if system is not None:
+            try:
+                identity = system.resolve(platform_id, account)
+                return system.client_for(platform_id, identity)
+            except Exception:
+                # Not connected / bad account hint (AccountResolutionError)
+                # or build failure.
+                return None
+
+        from craftos_integrations import get_client
+
+        client = get_client(platform_id)
+        if not client or not client.has_credentials():
+            return None
+        return client
+
+    def _get_auth_headers(
+        self, platform_id: str, account: Optional[str] = None
+    ) -> Optional[dict]:
         """
         Get authentication headers from a platform client.
 
         Returns:
             Dict of auth headers, or None if credentials unavailable.
         """
-        from craftos_integrations import get_client
-
-        client = get_client(platform_id)
-        if not client or not client.has_credentials():
+        client = self._client_for_platform(platform_id, account)
+        if client is None:
             return None
 
         # Most clients expose _headers() — use it

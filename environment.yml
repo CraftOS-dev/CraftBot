@@ -56,3 +56,4 @@ dependencies:
       - telethon==1.42.0
       - playwright==1.58.0
       - qrcode==8.2
+      - sentence-transformers==6.0.0

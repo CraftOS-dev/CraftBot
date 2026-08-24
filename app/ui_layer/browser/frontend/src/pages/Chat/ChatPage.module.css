@@ -167,6 +167,51 @@
   font-size: var(--text-sm);
 }
 
+/* Expandable details (e.g. the raw body of an incoming integration
+   message behind the "📩 Incoming …" system stub). Toggle mirrors the
+   activity chunk-header disclosure. */
+.messageDetails {
+  margin-top: var(--space-1);
+}
+
+.detailsToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-1) 2px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.detailsToggle:hover {
+  color: var(--text-primary);
+}
+
+.detailsChevron {
+  transition: transform var(--transition-fast);
+}
+
+.detailsChevronOpen {
+  transform: rotate(90deg);
+}
+
+.detailsBody {
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  border-left: 2px solid var(--border-primary);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .message.error {
   background: var(--color-error-light);
   border: 1px solid var(--color-error);

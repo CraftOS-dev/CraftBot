@@ -32,13 +32,15 @@ async def send_whatsapp_web_text_message(input_data: dict) -> dict:
         run_client,
     )
 
-    record_outgoing_message("WhatsApp", input_data["to"], input_data["message"])
-    return await run_client(
+    res = await run_client(
         "whatsapp_web",
         "send_message",
         recipient=input_data["to"],
         text=input_data["message"],
     )
+    if res.get("status") == "success":
+        record_outgoing_message("WhatsApp", input_data["to"], input_data["message"])
+    return res
 
 
 @action(

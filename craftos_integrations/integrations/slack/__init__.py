@@ -28,7 +28,11 @@ from ...logger import get_logger
 logger = get_logger(__name__)
 
 SLACK_API_BASE = "https://slack.com/api"
-SLACK_SCOPES = "chat:write,channels:read,channels:history,groups:read,groups:history,users:read,files:write,im:read,im:write,im:history"
+# files:read gates downloading url_private bytes (metadata embedded in
+# history messages needs only the history scopes). Workspaces connected
+# before it was added must reconnect to grant it — download_file returns
+# an explicit reconnect error on missing_scope.
+SLACK_SCOPES = "chat:write,channels:read,channels:history,groups:read,groups:history,users:read,files:read,files:write,im:read,im:write,im:history"
 
 POLL_INTERVAL = 3
 RETRY_DELAY = 5
@@ -361,12 +365,47 @@ class SlackClient(BasePlatformClient):
             except Exception as e:
                 logger.debug(f"[SLACK] Error polling channel {ch_id}: {e}")
 
+    @staticmethod
+    def _extract_attachments(msg: Dict[str, Any]) -> list:
+        """Normalize the ``files[]`` embedded in a history message into
+        PlatformMessage.attachments. Metadata needs only history scopes;
+        fetching bytes needs files:read (see attachment-reception plan)."""
+        out: list = []
+        for f in msg.get("files") or []:
+            if not isinstance(f, dict):
+                continue
+            mime = f.get("mimetype", "") or ""
+            if mime.startswith("image/"):
+                kind = "photo"
+            elif mime.startswith("video/"):
+                kind = "video"
+            elif mime.startswith("audio/"):
+                kind = "audio"
+            else:
+                kind = "document"
+            att: dict = {"kind": kind, "id": f.get("id", "")}
+            if f.get("name"):
+                att["name"] = f["name"]
+            if mime:
+                att["mime"] = mime
+            if f.get("size"):
+                att["size"] = f["size"]
+            if f.get("permalink"):
+                att["url"] = f["permalink"]
+            out.append(att)
+        return out
+
     async def _process_message(self, msg: Dict[str, Any], channel_id: str) -> None:
-        if msg.get("bot_id") or msg.get("subtype"):
+        # File uploads may arrive as subtype "file_share" — exempt them from
+        # the bot/subtype drop or attachments die before the text guard.
+        subtype = msg.get("subtype")
+        if msg.get("bot_id") or (subtype and subtype not in ("file_share", "file_comment")):
             return
         user_id = msg.get("user", "")
         text = msg.get("text", "")
-        if not text or user_id == self._bot_user_id:
+        attachments = self._extract_attachments(msg)
+        # Attachment-only posts (no caption) must not be dropped.
+        if (not text and not attachments) or user_id == self._bot_user_id:
             return
 
         sender_name = user_id
@@ -396,6 +435,7 @@ class SlackClient(BasePlatformClient):
                     message_id=msg.get("ts", ""),
                     timestamp=timestamp,
                     raw=msg,
+                    attachments=attachments,
                 )
             )
 
@@ -793,6 +833,67 @@ class SlackClient(BasePlatformClient):
         return _slack_call(
             "GET", "files.info", self._headers(), params={"file": file_id}
         )
+
+    def download_file(self, file_id: str, dest_path: str) -> Dict[str, Any]:
+        """Download a file's bytes to a local path.
+
+        files.info runs first: on a token connected before files:read was
+        added it fails with missing_scope → a clear reconnect error instead
+        of the login-page HTML Slack serves (302, not 403) to unauthorized
+        url_private fetches.
+        """
+        import os
+
+        info = self.get_file_info(file_id)
+        if "error" in info:
+            if info.get("error") == "missing_scope":
+                return {
+                    "error": (
+                        "Slack token lacks the files:read scope — reconnect "
+                        "the Slack integration to grant it, then retry."
+                    ),
+                    "details": info.get("details", {}),
+                }
+            return info
+        meta = info.get("file", {})
+        url = meta.get("url_private_download") or meta.get("url_private", "")
+        if not url:
+            return {"error": "File has no downloadable URL", "details": meta}
+
+        import httpx
+
+        try:
+            r = httpx.get(
+                url,
+                headers=self._headers(),
+                follow_redirects=True,
+                timeout=300.0,
+            )
+        except Exception as e:
+            return {"error": f"Download failed: {e}"}
+        content_type = r.headers.get("content-type", "")
+        if r.status_code != 200 or content_type.startswith("text/html"):
+            # Slack redirects unauthorized fetches to a sign-in page.
+            return {
+                "error": (
+                    "Slack served a login page instead of the file — the "
+                    "token cannot read files. Reconnect the Slack "
+                    "integration to grant files:read."
+                ),
+                "details": {"status": r.status_code, "content_type": content_type},
+            }
+        if os.path.isdir(dest_path):
+            dest_path = os.path.join(dest_path, meta.get("name") or file_id)
+        with open(dest_path, "wb") as f:
+            f.write(r.content)
+        return {
+            "ok": True,
+            "file_id": file_id,
+            "path": dest_path,
+            "name": meta.get("name", ""),
+            "mimetype": meta.get("mimetype", ""),
+            "size": len(r.content),
+        }
 
     def delete_file(self, file_id: str) -> Dict[str, Any]:
         return _slack_call(

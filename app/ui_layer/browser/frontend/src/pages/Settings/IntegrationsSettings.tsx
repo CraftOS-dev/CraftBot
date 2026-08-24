@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import * as LucideIcons from 'lucide-react'
 import {
   Globe,
@@ -11,10 +11,30 @@ import {
   Power,
   Wrench,
   HelpCircle,
+  ChevronRight,
+  ChevronLeft,
 } from 'lucide-react'
+import {
+  Gmail,
+  Slack,
+  Notion,
+  GitHubDark,
+  GitHubLight,
+  Discord,
+  LinkedIn,
+  Stripe,
+  Twitter,
+  Telegram,
+  WhatsApp,
+  GoogleCalendar,
+  GoogleDrive,
+  YouTube,
+  MicrosoftOutlook,
+} from '@ridemountainpig/svgl-react'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
+import { useTheme } from '../../contexts/ThemeContext'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -23,6 +43,28 @@ import {
   type Integration,
   type ConfigField,
 } from '../../store/slices/integrationsSettingsSlice'
+import type {
+  ManagedAccount,
+  StagedAccountEdits,
+  AccountChanges,
+  IntegrationAccountsAddResult,
+  IntegrationApplyAccountChangesResult,
+} from './types'
+
+// --- Multi-account staged-edit helpers -------------------
+
+const emptyStaged = (): StagedAccountEdits => ({
+  disconnect: [],
+  primary: null,
+  aliases: {},
+  listen: {},
+})
+
+const stagedIsEmpty = (s: StagedAccountEdits): boolean =>
+  s.disconnect.length === 0 &&
+  s.primary === null &&
+  Object.keys(s.aliases).length === 0 &&
+  Object.keys(s.listen).length === 0
 import {
   selectIntegrations,
   selectIntegrationsTotal,
@@ -30,45 +72,56 @@ import {
   selectIntegrationsHasLoaded,
 } from '../../store/selectors/integrationsSettings'
 
+// Full-color SVGL brand components (@ridemountainpig/svgl-react) keyed by
+// integration id. GitHub is monochrome and handled separately (theme-matched
+// light/dark variant), so it is not in this map.
+type SvglIcon = (props: React.SVGProps<SVGSVGElement>) => React.JSX.Element
+const SVGL_BY_ID: Record<string, SvglIcon> = {
+  gmail: Gmail,
+  slack: Slack,
+  notion: Notion,
+  discord: Discord,
+  linkedin: LinkedIn,
+  stripe: Stripe,
+  twitter: Twitter,
+  telegram_bot: Telegram,
+  telegram_user: Telegram,
+  whatsapp_web: WhatsApp,
+  whatsapp_business: WhatsApp,
+  google_calendar: GoogleCalendar,
+  google_drive: GoogleDrive,
+  google_youtube: YouTube,
+  outlook: MicrosoftOutlook,
+}
+
 // Integration icon component. Lookup order:
-//   1. Hand-crafted brand SVG keyed by integration id (defined below)
-//   2. Lucide icon by name from the backend's ``icon`` field
-//   3. Generic globe fallback
+//   1. SVGL brand component keyed by integration id (the standard for every
+//      brand SVGL ships; GitHub resolves to a theme-matched variant).
+//   2. Hand-crafted brand SVG for the brands SVGL doesn't carry
+//      (jira, hubspot, line, lark, google_docs), keyed by the backend ``icon``.
+//   3. Lucide icon by the backend ``icon`` name (e.g. Outlook's "Inbox").
+//   4. Generic globe fallback.
 const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; size?: number }) => {
+  const { theme } = useTheme()
+
+  // 1. SVGL. GitHub's mark is monochrome: pick the variant that shows against
+  //    the active theme (GitHubDark = white mark for dark UI, GitHubLight = dark
+  //    mark for light UI).
+  const svgl: SvglIcon | undefined =
+    id === 'github'
+      ? (theme === 'dark' ? GitHubDark : GitHubLight)
+      : SVGL_BY_ID[id]
+  if (svgl) {
+    const Logo = svgl
+    return (
+      <span className={styles.integrationIconSvg}>
+        <Logo width={size} height={size} />
+      </span>
+    )
+  }
+
+  // 2. Hand-crafted brand SVGs — only for brands SVGL doesn't have.
   const icons: Record<string, React.ReactNode> = {
-    google: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-      </svg>
-    ),
-    gmail: (
-      <svg width={size} height={size} viewBox="0 0 256 193" xmlns="http://www.w3.org/2000/svg">
-        <path fill="#4285F4" d="M58.182 192.05V93.14L27.507 65.077 0 49.504v125.091c0 9.658 7.825 17.455 17.455 17.455z"/>
-        <path fill="#34A853" d="M197.818 192.05h40.727c9.659 0 17.455-7.826 17.455-17.455V49.505l-31.156 17.837-27.026 25.798z"/>
-        <path fill="#EA4335" d="M58.182 93.14l-4.174-38.605 4.174-36.927L128 69.864l69.818-52.364 4.671 33.654-4.67 39.987-69.819 52.363z"/>
-        <path fill="#FBBC04" d="M197.818 17.5V93.14L256 49.504V26.231c0-21.585-24.64-33.89-41.89-20.945z"/>
-        <path fill="#C5221F" d="M0 49.504l26.759 20.07L58.182 93.14V17.5L41.89 5.286C24.61-7.658 0 4.646 0 26.226z"/>
-      </svg>
-    ),
-    google_calendar: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <rect x="2" y="4" width="20" height="18" rx="2" fill="#fff" stroke="#dadce0" strokeWidth="0.5"/>
-        <rect x="2" y="4" width="20" height="4" rx="2" fill="#4285F4"/>
-        <rect x="6" y="2" width="2" height="4" rx="1" fill="#4285F4"/>
-        <rect x="16" y="2" width="2" height="4" rx="1" fill="#4285F4"/>
-        <text x="12" y="18" fontSize="10" fontWeight="700" textAnchor="middle" fill="#1a73e8" fontFamily="sans-serif">{new Date().getDate()}</text>
-      </svg>
-    ),
-    google_drive: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M9 2L1.5 15l3 5h7.5L9 2z" fill="#0F9D58"/>
-        <path d="M15 2L9 2l9 16h6L15 2z" fill="#FFCD40"/>
-        <path d="M4.5 20l3-5h15l-3 5h-15z" fill="#4285F4"/>
-      </svg>
-    ),
     google_docs: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <path d="M5 2h9l5 5v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#4285F4"/>
@@ -76,45 +129,6 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
         <rect x="6" y="11" width="12" height="1.2" rx="0.6" fill="#fff"/>
         <rect x="6" y="14" width="12" height="1.2" rx="0.6" fill="#fff"/>
         <rect x="6" y="17" width="9" height="1.2" rx="0.6" fill="#fff"/>
-      </svg>
-    ),
-    google_youtube: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2C.5 9.1.5 12 .5 12s0 2.9.5 4.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6a3 3 0 0 0 2.1-2.1c.5-1.9.5-4.8.5-4.8s0-2.9-.5-4.8z" fill="#FF0000"/>
-        <path d="M9.75 15.5l6-3.5-6-3.5v7z" fill="#fff"/>
-      </svg>
-    ),
-    slack: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313z" fill="#E01E5A"/>
-        <path d="M8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z" fill="#36C5F0"/>
-        <path d="M18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.27 0a2.528 2.528 0 0 1-2.522 2.521 2.528 2.528 0 0 1-2.52-2.521V2.522A2.528 2.528 0 0 1 15.165 0a2.528 2.528 0 0 1 2.521 2.522v6.312z" fill="#2EB67D"/>
-        <path d="M15.165 18.956a2.528 2.528 0 0 1 2.521 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.27a2.527 2.527 0 0 1-2.52-2.522 2.527 2.527 0 0 1 2.52-2.52h6.313A2.528 2.528 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.521h-6.313z" fill="#ECB22E"/>
-      </svg>
-    ),
-    notion: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.98-.7-2.055-.606L3.01 2.612c-.466.046-.56.28-.373.466l1.822 1.13zm.793 3.08v13.904c0 .746.373 1.026 1.213.98l14.523-.84c.839-.046.932-.559.932-1.166V6.382c0-.606-.233-.932-.746-.886l-15.176.886c-.56.047-.746.327-.746.886zm14.337.699c.094.42 0 .84-.42.886l-.699.14v10.264c-.607.327-1.166.513-1.632.513-.746 0-.933-.234-1.493-.933l-4.574-7.186v6.953l1.446.327s0 .84-1.166.84l-3.22.186c-.093-.187 0-.653.326-.746l.84-.233V9.854L7.828 9.62c-.094-.42.14-1.026.793-1.073l3.453-.234 4.76 7.28V9.107l-1.213-.14c-.093-.513.28-.886.746-.932l3.222-.186z" fillRule="evenodd"/>
-      </svg>
-    ),
-    linkedin: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#0A66C2">
-        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-      </svg>
-    ),
-    zoom: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#2D8CFF">
-        <path d="M24 12c0 6.627-5.373 12-12 12S0 18.627 0 12 5.373 0 12 0s12 5.373 12 12zm-5.2-3.2v4.8c0 .88-.72 1.6-1.6 1.6H8.4c-.88 0-1.6-.72-1.6-1.6V8.8c0-.88.72-1.6 1.6-1.6h8.8c.88 0 1.6.72 1.6 1.6zm-3.2 4.8V10.4l2.4-1.6v6.4l-2.4-1.6z"/>
-      </svg>
-    ),
-    discord: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#5865F2">
-        <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/>
-      </svg>
-    ),
-    telegram: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#26A5E4">
-        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
       </svg>
     ),
     line: (
@@ -135,31 +149,11 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
         <path d="M7.5 9.2c0-.66.54-1.2 1.2-1.2h6.4c.66 0 1.2.54 1.2 1.2v2.4c0 1.66-1.34 3-3 3H10.6l-2.6 2.2c-.3.25-.5.05-.5-.3v-7.3z" fill="#fff"/>
       </svg>
     ),
-    whatsapp: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#25D366">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-      </svg>
-    ),
-    whatsapp_business: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#25D366">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-      </svg>
-    ),
-    twitter: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-      </svg>
-    ),
     jira: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="#0052CC">
         <path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005z"/>
         <path d="M6.348 6.349H-5.224a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057a5.215 5.215 0 0 0 5.215 5.215V7.354a1.005 1.005 0 0 0-1.005-1.005z" transform="translate(5.224)"/>
         <path d="M11.571 0H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 12.487V1.005A1.005 1.005 0 0 0 11.571 0z" transform="translate(.348 1.164)"/>
-      </svg>
-    ),
-    github: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
       </svg>
     ),
     hubspot: (
@@ -177,30 +171,15 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
         <circle cx="8" cy="21.5" r="2.2" fill="#FF7A59"/>
       </svg>
     ),
-    stripe: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="#635BFF">
-        <path d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305z"/>
-      </svg>
-    ),
-    recall: (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-        <circle cx="12" cy="10" r="3"/>
-        <path d="M12 14c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-      </svg>
-    ),
   }
-  // 1. Brand SVG keyed by the backend's ``icon`` name (e.g. "github",
-  //    "google", "notion") — the integration file owns this declaration.
   if (icon && icons[icon]) {
     return <span className={styles.integrationIconSvg}>{icons[icon]}</span>
   }
-  // 2. Backwards-compat: legacy lookup by integration id, in case any
-  //    integration hasn't declared ``icon`` yet.
   if (icons[id]) {
     return <span className={styles.integrationIconSvg}>{icons[id]}</span>
   }
-  // 3. Lucide fallback for non-brand icons (e.g. "Inbox", "Send").
+
+  // 3. Lucide fallback for non-brand icons (e.g. Outlook's "Inbox").
   if (icon) {
     const lucideMap = LucideIcons as unknown as Record<string, React.ComponentType<{ size?: number }>>
     const LucideIcon = lucideMap[icon]
@@ -208,37 +187,34 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
       return <span className={styles.integrationIconSvg}><LucideIcon size={size} /></span>
     }
   }
-  // 4. Generic fallback
+
+  // 4. Generic fallback.
   return <span className={styles.integrationIconSvg}><Globe size={size} /></span>
 }
 
-// Schema-driven Configure form. Renders one input per ``ConfigField`` and
-// flushes its values back to the parent via ``onChange``. Adding a new
-// supported ``type`` is one ``case`` in the renderField switch — no other
-// file changes needed.
-const ConfigForm = ({
+// Schema-driven settings fields for the integration-settings page of the
+// Manage modal. Renders one control per ``ConfigField`` and flushes values
+// back to the parent via ``onChange``; the single Save lives in the modal
+// footer, so this component has no save button of its own. Checkboxes render
+// as the same label+description toggle row used across the Settings tabs;
+// every other type is a labeled input.
+const ConfigFields = ({
   integrationId,
   schema,
   values,
   onChange,
-  saving,
-  onSave,
 }: {
   integrationId: string
   schema: ConfigField[]
   values: Record<string, any>
   onChange: (values: Record<string, any>) => void
-  saving: boolean
-  onSave: () => void
 }) => {
   const setField = (key: string, value: any) => {
     onChange({ ...values, [key]: value })
   }
 
-  const renderField = (field: ConfigField) => {
+  const renderInput = (field: ConfigField, id: string) => {
     const cur = values[field.key]
-    const id = `cfg-${integrationId}-${field.key}`
-
     switch (field.type) {
       case 'textarea':
         return (
@@ -254,10 +230,9 @@ const ConfigForm = ({
 
       case 'list': {
         // Comma-separated <input>. The backend coerces "a, b, c" → ["a","b","c"]
-        // on save (see service.py:_coerce). Crucially, we keep the raw string
-        // in state while the user is typing — converting to an array on every
-        // keystroke would strip trailing commas/spaces and stop the user from
-        // typing a second item.
+        // on save (see service.py:_coerce). Keep the raw string in state while
+        // the user types — converting to an array on every keystroke would
+        // strip trailing commas and stop the user typing a second item.
         const display = Array.isArray(cur) ? cur.join(', ') : (cur ?? '')
         return (
           <input
@@ -270,22 +245,6 @@ const ConfigForm = ({
           />
         )
       }
-
-      case 'checkbox':
-        return (
-          <label htmlFor={id} className={styles.checkboxRow}>
-            <input
-              id={id}
-              type="checkbox"
-              checked={Boolean(cur)}
-              onChange={e => setField(field.key, e.target.checked)}
-            />
-            <span className={styles.checkboxText}>
-              <span className={styles.checkboxLabel}>{field.label}</span>
-              {field.help && <span className={styles.checkboxHint}>{field.help}</span>}
-            </span>
-          </label>
-        )
 
       case 'select':
         return (
@@ -329,30 +288,42 @@ const ConfigForm = ({
   }
 
   return (
-    <div className={styles.connectForm}>
-      {schema.map(field => (
-        <div key={field.key} className={styles.formGroup}>
-          {/* Checkbox renders its own label (next to the box). For every
-              other type the label sits above the input. */}
-          {field.type !== 'checkbox' && (
-            <label htmlFor={`cfg-${integrationId}-${field.key}`}>
-              {field.label}
+    <div className={styles.mSettingsList}>
+      {schema.map(field => {
+        const id = `cfg-${integrationId}-${field.key}`
+        if (field.type === 'checkbox') {
+          return (
+            <label key={field.key} htmlFor={id} className={styles.toggleGroup}>
+              <div className={styles.toggleInfo}>
+                <span className={styles.toggleLabel}>{field.label}</span>
+                {field.help && <span className={styles.toggleDesc}>{field.help}</span>}
+              </div>
+              <input
+                id={id}
+                type="checkbox"
+                className={styles.toggle}
+                checked={Boolean(values[field.key])}
+                onChange={e => setField(field.key, e.target.checked)}
+              />
             </label>
-          )}
-          {renderField(field)}
-          {field.help && field.type !== 'checkbox' && (
-            <p className={styles.hint}>{field.help}</p>
-          )}
-        </div>
-      ))}
-      <div className={styles.modalActions}>
-        <Button variant="primary" onClick={onSave} disabled={saving}>
-          {saving ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save'}
-        </Button>
-      </div>
+          )
+        }
+        return (
+          <div key={field.key} className={styles.formGroup}>
+            <label htmlFor={id}>{field.label}</label>
+            {renderInput(field, id)}
+            {field.help && <p className={styles.hint}>{field.help}</p>}
+          </div>
+        )
+      })}
     </div>
   )
 }
+
+// Account list + per-account detail are rendered inline in the Manage modal
+// (see the drill-down pages in IntegrationsSettings' render). Staging helpers
+// (stageAlias / stagePrimary / stageListen / stageDisconnect) live on the
+// parent and are committed as one ``integration_apply_account_changes``.
 
 export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
@@ -391,6 +362,93 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // Manage modal state
   const [showManageModal, setShowManageModal] = useState(false)
   const [managingIntegration, setManagingIntegration] = useState<Integration | null>(null)
+  // Mirrors ``managingIntegration`` for the WebSocket handlers (same reason
+  // as ``selectedIntegrationRef`` above — the subscription effect doesn't
+  // re-run on state changes, so direct reads would be stale).
+  const managingIntegrationRef = React.useRef<Integration | null>(null)
+  useEffect(() => {
+    managingIntegrationRef.current = managingIntegration
+  }, [managingIntegration])
+  // True only between an explicit user-triggered ``integration_info`` request
+  // and its response. ``integration_info`` results NEVER open the Manage
+  // modal unless this flag is set — broadcasts must not open modals.
+  const manageRequestedRef = React.useRef(false)
+
+  // --- Multi-account state -------------------------------
+  // Real account list for the currently-managed integration, from the
+  // ``accounts`` field of the ``integration_info`` payload (and refreshed by
+  // accounts-mutation result broadcasts). null = integration without
+  // multi-account support → legacy accounts UI.
+  const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[] | null>(null)
+  // Staged (uncommitted) edits, keyed by integration id. Discarded on every
+  // modal close path; pruned when identities vanish from refreshed lists.
+  const [stagedEdits, setStagedEdits] = useState<Record<string, StagedAccountEdits>>({})
+  const [accountsSaving, setAccountsSaving] = useState(false)
+  const [accountsError, setAccountsError] = useState('')
+  // Integration id with an "Add account" OAuth flow in flight. Deliberately
+  // NOT cleared on modal close (the OAuth flow keeps running server-side and
+  // can take minutes); cleared only by the matching result broadcast.
+  const [addingAccountFor, setAddingAccountFor] = useState<string | null>(null)
+  // Outstanding request ids WE sent (requestId → integration id). Results are
+  // broadcast to every client; only ids in these maps may trigger UI
+  // reactions (toast / spinner clear / staged clear). Foreign results update
+  // data silently. No wall-clock timers anywhere: entries live until their
+  // result arrives.
+  const pendingAddRef = React.useRef<Map<string, string>>(new Map())
+  const pendingApplyRef = React.useRef<Map<string, string>>(new Map())
+
+  // Prune staged entries whose identities no longer exist in a refreshed
+  // account list. A staged primary whose account vanished resets to null,
+  // i.e. falls back to the real primary.
+  const pruneStagedFor = useCallback((integrationId: string, accounts: ManagedAccount[]) => {
+    setStagedEdits(prev => {
+      const cur = prev[integrationId]
+      if (!cur) return prev
+      const ids = new Set(accounts.map(a => a.identity))
+      const next: StagedAccountEdits = {
+        disconnect: cur.disconnect.filter(identity => ids.has(identity)),
+        primary: cur.primary !== null && ids.has(cur.primary) ? cur.primary : null,
+        aliases: Object.fromEntries(
+          Object.entries(cur.aliases).filter(([identity]) => ids.has(identity)),
+        ),
+        listen: Object.fromEntries(
+          Object.entries(cur.listen).filter(([identity]) => ids.has(identity)),
+        ),
+      }
+      if (stagedIsEmpty(next)) {
+        const { [integrationId]: _gone, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [integrationId]: next }
+    })
+  }, [])
+
+  // Apply a fresh account list from any source (our result, foreign
+  // broadcast). Updates the open modal's data if it shows this integration;
+  // never opens anything.
+  const refreshManagedAccounts = useCallback((integrationId: string, accounts: ManagedAccount[]) => {
+    const current = managingIntegrationRef.current
+    if (current && current.id === integrationId) {
+      setManagedAccounts(accounts)
+    }
+    pruneStagedFor(integrationId, accounts)
+  }, [pruneStagedFor])
+
+  // Single close path for the Manage modal — every way of closing it (X,
+  // overlay click, disconnect flows) goes through here so staged edits are
+  // always discarded.
+  const closeManageModal = useCallback(() => {
+    setShowManageModal(false)
+    setManagingIntegration(null)
+    setManagedAccounts(null)
+    setAccountsSaving(false)
+    setAccountsError('')
+    setStagedEdits({})
+    setManagePage('list')
+    setSelectedAccountIdentity(null)
+    setConfigValues({})
+    setConfigBaseline({})
+  }, [])
 
   // Slow operation overlay — shown during long disconnects (WhatsApp Web's
   // bridge teardown can take 20–30 seconds; without this the user has no
@@ -406,18 +464,55 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // ``configValues`` is keyed by config_field.key. The form is fully driven
   // by ``managingIntegration.config_fields`` (the schema from the backend).
   const [configValues, setConfigValues] = useState<Record<string, any>>({})
+  // Last saved/loaded config values — the baseline the current form is diffed
+  // against to decide whether the footer shows "unsaved changes".
+  const [configBaseline, setConfigBaseline] = useState<Record<string, any>>({})
   const [configLoading, setConfigLoading] = useState(false)
   const [configSaving, setConfigSaving] = useState(false)
 
-  // WhatsApp QR code state
+  // Manage modal has two pages: the main page (accounts LIST + integration
+  // settings) and one account's DETAIL. Reset to 'list' on every open/close.
+  const [managePage, setManagePage] = useState<'list' | 'account'>('list')
+  const [selectedAccountIdentity, setSelectedAccountIdentity] = useState<string | null>(null)
+
+  // WhatsApp QR code state — states mirror the backend LinkFlow verbatim:
+  // qr_ready → scanned → promoting → connected, plus timeout/error.
   const [whatsappQrCode, setWhatsappQrCode] = useState<string | null>(null)
   const [whatsappSessionId, setWhatsappSessionId] = useState<string | null>(null)
-  const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'loading' | 'qr_ready' | 'connected' | 'error'>('idle')
+  const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'loading' | 'qr_ready' | 'scanned' | 'promoting' | 'connected' | 'timeout' | 'error'>('idle')
   const [whatsappError, setWhatsappError] = useState<string | null>(null)
+  // Seconds left in the current QR window (the backend refreshes the code
+  // in cycles); updated on every poll result.
+  const [whatsappExpiresIn, setWhatsappExpiresIn] = useState<number | null>(null)
   const whatsappPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
+
+  // User-gesture close path (X button, overlay click): staged edits are
+  // real unsent work — closing silently threw them away in the live bug
+  // (typed alias lost with no warning). Ask first when dirty. Programmatic
+  // closes (disconnect flows, disconnect_result) still use closeManageModal
+  // directly: their outcome supersedes any staged edits.
+  const requestCloseManage = () => {
+    const staged = managingIntegration
+      ? stagedEdits[managingIntegration.id]
+      : undefined
+    const accountsDirty = staged !== undefined && !stagedIsEmpty(staged)
+    const settingsDirty =
+      JSON.stringify(configValues) !== JSON.stringify(configBaseline)
+    if (managingIntegration && (accountsDirty || settingsDirty)) {
+      confirm({
+        title: 'Discard unsaved changes?',
+        message: `Your changes to ${managingIntegration.name} haven't been saved yet.`,
+        confirmText: 'Discard',
+        cancelText: 'Keep editing',
+        variant: 'danger',
+      }, closeManageModal)
+      return
+    }
+    closeManageModal()
+  }
 
   // Subscribe to side-effect messages (toasts, modal close). The integrations
   // list itself is updated by the slice via the registry.
@@ -450,6 +545,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           setConnectError('')
           const just = selectedIntegrationRef.current
           if (just && just.has_config && (just.config_fields?.length ?? 0) > 0) {
+            // Deliberate modal open: follow-up to the user's own connect.
+            manageRequestedRef.current = true
             send('integration_info', { id: just.id })
           }
         } else {
@@ -463,26 +560,107 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         setPendingOp(prev => (prev && d.id && prev.id === d.id) ? null : prev)
         if (d.success) {
           showToast('success', d.message || 'Disconnected successfully')
-          setShowManageModal(false)
-          setManagingIntegration(null)
+          closeManageModal()
         } else {
           showToast('error', d.error || 'Failed to disconnect')
         }
       }),
       onMessage('integration_info', (data: unknown) => {
-        const d = data as { success: boolean; integration?: Integration; error?: string }
+        const d = data as {
+          success: boolean
+          integration?: Integration
+          // multi-account integrations: real account list (identity,
+          // alias, isPrimary, listen). Absent for legacy integrations.
+          accounts?: ManagedAccount[]
+          error?: string
+        }
         if (d.success && d.integration) {
-          setManagingIntegration(d.integration)
-          setShowManageModal(true)
-          // If this integration has runtime config, kick off a fetch so the
-          // Configure section is populated by the time the user scrolls to it.
-          if (d.integration.has_config) {
-            setConfigLoading(true)
-            setConfigValues({})
-            send('integration_get_config', { id: d.integration.id })
+          if (manageRequestedRef.current) {
+            // Response to OUR explicit request (Manage click / post-connect
+            // follow-up) — the only path that may OPEN the modal.
+            manageRequestedRef.current = false
+            setManagingIntegration(d.integration)
+            setShowManageModal(true)
+            // Always open on the accounts list (never a stale detail page).
+            setManagePage('list')
+            setSelectedAccountIdentity(null)
+            setManagedAccounts(d.accounts ?? null)
+            if (d.accounts) pruneStagedFor(d.integration.id, d.accounts)
+            // If this integration has runtime config, kick off a fetch so the
+            // Settings page is populated by the time the user opens it.
+            if (d.integration.has_config) {
+              setConfigLoading(true)
+              setConfigValues({})
+              setConfigBaseline({})
+              send('integration_get_config', { id: d.integration.id })
+            }
+          } else if (managingIntegrationRef.current?.id === d.integration.id) {
+            // Unsolicited info for the integration already on screen —
+            // refresh the data silently. Never opens the modal. A payload
+            // WITHOUT ``accounts`` (transient v2 lookup failure server-side)
+            // must not null out the live account list: that would blank the
+            // Manage modal mid-edit and hide the user's staged changes.
+            // Keep the last good list instead.
+            setManagingIntegration(d.integration)
+            if (d.accounts) {
+              setManagedAccounts(d.accounts)
+              pruneStagedFor(d.integration.id, d.accounts)
+            }
           }
-        } else {
+        } else if (manageRequestedRef.current) {
+          manageRequestedRef.current = false
           showToast('error', d.error || 'Failed to get integration info')
+        }
+      }),
+      // Result broadcast for "Add account" (real OAuth; can take minutes).
+      // Broadcast to EVERY client — only requestIds we sent may drive UI
+      // reactions; foreign results refresh data silently.
+      onMessage('integration_accounts_add_result', (data: unknown) => {
+        const d = data as IntegrationAccountsAddResult
+        const mine = Boolean(d.requestId) && pendingAddRef.current.has(d.requestId)
+        // Fresh account list benefits everyone, ours or not — but ONLY from
+        // success payloads. Failure payloads carry a best-effort list that
+        // may be a fabricated empty array; treating it as authoritative
+        // would blank the modal and prune (= silently discard) every staged
+        // edit, including an alias mid-typing.
+        if (d.ok && d.accounts) refreshManagedAccounts(d.id, d.accounts)
+        if (!mine) return
+        pendingAddRef.current.delete(d.requestId)
+        setAddingAccountFor(prev => (prev === d.id ? null : prev))
+        if (d.ok) {
+          showToast('success', d.message || 'Account added')
+        } else {
+          showToast('error', d.message || 'Failed to add account')
+        }
+      }),
+      // Result broadcast for the batched "Save changes" request.
+      onMessage('integration_apply_account_changes_result', (data: unknown) => {
+        const d = data as IntegrationApplyAccountChangesResult
+        const mine = Boolean(d.requestId) && pendingApplyRef.current.has(d.requestId)
+        if (d.ok && d.accounts) {
+          if (mine) {
+            // OUR save succeeded — clear this integration's staged edits
+            // BEFORE rendering the returned list, so no stale overrides
+            // shadow the authoritative state.
+            setStagedEdits(prev => {
+              const { [d.id]: _gone, ...rest } = prev
+              return rest
+            })
+          }
+          refreshManagedAccounts(d.id, d.accounts)
+        }
+        if (!mine) return
+        pendingApplyRef.current.delete(d.requestId)
+        setAccountsSaving(false)
+        if (d.ok) {
+          setAccountsError('')
+          showToast('success', 'Account changes saved')
+        } else {
+          // Failure keeps the staged edits (nothing cleared above) so the
+          // user can retry; surface the error inline and as a toast.
+          const msg = d.error || 'Failed to apply account changes'
+          setAccountsError(msg)
+          showToast('error', msg)
         }
       }),
       // Per-integration runtime config (schema-driven; works for every
@@ -495,7 +673,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         }
         setConfigLoading(false)
         if (d.success) {
-          setConfigValues(d.values || {})
+          const loaded = d.values || {}
+          setConfigValues(loaded)
+          setConfigBaseline(loaded)
         } else if (d.error) {
           showToast('error', d.error)
         }
@@ -508,48 +688,68 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         setConfigSaving(false)
         if (d.success) {
           showToast('success', d.message || 'Settings saved')
-          if (d.values) setConfigValues(d.values)
+          if (d.values) {
+            setConfigValues(d.values)
+            setConfigBaseline(d.values)
+          }
         } else {
           showToast('error', d.error || d.message || 'Failed to save settings')
         }
       }),
       // WhatsApp QR code handlers
       onMessage('whatsapp_qr_result', (data: unknown) => {
-        const d = data as { success: boolean; session_id?: string; qr_code?: string; status?: string; message?: string }
+        const d = data as { success: boolean; session_id?: string; qr_code?: string; status?: string; message?: string; expires_in?: number }
         if (d.success && d.qr_code) {
           setWhatsappQrCode(d.qr_code)
           setWhatsappSessionId(d.session_id || null)
           setWhatsappStatus('qr_ready')
           setWhatsappError(null)
+          setWhatsappExpiresIn(typeof d.expires_in === 'number' ? d.expires_in : null)
         } else {
           setWhatsappStatus('error')
           setWhatsappError(d.message || 'Failed to get QR code')
         }
       }),
       onMessage('whatsapp_status_result', (data: unknown) => {
-        const d = data as { success: boolean; status?: string; connected?: boolean; message?: string }
+        const d = data as { success: boolean; status?: string; connected?: boolean; message?: string; qr_code?: string; expires_in?: number }
+        const stopPolling = () => {
+          if (whatsappPollRef.current) {
+            clearInterval(whatsappPollRef.current)
+            whatsappPollRef.current = null
+          }
+        }
         if (d.connected) {
           setWhatsappStatus('connected')
           setShowConnectModal(false)
           showToast('success', d.message || 'WhatsApp connected successfully')
-          if (whatsappPollRef.current) {
-            clearInterval(whatsappPollRef.current)
-            whatsappPollRef.current = null
-          }
+          stopPolling()
           setWhatsappQrCode(null)
           setWhatsappSessionId(null)
           setWhatsappStatus('idle')
+          setWhatsappExpiresIn(null)
           const just = selectedIntegrationRef.current
           if (just && just.has_config && (just.config_fields?.length ?? 0) > 0) {
+            // Deliberate modal open: follow-up to the user's own connect.
+            manageRequestedRef.current = true
             send('integration_info', { id: just.id })
           }
+        } else if (d.status === 'qr_ready') {
+          // The backend recycles the QR in cycles — always show the newest
+          // code and window.
+          if (d.qr_code) setWhatsappQrCode(d.qr_code)
+          if (typeof d.expires_in === 'number') setWhatsappExpiresIn(d.expires_in)
+          setWhatsappStatus('qr_ready')
+        } else if (d.status === 'scanned' || d.status === 'promoting') {
+          // Keep polling — completion arrives as `connected`.
+          setWhatsappStatus(d.status)
+        } else if (d.status === 'timeout' || d.status === 'cancelled') {
+          setWhatsappStatus('timeout')
+          setWhatsappError(d.message || 'QR code expired — try again.')
+          stopPolling()
         } else if (d.status === 'error' || d.status === 'disconnected') {
           setWhatsappStatus('error')
           setWhatsappError(d.message || 'Session failed')
-          if (whatsappPollRef.current) {
-            clearInterval(whatsappPollRef.current)
-            whatsappPollRef.current = null
-          }
+          stopPolling()
         }
       }),
       onMessage('whatsapp_cancel_result', (_data: unknown) => {
@@ -566,11 +766,12 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     }
 
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoaded, showToast])
+  }, [isConnected, send, onMessage, hasLoaded, showToast, closeManageModal, pruneStagedFor, refreshManagedAccounts])
 
-  // Start WhatsApp polling when QR is ready
+  // Poll while a link flow is live (QR pending, scanned, or promoting).
   useEffect(() => {
-    if (whatsappStatus === 'qr_ready' && whatsappSessionId) {
+    const live = whatsappStatus === 'qr_ready' || whatsappStatus === 'scanned' || whatsappStatus === 'promoting'
+    if (live && whatsappSessionId) {
       startWhatsAppPolling(whatsappSessionId)
     }
     return () => {
@@ -605,7 +806,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     setWhatsappQrCode(null)
     setWhatsappSessionId(null)
     setWhatsappError(null)
-    send('whatsapp_start_qr')
+    setWhatsappExpiresIn(null)
+    // force: an explicit user click may always start a flow — the backend
+    // guard only blocks non-user-initiated (ghost) starts after a connect.
+    send('whatsapp_start_qr', { force: true })
   }
 
   const startWhatsAppPolling = (sessionId: string) => {
@@ -629,11 +833,139 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     setWhatsappSessionId(null)
     setWhatsappStatus('idle')
     setWhatsappError(null)
+    setWhatsappExpiresIn(null)
     setShowConnectModal(false)
   }
 
   const handleOpenManage = (integration: Integration) => {
+    // Explicit user click — the only gesture allowed to open the Manage
+    // modal. The flag lets the integration_info handler distinguish this
+    // response from unsolicited broadcasts.
+    manageRequestedRef.current = true
     send('integration_info', { id: integration.id })
+  }
+
+  // --- Multi-account staging + requests ------------------------------------
+
+  // Update one integration's staged edits; drops the entry entirely when it
+  // becomes a no-op so "has staged changes" stays accurate.
+  const updateStaged = (
+    integrationId: string,
+    fn: (s: StagedAccountEdits) => StagedAccountEdits,
+  ) => {
+    setStagedEdits(prev => {
+      const next = fn(prev[integrationId] ?? emptyStaged())
+      if (stagedIsEmpty(next)) {
+        const { [integrationId]: _gone, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [integrationId]: next }
+    })
+  }
+
+  const stageAlias = (integrationId: string, account: ManagedAccount, value: string) => {
+    const alias = value.trim() === '' ? null : value
+    updateStaged(integrationId, s => {
+      const aliases = { ...s.aliases }
+      if (alias === (account.alias ?? null)) {
+        delete aliases[account.identity] // back to the real value → no-op
+      } else {
+        aliases[account.identity] = alias
+      }
+      return { ...s, aliases }
+    })
+  }
+
+  const stagePrimary = (integrationId: string, account: ManagedAccount) => {
+    const realPrimary = managedAccounts?.find(a => a.isPrimary)?.identity ?? null
+    updateStaged(integrationId, s => ({
+      ...s,
+      // Picking the real primary again = clearing the staged override.
+      primary: account.identity === realPrimary ? null : account.identity,
+    }))
+  }
+
+  const stageListen = (integrationId: string, account: ManagedAccount, value: boolean) => {
+    updateStaged(integrationId, s => {
+      const listen = { ...s.listen }
+      if (value === account.listen) {
+        delete listen[account.identity]
+      } else {
+        listen[account.identity] = value
+      }
+      return { ...s, listen }
+    })
+  }
+
+  const stageDisconnect = (integrationId: string, identity: string, marked: boolean) => {
+    updateStaged(integrationId, s => ({
+      ...s,
+      disconnect: marked
+        ? (s.disconnect.includes(identity) ? s.disconnect : [...s.disconnect, identity])
+        : s.disconnect.filter(i => i !== identity),
+    }))
+  }
+
+  // "Add account" — immediate real OAuth, no staging. ``send`` goes through
+  // the shared SocketClient outbox (queued while disconnected, drained on
+  // reconnect), so the request is never dropped behind a connection guard.
+  // The spinner is cleared ONLY by the matching result broadcast — OAuth can
+  // take minutes and we use no wall-clock timers.
+  // Only OAuth-capable integrations ('oauth'/'both') have the backend
+  // add-account flow. For everything else — token entry, interactive/QR,
+  // token_with_interactive — adding an account IS the regular Connect
+  // modal (token connect is additive per identity; whatsapp's QR
+  // auto-start lives in handleOpenConnect), so reuse it.
+  const handleAddAccount = () => {
+    if (!managingIntegration) return
+    if (managingIntegration.auth_type !== 'oauth' && managingIntegration.auth_type !== 'both') {
+      const target = managingIntegration
+      setManagingIntegration(null)
+      handleOpenConnect(target)
+      return
+    }
+    const requestId = crypto.randomUUID()
+    pendingAddRef.current.set(requestId, managingIntegration.id)
+    setAddingAccountFor(managingIntegration.id)
+    send('integration_accounts_add', {
+      integration_id: managingIntegration.id,
+      request_id: requestId,
+    })
+  }
+
+  // One batched save for all staged edits. Same queued transport as above.
+  // Edits referring to accounts that are ALSO marked for disconnect are
+  // stripped from the payload: the backend applies disconnects first, so a
+  // stale alias/listen/primary entry for a removed identity would make the
+  // whole batch fail resolution. (The staged entries themselves are kept
+  // until the result arrives, so an Undo before save loses nothing.)
+  const handleSaveAccountChanges = () => {
+    if (!managingIntegration) return
+    const staged = stagedEdits[managingIntegration.id]
+    if (!staged || stagedIsEmpty(staged)) return
+    const requestId = crypto.randomUUID()
+    const removing = new Set(staged.disconnect)
+    const changes: AccountChanges = {
+      disconnect: staged.disconnect,
+      primary:
+        staged.primary !== null && removing.has(staged.primary)
+          ? null
+          : staged.primary,
+      aliases: Object.fromEntries(
+        Object.entries(staged.aliases).filter(([identity]) => !removing.has(identity)),
+      ),
+      listen: Object.fromEntries(
+        Object.entries(staged.listen).filter(([identity]) => !removing.has(identity)),
+      ),
+    }
+    pendingApplyRef.current.set(requestId, managingIntegration.id)
+    setAccountsSaving(true)
+    setAccountsError('')
+    send('integration_apply_account_changes', {
+      integration_id: managingIntegration.id,
+      request_id: requestId,
+      changes,
+    })
   }
 
   const handleConnectToken = () => {
@@ -662,35 +994,19 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
 
   // Slow integrations show a "working…" overlay during disconnect so the
   // user gets visible feedback during the bridge teardown (which can take
-  // 20–30 seconds for WhatsApp Web). Add other slow integrations here.
+  // 20–30 seconds per WhatsApp Web account). Add other slow integrations here.
   const SLOW_DISCONNECT_IDS = new Set(['whatsapp_web'])
 
-  const handleDisconnect = (accountId?: string) => {
-    if (!managingIntegration) return
-    const targetId = managingIntegration.id
-    const targetName = managingIntegration.name
-
-    // Optimistic UI update — mark this integration as disconnected immediately
-    // so the user gets instant feedback in the integrations list. Some
-    // integrations (WhatsApp Web) take 20+ seconds to tear down their bridge
-    // cleanly, and the ``integration_list`` broadcast only fires after that
-    // completes. The backend's authoritative ``integration_list`` will
-    // overwrite this when it arrives. If the disconnect fails,
-    // ``integration_disconnect_result`` shows a toast and the next refresh
-    // restores the real state.
-    dispatch(setDisconnected(targetId))
-    setShowManageModal(false)
-    setManagingIntegration(null)
-
-    // Slow disconnects: show a blocking overlay until the result arrives.
-    if (SLOW_DISCONNECT_IDS.has(targetId)) {
-      setPendingOp({ kind: 'disconnect', id: targetId, label: targetName })
+  // Disconnect ALL accounts of an integration (list-row Power button).
+  // Optimistic: the list flips immediately; the authoritative
+  // ``integration_list`` broadcast overwrites it when teardown finishes,
+  // and ``integration_disconnect_result`` clears the slow-op overlay.
+  const handleDisconnectAll = (integration: Integration) => {
+    dispatch(setDisconnected(integration.id))
+    if (SLOW_DISCONNECT_IDS.has(integration.id)) {
+      setPendingOp({ kind: 'disconnect', id: integration.id, label: integration.name })
     }
-
-    send('integration_disconnect', {
-      id: targetId,
-      account_id: accountId,
-    })
+    send('integration_disconnect', { id: integration.id })
   }
 
   const filteredIntegrations = integrations
@@ -798,7 +1114,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                           confirmText: 'Disconnect',
                           variant: 'danger',
                         }, () => {
-                          send('integration_disconnect', { id: integration.id })
+                          handleDisconnectAll(integration)
                         })
                       }}
                       icon={<Power size={14} />}
@@ -1079,6 +1395,34 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                       <p className={styles.whatsappQrHint}>
                         Open WhatsApp &rarr; Settings &rarr; Linked Devices &rarr; Link a Device
                       </p>
+                      {whatsappExpiresIn !== null && (
+                        <p className={styles.whatsappQrHint}>
+                          {whatsappExpiresIn > 0
+                            ? `Code refreshes in ${Math.floor(whatsappExpiresIn / 60)}:${String(whatsappExpiresIn % 60).padStart(2, '0')}`
+                            : 'Refreshing code…'}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {(whatsappStatus === 'scanned' || whatsappStatus === 'promoting') && (
+                    <div className={styles.whatsappLoading}>
+                      <Loader2 size={32} className={styles.spinning} />
+                      <p>
+                        {whatsappStatus === 'scanned'
+                          ? 'QR scanned — connecting to WhatsApp…'
+                          : 'Almost done — finishing the connection…'}
+                      </p>
+                    </div>
+                  )}
+
+                  {whatsappStatus === 'timeout' && (
+                    <div className={styles.whatsappError}>
+                      <AlertTriangle size={24} />
+                      <p>{whatsappError || 'The QR code expired before it was scanned.'}</p>
+                      <Button variant="primary" onClick={handleStartWhatsAppQR}>
+                        Start Again
+                      </Button>
                     </div>
                   )}
 
@@ -1103,7 +1447,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     </div>
                   )}
 
-                  {(whatsappStatus === 'loading' || whatsappStatus === 'qr_ready') && (
+                  {(whatsappStatus === 'loading' || whatsappStatus === 'qr_ready' || whatsappStatus === 'scanned') && (
                     <Button variant="secondary" onClick={handleCancelWhatsApp}>
                       Cancel
                     </Button>
@@ -1115,68 +1459,323 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         </div>
       )}
 
-      {/* Manage Modal */}
-      {showManageModal && managingIntegration && (
-        <div className={styles.modalOverlay} onClick={() => setShowManageModal(false)}>
+      {/* Manage Modal — the accounts list + integration settings live on the
+          main page; tapping an account opens its own detail page. One Save in
+          the footer commits everything that's changed. */}
+      {showManageModal && managingIntegration && (() => {
+        const integration = managingIntegration
+        const accounts = managedAccounts ?? []
+        const staged = stagedEdits[integration.id]
+        const accountsDirty = staged !== undefined && !stagedIsEmpty(staged)
+        const settingsDirty =
+          JSON.stringify(configValues) !== JSON.stringify(configBaseline)
+        const anyDirty = accountsDirty || settingsDirty
+        const busy = accountsSaving || configSaving
+        const hasConfig =
+          integration.has_config && (integration.config_fields?.length ?? 0) > 0
+
+        // Effective primary = staged override falling back to the real one.
+        const realPrimary = accounts.find(a => a.isPrimary)?.identity ?? null
+        const stagedPrimary =
+          staged && staged.primary !== null && !staged.disconnect.includes(staged.primary)
+            ? staged.primary
+            : null
+        const effectivePrimary = stagedPrimary ?? realPrimary
+
+        // Plain-language session labels (only whatsapp_web carries state).
+        const stateLabel = (a: ManagedAccount): string => {
+          switch (a.sessionState) {
+            case 'needs_relink': return 'Signed out'
+            case 'reconnecting': return 'Reconnecting…'
+            case 'failed': return 'Connection problem'
+            case 'launching': return 'Connecting…'
+            default: return 'Connected'
+          }
+        }
+        const isProblem = (a: ManagedAccount): boolean =>
+          a.sessionState === 'needs_relink' || a.sessionState === 'failed'
+        // Status dot color: green = live, amber = transient, red = needs you.
+        const dotClass = (a: ManagedAccount): string => {
+          if (isProblem(a)) return styles.mLiveBad
+          if (a.sessionState === 'reconnecting' || a.sessionState === 'launching') return styles.mLiveWarn
+          return styles.mLiveOk
+        }
+
+        const selectedAccount =
+          accounts.find(a => a.identity === selectedAccountIdentity) ?? null
+        // Guard: a detail page for an account that vanished falls back to list.
+        const page: 'list' | 'account' =
+          managePage === 'account' && !selectedAccount ? 'list' : managePage
+        const selectedMarked =
+          selectedAccount ? (staged?.disconnect.includes(selectedAccount.identity) ?? false) : false
+
+        const goList = () => {
+          setManagePage('list')
+          setSelectedAccountIdentity(null)
+        }
+        const relink = () => {
+          // QR integrations: the Connect modal starts a fresh link flow;
+          // scanning with the same phone replaces the dead session in place.
+          setManagingIntegration(null)
+          handleOpenConnect(integration)
+        }
+        const saveAll = () => {
+          if (accountsDirty) handleSaveAccountChanges()
+          if (settingsDirty) {
+            setConfigSaving(true)
+            send('integration_update_config', { id: integration.id, values: configValues })
+          }
+        }
+        const discardAll = () => {
+          setStagedEdits(prev => {
+            const { [integration.id]: _gone, ...rest } = prev
+            return rest
+          })
+          setAccountsError('')
+          setConfigValues(configBaseline)
+        }
+
+        return (
+        <div className={styles.modalOverlay} onClick={requestCloseManage}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3>Manage {managingIntegration.name}</h3>
-              <button className={styles.modalClose} onClick={() => setShowManageModal(false)}>
+              {page === 'list' ? (
+                <div className={styles.mHeaderTitle}>
+                  <IntegrationIcon id={integration.id} icon={integration.icon} size={22} />
+                  <h3>{integration.name}</h3>
+                </div>
+              ) : (
+                <button className={styles.mBack} onClick={goList}>
+                  <ChevronLeft size={18} />
+                  <IntegrationIcon id={integration.id} icon={integration.icon} size={18} />
+                  {integration.name}
+                </button>
+              )}
+              <button className={styles.modalClose} onClick={requestCloseManage}>
                 <X size={18} />
               </button>
             </div>
+
             <div className={styles.modalBody}>
-              <h4 className={styles.manageSubtitle}>Connected Accounts</h4>
-              {managingIntegration.accounts.length === 0 ? (
-                <p className={styles.noAccounts}>No accounts connected</p>
-              ) : (
-                <div className={styles.accountsList}>
-                  {managingIntegration.accounts.map(account => (
-                    <div key={account.id} className={styles.accountItem}>
-                      <span className={styles.accountName}>{account.display}</span>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleDisconnect(account.id)}
-                      >
-                        Disconnect
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Configure — schema-driven form, only shown for integrations
-                  whose handler declared ``config_class`` + ``config_fields``. */}
-              {managingIntegration.has_config && (managingIntegration.config_fields?.length ?? 0) > 0 && (
+              {managedAccounts === null ? (
+                <p className={styles.noAccounts}>
+                  Couldn&apos;t load accounts — close and reopen Manage, or check
+                  the backend logs.
+                </p>
+              ) : page === 'list' ? (
+                /* ---- Main page: account list + integration settings ---- */
                 <>
-                  <h4 className={styles.manageSubtitle}>Configure</h4>
-                  {configLoading ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
-                      <Loader2 size={16} className={styles.spinning} />
-                      <span>Loading settings…</span>
+                  <div className={styles.mList}>
+                    {accounts.length === 0 && (
+                      <p className={styles.noAccounts}>No accounts connected</p>
+                    )}
+                    {accounts.map(account => {
+                      const marked = staged?.disconnect.includes(account.identity) ?? false
+                      const meta = account.identity === effectivePrimary
+                        ? 'Default'
+                        : marked
+                          ? 'Will disconnect'
+                          : isProblem(account) || account.sessionState === 'reconnecting'
+                            ? stateLabel(account)
+                            : ''
+                      return (
+                        <button
+                          key={account.identity}
+                          className={styles.mRow}
+                          onClick={() => {
+                            setSelectedAccountIdentity(account.identity)
+                            setManagePage('account')
+                          }}
+                        >
+                          <span className={`${styles.mLive} ${dotClass(account)}`} />
+                          <span className={styles.mRowId} title={account.identity}>
+                            {account.identity}
+                          </span>
+                          <span className={styles.mRowSpacer} />
+                          {meta && <span className={styles.mRowMeta}>{meta}</span>}
+                          <ChevronRight size={16} className={styles.mChev} />
+                        </button>
+                      )
+                    })}
+
+                    <button
+                      className={styles.mAddRow}
+                      onClick={handleAddAccount}
+                      disabled={addingAccountFor === integration.id}
+                    >
+                      {addingAccountFor === integration.id
+                        ? <Loader2 size={15} className={styles.spinning} />
+                        : <Plus size={16} />}
+                      <span>
+                        {addingAccountFor === integration.id
+                          ? 'Waiting for sign-in…'
+                          : 'Add account'}
+                      </span>
+                    </button>
+
+                    {accountsError && <div className={styles.formError}>{accountsError}</div>}
+                  </div>
+
+                  {hasConfig && (
+                    <div className={styles.mSettings}>
+                      <div>
+                        <h4 className={styles.mSettingsHeading}>{integration.name} settings</h4>
+                        <p className={styles.mSettingsScope}>
+                          Applies to every {integration.name} account you&apos;ve connected.
+                        </p>
+                      </div>
+                      {configLoading ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
+                          <Loader2 size={16} className={styles.spinning} />
+                          <span>Loading settings…</span>
+                        </div>
+                      ) : (
+                        <ConfigFields
+                          integrationId={integration.id}
+                          schema={integration.config_fields ?? []}
+                          values={configValues}
+                          onChange={setConfigValues}
+                        />
+                      )}
                     </div>
-                  ) : (
-                    <ConfigForm
-                      integrationId={managingIntegration.id}
-                      schema={managingIntegration.config_fields ?? []}
-                      values={configValues}
-                      onChange={setConfigValues}
-                      saving={configSaving}
-                      onSave={() => {
-                        setConfigSaving(true)
-                        send('integration_update_config', {
-                          id: managingIntegration.id,
-                          values: configValues,
-                        })
-                      }}
-                    />
                   )}
                 </>
-              )}
+              ) : selectedAccount ? (
+                /* ---- Account detail page ---- */
+                (() => {
+                  const aliasValue =
+                    staged && selectedAccount.identity in staged.aliases
+                      ? (staged.aliases[selectedAccount.identity] ?? '')
+                      : (selectedAccount.alias ?? '')
+                  const listenValue =
+                    staged && selectedAccount.identity in staged.listen
+                      ? staged.listen[selectedAccount.identity]
+                      : selectedAccount.listen
+                  const isDefault = selectedAccount.identity === effectivePrimary
+                  return (
+                    <div className={styles.mDetail}>
+                      <div className={styles.mDetailHead}>
+                        <div className={styles.mDetailHeadMain}>
+                          <div className={styles.mDetailId}>{selectedAccount.identity}</div>
+                          <div className={styles.mDetailState}>{stateLabel(selectedAccount)}</div>
+                        </div>
+                        {isDefault ? (
+                          <span className={styles.mDefaultTag}>Default</span>
+                        ) : !selectedMarked ? (
+                          <button
+                            className={styles.mMakeDefault}
+                            onClick={() => stagePrimary(integration.id, selectedAccount)}
+                          >
+                            Make default
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {selectedAccount.sessionState === 'needs_relink' && (
+                        <div className={styles.mNotice}>
+                          <span>This account was signed out. Scan the QR code again to reconnect it.</span>
+                          <Button variant="primary" size="sm" onClick={relink}>Re-link</Button>
+                        </div>
+                      )}
+
+                      <div className={styles.formGroup}>
+                        <label htmlFor={`alias-${selectedAccount.identity}`}>Nickname</label>
+                        <input
+                          id={`alias-${selectedAccount.identity}`}
+                          type="text"
+                          className={styles.input}
+                          placeholder="e.g. work"
+                          value={aliasValue}
+                          onChange={e => stageAlias(integration.id, selectedAccount, e.target.value)}
+                        />
+                        <p className={styles.hint}>
+                          A short name to use instead of the full address.
+                        </p>
+                      </div>
+
+                      <label
+                        className={styles.toggleGroup}
+                        htmlFor={`listen-${selectedAccount.identity}`}
+                      >
+                        <div className={styles.toggleInfo}>
+                          <span className={styles.toggleLabel}>Send new activity to the agent</span>
+                          <span className={styles.toggleDesc}>
+                            When on, new messages and events from this account are handed
+                            to the agent to act on. When off, it&apos;s used only for sending.
+                          </span>
+                        </div>
+                        <input
+                          id={`listen-${selectedAccount.identity}`}
+                          type="checkbox"
+                          className={styles.toggle}
+                          checked={listenValue}
+                          onChange={e => stageListen(integration.id, selectedAccount, e.target.checked)}
+                        />
+                      </label>
+
+                      {selectedMarked && (
+                        <p className={styles.mRemovalNote}>
+                          This account will be disconnected when you save.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()
+              ) : null}
             </div>
+
+            {/* One footer for the whole modal: Save commits account changes and
+                settings together. On an account page, Disconnect sits between
+                Discard and Save. */}
+            {managedAccounts !== null && (
+              <div className={styles.modalFooter}>
+                <span className={styles.mFootStatus}>
+                  {anyDirty ? 'Unsaved changes' : 'All changes saved'}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={discardAll}
+                  disabled={!anyDirty || busy}
+                >
+                  Discard
+                </Button>
+                {page === 'account' && selectedAccount && (
+                  selectedMarked ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => stageDisconnect(integration.id, selectedAccount.identity, false)}
+                      disabled={busy}
+                    >
+                      Keep account
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className={styles.mDisconnectBtn}
+                      onClick={() => stageDisconnect(integration.id, selectedAccount.identity, true)}
+                      disabled={busy}
+                    >
+                      Disconnect
+                    </Button>
+                  )
+                )}
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={saveAll}
+                  disabled={!anyDirty || busy}
+                >
+                  {busy ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save'}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Confirm Modal */}
       {/* Slow-disconnect overlay — shown until the backend confirms via

@@ -791,7 +791,7 @@ class VLMInterface:
             else:
                 message_kwargs["system"] = sys
 
-        message_kwargs["temperature"] = self.temperature
+        message_kwargs["extra_body"] = {"temperature": self.temperature}
 
         response = self._anthropic_client.messages.create(**message_kwargs)
 

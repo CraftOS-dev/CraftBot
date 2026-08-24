@@ -323,6 +323,7 @@ class InterfaceAdapter(ABC):
                 event.data.get("message", ""),
                 "system",
                 session_id=event.task_id,
+                details=event.data.get("details"),
             )
         )
 
@@ -445,6 +446,7 @@ class InterfaceAdapter(ABC):
         continue_work: bool = False,
         is_question: bool = False,
         allow_free_text: bool = True,
+        details: Optional[str] = None,
     ) -> None:
         """
         Display a chat message.
@@ -462,6 +464,8 @@ class InterfaceAdapter(ABC):
                 responses — pinned above the composer until answered
             allow_free_text: Whether the pinned question also accepts a
                 typed custom answer
+            details: Optional expandable payload rendered behind a disclosure
+                (e.g. the raw body of an incoming integration message)
         """
         import time
 
@@ -480,6 +484,7 @@ class InterfaceAdapter(ABC):
                 # The pinned box / chips are the affordance for questions; the
                 # bubble must not add the "Please select a response" banner.
                 requires_choice=not is_question,
+                details=details,
             )
         )
 

@@ -76,17 +76,47 @@ Examples:
         )
 
     async def _list_credentials(self) -> CommandResult:
-        """List all configured credentials."""
+        """List all configured credentials.
+
+        multi-account provider ids read connection state (and accounts) from the
+        IntegrationSystem; everything else keeps the legacy check.
+        """
+        from app.data.action.integrations._helpers import system_for
+
         lines = ["Configured credentials:", ""]
 
         for name in get_all_handlers():
-            connected = is_connected(name)
-            lines.append(f"  {name}: {'connected' if connected else 'not connected'}")
+            system = system_for(name)
+            if system is not None:
+                try:
+                    accounts = system.list_accounts(name)
+                except Exception:
+                    accounts = []
+                if accounts:
+                    label = ", ".join(a.alias or a.identity for a in accounts)
+                    lines.append(
+                        f"  {name}: connected ({len(accounts)} account"
+                        f"{'s' if len(accounts) != 1 else ''}: {label})"
+                    )
+                else:
+                    lines.append(f"  {name}: not connected")
+            else:
+                connected = is_connected(name)
+                lines.append(
+                    f"  {name}: {'connected' if connected else 'not connected'}"
+                )
 
         return CommandResult(success=True, message="\n".join(lines))
 
     async def _show_status(self) -> CommandResult:
-        """Show integration status with per-account info when connected."""
+        """Show integration status with per-account info when connected.
+
+        multi-account provider ids read connection state from the
+        IntegrationSystem (fresh v2 connects never write the legacy cred
+        file handler.status() checks); everything else keeps the legacy path.
+        """
+        from app.data.action.integrations._helpers import system_for
+
         lines = ["Integration status:", ""]
 
         connected_count = 0
@@ -94,6 +124,19 @@ Examples:
 
         for name, handler in all_handlers.items():
             display = handler.display_name or name
+            system = system_for(name)
+            if system is not None:
+                try:
+                    accounts = system.list_accounts(name)
+                except Exception:
+                    accounts = []
+                if accounts:
+                    connected_count += 1
+                    label = ", ".join(a.alias or a.identity for a in accounts)
+                    lines.append(f"  [+] {display} ({label})")
+                else:
+                    lines.append(f"  [ ] {display}")
+                continue
             try:
                 _, status_msg = await handler.status()
                 first = status_msg.split("\n", 1)[0]

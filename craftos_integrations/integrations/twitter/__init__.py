@@ -400,9 +400,10 @@ class TwitterClient(BasePlatformClient):
         url = f"{TWITTER_API}/users/{cred.user_id}/mentions"
         params: Dict[str, str] = {
             "max_results": "20",
-            "tweet.fields": "created_at,author_id,text,in_reply_to_user_id,conversation_id",
-            "expansions": "author_id",
+            "tweet.fields": "created_at,author_id,text,in_reply_to_user_id,conversation_id,attachments",
+            "expansions": "author_id,attachments.media_keys",
             "user.fields": "username,name",
+            "media.fields": "media_key,type,url,preview_image_url,alt_text",
         }
         if self._since_id:
             params["since_id"] = self._since_id
@@ -427,6 +428,11 @@ class TwitterClient(BasePlatformClient):
             return
 
         users_map = {u["id"]: u for u in data.get("includes", {}).get("users", [])}
+        media_map = {
+            m["media_key"]: m
+            for m in data.get("includes", {}).get("media", [])
+            if m.get("media_key")
+        }
         self._since_id = tweets[0].get("id")
 
         for tweet in reversed(tweets):
@@ -434,16 +440,39 @@ class TwitterClient(BasePlatformClient):
             if tid in self._seen_ids:
                 continue
             self._seen_ids.add(tid)
-            await self._dispatch_mention(tweet, users_map)
+            await self._dispatch_mention(tweet, users_map, media_map)
 
         if len(self._seen_ids) > 500:
             self._seen_ids = set(list(self._seen_ids)[-200:])
 
     async def _dispatch_mention(
-        self, tweet: Dict[str, Any], users_map: Dict[str, Any]
+        self,
+        tweet: Dict[str, Any],
+        users_map: Dict[str, Any],
+        media_map: Optional[Dict[str, Any]] = None,
     ) -> None:
         if not self._message_callback:
             return
+
+        # Tweet media (photos/videos/GIFs) → normalized attachments. Photo
+        # `url` is a public pbs.twimg.com link; videos expose only
+        # `preview_image_url` at this level.
+        attachments: list = []
+        for key in (tweet.get("attachments") or {}).get("media_keys") or []:
+            media = (media_map or {}).get(key)
+            if not media:
+                continue
+            mtype = media.get("type", "")
+            kind = {"photo": "photo", "video": "video", "animated_gif": "video"}.get(
+                mtype, "document"
+            )
+            att: Dict[str, Any] = {"kind": kind, "id": key}
+            url = media.get("url") or media.get("preview_image_url")
+            if url:
+                att["url"] = url
+            if media.get("alt_text"):
+                att["name"] = media["alt_text"]
+            attachments.append(att)
 
         text = tweet.get("text", "")
         author_id = tweet.get("author_id", "")
@@ -491,6 +520,7 @@ class TwitterClient(BasePlatformClient):
                     "instruction": clean_instruction or text,
                     "author_username": author_username,
                 },
+                attachments=attachments,
             )
         )
 

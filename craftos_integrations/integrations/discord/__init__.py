@@ -263,6 +263,11 @@ class DiscordClient(BasePlatformClient):
         # Refreshed on miss / 10-minute expiry so role renames or new roles
         # propagate without an agent restart.
         self._role_name_cache: Dict[str, Tuple[Dict[str, str], float]] = {}
+        # Channel/guild display-label caches for incoming messages, so the
+        # agent sees "#general in server 'X'" instead of a bare snowflake
+        # (with a bot in several guilds, snowflakes are indistinguishable).
+        self._channel_label_cache: Dict[str, Tuple[str, float]] = {}
+        self._guild_name_cache: Optional[Tuple[Dict[str, str], float]] = None
 
     def has_credentials(self) -> bool:
         return has_credential(self.spec.cred_file)
@@ -430,12 +435,55 @@ class DiscordClient(BasePlatformClient):
         except Exception:
             pass
 
+    @staticmethod
+    def _extract_attachments(d: dict) -> list:
+        """Normalize MESSAGE_CREATE attachments/embeds/stickers into
+        PlatformMessage.attachments. Discord attachments carry a direct CDN
+        ``url`` — no API round-trip needed to fetch the bytes."""
+        out: list = []
+        for att in d.get("attachments") or []:
+            if not isinstance(att, dict):
+                continue
+            mime = att.get("content_type", "") or ""
+            if mime.startswith("image/"):
+                kind = "photo"
+            elif mime.startswith("video/"):
+                kind = "video"
+            elif mime.startswith("audio/"):
+                kind = "audio"
+            else:
+                kind = "document"
+            entry: dict = {"kind": kind, "id": att.get("id", "")}
+            if att.get("filename"):
+                entry["name"] = att["filename"]
+            if mime:
+                entry["mime"] = mime
+            if att.get("size"):
+                entry["size"] = att["size"]
+            if att.get("url"):
+                entry["url"] = att["url"]
+            out.append(entry)
+        for emb in d.get("embeds") or []:
+            if not isinstance(emb, dict):
+                continue
+            extra = {k: emb[k] for k in ("title", "url") if emb.get(k)}
+            if extra:
+                out.append({"kind": "embed", "extra": extra})
+        for sticker in d.get("sticker_items") or []:
+            if isinstance(sticker, dict):
+                out.append(
+                    {"kind": "sticker", "id": sticker.get("id", ""), "name": sticker.get("name", "")}
+                )
+        return out
+
     async def _handle_message_create(self, d: dict) -> None:
         author = d.get("author", {})
         if author.get("id") == self._bot_user_id or author.get("bot"):
             return
         content = d.get("content", "")
-        if not content or not self._catchup_done:
+        attachments = self._extract_attachments(d)
+        # Attachment-only posts (file drop with no text) must not be dropped.
+        if (not content and not attachments) or not self._catchup_done:
             return
 
         # ----- Filter + classify -----
@@ -495,7 +543,9 @@ class DiscordClient(BasePlatformClient):
         author_name = author.get("username", "Unknown")
         channel_id = d.get("channel_id", "")
         guild_id = d.get("guild_id", "")
-        channel_name = f"#{channel_id}" if guild_id else "DM"
+        channel_name = (
+            await self._channel_label(channel_id, guild_id) if guild_id else "DM"
+        )
 
         ts = None
         try:
@@ -515,6 +565,7 @@ class DiscordClient(BasePlatformClient):
                     message_id=d.get("id", ""),
                     timestamp=ts,
                     raw={"guild_id": guild_id, "is_self_message": is_self_message},
+                    attachments=attachments,
                 )
             )
 
@@ -603,6 +654,52 @@ class DiscordClient(BasePlatformClient):
             f"{DISCORD_API_BASE}/channels/{channel_id}",
             headers=self._bot_headers(),
         )
+
+    async def _guild_name(self, guild_id: str) -> str:
+        """Best-effort guild display name via the (cached) bot guild list."""
+        if not guild_id:
+            return ""
+        now = time.time()
+        if self._guild_name_cache is None or self._guild_name_cache[1] <= now:
+            mapping: Dict[str, str] = {}
+            try:
+                res = await asyncio.to_thread(self.get_bot_guilds)
+                guilds = (res.get("result") or {}).get("guilds", []) if "error" not in res else []
+                mapping = {
+                    str(g.get("id")): (g.get("name") or "")
+                    for g in guilds
+                    if isinstance(g, dict)
+                }
+            except Exception as e:
+                logger.debug(f"[DISCORD] guild list lookup failed: {e}")
+            self._guild_name_cache = (mapping, now + 600.0)
+        return self._guild_name_cache[0].get(str(guild_id), "")
+
+    async def _channel_label(self, channel_id: str, guild_id: str) -> str:
+        """Human-readable location for an incoming guild message, cached 10 min.
+
+        Falls back to raw snowflakes on any REST failure — labeling must
+        never delay or drop message delivery.
+        """
+        now = time.time()
+        cached = self._channel_label_cache.get(channel_id)
+        if cached and cached[1] > now:
+            return cached[0]
+        label = f"#{channel_id}"
+        try:
+            res = await asyncio.to_thread(self.get_channel, channel_id)
+            ch = (res.get("result") or {}) if "error" not in res else {}
+            if ch.get("name"):
+                label = f"#{ch['name']}"
+        except Exception as e:
+            logger.debug(f"[DISCORD] channel lookup for {channel_id} failed: {e}")
+        gname = await self._guild_name(guild_id)
+        if gname:
+            label = f"{label} in server '{gname}'"
+        elif guild_id:
+            label = f"{label} in server {guild_id}"
+        self._channel_label_cache[channel_id] = (label, now + 600.0)
+        return label
 
     def bot_send_message(
         self,

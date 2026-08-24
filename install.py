@@ -263,8 +263,11 @@ def _auto_install_python_310() -> None:
                 cmd = [new_python310, __file__]
             # Pass --skip-python-check so the re-launched process skips the
             # version gate and doesn't loop back into auto-install again.
-            extra = [a for a in sys.argv[1:] if a not in ("--no-launch",)]
-            subprocess.run(cmd + extra + ["--skip-python-check"])
+            # Keep ALL flags — dropping --no-launch here made a craftbot.py
+            # install boot the agent in the foreground mid-install.
+            extra = list(sys.argv[1:])
+            result = subprocess.run(cmd + extra + ["--skip-python-check"])
+            sys.exit(result.returncode)
         else:
             print(
                 f"\n  {ORANGE}▸{RESET} {WHITE}Python 3.10 installed — please open a NEW terminal and run:{RESET}"
@@ -272,7 +275,9 @@ def _auto_install_python_310() -> None:
             print(f"  {ORANGE}python install.py{RESET}")
             print("  (The new terminal will pick up Python 3.10 automatically.)")
 
-        sys.exit(0)
+        # Only the could-not-relaunch path reaches here: dependencies were NOT
+        # installed, so signal failure to any orchestrating caller.
+        sys.exit(1)
 
     elif sys.platform == "darwin":
         installer = None
@@ -1165,7 +1170,9 @@ def install_nodejs_linux():
 
 
 def install_playwright_browser(use_conda: bool = False):
-    """Install Playwright Chromium browser for WhatsApp Web support."""
+    """Install Playwright Chromium for the agent's browser-automation
+    actions. (The WhatsApp bridge no longer uses a browser — it speaks the
+    protocol directly via Baileys.)"""
     print("\nInstalling Playwright Chromium browser...")
     try:
         if use_conda:
@@ -1203,12 +1210,12 @@ def install_playwright_browser(use_conda: bool = False):
                 error_msg = result.stderr[:300].strip()
                 if error_msg:
                     print(f"  Error details: {error_msg}")
-            print("  WhatsApp Web integration may not work")
+            print("  Browser-automation actions may not work")
             print("  You can manually install later with: playwright install chromium")
             return False
     except Exception as e:
         print(f"⚠ Warning: Failed to install Playwright browser: {e}")
-        print("  WhatsApp Web integration may not work")
+        print("  Browser-automation actions may not work")
         print("  You can manually install later with: playwright install chromium")
         return False
 
@@ -1338,6 +1345,61 @@ def install_browser_frontend():
         print("\n   You can manually install with:")
         print("   cd app/ui_layer/browser/frontend")
         print("   npm install")
+        return False
+
+
+def install_whatsapp_bridge():
+    """Install npm dependencies for the WhatsApp bridge (Baileys).
+
+    The bridge is a Node subprocess speaking WhatsApp's protocol via
+    Baileys — no browser involved. Installing here (instead of lazily at
+    the first bridge start) means the first QR link isn't blocked behind
+    an npm download. Uses the same staleness check as the frontend, so a
+    pulled branch that bumps the Baileys version reinstalls automatically.
+    """
+    bridge_dir = os.path.join(
+        BASE_DIR, "craftos_integrations", "integrations", "whatsapp_web"
+    )
+
+    if not os.path.exists(os.path.join(bridge_dir, "package.json")):
+        print(f"\n⚠ Warning: WhatsApp bridge directory not found at {bridge_dir}")
+        print("   WhatsApp integration will not work")
+        return False
+
+    npm_cmd = shutil.which("npm")
+    if not npm_cmd:
+        # install_browser_frontend (which runs after this on failure paths)
+        # already walks the user through Node.js installation; keep this
+        # message short.
+        print("\n⚠ Warning: npm not found — WhatsApp bridge dependencies skipped")
+        print("   After installing Node.js, run:")
+        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        return False
+
+    stale_reason = _frontend_deps_stale(bridge_dir)
+    if stale_reason is None:
+        print("\n✓ WhatsApp bridge dependencies already installed")
+        return True
+
+    print(f"\n🔧 Installing WhatsApp bridge dependencies ({stale_reason})...")
+    try:
+        result = run_command_with_progress(
+            [npm_cmd, "install"],
+            message="Installing WhatsApp bridge (Baileys)",
+            cwd=bridge_dir,
+            check=False,
+        )
+        if result and hasattr(result, "returncode") and result.returncode == 0:
+            print("✓ WhatsApp bridge dependencies installed")
+            return True
+        print("\n⚠ Warning: npm install for the WhatsApp bridge failed")
+        print("   WhatsApp integration will not work until it succeeds:")
+        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        return False
+    except Exception as e:
+        print(f"\n⚠ Warning: Failed to install WhatsApp bridge deps: {e}")
+        print("   You can manually install with:")
+        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
         return False
 
 
@@ -2266,7 +2328,12 @@ if __name__ == "__main__":
     if (_ver >= (3, 14) or _ver < (3, 10)) and not _skip_python_check:
         # Before prompting, check if Python 3.10 is already installed.
         # If it is, silently re-launch with it — no need to ask the user again.
-        _python310 = _find_existing_python310()
+        # EXCEPT inside an activated conda env: the user chose that env's
+        # interpreter, so hijacking a different Python would install the
+        # dependencies somewhere the service will never look. Fall through
+        # to the prompt instead so they can continue with the env's Python.
+        _in_conda_env = bool(os.environ.get("CONDA_PREFIX"))
+        _python310 = None if _in_conda_env else _find_existing_python310()
         if _python310:
             print(
                 f"\n  {GREEN}▸{RESET} {WHITE}Python 3.10 detected — re-launching automatically...{RESET}\n"
@@ -2275,9 +2342,12 @@ if __name__ == "__main__":
                 _relaunch_cmd = [_python310, "-3.10", __file__]
             else:
                 _relaunch_cmd = [_python310, __file__]
-            _extra = [a for a in sys.argv[1:] if a != "--no-launch"]
-            subprocess.run(_relaunch_cmd + _extra + ["--skip-python-check"])
-            sys.exit(0)
+            # Keep ALL flags (incl. --no-launch — craftbot.py relies on it)
+            # and propagate the child's exit code so a failed install isn't
+            # reported as success to the caller.
+            _extra = list(sys.argv[1:])
+            _result = subprocess.run(_relaunch_cmd + _extra + ["--skip-python-check"])
+            sys.exit(_result.returncode)
 
         # Python 3.10 not found — show the prompt.
         if _ver >= (3, 14):
@@ -2415,11 +2485,15 @@ if __name__ == "__main__":
         setup_pip_environment()
         print()
 
-    # Install Playwright browser (needed for WhatsApp Web)
+    # Install Playwright browser (needed for browser-automation actions)
     install_playwright_browser(use_conda=use_conda)
 
     # Install browser frontend dependencies — required for browser mode
     frontend_ok = install_browser_frontend()
+
+    # Install the WhatsApp bridge's npm deps (Baileys) so the first QR
+    # link isn't blocked behind an npm download.
+    install_whatsapp_bridge()
     if not frontend_ok:
         print(f"\n  {RED}✗{RESET} {WHITE}Browser frontend setup failed.{RESET}")
         print(

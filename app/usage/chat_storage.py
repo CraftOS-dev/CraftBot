@@ -27,7 +27,7 @@ except Exception:
 _ROW_COLUMNS = (
     "message_id, sender, content, style, timestamp, attachments, "
     "session_id, options, option_selected, continue_work, "
-    "is_question, allow_free_text"
+    "is_question, allow_free_text, details"
 )
 
 
@@ -54,6 +54,9 @@ class StoredChatMessage:
     # option_selected.
     is_question: bool = False
     allow_free_text: bool = True
+    # Expandable payload behind a disclosure (e.g. the raw body of an
+    # incoming integration message on the "📩 Incoming …" system stub).
+    details: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -76,6 +79,8 @@ class StoredChatMessage:
         if self.is_question:
             result["isQuestion"] = True
             result["allowFreeText"] = self.allow_free_text
+        if self.details:
+            result["details"] = self.details
         return result
 
 
@@ -93,6 +98,7 @@ def _row_to_message(row) -> StoredChatMessage:
         continue_work=bool(row[9]),
         is_question=bool(row[10]),
         allow_free_text=bool(row[11]),
+        details=row[12],
     )
 
 
@@ -140,6 +146,7 @@ class ChatStorage:
                     options TEXT,
                     option_selected TEXT,
                     continue_work INTEGER NOT NULL DEFAULT 0,
+                    details TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -188,6 +195,8 @@ class ChatStorage:
                     "ALTER TABLE chat_messages ADD COLUMN allow_free_text "
                     "INTEGER NOT NULL DEFAULT 1"
                 )
+            if "details" not in columns:
+                cursor.execute("ALTER TABLE chat_messages ADD COLUMN details TEXT")
 
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_chat_session
@@ -211,8 +220,8 @@ class ChatStorage:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO chat_messages
-                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, is_question, allow_free_text)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, is_question, allow_free_text, details)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     message.message_id,
@@ -227,6 +236,7 @@ class ChatStorage:
                     1 if message.continue_work else 0,
                     1 if message.is_question else 0,
                     1 if message.allow_free_text else 0,
+                    message.details,
                 ),
             )
             conn.commit()

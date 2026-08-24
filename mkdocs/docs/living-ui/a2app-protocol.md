@@ -261,6 +261,8 @@ Today the adapter is a PocketBase hook. The planned any-stack path makes the sam
 
 After step 4, an agent cannot tell the difference, and a pipeline that cannot map an API says so explicitly rather than emitting a plausible-looking wrong mapping.
 
+The first slice of this is built, for **imported third-party apps**: adopting a foreign codebase (`living_ui_import` on a non-Living-UI source) now delivers the A2App surface too. The app runs unchanged on a hidden internal port; a CraftBot-owned reverse proxy binds the project port, serves identity (`flavor: "external"`), `describe`, `/api/_ops` and guarded `/api/ops/*`, and passes everything else through to the app untouched. The mapping is data: each declared operation carries an `executor.upstream` block (`method`, `path`, optional `body` template) translating the invocation onto the app's own API, authored by the adoption agent and **verified by real invocations** before the import counts as done — a mapping that does not work is rejected, not shipped. Today this covers the operations slice only: `describe.entities` stays empty for external apps (no guarded collection surface), and that is a statement, not an omission — the entity mapping remains planned.
+
 ## Where knowledge lives
 
 The rule that keeps the protocol honest. When something is added, it goes in the row it belongs to:
@@ -286,7 +288,7 @@ The rule that keeps the protocol honest. When something is added, it goes in the
 | Adapter delivery at create, install, import, and every launch | Built |
 | MCP gateway (one install, every agent) | Planned |
 | App-to-agent queue, capabilities, consent | Planned |
-| Any-technology mapping and shared runtime | Planned |
+| Any-technology mapping and shared runtime | Built for imported external apps (operations slice; entity mapping planned) |
 | Deployed identity: keypairs, grants, scopes | Designed |
 
 ## Next

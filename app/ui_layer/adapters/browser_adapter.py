@@ -100,8 +100,6 @@ from app.ui_layer.settings import (
     get_skill_template,
     remove_skill,
     # Integration settings
-    list_integrations,
-    get_integration_info,
     connect_integration_token,
     connect_integration_oauth,
     connect_integration_interactive,
@@ -269,6 +267,7 @@ class BrowserChatComponent(ChatComponentProtocol):
             is_question=stored.is_question,
             allow_free_text=stored.allow_free_text,
             requires_choice=not stored.is_question,
+            details=stored.details,
         )
 
     async def append_message(self, message: ChatMessage) -> None:
@@ -311,6 +310,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                     continue_work=message.continue_work,
                     is_question=message.is_question,
                     allow_free_text=message.allow_free_text,
+                    details=message.details,
                 )
                 self._storage.insert_message(stored)
             except Exception:
@@ -1740,7 +1740,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "integration_disconnect":
             integration_id = data.get("id", "")
             account_id = data.get("account_id")
-            await self._handle_integration_disconnect(integration_id, account_id)
+            request_id = data.get("request_id")
+            await self._handle_integration_disconnect(
+                integration_id, account_id, request_id
+            )
+
+        # Multi-account integration handlers
+        elif msg_type == "integration_accounts_add":
+            integration_id = data.get("integration_id", "")
+            request_id = data.get("request_id")
+            await self._handle_integration_accounts_add(integration_id, request_id)
+
+        elif msg_type == "integration_apply_account_changes":
+            integration_id = data.get("integration_id", "")
+            request_id = data.get("request_id")
+            changes = data.get("changes") or {}
+            await self._handle_integration_apply_account_changes(
+                integration_id, request_id, changes
+            )
 
         # Generic per-integration config (replaces the old bespoke jira/github settings handlers)
         elif msg_type == "integration_get_config":
@@ -1808,17 +1825,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "playbook_list":
             await self._handle_playbook_list()
 
-        # WhatsApp QR code flow handlers
+        # WhatsApp QR code flow handlers — session-scoped: QR/status results
+        # go to the requesting connection only, never broadcast (a second
+        # settings tab used to pick up the broadcast, run its own poll loop
+        # and double-complete the link).
         elif msg_type == "whatsapp_start_qr":
-            await self._handle_whatsapp_start_qr()
+            await self._handle_whatsapp_start_qr(
+                ws, force=bool(data.get("force", False))
+            )
 
         elif msg_type == "whatsapp_check_status":
             session_id = data.get("session_id", "")
-            await self._handle_whatsapp_check_status(session_id)
+            await self._handle_whatsapp_check_status(session_id, ws)
 
         elif msg_type == "whatsapp_cancel":
             session_id = data.get("session_id", "")
-            await self._handle_whatsapp_cancel(session_id)
+            await self._handle_whatsapp_cancel(session_id, ws)
 
         elif msg_type == "subscribe_dashboard_metrics":
             if ws is not None:
@@ -6850,9 +6872,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # =====================
 
     async def _handle_integration_list(self) -> None:
-        """Get list of all integrations with status."""
+        """Get list of all integrations with status.
+
+        Uses the v2-merged list: multi-account providers source ``connected``
+        and ``accounts`` from the IntegrationSystem (the legacy credential
+        file is never written by v2 connects, so the legacy status path
+        reports them as disconnected — issue seen with youtube/notion).
+        """
         try:
-            integrations = list_integrations()
+            from app.data.action.integrations._helpers import (
+                list_integrations_merged_async,
+            )
+
+            integrations = await list_integrations_merged_async()
             # Calculate stats
             total = len(integrations)
             connected = sum(1 for i in integrations if i.get("connected", False))
@@ -6882,19 +6914,118 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_integration_info(self, integration_id: str) -> None:
-        """Get detailed info about an integration."""
+    # ── multi-account integration helpers ──────────────────────
+
+    @staticmethod
+    def _system_for(integration_id: str):
+        """Return the IntegrationSystem when it knows this provider id.
+
+        Returns None for legacy integrations (or if bootstrap fails), so
+        callers fall back to the legacy path unchanged.
+        """
         try:
-            info = get_integration_info(integration_id)
+            from app.integrations import get_system
+
+            system = get_system()
+            if system.registry.get(integration_id) is not None:
+                return system
+        except Exception as e:
+            # Loud on purpose: this degrade silently reroutes v2 providers to
+            # the LEGACY single-account UI (no Add account, status-parsed
+            # rows), which looks like a frontend bug. Never let it hide.
+            logger.error(
+                f"[INTEGRATIONS] integration-system bootstrap/lookup failed for "
+                f"{integration_id}; degrading to legacy path: {e!r}"
+            )
+        return None
+
+    @staticmethod
+    def _accounts_payload(accounts, integration_id: str = "") -> List[Dict[str, Any]]:
+        """Serialize AccountInfo objects into the wire shape. whatsapp_web
+        rows gain ``sessionState`` (relink CTA / reconnect notice)."""
+        try:
+            from app.data.action.integrations._helpers import accounts_payload
+
+            return accounts_payload(accounts, integration_id)
+        except Exception:
+            return [
+                {
+                    "identity": a.identity,
+                    "alias": a.alias,
+                    "isPrimary": a.is_primary,
+                    "listen": a.listen,
+                }
+                for a in accounts
+            ]
+
+    def _current_accounts(self, integration_id: str) -> Optional[List[Dict[str, Any]]]:
+        """Best-effort current account list for error payloads.
+
+        Returns None (NOT []) when the list can't be fetched: the frontend
+        treats a present ``accounts`` array as the authoritative state and
+        prunes its staged edits against it, so a fabricated empty list would
+        blank the Manage modal and silently discard the user's unsaved
+        edits. Callers must OMIT the ``accounts`` key when this is None.
+        """
+        try:
+            system = self._system_for(integration_id)
+            if system is not None:
+                return self._accounts_payload(
+                    system.list_accounts(integration_id), integration_id
+                )
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _with_accounts(
+        data: Dict[str, Any], accounts: Optional[List[Dict[str, Any]]]
+    ) -> Dict[str, Any]:
+        """Attach ``accounts`` only when a real list is available."""
+        if accounts is not None:
+            data["accounts"] = accounts
+        return data
+
+    async def _handle_integration_info(self, integration_id: str) -> None:
+        """Get detailed info about an integration.
+
+        Metadata comes from the legacy handler (still the metadata source);
+        connection state and accounts come from the IntegrationSystem —
+        every integration is multi-account now, so the old
+        ``handler.status()`` text-scraping path is gone. A missing
+        top-level ``accounts`` key tells the frontend the account list
+        couldn't be loaded (it renders a reload hint, never fake rows).
+        """
+        try:
+            from craftos_integrations import get_metadata
+
+            info = get_metadata(integration_id)
             if info:
+                managed_accounts: Optional[List[Dict[str, Any]]] = None
+                try:
+                    system = self._system_for(integration_id)
+                    if system is not None:
+                        managed_accounts = self._accounts_payload(
+                            system.list_accounts(integration_id), integration_id
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"[INTEGRATIONS] v2 accounts for {integration_id} "
+                        f"unavailable, Manage modal shows reload hint: {e!r}"
+                    )
+                info["connected"] = bool(managed_accounts)
+                info["accounts"] = managed_accounts or []
+                data: Dict[str, Any] = {
+                    "success": True,
+                    "id": integration_id,
+                    "integration": info,
+                }
+                if managed_accounts is not None:
+                    data["accounts"] = managed_accounts
                 await self._broadcast(
                     {
                         "type": "integration_info",
-                        "data": {
-                            "success": True,
-                            "id": integration_id,
-                            "integration": info,
-                        },
+                        "data": data,
                     }
                 )
             else:
@@ -6920,14 +7051,51 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    def _notify_agent_integration_event(self, message: str) -> None:
+        """Record a UI-initiated integration change in the agent's event stream.
+
+        Connect/disconnect from the settings page happens outside any agent
+        run, so without this the agent keeps answering from stale connection
+        state until an action fails.
+        """
+        try:
+            from agent_core.core.event_stream.event import EventType
+
+            agent = self._controller.agent
+            if agent and agent.event_stream_manager:
+                agent.event_stream_manager.log(
+                    "system",
+                    message,
+                    event_type=EventType.SYSTEM,
+                    display_message=message,
+                    task_id="main",
+                )
+                agent.state_manager.bump_event_stream()
+        except Exception as e:
+            logger.debug(f"integration event-stream notify failed: {e}")
+
     async def _handle_integration_connect_token(
         self, integration_id: str, credentials: Dict[str, str]
     ) -> None:
-        """Connect an integration using token/credentials."""
+        """Connect an integration using token/credentials.
+
+        multi-account providers (notion/hubspot/slack manual tokens) validate the token
+        the same way the legacy handler login does, then store through the
+        IntegrationSystem — never the legacy single-account save. Legacy
+        integrations keep the legacy handler path unchanged.
+        """
         try:
-            success, message = await connect_integration_token(
-                integration_id, credentials
-            )
+            v2_system = self._system_for(integration_id)
+            if v2_system is not None:
+                from app.data.action.integrations._helpers import system_connect_token
+
+                success, message = await asyncio.to_thread(
+                    system_connect_token, v2_system, integration_id, credentials
+                )
+            else:
+                success, message = await connect_integration_token(
+                    integration_id, credentials
+                )
             await self._broadcast(
                 {
                     "type": "integration_connect_result",
@@ -6940,6 +7108,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             # Refresh the list on success (listener is started by connect_integration_token)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except Exception as e:
             await self._broadcast(
@@ -6964,9 +7136,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._oauth_tasks[integration_id] = task
 
     async def _run_oauth_flow(self, integration_id: str) -> None:
-        """Execute OAuth flow and broadcast result (runs as background task)."""
+        """Execute OAuth flow and broadcast result (runs as background task).
+
+        multi-account providers route through ``IntegrationSystem.add_account`` (the
+        multi-account OAuth flow); the broadcast keeps the legacy
+        ``integration_connect_result`` shape so the frontend needs no
+        changes. Legacy integrations keep the legacy handler login.
+        """
         try:
-            success, message = await connect_integration_oauth(integration_id)
+            v2_system = self._system_for(integration_id)
+            if v2_system is not None:
+                success, message, _accounts = await v2_system.add_account(
+                    integration_id
+                )
+            else:
+                success, message = await connect_integration_oauth(integration_id)
             await self._broadcast(
                 {
                     "type": "integration_connect_result",
@@ -6979,6 +7163,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             # Refresh the list on success (listener is started by connect_integration_oauth)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except asyncio.CancelledError:
             # OAuth was cancelled by user closing the modal
@@ -7034,6 +7222,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             # Refresh the list on success (listener is started by connect_integration_interactive)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except asyncio.CancelledError:
             # Interactive flow was cancelled by user closing the modal
@@ -7068,7 +7260,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Result will be broadcast by the cancelled task's CancelledError handler
 
     async def _handle_integration_disconnect(
-        self, integration_id: str, account_id: Optional[str] = None
+        self,
+        integration_id: str,
+        account_id: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> None:
         """Disconnect an integration account.
 
@@ -7077,25 +7272,135 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         the frontend would show stale "connected" state until the teardown
         finishes. So we run the disconnect in a background task and let
         this handler return immediately.
+
+        For providers known to the integrations system:
+        - with ``account_id``: remove just that account via the integration system
+          (no legacy call — legacy has no notion of a specific account).
+        - without ``account_id``: remove ALL accounts, then fall through
+          to the legacy disconnect so old cred/config files are cleaned too.
+        Legacy integrations take the legacy path unchanged.
         """
 
         async def _do_disconnect() -> None:
             try:
+                system = self._system_for(integration_id)
+
+                if system is not None and account_id:
+                    # Targeted removal — handled entirely by the integration
+                    # system. Platform teardown (whatsapp_web: server-side
+                    # logout + bridge stop + session-dir delete) runs FIRST,
+                    # while the account still exists — record removal
+                    # triggers a listener reconcile that would race a
+                    # trailing teardown on the same bridge.
+                    try:
+                        from app.data.action.integrations._helpers import (
+                            platform_teardown_accounts_async,
+                        )
+
+                        identity = await asyncio.to_thread(
+                            system.resolve, integration_id, account_id
+                        )
+                        await platform_teardown_accounts_async(
+                            integration_id, [identity]
+                        )
+                        await asyncio.to_thread(
+                            system.remove_account, integration_id, identity
+                        )
+                        success, message = (
+                            True,
+                            f"Removed account '{identity}' from {integration_id}",
+                        )
+                    except Exception as e:
+                        success, message = False, str(e)
+                    await self._broadcast(
+                        {
+                            "type": "integration_disconnect_result",
+                            "data": self._with_accounts(
+                                {
+                                    "success": success,
+                                    "message": message,
+                                    "id": integration_id,
+                                    "requestId": request_id,
+                                },
+                                self._current_accounts(integration_id),
+                            ),
+                        }
+                    )
+                    if success:
+                        self._notify_agent_integration_event(
+                            f"User disconnected account '{account_id}' of "
+                            f"integration '{integration_id}' from the settings page."
+                        )
+                        await self._handle_integration_list()
+                    return
+
+                removed: list[str] = []
+                if system is not None:
+                    # Disconnect-all: drop every account, then fall through
+                    # to the legacy disconnect below for file cleanup.
+                    # Platform teardown before each record removal — same
+                    # ordering rationale as the targeted path above.
+                    try:
+                        from app.data.action.integrations._helpers import (
+                            platform_teardown_accounts_async,
+                        )
+
+                        for account in await asyncio.to_thread(
+                            system.list_accounts, integration_id
+                        ):
+                            try:
+                                await platform_teardown_accounts_async(
+                                    integration_id, [account.identity]
+                                )
+                                await asyncio.to_thread(
+                                    system.remove_account,
+                                    integration_id,
+                                    account.identity,
+                                )
+                                removed.append(account.identity)
+                            except Exception as e:
+                                logger.warning(
+                                    f"remove_account {integration_id}/"
+                                    f"{account.identity} failed: {e}"
+                                )
+                    except Exception as e:
+                        logger.warning(
+                            f"disconnect-all for {integration_id} failed: {e}"
+                        )
+
                 success, message = await disconnect_integration(
                     integration_id, account_id
                 )
+                # Removing the last account also deletes the legacy credential
+                # file, so the legacy logout above reports "no credentials
+                # found" — a legacy failure must never mask a successful
+                # account removal (mirrors _helpers.system_disconnect).
+                if removed:
+                    success = True
+                    message = (
+                        f"Disconnected {integration_id}: removed "
+                        f"{len(removed)} account(s) ({', '.join(removed)})"
+                    )
                 await self._broadcast(
                     {
                         "type": "integration_disconnect_result",
                         "data": {
                             "success": success,
                             "message": message,
+                            "error": None if success else message,
                             "id": integration_id,
+                            "requestId": request_id,
                         },
                     }
                 )
                 if success:
-                    await self._handle_integration_list()
+                    self._notify_agent_integration_event(
+                        f"User disconnected integration '{integration_id}' "
+                        f"(all accounts) from the settings page."
+                    )
+                # Always reconcile the list — the frontend flipped the row
+                # optimistically and needs the authoritative state either way.
+                await self._handle_integration_list()
             except Exception as e:
                 await self._broadcast(
                     {
@@ -7104,11 +7409,184 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "success": False,
                             "error": str(e),
                             "id": integration_id,
+                            "requestId": request_id,
                         },
                     }
                 )
 
         asyncio.create_task(_do_disconnect())
+
+    async def _handle_integration_accounts_add(
+        self, integration_id: str, request_id: Optional[str] = None
+    ) -> None:
+        """Add another account to a multi-account integration (real OAuth — the browser
+        opens and the flow may take minutes). Runs as a background task so
+        the WS message loop stays responsive, mirroring the legacy OAuth
+        connect handlers. Result is broadcast as
+        ``integration_accounts_add_result``; the frontend correlates via
+        ``requestId``.
+        """
+        # Cancel any in-flight connect/add flow for this integration.
+        if integration_id in self._oauth_tasks:
+            self._oauth_tasks[integration_id].cancel()
+
+        task = asyncio.create_task(
+            self._run_accounts_add(integration_id, request_id)
+        )
+        self._oauth_tasks[integration_id] = task
+
+    async def _run_accounts_add(
+        self, integration_id: str, request_id: Optional[str]
+    ) -> None:
+        """Execute the add-account OAuth flow and broadcast the result."""
+        try:
+            from app.integrations import get_system
+
+            system = get_system()
+            if system.registry.get(integration_id) is None:
+                raise LookupError(f"Unknown integration '{integration_id}'")
+            ok, message, accounts = await system.add_account(integration_id)
+            await self._broadcast(
+                {
+                    "type": "integration_accounts_add_result",
+                    "data": {
+                        "id": integration_id,
+                        "requestId": request_id,
+                        "ok": bool(ok),
+                        "message": message,
+                        "accounts": self._accounts_payload(
+                            accounts or [], integration_id
+                        ),
+                    },
+                }
+            )
+            if ok:
+                await self._handle_integration_list()
+        except asyncio.CancelledError:
+            await self._broadcast(
+                {
+                    "type": "integration_accounts_add_result",
+                    "data": self._with_accounts(
+                        {
+                            "id": integration_id,
+                            "requestId": request_id,
+                            "ok": False,
+                            "message": "Add account cancelled",
+                        },
+                        self._current_accounts(integration_id),
+                    ),
+                }
+            )
+        except Exception as e:
+            # Contract note: the add-result failure text travels in "message"
+            # (Settings/types.ts IntegrationAccountsAddResult has no "error"
+            # field), unlike apply_account_changes_result which uses "error".
+            await self._broadcast(
+                {
+                    "type": "integration_accounts_add_result",
+                    "data": self._with_accounts(
+                        {
+                            "id": integration_id,
+                            "requestId": request_id,
+                            "ok": False,
+                            "message": str(e),
+                        },
+                        self._current_accounts(integration_id),
+                    ),
+                }
+            )
+        finally:
+            self._oauth_tasks.pop(integration_id, None)
+
+    async def _handle_integration_apply_account_changes(
+        self,
+        integration_id: str,
+        request_id: Optional[str] = None,
+        changes: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Apply one batched set of account edits from the Manage modal.
+
+        ``changes`` = {"disconnect": [identity...], "primary": identity|None,
+        "aliases": {identity: alias|None}, "listen": {identity: bool}}.
+        The integration system applies disconnects → primary → aliases → listen flags
+        inside its storage lock. Sync file I/O, so it runs in a thread. On
+        failure the frontend keeps its staged edits, so the error payload
+        carries the *current* (unchanged) account list.
+        """
+        try:
+            from craftos_integrations.contracts import AccountResolutionError
+            from app.integrations import get_system
+
+            system = get_system()
+            if system.registry.get(integration_id) is None:
+                raise LookupError(f"Unknown integration '{integration_id}'")
+            try:
+                accounts = await asyncio.to_thread(
+                    system.apply_account_changes, integration_id, changes or {}
+                )
+                # Batched disconnects need the platform-specific teardown too
+                # (whatsapp_web: stop the account's bridge, delete its
+                # session dir) — core removal only edits the AccountSet.
+                try:
+                    from app.data.action.integrations._helpers import (
+                        platform_teardown_accounts_async,
+                    )
+
+                    # Awaited (we're already off the WS handler in a task):
+                    # the result broadcast below must reflect completed
+                    # teardown, not a fire-and-forget race.
+                    await platform_teardown_accounts_async(
+                        integration_id, (changes or {}).get("disconnect") or []
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[INTEGRATIONS] platform teardown after batched "
+                        f"disconnect failed for {integration_id}: {e!r}"
+                    )
+                await self._broadcast(
+                    {
+                        "type": "integration_apply_account_changes_result",
+                        "data": {
+                            "id": integration_id,
+                            "requestId": request_id,
+                            "ok": True,
+                            "accounts": self._accounts_payload(
+                                accounts, integration_id
+                            ),
+                        },
+                    }
+                )
+                await self._handle_integration_list()
+            except (ValueError, AccountResolutionError) as e:
+                await self._broadcast(
+                    {
+                        "type": "integration_apply_account_changes_result",
+                        "data": self._with_accounts(
+                            {
+                                "id": integration_id,
+                                "requestId": request_id,
+                                "ok": False,
+                                "error": str(e),
+                            },
+                            self._current_accounts(integration_id),
+                        ),
+                    }
+                )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "integration_apply_account_changes_result",
+                    "data": self._with_accounts(
+                        {
+                            "id": integration_id,
+                            "requestId": request_id,
+                            "ok": False,
+                            "error": str(e),
+                        },
+                        self._current_accounts(integration_id),
+                    ),
+                }
+            )
 
     # ==========================
     # Generic per-integration config
@@ -7542,7 +8020,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     workflow_skill=(
                         "living-ui-importer" if is_ext else "living-ui-modify"
                     ),
-                    status=None,
+                    # External adoption is a build-like run: "creating" shows
+                    # the construction dock while the agent writes the
+                    # pipeline verbs + operations map. Native imports stay
+                    # untouched (verify-only).
+                    status=("creating" if is_ext else None),
                 )
             except Exception as e:
                 logger.warning(f"[LIVING_UI] import verify dispatch failed: {e}")
@@ -7562,18 +8044,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
         return
 
-    async def _handle_whatsapp_start_qr(self) -> None:
-        """Start WhatsApp Web session and return QR code."""
+    async def _send_to(self, ws, message: Dict[str, Any]) -> None:
+        """Send to one connection (session-scoped flows); falls back to a
+        broadcast when the requesting socket is unknown/closed."""
+        if ws is not None:
+            try:
+                await ws.send_json(message)
+                return
+            except Exception:
+                pass
+        await self._broadcast(message)
+
+    async def _handle_whatsapp_start_qr(self, ws=None, force: bool = False) -> None:
+        """Start a WhatsApp link flow and return the QR to the requesting
+        connection only. ``force`` (explicit user click) bypasses the
+        just-connected ghost-flow guard."""
         try:
-            result = await start_whatsapp_qr_session()
-            await self._broadcast(
-                {
-                    "type": "whatsapp_qr_result",
-                    "data": result,
-                }
-            )
+            result = await start_whatsapp_qr_session(force=force)
+            await self._send_to(ws, {"type": "whatsapp_qr_result", "data": result})
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_qr_result",
                     "data": {
@@ -7581,24 +8072,47 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "status": "error",
                         "message": str(e),
                     },
-                }
+                },
             )
 
-    async def _handle_whatsapp_check_status(self, session_id: str) -> None:
-        """Check WhatsApp session status."""
+    async def _handle_whatsapp_check_status(self, session_id: str, ws=None) -> None:
+        """Poll a WhatsApp link flow (states: qr_ready / scanned / promoting /
+        connected / timeout / cancelled / error). Idempotent completion —
+        a second poller gets the same connected result, and the account
+        upsert below is an idempotent write."""
         try:
             result = await check_whatsapp_session_status(session_id)
-            await self._broadcast(
-                {
-                    "type": "whatsapp_status_result",
-                    "data": result,
-                }
-            )
-            # If connected, refresh the integrations list (listener is started by check_whatsapp_session_status)
+            # On connect, store the account into the AccountSet — the QR flow
+            # itself can't (craftos_integrations never imports the host); the
+            # v2 ListenerManager then picks the account up via reconcile.
+            if result.get("connected") and result.get("credential"):
+                try:
+                    from app.integrations import get_system
+
+                    system = get_system()
+                    identity = system.store_credential(
+                        "whatsapp_web",
+                        result.get("identity"),
+                        result["credential"],
+                    )
+                    system.reconcile_listeners()
+                    logger.info(
+                        f"[INTEGRATIONS] whatsapp_web account '{identity}' "
+                        f"stored via QR session {session_id}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"[INTEGRATIONS] storing whatsapp_web QR account "
+                        f"failed (session {session_id}): {e!r}"
+                    )
+            await self._send_to(ws, {"type": "whatsapp_status_result", "data": result})
             if result.get("connected"):
+                # The integrations *list* refresh stays a broadcast — every
+                # tab should see the new account.
                 await self._handle_integration_list()
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_status_result",
                     "data": {
@@ -7607,28 +8121,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "connected": False,
                         "message": str(e),
                     },
-                }
+                },
             )
 
-    async def _handle_whatsapp_cancel(self, session_id: str) -> None:
-        """Cancel WhatsApp session."""
+    async def _handle_whatsapp_cancel(self, session_id: str, ws=None) -> None:
+        """Cancel a WhatsApp link flow."""
         try:
             result = cancel_whatsapp_session(session_id)
-            await self._broadcast(
-                {
-                    "type": "whatsapp_cancel_result",
-                    "data": result,
-                }
-            )
+            await self._send_to(ws, {"type": "whatsapp_cancel_result", "data": result})
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_cancel_result",
                     "data": {
                         "success": False,
                         "message": str(e),
                     },
-                }
+                },
             )
 
     async def _broadcast(self, message: Dict[str, Any]) -> None:

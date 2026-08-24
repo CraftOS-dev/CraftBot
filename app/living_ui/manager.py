@@ -83,6 +83,10 @@ class LivingUIProject:
     # manifest's craftbotVersion records the ORIGINAL creator's version).
     craftbot_version: Optional[str] = None
     bridge_token: str = ""  # Ephemeral token for integration bridge (NOT serialized)
+    # External apps only: the hidden loopback port the foreign app itself
+    # binds; the A2App proxy holds `port` in front of it (NOT serialized —
+    # reallocated at every launch).
+    internal_port: Optional[int] = None
     tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
     tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
     process: Optional[subprocess.Popen] = None  # Frontend process
@@ -144,6 +148,12 @@ class LivingUIManager:
         # Watchdog state
         self._watchdog_task: Optional[asyncio.Task] = None
         self._watchdog_running: bool = False
+
+        # A2App adapters for EXTERNAL apps: one in-process reverse proxy per
+        # running external project (spec docs/design/
+        # external-app-a2app-adapter.md). The proxy holds the project PORT,
+        # so every kill-by-port on a project port must stop the proxy first.
+        self._external_proxies: Dict[str, Any] = {}
 
         # Ensure workspace directory exists
         self.living_ui_dir = self.workspace_root / "living_ui"
@@ -348,6 +358,17 @@ class LivingUIManager:
                             project.port
                         ):
                             frontend_dead = True
+                    # External apps: the in-process proxy keeps the PROJECT
+                    # port alive even when the app behind it dies, so the
+                    # app's own (internal) port is the honest liveness probe.
+                    if (
+                        not frontend_dead
+                        and getattr(project, "project_type", "native")
+                        == "external"
+                        and project.internal_port
+                        and not self._is_port_in_use(project.internal_port)
+                    ):
+                        frontend_dead = True
 
                     if not frontend_dead:
                         # Everything healthy, reset retry counter
@@ -393,11 +414,7 @@ class LivingUIManager:
                         if not project.bridge_token:
                             project.bridge_token = secrets.token_urlsafe(32)
                         if getattr(project, "project_type", "native") == "external":
-                            _res = await self._run_external_pipeline(
-                                Path(project.path),
-                                project.port,
-                                project.bridge_token,
-                            )
+                            _res = await self._run_external_pipeline(project)
                             restart_ok = _res.get("status") == "success"
                             if restart_ok:
                                 project.process = _res.pop("process")
@@ -1117,16 +1134,20 @@ UI in {project.path}/frontend/src/app/."""
         except Exception:
             return {}
 
-    async def _run_external_pipeline(
-        self, project_dir: Path, port: int, bridge_token: str
-    ) -> dict:
-        """Launch an EXTERNAL app via its craftbot.json pipeline verbs —
-        the first real consumer of the M3/M4 four-verb contract
-        (EXTERNAL-APPS-PLAN Phase A). Reduced gate per WORKFLOWS I-R2:
-        install/build (when declared) + start + health. No kit, no lui gate,
-        no PocketBase anything. Same result envelope as the native pipeline.
+    async def _run_external_pipeline(self, project: "LivingUIProject") -> dict:
+        """Launch an EXTERNAL app via its craftbot.json pipeline verbs, then
+        put the A2App adapter proxy in FRONT of it (spec
+        docs/design/external-app-a2app-adapter.md): the app binds a hidden
+        internal loopback port, the proxy binds the project port and serves
+        identity/describe/_ops/ops plus transparent passthrough — so an
+        adopted app presents the same agent-drivable surface as a native
+        one. Reduced gate per WORKFLOWS I-R2: install/build (when declared)
+        + start + health + adapter self-check. No kit, no lui gate, no
+        PocketBase anything. Same result envelope as the native pipeline.
         """
-        project_dir = Path(project_dir)
+        project_dir = Path(project.path)
+        port = project.port
+        bridge_token = project.bridge_token
 
         def _fail(step: str, errors: list) -> dict:
             return {"status": "error", "step": step, "errors": errors}
@@ -1145,7 +1166,59 @@ UI in {project.path}/frontend/src/app/."""
                 ],
             )
 
-        self._kill_process_on_port(port)
+        # The previous launch's proxy holds the project port IN-PROCESS:
+        # stop it before any kill-by-port, or the "stale listener" we kill
+        # is CraftBot itself.
+        old_proxy = self._external_proxies.pop(project.id, None)
+        if old_proxy is not None:
+            try:
+                await old_proxy.stop()
+            except Exception:
+                pass
+        if self._is_port_in_use(port):
+            own_pid = str(os.getpid())
+            holder = self._get_pids_on_ports({port}).get(port)
+            if holder is None or str(holder) != own_pid:
+                self._kill_process_on_port(port)
+
+        # The app itself binds a fresh hidden internal port each launch.
+        if project.internal_port:
+            if self._is_port_in_use(project.internal_port):
+                self._kill_process_on_port(project.internal_port)
+            self._release_port(project.internal_port)
+            project.internal_port = None
+        try:
+            internal_port = self._allocate_port()
+        except RuntimeError as e:
+            return _fail("adopt", [str(e)])
+        project.internal_port = internal_port
+
+        # Adapter credentials + manifest, self-healing at every launch
+        # (native parity: the agent token is created at launch; a stub
+        # operations.json keeps identity/describe/_ops well-formed until the
+        # adoption mission maps real verbs).
+        token_file = project_dir / ".agent-token"
+        try:
+            if (
+                not token_file.exists()
+                or not token_file.read_text(encoding="utf-8").strip()
+            ):
+                token_file.write_text(secrets.token_urlsafe(32), encoding="utf-8")
+                try:
+                    os.chmod(token_file, 0o600)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] agent token mint failed: {e}")
+        ops_file = project_dir / "operations.json"
+        if not ops_file.exists():
+            try:
+                ops_file.write_text(
+                    '{\n  "opsVersion": 1,\n  "operations": []\n}\n',
+                    encoding="utf-8",
+                )
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] operations.json stub failed: {e}")
 
         # app.log is append-mode across launches (same idiom as
         # pocketbase.log): remember where THIS boot starts so failures quote
@@ -1173,20 +1246,28 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 return ""
 
-        bridge_env = {}
+        # Belt to the .git containment boundary (see _import_external_tree):
+        # HUSKY=0 makes husky's installer a no-op, SKIP_SIMPLE_GIT_HOOKS
+        # skips simple-git-hooks execution — a foreign app's install must
+        # never touch git hooks anywhere.
+        bridge_env = {"HUSKY": "0", "SKIP_SIMPLE_GIT_HOOKS": "1"}
         if bridge_token:
             bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
-            bridge_env = {
-                "CRAFTBOT_BRIDGE_URL": f"http://localhost:{bridge_port}",
-                "CRAFTBOT_BRIDGE_TOKEN": bridge_token,
-            }
+            bridge_env.update(
+                {
+                    "CRAFTBOT_BRIDGE_URL": f"http://localhost:{bridge_port}",
+                    "CRAFTBOT_BRIDGE_TOKEN": bridge_token,
+                }
+            )
 
         # install / build: declared-only, logged, hard-timeboxed.
         for step in ("install", "build"):
             cmd = str(pipeline.get(step) or "").strip()
             if not cmd:
                 continue
-            cmd = self._resolve_python_in_command(cmd.replace("{{PORT}}", str(port)))
+            cmd = self._resolve_python_in_command(
+                cmd.replace("{{PORT}}", str(internal_port))
+            )
             try:
                 with open(log_path, "a", encoding="utf-8") as lh:
                     lh.write(f"\n[{step}] {cmd}\n")
@@ -1212,33 +1293,126 @@ UI in {project.path}/frontend/src/app/."""
                     [f"{step} exited with {code}", "app.log:\n" + _log_since_boot()],
                 )
 
-        start_cmd = start_cmd.replace("{{PORT}}", str(port))
+        start_cmd = start_cmd.replace("{{PORT}}", str(internal_port))
         try:
             process = self._start_process(
                 cwd=project_dir,
                 command=start_cmd,
                 log_file=log_path,
-                port=port,
+                port=internal_port,
                 extra_env=bridge_env,
             )
         except Exception as e:
             return _fail("start", [str(e)])
 
+        # Health is checked against the app's OWN port first — a proxy that
+        # answers in front of a dead app must never read as healthy.
         healthy = await self._check_health_with_strategy(
-            pipeline.get("health"), port, process, timeout=45
+            pipeline.get("health"), internal_port, process, timeout=45
         )
         if not healthy:
             self._terminate_process(process)
             errors = [
-                f"App not healthy on :{port} (health config: "
-                f"{pipeline.get('health')!r})"
+                f"App not healthy on internal port :{internal_port} "
+                f"(health config: {pipeline.get('health')!r})"
             ]
             boot_log = _log_since_boot()
             if boot_log:
                 errors.append("app.log (this boot):\n" + boot_log)
             return _fail("health", errors)
 
+        # A2App adapter in front of the healthy app: bind the project port,
+        # then structurally self-check the surface (the identity probe is
+        # the only reliable check — a status code never is).
+        import importlib
+        import sys as _sys
+        if "app.living_ui.a2app_proxy" in _sys.modules:
+            importlib.reload(_sys.modules["app.living_ui.a2app_proxy"])
+        from app.living_ui.a2app_proxy import ExternalA2AppProxy
+
+        proxy = ExternalA2AppProxy(
+            project_dir,
+            port,
+            internal_port,
+            project.id,
+            project.name,
+            getattr(project, "app_runtime", None),
+        )
+        try:
+            await proxy.start()
+        except Exception as e:
+            self._terminate_process(process)
+            return _fail(
+                "adapter",
+                [f"A2App adapter failed to bind :{port}: {e}"],
+            )
+        self._external_proxies[project.id] = proxy
+        if not await self._a2app_self_check(port):
+            self._external_proxies.pop(project.id, None)
+            try:
+                await proxy.stop()
+            except Exception:
+                pass
+            self._terminate_process(process)
+            return _fail(
+                "adapter",
+                [
+                    f"GET http://127.0.0.1:{port}/api/_a2app did not answer "
+                    "as an A2App surface after launch."
+                ],
+            )
+
         return {"status": "success", "process": process}
+
+    async def _a2app_self_check(self, port: int, timeout: float = 8.0) -> bool:
+        """Probe GET /api/_a2app on the project port until it identifies as
+        an A2App surface (or the timeout passes).
+
+        Probes with urllib in an executor thread — deliberately zero asyncio
+        machinery. The 2026-08-24 chili3d incident: nest_asyncio (Python
+        3.14) left asyncio.current_task() returning None process-wide, which
+        broke `asyncio.timeout` and with it every aiohttp CLIENT request —
+        the original aiohttp probe failed silently for its whole window
+        while the proxy it was probing was healthy. The root cause is now
+        healed by the current_task compat-shim in
+        agent_core/core/impl/action/manager.py (which the proxy's own
+        upstream client also depends on); the sync probe stays as
+        defense-in-depth, and it LOGS its last failure instead of
+        swallowing it — this failure mode was invisible for hours.
+        """
+        import urllib.request
+        import json as _json
+
+        last_error: List[str] = [""]
+
+        def _sync_check() -> bool:
+            try:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/_a2app", method="GET"
+                )
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    if resp.status == 200:
+                        payload = _json.loads(resp.read().decode("utf-8"))
+                        if payload.get("a2app") is True:
+                            return True
+                    last_error[0] = f"HTTP {resp.status}, not an a2app payload"
+            except Exception as e:
+                last_error[0] = f"{type(e).__name__}: {e}"
+            return False
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, _sync_check
+            )
+            if result:
+                return True
+            await asyncio.sleep(0.5)
+        logger.warning(
+            f"[LIVING_UI:A2APP] self-check on :{port} failed for {timeout}s; "
+            f"last error: {last_error[0] or 'none recorded'}"
+        )
+        return False
 
     async def _launch_native(self, project: LivingUIProject) -> dict:
         """Native launch of the REAL project: the shared pipeline plus registry
@@ -1263,9 +1437,7 @@ UI in {project.path}/frontend/src/app/."""
             project.bridge_token = secrets.token_urlsafe(32)
 
         if getattr(project, "project_type", "native") == "external":
-            result = await self._run_external_pipeline(
-                project_path, project.port, project.bridge_token
-            )
+            result = await self._run_external_pipeline(project)
         else:
             result = await self._run_launch_pipeline(
                 project_path, project.port, project.bridge_token
@@ -2220,6 +2392,25 @@ UI in {project.path}/frontend/src/app/."""
         )
         (dest / "logs").mkdir(exist_ok=True)
 
+        # CONTAINMENT: a foreign app's `npm install` may run git-hook
+        # installers (simple-git-hooks, husky) that walk UP to the nearest
+        # .git and write hooks into it. Without a boundary here that nearest
+        # repo is CRAFTBOT'S OWN — chili3d's install wrote `npx lint-staged`
+        # into our pre-commit and blocked every commit (observed live
+        # 2026-08-24). A minimal valid .git dir makes the project itself the
+        # nearest repo, so hook writers land harmlessly inside this
+        # (gitignored) workspace copy. Both tools locate the repo by walking
+        # up for a .git entry; git itself accepts this layout as a repo.
+        git_boundary = dest / ".git"
+        try:
+            (git_boundary / "objects").mkdir(parents=True, exist_ok=True)
+            (git_boundary / "refs").mkdir(exist_ok=True)
+            (git_boundary / "HEAD").write_text(
+                "ref: refs/heads/main\n", encoding="utf-8"
+            )
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] git containment boundary failed: {e}")
+
         # CraftBot's config lives in craftbot.json — NEVER manifest.json,
         # which a foreign app may legitimately own (Chrome extensions, PWAs).
         # Same four pipeline verbs as native manifests (REQUIREMENTS M3/M4);
@@ -2248,6 +2439,18 @@ UI in {project.path}/frontend/src/app/."""
         (dest / "craftbot.json").write_text(
             json.dumps(config, indent=2) + "\n", encoding="utf-8"
         )
+
+        # A2App surface stub (spec docs/design/external-app-a2app-adapter.md):
+        # the adoption mission maps the app's real verbs into this file; an
+        # empty list keeps identity/describe/_ops well-formed until then. A
+        # foreign repo could legitimately own an operations.json of its own —
+        # only write the stub when none exists.
+        ops_file = dest / "operations.json"
+        if not ops_file.exists():
+            ops_file.write_text(
+                '{\n  "opsVersion": 1,\n  "operations": []\n}\n',
+                encoding="utf-8",
+            )
 
         # The adoption SPEC is deterministic and small: the deliverable of an
         # import is the MANIFEST, so verification covers launchability — not
@@ -2302,21 +2505,46 @@ UI in {project.path}/frontend/src/app/."""
                 f"This is a foreign app that must RUN AS-IS in its own runtime "
                 f"(detected: {project.app_runtime or 'unknown'}). Do NOT "
                 f"rebuild it and do NOT edit its code except config needed to "
-                f"bind the assigned port. Your deliverable is the RUN CONFIG, "
-                f"not the app's features — reference/requirements.md already "
-                f"defines the verification scope (launches + main screen "
-                f"renders); do not rewrite it.\n"
+                f"bind the assigned port. Your deliverables are the RUN CONFIG "
+                f"and the A2APP OPERATIONS MAP, not the app's features — "
+                f"reference/requirements.md already defines the verification "
+                f"scope (launches + main screen renders); do not rewrite it.\n"
                 f"1. Understand the app: how it installs, builds, starts and "
                 f"health-checks.\n"
                 f"2. Write the pipeline verbs into {project.path}/craftbot.json "
                 f'("install", "build", "start", "health") — use {{{{PORT}}}} '
-                f"where the port belongs; the app MUST bind "
-                f"127.0.0.1:{project.port}.\n"
-                f"3. Note what the app is in {project.path}/LIVING_UI.md (one "
+                f"where the port belongs. At launch the system substitutes a "
+                f"hidden internal port and serves the A2App adapter on "
+                f"127.0.0.1:{project.port} in front of the app.\n"
+                f"3. Map the app's controllable surface into "
+                f"{project.path}/operations.json (CraftBot's file — a stub "
+                f"exists) so agents can DRIVE the app over A2App. Probe in "
+                f"order: an OpenAPI/Swagger spec shipped in the repo, else "
+                f"route definitions in the code, else the README. Declare the "
+                f"app's PUBLIC verbs with typed params; each op:\n"
+                f'  {{"name": "todos.create", "description": "...", '
+                f'"params": {{"title": {{"type": "string", "required": true}}}}, '
+                f'"executor": {{"type": "http", "method": "POST", '
+                f'"path": "/api/ops/todos/create", '
+                f'"upstream": {{"method": "POST", "path": "/api/todos", '
+                f'"body": {{"title": "{{{{title}}}}"}}}}}}}}\n'
+                f"(executor.path is always /api/ops/<name with dots as "
+                f"slashes>; upstream is the app's OWN endpoint; body template "
+                f"optional when param names already match.) Mark anything "
+                f'that deletes or overwrites data "destructive": true. If the '
+                f"app has NO server API (static site, pure client-side SPA), "
+                f"leave operations empty and say so in LIVING_UI.md — never "
+                f"invent verbs.\n"
+                f"4. Note what the app is in {project.path}/LIVING_UI.md (one "
                 f"short section — the user's reference, not a spec).\n"
-                f'4. living_ui_notify_ready(project_id="{project.id}") — fix '
-                f"any returned errors (evidence lands in logs/app.log) — then "
-                f'living_ui_walk_verify(project_id="{project.id}").\n'
+                f'5. living_ui_notify_ready(project_id="{project.id}") — fix '
+                f"any returned errors (evidence lands in logs/app.log).\n"
+                f'6. living_ui_ops_verify(project_id="{project.id}") — invokes '
+                f"every non-destructive op FOR REAL through the adapter. Fix "
+                f"executor.upstream mappings (or remove ops that cannot work) "
+                f"and re-run until it passes: a mapping that does not work "
+                f"must not ship.\n"
+                f'7. living_ui_walk_verify(project_id="{project.id}").\n'
                 f"The system announces the result — do not send status "
                 f"messages."
             )
@@ -3154,6 +3382,26 @@ UI in {project.path}/frontend/src/app/."""
 
             if status:
                 self.update_project_status(project_id, status)
+                if status == "creating":
+                    # The registry flip alone is invisible to an open
+                    # browser: the frontend only moves a tab to "creating"
+                    # (and shows the construction dock) on a
+                    # living_ui_status broadcast. Without this, an import's
+                    # adoption run left the tab on "Stopped" while the
+                    # agent worked (observed live 2026-08-24, chili3d).
+                    try:
+                        from app.living_ui.broadcast import (
+                            broadcast_living_ui_progress,
+                        )
+
+                        await broadcast_living_ui_progress(
+                            project_id,
+                            "initializing",
+                            5,
+                            "Run started — preparing the app...",
+                        )
+                    except Exception:
+                        pass
 
             from app.triggers import TriggerSource, TriggerSpec
 
@@ -3578,6 +3826,25 @@ UI in {project.path}/frontend/src/app/."""
         if not project:
             logger.error(f"[LIVING_UI] Project not found: {project_id}")
             return False
+
+        # External teardown FIRST: the in-process A2App proxy holds the
+        # project port — a kill-by-port on that listener would be killing
+        # CraftBot itself. Stop the proxy, then free the app's hidden
+        # internal port.
+        proxy = self._external_proxies.pop(project_id, None)
+        if proxy is not None:
+            try:
+                await proxy.stop()
+            except Exception:
+                pass
+        if (
+            getattr(project, "project_type", "native") == "external"
+            and project.internal_port
+        ):
+            if self._is_port_in_use(project.internal_port):
+                self._kill_process_on_port(project.internal_port)
+            self._release_port(project.internal_port)
+            project.internal_port = None
 
         # Stop the app process
         if project.process:

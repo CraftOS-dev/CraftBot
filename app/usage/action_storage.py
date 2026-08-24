@@ -98,10 +98,30 @@ class ActionStorage:
         self._init_db()
         logger.info(f"[ActionStorage] Initialized at {self._db_path}")
 
+    # Columns every query in this module relies on. A table missing any of
+    # them is from an earlier feed generation and cannot be column-patched
+    # (the old layout used different payload columns entirely, e.g.
+    # input_data instead of input_json).
+    _REQUIRED_COLUMNS = frozenset(
+        {
+            "id",
+            "name",
+            "status",
+            "item_type",
+            "session_id",
+            "created_at",
+            "completed_at",
+            "input_json",
+            "output_json",
+            "error_message",
+        }
+    )
+
     def _init_db(self) -> None:
         """Initialize the database schema."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
+            self._retire_incompatible_table(cursor)
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS action_items (
@@ -125,6 +145,29 @@ class ActionStorage:
             """)
 
             conn.commit()
+
+    def _retire_incompatible_table(self, cursor) -> None:
+        """Drop a pre-session_id action_items table so the current schema
+        can be created fresh.
+
+        CREATE TABLE IF NOT EXISTS never migrates an existing table, so a
+        database created by an older build made every query here fail with
+        'no such column: session_id' (observed live 2026-08-24) — the feed
+        silently lost persistence at every boot. The old layout is not
+        column-compatible (input_data vs input_json), and the feed is a
+        disposable UI cache, so the fix is a drop, not a translation.
+        """
+        cols = {
+            row[1] for row in cursor.execute("PRAGMA table_info(action_items)")
+        }
+        if not cols or self._REQUIRED_COLUMNS <= cols:
+            return
+        missing = sorted(self._REQUIRED_COLUMNS - cols)
+        cursor.execute("DROP TABLE action_items")
+        logger.warning(
+            "[ActionStorage] Dropped incompatible action_items table "
+            f"(missing columns: {missing}); a fresh one will be created."
+        )
 
     def save_item(self, item: StoredActionItem) -> None:
         """Upsert an activity item (full row — used for insert and update)."""

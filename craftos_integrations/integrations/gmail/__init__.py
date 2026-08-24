@@ -264,15 +264,24 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         if not cfg.process_incoming:
             return
 
+        # format=full + a fields partial-response mask: returns headers,
+        # snippet, and ONLY the parts skeleton (filename/mimeType/
+        # attachmentId/size — no body data), staying ~1-3KB. Quota cost is
+        # flat regardless of format. Three explicit nesting levels cover
+        # mixed / mixed-inside-signed / one spare; a bare `payload/parts`
+        # selector would pull body.data too — keep the sub-selection.
+        _part_sel = "partId,mimeType,filename,body(attachmentId,size)"
         result = await arequest(
             "GET",
             f"{GMAIL_API_BASE}/users/me/messages/{msg_id}",
             headers=self._auth_header(),
             params=[
-                ("format", "metadata"),
-                ("metadataHeaders", "From"),
-                ("metadataHeaders", "Subject"),
-                ("metadataHeaders", "Date"),
+                ("format", "full"),
+                (
+                    "fields",
+                    "id,threadId,snippet,labelIds,historyId,payload(mimeType,headers,"
+                    f"parts({_part_sel},parts({_part_sel},parts({_part_sel}))))",
+                ),
             ],
             expected=(200,),
         )
@@ -310,6 +319,30 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
 
         text = f"Subject: {subject}\n{snippet}" if snippet else f"Subject: {subject}"
 
+        # Real attachments carry a non-empty filename + attachmentId
+        # (Gmail's own paperclip heuristic); nameless attachmentId parts
+        # are inline images. Same semantics get_email already reports.
+        attachments: list = []
+
+        def _collect(parts: Any) -> None:
+            for p in parts or []:
+                body = p.get("body") or {}
+                if body.get("attachmentId") and p.get("filename"):
+                    att: Dict[str, Any] = {
+                        "kind": "document",
+                        "id": body["attachmentId"],
+                        "name": p["filename"],
+                        "extra": {"message_id": msg_id},
+                    }
+                    if p.get("mimeType"):
+                        att["mime"] = p["mimeType"]
+                    if body.get("size"):
+                        att["size"] = body["size"]
+                    attachments.append(att)
+                _collect(p.get("parts"))
+
+        _collect(msg.get("payload", {}).get("parts"))
+
         if self._message_callback:
             await self._message_callback(
                 PlatformMessage(
@@ -321,6 +354,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                     message_id=msg_id,
                     timestamp=timestamp,
                     raw=msg,
+                    attachments=attachments,
                 )
             )
 
@@ -687,6 +721,72 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             },
         )
 
+    def _fetch_full_message(self, message_id: str) -> Dict[str, Any]:
+        """Full original message for forward composition: all headers, the
+        decoded text/html bodies, and attachment part references.
+
+        ``_fetch_reply_headers`` deliberately stays metadata-only (replies
+        never quote the original); forwarding MUST carry the original
+        content, which is exactly what this fetch provides.
+        """
+        result = http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/messages/{message_id}",
+            headers=self._auth_header(),
+            params={"format": "full"},
+            expected=(200,),
+        )
+        if "error" in result:
+            return {"_error": result["error"]}
+        data = result["result"]
+        out: Dict[str, Any] = {
+            "headers": {
+                h["name"]: h["value"]
+                for h in data.get("payload", {}).get("headers", [])
+            },
+            "_thread_id": data.get("threadId", ""),
+            "text_body": "",
+            "html_body": "",
+            "attachments": [],
+        }
+
+        def _decode(part) -> str:
+            try:
+                return base64.urlsafe_b64decode(
+                    part["body"]["data"].encode("ASCII")
+                ).decode("utf-8", errors="replace")
+            except Exception:
+                return ""
+
+        def _walk(parts):
+            for part in parts:
+                body = part.get("body", {})
+                mime = part.get("mimeType", "")
+                if body.get("attachmentId") and part.get("filename"):
+                    out["attachments"].append(
+                        {
+                            "filename": part.get("filename", ""),
+                            "attachment_id": body["attachmentId"],
+                            "mimeType": mime or "application/octet-stream",
+                        }
+                    )
+                elif mime == "text/plain" and "data" in body and not out["text_body"]:
+                    out["text_body"] = _decode(part)
+                elif mime == "text/html" and "data" in body and not out["html_body"]:
+                    out["html_body"] = _decode(part)
+                if part.get("parts"):
+                    _walk(part["parts"])
+
+        payload = data.get("payload", {})
+        if payload.get("parts"):
+            _walk(payload["parts"])
+        elif "data" in payload.get("body", {}):
+            if payload.get("mimeType") == "text/html":
+                out["html_body"] = _decode(payload)
+            else:
+                out["text_body"] = _decode(payload)
+        return out
+
     def forward_message(
         self,
         message_id: str,
@@ -694,12 +794,13 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         body: str = "",
         attachments: Optional[List[str]] = None,
     ) -> Result:
-        info = self._fetch_reply_headers(message_id)
+        info = self._fetch_full_message(message_id)
         if info.get("_error"):
             return {"error": info["_error"]}
         cred = self._load()
 
-        orig_subject = info.get("Subject", "")
+        hdrs = info["headers"]
+        orig_subject = hdrs.get("Subject", "")
         fwd_subject = (
             orig_subject
             if orig_subject.lower().startswith("fwd:")
@@ -711,7 +812,72 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         msg["to"] = to
         msg["from"] = cred.email
         msg["subject"] = fwd_subject
-        msg.attach(MIMEText(body, "plain"))
+
+        # Quoted original: standard Gmail-style forwarded block after the
+        # (optional) intro text. Prefer the text body; an HTML-only original
+        # is forwarded as HTML so its content isn't lost.
+        fwd_header_lines = [
+            "---------- Forwarded message ----------",
+            f"From: {hdrs.get('From', '')}",
+            f"Date: {hdrs.get('Date', '')}",
+            f"Subject: {orig_subject}",
+            f"To: {hdrs.get('To', '')}",
+        ]
+        if hdrs.get("Cc"):
+            fwd_header_lines.append(f"Cc: {hdrs['Cc']}")
+        if info["text_body"] or not info["html_body"]:
+            text = (
+                (f"{body}\n\n" if body else "")
+                + "\n".join(fwd_header_lines)
+                + f"\n\n{info['text_body']}"
+            )
+            msg.attach(MIMEText(text, "plain"))
+        else:
+            import html as _html
+
+            html_parts = (
+                (f"<p>{_html.escape(body)}</p>" if body else "")
+                + "<div>"
+                + "<br>".join(_html.escape(line) for line in fwd_header_lines)
+                + "</div><br>"
+                + info["html_body"]
+            )
+            msg.attach(MIMEText(html_parts, "html"))
+
+        # Re-attach the original message's attachments (best-effort: a
+        # fetch failure skips that file and is reported in the result).
+        skipped: List[str] = []
+        for att in info["attachments"]:
+            fetched = http_request(
+                "GET",
+                f"{GMAIL_API_BASE}/users/me/messages/{message_id}"
+                f"/attachments/{att['attachment_id']}",
+                headers=self._auth_header(),
+                expected=(200,),
+            )
+            data_b64 = (
+                (fetched.get("result") or {}).get("data", "")
+                if "error" not in fetched
+                else ""
+            )
+            if not data_b64:
+                logger.warning(
+                    f"[GMAIL] forward: could not fetch attachment "
+                    f"'{att['filename']}' — skipped"
+                )
+                skipped.append(att["filename"])
+                continue
+            maintype, _, subtype = (
+                att["mimeType"] or "application/octet-stream"
+            ).partition("/")
+            part = MIMEBase(maintype or "application", subtype or "octet-stream")
+            part.set_payload(base64.urlsafe_b64decode(data_b64.encode("ASCII")))
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                f'attachment; filename="{att["filename"]}"',
+            )
+            msg.attach(part)
 
         if attachments:
             for file_path in attachments:
@@ -746,6 +912,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                 "threadId": d.get("threadId"),
                 "forwarded": message_id,
                 "to": to,
+                **({"skipped_attachments": skipped} if skipped else {}),
             },
         )
 

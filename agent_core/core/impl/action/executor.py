@@ -571,7 +571,9 @@ def _atomic_action_internal(
                 "The action_code string did not define a callable Python function."
             )
 
-        execution_result = function_to_call(input_data)
+        from agent_core.core.impl.action.context import run_with_input_context
+
+        execution_result = run_with_input_context(function_to_call, input_data)
         return execution_result
 
     except Exception as e:
@@ -618,16 +620,29 @@ async def _atomic_action_internal_async(
                 "The action_code string did not define a callable Python function."
             )
 
+        from agent_core.core.impl.action.context import (
+            current_input_data,
+            run_with_input_context,
+        )
+
         # Check if the function is async (coroutine function)
         if inspect.iscoroutinefunction(function_to_call):
             logger.debug(f"[ASYNC] Action '{action_name}' is async, awaiting directly")
-            execution_result = await function_to_call(input_data)
+            ctx_token = current_input_data.set(input_data)
+            try:
+                execution_result = await function_to_call(input_data)
+            finally:
+                current_input_data.reset(ctx_token)
         else:
-            # Sync function - run in thread pool to avoid blocking
+            # Sync function - run in thread pool to avoid blocking. The
+            # worker thread doesn't inherit this context, so the wrapper
+            # sets current_input_data inside the thread.
             logger.debug(
                 f"[SYNC] Action '{action_name}' is sync, running in thread pool"
             )
-            thread_future = THREAD_POOL.submit(function_to_call, input_data)
+            thread_future = THREAD_POOL.submit(
+                run_with_input_context, function_to_call, input_data
+            )
             try:
                 execution_result = await asyncio.wrap_future(thread_future)
             except asyncio.CancelledError:
