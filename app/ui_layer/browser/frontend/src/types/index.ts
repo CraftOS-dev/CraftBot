@@ -36,8 +36,14 @@ export interface ChatMessage {
   errorCode?: string  // Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY")
   errorSeverity?: 'info' | 'warning' | 'error' | 'critical'
   continueWork?: boolean  // True for a mid-run agent progress update (send_message continue_work=true): the run keeps going after this bubble, so it must NOT hide the "Working…" live row
+  isQuestion?: boolean  // True for an agent question with suggested responses: pinned above the composer until optionSelected is set (answer or dismissal)
+  allowFreeText?: boolean  // Question only: whether the pinned box also offers a free-text answer field
   details?: string  // Expandable payload behind a disclosure (e.g. the raw body of an incoming integration message on the "📩 Incoming …" system stub)
 }
+
+// Recorded as optionSelected when the user dismisses a pinned question
+// instead of answering. Mirrors QUESTION_DISMISSED_VALUE on the backend.
+export const QUESTION_DISMISSED = '__dismissed__'
 
 // ─────────────────────────────────────────────────────────────────────
 // Session Types
@@ -151,6 +157,9 @@ export type WSMessageType =
   | 'skill_meta'
   // Option click (interactive buttons in chat)
   | 'option_click'
+  // Pinned agent question (suggested responses): answer/dismiss + broadcast
+  | 'question_response'
+  | 'question_answered'
   // Onboarding
   | 'onboarding_step'
   | 'onboarding_step_get'

@@ -115,6 +115,7 @@ class EventTransformer:
                 "message": message,
                 "session_id": session_id,
                 "continue_work": bool(event.continue_work),
+                "question": event.question,
             },
             timestamp=ts,
             task_id=session_id,

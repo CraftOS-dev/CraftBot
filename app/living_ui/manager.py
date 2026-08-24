@@ -60,8 +60,14 @@ class LivingUIProject:
     # The project's dedicated agent session (persisted — every Living UI
     # project owns one standalone session for its builds, fixes and chat).
     session_id: Optional[str] = None
-    auto_launch: bool = False  # Auto-launch on CraftBot startup
+    auto_launch: bool = True  # Auto-launch on CraftBot startup
     log_cleanup: bool = True  # Clean logs on restart
+    # Backups of live pb_data (spec docs/plans/living-ui-backups-plan.md).
+    # Default ON (D1): the user who never opens settings is the one who
+    # needs a backup. No-ops until a live DB exists; external apps N/A.
+    backups_enabled: bool = True
+    backup_interval: str = "daily"  # hourly | 6h | daily | weekly
+    backup_keep: int = 7  # scheduled-pool retention (1-30)
     style_pack: str = ""  # wizard-chosen default style pack (host may override)
     # Display icon: "lucide:<name>" (picker) or "file:<relpath>" (uploaded,
     # doubles as the app's favicon).
@@ -100,6 +106,9 @@ class LivingUIProject:
             "sessionId": self.session_id,
             "autoLaunch": self.auto_launch,
             "logCleanup": self.log_cleanup,
+            "backupsEnabled": self.backups_enabled,
+            "backupInterval": self.backup_interval,
+            "backupKeep": self.backup_keep,
             "stylePack": self.style_pack,
             "icon": self.icon,
             "uiTheme": self.ui_theme,
@@ -147,11 +156,36 @@ class LivingUIManager:
 
         self.runner = LivingUIRunner(Path(PROJECT_ROOT) / "living-ui")
 
-        # Staging copies of delivered apps (modify-era data safety). Composed
-        # like runner: the supervisor never reaches back into the manager.
-        from app.living_ui.staging import StagingSupervisor
+        # Unified dev/live lifecycle: every code change (first build or
+        # modify) develops and verifies in a DEV environment (code copy +
+        # fresh schema-only DB on a hidden port); a clean verify PROMOTES it
+        # to live. Composed like runner: the lifecycle never reaches back
+        # into the manager beyond the two callables injected here.
+        from app.living_ui.lifecycle import AppLifecycle
 
-        self.staging = StagingSupervisor(self.living_ui_dir, self.runner)
+        self.lifecycle = AppLifecycle(
+            self.living_ui_dir,
+            self.runner,
+            self._run_launch_pipeline,
+            self.launch_and_verify,
+        )
+
+        # Backups of live pb_data (spec docs/plans/living-ui-backups-plan.md).
+        # Composed like the lifecycle: the service never reaches back. The
+        # watchdog drives the schedule; ONE lock serializes captures; the
+        # in-flight set keeps the scheduler out of promotes/restores (and
+        # vice versa).
+        from app.living_ui.lifecycle import BackupService
+
+        self.backups = BackupService(self.living_ui_dir)
+        self._backup_lock = asyncio.Lock()
+        self._live_ops: set = set()  # project ids mid-promote/mid-restore
+        self._backups_inflight: set = set()  # ids with a capture task queued/running
+        # Pre-promote backup (lifecycle plan deferred issue #1): snapshot the
+        # live pb_data right before every promote boot over existing data.
+        # Sync hook by contract; a raising capture ABORTS the promote — never
+        # deploy over data we just failed to protect.
+        self.lifecycle.promoter.add_before_live_boot_hook(self._pre_promote_backup)
 
         # Load existing projects
         self._load_projects()
@@ -240,6 +274,11 @@ class LivingUIManager:
     WATCHDOG_INTERVAL = 30  # seconds between checks
     WATCHDOG_RETRY_DELAYS = [5, 15, 30]  # seconds to wait between restart attempts
 
+    # Max projects auto-launched at once on startup. Each launch spawns a
+    # PocketBase boot + a headless verify browser, so this caps the boot
+    # storm's peak load while still overlapping the waits.
+    AUTO_LAUNCH_CONCURRENCY = 3
+
     def start_watchdog(self) -> None:
         """Start the background watchdog that monitors running projects."""
         if self._watchdog_running:
@@ -284,6 +323,17 @@ class LivingUIManager:
                 await asyncio.sleep(self.WATCHDOG_INTERVAL)
 
                 for project_id, project in list(self.projects.items()):
+                    # Backups are due-checked for EVERY project, before the
+                    # running gate — a stopped app with a live DB still backs
+                    # up (via the stopped capture path).
+                    try:
+                        self._maybe_schedule_backup(project)
+                    except Exception as e:
+                        logger.warning(
+                            f"[LIVING_UI:BACKUP] schedule check failed for "
+                            f"{project_id}: {e}"
+                        )
+
                     if project.status != "running":
                         # Clear retry count if project is no longer running
                         retry_counts.pop(project_id, None)
@@ -376,12 +426,143 @@ class LivingUIManager:
                                 "[LIVING_UI:WATCHDOG] Restart succeeded but "
                                 "state could not be persisted"
                             )
+                        # The iframe was pointing at a dead port until now;
+                        # tell open tabs to repoint at the revived process.
+                        await self._broadcast_ready(project)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"[LIVING_UI:WATCHDOG] Unexpected error: {e}")
                 await asyncio.sleep(self.WATCHDOG_INTERVAL)
+
+    # ========================================================================
+    # Backups (spec docs/plans/living-ui-backups-plan.md)
+    # ========================================================================
+
+    _BACKUP_INTERVALS = {
+        "hourly": 3600,
+        "6h": 6 * 3600,
+        "daily": 86400,
+        "weekly": 7 * 86400,
+    }
+
+    def _maybe_schedule_backup(self, project) -> None:
+        """Watchdog tick: start a due scheduled backup as a background task.
+        Sync and cheap — one sidecar read past the structural gates."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+
+        if (
+            not project.backups_enabled
+            or getattr(project, "project_type", "native") == "external"
+            or project.id in self._live_ops
+            or project.id in self._backups_inflight
+            or not live_db_exists(project.path)
+        ):
+            return
+        state = get_factory_host().backup_state(project.id)
+        interval = self._BACKUP_INTERVALS.get(project.backup_interval, 86400)
+        # Absent last_at -> due now: first-enable AND catch-up after a
+        # restart/overdue sleep both fall out of the same rule.
+        if state["last_at"] is not None and time.time() - state["last_at"] < interval:
+            return
+        self._backups_inflight.add(project.id)
+        asyncio.create_task(self._run_scheduled_backup(project))
+
+    async def _run_scheduled_backup(self, project) -> None:
+        """One scheduled capture + prune + sidecar record. Failure never
+        touches the app (FR10): log, record, retry at the next due tick."""
+        from app.factory.host_craftbot import get_factory_host
+
+        host = get_factory_host()
+        try:
+            async with self._backup_lock:  # serialize captures globally (NFR)
+                if project.id in self._live_ops:
+                    return  # promote/restore began while queued — next tick
+                entry = await self._capture_auto(project, "scheduled")
+            self.backups.store.prune(project.id, "scheduled", project.backup_keep)
+            host.record_backup_ok(project.id, entry.ts)
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:BACKUP] scheduled backup failed for {project.id}: {e}"
+            )
+            try:
+                host.record_backup_error(project.id, str(e))
+            except Exception:
+                pass
+        finally:
+            self._backups_inflight.discard(project.id)
+
+    async def _capture_auto(self, project, trigger: str):
+        """Running app → PB's atomic backup API; stopped → snapshot path
+        (off-loop — sqlite backup + zip can take seconds)."""
+        if project.status == "running" and project.port:
+            return await self.backups.capture_running(project, trigger)
+        return await asyncio.to_thread(self.backups.capture_stopped, project, trigger)
+
+    async def backup_now(self, project_id: str) -> dict:
+        """User-driven manual backup (FR8). Manual-pool: never auto-pruned."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+
+        project = self.projects.get(project_id)
+        if not project:
+            return {"status": "error", "errors": [f"Unknown project: {project_id}"]}
+        if getattr(project, "project_type", "native") == "external":
+            return {"status": "error", "errors": ["External apps have no pb_data."]}
+        if not live_db_exists(project.path):
+            return {
+                "status": "error",
+                "errors": ["No live database yet — nothing to back up."],
+            }
+        if project_id in self._live_ops:
+            return {
+                "status": "error",
+                "errors": ["A promote/restore is in flight — retry shortly."],
+            }
+        host = get_factory_host()
+        try:
+            async with self._backup_lock:
+                entry = await self._capture_auto(project, "manual")
+            host.record_backup_ok(project_id, entry.ts)
+            return {
+                "status": "success",
+                "filename": entry.filename,
+                "size": entry.size,
+            }
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:BACKUP] manual backup failed for {project_id}: {e}"
+            )
+            try:
+                host.record_backup_error(project_id, str(e))
+            except Exception:
+                pass
+            return {"status": "error", "errors": [str(e)]}
+
+    def _pre_promote_backup(self, project) -> None:
+        """before_live_boot hook (lifecycle deferred issue #1): snapshot live
+        pb_data right before the promote boot. First deliveries (no live DB)
+        and externals (no pb/) no-op. RAISES on failure — the promoter
+        aborts, by contract: never deploy over data we failed to protect."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+        from app.living_ui.lifecycle.backups import PRE_PROMOTE_KEEP
+
+        if getattr(project, "project_type", "native") == "external":
+            return
+        if not live_db_exists(project.path):
+            return
+        entry = self.backups.capture_stopped(project, "pre_promote")
+        self.backups.store.prune(project.id, "pre_promote", PRE_PROMOTE_KEEP)
+        try:
+            # A fresh capture is a fresh capture: reset the scheduled clock
+            # so promote-heavy days don't also stack near-identical
+            # scheduled archives minutes later.
+            get_factory_host().record_backup_ok(project.id, entry.ts)
+        except Exception:
+            pass
 
     async def _escalate_crash(self, project_id: str, crash_targets: List[str]) -> None:
         """
@@ -548,8 +729,11 @@ UI in {project.path}/frontend/src/app/."""
                             features=project_data.get("features", []),
                             theme=project_data.get("theme", "system"),
                             session_id=project_data.get("sessionId"),
-                            auto_launch=project_data.get("autoLaunch", False),
+                            auto_launch=project_data.get("autoLaunch", True),
                             log_cleanup=project_data.get("logCleanup", True),
+                            backups_enabled=project_data.get("backupsEnabled", True),
+                            backup_interval=project_data.get("backupInterval", "daily"),
+                            backup_keep=project_data.get("backupKeep", 7),
                             style_pack=project_data.get("stylePack", ""),
                             icon=project_data.get("icon"),
                             ui_theme=project_data.get("uiTheme"),
@@ -803,10 +987,10 @@ UI in {project.path}/frontend/src/app/."""
         install → validation gate → serve → health → hook-load scan → smoke.
 
         Registry-free on purpose: `_launch_native` runs it on the real project
-        and adds status/persistence around it; `launch_staging` runs the SAME
-        pipeline on a staging copy — one definition means fix missions get
-        identical evidence quality (boot-log excerpts, hook-load failures)
-        in both eras.
+        and adds status/persistence around it; the lifecycle's `open_dev`
+        runs the SAME pipeline on a dev copy — one definition means fix
+        missions get identical evidence quality (boot-log excerpts,
+        hook-load failures) in both environments.
 
         Returns {"status": "success", "process": Popen} — caller owns the
         process — or {"status": "error", "step": ..., "errors": [...]}.
@@ -1058,7 +1242,7 @@ UI in {project.path}/frontend/src/app/."""
 
     async def _launch_native(self, project: LivingUIProject) -> dict:
         """Native launch of the REAL project: the shared pipeline plus registry
-        state (status, url, persistence) and the pristine-baseline hook.
+        state (status, url, persistence).
 
         One PocketBase process serves both the API and the built frontend
         (living-ui spec D5); errors come back machine-readable so the
@@ -1100,28 +1284,14 @@ UI in {project.path}/frontend/src/app/."""
         project.error = None
         self._save_projects()
 
-        # Pristine-baseline snapshot: taken ONCE, at the first successful
-        # launch of a never-delivered app — before the agent or verifier has
-        # created any test records. finalize_first_delivery() restores it
-        # right before the delivery announce so the user's first sight of the
-        # app is junk-free. Best-effort by design: a failed snapshot must
-        # never block a launch (worst case the app delivers with test data,
-        # which is today's behavior).
-        try:
-            from app.factory.host_craftbot import get_factory_host
-            from app.living_ui.pb_data_io import snapshot_pb_data
-
-            baseline = project_path / ".snapshots" / "baseline"
-            if (
-                getattr(project, "project_type", "native") != "external"
-                and not baseline.exists()
-                and not get_factory_host().is_delivered(project.id)
-            ):
-                snapshot_pb_data(
-                    project_path / "pb" / "pb_data", baseline, self.living_ui_dir
-                )
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] baseline snapshot skipped: {e}")
+        # Tell already-connected browser clients this app is live. Every launch
+        # routes through here, so this is the ONE place that covers the paths
+        # that don't broadcast themselves — startup auto-launch and restore.
+        # Without it those flip a project to running silently and an open page
+        # keeps spinning until a manual refresh re-fetches the list. The action
+        # path (manual UI launch) also emits its own living_ui_launch reply;
+        # both markReady/markRunning are idempotent, so the overlap is benign.
+        await self._broadcast_ready(project)
 
         logger.info(f"[LIVING_UI] {project.name} running at {project.url}")
         return {
@@ -1131,231 +1301,238 @@ UI in {project.path}/frontend/src/app/."""
             "port": project.port,
         }
 
-    async def finalize_first_delivery(self, project_id: str) -> dict:
-        """Restore the pristine pb_data baseline and relaunch, so the app the
-        user is about to be handed contains no agent/verifier test records.
+    async def _broadcast_ready(self, project: LivingUIProject) -> None:
+        """Push a living_ui_ready event so open browser tabs clear the launch
+        spinner and pick up the URL. Fail-silent: a broadcast problem must
+        never fail an otherwise-successful launch."""
+        try:
+            from app.living_ui.broadcast import broadcast_living_ui_ready
 
-        Called from walk_verify's clean branch, on a never-delivered app,
-        AFTER the verifier passed against the live (junk-filled) DB and
-        BEFORE the delivery announce. Migration files written during the
-        build re-apply on the restored DB at boot (they are absent from its
-        _migrations table), so the delivered schema is current — the gate
-        proves the full migration chain replays cleanly on every validate.
+            await broadcast_living_ui_ready(project.id, project.url, project.port)
+        except Exception as e:
+            logger.debug(
+                f"[LIVING_UI] ready broadcast skipped for {project.id}: {e}"
+            )
 
-        A missing baseline (legacy project, snapshot failure at first launch)
-        is NOT an error: we skip the restore and deliver as today, never
-        guess-wipe. Returns {"status": "success"} or an error dict in the
-        _launch_native envelope.
-        """
+    async def open_dev(self, project_id: str) -> dict:
+        """Boot the DEV environment for a code change (first build or
+        modify): the project's current code on a hidden port with a fresh
+        schema-only DB. See lifecycle.AppLifecycle.open_dev."""
         project = self.projects.get(project_id)
         if not project:
             return {
                 "status": "error",
-                "step": "finalize",
+                "step": "dev",
                 "errors": [f"Unknown project: {project_id}"],
             }
-        project_path = Path(project.path)
-        baseline = project_path / ".snapshots" / "baseline"
-        if not (baseline / "data.db").exists():
-            logger.info(
-                f"[LIVING_UI] no baseline for {project_id} — delivering without restore"
-            )
-            return {"status": "success", "restored": False}
+        return await self.lifecycle.open_dev(project)
 
-        from app.living_ui.pb_data_io import restore_pb_data
-
-        # Stop the server before touching pb_data (a live writer during the
-        # restore corrupts both sides). Don't flip status mid-sequence — the
-        # watchdog restarts anything still marked "running" with a dead port,
-        # and a half-finalized app must not be relaunched under our feet.
-        project.status = "stopped"
-        if project.process:
-            self._terminate_process(project.process)
-            project.process = None
-        if project.port and self._is_port_in_use(project.port):
-            self._kill_process_on_port(project.port)
-
+    async def promote(self, project_id: str) -> dict:
+        """Deploy verified code to the live environment and destroy the dev
+        copy. See lifecycle.Promoter.promote."""
+        project = self.projects.get(project_id)
+        if not project:
+            return {
+                "status": "error",
+                "step": "promote",
+                "errors": [f"Unknown project: {project_id}"],
+            }
+        # Visible to the backup scheduler: no scheduled capture may start
+        # mid-promote (the pre-promote hook is the sanctioned one).
+        self._live_ops.add(project_id)
         try:
-            restore_pb_data(
-                baseline, project_path / "pb" / "pb_data", self.living_ui_dir
-            )
-        except Exception as e:
-            # pb_data may now be gone/partial — a plain start would boot an
-            # empty DB. Fall through to the full pipeline, which re-applies
-            # migrations and re-verifies before anyone is told "ready".
-            logger.error(f"[LIVING_UI] baseline restore failed: {e}")
-            return await self._launch_native(project)
+            return await self.lifecycle.promote(project)
+        finally:
+            self._live_ops.discard(project_id)
 
-        try:
-            project.process = await self.runner.start(
-                project_path, project.port, bridge_token=project.bridge_token
-            )
-            if not await self.runner.wait_healthy(project.port):
-                raise RuntimeError(f"/api/health not responding on :{project.port}")
-        except Exception as e:
-            logger.warning(
-                f"[LIVING_UI] slim relaunch after restore failed ({e}) — "
-                "falling back to the full pipeline"
-            )
-            return await self._launch_native(project)
+    async def restore_backup(
+        self,
+        project_id: str,
+        filename: str,
+        source_project_id: Optional[str] = None,
+    ) -> dict:
+        """User-initiated restore of a pb_data backup (FR9) — the SECOND
+        sanctioned live-write path (the first is migration replay during
+        promote; see lifecycle/__init__). Made reversible rather than
+        friction-guarded: the current live state is captured first, so a
+        wrong restore is undone by restoring THAT archive.
 
-        project.status = "running"
-        project.url = f"http://127.0.0.1:{project.port}"
-        project.backend_url = project.url
-        project.error = None
-        self._save_projects()
-        # The user's tab may still render the verifier's test records from
-        # before the restore (realtime keeps old rows painted through a
-        # server restart) — tell the frontend to refetch so the first thing
-        # the user sees is the pristine state.
-        try:
-            from app.living_ui.broadcast import dispatch_living_ui_data_changed
+        `source_project_id` lets the archive come from ANOTHER project's
+        backup dir — the leftover backups of a deleted app, restored into a
+        (usually rebuilt) live one. The safety story is unchanged: the
+        target's state is captured first, and the relaunch is the honest
+        probe of whether the foreign data fits the app.
 
-            dispatch_living_ui_data_changed(project_id)
-        except Exception:
-            pass
-        # Trigger consent: a supervised build that delivered is first-party —
-        # approve its declared triggers (mirror of finalize_modify's grant).
-        try:
-            from app.factory.host_craftbot import get_factory_host
-
-            get_factory_host().set_triggers_approved(project_id)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] trigger approval on delivery failed: {e}")
-        logger.info(f"[LIVING_UI] {project_id} finalized for first delivery")
-        return {"status": "success", "restored": True}
-
-    async def launch_staging(self, project_id: str) -> dict:
-        """Gate + boot the STAGING copy of a delivered app (creating or
-        refreshing it first). The real app is not rebuilt, restarted or
-        written to — it keeps serving the old working code while the change
-        is developed and verified in the copy.
-
-        Same result envelope as _launch_native, plus url/port of the staging
-        instance on success.
+        stop → pre-restore capture (abort if it fails: never destroy state
+        we failed to save) → replace pb_data → full-pipeline relaunch
+        (migrations newer than the archive re-apply at boot) → refetch
+        broadcast. Never agent-invocable — settings surface only.
         """
-        from app.factory.host_craftbot import get_factory_host
-        from app.living_ui.staging import StagingInstance
+        from app.living_ui.pb_data_io import restore_pb_data
 
         project = self.projects.get(project_id)
         if not project:
             return {
                 "status": "error",
-                "step": "staging",
+                "step": "restore",
                 "errors": [f"Unknown project: {project_id}"],
             }
         if getattr(project, "project_type", "native") == "external":
-            # Staging is pb/-shaped; an external app has no clonable DB or
-            # gate. Changes to externals run live (EXTERNAL-APPS-PLAN v1).
             return {
                 "status": "error",
-                "step": "staging",
-                "errors": [
-                    "External apps have no staging mode — relaunch live via "
-                    "living_ui_notify_ready (changes apply directly)."
-                ],
+                "step": "restore",
+                "errors": ["External apps have no pb_data backups."],
             }
-
-        host = get_factory_host()
-        record = host.get_staging_record(project_id)
+        source_id = source_project_id or project_id
         try:
-            if (
-                record
-                and Path(record.get("dir", "")).joinpath("manifest.json").exists()
-            ):
-                instance = StagingInstance.from_record(project_id, record)
-                self.staging.sync_code(project, instance.dir)
-            else:
-                instance = await self.staging.create_copy(project)
-        except Exception as e:
-            # Never fall back to gating/serving the real project dir — that
-            # is exactly the live-UI blanking this mode exists to prevent.
+            available = self.backups.store.list_backups(source_id)
+        except ValueError as e:
+            return {"status": "error", "step": "restore", "errors": [str(e)]}
+        entry = next((e for e in available if e.filename == filename), None)
+        if entry is None:
             return {
                 "status": "error",
-                "step": "staging",
-                "errors": [f"Could not prepare the staging copy: {e}"],
+                "step": "restore",
+                "errors": [f"No such backup: {filename}"],
+            }
+        if project_id in self._live_ops:
+            return {
+                "status": "error",
+                "step": "restore",
+                "errors": ["Another promote/restore is in flight — retry shortly."],
             }
 
-        # Reuse (never overwrite) the project's bridge token: the live app's
-        # running process carries it in its env, and validate_bridge_token
-        # checks the current in-memory value — re-minting would cut the live
-        # app off from the bridge mid-modify.
-        if not project.bridge_token:
-            project.bridge_token = secrets.token_urlsafe(32)
-
-        # Record BEFORE booting: a pipeline failure must still leave the
-        # record in place so living_ui_http redirects there and the next
-        # notify_ready reuses the copy instead of re-cloning.
-        host.set_staging_record(project_id, instance.to_record())
-
-        result = await self._run_launch_pipeline(
-            instance.dir, instance.port, project.bridge_token
-        )
-        if result["status"] != "success":
-            return result
-
-        self.staging.adopt_process(instance, result.pop("process"))
-        host.set_staging_record(project_id, instance.to_record())
-
-        # A modify is now demonstrably in progress (staging is up) — re-arm
-        # the factory machine so the modify gets the same supervision as a
-        # build: fix missions on defects, caps, machine announcements
-        # (LIFECYCLE-PLAN Phase 2). Deterministic here, never agent-driven;
-        # no-ops when a modify/fix arc is already in flight.
+        self._live_ops.add(project_id)
         try:
-            host.begin_modify(project_id)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI:STAGING] begin_modify failed: {e}")
+            was_running = project.status == "running"
+            await self.stop_project(project_id)
 
-        logger.info(f"[LIVING_UI:STAGING] {project_id} staging up at {instance.url}")
-        return {
-            "status": "success",
-            "url": instance.url,
-            "backend_url": instance.url,
-            "port": instance.port,
-            "staging": True,
-        }
+            # FR9 2a — the abort-on-failure safety net. Its own pool: each
+            # restore's undo point, pruned to a constant like pre_promote.
+            try:
+                from app.living_ui.lifecycle.backups import PRE_RESTORE_KEEP
 
-    async def finalize_modify(self, project_id: str) -> dict:
-        """The flip, after a clean staging verify: relaunch the REAL project
-        (the gate rebuilds its pb_public; new migration files apply to the
-        real pb_data at boot — user data stays in place), then destroy the
-        staging copy and every test record with it.
+                pre = await asyncio.to_thread(
+                    self.backups.capture_stopped, project, "pre_restore"
+                )
+                self.backups.store.prune(project_id, "pre_restore", PRE_RESTORE_KEEP)
+                try:
+                    from app.factory.host_craftbot import get_factory_host
 
-        On failure the staging copy and its record are KEPT — the real app
-        is the casualty being repaired, and the next fix iteration needs the
-        copy.
-        """
-        from app.factory.host_craftbot import get_factory_host
+                    get_factory_host().record_backup_ok(project_id, pre.ts)
+                except Exception:
+                    pass
+            except Exception as e:
+                result = await self.launch_and_verify(project_id) if was_running else {}
+                return {
+                    "status": "error",
+                    "step": "pre_restore_backup",
+                    "errors": [
+                        f"Could not back up the CURRENT state ({e}) — restore "
+                        "aborted, nothing was changed."
+                        + (
+                            ""
+                            if result.get("status") in ("success", None)
+                            else " Relaunch of the untouched app also failed."
+                        )
+                    ],
+                }
 
-        result = await self.launch_and_verify(project_id)
-        if result["status"] != "success":
-            return result
+            restore_error = None
+            try:
+                snapshot = await asyncio.to_thread(self.backups.prepare_restore, entry)
+                await asyncio.to_thread(
+                    restore_pb_data,
+                    snapshot,
+                    Path(project.path) / "pb" / "pb_data",
+                    self.living_ui_dir,
+                )
+            except Exception as e:
+                restore_error = str(e)
+            finally:
+                self.backups.cleanup_restore(entry)
 
-        host = get_factory_host()
-        try:
-            self.staging.destroy(project_id, host.get_staging_record(project_id))
+            async def _rollback() -> Optional[str]:
+                """Put the pre-restore capture back and reboot. None on
+                success, error text on failure."""
+                try:
+                    snap = await asyncio.to_thread(self.backups.prepare_restore, pre)
+                    try:
+                        await asyncio.to_thread(
+                            restore_pb_data,
+                            snap,
+                            Path(project.path) / "pb" / "pb_data",
+                            self.living_ui_dir,
+                        )
+                    finally:
+                        self.backups.cleanup_restore(pre)
+                    rb = await self.launch_and_verify(project_id)
+                    if rb.get("status") != "success":
+                        return "; ".join(rb.get("errors", ["relaunch failed"])[:3])
+                    return None
+                except Exception as e:
+                    return str(e)
+
+            # Relaunch through the full pipeline either way: on success the
+            # restored DB boots (newer migrations re-apply); on failure
+            # pb_data may be partial and the gate/boot is the honest probe —
+            # the deliberate policy for archives of ANOTHER (deleted) app or
+            # of an app whose schema has since moved on: try it if it can
+            # work, and when it can't, fail CLEAN by rolling the app back to
+            # the state captured moments ago.
+            result = await self.launch_and_verify(project_id)
+            if restore_error is not None or result.get("status") != "success":
+                failure = (
+                    f"Restore failed: {restore_error}"
+                    if restore_error is not None
+                    else "The app failed to relaunch on the restored data "
+                    "(likely an incompatible backup)"
+                )
+                rollback_error = await _rollback()
+                if rollback_error is None:
+                    return {
+                        "status": "error",
+                        "step": "restore",
+                        "errors": [
+                            f"{failure}. The app was rolled back to its "
+                            "pre-restore state — nothing was lost.",
+                            *result.get("errors", [])[:5],
+                        ],
+                    }
+                return {
+                    "status": "error",
+                    "step": "relaunch",
+                    "errors": [
+                        f"{failure}. Automatic rollback also failed "
+                        f"({rollback_error}) — the pre-restore state is "
+                        f"kept as {pre.filename}; restore it to recover.",
+                        *result.get("errors", [])[:5],
+                    ],
+                }
+
+            # Open tabs still paint pre-restore rows through the restart.
+            try:
+                from app.living_ui.broadcast import dispatch_living_ui_data_changed
+
+                dispatch_living_ui_data_changed(project_id)
+            except Exception:
+                pass
+            logger.info(
+                f"[LIVING_UI:BACKUP] {project_id} restored from {filename}"
+                + (
+                    f" (backup of deleted app {source_id})"
+                    if source_id != project_id
+                    else ""
+                )
+            )
+            return {
+                "status": "success",
+                "restored": filename,
+                "pre_restore_backup": pre.filename,
+                "url": result.get("url"),
+            }
         finally:
-            host.clear_staging_record(project_id)
-        # Trigger consent (spec TRIGGERS-PLAN): a supervised modify that
-        # delivered is first-party work the user asked for in chat — approve
-        # its declared triggers. This is also how apps built BEFORE the
-        # consent feature get approved (observed live 2026-08-06: a kanban
-        # board gained a user-requested trigger via modify and every fire
-        # was then consent-blocked, silently).
-        try:
-            host.set_triggers_approved(project_id)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] trigger approval on flip failed: {e}")
-        # A tab still showing the pre-flip app must refetch (same stale-view
-        # hazard as finalize_first_delivery's baseline restore).
-        try:
-            from app.living_ui.broadcast import dispatch_living_ui_data_changed
-
-            dispatch_living_ui_data_changed(project_id)
-        except Exception:
-            pass
-        return result
+            self._live_ops.discard(project_id)
 
     async def launch_and_verify(self, project_id: str) -> dict:
         """
@@ -1728,15 +1905,17 @@ UI in {project.path}/frontend/src/app/."""
         if killed_count > 0:
             logger.info(f"[LIVING_UI] Killed {killed_count} orphan process(es)")
 
-        # 2. Clean up orphan project folders
-        orphan_count = self._cleanup_orphan_folders()
+        # 2. Log orphan project folders (do NOT delete — deleting them at boot
+        # has destroyed real user projects; logging is the safe behavior).
+        orphan_count = self._log_orphan_folders()
         if orphan_count > 0:
-            logger.info(f"[LIVING_UI] Removed {orphan_count} orphan folder(s)")
+            logger.info(f"[LIVING_UI] Found {orphan_count} orphan folder(s) (left in place)")
 
-        # 2b. Reap staging copies. None is legitimately alive at boot (their
-        # modify missions died with the previous process), but their
-        # PocketBase instances outlive us — kill by recorded pid, delete the
-        # copies, clear the records so nothing redirects to a dead port.
+        # 2b. Reap dev environments. None is legitimately alive at boot
+        # (their build/modify missions died with the previous process), but
+        # their PocketBase instances outlive us — kill by recorded pid,
+        # delete the copies, clear the records so nothing redirects to a
+        # dead port.
         try:
             from app.factory.host_craftbot import get_factory_host
 
@@ -1746,13 +1925,13 @@ UI in {project.path}/frontend/src/app/."""
                 record = host.get_staging_record(pid_)
                 if record:
                     records[pid_] = record
-            reaped = self.staging.reap_all(records)
+            reaped = self.lifecycle.reap_dev(records)
             for pid_ in records:
                 host.clear_staging_record(pid_)
             if reaped:
-                logger.info(f"[LIVING_UI] Reaped {reaped} staging leftover(s)")
+                logger.info(f"[LIVING_UI] Reaped {reaped} dev-env leftover(s)")
         except Exception as e:
-            logger.warning(f"[LIVING_UI] staging reap failed: {e}")
+            logger.warning(f"[LIVING_UI] dev-env reap failed: {e}")
 
         # 3. Reset all project statuses to 'stopped' and clear process references
         for project in self.projects.values():
@@ -1765,12 +1944,16 @@ UI in {project.path}/frontend/src/app/."""
 
         logger.info("[LIVING_UI] Startup cleanup complete")
 
-    def _cleanup_orphan_folders(self) -> int:
+    def _log_orphan_folders(self) -> int:
         """
-        Delete project folders that are not tracked in the registry.
+        Log project folders that are not tracked in the registry.
+
+        Orphan folders are deliberately NOT deleted: deleting them at boot has
+        destroyed real user projects. We only surface them so they can be
+        recovered or removed manually.
 
         Returns:
-            Number of orphan folders deleted
+            Number of orphan folders found
         """
         if not self.living_ui_dir.exists():
             return 0
@@ -1778,25 +1961,22 @@ UI in {project.path}/frontend/src/app/."""
         tracked_paths = {Path(p.path) for p in self.projects.values()}
         orphan_count = 0
 
-        # _staging is workspace infrastructure, not an orphan project: the
-        # wizard stages reference files under it (with its own age-based
-        # sweeper) and StagingSupervisor keeps modify-era app copies there
-        # (reaped deliberately — kill recorded pid, then delete — by
-        # reap_orphans(), not by this blind rmtree).
-        skip_names = {"_staging"}
+        # _staging and _backups are workspace infrastructure, not orphan
+        # projects: the wizard stages reference files under _staging (with
+        # its own age-based sweeper) and DevProvisioner keeps dev-env app
+        # copies there. _backups holds pb_data archives that must OUTLIVE
+        # their project. Skip both so they never show up as orphans.
+        skip_names = {"_staging", "_backups"}
 
         for folder in self.living_ui_dir.iterdir():
             if folder.name in skip_names:
                 continue
             if folder.is_dir() and folder not in tracked_paths:
-                try:
-                    shutil.rmtree(folder)
-                    logger.info(f"[LIVING_UI] Deleted orphan folder: {folder.name}")
-                    orphan_count += 1
-                except Exception as e:
-                    logger.warning(
-                        f"[LIVING_UI] Failed to delete orphan folder {folder}: {e}"
-                    )
+                logger.warning(
+                    f"[LIVING_UI] Orphan folder (not tracked in registry, left "
+                    f"in place): {folder.name}"
+                )
+                orphan_count += 1
 
         return orphan_count
 
@@ -1880,9 +2060,10 @@ UI in {project.path}/frontend/src/app/."""
     def _register_acquired(self, project: LivingUIProject, *, delivered: bool) -> None:
         """Every entry point (scaffold / marketplace / import) lands here
         after its starting state is on disk (LIFECYCLE-PLAN Phase 3):
-        registry + persistence + session, and — for sources that arrive as
-        finished apps — the delivered flag that keys every later data-safety
-        mode (staging verifies, no baseline restore)."""
+        registry + persistence + session. `delivered` means the app ARRIVED
+        finished (marketplace/import): its delivery timestamp is stamped and
+        trigger consent stays fail-closed. Data safety no longer keys on it
+        — that's structural (lifecycle.live_db_exists)."""
         # Provenance: which CraftBot acquired this project (the manifest's
         # craftbotVersion separately records the original creator's version).
         if not project.craftbot_version:
@@ -1904,10 +2085,10 @@ UI in {project.path}/frontend/src/app/."""
             try:
                 from app.factory.host_craftbot import get_factory_host
 
-                get_factory_host().mark_delivered(project.id)
+                get_factory_host().stamp_delivered(project.id)
             except Exception as e:
                 logger.warning(
-                    f"[LIVING_UI] mark_delivered failed for {project.id}: {e}"
+                    f"[LIVING_UI] stamp_delivered failed for {project.id}: {e}"
                 )
         else:
             # Trigger-plane consent (spec TRIGGERS-PLAN): apps BUILT here are
@@ -2434,8 +2615,8 @@ UI in {project.path}/frontend/src/app/."""
         # Runtime junk never imports; node_modules is skipped because a
         # foreign machine's install may not run here — the launch pipeline's
         # install step rebuilds it from package.json. .factory/.snapshots are
-        # the DONOR's lifecycle state (machine history, delivered flag,
-        # baseline) — a fresh identity must start a fresh lifecycle.
+        # the DONOR's lifecycle state (machine history, delivery stamp,
+        # legacy baseline) — a fresh identity must start a fresh lifecycle.
         shutil.copytree(
             src,
             dest,
@@ -2503,8 +2684,9 @@ UI in {project.path}/frontend/src/app/."""
             status="stopped",
             port=port,
         )
-        # Delivered on arrival: an imported app may carry real data — later
-        # gates/verifies run in staging mode, never a baseline restore.
+        # Delivered on arrival: an imported app may carry real data. Its
+        # first boot creates/keeps its live pb_data, so later code changes
+        # run as modify arcs (dev env + promote) structurally.
         self._register_acquired(project, delivered=True)
 
         logger.info(f"[LIVING_UI] Imported project: {display} ({project_id})")
@@ -2835,9 +3017,9 @@ UI in {project.path}/frontend/src/app/."""
                 project.auto_launch = existing.auto_launch
 
             # Delivered on arrival (may ship with real data, never
-            # walk-verified): marked BEFORE the launch so the success path
-            # doesn't snapshot their pb_data as a "pristine" baseline and
-            # later verifies run in staging mode.
+            # walk-verified). The launch below creates its live pb_data, so
+            # later code changes run as modify arcs (dev env + promote)
+            # structurally.
             self._register_acquired(project, delivered=True)
 
             logger.info(
@@ -3414,12 +3596,17 @@ UI in {project.path}/frontend/src/app/."""
         logger.info(f"[LIVING_UI] Stopped project: {project_id}")
         return True
 
-    async def delete_project(self, project_id: str) -> bool:
+    async def delete_project(
+        self, project_id: str, delete_backups: bool = False
+    ) -> bool:
         """
         Delete a Living UI project.
 
         Args:
             project_id: Project ID to delete
+            delete_backups: Also remove its pb_data backup archives.
+                Default KEEP (D5): backups exist precisely to outlive
+                mistakes, and deleting the app may be one.
 
         Returns:
             True if deletion was successful
@@ -3429,12 +3616,43 @@ UI in {project.path}/frontend/src/app/."""
             logger.error(f"[LIVING_UI] Project not found: {project_id}")
             return False
 
+        if delete_backups:
+            try:
+                self.backups.store.delete_project_backups(project_id)
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI:BACKUP] backup cleanup failed for {project_id}: {e}"
+                )
+
         # Stop tunnel if active
         await self.stop_tunnel(project_id)
 
         # Stop if running
         if project.status == "running":
             await self.stop_project(project_id)
+
+        # Final safety net: capture the live data one last time before the
+        # files go away — the same courtesy for a singular delete and for
+        # reset-all, which funnels through here. Best-effort by design:
+        # deletion is the user's explicit intent and must stay possible even
+        # when a capture cannot succeed (corrupt DB, full disk).
+        if not delete_backups:
+            try:
+                from app.living_ui.lifecycle import live_db_exists
+
+                if (
+                    getattr(project, "project_type", "native") != "external"
+                    and live_db_exists(project.path)
+                ):
+                    async with self._backup_lock:
+                        await asyncio.to_thread(
+                            self.backups.capture_stopped, project, "pre_delete"
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI:BACKUP] pre-delete backup failed for "
+                    f"{project_id}: {e} — deleting without a final backup"
+                )
 
         # Release ports
         if project.port:
@@ -3524,7 +3742,7 @@ UI in {project.path}/frontend/src/app/."""
             "logs",
             ".venv",
             "venv",
-            ".snapshots",  # pristine pb_data baseline — local delivery state
+            ".snapshots",  # legacy baseline dirs (pre-unified-lifecycle) — local state
         }
         skip_suffixes = {".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3"}
         skip_names = {
@@ -3806,17 +4024,48 @@ UI in {project.path}/frontend/src/app/."""
 
         If project_ids provided, launches those. Otherwise launches all
         projects with auto_launch=True.
+
+        Launches run concurrently under AUTO_LAUNCH_CONCURRENCY: a sequential
+        loop stacked every project's PocketBase boot + headless verify
+        back-to-back, and one launch raising aborted every project after it.
+        Bounded concurrency overlaps the waits while capping peak load, and
+        each launch is isolated so one failure never stops the rest.
         """
         if project_ids is None:
             # Launch all projects with auto_launch enabled
             project_ids = [p.id for p in self.projects.values() if p.auto_launch]
 
-        for project_id in project_ids:
+        targets = [
+            pid
+            for pid in project_ids
+            if self.projects.get(pid) and self.projects[pid].status != "error"
+        ]
+        if not targets:
+            return
+
+        sem = asyncio.Semaphore(self.AUTO_LAUNCH_CONCURRENCY)
+
+        async def _launch_one(project_id: str) -> None:
             project = self.projects.get(project_id)
-            if project and project.status != "error":
+            if not project:
+                return
+            async with sem:
                 logger.info(
                     f"[LIVING_UI] Auto-launching: {project.name} ({project_id})"
                 )
                 project.status = "launching"
                 self._save_projects()
-                await self.launch_project(project_id)
+                try:
+                    await self.launch_project(project_id)
+                except Exception as e:
+                    # launch_project normally returns an error dict, but an
+                    # unexpected raise must not abort the other launches.
+                    logger.warning(
+                        f"[LIVING_UI] Auto-launch crashed for {project.name} "
+                        f"({project_id}): {e}"
+                    )
+                    project.status = "error"
+                    project.error = str(e)[:500]
+                    self._save_projects()
+
+        await asyncio.gather(*(_launch_one(pid) for pid in targets))

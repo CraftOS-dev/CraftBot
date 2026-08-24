@@ -82,7 +82,7 @@ With `memory.enabled: false`, the agent still works. It just starts every sessio
 **Privacy.** The entire pipeline is local: facts live in markdown on your disk, ChromaDB runs embedded (no server), and embeddings are computed on your machine by a local model. The only stage that leaves your machine is what always does: LLM calls to your configured provider, which includes the nightly distillation task reading your event buffer. With a local provider such as Ollama, nothing leaves at all.
 
 !!! note "Implementation files"
-    `agent_core/core/impl/memory/manager.py` holds `MemoryManager` (chunking, hybrid `retrieve()`, `create_memory_processing_task`). `injector.py` holds `inject_memory_event`, called from message arrival and task creation. `bm25_index.py` and `entity_extractor.py` implement the keyword channel, and `memory_file_watcher.py` re-indexes on file change. Item thresholds are read live from settings by `app/ui_layer/settings/memory_settings.py`. The distillation workflow is in the `memory-processor` skill.
+    `agent_core/core/impl/memory/manager.py` holds `MemoryManager` (chunking, hybrid `retrieve()`, `create_memory_processing_task`). `injector.py` holds `inject_memory_event`, called from message arrival and task creation. `bm25_index.py` implements the keyword channel, and `memory_file_watcher.py` re-indexes on file change. Item thresholds are read live from settings by `app/ui_layer/settings/memory_settings.py`. The distillation workflow is in the `memory-processor` skill.
 
 ## Next
 

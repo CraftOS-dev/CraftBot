@@ -866,7 +866,7 @@ Editing any of these triggers re-indexing via [agent_core/core/impl/memory/memor
 - Purpose: complete chronological event log. Append-only.
 - Write access: EventStreamManager. Hard rule: DO NOT edit.
 - Read pattern: `read_file` / `grep_files` for self-troubleshooting. See `## Errors` for log workflow.
-- Format: `[YYYY/MM/DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
+- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
 - Auto-rotated when size threshold is exceeded.
 
 ### EVENT_UNPROCESSED.md
@@ -1159,17 +1159,19 @@ living_ui_scaffold(name, description, ...)  Create a project: copies the bluepri
 living_ui_list_projects()                   {id, name, description, status, url, path, delivered}.
                                             Resolve "the app" to an id here, never by filesystem search.
 living_ui_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
-                                            build, migrations, ops manifest) → boot PocketBase +
-                                            frontend → health check. On a delivered app it boots a
-                                            STAGING copy (cloned data, hidden port), never the live app.
-                                            Gate failures come back in test_errors. Circuit breaker:
-                                            identical error ×3 warns, ×6 stops.
-living_ui_walk_verify(project_id)           Headless-browser sub-agent drives the running app
+                                            build, migrations, ops manifest) → boot the DEV environment
+                                            (your code on a hidden port with a FRESH schema-only DB —
+                                            migrations replay; live data is never cloned). The live app
+                                            (if any) keeps running untouched. Gate failures come back
+                                            in test_errors. Circuit breaker: identical error ×3 warns,
+                                            ×6 stops.
+living_ui_walk_verify(project_id)           Headless-browser sub-agent drives the DEV instance
                                             feature-by-feature against reference/requirements.md.
                                             Verdicts: pass | incomplete | defects | blocked | unparseable.
-                                            A clean pass is the ONLY way a build completes: first build
-                                            → project marked delivered; delivered app → staging flips
-                                            to live. 35-minute ceiling.
+                                            A clean pass is the ONLY way a change completes: it PROMOTES
+                                            the code to the live app (first build → live DB created
+                                            fresh from migrations; update → new migrations apply to the
+                                            real data) and destroys the dev copy. 35-minute ceiling.
 living_ui_restart(project_id)               Stop + full launch pipeline.
 living_ui_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
 living_ui_usage(project_id)                 Returns the project's operating manual: path, live data
@@ -1200,15 +1202,17 @@ node <craftbot_root>/living-ui/tools/src/cli.ts run  <project_path> <op-name> --
 node <craftbot_root>/living-ui/tools/src/cli.ts ops  <project_path>
 ```
 
-`living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. Writes to a delivered app's real data outside a staging arc are refused.
+`living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
 
-### Build / delivery lifecycle
+### Build / delivery lifecycle (one flow for builds and modifies)
 
 ```
-scaffold → dedicated build session writes code → notify_ready (validation gate + boot)
-        → walk_verify pass → delivered (live URL announced by the factory host)
-modify a delivered app → changes go to a STAGING clone on a hidden port
-        → notify_ready boots staging → walk_verify pass → staging flips to live
+write code in the project dir → notify_ready (validation gate + boot of the
+        DEV env: code copy, hidden port, fresh schema-only DB)
+        → walk_verify drives the dev instance → clean pass PROMOTES:
+        live app boots the new code (first build: live DB created fresh from
+        migrations; update: new migrations apply to real data), dev copy
+        destroyed, ready announced by the factory host
 ```
 
 - The factory host owns retries, fix-mission dispatch, and the "ready" announcement. Do not author success status messages for a build yourself.
@@ -3104,7 +3108,7 @@ This list is opinion, not authoritative. The user has the final say.
 Memory is your long-term recall. It is RAG-backed (relevance search over MEMORY.md and a few other files), not text-grep. Items reach MEMORY.md only after the daily memory-processing pipeline distills them from the event stream. You do NOT write MEMORY.md directly.
 
 Two ways memory reaches you:
-- **Automatic injection (passive).** On every user message, the most relevant memories (top 5, relevance ≥ 0.5) are retrieved and dropped into your context as a `relevant_memories` event — one line per pointer: `- [file_path] section_path: summary (relevance: 0.XX)`. If nothing clears the threshold, no event is emitted. You do NOT need to call `memory_search` just to see what you already know.
+- **Automatic injection (passive).** On every user message, the most relevant memories (top 5, relevance ≥ 0.5) are retrieved and dropped into your context as a `relevant_memories` event — one line per pointer: `- [file_path] section_path: summary (relevance: 0.XX)`. If nothing clears the threshold, no event is emitted. You do NOT need to call `memory_search` just to see what you already know. Each `summary` is a TRUNCATED preview (a pointer), not the full memory: it is a snippet centred on the words that matched your query, and a leading/trailing `...` marks text that was cut. Treat these as leads, not complete records — if a preview is on-topic but clipped where it matters, expand it with `memory_search` or by reading the source file before you rely on it.
 - **`memory_search` action (active).** Use it when you need to dig deeper on a specific question mid-run, beyond what got auto-injected.
 
 Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manager.py) (`MemoryManager`), [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/core/impl/memory/memory_file_watcher.py) (incremental re-indexing), [app/data/action/memory_search.py](app/data/action/memory_search.py) (action).

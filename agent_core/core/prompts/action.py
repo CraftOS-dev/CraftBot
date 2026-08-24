@@ -25,7 +25,8 @@ How a run ends:
 - When you finish the work, send your final message as the ONLY action of
   that turn. If you need the user's answer before you can continue, ask the
   question as your final message — the session wakes automatically when they
-  reply.
+  reply. When asking, offer suggested_responses so the user can answer with
+  one click.
 - Use 'end_turn' to end the run silently when the input needs no reaction
   (e.g. third-party platform noise).
 

@@ -26,7 +26,8 @@ except Exception:
 
 _ROW_COLUMNS = (
     "message_id, sender, content, style, timestamp, attachments, "
-    "session_id, options, option_selected, continue_work, details"
+    "session_id, options, option_selected, continue_work, "
+    "is_question, allow_free_text, details"
 )
 
 
@@ -47,6 +48,12 @@ class StoredChatMessage:
     # run kept going after this bubble. Persisted so a reload/reconnect
     # doesn't misread the bubble as a run-ending reply.
     continue_work: bool = False
+    # Question with suggested responses (send_message suggested_responses).
+    # Persisted so an unanswered question re-pins above the composer after a
+    # reload — pending questions ARE the stored question messages with no
+    # option_selected.
+    is_question: bool = False
+    allow_free_text: bool = True
     # Expandable payload behind a disclosure (e.g. the raw body of an
     # incoming integration message on the "📩 Incoming …" system stub).
     details: Optional[str] = None
@@ -69,6 +76,9 @@ class StoredChatMessage:
             result["optionSelected"] = self.option_selected
         if self.continue_work:
             result["continueWork"] = True
+        if self.is_question:
+            result["isQuestion"] = True
+            result["allowFreeText"] = self.allow_free_text
         if self.details:
             result["details"] = self.details
         return result
@@ -86,7 +96,9 @@ def _row_to_message(row) -> StoredChatMessage:
         options=json.loads(row[7]) if row[7] else None,
         option_selected=row[8],
         continue_work=bool(row[9]),
-        details=row[10],
+        is_question=bool(row[10]),
+        allow_free_text=bool(row[11]),
+        details=row[12],
     )
 
 
@@ -173,6 +185,16 @@ class ChatStorage:
                     "ALTER TABLE chat_messages ADD COLUMN continue_work "
                     "INTEGER NOT NULL DEFAULT 0"
                 )
+            if "is_question" not in columns:
+                cursor.execute(
+                    "ALTER TABLE chat_messages ADD COLUMN is_question "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+            if "allow_free_text" not in columns:
+                cursor.execute(
+                    "ALTER TABLE chat_messages ADD COLUMN allow_free_text "
+                    "INTEGER NOT NULL DEFAULT 1"
+                )
             if "details" not in columns:
                 cursor.execute("ALTER TABLE chat_messages ADD COLUMN details TEXT")
 
@@ -198,8 +220,8 @@ class ChatStorage:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO chat_messages
-                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, details)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected, continue_work, is_question, allow_free_text, details)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     message.message_id,
@@ -212,6 +234,8 @@ class ChatStorage:
                     json.dumps(message.options) if message.options else None,
                     message.option_selected,
                     1 if message.continue_work else 0,
+                    1 if message.is_question else 0,
+                    1 if message.allow_free_text else 0,
                     message.details,
                 ),
             )
@@ -325,6 +349,27 @@ class ChatStorage:
                 cursor.execute("DELETE FROM chat_messages")
             conn.commit()
             return count
+
+    def get_pending_questions(self, session_id: str) -> List[str]:
+        """
+        Contents of a session's unanswered question messages, oldest first.
+
+        A question is pending until the user answers or dismisses it
+        (option_selected set). Used to remind the agent which of its
+        questions are still pinned in the UI so it doesn't re-ask them.
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT content FROM chat_messages
+                WHERE session_id = ? AND is_question = 1
+                  AND (option_selected IS NULL OR option_selected = '')
+                ORDER BY timestamp ASC
+            """,
+                (session_id,),
+            )
+            return [row[0] for row in cursor.fetchall()]
 
     def update_option_selected(self, message_id: str, option_value: str) -> bool:
         """

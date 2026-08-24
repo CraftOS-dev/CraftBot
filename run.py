@@ -605,6 +605,57 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
     return dummy
 
 
+def _ensure_frontend_deps_fresh(npm_cmd: str, silent: bool = False) -> bool:
+    """Run `npm install` when node_modules no longer satisfies package.json.
+
+    node_modules merely existing does NOT mean it matches the CURRENT manifest.
+    The installer (`craftbot.py install`) checks per-dependency, but the normal
+    update flow — `git pull` then `craftbot.py start`/`restart` — never re-runs
+    the installer. A pull that ADDS a dependency (e.g. driver.js for the guided
+    tour) then leaves the old node_modules in place, and Vite fails to resolve
+    the new import at startup. Reuse install.py's staleness check (the single
+    source of truth) and reinstall here before launching Vite.
+
+    Fail-loud on a real install failure, but never block startup on the check
+    itself: if install.py can't be imported, fall through unchanged.
+    """
+    try:
+        from install import _frontend_deps_stale
+    except Exception:
+        return True  # can't check — leave existing behavior unchanged
+
+    reason = _frontend_deps_stale(FRONTEND_DIR)
+    if reason is None:
+        return True
+
+    if not silent:
+        print(f"Frontend dependencies out of date ({reason}); running npm install...")
+
+    # npm is a .cmd shim on Windows — invoke via cmd.exe so subprocess can find it.
+    if sys.platform == "win32" and npm_cmd.lower().endswith((".cmd", ".bat")):
+        install_cmd = ["cmd.exe", "/d", "/c", npm_cmd, "install"]
+    else:
+        install_cmd = [npm_cmd, "install"]
+
+    try:
+        result = subprocess.run(install_cmd, cwd=FRONTEND_DIR, stdin=subprocess.DEVNULL)
+    except Exception as e:
+        if not silent:
+            print(f"Error: npm install failed to run — {e}")
+            print("  Fix manually: cd app/ui_layer/browser/frontend && npm install")
+        return False
+
+    if result.returncode != 0:
+        if not silent:
+            print("Error: npm install failed (see output above).")
+            print("  Fix manually: cd app/ui_layer/browser/frontend && npm install")
+        return False
+
+    if not silent:
+        print("Frontend dependencies installed.")
+    return True
+
+
 def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
     """Launch the frontend dev server for browser mode."""
     # If running as a PyInstaller binary, serve pre-built static files
@@ -659,6 +710,12 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
                 print("  1. Restart your terminal")
                 print("  2. Run: python run.py")
             return None
+
+    # node_modules exists and npm is available, but a later `git pull` may have
+    # added a dependency the old install is missing. Reinstall before launching
+    # Vite so start/restart self-heals instead of erroring on an unresolved import.
+    if not _ensure_frontend_deps_fresh(npm_cmd, silent=silent):
+        return None
 
     # Build command for npm run dev
     # On Windows, bypass npm/cmd.exe and invoke node directly with the vite script.

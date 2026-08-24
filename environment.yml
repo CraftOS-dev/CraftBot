@@ -15,6 +15,15 @@ dependencies:
   - pytesseract=0.3.13
   - tesseract=5.5.2
   - aiohttp=3.13.3
+  # PINNED: openssl 3.6.3 / 3.5.7 regress the Windows cert-store load
+  # (ssl.SSLError ASN1: NOT_ENOUGH_DATA in _load_windows_store_certs, crashes
+  # aiohttp at import). Broke 2026-06-22 and AGAIN 2026-08-19 when a nodejs
+  # install transitively bumped it — keep this pin, verify before raising:
+  #   conda run -n craftbot python -c "import ssl; ssl.create_default_context()"
+  - openssl=3.6.2
+  # Living UI builds: the lui CLI is TypeScript run by Node's native type
+  # stripping — needs Node >= 24 (older majors ERR_UNKNOWN_FILE_EXTENSION).
+  - nodejs>=24
   - beautifulsoup4=4.14.3
   - chardet=5.2.0
   - lxml=6.0.2

@@ -2,7 +2,7 @@ import React from 'react'
 import {
   Settings,
   Brain,
-  Database,
+  Waypoints,
   Cpu,
   Plug,
   Package,
@@ -96,7 +96,7 @@ export const categories: SettingsCategoryItem[] = [
   {
     id: 'memory',
     label: 'Memory',
-    icon: React.createElement(Database, { size: 18 }),
+    icon: React.createElement(Waypoints, { size: 18 }),
   },
   {
     id: 'model',
