@@ -11,7 +11,7 @@ Payload contract (kept unchanged from the legacy implementation):
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .base import PlatformMessage
 from .config import ConfigStore, MessageCallback
@@ -27,10 +27,26 @@ logger = get_logger(__name__)
 
 
 class ExternalCommsManager:
-    def __init__(self, on_message: MessageCallback):
+    def __init__(
+        self,
+        on_message: MessageCallback,
+        exclude_platforms: Optional[List[str]] = None,
+    ):
         self._on_message = on_message
         self._active_clients: Dict[str, Any] = {}
         self._running = False
+        # Platforms whose listening is owned elsewhere (the
+        # ListenerManager) — this manager must never start them.
+        self._excluded = set(exclude_platforms or [])
+
+    def _is_excluded(self, platform_id: str) -> bool:
+        if platform_id in self._excluded:
+            logger.info(
+                f"[INTEGRATIONS] {platform_id} excluded from legacy listening "
+                "(owned by integrations listener manager)"
+            )
+            return True
+        return False
 
     async def start(self) -> None:
         if self._running:
@@ -44,6 +60,8 @@ class ExternalCommsManager:
         logger.info(f"[INTEGRATIONS] Registered platforms: {list(all_clients.keys())}")
 
         for platform_id, client in all_clients.items():
+            if self._is_excluded(platform_id):
+                continue
             if not client.supports_listening:
                 continue
             if not client.has_credentials():
@@ -98,6 +116,9 @@ class ExternalCommsManager:
         reusing it would keep routing to the wrong account until restart
         (issue #314).
         """
+        if self._is_excluded(platform_id):
+            return False
+
         await self.reset_platform(platform_id)
 
         autoload_integrations()
@@ -160,7 +181,9 @@ class ExternalCommsManager:
             should_be_active = {
                 pid
                 for pid, c in all_clients.items()
-                if c.supports_listening and c.has_credentials()
+                if c.supports_listening
+                and c.has_credentials()
+                and not self._is_excluded(pid)
             }
 
             for pid in currently_active - should_be_active:
@@ -207,6 +230,7 @@ class ExternalCommsManager:
             "messageId": msg.message_id,
             "is_self_message": msg.raw.get("is_self_message", False),
             "raw": msg.raw,
+            "attachments": list(getattr(msg, "attachments", None) or []),
         }
         logger.info(
             f"[INTEGRATIONS] Received from {payload['source']}: "
@@ -238,11 +262,17 @@ async def initialize_manager(
     *,
     on_message: MessageCallback,
     auto_start: bool = True,
+    exclude_platforms: Optional[List[str]] = None,
 ) -> ExternalCommsManager:
-    """Create the manager and (by default) start listeners."""
+    """Create the manager and (by default) start listeners.
+
+    ``exclude_platforms``: platform ids this manager must never listen on
+    (their listening is owned by the ListenerManager). Actions and
+    account handling for those platforms are unaffected.
+    """
     global _manager
     ConfigStore.on_message = on_message
-    _manager = ExternalCommsManager(on_message)
+    _manager = ExternalCommsManager(on_message, exclude_platforms=exclude_platforms)
     if auto_start:
         await _manager.start()
     return _manager

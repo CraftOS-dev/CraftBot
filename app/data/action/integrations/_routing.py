@@ -30,11 +30,34 @@ PLATFORM_CONVERSATION_ACTIONS: Dict[str, List[str]] = {
 }
 
 
+def _list_connected_merged() -> List[str]:
+    """Connected platform ids: multi-account provider ids are decided by the
+    IntegrationSystem (connected = has at least one account); everything
+    else keeps the legacy credential-file check."""
+    try:
+        from app.integrations import get_system
+
+        system = get_system()
+        v2_ids = {p.id for p in system.providers()}
+    except Exception:
+        system, v2_ids = None, set()
+
+    out: List[str] = [pid for pid in list_connected() if pid not in v2_ids]
+    if system is not None:
+        for pid in sorted(v2_ids):
+            try:
+                if system.list_accounts(pid):
+                    out.append(pid)
+            except Exception:
+                pass
+    return out
+
+
 def get_messaging_actions_for_connected() -> List[str]:
     """Action names to expose given current credential state. Deduped, order-preserving."""
     seen = set()
     out: List[str] = []
-    for platform_id in list_connected():
+    for platform_id in _list_connected_merged():
         for name in PLATFORM_CONVERSATION_ACTIONS.get(platform_id, []):
             if name not in seen:
                 seen.add(name)

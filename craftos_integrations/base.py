@@ -33,6 +33,17 @@ class PlatformMessage:
     message_id: str = ""
     timestamp: Optional[datetime] = None
     raw: Dict[str, Any] = field(default_factory=dict)
+    # Normalized non-text payloads. Each entry: {"kind": ..., and any of
+    # "id", "name", "mime", "size", "url", "extra"}.
+    #   kind:  photo|video|audio|voice|document|sticker|location|contact|
+    #          poll|embed
+    #   id:    the platform's fetch handle (file_id / attachmentId /
+    #          message_id / file_key) for its download action
+    #   url:   only when directly fetchable without an API call
+    #   extra: small inline data for non-file kinds (lat/long, phone, …)
+    # The HOST formats these into descriptor text + retrieval hints —
+    # listeners only normalize (docs/plans/attachment-reception-plan.md).
+    attachments: List[Dict[str, Any]] = field(default_factory=list)
 
 
 MessageCallback = Callable[[PlatformMessage], Awaitable[None]]

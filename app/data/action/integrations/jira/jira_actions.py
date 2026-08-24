@@ -47,6 +47,7 @@ _NO_CRED_MSG = "No Jira credential. Use /jira login first."
 )
 async def search_jira_issues(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+    from app.utils.text import csv_list
 
     fields_list = csv_list(input_data.get("fields", ""), default=None)
     return await run_client(
@@ -90,6 +91,7 @@ async def search_jira_issues(input_data: dict) -> dict:
 )
 async def get_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
+    from app.utils.text import csv_list
 
     fields_list = csv_list(input_data.get("fields", ""), default=None)
     return await with_client(
@@ -148,6 +150,7 @@ async def get_jira_issue(input_data: dict) -> dict:
 )
 async def create_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+    from app.utils.text import csv_list
 
     labels = csv_list(input_data.get("labels", ""), default=None)
     return await run_client(
@@ -194,6 +197,7 @@ async def create_jira_issue(input_data: dict) -> dict:
 )
 async def update_jira_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
+    from app.utils.text import csv_list
 
     fields_update = {}
     if input_data.get("summary"):
@@ -350,6 +354,7 @@ async def assign_jira_issue(input_data: dict) -> dict:
 )
 async def add_jira_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
+    from app.utils.text import csv_list
 
     labels = csv_list(input_data["labels"])
     if not labels:
@@ -381,6 +386,7 @@ async def add_jira_labels(input_data: dict) -> dict:
 )
 async def remove_jira_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
+    from app.utils.text import csv_list
 
     labels = csv_list(input_data["labels"])
     if not labels:
@@ -1675,6 +1681,7 @@ async def delete_jira_sprint(input_data: dict) -> dict:
 )
 async def move_issues_to_jira_sprint(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+    from app.utils.text import csv_list
 
     keys = csv_list(input_data["issue_keys"])
     if not keys:
@@ -1703,6 +1710,7 @@ async def move_issues_to_jira_sprint(input_data: dict) -> dict:
 )
 async def move_issues_to_jira_backlog(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+    from app.utils.text import csv_list
 
     keys = csv_list(input_data["issue_keys"])
     if not keys:
@@ -1787,6 +1795,7 @@ async def get_jira_epic_issues(input_data: dict) -> dict:
 )
 async def move_issues_to_jira_epic(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+    from app.utils.text import csv_list
 
     keys = csv_list(input_data["issue_keys"])
     if not keys:
@@ -1825,7 +1834,7 @@ def set_jira_watch_tag(input_data: dict) -> dict:
 
         client = get_client("jira")
         if not client or not client.has_credentials():
-            return {"status": "error", "message": _NO_CRED_MSG}
+            return {"status": "error", "message": "No Jira credential. Use /jira login first."}
         tag = input_data.get("tag", "").strip()
         client.set_watch_tag(tag)
         if tag:
@@ -1854,7 +1863,7 @@ def get_jira_watch_tag(input_data: dict) -> dict:
 
         client = get_client("jira")
         if not client or not client.has_credentials():
-            return {"status": "error", "message": _NO_CRED_MSG}
+            return {"status": "error", "message": "No Jira credential. Use /jira login first."}
         tag = client.get_watch_tag()
         if tag:
             return {
@@ -1888,10 +1897,11 @@ def get_jira_watch_tag(input_data: dict) -> dict:
 def set_jira_watch_labels(input_data: dict) -> dict:
     try:
         from craftos_integrations import get_client
+        from app.utils.text import csv_list
 
         client = get_client("jira")
         if not client or not client.has_credentials():
-            return {"status": "error", "message": _NO_CRED_MSG}
+            return {"status": "error", "message": "No Jira credential. Use /jira login first."}
         labels = csv_list(input_data.get("labels", ""))
         client.set_watch_labels(labels)
         if labels:
@@ -1920,7 +1930,7 @@ def get_jira_watch_labels(input_data: dict) -> dict:
 
         client = get_client("jira")
         if not client or not client.has_credentials():
-            return {"status": "error", "message": _NO_CRED_MSG}
+            return {"status": "error", "message": "No Jira credential. Use /jira login first."}
         labels = client.get_watch_labels()
         if labels:
             return {

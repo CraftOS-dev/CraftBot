@@ -376,13 +376,89 @@ class TelegramBotClient(BasePlatformClient):
     async def _poll_updates(self) -> Dict[str, Any]:
         return await asyncio.to_thread(self._poll_updates_sync)
 
+    # Bot API media key → normalized attachment kind
+    # (docs/plans/attachment-reception-plan.md).
+    _MEDIA_KINDS = {
+        "document": "document",
+        "video": "video",
+        "audio": "audio",
+        "voice": "voice",
+        "video_note": "video",
+        "animation": "video",
+        "sticker": "sticker",
+    }
+
+    @classmethod
+    def _extract_attachments(cls, message: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Normalize a Bot API message's media into PlatformMessage.attachments.
+
+        Media messages carry no 'text' field, so without this they are
+        invisible; `id` is the file_id the agent feeds to download_file.
+        """
+        out: List[Dict[str, Any]] = []
+        photo = message.get("photo")
+        if photo:
+            # PhotoSize list is ordered smallest -> largest; take the largest.
+            largest = photo[-1]
+            att: Dict[str, Any] = {"kind": "photo", "id": largest.get("file_id", "")}
+            if largest.get("file_size"):
+                att["size"] = largest["file_size"]
+            out.append(att)
+        for key, kind in cls._MEDIA_KINDS.items():
+            media = message.get(key)
+            if not media:
+                continue
+            att = {"kind": kind, "id": media.get("file_id", "")}
+            if media.get("file_name"):
+                att["name"] = media["file_name"]
+            if media.get("mime_type"):
+                att["mime"] = media["mime_type"]
+            if media.get("file_size"):
+                att["size"] = media["file_size"]
+            out.append(att)
+        location = message.get("location") or (message.get("venue") or {}).get(
+            "location"
+        )
+        if location:
+            extra = {
+                "lat": location.get("latitude"),
+                "long": location.get("longitude"),
+            }
+            venue = message.get("venue")
+            if venue:
+                extra["title"] = venue.get("title", "")
+                extra["address"] = venue.get("address", "")
+            out.append({"kind": "location", "extra": extra})
+        contact = message.get("contact")
+        if contact:
+            name = " ".join(
+                p
+                for p in (contact.get("first_name"), contact.get("last_name"))
+                if p
+            )
+            out.append(
+                {
+                    "kind": "contact",
+                    "extra": {
+                        "name": name,
+                        "phone": contact.get("phone_number", ""),
+                    },
+                }
+            )
+        poll = message.get("poll")
+        if poll:
+            out.append({"kind": "poll", "extra": {"question": poll.get("question", "")}})
+        return out
+
     async def _process_update(self, update: Dict[str, Any]) -> None:
         self._poll_offset = update.get("update_id", 0) + 1
         message = update.get("message")
         if not message:
             return
-        text = message.get("text", "")
-        if not text:
+        # Media messages have no 'text'; their user text arrives as 'caption'.
+        text = message.get("text") or message.get("caption") or ""
+        attachments = self._extract_attachments(message)
+        if not text and not attachments:
             return
 
         from_user = message.get("from", {})
@@ -419,6 +495,7 @@ class TelegramBotClient(BasePlatformClient):
                     message_id=str(message.get("message_id", "")),
                     timestamp=ts,
                     raw=update,
+                    attachments=attachments,
                 )
             )
 

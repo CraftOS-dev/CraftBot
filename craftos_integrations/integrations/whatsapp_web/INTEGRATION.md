@@ -14,7 +14,7 @@ Routing-time guidance — these are the rules that the agent loses sight of most
 
 ## Architecture
 
-A Node subprocess (`bridge.js`) wraps `whatsapp-web.js` and talks to the Python side over stdin/stdout JSON lines. Commands like `send_message`, `search_contact`, `get_chat_messages` map 1:1 to bridge cases. Errors surface back as `{success: false, error: "..."}`.
+A Node subprocess (`bridge.js`) speaks WhatsApp's WebSocket protocol via Baileys (no browser) and talks to the Python side over stdin/stdout JSON lines. Commands like `send_message`, `search_contact`, `get_chat_messages` map 1:1 to bridge cases. Errors surface back as `{success: false, error: "..."}`.
 
 ## Session-level facts the bridge already knows
 
@@ -45,7 +45,7 @@ Modern WhatsApp creates `@lid` identities for many contacts. `search_whatsapp_co
 3. Pass the match's `number` field **verbatim** as `to` in `send_whatsapp_web_text_message`.
    - Do NOT strip `@lid` or `@c.us` suffixes.
    - Do NOT keep only the digits.
-   - The bridge routes anything containing `@` straight through to the wwebjs send path.
+   - The bridge routes anything containing `@` straight through to the send path (legacy `@c.us` jids are converted to `@s.whatsapp.net`).
 
 ### Send a message by phone number
 
@@ -62,7 +62,7 @@ For LID-based results, both `id` and `number` are the full `xxx@lid` JID — the
 | Error | What it means | Fix |
 |---|---|---|
 | `Number X is not on WhatsApp` | Either a wrong number, OR you stripped a JID suffix you shouldn't have. | Re-check that `to` is the exact `number` value from `search_whatsapp_contact`. |
-| `No LID for user` | wwebjs couldn't resolve a phone → LID for a cold contact. | Use the JID from `search_whatsapp_contact` instead of constructing one locally. |
+| `Number X is not on WhatsApp` | The bridge couldn't resolve a bare phone number. | Use the JID from `search_whatsapp_contact` instead of constructing one locally. |
 | `Client not ready` | Bridge is starting up or waiting for a QR scan. | Wait for the `ready` event, or have the user scan the QR. |
 | `Command 'search_contact' timed out` | Historical — the old code called `getContacts()` which round-tripped every contact across RPC. Fixed by chat-first search. | Should not happen on current code. If it does, the bridge is stuck. |
 

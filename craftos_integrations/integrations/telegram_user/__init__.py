@@ -78,17 +78,45 @@ class TelegramUserHandler(IntegrationHandler):
     spec = TELEGRAM_USER
     display_name = "Telegram (User)"
     description = "MTProto user account"
-    auth_type = "interactive"
+    # Two-phase token connect: submit #1 (phone only) sends the login code
+    # and reports back; submit #2 (phone + code [+ 2FA password]) completes.
+    # The CLI `/telegram_user login` subcommand flow is unchanged.
+    auth_type = "token"
     icon = "telegram"
     connect_help = [
-        "Open my.telegram.org and log in with your Telegram phone number",
-        "Click 'API development tools'",
-        "Fill the form (any app name/short name works) and submit",
-        "Copy the 'api_id' (number) and 'api_hash' (long hex string)",
-        "Set them as TELEGRAM_API_ID and TELEGRAM_API_HASH in CraftBot config",
-        "Then click Connect - you'll be prompted for your phone + login code",
+        "One-time app credentials: open my.telegram.org, log in, click "
+        "'API development tools', submit the form (any app name works)",
+        "Set the api_id and api_hash as TELEGRAM_API_ID and "
+        "TELEGRAM_API_HASH in CraftBot config (they are NOT entered below)",
+        "Connect step 1: enter your phone number only (international "
+        "format, e.g. +923001234567) and submit - a login code is sent "
+        "to your Telegram app",
+        "Connect step 2: submit again with the same phone number AND the "
+        "code filled in (add your 2FA password if your account has one)",
     ]
-    fields: List = []
+    # `code` and `password` stay empty on the first submit — the label
+    # "(optional)" / "(optional…" placeholder mark them non-required for
+    # the connect flow's missing-field check.
+    fields: List = [
+        {
+            "key": "phone_number",
+            "label": "Phone Number",
+            "placeholder": "+923001234567",
+            "password": False,
+        },
+        {
+            "key": "code",
+            "label": "Login Code (optional)",
+            "placeholder": "(optional) leave empty on first submit",
+            "password": False,
+        },
+        {
+            "key": "password",
+            "label": "2FA Password (optional)",
+            "placeholder": "(optional) only if two-step verification is on",
+            "password": True,
+        },
+    ]
 
     config_class = TelegramUserConfig
     config_fields = [
@@ -468,9 +496,65 @@ class TelegramUserClient(BasePlatformClient):
                 pass
             self._live_client = None
 
+    @staticmethod
+    def _extract_attachments(msg, chat_id) -> list:
+        """Normalize a Telethon message's media into
+        PlatformMessage.attachments. MTProto has no usable file_id
+        (Telethon's ``file.id`` is unmaintained) — the fetch handle is the
+        (chat_id, message_id) pair fed to download_media."""
+        if not getattr(msg, "media", None):
+            return []
+        media_cls = type(msg.media).__name__
+        if media_cls == "MessageMediaGeo":
+            geo = getattr(msg.media, "geo", None)
+            return [
+                {
+                    "kind": "location",
+                    "extra": {
+                        "lat": getattr(geo, "lat", None),
+                        "long": getattr(geo, "long", None),
+                    },
+                }
+            ]
+        if media_cls == "MessageMediaContact":
+            return [
+                {
+                    "kind": "contact",
+                    "extra": {
+                        "name": (getattr(msg.media, "first_name", "") or "").strip(),
+                        "phone": getattr(msg.media, "phone_number", ""),
+                    },
+                }
+            ]
+        file_info = getattr(msg, "file", None)
+        mime = (getattr(file_info, "mime_type", "") or "") if file_info else ""
+        if getattr(msg, "photo", None) or mime.startswith("image/"):
+            kind = "photo"
+        elif mime.startswith("video/"):
+            kind = "video"
+        elif mime.startswith("audio/"):
+            kind = "audio"
+        else:
+            kind = "document"
+        att: dict = {
+            "kind": kind,
+            "id": str(msg.id),
+            "extra": {"chat_id": str(chat_id)},
+        }
+        if file_info is not None:
+            if getattr(file_info, "name", None):
+                att["name"] = file_info.name
+            if mime:
+                att["mime"] = mime
+            if getattr(file_info, "size", None):
+                att["size"] = file_info.size
+        return [att]
+
     async def _handle_event(self, event) -> None:
         msg = event.message
-        if not msg or not msg.text:
+        # Telethon's msg.text is the caption for media messages; media-only
+        # messages must not be dropped.
+        if not msg or not (msg.text or getattr(msg, "media", None)):
             return
         chat_id = event.chat_id
         is_saved_messages = chat_id == self._my_user_id
@@ -504,7 +588,7 @@ class TelegramUserClient(BasePlatformClient):
                     platform=self.spec.platform_id,
                     sender_id=str(sender.id if sender else self._my_user_id),
                     sender_name=sender_name,
-                    text=msg.text,
+                    text=msg.text or "",
                     channel_id=str(chat_id),
                     channel_name=channel_name
                     if not is_saved_messages
@@ -512,6 +596,7 @@ class TelegramUserClient(BasePlatformClient):
                     message_id=str(msg.id),
                     timestamp=msg.date.astimezone(timezone.utc) if msg.date else None,
                     raw={"is_self_message": is_saved_messages},
+                    attachments=self._extract_attachments(msg, chat_id),
                 )
             )
 
@@ -753,6 +838,70 @@ class TelegramUserClient(BasePlatformClient):
         except Exception as e:
             return {
                 "error": f"Failed to get messages: {e}",
+                "details": {"exception": type(e).__name__},
+            }
+
+    async def download_media(
+        self, chat_id: Union[int, str], message_id: Union[int, str], dest_path: str
+    ) -> Dict[str, Any]:
+        """Re-fetch a message by id and download its media to disk.
+
+        MTProto media has no bot-API file_id; the (chat_id, message_id)
+        pair IS the fetch handle the listener forwards. The download must
+        complete inside the async-with — exiting disconnects the client
+        mid-transfer (docs/plans/attachment-reception-plan.md)."""
+        try:
+            from telethon import TelegramClient
+            from telethon.errors import AuthKeyUnregisteredError, FloodWaitError
+
+            session, api_id, api_hash = self._session_params()
+            async with TelegramClient(session, api_id, api_hash) as client:
+                entity = await client.get_entity(chat_id)
+                # Single int id → single Message (or None if not found).
+                msg = await client.get_messages(entity, ids=int(message_id))
+                if msg is None:
+                    return {
+                        "error": f"Message {message_id} not found in chat {chat_id}",
+                        "details": {"chat_id": str(chat_id)},
+                    }
+                if not msg.media:
+                    return {
+                        "error": f"Message {message_id} has no media",
+                        "details": {"message_id": str(message_id)},
+                    }
+                # Returns the actual saved path (Telethon appends a
+                # name/extension when dest is a directory).
+                saved = await msg.download_media(file=dest_path)
+                file_info = msg.file
+                return {
+                    "ok": True,
+                    "result": {
+                        "path": str(saved) if saved else dest_path,
+                        "name": getattr(file_info, "name", None),
+                        "mime_type": getattr(file_info, "mime_type", None),
+                        "size": getattr(file_info, "size", None),
+                    },
+                }
+        except ImportError:
+            return {"error": "telethon is not installed", "details": {}}
+        except AuthKeyUnregisteredError:
+            return {
+                "error": "Session expired.",
+                "details": {"status": "session_expired"},
+            }
+        except ValueError as e:
+            return {
+                "error": f"Could not find chat: {e}",
+                "details": {"chat_id": str(chat_id)},
+            }
+        except FloodWaitError as e:
+            return {
+                "error": f"Rate limited. Wait {e.seconds}s.",
+                "details": {"flood_wait_seconds": e.seconds},
+            }
+        except Exception as e:
+            return {
+                "error": f"Failed to download media: {e}",
                 "details": {"exception": type(e).__name__},
             }
 

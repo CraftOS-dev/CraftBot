@@ -913,9 +913,14 @@ class MetricsCollector:
     def _get_integration_metrics(self) -> IntegrationMetrics:
         """Get integration metrics."""
         try:
-            from craftos_integrations import list_integrations_sync
+            # v2-merged list: connected state comes from the IntegrationSystem's
+            # AccountSets (the legacy status path reads credential files that
+            # v2 connects never write, so its counts were wrong).
+            from app.data.action.integrations._helpers import (
+                list_integrations_merged,
+            )
 
-            integrations_data = list_integrations_sync()
+            integrations_data = list_integrations_merged()
             integrations = []
             connected = 0
 

@@ -119,6 +119,10 @@ class ChatMessage:
     # Only meaningful when is_question: whether the pinned box also offers
     # a free-text answer field alongside the suggestion chips.
     allow_free_text: bool = True
+    # Expandable payload rendered behind a disclosure under the bubble —
+    # e.g. the raw body of an incoming integration message on the
+    # "📩 Incoming …" system stub (PR #419).
+    details: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided; normalize session id."""
@@ -175,6 +179,8 @@ class ChatMessage:
         if self.is_question:
             data["isQuestion"] = True
             data["allowFreeText"] = self.allow_free_text
+        if self.details:
+            data["details"] = self.details
         return data
 
 

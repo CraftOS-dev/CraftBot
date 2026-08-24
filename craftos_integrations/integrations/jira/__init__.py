@@ -470,6 +470,7 @@ class JiraClient(BasePlatformClient):
                     "issuetype",
                     "priority",
                     "project",
+                    "attachment",
                 ],
             },
             timeout=30.0,
@@ -514,6 +515,21 @@ class JiraClient(BasePlatformClient):
         reporter = fields_data.get("reporter") or {}
         reporter_name = reporter.get("displayName", "Unknown")
         comments = (fields_data.get("comment") or {}).get("comments", [])
+
+        # Issue attachments → normalized entries; id feeds
+        # download_jira_attachment (docs/plans/attachment-reception-plan.md).
+        attachments: list = []
+        for a in fields_data.get("attachment") or []:
+            if not isinstance(a, dict):
+                continue
+            att: Dict[str, Any] = {"kind": "document", "id": str(a.get("id", ""))}
+            if a.get("filename"):
+                att["name"] = a["filename"]
+            if a.get("mimeType"):
+                att["mime"] = a["mimeType"]
+            if a.get("size"):
+                att["size"] = a["size"]
+            attachments.append(att)
 
         watch_tag = cfg.watch_tag
         if watch_tag:
@@ -578,6 +594,7 @@ class JiraClient(BasePlatformClient):
                         "instruction": instruction or comment_body,
                         "comment": matching_comment,
                     },
+                    attachments=attachments,
                 )
             )
             return
@@ -615,6 +632,7 @@ class JiraClient(BasePlatformClient):
                 message_id=issue_key,
                 timestamp=timestamp,
                 raw=issue,
+                attachments=attachments,
             )
         )
 
