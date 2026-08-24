@@ -263,8 +263,11 @@ def _auto_install_python_310() -> None:
                 cmd = [new_python310, __file__]
             # Pass --skip-python-check so the re-launched process skips the
             # version gate and doesn't loop back into auto-install again.
-            extra = [a for a in sys.argv[1:] if a not in ("--no-launch",)]
-            subprocess.run(cmd + extra + ["--skip-python-check"])
+            # Keep ALL flags — dropping --no-launch here made a craftbot.py
+            # install boot the agent in the foreground mid-install.
+            extra = list(sys.argv[1:])
+            result = subprocess.run(cmd + extra + ["--skip-python-check"])
+            sys.exit(result.returncode)
         else:
             print(
                 f"\n  {ORANGE}▸{RESET} {WHITE}Python 3.10 installed — please open a NEW terminal and run:{RESET}"
@@ -272,7 +275,9 @@ def _auto_install_python_310() -> None:
             print(f"  {ORANGE}python install.py{RESET}")
             print("  (The new terminal will pick up Python 3.10 automatically.)")
 
-        sys.exit(0)
+        # Only the could-not-relaunch path reaches here: dependencies were NOT
+        # installed, so signal failure to any orchestrating caller.
+        sys.exit(1)
 
     elif sys.platform == "darwin":
         installer = None
@@ -2323,7 +2328,12 @@ if __name__ == "__main__":
     if (_ver >= (3, 14) or _ver < (3, 10)) and not _skip_python_check:
         # Before prompting, check if Python 3.10 is already installed.
         # If it is, silently re-launch with it — no need to ask the user again.
-        _python310 = _find_existing_python310()
+        # EXCEPT inside an activated conda env: the user chose that env's
+        # interpreter, so hijacking a different Python would install the
+        # dependencies somewhere the service will never look. Fall through
+        # to the prompt instead so they can continue with the env's Python.
+        _in_conda_env = bool(os.environ.get("CONDA_PREFIX"))
+        _python310 = None if _in_conda_env else _find_existing_python310()
         if _python310:
             print(
                 f"\n  {GREEN}▸{RESET} {WHITE}Python 3.10 detected — re-launching automatically...{RESET}\n"
@@ -2332,9 +2342,12 @@ if __name__ == "__main__":
                 _relaunch_cmd = [_python310, "-3.10", __file__]
             else:
                 _relaunch_cmd = [_python310, __file__]
-            _extra = [a for a in sys.argv[1:] if a != "--no-launch"]
-            subprocess.run(_relaunch_cmd + _extra + ["--skip-python-check"])
-            sys.exit(0)
+            # Keep ALL flags (incl. --no-launch — craftbot.py relies on it)
+            # and propagate the child's exit code so a failed install isn't
+            # reported as success to the caller.
+            _extra = list(sys.argv[1:])
+            _result = subprocess.run(_relaunch_cmd + _extra + ["--skip-python-check"])
+            sys.exit(_result.returncode)
 
         # Python 3.10 not found — show the prompt.
         if _ver >= (3, 14):

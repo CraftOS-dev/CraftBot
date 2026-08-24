@@ -1371,17 +1371,40 @@ def cmd_install(extra_args: List[str]) -> bool:
             )
             return False
 
-        # Verify critical packages are actually importable with this interpreter.
-        # install.py may exit 0 while packages ended up in a different site-packages.
-        _critical_check = subprocess.run(
-            [sys.executable, "-c", "import openai, requests, aiohttp, websockets"],
-            capture_output=True,
-        )
+        # Verify critical packages are actually importable with the interpreter
+        # that will run the service. install.py may exit 0 while packages ended
+        # up in a different site-packages. In conda mode they live in the env
+        # from environment.yml, not necessarily in sys.executable.
+        _imports = "import openai, anthropic, requests, aiohttp, websockets"
+        if "--conda" in install_flags:
+            _env_name = "craftbot"
+            try:
+                with open(os.path.join(BASE_DIR, "environment.yml")) as _f:
+                    for _line in _f:
+                        if _line.strip().startswith("name:"):
+                            _env_name = _line.split(":", 1)[1].strip().strip("'\"")
+                            break
+            except OSError:
+                pass
+            _check_python = f"conda env '{_env_name}'"
+            _check_cmd = [
+                shutil.which("conda") or "conda",
+                "run",
+                "-n",
+                _env_name,
+                "python",
+                "-c",
+                _imports,
+            ]
+        else:
+            _check_python = sys.executable
+            _check_cmd = [sys.executable, "-c", _imports]
+        _critical_check = subprocess.run(_check_cmd, capture_output=True)
         if _critical_check.returncode != 0:
             print(
                 f"\n  {RED}✗{RESET} {WHITE}Packages installed but not importable — wrong interpreter?{RESET}"
             )
-            print(f"  {DIM}Current Python: {sys.executable}{RESET}")
+            print(f"  {DIM}Checked interpreter: {_check_python}{RESET}")
             print(
                 f"  {DIM}Run 'python install.py' to reinstall with this Python.{RESET}"
             )
