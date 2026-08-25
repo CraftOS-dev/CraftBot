@@ -27,6 +27,10 @@ import time
 import threading
 from typing import Tuple, Optional, Dict, Any
 
+# Single interpreter for every CraftBot process — see app/python_runtime.py
+# (stdlib-only; app/__init__.py is empty, so safe before any deps exist).
+from app import python_runtime
+
 multiprocessing.freeze_support()
 
 # Configuration is loaded from settings.json - no .env file is used
@@ -74,58 +78,6 @@ def _download_progress(count: int, block_size: int, total_size: int) -> None:
     bar = f"{ORANGE}{'▓' * filled}{DIM}{'░' * (40 - filled)}{RESET}"
     sys.stdout.write(f"\r  Downloading  {bar}  {ORANGE}[ {pct:3d}% ]{RESET}")
     sys.stdout.flush()
-
-
-def _find_existing_python310() -> Optional[str]:
-    """Return a verified Python 3.10 executable path if one is already installed, else None."""
-    candidates = []
-
-    if sys.platform == "win32":
-        local_app = os.environ.get("LOCALAPPDATA", "")
-        candidates = [
-            os.path.join(local_app, "Programs", "Python", "Python310", "python.exe"),
-            r"C:\Python310\python.exe",
-            os.path.join(
-                os.environ.get("PROGRAMFILES", r"C:\Program Files"),
-                "Python310",
-                "python.exe",
-            ),
-        ]
-        # Also try the py launcher
-        py_launcher = shutil.which("py")
-        if py_launcher:
-            try:
-                r = subprocess.run(
-                    [py_launcher, "-3.10", "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=8,
-                )
-                if "3.10" in (r.stdout + r.stderr):
-                    return py_launcher  # caller uses it with "-3.10" flag
-            except Exception:
-                pass
-    elif sys.platform == "darwin":
-        candidates = [
-            shutil.which("python3.10") or "",
-            "/Library/Frameworks/Python.framework/Versions/3.10/bin/python3.10",
-            "/usr/local/bin/python3.10",
-            "/opt/homebrew/bin/python3.10",
-        ]
-    else:
-        candidates = [shutil.which("python3.10") or ""]
-
-    for path in candidates:
-        if path and os.path.isfile(path):
-            try:
-                r = subprocess.run(
-                    [path, "--version"], capture_output=True, text=True, timeout=8
-                )
-                if "3.10" in (r.stdout + r.stderr):
-                    return path
-            except Exception:
-                pass
-    return None
 
 
 def _auto_install_python_310() -> None:
@@ -213,54 +165,12 @@ def _auto_install_python_310() -> None:
 
         print(f"\n  {GREEN}✓{RESET} {WHITE}Python {chosen_version} installed!{RESET}")
 
-        # Locate the freshly installed python.exe and verify it is actually 3.10.
-        local_app = os.environ.get("LOCALAPPDATA", "")
-        search_paths = [
-            os.path.join(local_app, "Programs", "Python", "Python310", "python.exe"),
-            r"C:\Python310\python.exe",
-            os.path.join(
-                os.environ.get("PROGRAMFILES", r"C:\Program Files"),
-                "Python310",
-                "python.exe",
-            ),
-        ]
-        new_python310 = None
-        for path in search_paths:
-            if os.path.isfile(path):
-                try:
-                    ver_result = subprocess.run(
-                        [path, "--version"], capture_output=True, text=True, timeout=10
-                    )
-                    ver_text = (ver_result.stdout + ver_result.stderr).strip()
-                    if "3.10" in ver_text:
-                        new_python310 = path
-                        break
-                except Exception:
-                    pass
-
-        # Fallback: try the py launcher with -3.10 and verify it resolves to 3.10
-        if new_python310 is None:
-            py_launcher = shutil.which("py")
-            if py_launcher:
-                try:
-                    ver_result = subprocess.run(
-                        [py_launcher, "-3.10", "--version"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
-                    ver_text = (ver_result.stdout + ver_result.stderr).strip()
-                    if "3.10" in ver_text:
-                        new_python310 = py_launcher  # will use with -3.10 flag below
-                except Exception:
-                    pass
+        # Locate the freshly installed interpreter (probe-verified).
+        new_python310 = python_runtime.find_python()
 
         if new_python310:
             print(f"\n  {ORANGE}▸{RESET} Re-launching installer with Python 3.10...\n")
-            if new_python310.lower().endswith("py.exe"):
-                cmd = [new_python310, "-3.10", __file__]
-            else:
-                cmd = [new_python310, __file__]
+            cmd = [new_python310, __file__]
             # Pass --skip-python-check so the re-launched process skips the
             # version gate and doesn't loop back into auto-install again.
             # Keep ALL flags — dropping --no-launch here made a craftbot.py
@@ -2313,32 +2223,13 @@ if __name__ == "__main__":
             )
         sys.exit(1)
 
-    # ── Pre-release / wrong-version Python handling ───────────────────────
+    # ── Wrong-version Python: hop to the project's interpreter if one exists
+    # (recorded install / known 3.10 location; an activated conda env is
+    # never hijacked — see app/python_runtime.py). Returns only when there
+    # is nothing to hop to; the prompt below then offers to install one.
+    if not _skip_python_check:
+        python_runtime.reexec_if_needed()
     if (_ver >= (3, 14) or _ver < (3, 10)) and not _skip_python_check:
-        # Before prompting, check if Python 3.10 is already installed.
-        # If it is, silently re-launch with it — no need to ask the user again.
-        # EXCEPT inside an activated conda env: the user chose that env's
-        # interpreter, so hijacking a different Python would install the
-        # dependencies somewhere the service will never look. Fall through
-        # to the prompt instead so they can continue with the env's Python.
-        _in_conda_env = bool(os.environ.get("CONDA_PREFIX"))
-        _python310 = None if _in_conda_env else _find_existing_python310()
-        if _python310:
-            print(
-                f"\n  {GREEN}▸{RESET} {WHITE}Python 3.10 detected — re-launching automatically...{RESET}\n"
-            )
-            if _python310.lower().endswith("py.exe"):
-                _relaunch_cmd = [_python310, "-3.10", __file__]
-            else:
-                _relaunch_cmd = [_python310, __file__]
-            # Keep ALL flags (incl. --no-launch — craftbot.py relies on it)
-            # and propagate the child's exit code so a failed install isn't
-            # reported as success to the caller.
-            _extra = list(sys.argv[1:])
-            _result = subprocess.run(_relaunch_cmd + _extra + ["--skip-python-check"])
-            sys.exit(_result.returncode)
-
-        # Python 3.10 not found — show the prompt.
         if _ver >= (3, 14):
             _reason = f"Python {_ver.major}.{_ver.minor} is a pre-release version"
             _detail = (
@@ -2474,6 +2365,12 @@ if __name__ == "__main__":
     else:
         setup_pip_environment()
         print()
+
+    # Record the interpreter the dependencies went into. craftbot.py may have
+    # launched us under a different Python (a fresh box's only `python` is
+    # often 3.13/3.14 — the version gate above re-execs us under 3.10); its
+    # verify / start / auto-start must use THIS one, not the launcher's.
+    save_config_value("python_executable", sys.executable)
 
     # Node.js: one runtime for everything — use a suitable existing Node
     # (>= MIN_NODE_MAJOR via CRAFTBOT_NODE/PATH/nvm/fnm/volta/sidecar) or

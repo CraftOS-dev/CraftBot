@@ -88,6 +88,13 @@ _PLATFORM: str = sys.platform
 IS_FROZEN: bool = bool(getattr(sys, "frozen", False))
 EXE_PATH: Optional[str] = sys.executable if IS_FROZEN else None
 
+# Single interpreter for every CraftBot process (see app/python_runtime.py).
+# Absent in the frozen installer EXE, which bundles no agent code.
+try:
+    from app import python_runtime as _python_runtime
+except ImportError:
+    _python_runtime = None
+
 # Agent payload (download/extract/version) lives in craftbot_payload.
 # These re-exports keep external callers (e.g. CraftBotInstaller.spec docstring,
 # any future tooling) working with the legacy `craftbot.GITHUB_OWNER` etc.
@@ -295,14 +302,24 @@ def _warn_path_issues() -> None:
         )
 
 
+def _installed_python() -> str:
+    """The single CraftBot interpreter (app/python_runtime.py), else this
+    process's own. main() re-execs onto it first thing, so normally the two
+    are the same; the fallback covers the frozen installer EXE."""
+    if _python_runtime is not None:
+        return _python_runtime.resolve() or sys.executable
+    return sys.executable
+
+
 def _python_exe() -> str:
     """Return the Python executable to use for the service process."""
+    python = _installed_python()
     # On Windows prefer pythonw.exe (no console window) when not in CLI mode
     if _PLATFORM == "win32":
-        pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        pythonw = os.path.join(os.path.dirname(python), "pythonw.exe")
         if os.path.isfile(pythonw):
             return pythonw
-    return sys.executable
+    return python
 
 
 def _read_pid() -> Optional[int]:
@@ -499,7 +516,7 @@ def _open_browser_detached(url: str) -> None:
         f"webbrowser.open('{url}')\n"
     )
 
-    python = sys.executable
+    python = _installed_python()
     if _PLATFORM == "win32":
         pythonw = python.replace("python.exe", "pythonw.exe")
         if os.path.isfile(pythonw):
@@ -545,7 +562,7 @@ def cmd_start(extra_args: List[str]) -> bool:
         python = _python_exe()
         # Use plain python.exe for CLI because pythonw has no console
         if "--cli" in run_args:
-            python = sys.executable
+            python = _installed_python()
         cmd = [python, RUN_SCRIPT] + run_args
 
     # UTF-8 with replace so the agent's Unicode banner / box-drawing chars
@@ -1057,7 +1074,7 @@ def _install_linux(run_args: List[str]) -> None:
             return
         exec_start = f"{target} {' '.join(run_args)}".strip()
     else:
-        python = sys.executable
+        python = _installed_python()
         exec_start = f"{python} {RUN_SCRIPT} {' '.join(run_args)}"
 
     content = f"""[Unit]
@@ -1145,7 +1162,7 @@ def _install_macos(run_args: List[str]) -> None:
             return
         program_args = [target] + run_args
     else:
-        python = sys.executable
+        python = _installed_python()
         program_args = [python, RUN_SCRIPT] + run_args
     program_args_xml = "\n".join(f"        <string>{a}</string>" for a in program_args)
 
@@ -1397,8 +1414,10 @@ def cmd_install(extra_args: List[str]) -> bool:
                 _imports,
             ]
         else:
-            _check_python = sys.executable
-            _check_cmd = [sys.executable, "-c", _imports]
+            # The interpreter install.py just recorded — not necessarily the
+            # one running this script (see _installed_python).
+            _check_python = _installed_python()
+            _check_cmd = [_check_python, "-c", _imports]
         _critical_check = subprocess.run(_check_cmd, capture_output=True)
         if _critical_check.returncode != 0:
             print(
@@ -1551,7 +1570,7 @@ def cmd_uninstall() -> None:
     if os.path.isfile(req_file):
         print("\nUninstalling pip packages...")
         subprocess.run(
-            [sys.executable, "-m", "pip", "uninstall", "-r", req_file, "-y"],
+            [_installed_python(), "-m", "pip", "uninstall", "-r", req_file, "-y"],
             cwd=BASE_DIR,
         )
     else:
@@ -1559,7 +1578,7 @@ def cmd_uninstall() -> None:
 
     # Purge pip cache
     print("\nPurging pip cache...")
-    subprocess.run([sys.executable, "-m", "pip", "cache", "purge"])
+    subprocess.run([_installed_python(), "-m", "pip", "cache", "purge"])
 
     print("\nUninstall complete.")
 
@@ -1677,6 +1696,11 @@ def _usage() -> None:
 
 def main() -> None:
     args = sys.argv[1:]
+
+    # Whatever `python` launched us is a trampoline: hop onto the project's
+    # interpreter (the one the dependencies live in) before doing anything.
+    if not IS_FROZEN and _python_runtime is not None:
+        _python_runtime.reexec_if_needed()
 
     # Frozen EXE double-clicked with no args → launch the Tkinter wizard.
     # Source installs (no IS_FROZEN) keep the legacy "print usage" behaviour

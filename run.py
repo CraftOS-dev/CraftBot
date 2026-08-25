@@ -34,6 +34,7 @@ from app.runtime_preflight import (
     ensure_runtime_dependencies,
     mark_runtime_dependencies_checked,
 )
+from app import python_runtime
 
 multiprocessing.freeze_support()
 
@@ -967,7 +968,7 @@ def launch_agent_background(
         if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
             cmd = ["cmd.exe", "/d", "/c"] + cmd
     else:
-        cmd = [sys.executable, "-u", main_script] + pass_args
+        cmd = [python_runtime.resolve() or sys.executable, "-u", main_script] + pass_args
 
     try:
         process = subprocess.Popen(
@@ -1173,7 +1174,7 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
         if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
             cmd = ["cmd.exe", "/d", "/c"] + cmd
     else:
-        cmd = [sys.executable, "-u", main_script] + pass_args
+        cmd = [python_runtime.resolve() or sys.executable, "-u", main_script] + pass_args
 
     # Run in current terminal with all environment variables.
     try:
@@ -1190,6 +1191,10 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
 # MAIN
 # ==========================================
 if __name__ == "__main__":
+    # Whatever `python` launched us is a trampoline: hop onto the project's
+    # interpreter (the one the dependencies live in) before doing anything.
+    python_runtime.reexec_if_needed()
+
     args_list = sys.argv[1:]
     args = set(args_list)
 
