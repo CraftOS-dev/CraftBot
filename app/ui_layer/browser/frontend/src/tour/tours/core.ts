@@ -112,6 +112,19 @@ export const coreTour: TourDefinition = {
       },
     },
     {
+      id: 'memory',
+      route: '/memory',
+      anchor: 'nav-memory',
+      env: ['ensureSidebarVisible'],
+      popover: {
+        title: 'CraftBot memory',
+        description:
+          'Everything CraftBot learns about you and your work lives here as a browsable graph of memories, entities, and files. The more you use CraftBot, the better it remembers you.',
+        side: 'right',
+        align: 'start',
+      },
+    },
+    {
       id: 'workspace',
       route: '/workspace',
       anchor: 'nav-workspace',

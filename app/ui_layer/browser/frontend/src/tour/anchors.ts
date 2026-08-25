@@ -19,6 +19,7 @@ export type TourAnchorId =
   | 'livingui-tab-custom'
   | 'livingui-tab-import'
   | 'nav-dashboard'
+  | 'nav-memory'
   | 'nav-workspace'
   // On-page anchors for the Settings page: the whole category rail, plus the
   // individual tabs the tour calls out.
