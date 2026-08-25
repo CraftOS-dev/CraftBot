@@ -63,7 +63,7 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
 
       {question.options && question.options.length > 0 && (
         <div className={styles.chips}>
-          {question.options.map(opt => (
+          {question.options.map((opt, i) => (
             <button
               key={opt.value}
               type="button"
@@ -72,6 +72,9 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
               disabled={submitted}
             >
               {opt.label}
+              {i === 0 && (
+                <span className={styles.recommended}> (recommended)</span>
+              )}
             </button>
           ))}
         </div>

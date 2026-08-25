@@ -17,7 +17,12 @@ from agent_core import action
         "above the chat input with one-click answer buttons, so the user can answer "
         "even while you keep working or other messages scroll by. Questions stay "
         "pinned until answered or dismissed — NEVER re-send a question that is still "
-        "awaiting the user's answer."
+        "awaiting the user's answer. ONE QUESTION PER MESSAGE: when you provide "
+        "suggested_responses, the message must ask exactly ONE question with ONE set "
+        "of options. Never bundle a second question into the same message. If you need "
+        "another answer, wait for this one, then ask the next question in a separate "
+        "follow-up message. The suggested_responses ARE the answer choices, so do not "
+        "also list them in the message text."
     ),
     default=True,
     action_sets=["core"],
@@ -26,7 +31,13 @@ from agent_core import action
         "message": {
             "type": "string",
             "example": "Hello, user!",
-            "description": "The chat message to send. Send message in terminal friendly format and DO NOT include mark down.",
+            "description": (
+                "The chat message to send. Send message in terminal friendly format and "
+                "DO NOT include mark down. When you also pass suggested_responses, this "
+                "text is JUST the single question (plus any brief context), so do NOT "
+                "restate the answer options here; they are rendered separately as "
+                "buttons. Never write out multiple questions in one message."
+            ),
         },
         "continue_work": {
             "type": "boolean",
@@ -42,8 +53,10 @@ from agent_core import action
             "example": ["Yes, go ahead", "No, skip it"],
             "description": (
                 "Only when the message is a question: 2-5 short suggested answers "
-                "(plain strings) shown as one-click buttons. Cover the likely answers; "
-                "keep each under ~8 words. Omit for non-questions."
+                "(plain strings) shown as one-click buttons. These must be the answers "
+                "to the SINGLE question in `message` — never mix in answers for a "
+                "different question. Cover the likely answers; keep each under ~8 words. "
+                "Omit for non-questions."
             ),
         },
         "allow_free_text": {
