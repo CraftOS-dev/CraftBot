@@ -28,6 +28,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple, TYPE_CHECKING
 
+from app import node_runtime
+
 try:
     from loguru import logger
 except ImportError:
@@ -1274,7 +1276,9 @@ UI in {project.path}/frontend/src/app/."""
                     proc = await asyncio.create_subprocess_shell(
                         cmd,
                         cwd=str(project_dir),
-                        env={**os.environ, **bridge_env},
+                        # bare npm/node in pipeline commands resolve to the
+                        # single runtime (see app/node_runtime.py)
+                        env=node_runtime.child_env(bridge_env),
                         stdout=lh,
                         stderr=lh,
                     )
@@ -1895,10 +1899,9 @@ UI in {project.path}/frontend/src/app/."""
         )
         log_handle.flush()
 
-        # Build env with integration bridge vars if project provided
-        env = os.environ.copy()
-        if extra_env:
-            env.update(extra_env)
+        # Build env with integration bridge vars if project provided; the
+        # resolved Node runtime leads PATH (see app/node_runtime.py).
+        env = node_runtime.child_env(extra_env)
         if project and project.bridge_token:
             bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
             env["CRAFTBOT_BRIDGE_URL"] = f"http://localhost:{bridge_port}"

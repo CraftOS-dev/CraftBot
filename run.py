@@ -397,71 +397,9 @@ def _free_ports(*ports: int) -> None:
             time.sleep(0.5)
 
 
-def _try_install_nodejs_linux(silent: bool = False) -> bool:
-    """
-    Attempt to auto-install Node.js on Linux systems (including Kali).
-    Returns True if successful, False otherwise.
-    """
-    if sys.platform == "win32":
-        return False
-
-    # Check if node is already installed
-    if shutil.which("node") and shutil.which("npm"):
-        return True
-
-    if not silent:
-        print("\n🔧 Attempting to install Node.js...")
-
-    # Detect package manager and prepare commands
-    package_managers = [
-        (
-            "apt-get",
-            ["sudo", "apt-get", "update"],
-            ["sudo", "apt-get", "install", "-y", "nodejs", "npm"],
-        ),
-        (
-            "apt",
-            ["sudo", "apt", "update"],
-            ["sudo", "apt", "install", "-y", "nodejs", "npm"],
-        ),
-        ("dnf", None, ["sudo", "dnf", "install", "-y", "nodejs", "npm"]),
-        ("yum", None, ["sudo", "yum", "install", "-y", "nodejs", "npm"]),
-        ("pacman", None, ["sudo", "pacman", "-Sy", "nodejs", "npm"]),
-        ("zypper", None, ["sudo", "zypper", "install", "-y", "nodejs", "npm"]),
-    ]
-
-    for pm_name, update_cmd, install_cmd in package_managers.items():
-        if shutil.which(pm_name.split()[0]):
-            if not silent:
-                print(f"   Found {pm_name}, installing Node.js...")
-            try:
-                # Run update command if available
-                if update_cmd:
-                    try:
-                        result = subprocess.run(
-                            update_cmd, capture_output=True, text=True, timeout=300
-                        )
-                    except Exception:
-                        pass  # Update failed, but continue with install
-
-                # Run install command
-                result = subprocess.run(
-                    install_cmd, capture_output=True, text=True, timeout=300
-                )
-                if result.returncode == 0:
-                    if not silent:
-                        print("✓ Node.js installed successfully")
-                    # Small delay to ensure PATH is updated
-                    time.sleep(1)
-                    return True
-                else:
-                    if not silent:
-                        print(f"   ⚠ {pm_name} installation failed, trying next...")
-            except Exception as e:
-                if not silent:
-                    print(f"   ⚠ Error with {pm_name}: {str(e)[:100]}, trying next...")
-
-    return False
+# Single resolved Node runtime — see app/node_runtime.py. install.py
+# downloads the sidecar when nothing suitable exists; run.py never installs.
+from app import node_runtime
 
 
 def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
@@ -638,7 +576,12 @@ def _ensure_frontend_deps_fresh(npm_cmd: str, silent: bool = False) -> bool:
         install_cmd = [npm_cmd, "install"]
 
     try:
-        result = subprocess.run(install_cmd, cwd=FRONTEND_DIR, stdin=subprocess.DEVNULL)
+        result = subprocess.run(
+            install_cmd,
+            cwd=FRONTEND_DIR,
+            stdin=subprocess.DEVNULL,
+            env=node_runtime.child_env(),
+        )
     except Exception as e:
         if not silent:
             print(f"Error: npm install failed to run — {e}")
@@ -691,25 +634,16 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             print("  npm install")
         return None
 
-    # Find npm command
-    npm_cmd = shutil.which("npm")
+    # The single resolved Node runtime (sidecar/nvm/PATH); PATH npm of any
+    # version is the fallback — the dev server runs fine on Node 20.
+    npm_cmd = node_runtime.npm_cmd()
     if not npm_cmd:
-        # Try to auto-install Node.js on Linux
-        if sys.platform != "win32":
-            if not silent:
-                print("Node.js not found. Attempting auto-install on Linux...")
-            if _try_install_nodejs_linux(silent=silent):
-                npm_cmd = shutil.which("npm")
-
-        if not npm_cmd:
-            if not silent:
-                print("Error: npm not found in PATH")
-                print("\nNode.js is required for browser mode.")
-                print("Install from: https://nodejs.org/ (choose LTS version)")
-                print("\nAfter installation:")
-                print("  1. Restart your terminal")
-                print("  2. Run: python run.py")
-            return None
+        if not silent:
+            print("Error: no Node.js/npm found")
+            print("\nNode.js is required for browser mode.")
+            print("Run: python install.py   (installs a sidecar Node,")
+            print("no system changes; CRAFTBOT_NODE env var also works)")
+        return None
 
     # node_modules exists and npm is available, but a later `git pull` may have
     # added a dependency the old install is missing. Reinstall before launching
@@ -722,7 +656,7 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
     # This avoids the grandchild node.exe allocating a new console (which Windows
     # Terminal intercepts and shows as a blank tab).
     if sys.platform == "win32":
-        node_exe = shutil.which("node")
+        node_exe = node_runtime.node_cmd()
         vite_script = os.path.join(
             FRONTEND_DIR, "node_modules", "vite", "bin", "vite.js"
         )
@@ -743,7 +677,8 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env=os.environ.copy(),
+            # Resolved runtime first on PATH: npm's node children match too
+            env=node_runtime.child_env(),
         )
         if sys.platform == "win32":
             # DETACHED_PROCESS + CREATE_NO_WINDOW on the direct node.exe call
@@ -964,6 +899,14 @@ def launch_agent_background(
     agent_env = os.environ.copy()
     agent_env["BROWSER_STARTUP_UI"] = "1"
     agent_env["PYTHONWARNINGS"] = "ignore"
+    # Hand the child the Node runtime this process already resolved, so it
+    # skips re-resolution and both processes agree on the same binary. Not
+    # in conda mode: there the env's own node (>= 24 via environment.yml,
+    # first on PATH under conda run) is the intended runtime.
+    if not use_conda and "CRAFTBOT_NODE" not in agent_env:
+        _rt = node_runtime.resolve()
+        if _rt:
+            agent_env["CRAFTBOT_NODE"] = _rt.node
 
     # When running as a PyInstaller frozen binary, run main() in a thread
     # instead of spawning a subprocess (sys.executable is the binary itself)

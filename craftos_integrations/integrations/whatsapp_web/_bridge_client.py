@@ -31,6 +31,14 @@ from typing import Any, Callable, Coroutine, Dict, Optional
 from ...config import ConfigStore
 from ...logger import get_logger
 
+# CraftBot's single resolved Node runtime (app/node_runtime.py). Guarded so
+# this package still imports outside a CraftBot process; the bare-name
+# fallback then behaves exactly as before.
+try:
+    from app import node_runtime as _node_runtime
+except ImportError:
+    _node_runtime = None
+
 logger = get_logger(__name__)
 
 BRIDGE_DIR = Path(__file__).parent
@@ -101,15 +109,29 @@ class WhatsAppBridge:
         if self.is_running:
             return
 
+        # CraftBot's single resolved Node runtime; bare names as fallback.
+        if _node_runtime is None:
+            logger.warning(
+                "[WA-Bridge] app.node_runtime unavailable — spawning bare "
+                "node/npm from PATH (may be a different Node version)"
+            )
+        npm_cmd = (_node_runtime.npm_cmd() if _node_runtime else None) or (
+            "npm.cmd" if os.name == "nt" else "npm"
+        )
+        node_cmd = (_node_runtime.node_cmd() if _node_runtime else None) or (
+            "node.exe" if os.name == "nt" else "node"
+        )
+        bridge_env = _node_runtime.child_env() if _node_runtime else None
+
         if _BRIDGE_EXEC_OVERRIDE is None:
             node_modules = BRIDGE_DIR / "node_modules"
             if not node_modules.exists():
                 logger.info("[WA-Bridge] Installing npm dependencies...")
-                npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
                 proc = await asyncio.create_subprocess_exec(
                     npm_cmd,
                     "install",
                     cwd=str(BRIDGE_DIR),
+                    env=bridge_env,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -120,11 +142,11 @@ class WhatsAppBridge:
 
         logger.info(f"[WA-Bridge] Starting bridge (auth_dir={self._auth_dir})")
 
-        node_cmd = "node.exe" if os.name == "nt" else "node"
         argv = _BRIDGE_EXEC_OVERRIDE or [node_cmd, str(BRIDGE_SCRIPT)]
         self._process = await asyncio.create_subprocess_exec(
             *argv,
             self._auth_dir,
+            env=bridge_env,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
