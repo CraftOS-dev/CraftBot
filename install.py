@@ -1059,6 +1059,114 @@ def ensure_nodejs() -> bool:
     return False
 
 
+def ensure_native_runtime() -> None:
+    """OS prerequisites that pip cannot provide for the native wheels
+    (torch, onnxruntime, ...) the memory stack imports at boot.
+
+    Windows: the Visual C++ 2015-2022 Redistributable — torch's DLLs link
+    against it and a fresh Windows (observed: Windows Sandbox, 2026-08-25)
+    lacks it, dying at first boot with WinError 126 on torch_python.dll.
+    Installed silently when missing (one-time, machine-wide, UAC prompt).
+    Linux: libgomp/libstdc++ (missing on minimal images) — sudo territory,
+    so only a hint. macOS: torch wheels are self-contained."""
+    if sys.platform == "win32":
+        import winreg
+
+        def _redist_installed() -> bool:
+            try:
+                key = winreg.OpenKey(
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+                )
+                installed, _ = winreg.QueryValueEx(key, "Installed")
+                return bool(installed)
+            except OSError:
+                sys32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+                return all(
+                    os.path.isfile(os.path.join(sys32, dll))
+                    for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+                )
+
+        if _redist_installed():
+            print("✓ Visual C++ Redistributable present")
+            return
+        import platform
+        import urllib.request
+
+        arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
+        url = f"https://aka.ms/vs/17/release/vc_redist.{arch}.exe"
+        dest = os.path.join(BASE_DIR, f"vc_redist.{arch}.exe")
+        print("\n🔧 Visual C++ Redistributable missing — installing (torch needs it)...")
+        print(f"   {url}  (a UAC prompt may appear)")
+        try:
+            urllib.request.urlretrieve(url, dest)
+            result = run_command(
+                [dest, "/install", "/quiet", "/norestart"],
+                check=False,
+                capture=True,
+                quiet=True,
+                show_error=False,
+            )
+            code = getattr(result, "returncode", None)
+            # 0 = installed, 1638 = a newer version is already present, 3010 = reboot pending
+            if code in (0, 1638, 3010) and _redist_installed():
+                print("✓ Visual C++ Redistributable installed")
+            else:
+                print(f"⚠ Redistributable installer exited with {code} — install it manually:")
+                print(f"   {url}")
+        except Exception as e:
+            print(f"⚠ Could not install the Visual C++ Redistributable: {str(e)[:200]}")
+            print(f"   Install it manually: {url}")
+        finally:
+            try:
+                os.remove(dest)
+            except OSError:
+                pass
+    elif sys.platform.startswith("linux"):
+        import ctypes.util
+
+        missing = [
+            name
+            for name, lib in (("libgomp1", "gomp"), ("libstdc++6", "stdc++"))
+            if ctypes.util.find_library(lib) is None
+        ]
+        if missing:
+            print(f"⚠ Missing system libraries torch needs: {', '.join(missing)}")
+            print(f"   Debian/Ubuntu/Kali:  sudo apt-get install -y {' '.join(missing)}")
+            print("   Fedora/RHEL:         sudo dnf install -y libgomp libstdc++")
+
+
+def verify_native_imports(python_cmd: list) -> bool:
+    """Prove the memory stack's native wheels actually LOAD in the interpreter
+    that will run the service — a pip success only means the files landed.
+    This is the cross-platform half of ensure_native_runtime: whatever the
+    OS-specific gap is, it surfaces here at install time with the fix,
+    instead of as a dead port after "INSTALLATION COMPLETE"."""
+    if os.environ.get("MEMORY_EMBEDDING_MODEL") == "default":
+        return True  # ChromaDB's bundled embedder; torch never loads
+    result = run_command(
+        python_cmd + ["-c", "import torch, sentence_transformers"],
+        check=False,
+        capture=True,
+        quiet=True,
+        show_error=False,
+    )
+    if result is not None and getattr(result, "returncode", 1) == 0:
+        print("✓ Memory embedding stack loads (torch, sentence-transformers)")
+        return True
+    tail = (getattr(result, "stderr", "") or "").strip().splitlines()[-1:] or ["(no output)"]
+    print("\n✗ The memory embedding stack is installed but does not load:")
+    print(f"   {tail[0][:300]}")
+    if sys.platform == "win32":
+        print("   Usual cause: Visual C++ Redistributable missing/failed —")
+        print("   https://aka.ms/vs/17/release/vc_redist.x64.exe, then re-run install.")
+    elif sys.platform.startswith("linux"):
+        print("   Usual cause: sudo apt-get install -y libgomp1 libstdc++6, then re-run install.")
+    print("   Escape hatch: set MEMORY_EMBEDDING_MODEL=default (ChromaDB's bundled")
+    print("   embedder, no torch) — memory retrieval quality is lower.")
+    return False
+
+
 def install_playwright_browser(use_conda: bool = False):
     """Install Playwright Chromium for the agent's browser-automation
     actions. (The WhatsApp bridge no longer uses a browser — it speaks the
@@ -2371,6 +2479,19 @@ if __name__ == "__main__":
     # often 3.13/3.14 — the version gate above re-execs us under 3.10); its
     # verify / start / auto-start must use THIS one, not the launcher's.
     save_config_value("python_executable", sys.executable)
+
+    # Native prerequisites + proof the memory stack loads in the SERVICE
+    # interpreter. Hard stop on failure: the backend cannot boot without it,
+    # and "INSTALLATION COMPLETE" followed by a dead port is worse than a
+    # clear error here.
+    ensure_native_runtime()
+    _service_python = (
+        [get_conda_command(), "run", "-n", env_name, "python"]
+        if use_conda
+        else [sys.executable]
+    )
+    if not verify_native_imports(_service_python):
+        sys.exit(1)
 
     # Node.js: one runtime for everything — use a suitable existing Node
     # (>= MIN_NODE_MAJOR via CRAFTBOT_NODE/PATH/nvm/fnm/volta/sidecar) or
