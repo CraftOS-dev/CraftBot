@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple, TYPE_CHECKING
 
 from app import node_runtime
+from app.living_ui import marketplace_source
 
 try:
     from loguru import logger
@@ -3093,11 +3094,11 @@ UI in {project.path}/frontend/src/app/."""
         preserved_hold: Optional[Path] = None
         try:
             # Download the repo as a zip
-            # GitHub API: /{owner}/{repo}/zipball/main
+            # GitHub API: /{owner}/{repo}/zipball/{ref}
             parts = repo_url.rstrip("/").split("/")
             owner = parts[-2]
             repo = parts[-1]
-            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+            zip_url = marketplace_source.zip_url(owner, repo)
             logger.info(f"[LIVING_UI:MARKETPLACE] Downloading {app_id} from {zip_url}")
 
             import ssl

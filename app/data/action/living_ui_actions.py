@@ -1919,10 +1919,9 @@ async def living_ui_marketplace_list(input_data: dict) -> dict:
     import ssl
     import urllib.request
 
-    CATALOGUE_URL = (
-        "https://raw.githubusercontent.com/CraftOS-dev/"
-        "living-ui-marketplace/main/catalogue.json"
-    )
+    from app.living_ui import marketplace_source
+
+    CATALOGUE_URL = marketplace_source.catalogue_url()
 
     def _fetch() -> dict:
         try:

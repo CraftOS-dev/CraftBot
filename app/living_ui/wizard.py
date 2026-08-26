@@ -31,6 +31,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from . import marketplace_source
+
 try:
     from loguru import logger
 except ImportError:
@@ -304,7 +306,6 @@ degrading gracefully offline."""
 
 _MARKETPLACE_CACHE: Dict[str, Any] = {}
 _MARKETPLACE_TTL_SECONDS = 3600
-_MARKETPLACE_RAW_URL = "https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/catalogue.json"
 
 
 def _marketplace_catalogue() -> List[Dict[str, Any]]:
@@ -322,22 +323,18 @@ def _marketplace_catalogue() -> List[Dict[str, Any]]:
 
     apps: List[Dict[str, Any]] = []
     raw = None
-    for local in (
-        Path(__file__).resolve().parents[2].parent
-        / "living-ui-marketplace"
-        / "catalogue.json",
-    ):
+    local = marketplace_source.local_catalogue()
+    if local is not None:
         try:
-            if local.exists():
-                raw = json.loads(local.read_text(encoding="utf-8"))
-                break
+            raw = json.loads(local.read_text(encoding="utf-8"))
         except Exception:
             raw = None
     if raw is None:
         try:
             import urllib.request
 
-            with urllib.request.urlopen(_MARKETPLACE_RAW_URL, timeout=4) as response:
+            url = marketplace_source.catalogue_url()
+            with urllib.request.urlopen(url, timeout=4) as response:
                 raw = json.loads(response.read().decode("utf-8"))
         except Exception as e:
             logger.debug(f"[WIZARD] marketplace catalogue unavailable: {e}")

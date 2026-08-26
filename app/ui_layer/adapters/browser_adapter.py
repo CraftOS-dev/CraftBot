@@ -7860,7 +7860,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         import json as _json
         import re as _re
 
-        CATALOGUE_URL = "https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/catalogue.json"
+        from app.living_ui import marketplace_source
+
+        CATALOGUE_URL = marketplace_source.catalogue_url()
 
         try:
             import ssl
@@ -7875,10 +7877,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
             raw = _re.sub(r",\s*([}\]])", r"\1", raw)
             catalogue = _json.loads(raw)
+            # Resolve thumbnails here rather than in the frontend, which would
+            # otherwise build them against a hard-coded branch and 404 for any
+            # app that only exists on the ref being tested.
+            apps = catalogue.get("apps", [])
+            for app in apps:
+                if isinstance(app, dict) and not app.get("preview") and app.get("folder"):
+                    app["preview"] = marketplace_source.thumbnail_url(app["folder"])
             await self._broadcast(
                 {
                     "type": "living_ui_marketplace_list",
-                    "data": {"success": True, "apps": catalogue.get("apps", [])},
+                    "data": {"success": True, "apps": apps},
                 }
             )
         except Exception as e:
