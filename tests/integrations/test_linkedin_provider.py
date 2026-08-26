@@ -47,7 +47,7 @@ SUB_ONLY_CRED = {
     "sub": "AbC123xYz",
 }
 
-# Pre-multi-account linkedin.json shape: neither email nor sub key → LEGACY_IDENTITY.
+# Pre-multi-account linkedin.json shape: neither email nor sub key → UNIDENTIFIED.
 LEGACY_CRED = {
     "access_token": "AQV-old-token",
     "refresh_token": "AQW-old-refresh",
@@ -74,7 +74,7 @@ def test_identity_is_email_then_sub_then_none():
     assert provider.identity_of(LINKEDIN_CRED) == "person@example.com"
     assert provider.identity_of(SUB_ONLY_CRED) == "abc123xyz"
     assert provider.identity_of({"email": "   ", "sub": "AbC123xYz"}) == "abc123xyz"
-    assert provider.identity_of(LEGACY_CRED) is None  # → LEGACY_IDENTITY in core
+    assert provider.identity_of(LEGACY_CRED) is None  # → UNIDENTIFIED in core
     assert provider.identity_of({}) is None
 
 

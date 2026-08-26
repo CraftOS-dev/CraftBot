@@ -1,4 +1,4 @@
-"""Notion operations — ported from the legacy notion_actions.py schemas.
+"""Notion operations — schemas for notion_actions.py.
 
 NOTE: no operation declares an ``account`` input — the host adapter
 injects it on every generated action and the core resolves it centrally
@@ -19,7 +19,7 @@ ambiguous multi-account request.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 from ...contracts import Operation
 from .._shared import client_op
@@ -28,7 +28,7 @@ STATUS_OUTPUT = {"status": {"type": "string", "example": "success"}}
 
 
 # ------------------------------------------------------------------
-# Shared shaping helpers (verbatim from the legacy action bodies)
+# Shared shaping helpers (verbatim from the action bodies)
 # ------------------------------------------------------------------
 
 
@@ -68,7 +68,7 @@ def _prop_value(p):
 
 
 def _pick(res: Dict[str, Any], keys) -> Dict[str, Any]:
-    """Port of the legacy ``pick_result`` helper."""
+    """Port of ``pick_result`` helper."""
     if res.get("status") == "success" and isinstance(res.get("result"), dict):
         r = res["result"]
         picked = {k: r.get(k) for k in keys if r.get(k) is not None}
@@ -81,8 +81,8 @@ def _shaped(
     base: Operation,
     shaper: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
 ) -> Operation:
-    """Wrap an operation's fn with a post-shaper (mirrors the legacy
-    action bodies that post-processed run_client_sync results)."""
+    """Wrap an operation's fn with a post-shaper (mirrors the action
+    bodies that post-process run_client_sync results)."""
     inner = base.fn
 
     async def fn(client: Any, input_data: Dict[str, Any]) -> Dict[str, Any]:

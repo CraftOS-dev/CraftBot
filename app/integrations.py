@@ -2,7 +2,7 @@
 
 The single place CraftBot constructs its IntegrationSystem. Everything
 host-specific about the system — which storage backend, which providers, where
-legacy credential files live — is decided here; the package itself stays
+credentials live — is decided here; the package itself stays
 host-blind.
 
 Lazy singleton: construction needs nothing from app config because the
@@ -14,7 +14,10 @@ FileCredentialStore resolves ``ConfigStore.project_root`` per call, so
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    from craftos_integrations.config import MessageCallback
 
 from craftos_integrations.core.storage import FileCredentialStore
 from craftos_integrations.core.system import IntegrationSystem
@@ -144,24 +147,17 @@ def format_attachment_descriptors(
     return lines
 
 
-def _legacy_filenames() -> Dict[str, str]:
-    """Map provider id → the legacy single-account credential filename, read
-    from the old handlers' IntegrationSpec so the two can never drift."""
-    mapping: Dict[str, str] = {}
-    try:
-        from craftos_integrations import registry as legacy_registry
+def set_event_callback(on_message: "MessageCallback") -> None:
+    """Install the host callback that inbound listener events are forwarded to.
 
-        legacy_registry.autoload_integrations()
-        for name, handler in legacy_registry.get_all_handlers().items():
-            spec = getattr(handler, "spec", None)
-            if spec is None:
-                continue
-            mapping[name] = spec.cred_file
-            mapping[spec.platform_id] = spec.cred_file
-    except Exception:
-        # Fall back to the store's default (<provider_id>.json) per lookup.
-        pass
-    return mapping
+    ``CraftBotEventSink.on_event`` reads ``ConfigStore.on_message`` and DROPS
+    every event when it is None, so this must be called before
+    ``start_listeners()``. Setting it explicitly here, rather than as a side
+    effect of some other bootstrap step, means it cannot be lost by accident.
+    """
+    from craftos_integrations.config import ConfigStore
+
+    ConfigStore.on_message = on_message
 
 
 def get_system() -> IntegrationSystem:
@@ -170,7 +166,7 @@ def get_system() -> IntegrationSystem:
         from craftos_integrations.providers import default_providers
 
         _system = IntegrationSystem(
-            store=FileCredentialStore(legacy_filenames=_legacy_filenames()),
+            store=FileCredentialStore(),
             providers=default_providers(),
         )
     return _system
@@ -190,13 +186,12 @@ class CraftBotEventSink:
     """EventSink implementation: listener events → the agent's trigger
     system.
 
-    The ListenerManager emits the same payload-dict shape the legacy
-    ``ExternalCommsManager._handle_platform_message`` builds, so events are
-    forwarded to the very same host callback (``ConfigStore.on_message``,
-    set by ``initialize_manager``) — the agent cannot tell which engine
-    delivered a message. Before forwarding, the payload is enriched with
-    the account that received it so multi-account routing survives the
-    trip: ``payload["account"]`` carries the identity, and the
+    Every listener emits the same payload-dict shape, so events are
+    forwarded to one host callback (``ConfigStore.on_message``,
+    installed by ``set_event_callback`` during agent boot) — the agent cannot
+    tell which engine delivered a message. Before forwarding, the payload is
+    enriched with the account that received it so multi-account routing
+    survives the trip: ``payload["account"]`` carries the identity, and the
     human-readable ``source`` gains an ``(alias-or-identity)`` suffix.
     """
 

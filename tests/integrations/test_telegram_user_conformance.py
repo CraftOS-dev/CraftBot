@@ -4,7 +4,7 @@ No network and no Telethon: the async auth helpers (start_auth /
 complete_auth) and the legacy listen loop are stubbed. What's real is
 the binding chain bind_credential → _load, the phone-number identity
 normalization, the two-phase verify_token state machine over the shared
-``_pending_telegram_auth`` dict, and the LegacyListenerAdapter wiring
+``_pending_telegram_auth`` dict, and the ClientListenerAdapter wiring
 with per-instance listener state.
 """
 
@@ -14,13 +14,11 @@ import asyncio
 
 import pytest
 
-import craftos_integrations.integrations.telegram_user._telegram_mtproto as mtproto
+import craftos_integrations.providers.telegram_user._telegram_mtproto as mtproto
 from craftos_integrations.config import ConfigStore
-from craftos_integrations.integrations.telegram_user import (
-    TelegramUserHandler,
-    _pending_telegram_auth,
-)
-from craftos_integrations.providers._shared import LegacyListenerAdapter
+from craftos_integrations.providers.telegram_user.client import _pending_telegram_auth
+from craftos_integrations.contracts import provider_metadata
+from craftos_integrations.providers._shared import ClientListenerAdapter
 from craftos_integrations.providers.telegram_user import TelegramUserProvider
 from craftos_integrations.providers.telegram_user.provider import (
     BoundTelegramUserClient,
@@ -73,7 +71,7 @@ class TestTelegramUserConformance(ProviderConformance):
     credential_fixtures = [
         TELEGRAM_USER_CRED,
         QR_CRED,  # phone-less → user-id fallback
-        {"session_string": "x"},  # identity-less → None (LEGACY sentinel in core)
+        {"session_string": "x"},  # identity-less → None (UNIDENTIFIED sentinel in core)
         {},  # junk
     ]
 
@@ -118,20 +116,22 @@ def test_bridge_surface_is_empty():
     assert provider.guidance() == ""
 
 
-def test_handler_declares_token_fields():
+def test_provider_declares_token_fields():
     """The UI contract the two-phase verify_token rides on: token auth
     with phone required and code/password marked optional (the connect
-    flow's missing-field check keys off 'optional' in the label)."""
-    assert TelegramUserHandler.auth_type == "token"
-    fields = {f["key"]: f for f in TelegramUserHandler.fields}
+    flow's missing-field check keys off 'optional' in the label).
+
+    Declared on the provider since the metadata moved off the handler."""
+    meta = provider_metadata(TelegramUserProvider())
+    assert meta["auth_type"] == "token"
+    fields = {f["key"]: f for f in meta["fields"]}
     assert set(fields) == {"phone_number", "code", "password"}
     assert "optional" not in fields["phone_number"]["label"].lower()
     assert "optional" in fields["code"]["label"].lower()
     assert "optional" in fields["password"]["label"].lower()
     assert fields["password"]["password"] is True
-    # CLI flow unchanged — both login subcommands still exposed.
-    subs = TelegramUserHandler().subcommands
-    assert "login" in subs and "login-qr" in subs
+    # No QR subcommand: it only ever wrote the legacy credential file.
+    assert "login-qr" not in meta["subcommands"]
 
 
 def test_binding_injects_credential_no_disk():
@@ -397,7 +397,7 @@ def test_make_listener_wraps_the_legacy_telethon_loop():
         pass
 
     listener = provider.make_listener(client, None, emit)
-    assert isinstance(listener, LegacyListenerAdapter)
+    assert isinstance(listener, ClientListenerAdapter)
     assert client.supports_listening
     assert listener.cursor() is None
 

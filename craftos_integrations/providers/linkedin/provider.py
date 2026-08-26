@@ -1,13 +1,13 @@
-"""LinkedIn provider — multi-account wrapper over the legacy ``LinkedInClient``.
+"""LinkedIn provider — multi-account wrapper over ``LinkedInClient``.
 
 Follows the Slack binding pattern: the battle-tested API surface of the
-legacy client is reused unchanged, and only its credential plumbing is
+API client is reused unchanged, and only its credential plumbing is
 overridden — the credential is injected per account by ``build_client``
 and never read from ``spec.cred_file`` (single-account; would cross-wire
 secondaries).
 
 Unlike Slack, LinkedIn tokens expire (~60 days), so the binding also
-reimplements the legacy ``refresh_access_token`` with one change: the
+reimplements ``refresh_access_token`` with one change: the
 refreshed credential is persisted through ``self._persist`` (routed by
 the core to the right account entry), mirroring
 ``GoogleClientBinding.refresh_access_token`` — never written to disk
@@ -16,7 +16,7 @@ by the client itself.
 Identity is the account's email (lowercased) captured at OAuth time,
 falling back to the OpenID ``sub`` claim when LinkedIn returns no email.
 Old ``linkedin.json`` shapes carry neither key — ``identity_of`` returns
-None and the core stores them under LEGACY_IDENTITY, upgrading in place
+None and the core stores them under UNIDENTIFIED, upgrading in place
 on the next re-auth.
 
 CRITICAL — no account chooser: LinkedIn's OAuth documents NO
@@ -35,11 +35,11 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.linkedin import (
+from .client import (
     LINKEDIN_OAUTH_BASE,
     LinkedInClient,
     LinkedInCredential,
-    LinkedInHandler,
+    LINKEDIN_OAUTH,
 )
 from ...logger import get_logger
 from .._shared import read_guidance
@@ -53,7 +53,7 @@ _CRED_FIELDS = {f.name for f in fields(LinkedInCredential)}
 class LinkedInClientBinding:
     """Overrides LinkedInClient's disk plumbing: credential is injected
     per account, refresh persists through the core. MRO puts this before
-    the legacy client:
+    the API client:
 
         class BoundLinkedInClient(LinkedInClientBinding, LinkedInClient): pass
 
@@ -84,8 +84,8 @@ class LinkedInClientBinding:
         return self._cred
 
     def refresh_access_token(self) -> Optional[str]:
-        """Legacy LinkedIn refresh, persisted via the core (never to
-        spec.cred_file). Same request/expiry math as the legacy client:
+        """LinkedIn refresh, persisted via the core (never to
+        spec.cred_file). Same request/expiry math as the API client:
         LinkedIn access tokens last ~60 days (5184000s), renewed a day
         early."""
         cred = self._load()
@@ -119,13 +119,24 @@ class BoundLinkedInClient(LinkedInClientBinding, LinkedInClient):
 class LinkedInProvider:
     id = "linkedin"
     display_name = "LinkedIn"
+    # ----- UI metadata -----
+    description = "Professional network"
+    auth_type = "oauth"
+    icon = "linkedin"
+    connect_help = [
+        "Click 'Sign in with LinkedIn' below",
+        "A browser tab will open at linkedin.com/oauth - sign in with your LinkedIn account",
+        "Approve the requested permissions (read profile, post on behalf, etc.)",
+        "You'll be redirected back to CraftBot once consent completes",
+    ]
+
     family = None  # standalone — no cross-provider alias sharing
     client_cls = BoundLinkedInClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
         """Email (lowercased) captured at OAuth time; falls back to the
-        OpenID ``sub`` claim when LinkedIn returned no email. Legacy
-        ``linkedin.json`` shapes carry neither — None → LEGACY_IDENTITY,
+        OpenID ``sub`` claim when LinkedIn returned no email. The
+        ``linkedin.json`` shapes carry neither — None → UNIDENTIFIED,
         upgraded in place on the next re-auth."""
         email = credential.get("email")
         if isinstance(email, str) and email.strip():
@@ -137,9 +148,9 @@ class LinkedInProvider:
 
     def oauth_spec(self) -> OAuthSpec:
         return OAuthSpec(
-            authorize_url=LinkedInHandler.oauth.auth_url,
-            token_url=LinkedInHandler.oauth.token_url,
-            scopes=tuple(LinkedInHandler.oauth.scopes.split()),
+            authorize_url=LINKEDIN_OAUTH.auth_url,
+            token_url=LINKEDIN_OAUTH.token_url,
+            scopes=tuple(LINKEDIN_OAUTH.scopes.split()),
             # LinkedIn's OAuth documents NO prompt/account-chooser param —
             # do NOT add one (the abandoned PR's ``prompt=login`` is
             # fictitious and does nothing). has_chooser=False makes the
@@ -167,7 +178,7 @@ class LinkedInProvider:
         return (holder or None) if token else None
 
     async def run_login(self) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
-        """Full add-account flow via the legacy handler's OAuthFlow (same
+        """Full add-account flow via the connect flow's OAuthFlow (same
         endpoints/scopes, localhost callback or host-injected oauth_runner).
         A *copy* of the shared flow gets the provider spec's
         ``extra_authorize_params`` applied — for LinkedIn that is ``{}``
@@ -180,14 +191,14 @@ class LinkedInProvider:
         ``identity_of`` from the credential (email, falling back to the
         OpenID ``sub`` claim). When LinkedIn returns neither, the
         credential is returned with identity None — the core stores it
-        under LEGACY_IDENTITY and upgrades it in place on the next
+        under UNIDENTIFIED and upgrades it in place on the next
         re-auth; a working token beats a failed login here (unlike
         Google/Outlook, where a missing identity implies the userinfo
         call itself failed).
         """
         from ...config import ConfigStore
 
-        oauth = copy.copy(LinkedInHandler.oauth)
+        oauth = copy.copy(LINKEDIN_OAUTH)
         oauth.extra_auth_params = dict(self.oauth_spec().extra_authorize_params)
         result = await oauth.run()
         if "error" in result and not result.get("access_token"):
@@ -216,7 +227,7 @@ class LinkedInProvider:
             return identity, credential, f"LinkedIn connected as {name} ({identity})"
         return None, credential, (
             "LinkedIn connected, but no email or member id was returned — "
-            "stored as the legacy account until the next re-auth."
+            "stored without an account identity until the next re-auth."
         )
 
     def operations(self) -> List[Operation]:

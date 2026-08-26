@@ -1,7 +1,7 @@
 """Stripe action surface.
 
 Mirrors the Stripe client in
-``craftos_integrations/integrations/stripe/__init__.py`` 1:1. Sub-sets are
+``craftos_integrations/providers/stripe/__init__.py`` 1:1. Sub-sets are
 prefixed with ``stripe_`` per the action_set convention; the ``stripe``
 umbrella tags the high-value 20% the agent should reach for by default.
 

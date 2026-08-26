@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from craftos_integrations.providers._shared import LegacyListenerAdapter
+from craftos_integrations.providers._shared import ClientListenerAdapter
 from craftos_integrations.providers.jira import JiraProvider
 from craftos_integrations.providers.jira import provider as jira_provider_module
 from craftos_integrations.providers.jira.provider import BoundJiraClient
@@ -218,6 +218,6 @@ def test_make_listener_is_legacy_adapter_over_the_bound_client():
 
     client = provider.build_client(dict(JIRA_CRED), lambda c: None)
     listener = provider.make_listener(client, None, emit)
-    assert isinstance(listener, LegacyListenerAdapter)
+    assert isinstance(listener, ClientListenerAdapter)
     assert listener._client is client
     assert listener.cursor() is None  # legacy loop keeps its own watermark

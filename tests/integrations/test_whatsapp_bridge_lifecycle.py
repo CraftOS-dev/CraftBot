@@ -8,11 +8,10 @@ spawn/kill loop on expired sessions.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-import pytest
 
-from craftos_integrations.integrations.whatsapp_web._bridge_client import (
+from craftos_integrations.providers.whatsapp_web._bridge_client import (
     WhatsAppBridge,
 )
 
@@ -141,8 +140,8 @@ def test_stale_session_parks_instead_of_respawning(tmp_path, monkeypatch):
     """The session actor gets QR-on-restore once → NEEDS_RELINK; the ~1Hz
     ensure_started calls from the listener supervisor spawn nothing more.
     (The original code relaunched Node+Chromium every supervisor cycle.)"""
-    import craftos_integrations.integrations.whatsapp_web._bridge_client as bc
-    import craftos_integrations.integrations.whatsapp_web._session as sess
+    import craftos_integrations.providers.whatsapp_web._bridge_client as bc
+    import craftos_integrations.providers.whatsapp_web._session as sess
 
     monkeypatch.setattr(bc.ConfigStore, "project_root", tmp_path)
     bc._reset_bridge_registry_for_tests()
@@ -237,15 +236,6 @@ def test_system_disconnect_all_orders_each_account(monkeypatch):
     import craftos_integrations.providers.whatsapp_web as wa_provider
 
     monkeypatch.setattr(wa_provider, "teardown_account", fake_teardown)
-
-    async def fake_legacy_disconnect(integration_id, account_id=None):
-        return False, "No credentials found."
-
-    import craftos_integrations
-
-    monkeypatch.setattr(
-        craftos_integrations, "disconnect", fake_legacy_disconnect
-    )
 
     ok, message = _helpers.system_disconnect(system, "whatsapp_web", None)
 

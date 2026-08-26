@@ -1,4 +1,4 @@
-"""LinkedIn operations — ported from the legacy linkedin_actions.py.
+"""LinkedIn operations — schemas for linkedin_actions.py.
 
 Complete port of app/data/action/integrations/linkedin/linkedin_actions.py
 — all 31 actions, same names/descriptions/schemas/arg mapping. No
@@ -6,7 +6,7 @@ operation declares an ``account`` input (conformance-enforced; the host
 injects it).
 
 Porting notes:
-- Legacy ``irreversible=True`` (send_linkedin_message,
+- ``irreversible=True`` (send_linkedin_message,
   send_linkedin_connection_request) → ``destructive=True``. Per the same
   rule, every outward-facing social send (create/reshare post, like,
   comment, follow, respond to invitation) and every permanent delete
@@ -14,16 +14,16 @@ Porting notes:
   Reversible mutations (unlike, unfollow) stay non-destructive but are
   serialized (``parallelizable=False``).
 - The author/actor URN (``urn:li:person:<id>``) is derived from the
-  *bound account's* credential — legacy ``_person_urn`` verbatim, now per
+  *bound account's* credential — ``_person_urn`` verbatim, now per
   account via the injected credential instead of the shared linkedin.json.
-- Envelope handling matches legacy ``run_client_sync``/``with_client``
+- Envelope handling matches ``run_client_sync``/``with_client``
   defaults exactly: the client's ``{"ok": ..., "result": ...}`` transport
   envelope is collapsed by ``shape_result`` with no ``unwrap_envelope``
   opt-in, so restricted-API responses carrying a ``"note"`` field surface
   the same way they always did.
 - The lean ugcPosts shaping of get_my_linkedin_posts /
   get_linkedin_organization_posts is reproduced verbatim (the port has no
-  double transport envelope, so the legacy's inner-envelope collapse
+  double transport envelope, so the inner-envelope collapse
   step is unnecessary here).
 """
 
@@ -41,7 +41,7 @@ _STATUS = {"status": {"type": "string", "example": "success"}}
 
 def _person_urn(client: Any) -> str:
     """LinkedIn URN of the bound account — author/actor for posts, likes,
-    comments, messages, follows. Legacy helper, now per-account."""
+    comments, messages, follows. Per-account."""
     cred = client._load()
     return (
         f"urn:li:person:{cred.linkedin_id}"
@@ -86,7 +86,7 @@ def _urn_op(
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Post-processing (legacy lean ugcPosts shaping, verbatim)
+# Post-processing (lean ugcPosts shaping)
 # ────────────────────────────────────────────────────────────────────────
 
 
@@ -104,7 +104,7 @@ def _with_post(
 
 
 def _lean_ugc_posts(res: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Legacy lean shaping: {id, text, created, lifecycleState, media} per
+    """Lean shaping: {id, text, created, lifecycleState, media} per
     post unless include_metadata=true asked for the full raw ugcPosts."""
     if input_data.get("include_metadata") or res.get("status") != "success":
         return res
@@ -413,7 +413,7 @@ def build_operations() -> List[Operation]:
             "send_linkedin_message",
             "send_message_to_recipients",
             description="Send a message to LinkedIn users.",
-            destructive=True,  # legacy irreversible — outward-facing DM
+            destructive=True,  # outward-facing DM
             parallelizable=False,
             input_schema={
                 "recipient_urns": {
@@ -443,7 +443,7 @@ def build_operations() -> List[Operation]:
             "send_linkedin_connection_request",
             "send_connection_request",
             description="Send connection request.",
-            destructive=True,  # legacy irreversible — outward-facing invite
+            destructive=True,  # outward-facing invite
             parallelizable=False,
             tags=("linkedin",),
             input_schema={

@@ -1,11 +1,11 @@
-"""Account-awareness bridge for legacy integration actions.
+"""Account-awareness bridge for the integration action layer.
 
 Bridged platforms keep their hand-written action files unchanged; the two
 halves of account selection are handled centrally:
 
   - schema side (HERE): ``inject_account_schemas()`` adds the same
     ``account`` input property the craftbot_adapter injects for generated
-    v2 actions, to every registered action whose source file lives under
+    provider actions, to every registered action whose source file lives under
     a bridged platform's directory. Called once by the host right after
     action discovery (see ``AgentBase.__init__``).
   - execution side: ``_helpers._bridge_client_or_error`` reads the hint
@@ -15,7 +15,7 @@ halves of account selection are handled centrally:
 ``BRIDGED_ACTION_DIRS`` maps an action directory name under
 ``app/data/action/integrations/`` to the display label used in the
 injected description. Add a directory here when its platform(s) get a
-v2 provider.
+provider.
 """
 
 from __future__ import annotations
@@ -103,6 +103,6 @@ def inject_account_schemas() -> int:
     if injected:
         logger.info(
             f"[ACCOUNT_BRIDGE] Injected 'account' input into {injected} "
-            f"legacy actions across {sorted(BRIDGED_ACTION_DIRS)}"
+            f"actions across {sorted(BRIDGED_ACTION_DIRS)}"
         )
     return injected

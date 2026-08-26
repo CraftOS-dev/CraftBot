@@ -46,7 +46,7 @@ The provider base-URL identifiers have the same status. `get_base_url()` in `app
 | `REMOTE_MODEL_URL` | provider_config.py, model_settings.py | `endpoints.remote_model_url` |
 | `OPENROUTER_BASE_URL` | provider_config.py | `endpoints.openrouter_base_url` |
 
-One runtime exception exists for `OPENAI_API_KEY`. The Discord voice feature (`craftos_integrations/integrations/discord/_discord_voice.py`) reads it from the environment as a fallback for its audio transcription key when no key is passed in through `ConfigStore.extras`. This path is unrelated to LLM provider selection.
+One runtime exception exists for `OPENAI_API_KEY`. The Discord voice feature (`craftos_integrations/providers/discord/_discord_voice.py`) reads it from the environment as a fallback for its audio transcription key when no key is passed in through `ConfigStore.extras`. This path is unrelated to LLM provider selection.
 
 ## AWS Bedrock credentials
 
@@ -68,8 +68,8 @@ Read through `ConfigStore.get_oauth()` in `craftos_integrations/config.py`, whic
 
 | Variable | Read by | Purpose |
 |---|---|---|
-| `OPENAI_OAUTH_CLIENT_ID` | craftos_integrations/integrations/llm_oauth/chatgpt.py | Overrides the ChatGPT subscription OAuth client ID. |
-| `GROK_OAUTH_CLIENT_ID` | craftos_integrations/integrations/llm_oauth/grok.py | Overrides the Grok (SuperGrok) subscription OAuth client ID. |
+| `OPENAI_OAUTH_CLIENT_ID` | craftos_integrations/llm_oauth/chatgpt.py | Overrides the ChatGPT subscription OAuth client ID. |
+| `GROK_OAUTH_CLIENT_ID` | craftos_integrations/llm_oauth/grok.py | Overrides the Grok (SuperGrok) subscription OAuth client ID. |
 
 ## Shared integration OAuth and app credentials
 

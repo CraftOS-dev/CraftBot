@@ -10,7 +10,7 @@ from __future__ import annotations
 import craftos_integrations.providers.discord.provider as discord_mod
 from craftos_integrations.providers.discord import DiscordProvider
 from craftos_integrations.providers.discord.provider import BoundDiscordClient
-from craftos_integrations.providers._shared import LegacyListenerAdapter
+from craftos_integrations.providers._shared import ClientListenerAdapter
 
 from .conformance import ProviderConformance
 
@@ -85,7 +85,7 @@ def test_make_listener_wraps_legacy_gateway_loop():
     client = provider.build_client(DISCORD_CRED, lambda c: None)
     assert client.supports_listening  # gateway websocket loop
     listener = provider.make_listener(client, None, emit)
-    assert isinstance(listener, LegacyListenerAdapter)
+    assert isinstance(listener, ClientListenerAdapter)
     assert hasattr(listener, "start") and hasattr(listener, "stop")
     assert listener.cursor() is None  # legacy loop keeps watermarks in memory
 

@@ -1,31 +1,31 @@
-"""HubSpot operations — ported from the legacy hubspot_actions.py schemas.
+"""HubSpot operations — schemas for hubspot_actions.py.
 
 Complete port of app/data/action/integrations/hubspot/hubspot_actions.py —
 all 90 actions, same names/descriptions/schemas/arg mapping. No operation
 declares an ``account`` input (conformance-enforced; the host injects it).
 
 Porting notes:
-- Legacy ``irreversible=True`` (send_hubspot_single_send,
+- ``irreversible=True`` (send_hubspot_single_send,
   send_hubspot_conversation_message) → ``destructive=True``; delete/remove
   operations are also flagged destructive per the conformance rule.
-  Legacy ``parallelizable=False`` (every mutation) carries over 1:1.
+  ``parallelizable=False`` (every mutation) carries over 1:1.
 - The HubSpot client returns the package's ``{ok: True, result: ...}`` /
   ``{error, details}`` envelope from ``helpers.http.arequest`` — exactly
   what ``client_op``'s default ``shape_result`` collapses, so envelope
-  handling matches legacy ``run_client`` behavior with no options.
+  handling matches ``run_client`` behavior with no options.
 - Post-processing is reproduced verbatim via fn-wrapping (same pattern as
-  slack/gmail): ``_pick`` = legacy ``pick_result``; ``_lean_listing`` =
+  slack/gmail): ``_pick`` = ``pick_result``; ``_lean_listing`` =
   the per-row archived/createdAt/updatedAt strip + paging.next.link drop
   applied to every list/search action; ``_batch_ids`` and
   ``_created_list_id`` are the two bespoke reducers.
 - Comma-separated ``properties``/``associations`` inputs are split into
-  lists exactly as the legacy actions did (``_csv``).
+  lists exactly as the actions did (``_csv``).
 
-The legacy file's "intentionally NOT exposed" list carries over
+The "intentionally NOT exposed" list carries over
 unchanged: Workflows/Automation authoring, CMS Hub, CTAs, Settings
 (users/teams), Quotes/Line Items/Products, Payments, Custom Object
 schema authoring, Analytics ingestion, Email Subscription preferences,
-legacy v1 single-send, Calling/Video extensions were never actions and
+v1 single-send, Calling/Video extensions were never actions and
 stay out.
 """
 
@@ -78,7 +78,7 @@ def _only(description: str) -> Dict[str, Any]:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Post-processing helpers (legacy shaping, verbatim)
+# Post-processing helpers
 # ────────────────────────────────────────────────────────────────────────
 
 
@@ -96,7 +96,7 @@ def _with_post(
 
 
 def _pick(keys: List[str]):
-    """Legacy ``pick_result``: reduce a successful result to named keys."""
+    """``pick_result``: reduce a successful result to named keys."""
 
     def post(res: Dict[str, Any], _input: Dict[str, Any]) -> Dict[str, Any]:
         if res.get("status") == "success" and isinstance(res.get("result"), dict):
@@ -110,7 +110,7 @@ def _pick(keys: List[str]):
 
 
 def _lean_listing(res: Dict[str, Any], _input: Dict[str, Any]) -> Dict[str, Any]:
-    """Legacy list shaping: drop archived/createdAt/updatedAt from each
+    """List shaping: drop archived/createdAt/updatedAt from each
     result row and the paging.next.link URL (agents only need the cursor)."""
     r = res.get("result")
     if isinstance(r, dict):
@@ -126,7 +126,7 @@ def _lean_listing(res: Dict[str, Any], _input: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _batch_ids(res: Dict[str, Any], _input: Dict[str, Any]) -> Dict[str, Any]:
-    """Legacy batch-create shaping: reduce to {ids, numErrors?, errors?}."""
+    """Batch-create shaping: reduce to {ids, numErrors?, errors?}."""
     r = res.get("result")
     if (
         res.get("status") == "success"
@@ -144,7 +144,7 @@ def _batch_ids(res: Dict[str, Any], _input: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _created_list_id(res: Dict[str, Any], _input: Dict[str, Any]) -> Dict[str, Any]:
-    """Legacy create_hubspot_list shaping: reduce to {listId}."""
+    """create_hubspot_list shaping: reduce to {listId}."""
     r = res.get("result")
     if res.get("status") == "success" and isinstance(r, dict):
         lst = r.get("list") if isinstance(r.get("list"), dict) else r
@@ -155,7 +155,7 @@ def _created_list_id(res: Dict[str, Any], _input: Dict[str, Any]) -> Dict[str, A
 
 
 def _csv(value: Any) -> Optional[List[str]]:
-    """Legacy comma-string parsing: 'a, b' → ['a', 'b']; empty → None."""
+    """Comma-string parsing: 'a, b' → ['a', 'b']; empty → None."""
     return [p.strip() for p in str(value or "").split(",") if p.strip()] or None
 
 
@@ -1903,7 +1903,7 @@ def build_operations() -> List[Operation]:
                     "Send a one-off transactional email based on a pre-built "
                     "marketing email template. Returns only {id}."
                 ),
-                destructive=True,  # legacy irreversible — outward-facing send
+                destructive=True,  # outward-facing send
                 parallelizable=False,
                 tags=("hubspot_marketing_email", "hubspot"),
                 input_schema={
@@ -2056,7 +2056,7 @@ def build_operations() -> List[Operation]:
                     "channel + channel-account IDs from the thread metadata. "
                     "Returns only {id}."
                 ),
-                destructive=True,  # legacy irreversible — outward-facing send
+                destructive=True,  # outward-facing send
                 parallelizable=False,
                 tags=("hubspot_conversations",),
                 input_schema={

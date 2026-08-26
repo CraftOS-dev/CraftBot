@@ -1240,14 +1240,11 @@ async def upload_twitter_media(input_data: dict) -> dict:
 )
 def set_twitter_watch_tag(input_data: dict) -> dict:
     try:
-        from craftos_integrations import get_client
+        from app.data.action.integrations._helpers import get_client_or_error
 
-        client = get_client("twitter")
-        if not client or not client.has_credentials():
-            return {
-                "status": "error",
-                "message": "No Twitter/X credential. Use /twitter login first.",
-            }
+        client, err = get_client_or_error("twitter")
+        if err:
+            return err
         tag = input_data.get("tag", "").strip()
         client.set_watch_tag(tag)
         if tag:

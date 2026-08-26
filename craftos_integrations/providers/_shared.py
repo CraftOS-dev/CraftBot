@@ -7,9 +7,9 @@ The result-envelope shaping mirrors the host's historical behavior
 identical dicts to what agents already expect.
 
 ``platform_message_payload`` is the listener-side twin: it converts a
-legacy ``PlatformMessage`` into the exact event-dict shape the legacy
-``ExternalCommsManager._handle_platform_message`` built, so integration listener
-events are byte-for-byte what the host's trigger system already expects.
+``PlatformMessage`` into the event-dict shape the host's trigger system
+consumes, so every listener emits an identical payload regardless of which
+client produced it.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ EmitFn = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 def platform_message_payload(msg: Any) -> Dict[str, Any]:
-    """Legacy ``PlatformMessage`` → host event payload.
+    """``PlatformMessage`` → host event payload.
 
-    Mirrors ``manager.ExternalCommsManager._handle_platform_message``
+    Builds the host event payload every listener emits
     exactly — same keys, same fallbacks — so listeners ported from the
-    legacy clients emit identical events.
+    clients emit identical events.
     """
     raw = msg.raw if isinstance(msg.raw, dict) else {}
     return {
@@ -49,9 +49,9 @@ def platform_message_payload(msg: Any) -> Dict[str, Any]:
 
 
 def emit_callback(emit: EmitFn) -> Callable[[Any], Awaitable[None]]:
-    """Adapt an account-bound ``emit`` into the legacy client callback.
+    """Adapt an account-bound ``emit`` into the API client callback.
 
-    Legacy poll loops call ``self._message_callback(PlatformMessage)``;
+    Poll loops call ``self._message_callback(PlatformMessage)``;
     this shim converts each message to the host payload shape and awaits
     ``emit`` — the only plumbing the ported listeners have to replace.
     """
@@ -62,17 +62,16 @@ def emit_callback(emit: EmitFn) -> Callable[[Any], Awaitable[None]]:
     return _callback
 
 
-class LegacyListenerAdapter:
-    """Generic ``Listener`` over a bound legacy client's own listen loop.
+class ClientListenerAdapter:
+    """Generic ``Listener`` over a client's own listen loop.
 
-    For bridge providers (auth-layer-only ports): the account-bound client
-    IS a legacy ``BasePlatformClient`` subclass, so its battle-tested
-    ``start_listening``/``stop_listening`` loop is reused verbatim —
-    events are converted per message by ``emit_callback``. No cursor: the
-    legacy loops keep watermarks in memory and run their own catch-up on
-    start, exactly as they did under ExternalCommsManager. Providers
-    needing restart-safe cursors get a hand-written listener instead
-    (see slack/listener.py for the pattern).
+    The account-bound client is a ``BasePlatformClient`` subclass with its own
+    ``start_listening``/``stop_listening`` poll loop; this adapts that loop to
+    the ``Listener`` protocol, converting each message through
+    ``emit_callback``. ``cursor()`` is None because these loops keep their
+    watermark in memory and run their own catch-up on start — providers that
+    need restart-safe cursors get a hand-written listener instead (see
+    slack/listener.py for the pattern).
     """
 
     def __init__(self, client: Any, emit: EmitFn) -> None:
@@ -80,9 +79,9 @@ class LegacyListenerAdapter:
         self._emit = emit
 
     async def start(self) -> None:
-        # The supervisor re-invokes start() after every clean cycle; the
-        # legacy loops were started exactly once by ExternalCommsManager and
-        # may not guard against double-starts — spawn only when not running.
+        # The supervisor re-invokes start() after every clean cycle, and the
+        # client loops do not all guard against double-starts — spawn only when
+        # one is not already running.
         if getattr(self._client, "is_listening", False):
             return
         await self._client.start_listening(emit_callback(self._emit))

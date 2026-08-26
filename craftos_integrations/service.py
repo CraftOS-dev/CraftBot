@@ -1,16 +1,23 @@
-"""Common-ops facade + metadata + connect dispatchers.
+"""Common-ops facade + metadata.
 
-Thin wrappers over the registry for everything that is platform-agnostic:
-- send_message, is_connected, list_connected, disconnect, status
-- Per-integration UI metadata (display_name, description, auth_type, fields)
-- connect_token / connect_oauth / connect_interactive dispatchers
+Thin, platform-agnostic wrappers:
+- is_connected, list_connected, status
+- Per-integration UI metadata + runtime config, read off the PROVIDERS
+  (``providers/<id>/provider.py``).
+CONNECTING is the IntegrationSystem's job, not this module's:
+token connect goes through ``_helpers.system_connect_token`` and OAuth through
+``IntegrationSystem.add_account``, both of which store real multi-account
+credentials.
 
-For platform-specific features (Discord voice, Jira transitions, LinkedIn UGC
-posts, Gmail send, etc.) callers should reach for the typed client directly:
+Anything that touches a real account goes through the IntegrationSystem, which
+binds a client to one account's credential:
 
-    from craftos_integrations import get_client
-    discord = get_client("discord")
-    await discord.join_voice(guild_id, channel_id)
+    client = system.client_for("discord", identity)
+    await client.join_voice(guild_id, channel_id)
+
+``get_client(platform_id)`` returns the UNBOUND singleton. It carries no
+credential — only the class registry populated by ``@register_client`` — so it
+is useful for capability checks, not for calls.
 """
 
 from __future__ import annotations
@@ -20,24 +27,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import asdict, fields as dc_fields
 
 from .credentials_store import has_config, load_config, save_config
-from .registry import (
-    autoload_integrations,
-    get_all_clients,
-    get_client,
-    get_handler,
-    get_registered_handler_names,
-    invalidate_client,
-)
 
 
-def _resolve_handler(integration: str):
-    """Autoload + resolve handler. Returns ``(handler, None)`` on success or
-    ``(None, "Unknown integration: ...")`` if the name is unregistered."""
-    autoload_integrations()
-    handler = get_handler(integration)
-    if handler is None:
-        return None, f"Unknown integration: {integration}"
-    return handler, None
+def _resolve_provider(integration: str):
+    """Resolve a shipped provider by id, or None. Providers carry the
+    metadata and runtime-config declarations as of 2026-08-26."""
+    from .providers import get_provider
+
+    return get_provider(integration)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -45,23 +42,10 @@ def _resolve_handler(integration: str):
 # ════════════════════════════════════════════════════════════════════════
 
 
-async def send_message(
-    integration: str, recipient: str, text: str, **kwargs
-) -> Dict[str, Any]:
-    """Send a message via any platform's BasePlatformClient.send_message."""
-    autoload_integrations()
-    client = get_client(integration)
-    if client is None:
-        return {"error": f"Unknown integration: {integration}"}
-    return await client.send_message(recipient, text, **kwargs)
-
-
-def _v2_accounts(integration: str) -> List[Dict[str, str]]:
+def _stored_accounts(integration: str) -> List[Dict[str, str]]:
     """Accounts from the multi-account AccountSet document, read-only.
 
-    Fresh v2 connects write only ``<id>.accounts.json`` (never the legacy
-    ``<id>.json``), so status readers must consult the account store too or
-    they report a connected platform as disconnected (PR #419)."""
+    The account document is the only credential store."""
     try:
         from .core.accounts import AccountSet
         from .core.storage import FileCredentialStore
@@ -79,60 +63,42 @@ def _v2_accounts(integration: str) -> List[Dict[str, str]]:
 
 
 def is_connected(integration: str) -> bool:
-    """True if the integration has stored credentials (either store)."""
-    autoload_integrations()
-    if _v2_accounts(integration):
-        return True
-    client = get_client(integration)
-    if client is None:
-        return False
-    try:
-        return bool(client.has_credentials())
-    except Exception:
-        return False
+    """True if the integration has at least one connected account."""
+    return bool(_stored_accounts(integration))
 
 
 def list_connected() -> List[str]:
-    """Names of platforms that currently have credentials (either store)."""
-    autoload_integrations()
-    out: List[str] = []
-    for pid, client in get_all_clients().items():
-        try:
-            if _v2_accounts(pid) or client.has_credentials():
-                out.append(pid)
-        except Exception:
-            pass
-    return out
+    """Ids of integrations that have at least one connected account."""
+    return [pid for pid in list_all() if _stored_accounts(pid)]
 
 
 def list_all() -> List[str]:
-    """Names of every registered integration handler."""
-    autoload_integrations()
-    return get_registered_handler_names()
+    """Every integration id the app knows about.
 
+    Sourced from the provider registry, which is the enumeration source
+    for everything user-facing.
+    """
+    from .providers import provider_ids
 
-async def disconnect(
-    integration: str, account_id: Optional[str] = None
-) -> Tuple[bool, str]:
-    """Run the integration's logout flow."""
-    handler, err = _resolve_handler(integration)
-    if err:
-        return False, err
-    args = [account_id] if account_id else []
-    success, message = await handler.logout(args)
-    if success:
-        # Drop the cached client so a later reconnect/action doesn't keep using
-        # the just-removed account's in-memory credential (issue #314).
-        await _reset_platform_for_handler(handler)
-    return success, message
+    return provider_ids()
 
 
 async def status(integration: str) -> Tuple[bool, str]:
-    """Run the integration's status check."""
-    handler, err = _resolve_handler(integration)
-    if err:
-        return False, err
-    return await handler.status()
+    """Connection status line for an integration."""
+    info = await get_integration_info(integration)
+    if info is None:
+        return False, f"Unknown integration: {integration}"
+    if not info["connected"]:
+        return True, f"{info['name']}: Not connected"
+    lines = [f"{info['name']}: Connected"]
+    for account in info.get("accounts", []):
+        display = account.get("display", "")
+        acct_id = account.get("id", "")
+        if display and acct_id and display != acct_id:
+            lines.append(f"  - {display} ({acct_id})")
+        else:
+            lines.append(f"  - {display or acct_id}")
+    return True, "\n".join(lines)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -141,30 +107,24 @@ async def status(integration: str) -> Tuple[bool, str]:
 
 
 def get_metadata(integration: str) -> Optional[Dict[str, Any]]:
-    """Static UI metadata for an integration (no I/O)."""
-    autoload_integrations()
-    handler = get_handler(integration)
-    if handler is None:
+    """Static UI metadata for an integration (no I/O).
+
+    Read off the provider, which carries the metadata as of 2026-08-26.
+    ``provider_metadata`` reproduces the dict shape this returned when the
+    handlers were the source, so consumers are unchanged.
+    """
+    from .contracts import provider_metadata
+    from .providers import get_provider
+
+    provider = get_provider(integration)
+    if provider is None:
         return None
-    config_class = getattr(handler, "config_class", None)
-    config_fields = getattr(handler, "config_fields", []) or []
-    return {
-        "id": integration,
-        "name": handler.display_name or integration,
-        "description": handler.description,
-        "auth_type": handler.auth_type,
-        "fields": [dict(f) for f in handler.fields],
-        "icon": getattr(handler, "icon", "") or "",
-        "has_config": config_class is not None,
-        "config_fields": [dict(f) for f in config_fields] if config_class else None,
-        "connect_help": getattr(handler, "connect_help", None),
-    }
+    return provider_metadata(provider)
 
 
 def list_metadata() -> List[Dict[str, Any]]:
-    """Static UI metadata for every registered integration."""
-    autoload_integrations()
-    return [m for name in get_registered_handler_names() if (m := get_metadata(name))]
+    """Static UI metadata for every shipped integration."""
+    return [m for name in list_all() if (m := get_metadata(name))]
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -172,16 +132,16 @@ def list_metadata() -> List[Dict[str, Any]]:
 # ════════════════════════════════════════════════════════════════════════
 
 
-def _config_filename(handler) -> str:
-    """Derive the config filename from the handler's spec.
+def _config_filename(integration: str) -> str:
+    """``<integration>_config.json`` — config and credential files stay
+    visually paired in ``.credentials/``.
 
-    Convention: ``<cred_file_stem>_config.json``. So ``github.json`` →
-    ``github_config.json``, ``whatsapp_web.json`` → ``whatsapp_web_config.json``.
-    Keeps config and credential files visually paired in ``.credentials/``."""
-    stem = handler.spec.cred_file
-    if stem.endswith(".json"):
-        stem = stem[:-5]
-    return f"{stem}_config.json"
+    Derived from the handler's ``spec.cred_file`` stem until 2026-08-26. The
+    two agree for all 11 integrations that declare runtime config (only the
+    four Google credential files diverge from ``<id>.json`` and none of them
+    has config), so moving to the provider id changed no filename.
+    """
+    return f"{integration}_config.json"
 
 
 def _coerce(value: Any, type_: str) -> Any:
@@ -213,14 +173,12 @@ def _coerce(value: Any, type_: str) -> Any:
 
 
 def get_config_schema(integration: str) -> Optional[List[Dict[str, Any]]]:
-    """Return the handler's ``config_fields`` schema, or ``None`` if the
+    """Return the provider's ``config_fields`` schema, or ``None`` if the
     integration declares no runtime config."""
-    handler, _ = _resolve_handler(integration)
-    if handler is None:
+    provider = _resolve_provider(integration)
+    if provider is None or getattr(provider, "config_class", None) is None:
         return None
-    if getattr(handler, "config_class", None) is None:
-        return None
-    return [dict(f) for f in (handler.config_fields or [])]
+    return [dict(f) for f in (getattr(provider, "config_fields", None) or [])]
 
 
 def get_config(integration: str) -> Optional[Dict[str, Any]]:
@@ -229,13 +187,13 @@ def get_config(integration: str) -> Optional[Dict[str, Any]]:
     If no config has been saved yet, returns the dataclass defaults so the
     frontend can pre-populate the form. Returns ``None`` if the integration
     declares no ``config_class`` at all."""
-    handler, _ = _resolve_handler(integration)
-    if handler is None:
+    provider = _resolve_provider(integration)
+    if provider is None:
         return None
-    cls = getattr(handler, "config_class", None)
+    cls = getattr(provider, "config_class", None)
     if cls is None:
         return None
-    fname = _config_filename(handler)
+    fname = _config_filename(integration)
     obj = load_config(fname, cls) if has_config(fname) else cls()
     if obj is None:
         obj = cls()
@@ -247,17 +205,17 @@ def update_config(integration: str, values: Dict[str, Any]) -> Tuple[bool, str]:
     a fresh ``config_class`` instance, persist it. Unknown keys are dropped.
     Missing keys keep their dataclass defaults (so a partial UI update is
     safe — the user can edit one field without resetting the others)."""
-    handler, err = _resolve_handler(integration)
-    if err:
-        return False, err
-    cls = getattr(handler, "config_class", None)
+    provider = _resolve_provider(integration)
+    if provider is None:
+        return False, f"Unknown integration: {integration}"
+    cls = getattr(provider, "config_class", None)
     if cls is None:
         return False, f"{integration} has no config_class declared"
-    schema = handler.config_fields or []
+    schema = getattr(provider, "config_fields", None) or []
     type_by_key = {f["key"]: f.get("type", "text") for f in schema}
     valid_keys = {fld.name for fld in dc_fields(cls)}
 
-    fname = _config_filename(handler)
+    fname = _config_filename(integration)
     existing = load_config(fname, cls) if has_config(fname) else cls()
     if existing is None:
         existing = cls()
@@ -271,171 +229,32 @@ def update_config(integration: str, values: Dict[str, Any]) -> Tuple[bool, str]:
     except TypeError as e:
         return False, f"Invalid config values: {e}"
     save_config(fname, new_obj)
-    return True, f"{handler.display_name or integration} config saved"
-
-
-# ════════════════════════════════════════════════════════════════════════
-# Status parsing
-# ════════════════════════════════════════════════════════════════════════
-
-
-def parse_status_accounts(status_message: str) -> List[Dict[str, str]]:
-    """Extract per-account info from a handler.status() message.
-
-    Status messages look like:
-        "Integration: Connected
-          - Account Name (account_id)"
-    """
-    accounts: List[Dict[str, str]] = []
-    for raw_line in status_message.split("\n"):
-        line = raw_line.strip()
-        if line.startswith("- "):
-            info = line[2:].strip()
-            if "(" in info and info.endswith(")"):
-                name_part = info[: info.rfind("(")].strip()
-                id_part = info[info.rfind("(") + 1 : -1].strip()
-                accounts.append({"display": name_part, "id": id_part})
-            else:
-                accounts.append({"display": info, "id": info})
-    return accounts
+    return True, f"{getattr(provider, 'display_name', '') or integration} config saved"
 
 
 async def get_integration_info(integration: str) -> Optional[Dict[str, Any]]:
-    """Static metadata + live connection status (async; calls handler.status())."""
+    """Static metadata + live connection status.
+
+    Connection state comes from the AccountSet document, which is the only
+    credential store.
+    """
     metadata = get_metadata(integration)
     if metadata is None:
         return None
-    handler = get_handler(integration)
-    connected = False
-    accounts: List[Dict[str, str]] = _v2_accounts(integration)
-    if accounts:
-        connected = True
-    else:
-        try:
-            _, status_msg = await handler.status()
-            if "Connected" in status_msg and "Not connected" not in status_msg:
-                connected = True
-                accounts = parse_status_accounts(status_msg)
-        except Exception:
-            pass
-    metadata["connected"] = connected
+    accounts: List[Dict[str, str]] = _stored_accounts(integration)
+    metadata["connected"] = bool(accounts)
     metadata["accounts"] = accounts
     return metadata
 
 
 async def list_integrations() -> List[Dict[str, Any]]:
-    """Metadata + live connection status for every registered integration."""
-    autoload_integrations()
+    """Metadata + live connection status for every shipped integration."""
     out: List[Dict[str, Any]] = []
-    for name in get_registered_handler_names():
+    for name in list_all():
         info = await get_integration_info(name)
         if info:
             out.append(info)
     return out
-
-
-# ════════════════════════════════════════════════════════════════════════
-# Connect dispatchers — auto-start the matching listener on success
-# ════════════════════════════════════════════════════════════════════════
-
-
-def _platform_id_for_handler(handler) -> Optional[str]:
-    spec = getattr(handler, "spec", None)
-    return getattr(spec, "platform_id", None) if spec else None
-
-
-async def _start_listener_for_handler(handler) -> None:
-    """(Re)start the listener for this handler's platform after a connect.
-
-    ``start_platform`` discards any stale client first, so the new account's
-    credentials are picked up. If no manager is running (e.g. a headless action
-    context), still drop the cached client so the next action reloads creds from
-    disk rather than serving the previous account (issue #314).
-    """
-    platform_id = _platform_id_for_handler(handler)
-    if not platform_id:
-        return
-    from .manager import get_external_comms_manager
-
-    manager = get_external_comms_manager()
-    if manager is None:
-        invalidate_client(platform_id)
-        return
-    try:
-        await manager.start_platform(platform_id)
-    except Exception:
-        pass
-
-
-async def _reset_platform_for_handler(handler) -> None:
-    """Discard the cached client for this handler's platform without starting a
-    listener — used on disconnect and on connects that don't auto-listen, so a
-    switched/removed account can't be served from a stale credential (#314)."""
-    platform_id = _platform_id_for_handler(handler)
-    if not platform_id:
-        return
-    from .manager import get_external_comms_manager
-
-    manager = get_external_comms_manager()
-    if manager is not None:
-        try:
-            await manager.reset_platform(platform_id)
-            return
-        except Exception:
-            pass
-    invalidate_client(platform_id)
-
-
-async def connect_token(
-    integration: str, credentials: Dict[str, str], *, start_listener: bool = True
-) -> Tuple[bool, str]:
-    """Token-based connect: dispatch to handler.connect_token() and start listener on success."""
-    handler, err = _resolve_handler(integration)
-    if err:
-        return False, err
-    success, message = await handler.connect_token(credentials)
-    if success:
-        if start_listener:
-            await _start_listener_for_handler(handler)
-        else:
-            await _reset_platform_for_handler(handler)
-    return success, message
-
-
-async def connect_oauth(
-    integration: str, *, start_listener: bool = True
-) -> Tuple[bool, str]:
-    """OAuth-based connect: dispatch to handler.connect_oauth() and start listener on success."""
-    handler, err = _resolve_handler(integration)
-    if err:
-        return False, err
-    if handler.auth_type not in ("oauth", "both"):
-        return False, f"OAuth not supported for {integration}"
-    success, message = await handler.connect_oauth()
-    if success:
-        if start_listener:
-            await _start_listener_for_handler(handler)
-        else:
-            await _reset_platform_for_handler(handler)
-    return success, message
-
-
-async def connect_interactive(
-    integration: str, *, start_listener: bool = True
-) -> Tuple[bool, str]:
-    """Interactive (e.g. QR) connect: dispatch to handler.connect_interactive() and start listener on success."""
-    handler, err = _resolve_handler(integration)
-    if err:
-        return False, err
-    if handler.auth_type not in ("interactive", "token_with_interactive"):
-        return False, f"Interactive login not supported for {integration}"
-    success, message = await handler.connect_interactive()
-    if success:
-        if start_listener:
-            await _start_listener_for_handler(handler)
-        else:
-            await _reset_platform_for_handler(handler)
-    return success, message
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -461,17 +280,8 @@ def _run_sync(coro):
         loop.close()
 
 
-def list_integrations_sync() -> List[Dict[str, Any]]:
-    return _run_sync(list_integrations())
-
-
 def get_integration_info_sync(integration: str) -> Optional[Dict[str, Any]]:
     return _run_sync(get_integration_info(integration))
-
-
-def get_integration_accounts(integration: str) -> List[Dict[str, str]]:
-    info = get_integration_info_sync(integration)
-    return info.get("accounts", []) if info else []
 
 
 def get_integration_auth_type(integration: str) -> str:

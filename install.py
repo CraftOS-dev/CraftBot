@@ -1366,7 +1366,7 @@ def install_whatsapp_bridge(npm_cmd: Optional[list]):
     pulled branch that bumps the Baileys version reinstalls automatically.
     """
     bridge_dir = os.path.join(
-        BASE_DIR, "craftos_integrations", "integrations", "whatsapp_web"
+        BASE_DIR, "craftos_integrations", "providers", "whatsapp_web"
     )
 
     if not os.path.exists(os.path.join(bridge_dir, "package.json")):
@@ -1379,7 +1379,7 @@ def install_whatsapp_bridge(npm_cmd: Optional[list]):
         # installation; keep this message short.
         print("\n⚠ Warning: npm not found — WhatsApp bridge dependencies skipped")
         print("   After installing Node.js, run:")
-        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
         return False
 
     stale_reason = _frontend_deps_stale(bridge_dir)
@@ -1401,12 +1401,12 @@ def install_whatsapp_bridge(npm_cmd: Optional[list]):
             return True
         print("\n⚠ Warning: npm install for the WhatsApp bridge failed")
         print("   WhatsApp integration will not work until it succeeds:")
-        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
         return False
     except Exception as e:
         print(f"\n⚠ Warning: Failed to install WhatsApp bridge deps: {e}")
         print("   You can manually install with:")
-        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
         return False
 
 

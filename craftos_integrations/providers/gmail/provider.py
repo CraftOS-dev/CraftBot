@@ -1,6 +1,6 @@
 """Gmail provider — the multi-account reference implementation.
 
-API surface comes from the legacy ``GmailClient`` (all Gmail REST methods
+API surface comes from ``GmailClient`` (all Gmail REST methods
 live there and are unchanged); this class only rebinds its credential
 plumbing to the injected per-account credential.
 """
@@ -10,9 +10,10 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ...contracts import Operation
-from ...integrations._google_common import GMAIL_SCOPES
-from ...integrations.gmail import GmailClient
-from .._google import GoogleProviderBase, GoogleClientBinding, read_guidance
+from .._google_common import GMAIL_SCOPES
+from .client import GmailClient, GmailConfig
+from .._google import GoogleProviderBase, GoogleClientBinding
+from .._shared import read_guidance
 from .listener import GmailListener
 from .operations import build_operations
 
@@ -24,6 +25,20 @@ class BoundGmailClient(GoogleClientBinding, GmailClient):
 class GmailProvider(GoogleProviderBase):
     id = "gmail"
     display_name = "Gmail"
+    # ----- UI metadata -----
+    description = "Email - read, search, and send"
+    auth_type = "oauth"
+    icon = "gmail"
+    config_class = GmailConfig
+    config_fields = [
+        {
+            "key": "process_incoming",
+            "label": "Auto-process incoming emails",
+            "type": "checkbox",
+            "help": "When on, every new INBOX message is forwarded to the agent. Turn off to keep Gmail send-only - the agent ignores incoming mail.",
+        },
+    ]
+
     scopes = GMAIL_SCOPES
     client_cls = BoundGmailClient
 
@@ -39,5 +54,5 @@ class GmailProvider(GoogleProviderBase):
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
     ) -> GmailListener:
-        """INBOX poll listener (legacy loop re-homed — see listener.py)."""
+        """INBOX poll listener (see listener.py)."""
         return GmailListener(client, cursor, emit)

@@ -1,6 +1,6 @@
-"""Jira provider — auth-layer bridge over the legacy ``JiraClient``.
+"""Jira provider — account-bound wrapper over ``JiraClient``.
 
-Bridge port: the legacy Jira actions keep calling the legacy client's API
+Bridge port: the Jira actions keep calling the API client's API
 surface, and only account routing moves to the integration system. So
 ``operations()`` is empty and ``guidance()`` is "" — this provider exists
 for identity, credential storage, token verification, and the listener.
@@ -23,14 +23,14 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 import httpx
 
 from ...contracts import OAuthSpec, Operation
-from ...integrations.jira import JiraClient, JiraCredential
-from .._shared import LegacyListenerAdapter
+from .client import JiraClient, JiraConfig, JiraCredential
+from .._shared import ClientListenerAdapter
 
 _CRED_FIELDS = {f.name for f in fields(JiraCredential)}
 
 
 def _clean_domain(raw: str) -> str:
-    """Mirror the legacy JiraHandler.login() domain normalization:
+    """Mirror the JiraHandler.login() domain normalization:
     strip scheme + trailing slash, and default bare names to
     ``<name>.atlassian.net``."""
     domain = (raw or "").strip().rstrip("/")
@@ -47,7 +47,7 @@ def _clean_domain(raw: str) -> str:
 class JiraClientBinding:
     """Overrides JiraClient's disk plumbing: credential is injected per
     account, never read from ``spec.cred_file`` (single-account, would
-    cross-wire secondaries). MRO puts this before the legacy client:
+    cross-wire secondaries). MRO puts this before the API client:
 
         class BoundJiraClient(JiraClientBinding, JiraClient): pass
 
@@ -83,6 +83,53 @@ class BoundJiraClient(JiraClientBinding, JiraClient):
 class JiraProvider:
     id = "jira"
     display_name = "Jira"
+    # ----- UI metadata -----
+    description = "Issue tracking and project management"
+    icon = "jira"
+    fields = [
+        {
+            "key": "domain",
+            "label": "Jira Domain",
+            "placeholder": "mycompany.atlassian.net",
+            "password": False,
+        },
+        {
+            "key": "email",
+            "label": "Email",
+            "placeholder": "you@example.com",
+            "password": False,
+        },
+        {
+            "key": "api_token",
+            "label": "API Token",
+            "placeholder": "Enter Jira API token",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "Domain → your Jira URL host (e.g. mycompany.atlassian.net)",
+        "Email → the address you log into Jira with",
+        "API Token: open id.atlassian.com/manage-profile/security/api-tokens",
+        "Click 'Create API token', label it (e.g. 'CraftBot'), copy the value",
+    ]
+    config_class = JiraConfig
+    config_fields = [
+        {
+            "key": "watch_tag",
+            "label": "Watch tag",
+            "type": "text",
+            "placeholder": "@craftbot",
+            "help": "Trigger keyword in issue comments. Leave empty to react to all updates.",
+        },
+        {
+            "key": "watch_labels",
+            "label": "Watched labels",
+            "type": "list",
+            "placeholder": "bug",
+            "help": "Comma-separated. Leave empty to watch issues with any label.",
+        },
+    ]
+
     family = None  # standalone — no cross-provider alias sharing
     client_cls = BoundJiraClient
 
@@ -93,7 +140,7 @@ class JiraProvider:
         accounts, and two people on one site are two accounts. The host
         comes from ``domain`` (Basic-auth shape) or ``site_url`` (OAuth
         shape), scheme stripped. None when either half is missing — the
-        core stores such credentials under LEGACY_IDENTITY.
+        core stores such credentials under UNIDENTIFIED.
         """
         if not isinstance(credential, dict):
             return None
@@ -135,7 +182,7 @@ class JiraProvider:
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification the legacy JiraHandler.login() runs:
+        """Token verification:
         normalize the domain, then Basic-auth ``GET /rest/api/3/myself``
         (falling back to v2); same credential keys as the handler's
         ``fields`` (domain, email, api_token). The verified user's
@@ -211,18 +258,18 @@ class JiraProvider:
         return True, f"Jira connected as {display_name} ({clean_domain})", credential
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy jira actions keep the surface
+        return []  # bridge provider — jira actions keep the surface
 
     def guidance(self) -> str:
-        return ""  # bridge provider — no v2 operations to guide
+        return ""  # bridge provider — no operations to guide
 
     def make_listener(
         self,
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> Optional[LegacyListenerAdapter]:
-        """Issue-update poll loop re-used verbatim from the legacy client
+    ) -> Optional[ClientListenerAdapter]:
+        """Issue-update poll loop re-used verbatim from the API client
         (``supports_listening`` is True); no cursor — the loop keeps its
         watermark in memory and catches up on start."""
-        return LegacyListenerAdapter(client, emit)
+        return ClientListenerAdapter(client, emit)

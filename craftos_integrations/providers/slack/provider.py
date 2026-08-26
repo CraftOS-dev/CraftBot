@@ -1,7 +1,7 @@
 """Slack provider — the first non-Google multi-account provider.
 
 Establishes the non-Google binding pattern: reuse the battle-tested API
-surface of the legacy ``SlackClient`` unchanged, and override only its
+surface of ``SlackClient`` unchanged, and override only its
 credential plumbing with a small binding mixin (mirroring
 ``GoogleClientBinding``): the credential is injected per account by
 ``build_client`` and never read from ``spec.cred_file`` (which is
@@ -14,8 +14,7 @@ stored for contract symmetry — future providers with rotating tokens
 (Outlook, HubSpot) call it exactly like the Google binding does.
 
 One account = one Slack **workspace**; identity is the team id from the
-credential (lowercased). OAuth parameters are referenced from the legacy
-handler's ``OAuthFlow`` so the provider spec can never drift from it.
+credential (lowercased). OAuth parameters are referenced from the provider's ``OAuthFlow`` so the provider spec can never drift from it.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
-from ...integrations.slack import SLACK_SCOPES, SlackClient, SlackCredential, SlackHandler
+from .client import SLACK_SCOPES, SlackClient, SlackCredential, SLACK_OAUTH
 from .listener import SlackListener
 from .operations import build_operations
 
@@ -35,7 +34,7 @@ _CRED_FIELDS = {f.name for f in fields(SlackCredential)}
 
 class SlackClientBinding:
     """Overrides SlackClient's disk plumbing: credential is injected per
-    account. MRO puts this before the legacy client:
+    account. MRO puts this before the API client:
 
         class BoundSlackClient(SlackClientBinding, SlackClient): pass
 
@@ -71,11 +70,44 @@ class BoundSlackClient(SlackClientBinding, SlackClient):
 class SlackProvider:
     id = "slack"
     display_name = "Slack"
+    # ----- UI metadata -----
+    description = "Team messaging"
+    auth_type = "both"
+    icon = "slack"
+    fields = [
+        {
+            "key": "bot_token",
+            "label": "Bot Token",
+            "placeholder": "xoxb-...",
+            "password": True,
+        },
+        {
+            "key": "workspace_name",
+            "label": "Workspace Name (optional)",
+            "placeholder": "My Workspace",
+            "password": False,
+            "optional": True,
+        },
+    ]
+    connect_help = [
+        "Open api.slack.com/apps",
+        "Click 'Create New App' → 'From scratch', pick your workspace",
+        "Open 'OAuth & Permissions' in the left sidebar",
+        "Add bot scopes: chat:write, channels:read, users:read (more as needed)",
+        "Click 'Install to Workspace' at the top, then copy the 'Bot User OAuth Token' (xoxb-...)",
+    ]
+    subcommands = [
+        "invite",
+        "login",
+        "logout",
+        "status",
+    ]
+
     family = None  # standalone — no cross-provider alias sharing
     client_cls = BoundSlackClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
-        """Slack team (workspace) id, lowercased. None for pre-multi-account raw-token
+        """Slack team (workspace) id, lowercased. None for single-account raw-token
         credentials saved before the team id was captured."""
         team_id = credential.get("workspace_id")
         if isinstance(team_id, str) and team_id.strip():
@@ -84,8 +116,8 @@ class SlackProvider:
 
     def oauth_spec(self) -> OAuthSpec:
         return OAuthSpec(
-            authorize_url=SlackHandler.oauth.auth_url,
-            token_url=SlackHandler.oauth.token_url,
+            authorize_url=SLACK_OAUTH.auth_url,
+            token_url=SLACK_OAUTH.token_url,
             scopes=tuple(s for s in SLACK_SCOPES.split(",") if s),
             # Slack's authorize page always shows a workspace picker — no
             # extra params needed to add a *different* workspace.
@@ -105,8 +137,8 @@ class SlackProvider:
         return None  # Slack bot tokens are non-expiring
 
     async def run_login(self) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
-        """Full add-account flow via the legacy handler's OAuthFlow — the
-        machinery behind the legacy ``invite()`` subcommand (HTTPS
+        """Full add-account flow via the connect flow's OAuthFlow — the
+        machinery behind the ``invite`` flow (HTTPS
         localhost callback, ``oauth.v2.access`` exchange; the bot token
         and team metadata arrive in the raw token response, Slack has no
         OAuthFlow userinfo endpoint). The raw-bot-token ``login()`` path
@@ -120,17 +152,17 @@ class SlackProvider:
         Returns (identity, credential, message). Identity is computed by
         ``identity_of`` (team id). When Slack returns no team id the
         credential is returned with identity None — the core stores it
-        under LEGACY_IDENTITY and upgrades it in place on the next
+        under UNIDENTIFIED and upgrades it in place on the next
         re-auth.
         """
-        oauth = copy.copy(SlackHandler.oauth)
+        oauth = copy.copy(SLACK_OAUTH)
         oauth.extra_auth_params = dict(self.oauth_spec().extra_authorize_params)
         result = await oauth.run()
         if "error" in result and not result.get("access_token"):
             return None, None, f"Slack OAuth failed: {result['error']}"
         raw = result.get("raw") or {}
         # Slack signals failure with HTTP 200 + ok:false — same check as
-        # the legacy invite().
+        # the invite().
         if not raw.get("ok"):
             return None, None, f"Slack OAuth token exchange failed: {raw.get('error')}"
 
@@ -150,7 +182,7 @@ class SlackProvider:
         if not identity:
             message = (
                 "Slack connected, but no team id was returned — stored as "
-                "the legacy account until the next re-auth."
+                "without an account identity until the next re-auth."
             )
         return identity, credential, message
 
@@ -170,5 +202,5 @@ class SlackProvider:
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
     ) -> SlackListener:
-        """Workspace poll listener (legacy loop re-homed — see listener.py)."""
+        """Workspace poll listener (see listener.py)."""
         return SlackListener(client, cursor, emit)

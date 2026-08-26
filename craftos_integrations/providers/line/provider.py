@@ -1,17 +1,17 @@
-"""LINE provider — an auth-layer bridge port.
+"""LINE provider — an account-bound wrapper over its API client.
 
 Bridge pattern (see slack/provider.py for the full binding rationale):
-the battle-tested legacy ``LineClient`` API surface is reused unchanged,
+the ``LineClient`` API surface is used unchanged,
 with only its credential plumbing overridden by a small binding mixin —
 the credential is injected per account by ``build_client`` and never read
 from ``spec.cred_file`` (which is single-account and would cross-wire
-secondaries). Operations and guidance stay with the legacy action layer
+secondaries). Operations and guidance stay with the action layer
 (``operations()`` returns ``[]``); only account routing is centralized.
 
 LINE is token-only: credentials come from the LINE Developers console
 (channel access token + channel secret), so ``oauth_spec()`` raises
 NotImplementedError and connect goes through ``verify_token`` — the same
-``GET /v2/bot/info`` check the legacy ``LineHandler.login()`` runs, which
+``GET /v2/bot/info`` check the ``LineHandler.login()`` runs, which
 also captures the bot's ``userId`` as the stable account identity.
 
 Long-lived channel access tokens do not expire on a refresh schedule, so
@@ -27,14 +27,14 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.line import LINE_API_BASE, LineClient, LineCredential
+from .client import LINE_API_BASE, LineClient, LineConfig, LineCredential
 
 _CRED_FIELDS = {f.name for f in fields(LineCredential)}
 
 
 class LineClientBinding:
     """Overrides LineClient's disk plumbing: credential is injected per
-    account. MRO puts this before the legacy client:
+    account. MRO puts this before the API client:
 
         class BoundLineClient(LineClientBinding, LineClient): pass
 
@@ -69,7 +69,52 @@ class BoundLineClient(LineClientBinding, LineClient):
 
 class LineProvider:
     id = "line"
-    display_name = "LINE"
+    # "LINE Business" is what the UI has always shown — get_metadata read it off
+    # LineHandler, whose display_name diverged from this class's. Kept as-is so
+    # moving enumeration onto the providers is not a silent rename.
+    display_name = "LINE Business"
+    # ----- UI metadata -----
+    description = "Messaging via LINE Messaging API (send-only)"
+    icon = "line"
+    fields = [
+        {
+            "key": "channel_access_token",
+            "label": "Channel Access Token",
+            "placeholder": "Long-lived token from LINE Developers console",
+            "password": True,
+        },
+        {
+            "key": "channel_secret",
+            "label": "Channel Secret",
+            "placeholder": "From the same Messaging API channel",
+            "password": True,
+            "optional": True,
+        },
+    ]
+    connect_help = [
+        "Open LINE Developers Console: developers.line.biz/console",
+        "Sign in with your LINE account",
+        "Create a Provider, then create a Messaging API channel inside it",
+        "Channel Secret → Basic settings tab → 'Channel secret' field",
+        "Channel Access Token → Messaging API tab → 'Issue' button under 'Channel access token (long-lived)'",
+    ]
+    config_class = LineConfig
+    config_fields = [
+        {
+            "key": "notification_disabled",
+            "label": "Silent delivery",
+            "type": "checkbox",
+            "help": "Send all push/multicast/broadcast messages with notificationDisabled=true. Recipients receive the message but get no push alert.",
+        },
+        {
+            "key": "message_prefix",
+            "label": "Message prefix",
+            "type": "text",
+            "placeholder": "[CraftBot] ",
+            "help": "Optional prefix prepended to every outgoing text message. Leave empty for none.",
+        },
+    ]
+
     family = None  # standalone — no cross-provider alias sharing
     client_cls = BoundLineClient
 
@@ -99,7 +144,7 @@ class LineProvider:
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification the legacy ``LineHandler.login()`` runs:
+        """Token verification:
         ``GET /v2/bot/info`` with the channel access token; same credential
         dict shape, with the bot's ``userId`` captured as ``bot_user_id``
         so ``identity_of`` gets a stable account key.
@@ -135,10 +180,10 @@ class LineProvider:
         return True, f"LINE connected: {label}", credential
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy actions remain the operation surface
+        return []  # bridge provider — actions remain the operation surface
 
     def guidance(self) -> str:
-        return ""  # bridge provider — legacy action docs remain the guidance
+        return ""  # bridge provider — action docs remain the guidance
 
     def make_listener(
         self,
@@ -146,6 +191,6 @@ class LineProvider:
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
     ) -> None:
-        """LINE is webhook-push only — the legacy client has no listen loop
+        """LINE is webhook-push only — the API client has no listen loop
         (``supports_listening`` is False), so there are no inbound events."""
         return None

@@ -1,4 +1,4 @@
-"""Gmail operations — ported from the legacy gmail_actions.py schemas.
+"""Gmail operations — schemas for gmail_actions.py.
 
 NOTE: no operation declares an ``account`` input — the host adapter
 injects it on every generated action and the core resolves it centrally
@@ -22,7 +22,7 @@ from .._shared import client_op
 
 
 def _get_gmail_thread_op() -> Operation:
-    """get_gmail_thread with the legacy lean-shaping of the raw thread."""
+    """get_gmail_thread with the lean-shaping of the raw thread."""
     base = client_op(
         "get_gmail_thread",
         "get_thread",
@@ -87,7 +87,7 @@ def _get_gmail_thread_op() -> Operation:
 
 
 def _get_gmail_draft_op() -> Operation:
-    """get_gmail_draft with the legacy lean-shaping of the raw draft."""
+    """get_gmail_draft with the lean-shaping of the raw draft."""
     base = client_op(
         "get_gmail_draft",
         "get_draft",

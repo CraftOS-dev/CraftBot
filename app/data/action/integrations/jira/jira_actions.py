@@ -1,5 +1,4 @@
 from agent_core import action
-from app.utils import csv_list
 
 
 _NO_CRED_MSG = "No Jira credential. Use /jira login first."
@@ -1830,11 +1829,11 @@ async def move_issues_to_jira_epic(input_data: dict) -> dict:
 )
 def set_jira_watch_tag(input_data: dict) -> dict:
     try:
-        from craftos_integrations import get_client
+        from app.data.action.integrations._helpers import get_client_or_error
 
-        client = get_client("jira")
-        if not client or not client.has_credentials():
-            return {"status": "error", "message": "No Jira credential. Use /jira login first."}
+        client, err = get_client_or_error("jira")
+        if err:
+            return err
         tag = input_data.get("tag", "").strip()
         client.set_watch_tag(tag)
         if tag:
@@ -1859,11 +1858,11 @@ def set_jira_watch_tag(input_data: dict) -> dict:
 )
 def get_jira_watch_tag(input_data: dict) -> dict:
     try:
-        from craftos_integrations import get_client
+        from app.data.action.integrations._helpers import get_client_or_error
 
-        client = get_client("jira")
-        if not client or not client.has_credentials():
-            return {"status": "error", "message": "No Jira credential. Use /jira login first."}
+        client, err = get_client_or_error("jira")
+        if err:
+            return err
         tag = client.get_watch_tag()
         if tag:
             return {
@@ -1896,12 +1895,12 @@ def get_jira_watch_tag(input_data: dict) -> dict:
 )
 def set_jira_watch_labels(input_data: dict) -> dict:
     try:
-        from craftos_integrations import get_client
+        from app.data.action.integrations._helpers import get_client_or_error
         from app.utils.text import csv_list
 
-        client = get_client("jira")
-        if not client or not client.has_credentials():
-            return {"status": "error", "message": "No Jira credential. Use /jira login first."}
+        client, err = get_client_or_error("jira")
+        if err:
+            return err
         labels = csv_list(input_data.get("labels", ""))
         client.set_watch_labels(labels)
         if labels:
@@ -1926,11 +1925,11 @@ def set_jira_watch_labels(input_data: dict) -> dict:
 )
 def get_jira_watch_labels(input_data: dict) -> dict:
     try:
-        from craftos_integrations import get_client
+        from app.data.action.integrations._helpers import get_client_or_error
 
-        client = get_client("jira")
-        if not client or not client.has_credentials():
-            return {"status": "error", "message": "No Jira credential. Use /jira login first."}
+        client, err = get_client_or_error("jira")
+        if err:
+            return err
         labels = client.get_watch_labels()
         if labels:
             return {

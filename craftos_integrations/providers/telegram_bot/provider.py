@@ -1,11 +1,10 @@
-"""Telegram Bot bridge provider — auth-layer-only port of the legacy client.
+"""Telegram Bot bridge provider — account-bound wrapper over its API client.
 
 Bridge pattern (see slack/provider.py for the full binding rationale):
-the battle-tested legacy ``TelegramBotClient`` keeps its entire API
-surface; only the credential plumbing is overridden by a small binding
-mixin so the credential is injected per account and never read from the
-legacy ``telegram_bot.json``. ``operations()`` is empty and
-``guidance()`` blank — the legacy action functions remain the tool
+``TelegramBotClient`` keeps its entire API surface; only the credential plumbing is overridden by a small binding
+mixin so the credential is injected per account and never read from
+``telegram_bot.json``. ``operations()`` is empty and
+``guidance()`` blank — the action functions remain the tool
 surface; account routing happens centrally in the host adapter.
 
 Telegram bots are token-only (a BotFather token per bot):
@@ -15,12 +14,12 @@ tokens do not rotate, so ``refresh()`` returns None.
 
 One account = one **bot**; identity is the bot's numeric id from
 ``getMe`` (Telegram's stable identifier — the username can be changed
-via BotFather, the id cannot). The legacy ``TelegramBotCredential`` has
+via BotFather, the id cannot). The ``TelegramBotCredential`` has
 no id field, so ``verify_token`` stores it under a new ``bot_id`` key
-alongside the legacy fields; the binding filters it out before
-constructing the legacy dataclass, so the legacy client never sees it.
+alongside the fields; the binding filters it out before
+constructing the dataclass, so the API client never sees it.
 
-Two legacy disk touchpoints the binding must neutralize:
+Two disk touchpoints the binding must neutralize:
 
 * ``has_credentials`` — reads ``telegram_bot.json`` and, worse,
   auto-SAVES shared-bot credentials from ConfigStore env as a side
@@ -44,27 +43,29 @@ from __future__ import annotations
 from dataclasses import asdict, fields
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from ...config import ConfigStore
 from ...contracts import OAuthSpec, Operation
-from ...integrations.telegram_bot import (
+from .client import (
     TELEGRAM_API_BASE,
     TelegramBotClient,
+    TelegramBotConfig,
     TelegramBotCredential,
     _telegram_call_sync,
 )
-from .._shared import LegacyListenerAdapter
+from .._shared import ClientListenerAdapter
 
 _CRED_FIELDS = {f.name for f in fields(TelegramBotCredential)}
 
 
 class TelegramBotClientBinding:
     """Overrides TelegramBotClient's disk plumbing: credential is
-    injected per account. MRO puts this before the legacy client:
+    injected per account. MRO puts this before the API client:
 
         class BoundTelegramBotClient(TelegramBotClientBinding, TelegramBotClient): pass
 
     No token refresh — bot tokens are non-rotating — so ``_persist`` is
     never called (kept so the build_client contract is uniform across
-    providers). ``has_credentials`` MUST be overridden here: the legacy
+    providers). ``has_credentials`` MUST be overridden here: the
     version reads the credential file and auto-saves shared-bot env
     credentials to disk as a side effect.
     """
@@ -75,8 +76,8 @@ class TelegramBotClientBinding:
     def bind_credential(
         self, credential: Dict[str, Any], persist: Callable[[Dict[str, Any]], None]
     ) -> None:
-        # Filters to legacy dataclass fields — drops the provider-level
-        # ``bot_id`` identity key the legacy client doesn't know about.
+        # Filters to the credential dataclass's fields — drops the provider-level
+        # ``bot_id`` identity key the API client doesn't know about.
         self._cred = TelegramBotCredential(
             **{k: v for k, v in credential.items() if k in _CRED_FIELDS}
         )
@@ -99,12 +100,45 @@ class TelegramBotProvider:
     id = "telegram_bot"
     family = None  # standalone — no cross-provider alias sharing
     display_name = "Telegram Bot"
+    # ----- UI metadata -----
+    description = "Bot API messaging"
+    icon = "telegram"
+    fields = [
+        {
+            "key": "bot_token",
+            "label": "Bot Token",
+            "placeholder": "From @BotFather",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "Open Telegram and search for @BotFather",
+        "Send /newbot and follow the prompts (pick a name, pick a username ending in 'bot')",
+        "BotFather replies with a token - copy the long string (numbers:letters)",
+        "Paste it as the Bot Token below",
+    ]
+    subcommands = [
+        "invite",
+        "login",
+        "logout",
+        "status",
+    ]
+    config_class = TelegramBotConfig
+    config_fields = [
+        {
+            "key": "self_messages_only",
+            "label": "Private DMs only",
+            "type": "checkbox",
+            "help": "Only forward messages from 1:1 private chats with the bot. Drops group, supergroup, and channel messages before they reach the agent.",
+        },
+    ]
+
     client_cls = BoundTelegramBotClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
         """The bot's numeric id (``bot_id``, captured from getMe at
         verify time), as a string. None for pre-bridge credentials saved
-        without it (legacy ``telegram_bot.json`` has only token +
+        without it (``telegram_bot.json`` had only token +
         username) and for junk shapes. Tolerates an int-typed id from a
         hand-edited or json-roundtripped credential."""
         try:
@@ -134,10 +168,32 @@ class TelegramBotProvider:
     async def refresh(self, credential: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None  # BotFather tokens do not rotate
 
+    def shared_credentials(self) -> Optional[Dict[str, str]]:
+        """CraftBot's own bot, for a one-click connect without BotFather.
+
+        Optional per deployment: returns None unless the host configured
+        ``TELEGRAM_SHARED_BOT_TOKEN``. The caller feeds the result through
+        ``verify_token`` like any other token, so the shared bot lands in the
+        account store exactly as a personal one does — the old ``invite``
+        subcommand wrote it to a single-account file instead.
+        """
+        token = ConfigStore.get_oauth("TELEGRAM_SHARED_BOT_TOKEN")
+        return {"bot_token": token} if token else None
+
+    @property
+    def shared_hint(self) -> str:
+        """Where to find the shared bot once connected."""
+        username = ConfigStore.get_oauth("TELEGRAM_SHARED_BOT_USERNAME")
+        return (
+            f"Start chatting or add to groups: https://t.me/{username}"
+            if username
+            else ""
+        )
+
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification the legacy TelegramBotHandler.login() runs:
+        """Token verification:
         ``GET /bot<token>/getMe``; same ``fields`` key (``bot_token``).
         The bot's numeric ``id`` is stored as ``bot_id`` (plus the
         username as ``bot_username``) so ``identity_of`` resolves the
@@ -172,7 +228,7 @@ class TelegramBotProvider:
         )
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy action functions stay the surface
+        return []  # bridge provider — action functions stay the surface
 
     def guidance(self) -> str:
         return ""
@@ -182,11 +238,11 @@ class TelegramBotProvider:
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> LegacyListenerAdapter:
-        """Long-poll listener — the legacy client's own ``getUpdates``
+    ) -> ClientListenerAdapter:
+        """Long-poll listener — the API client's own ``getUpdates``
         loop (30s long poll with per-instance ``_poll_offset`` watermark
         and a catch-up drain on start), reused verbatim via the generic
         adapter. The offset lives on the bound client instance, so each
         account's listener keeps its own watermark. No restart-safe
-        cursor, same as under the legacy manager."""
-        return LegacyListenerAdapter(client, emit)
+        cursor, the poll loop keeps its watermark in memory."""
+        return ClientListenerAdapter(client, emit)

@@ -36,7 +36,7 @@ from ..contracts import (
     AccountInfo,
     AccountResolutionError,
     CredentialStore,
-    LEGACY_IDENTITY,
+    UNIDENTIFIED,
 )
 from ..logger import get_logger
 
@@ -92,8 +92,8 @@ class AccountSet:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AccountSet":
         # Tolerant of unknown keys by construction: only the fields named
-        # here are read. Documents written during the interim legacy-bridge
-        # era carry a ``legacy_coupled`` flag — ignored, no longer drives
+        # here are read. Documents written during the interim bridge
+        # era carry a ``legacy_coupled`` flag — ignored, never drives
         # any behavior.
         return cls(
             primary=data.get("primary") or "",
@@ -132,8 +132,8 @@ class AccountManager:
 
         Pre-multi-account single-credential files are deliberately IGNORED here: the
         manager only reads AccountSet documents. The one-time upgrade
-        migration — legacy file present, no AccountSet document — happens above
-        this layer in ``IntegrationSystem._migrate_legacy``, which can
+        upgrade — a sentinel record gaining a real identity — happens above
+        this layer, which can
         derive a real identity from the provider.
         """
         raw = self._store.load(provider_id)
@@ -263,9 +263,9 @@ class AccountManager:
     ) -> str:
         """Add or update an account after OAuth. Returns the stored identity.
 
-        A LEGACY_IDENTITY record is upgraded in place by the first re-auth
+        A UNIDENTIFIED record is upgraded in place by the first re-auth
         (same credential slot, alias/listen/primary preserved) — the one
-        deliberate heuristic in this file: we cannot know whether a pre-multi-account
+        deliberate heuristic in this file: we cannot know whether a single-account
         credential belongs to the account that just authenticated, and
         upgrading beats duplicating (see plan §5)."""
         if not identity:
@@ -281,14 +281,17 @@ class AccountManager:
             account_set = AccountSet.from_dict(raw) if raw else AccountSet(primary="")
             if identity in account_set.accounts:
                 account_set.accounts[identity].credential = credential
-            elif LEGACY_IDENTITY in account_set.accounts:
-                legacy = account_set.accounts.pop(LEGACY_IDENTITY)
-                legacy.credential = credential
-                account_set.accounts[identity] = legacy
-                if account_set.primary == LEGACY_IDENTITY:
+            elif UNIDENTIFIED in account_set.accounts:
+                # This provider previously stored a credential it could not
+                # derive an identity from. Now that we have one, rename the
+                # record in place — a second entry would double the account.
+                record = account_set.accounts.pop(UNIDENTIFIED)
+                record.credential = credential
+                account_set.accounts[identity] = record
+                if account_set.primary == UNIDENTIFIED:
                     account_set.primary = identity
                 logger.info(
-                    f"[ACCOUNTS] {provider_id}: legacy credential upgraded to "
+                    f"[ACCOUNTS] {provider_id}: unidentified credential is now "
                     f"identity {identity}"
                 )
             else:

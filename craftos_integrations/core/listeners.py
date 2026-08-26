@@ -95,17 +95,6 @@ class FileCursorStore:
             del data[identity]
             self._write(provider_id, data)
 
-    def migrate_legacy(self, provider_id: str, identity: str) -> None:
-        """Placeholder for legacy single-account cursor migration (§8.3).
-
-        Pre-multi-account listeners kept their poll state inside the host application
-        (CraftBot's trigger runtime), not in this package — there is no
-        legacy cursor file here to import, so this is a documented no-op.
-        If a host has such state, it can subclass and seed the identity's
-        entry here; a missing cursor is harmless either way (the poller
-        re-scans and dedups on first cycle).
-        """
-
     def _write(self, provider_id: str, data: Dict[str, Any]) -> None:
         path = self._path(provider_id)
         # Unique tmp per write: concurrent writers sharing one tmp name race
@@ -279,10 +268,9 @@ class ListenerManager:
                 self.system.accounts.credential_for(provider_id, identity)
             )
             client = self.system.client_for(provider_id, identity)
+            # A missing cursor is harmless: the poller re-scans and dedups on
+            # its first cycle.
             cursor = self.cursors.get(provider_id, identity)
-            if cursor is None:
-                self.cursors.migrate_legacy(provider_id, identity)
-                cursor = self.cursors.get(provider_id, identity)
 
             async def emit(event: Dict[str, Any]) -> None:
                 await self.sink.on_event(provider_id, identity, event)

@@ -162,24 +162,40 @@ def read_file(input_data: dict) -> dict:
         end_idx = min(offset + limit, total_lines)
         selected_lines = all_lines[offset:end_idx]
 
+        # Total byte cap on the payload. `limit` bounds LINES and
+        # `max_line_length` bounds each line, but limit*max_line_length is
+        # multi-megabyte in the worst case. read_file is exempt from event-stream
+        # externalization (it IS the retrieval path for externalized content), so
+        # an uncapped read lands verbatim in the prompt and can blow the
+        # summarization threshold on its own. 80000 chars ~= 20k tokens, safely
+        # under the 30k threshold; the agent pages with offset for the rest.
+        MAX_CONTENT_CHARS = 80000
+
         # Format with line numbers (1-based, matching cat -n format)
         formatted_lines = []
+        used = 0
+        capped_at = None
         for i, line in enumerate(selected_lines, start=offset + 1):
             line_content = line.rstrip("\n\r")
             # Truncate long lines
             if len(line_content) > max_line_length:
                 line_content = line_content[:max_line_length] + "..."
             # Format line number with right-alignment (6 chars) + tab + content
-            formatted_lines.append(f"{i:>6}\t{line_content}")
+            formatted = f"{i:>6}\t{line_content}"
+            if used + len(formatted) + 1 > MAX_CONTENT_CHARS:
+                capped_at = i
+                break
+            formatted_lines.append(formatted)
+            used += len(formatted) + 1
 
         content = "\n".join(formatted_lines)
         if formatted_lines:
             content += "\n"
 
-        lines_returned = len(selected_lines)
+        lines_returned = len(formatted_lines)
         has_more = (offset + lines_returned) < total_lines
 
-        return {
+        result = {
             "status": "success",
             "content": content,
             "total_lines": total_lines,
@@ -187,6 +203,12 @@ def read_file(input_data: dict) -> dict:
             "offset": offset,
             "has_more": has_more,
         }
+        if capped_at is not None:
+            result["message"] = (
+                f"Output capped at {MAX_CONTENT_CHARS} chars; stopped at line "
+                f"{capped_at}. Call again with offset={offset + lines_returned} to continue."
+            )
+        return result
     except Exception as e:
         return {
             "status": "error",

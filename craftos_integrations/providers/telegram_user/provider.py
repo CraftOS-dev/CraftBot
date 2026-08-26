@@ -1,12 +1,11 @@
 """Telegram User (MTProto) bridge provider — auth-layer-only port of the
-legacy client.
+API client.
 
 Bridge pattern (see telegram_bot/provider.py for the binding rationale):
-the battle-tested legacy ``TelegramUserClient`` keeps its entire API
-surface; only the credential plumbing is overridden by a small binding
-mixin so the credential is injected per account and never read from the
-legacy ``telegram_user.json``. ``operations()`` is empty and
-``guidance()`` blank — the legacy action functions remain the tool
+``TelegramUserClient`` keeps its entire API surface; only the credential plumbing is overridden by a small binding
+mixin so the credential is injected per account and never read from
+``telegram_user.json``. ``operations()`` is empty and
+``guidance()`` blank — the action functions remain the tool
 surface; account routing happens centrally in the host adapter.
 
 Auth is Telegram's phone-login (no OAuth): ``oauth_spec()`` raises
@@ -24,7 +23,7 @@ NotImplementedError and there is no ``run_login``. The handler's UI
   which is how this phase talks to the user.
 * Phase 2 — phone + code (+ optional 2FA password): complete auth via
   ``complete_auth`` exactly like CLI step 2, build the credential dict
-  (legacy dataclass fields + the provider-level ``telegram_user_id``),
+  (credential dataclass fields + the provider-level ``telegram_user_id``),
   clear the pending entry, return (True, message, credential). Error
   branches mirror the CLI mapping: invalid code keeps the pending entry
   (retry with a corrected code), expired code clears it, 2FA-needed keeps
@@ -33,7 +32,7 @@ NotImplementedError and there is no ``run_login``. The handler's UI
 The entire session state is the Telethon ``StringSession`` string inside
 the credential — no session files on disk — so ``refresh()`` returns
 None (sessions don't expire on a timer; a revoked session surfaces as
-``session_expired`` from the legacy client and needs a re-login).
+``session_expired`` from the API client and needs a re-login).
 
 One account = one **phone number**. ``identity_of`` normalizes the phone
 to digits only with leading zeros stripped: ``+92 300 1234567``,
@@ -44,7 +43,7 @@ removes the ``00`` international-prefix ambiguity). When the phone is
 missing (e.g. a QR-login credential), the stored ``telegram_user_id``
 is the fallback identity.
 
-Legacy disk touchpoints the binding neutralizes: ``has_credentials``
+Disk touchpoints the binding neutralizes: ``has_credentials``
 (reads ``telegram_user.json``) and ``_load`` (falls back to
 ``load_credential`` from disk) — both answer purely from the injected
 credential. Everything else is already per-instance: ``_live_client``,
@@ -67,12 +66,13 @@ from typing import Any, Awaitable, Callable, Coroutine, Dict, List, Optional, Tu
 
 from ...config import ConfigStore
 from ...contracts import OAuthSpec, Operation
-from ...integrations.telegram_user import (
+from .client import (
     TelegramUserClient,
+    TelegramUserConfig,
     TelegramUserCredential,
     _pending_telegram_auth,
 )
-from .._shared import LegacyListenerAdapter
+from .._shared import ClientListenerAdapter
 
 _CRED_FIELDS = {f.name for f in fields(TelegramUserCredential)}
 
@@ -101,7 +101,7 @@ def _run_coro(coro: Coroutine[Any, Any, Any]) -> Any:
 
 class TelegramUserClientBinding:
     """Overrides TelegramUserClient's disk plumbing: credential is
-    injected per account. MRO puts this before the legacy client:
+    injected per account. MRO puts this before the API client:
 
         class BoundTelegramUserClient(TelegramUserClientBinding, TelegramUserClient): pass
 
@@ -115,8 +115,8 @@ class TelegramUserClientBinding:
     def bind_credential(
         self, credential: Dict[str, Any], persist: Callable[[Dict[str, Any]], None]
     ) -> None:
-        # Filters to legacy dataclass fields — drops the provider-level
-        # ``telegram_user_id`` identity key the legacy client doesn't
+        # Filters to the credential dataclass's fields — drops the provider-level
+        # ``telegram_user_id`` identity key the API client doesn't
         # know about.
         self._cred = TelegramUserCredential(
             **{k: v for k, v in credential.items() if k in _CRED_FIELDS}
@@ -140,6 +140,48 @@ class TelegramUserProvider:
     id = "telegram_user"
     family = None  # standalone — no cross-provider alias sharing
     display_name = "Telegram (User)"
+    # ----- UI metadata -----
+    description = "MTProto user account"
+    icon = "telegram"
+    fields = [
+        {
+            "key": "phone_number",
+            "label": "Phone Number",
+            "placeholder": "+923001234567",
+            "password": False,
+        },
+        {
+            "key": "code",
+            "label": "Login Code (optional)",
+            "placeholder": "(optional) leave empty on first submit",
+            "password": False,
+        },
+        {
+            "key": "password",
+            "label": "2FA Password (optional)",
+            "placeholder": "(optional) only if two-step verification is on",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "One-time app credentials: open my.telegram.org, log in, click 'API development tools', submit the form (any app name works)",
+        "Set the api_id and api_hash as TELEGRAM_API_ID and TELEGRAM_API_HASH in CraftBot config (they are NOT entered below)",
+        "Connect step 1: enter your phone number only (international format, e.g. +923001234567) and submit - a login code is sent to your Telegram app",
+        "Connect step 2: submit again with the same phone number AND the code filled in (add your 2FA password if your account has one)",
+    ]
+    # No "login-qr": the QR flow only ever wrote the single-account
+    # telegram_user.json, which the account store never reads. The supported
+    # connect is the two-phase phone+code verify_token below.
+    config_class = TelegramUserConfig
+    config_fields = [
+        {
+            "key": "self_messages_only",
+            "label": "Self-messages only",
+            "type": "checkbox",
+            "help": "Only forward messages from your own Saved Messages chat. Drops DMs from contacts and group/channel messages before they reach the agent.",
+        },
+    ]
+
     client_cls = BoundTelegramUserClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
@@ -209,7 +251,7 @@ class TelegramUserProvider:
         except ValueError:
             return False, "TELEGRAM_API_ID must be a number.", None
 
-        from ...integrations.telegram_user import _telegram_mtproto as helpers
+        from . import _telegram_mtproto as helpers
 
         code = (credentials.get("code") or "").strip()
 
@@ -290,7 +332,7 @@ class TelegramUserProvider:
             )
         )
         # Provider-level identity fallback — filtered out by the binding
-        # before the legacy dataclass is constructed.
+        # before the dataclass is constructed.
         user_id = auth.get("user_id")
         credential["telegram_user_id"] = str(user_id) if user_id is not None else ""
 
@@ -301,7 +343,7 @@ class TelegramUserProvider:
         return True, f"Telegram user connected: {account_name}{username}", credential
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy action functions stay the surface
+        return []  # bridge provider — action functions stay the surface
 
     def guidance(self) -> str:
         return ""
@@ -311,13 +353,13 @@ class TelegramUserProvider:
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> LegacyListenerAdapter:
-        """The legacy client's own Telethon event listener
+    ) -> ClientListenerAdapter:
+        """The API client's own Telethon event listener
         (``events.NewMessage`` + ``catch_up`` on start), reused verbatim
         via the generic adapter. Each bound client builds its own
         ``TelegramClient`` from its own ``StringSession``, and all
         listener state (_live_client, _send_queue, _my_user_id,
         _agent_sent_ids) is instance-level — per-account listeners are
         fully independent. No restart-safe cursor, same as under the
-        legacy manager (Telethon's catch_up covers the gap)."""
-        return LegacyListenerAdapter(client, emit)
+        client's own loop (Telethon's catch_up covers the gap)."""
+        return ClientListenerAdapter(client, emit)

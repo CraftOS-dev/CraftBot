@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -115,29 +114,6 @@ def test_generated_action_not_connected(adapter_registry, live_system):
 
 
 # ── one-time legacy upgrade migration (through the real bootstrap) ──────
-
-
-def test_migration_imports_legacy_file_then_doc_is_source_of_truth(
-    tmp_path, monkeypatch
-):
-    from craftos_integrations.config import ConfigStore
-
-    import app.integrations as bootstrap
-
-    monkeypatch.setattr(ConfigStore, "project_root", tmp_path)
-    bootstrap.reset_system()
-    system = bootstrap.get_system()
-    # Pre-multi-account install (≤ V1.4.2): only a legacy file exists → first contact
-    # migrates it into an AccountSet document...
-    legacy = tmp_path / ".credentials"
-    legacy.mkdir(parents=True, exist_ok=True)
-    (legacy / "notion.json").write_text(json.dumps({"token": "t"}), encoding="utf-8")
-    assert len(system.list_accounts("notion")) == 1
-    # ...after which the document is the sole source of truth: deleting the
-    # legacy file no longer reads as a logout.
-    (legacy / "notion.json").unlink()
-    assert len(system.list_accounts("notion")) == 1
-    bootstrap.reset_system()
 
 
 def test_pure_v2_single_account_is_stable(live_system, tmp_path):

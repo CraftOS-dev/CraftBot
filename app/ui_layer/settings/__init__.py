@@ -30,17 +30,11 @@ from app.ui_layer.settings.skill_settings import (
 )
 
 from craftos_integrations import (
-    connect_token as connect_integration_token,
-    connect_oauth as connect_integration_oauth,
-    connect_interactive as connect_integration_interactive,
-    disconnect as disconnect_integration,
-    get_integration_accounts,
     get_integration_auth_type,
     get_integration_fields,
     get_integration_info_sync as get_integration_info,
-    list_integrations_sync as list_integrations,
 )
-from craftos_integrations.integrations.whatsapp_web import (
+from craftos_integrations.providers.whatsapp_web.client import (
     start_qr_session as start_whatsapp_qr_session,
     check_qr_session_status as check_whatsapp_session_status,
     cancel_qr_session as cancel_whatsapp_session,
@@ -157,13 +151,7 @@ __all__ = [
     "get_skill_template",
     "remove_skill",
     # Integration settings
-    "list_integrations",
     "get_integration_info",
-    "get_integration_accounts",
-    "connect_integration_token",
-    "connect_integration_oauth",
-    "connect_integration_interactive",
-    "disconnect_integration",
     "get_integration_auth_type",
     "get_integration_fields",
     # WhatsApp QR code flow

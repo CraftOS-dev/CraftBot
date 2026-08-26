@@ -146,7 +146,8 @@ MCPClient              external MCP tool servers
 SkillManager           SKILL.md discovery + selection + reload
 Scheduler              cron-driven trigger fires from scheduler_config.json
 ProactiveManager       PROACTIVE.md registry + get_all_due_tasks()
-ExternalCommsManager   platform listeners + senders
+IntegrationSystem      integration accounts + clients
+ListenerManager        platform listeners, one per (integration, account)
 ```
 
 Concurrency: per-session serialization plus trigger aggregation. A session processes one turn at a time, and everything due folds into the next turn. There are no workflow locks.
@@ -1579,7 +1580,7 @@ For each integration registered in the `craftos_integrations` package, a slash c
 plus handler-specific subcommands (e.g. login-qr for whatsapp_web, invite for OAuth flows)
 ```
 
-There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (23 integrations) and each one's credential fields live in `craftos_integrations/integrations/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
+There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (23 integrations) and each one's credential fields live in `craftos_integrations/providers/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
 
 ### Agent-provided commands
 
@@ -2489,7 +2490,7 @@ To enumerate the full installed set: `list_folder skills/` or `read_file app/con
 
 You can help the user connect external integrations directly through chat. Most token-based integrations can be fully driven by you: collect the credential from the user, call `connect_integration` with it, and the listener auto-starts. OAuth integrations require the user to run a slash command that opens a browser — your job is to walk them through it. Treat connecting an integration like helping a non-technical friend: tell them exactly where to go, what to copy, and what to paste back.
 
-Code: the standalone [craftos_integrations/](craftos_integrations/) package owns the whole subsystem — auth handlers, runtime clients, credential store, autoloader, and the registry facade (`craftos_integrations/registry.py`). Handlers register via `@register_handler` in `craftos_integrations/integrations/<name>/__init__.py`; the agent-facing `@action` wrappers live under [app/data/action/integrations/](app/data/action/integrations/). The authoring recipe is in [craftos_integrations/README.md](craftos_integrations/README.md).
+Code: the standalone [craftos_integrations/](craftos_integrations/) package owns the whole subsystem — providers, runtime clients, multi-account credential store, autoloader, and the registry facade (`craftos_integrations/registry.py`). Each integration is one folder: `craftos_integrations/providers/<name>/` holds `provider.py` (metadata + auth + listener) and `client.py` (the API surface, `@register_client`); the agent-facing `@action` wrappers live under [app/data/action/integrations/](app/data/action/integrations/). The authoring recipe is in [craftos_integrations/README.md](craftos_integrations/README.md).
 
 ### What's wired in
 
@@ -2595,7 +2596,7 @@ Never invent a credential. If the user has not provided one, ask. If the user pa
 
 ### Required fields and where to obtain them
 
-The fields each token integration needs (declared per integration in `craftos_integrations/integrations/<name>/`; `connect_integration` returns `needs_credentials` + `required_fields` if you omit them):
+The fields each token integration needs (declared per integration in `craftos_integrations/providers/<name>/provider.py`; `connect_integration` returns `needs_credentials` + `required_fields` if you omit them):
 
 ```
 slack
@@ -2811,7 +2812,7 @@ The built-in integrations cover the common 80%; MCP covers the long tail.
 
 ### Using an integration during a run
 
-Connecting is one job; *using* an integration is another. Every integration carries an `INTEGRATION.md` reference doc at `craftos_integrations/integrations/<name>/INTEGRATION.md` — non-obvious workflows, identity formats, error meanings, and quirks that don't fit in action `input_schema` descriptions.
+Connecting is one job; *using* an integration is another. Every integration carries an `INTEGRATION.md` reference doc at `craftos_integrations/providers/<name>/INTEGRATION.md` — non-obvious workflows, identity formats, error meanings, and quirks that don't fit in action `input_schema` descriptions.
 
 Each INTEGRATION.md has an `## Essentials` section that is AUTO-INJECTED into your prompt when the user's message mentions that integration — so the basics are usually already in front of you. Grep the full file for anything deeper.
 

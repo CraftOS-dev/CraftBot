@@ -1,15 +1,15 @@
-"""WhatsApp Business provider — auth-layer bridge over the legacy
+"""WhatsApp Business provider — account-bound wrapper over
 ``WhatsAppBusinessClient``.
 
-Bridge port: the v2 provider handles accounts/credentials only —
+Bridge port: the provider handles accounts/credentials only —
 ``operations()`` returns [] and ``guidance()`` returns "" because the
-legacy WhatsApp Business action surface stays in place; account routing
-happens centrally. The binding mixin below replaces the legacy client's
+WhatsApp Business action surface stays in place; account routing
+happens centrally. The binding mixin below replaces the API client's
 disk credential plumbing with the injected per-account credential,
 exactly like ``SlackClientBinding``/``StripeClientBinding``.
 
 WhatsApp Business is token-only (a Meta Graph API access token + phone
-number id per WhatsApp Business number — the legacy handler's
+number id per WhatsApp Business number — the connect flow's
 ``auth_type = "token"``), so ``oauth_spec()`` raises NotImplementedError
 and there is no ``run_login``. The stored token is whatever the user
 pasted (typically a long-lived System User token); the provider has no
@@ -27,19 +27,19 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.whatsapp_business import (
+from .client import (
     GRAPH_API_BASE,
     WhatsAppBusinessClient,
     WhatsAppBusinessCredential,
 )
-from .._shared import LegacyListenerAdapter
+from .._shared import ClientListenerAdapter
 
 _CRED_FIELDS = {f.name for f in fields(WhatsAppBusinessCredential)}
 
 
 class WhatsAppBusinessClientBinding:
     """Overrides WhatsAppBusinessClient's disk plumbing: credential is
-    injected per account. MRO puts this before the legacy client:
+    injected per account. MRO puts this before the API client:
 
         class BoundWhatsAppBusinessClient(
             WhatsAppBusinessClientBinding, WhatsAppBusinessClient
@@ -79,6 +79,31 @@ class WhatsAppBusinessProvider:
     id = "whatsapp_business"
     family = None  # standalone — no cross-provider alias sharing
     display_name = "WhatsApp Business"
+    # ----- UI metadata -----
+    description = "WhatsApp Cloud API"
+    icon = "whatsapp_business"
+    fields = [
+        {
+            "key": "access_token",
+            "label": "Access Token",
+            "placeholder": "Enter access token",
+            "password": True,
+        },
+        {
+            "key": "phone_number_id",
+            "label": "Phone Number ID",
+            "placeholder": "Enter phone number ID",
+            "password": False,
+        },
+    ]
+    connect_help = [
+        "Open developers.facebook.com/apps and create an app (Business type)",
+        "Add the 'WhatsApp' product to the app",
+        "WhatsApp → API Setup tab - copy the temporary access token (or generate a permanent one in System Users)",
+        "Same page - copy the Phone Number ID under 'From' phone number",
+        "Add a recipient phone number for testing on the same page",
+    ]
+
     client_cls = BoundWhatsAppBusinessClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
@@ -94,7 +119,7 @@ class WhatsAppBusinessProvider:
         return None
 
     def oauth_spec(self) -> OAuthSpec:
-        # Deliberate: no Meta Embedded Signup OAuth — the legacy handler is
+        # Deliberate: no Meta Embedded Signup OAuth — the connect flow is
         # token-only; each user pastes their own Cloud API token + phone id.
         raise NotImplementedError("whatsapp_business is token-only")
 
@@ -113,9 +138,9 @@ class WhatsAppBusinessProvider:
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification the legacy WhatsAppBusinessHandler.login()
+        """Same verification the WhatsAppBusinessHandler.login()
         runs: ``GET {GRAPH_API_BASE}/{phone_number_id}`` with the bearer
-        token. Expects the legacy handler's field keys: ``access_token``
+        token. Expects the connect flow's field keys: ``access_token``
         and ``phone_number_id``.
 
         phone_number_id is a UI field, so identity is present by
@@ -125,7 +150,7 @@ class WhatsAppBusinessProvider:
         identity doesn't match what the API serves.
 
         Returns (ok, message, credential). The credential is the asdict
-        of ``WhatsAppBusinessCredential`` — the same shape the legacy
+        of ``WhatsAppBusinessCredential`` — the same shape the
         login() saved.
         """
         access_token = (credentials.get("access_token") or "").strip()
@@ -172,22 +197,22 @@ class WhatsAppBusinessProvider:
         )
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy WhatsApp Business actions stay in place
+        return []  # bridge provider — WhatsApp Business actions stay in place
 
     def guidance(self) -> str:
-        return ""  # bridge provider — the legacy action surface has its own docs
+        return ""  # bridge provider — the action surface has its own docs
 
     def make_listener(
         self,
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> Optional[LegacyListenerAdapter]:
-        """The Cloud API pushes inbound messages via webhooks; the legacy
+    ) -> Optional[ClientListenerAdapter]:
+        """The Cloud API pushes inbound messages via webhooks; the
         client has no listen loop (``supports_listening`` is the
         BasePlatformClient default False), so there is nothing to poll —
-        checked dynamically so a future legacy listen loop gets bridged
+        checked dynamically so a future listen loop gets bridged
         automatically."""
         if getattr(client, "supports_listening", False):
-            return LegacyListenerAdapter(client, emit)
+            return ClientListenerAdapter(client, emit)
         return None

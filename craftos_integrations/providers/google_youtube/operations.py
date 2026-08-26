@@ -1,10 +1,10 @@
-"""YouTube operations — ported from the legacy google_youtube_actions.py.
+"""YouTube operations — schemas for google_youtube_actions.py.
 
 NOTE: no operation declares an ``account`` input — the host adapter
 injects it on every generated action and the core resolves it centrally
 (conformance-enforced).
 
-Several legacy actions shape raw API resources into lean results unless
+Several actions shape raw API resources into lean results unless
 ``include_metadata`` is set; ``_lean_op`` reproduces that post-processing
 on top of ``client_op`` so ported operations return identical dicts.
 """
@@ -26,7 +26,7 @@ _INCLUDE_METADATA_SCHEMA = {
 
 def _lean_op(op: Operation, lean: Callable[[List[Any]], List[Any]]) -> Operation:
     """Wrap an Operation so a successful list result is reduced to its lean
-    shape unless the caller sets ``include_metadata`` (legacy behavior)."""
+    shape unless the caller sets ``include_metadata`` (client default)."""
     inner = op.fn
 
     async def fn(client: Any, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -353,7 +353,7 @@ def build_operations() -> List[Operation]:
             "post_youtube_comment",
             "post_comment",
             description="Post a top-level comment on a YouTube video.",
-            destructive=True,  # legacy irreversible=True — public, can't unsay
+            destructive=True,  # public, can't unsay
             parallelizable=False,
             tags=("google_youtube",),
             unwrap_envelope=True,

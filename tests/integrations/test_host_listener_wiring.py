@@ -4,19 +4,16 @@ Covers the three host-side pieces:
 
 1. ``CraftBotEventSink`` — enriches listener events with account
    context (``account`` key + ``(alias-or-identity)`` source suffix) and
-   forwards them to the same ``ConfigStore.on_message`` callback the
-   legacy manager uses.
-2. ``ExternalCommsManager(exclude_platforms=...)`` — the legacy manager
-   never starts listening on platforms owned by the ListenerManager
-   (start / start_platform / reload), while staying backward compatible.
-3. Browser-adapter initial-connect cut-over — ``connect_oauth`` for a multi-account
-   provider id routes through ``IntegrationSystem.add_account`` while
-   broadcasting the unchanged ``integration_connect_result`` shape;
-   legacy ids keep the legacy handler login.
+   forwards them to the host's ``ConfigStore.on_message`` callback.
+2. Listening coverage — every client that can listen has a provider, so
+   the ListenerManager owns all inbound events. A listen-capable client
+   without one would have nothing driving it.
+3. Browser-adapter initial connect — ``connect_oauth`` routes through
+   ``IntegrationSystem.add_account`` while broadcasting the
+   ``integration_connect_result`` shape the frontend expects. An id the
+   system does not know is an error, not a fallback.
 
 No pytest-asyncio in this repo — async paths are driven with asyncio.run.
-The ListenerManager itself is built by a parallel PR; the one test that
-needs the real module skips when it is not importable yet.
 """
 
 from __future__ import annotations
@@ -27,12 +24,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import pytest
 
 import app.integrations as integrations
-import app.ui_layer.adapters.browser_adapter as ba
 from app.integrations import CraftBotEventSink
 from app.ui_layer.adapters.browser_adapter import BrowserAdapter
 from craftos_integrations.config import ConfigStore
 from craftos_integrations.contracts import AccountInfo
-from craftos_integrations.manager import ExternalCommsManager
 
 
 def acct(identity: str, alias: Optional[str] = None) -> AccountInfo:
@@ -43,7 +38,7 @@ def acct(identity: str, alias: Optional[str] = None) -> AccountInfo:
 
 
 def event() -> Dict[str, Any]:
-    """The payload-dict shape ExternalCommsManager._handle_platform_message builds."""
+    """The payload-dict shape every listener emits."""
     return {
         "source": "Gmail",
         "integrationType": "gmail",
@@ -136,73 +131,39 @@ def test_sink_does_not_mutate_the_original_event(monkeypatch, captured):
     assert captured[0] is not original
 
 
-# ── legacy manager exclusion ─────────────────────────────────────────────
+# ── listening coverage ───────────────────────────────────────────────────
 
 
-class FakeClient:
-    def __init__(self, supports_listening=True, has_creds=True):
-        self.supports_listening = supports_listening
-        self._has_creds = has_creds
-        self.is_listening = False
-        self.start_calls = 0
+def test_every_listening_client_has_a_provider():
+    """No client may be left listening outside the ListenerManager.
 
-    def has_credentials(self) -> bool:
-        return self._has_creds
+    The ListenerManager drives listeners through providers. A listen-capable
+    client without one has nothing driving it, and its inbound messages
+    silently stop arriving. Add the provider alongside the client.
+    """
+    from craftos_integrations import autoload_integrations, get_all_clients
+    from craftos_integrations.providers import provider_ids
 
-    async def start_listening(self, callback) -> None:
-        self.start_calls += 1
-        self.is_listening = True
-
-    async def stop_listening(self) -> None:
-        self.is_listening = False
-
-
-@pytest.fixture
-def platforms(monkeypatch):
-    """Two listen-capable fake platforms wired into the manager module."""
-    clients = {"gmail": FakeClient(), "telegram": FakeClient()}
-    import craftos_integrations.manager as manager_mod
-
-    monkeypatch.setattr(manager_mod, "autoload_integrations", lambda: None)
-    monkeypatch.setattr(manager_mod, "get_all_clients", lambda: dict(clients))
-    monkeypatch.setattr(manager_mod, "get_client", clients.get)
-    monkeypatch.setattr(manager_mod, "invalidate_client", lambda pid: None)
-    return clients
+    autoload_integrations()
+    listening = {
+        pid
+        for pid, client in get_all_clients().items()
+        if getattr(client, "supports_listening", False)
+    }
+    uncovered = sorted(listening - set(provider_ids()))
+    assert not uncovered, (
+        f"legacy clients that can listen but have no v2 provider: {uncovered}"
+    )
 
 
-async def _noop_on_message(payload: Dict[str, Any]) -> None:
-    pass
+def test_provider_ids_cover_every_client():
+    """Ids are 1:1 across the registries — the assumption behind using a
+    provider id directly as a slash-command name and credential-file stem."""
+    from craftos_integrations import autoload_integrations, get_all_clients
+    from craftos_integrations.providers import provider_ids
 
-
-def test_start_skips_excluded_platforms(platforms):
-    mgr = ExternalCommsManager(_noop_on_message, exclude_platforms=["gmail"])
-    asyncio.run(mgr.start())
-    assert platforms["gmail"].start_calls == 0
-    assert platforms["telegram"].start_calls == 1
-    assert set(mgr.get_status()["channels"]) == {"telegram"}
-
-
-def test_start_platform_refuses_excluded(platforms):
-    mgr = ExternalCommsManager(_noop_on_message, exclude_platforms=["gmail"])
-    assert asyncio.run(mgr.start_platform("gmail")) is False
-    assert platforms["gmail"].start_calls == 0
-    assert asyncio.run(mgr.start_platform("telegram")) is True
-
-
-def test_reload_never_starts_excluded(platforms):
-    mgr = ExternalCommsManager(_noop_on_message, exclude_platforms=["gmail"])
-    asyncio.run(mgr.start())
-    result = asyncio.run(mgr.reload())
-    assert result["success"] is True
-    assert "gmail" not in result["started"]
-    assert platforms["gmail"].start_calls == 0
-
-
-def test_no_exclusion_is_backward_compatible(platforms):
-    mgr = ExternalCommsManager(_noop_on_message)
-    asyncio.run(mgr.start())
-    assert platforms["gmail"].start_calls == 1
-    assert platforms["telegram"].start_calls == 1
+    autoload_integrations()
+    assert not set(get_all_clients()) - set(provider_ids())
 
 
 # ── connect_oauth cut-over (browser adapter) ──────────────────────────
@@ -258,25 +219,13 @@ class FakeV2System:
 
 
 @pytest.fixture
-def v2_system(monkeypatch):
+def system(monkeypatch):
     fake = FakeV2System(known=("gmail",))
     monkeypatch.setattr(integrations, "get_system", lambda: fake)
     return fake
 
 
-@pytest.fixture
-def legacy_oauth(monkeypatch):
-    calls: List[str] = []
-
-    async def fake_connect(integration_id: str):
-        calls.append(integration_id)
-        return True, "legacy connected"
-
-    monkeypatch.setattr(ba, "connect_integration_oauth", fake_connect)
-    return calls
-
-
-def test_connect_oauth_routes_v2_through_add_account(v2_system, legacy_oauth):
+def test_connect_oauth_routes_v2_through_add_account(system):
     adapter, sent = make_adapter()
 
     async def scenario():
@@ -284,8 +233,7 @@ def test_connect_oauth_routes_v2_through_add_account(v2_system, legacy_oauth):
         await drain_tasks()
 
     asyncio.run(scenario())
-    assert v2_system.add_calls == ["gmail"]
-    assert legacy_oauth == []  # legacy login must not run for a multi-account id
+    assert system.add_calls == ["gmail"]
     (data,) = results_of(sent, "integration_connect_result")
     assert data == {"success": True, "message": "Connected a@x.com", "id": "gmail"}
     # success still refreshes the integration list, task registry is clean
@@ -293,9 +241,9 @@ def test_connect_oauth_routes_v2_through_add_account(v2_system, legacy_oauth):
     assert adapter._oauth_tasks == {}
 
 
-def test_connect_oauth_v2_failure_keeps_result_shape(v2_system, legacy_oauth):
+def test_connect_oauth_v2_failure_keeps_result_shape(system):
     adapter, sent = make_adapter()
-    v2_system.add_result = (False, "OAuth timed out")
+    system.add_result = (False, "OAuth timed out")
 
     async def scenario():
         await adapter._handle_integration_connect_oauth("gmail")
@@ -307,18 +255,23 @@ def test_connect_oauth_v2_failure_keeps_result_shape(v2_system, legacy_oauth):
     assert not results_of(sent, "integration_list")
 
 
-def test_connect_oauth_non_v2_uses_legacy_handler(v2_system, legacy_oauth):
+def test_connect_oauth_unknown_id_is_an_error(system):
+    """No legacy fallback left: an id the system does not know cannot connect."""
     adapter, sent = make_adapter()
 
     async def scenario():
-        await adapter._handle_integration_connect_oauth("jira")
+        await adapter._handle_integration_connect_oauth("nope")
         await drain_tasks()
 
     asyncio.run(scenario())
-    assert legacy_oauth == ["jira"]
-    assert v2_system.add_calls == []
+    assert system.add_calls == []
     (data,) = results_of(sent, "integration_connect_result")
-    assert data == {"success": True, "message": "legacy connected", "id": "jira"}
+    assert data == {
+        "success": False,
+        "message": "Unknown integration: nope",
+        "id": "nope",
+    }
+    assert not results_of(sent, "integration_list")
 
 
 # ── start_listeners wiring (needs the parallel PR's ListenerManager) ─────

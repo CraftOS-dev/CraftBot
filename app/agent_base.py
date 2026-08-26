@@ -62,7 +62,7 @@ from app.config import (
 )
 from craftos_integrations import (
     configure as _configure_integrations,
-    initialize_manager,
+    autoload_integrations,
 )
 
 from app.internal_action_interface import InternalActionInterface
@@ -3466,12 +3466,12 @@ class AgentBase:
     # =====================================
 
     async def _initialize_external_libraries(self) -> None:
-        """Configure craftos_integrations and start the external-comms manager.
+        """Configure craftos_integrations and start inbound listening.
 
-        Wires host config (project_root, OAuth env vars, agent name, OPENAI_API_KEY)
-        and boots the listener manager. ``initialize_manager()`` calls
-        ``autoload_integrations()`` internally during startup, so every integration's
-        @register_client / @register_handler decorators fire as a side-effect.
+        Wires host config (project_root, OAuth env vars, agent name,
+        OPENAI_API_KEY), installs the inbound-event callback, autoloads the
+        integration packages so their @register_client decorators fire, and
+        starts the ListenerManager.
         """
         try:
             from app.onboarding import onboarding_manager
@@ -3479,6 +3479,8 @@ class AgentBase:
             agent_name = onboarding_manager.state.agent_name or "CraftBot"
         except Exception:
             agent_name = "CraftBot"
+        from app import node_runtime as _node_runtime
+
         _configure_integrations(
             project_root=Path(PROJECT_ROOT),
             logger=logger,
@@ -3510,28 +3512,24 @@ class AgentBase:
             extras={
                 "agent_name": agent_name,
                 "openai_api_key": os.environ.get("OPENAI_API_KEY", ""),
+                # The WhatsApp bridge spawns a Node subprocess and needs the
+                # runtime this app resolved. Injected rather than imported —
+                # the integrations package must stay host-blind.
+                "node_runtime": _node_runtime,
             },
         )
-        # Every platform with a v2 provider (full port or auth-layer bridge)
-        # gets its listening from the ListenerManager's per-account fan-out;
-        # the legacy manager must not double-listen on any of them. Derived
-        # from the registry so newly bridged platforms are excluded
-        # automatically. Remaining legacy integrations keep legacy listening.
-        try:
-            from app.integrations import get_system
+        # Install the inbound-event callback BEFORE any listener starts:
+        # CraftBotEventSink drops every event when it is unset. This used to be
+        # a side effect of some other bootstrap step
+        # (docs/plans/legacy-integrations-removal-plan.md, B2).
+        from app.integrations import set_event_callback
 
-            v2_platform_ids = [p.id for p in get_system().providers()]
-        except Exception as e:
-            logger.warning(
-                f"[EXT LIBS] v2 registry unavailable, falling back to static "
-                f"listener exclusions: {e}"
-            )
-            v2_platform_ids = ["gmail", "outlook", "slack"]
-        self._external_comms = await initialize_manager(
-            on_message=self._handle_external_event,
-            exclude_platforms=v2_platform_ids,
-        )
-        logger.info("[EXT LIBS] External integrations configured + manager started")
+        set_event_callback(self._handle_external_event)
+
+        # Integration clients register on import; the ListenerManager below
+        # owns all inbound listening.
+        autoload_integrations()
+        logger.info("[EXT LIBS] External integrations configured")
 
         try:
             from app.integrations import start_listeners
@@ -3862,16 +3860,13 @@ class AgentBase:
             # Belt-and-braces for whatsapp sessions/link-flows not owned by a
             # listener (listen=False accounts, pending QR flows).
             try:
-                from craftos_integrations.integrations.whatsapp_web._session import (
+                from craftos_integrations.providers.whatsapp_web._session import (
                     get_session_manager,
                 )
 
                 await get_session_manager().shutdown_all()
             except Exception as e:
                 logger.warning(f"[SHUTDOWN] WhatsApp session shutdown failed: {e}")
-            # Stop external communications
-            if hasattr(self, "_external_comms"):
-                await self._external_comms.stop()
             # Flush remaining usage events
             if hasattr(self, "_usage_reporter"):
                 await self._usage_reporter.shutdown()

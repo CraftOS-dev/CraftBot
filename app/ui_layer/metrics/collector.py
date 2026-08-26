@@ -914,7 +914,7 @@ class MetricsCollector:
         """Get integration metrics."""
         try:
             # v2-merged list: connected state comes from the IntegrationSystem's
-            # AccountSets (the legacy status path reads credential files that
+            # AccountSets (the status path reads credential files that
             # v2 connects never write, so its counts were wrong).
             from app.data.action.integrations._helpers import (
                 list_integrations_merged,

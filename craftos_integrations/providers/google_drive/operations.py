@@ -1,8 +1,8 @@
-"""Google Drive operations — ported from the legacy google_drive_actions.py.
+"""Google Drive operations — schemas for google_drive_actions.py.
 
 NOTE: no operation declares an ``account`` input — the host adapter
 injects it on every generated action and the core resolves it centrally
-(conformance-enforced). The legacy ``from_email`` inputs on
+(conformance-enforced). The ``from_email`` inputs on
 find_drive_folder_by_name / resolve_drive_folder_path were dead
 account-hint keys (never forwarded to the client) and are dropped for the
 same reason.
@@ -1107,10 +1107,10 @@ def build_operations() -> List[Operation]:
 
 
 # ==================================================================
-# Intentionally NOT exposed as operations (carried over from legacy)
+# Intentionally NOT exposed as operations
 # ==================================================================
 # - Changes / watch endpoints (changes.list, changes.watch, channels.stop)
 #     Push notifications / incremental sync — server-side webhook plumbing,
 #     not per-interaction actions.
 # - generateIds, resumable upload, multipart upload, DriveAccess proposals
-#     Same reasoning as the legacy actions file: niche or org-admin-level.
+#     Same reasoning as the actions file: niche or org-admin-level.

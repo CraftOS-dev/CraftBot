@@ -100,10 +100,6 @@ from app.ui_layer.settings import (
     get_skill_template,
     remove_skill,
     # Integration settings
-    connect_integration_token,
-    connect_integration_oauth,
-    connect_integration_interactive,
-    disconnect_integration,
     # WhatsApp QR code flow
     start_whatsapp_qr_session,
     check_whatsapp_session_status,
@@ -4352,7 +4348,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
-            # Chats (id "sessions", plus the legacy "conversation" alias):
+            # Chats (id "sessions", plus the "conversation" alias):
             # clear transcripts, the action panel, and push the session list
             # so extra chats drop from the sidebar without a refresh.
             chats_reset = (
@@ -5738,7 +5734,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             has_active_subscription = False
             if new_provider:
                 try:
-                    from craftos_integrations.integrations.llm_oauth.tokens import (
+                    from craftos_integrations.llm_oauth.tokens import (
                         has_credential as _sub_has,
                     )
 
@@ -6875,8 +6871,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Get list of all integrations with status.
 
         Uses the v2-merged list: multi-account providers source ``connected``
-        and ``accounts`` from the IntegrationSystem (the legacy credential
-        file is never written by v2 connects, so the legacy status path
+        and ``accounts`` from the IntegrationSystem (the credential
+        file is never written, so the status path
         reports them as disconnected — issue seen with youtube/notion).
         """
         try:
@@ -6920,8 +6916,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     def _system_for(integration_id: str):
         """Return the IntegrationSystem when it knows this provider id.
 
-        Returns None for legacy integrations (or if bootstrap fails), so
-        callers fall back to the legacy path unchanged.
+        Returns None only for an unknown id or a failed bootstrap. Every
+        shipped integration has a provider, so None means the request cannot
+        be served — there is no legacy path to fall back to.
         """
         try:
             from app.integrations import get_system
@@ -6930,12 +6927,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if system.registry.get(integration_id) is not None:
                 return system
         except Exception as e:
-            # Loud on purpose: this degrade silently reroutes v2 providers to
-            # the LEGACY single-account UI (no Add account, status-parsed
-            # rows), which looks like a frontend bug. Never let it hide.
+            # Loud on purpose: with the control plane gone this is no
+            # longer a degrade to a lesser UI — it is a hard failure of every
+            # connect/disconnect/account operation. Never let it hide.
             logger.error(
                 f"[INTEGRATIONS] integration-system bootstrap/lookup failed for "
-                f"{integration_id}; degrading to legacy path: {e!r}"
+                f"{integration_id}; integration operations will fail: {e!r}"
             )
         return None
 
@@ -6989,12 +6986,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_integration_info(self, integration_id: str) -> None:
         """Get detailed info about an integration.
 
-        Metadata comes from the legacy handler (still the metadata source);
-        connection state and accounts come from the IntegrationSystem —
-        every integration is multi-account now, so the old
-        ``handler.status()`` text-scraping path is gone. A missing
-        top-level ``accounts`` key tells the frontend the account list
-        couldn't be loaded (it renders a reload hint, never fake rows).
+        Metadata comes from the provider registry; connection state and
+        accounts come from the IntegrationSystem — every integration is
+        multi-account now, so the old ``handler.status()`` text-scraping path
+        is gone. A missing top-level ``accounts`` key tells the frontend the
+        account list couldn't be loaded (it renders a reload hint, never fake
+        rows).
         """
         try:
             from craftos_integrations import get_metadata
@@ -7010,7 +7007,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         )
                 except Exception as e:
                     logger.error(
-                        f"[INTEGRATIONS] v2 accounts for {integration_id} "
+                        f"[INTEGRATIONS] accounts for {integration_id} "
                         f"unavailable, Manage modal shows reload hint: {e!r}"
                     )
                 info["connected"] = bool(managed_accounts)
@@ -7080,21 +7077,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Connect an integration using token/credentials.
 
         multi-account providers (notion/hubspot/slack manual tokens) validate the token
-        the same way the legacy handler login does, then store through the
-        IntegrationSystem — never the legacy single-account save. Legacy
-        integrations keep the legacy handler path unchanged.
+        the same way the handler login does, then store through the
+        IntegrationSystem — never the single-account save.
         """
         try:
-            v2_system = self._system_for(integration_id)
-            if v2_system is not None:
+            system = self._system_for(integration_id)
+            if system is None:
+                success, message = False, f"Unknown integration: {integration_id}"
+            else:
                 from app.data.action.integrations._helpers import system_connect_token
 
                 success, message = await asyncio.to_thread(
-                    system_connect_token, v2_system, integration_id, credentials
-                )
-            else:
-                success, message = await connect_integration_token(
-                    integration_id, credentials
+                    system_connect_token, system, integration_id, credentials
                 )
             await self._broadcast(
                 {
@@ -7106,7 +7100,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-            # Refresh the list on success (listener is started by connect_integration_token)
+            # Refresh the list on success (listeners reconcile on account change)
             if success:
                 self._notify_agent_integration_event(
                     f"User connected integration '{integration_id}' from the "
@@ -7139,18 +7133,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Execute OAuth flow and broadcast result (runs as background task).
 
         multi-account providers route through ``IntegrationSystem.add_account`` (the
-        multi-account OAuth flow); the broadcast keeps the legacy
+        multi-account OAuth flow); the broadcast keeps the
         ``integration_connect_result`` shape so the frontend needs no
-        changes. Legacy integrations keep the legacy handler login.
+        changes.
         """
         try:
-            v2_system = self._system_for(integration_id)
-            if v2_system is not None:
-                success, message, _accounts = await v2_system.add_account(
+            system = self._system_for(integration_id)
+            if system is None:
+                success, message = False, f"Unknown integration: {integration_id}"
+            else:
+                success, message, _accounts = await system.add_account(
                     integration_id
                 )
-            else:
-                success, message = await connect_integration_oauth(integration_id)
             await self._broadcast(
                 {
                     "type": "integration_connect_result",
@@ -7161,7 +7155,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-            # Refresh the list on success (listener is started by connect_integration_oauth)
+            # Refresh the list on success (listeners reconcile on account change)
             if success:
                 self._notify_agent_integration_event(
                     f"User connected integration '{integration_id}' from the "
@@ -7207,9 +7201,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._oauth_tasks[integration_id] = task
 
     async def _run_interactive_flow(self, integration_id: str) -> None:
-        """Execute interactive flow and broadcast result (runs as background task)."""
+        """Execute interactive flow and broadcast result (runs as background task).
+
+        WhatsApp's QR flow has its own message pair (``whatsapp_start_qr`` /
+        ``whatsapp_check_status``) that the settings page drives directly; this
+        path exists for any other integration declaring interactive auth, of
+        which there are currently none.
+        """
         try:
-            success, message = await connect_integration_interactive(integration_id)
+            if integration_id == "whatsapp_web":
+                result = await start_whatsapp_qr_session()
+                success = bool(result.get("success"))
+                message = result.get(
+                    "message", "Use the QR panel to finish connecting WhatsApp."
+                )
+            else:
+                success, message = (
+                    False,
+                    f"No interactive connect flow is implemented for {integration_id}.",
+                )
             await self._broadcast(
                 {
                     "type": "integration_connect_result",
@@ -7220,7 +7230,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-            # Refresh the list on success (listener is started by connect_integration_interactive)
+            # Refresh the list on success (listeners reconcile on account change)
             if success:
                 self._notify_agent_integration_event(
                     f"User connected integration '{integration_id}' from the "
@@ -7274,11 +7284,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         this handler return immediately.
 
         For providers known to the integrations system:
-        - with ``account_id``: remove just that account via the integration system
-          (no legacy call — legacy has no notion of a specific account).
-        - without ``account_id``: remove ALL accounts, then fall through
-          to the legacy disconnect so old cred/config files are cleaned too.
-        Legacy integrations take the legacy path unchanged.
+        - with ``account_id``: remove just that account via the integration
+          system.
+        - without ``account_id``: remove ALL accounts, then delete any stray
+          remaining account state.
         """
 
         async def _do_disconnect() -> None:
@@ -7336,8 +7345,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                 removed: list[str] = []
                 if system is not None:
-                    # Disconnect-all: drop every account, then fall through
-                    # to the legacy disconnect below for file cleanup.
+                    # Disconnect-all: drop every account.
                     # Platform teardown before each record removal — same
                     # ordering rationale as the targeted path above.
                     try:
@@ -7368,19 +7376,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             f"disconnect-all for {integration_id} failed: {e}"
                         )
 
-                success, message = await disconnect_integration(
-                    integration_id, account_id
-                )
-                # Removing the last account also deletes the legacy credential
-                # file, so the legacy logout above reports "no credentials
-                # found" — a legacy failure must never mask a successful
-                # account removal (mirrors _helpers.system_disconnect).
                 if removed:
                     success = True
                     message = (
                         f"Disconnected {integration_id}: removed "
                         f"{len(removed)} account(s) ({', '.join(removed)})"
                     )
+                else:
+                    success = False
+                    message = f"{integration_id} is not connected."
                 await self._broadcast(
                     {
                         "type": "integration_disconnect_result",
@@ -7421,7 +7425,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     ) -> None:
         """Add another account to a multi-account integration (real OAuth — the browser
         opens and the flow may take minutes). Runs as a background task so
-        the WS message loop stays responsive, mirroring the legacy OAuth
+        the WS message loop stays responsive, mirroring the OAuth
         connect handlers. Result is broadcast as
         ``integration_accounts_add_result``; the frontend correlates via
         ``requestId``.

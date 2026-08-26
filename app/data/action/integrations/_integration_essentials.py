@@ -12,8 +12,8 @@ Guidance sources, in order:
      providers (the file is already essentials-sized and includes the
      multi-account rules: extract account qualifiers like "my school
      calendar" into the ``account`` param).
-  2. ``craftos_integrations/integrations/<id>/INTEGRATION.md`` ``##
-     Essentials`` block, or ``<id>.md`` — legacy integrations.
+  2. ``craftos_integrations/providers/<id>/INTEGRATION.md`` ``##
+     Essentials`` block, or ``<id>.md``.
 
 Matching rules:
   - Keys match on WORD BOUNDARIES, not substrings — "drive" fires, but
@@ -38,7 +38,6 @@ from typing import Dict, List, Optional
 
 # Project root → craftos_integrations/{integrations,providers}/...
 _PACKAGE_ROOT = Path(__file__).resolve().parents[4] / "craftos_integrations"
-_INTEGRATIONS_ROOT = _PACKAGE_ROOT / "integrations"
 _PROVIDERS_ROOT = _PACKAGE_ROOT / "providers"
 
 # Tokens too generic to serve as bare keywords ("user" would fire on
@@ -50,20 +49,16 @@ _KEYWORD_INDEX: Optional[Dict[str, List[str]]] = None
 
 
 def _integration_ids() -> List[str]:
-    """Union of legacy integration ids and multi-account provider ids (fs scan — no
-    registry import, sidestepping the startup-ordering issue)."""
+    """Every provider id (fs scan — no registry import, sidestepping the
+    startup-ordering issue)."""
     ids: List[str] = []
-    for root in (_INTEGRATIONS_ROOT, _PROVIDERS_ROOT):
-        if not root.is_dir():
-            continue
-        for child in root.iterdir():
+    if _PROVIDERS_ROOT.is_dir():
+        for child in _PROVIDERS_ROOT.iterdir():
             name = child.name
             if name.startswith(("_", ".")) or name == "__pycache__":
                 continue
             if child.is_dir():
                 ids.append(name)
-            elif child.suffix == ".py":
-                ids.append(child.stem)
     # De-dup, shorter first → generic keys (e.g. "lark") land on the
     # simpler id via the setdefault below.
     return sorted(set(ids), key=len)
@@ -124,9 +119,9 @@ def _is_connected(integration_id: str) -> Optional[bool]:
     except Exception:
         pass
     try:
-        from craftos_integrations import service as legacy_service
+        from craftos_integrations import service as service
 
-        return bool(legacy_service.is_connected(integration_id))
+        return bool(service.is_connected(integration_id))
     except Exception:
         return None
 
@@ -172,18 +167,15 @@ def _connected_accounts_note(integration_id: str) -> str:
 
 def _extract_essentials(integration_id: str) -> Optional[str]:
     """Load guidance for one integration (provider GUIDANCE.md first)."""
-    v2_guidance = _PROVIDERS_ROOT / integration_id / "GUIDANCE.md"
-    if v2_guidance.is_file():
+    guidance_path = _PROVIDERS_ROOT / integration_id / "GUIDANCE.md"
+    if guidance_path.is_file():
         try:
-            text = v2_guidance.read_text(encoding="utf-8").strip()
+            text = guidance_path.read_text(encoding="utf-8").strip()
             if text:
                 return text
         except OSError:
             pass
-    candidates = [
-        _INTEGRATIONS_ROOT / integration_id / "INTEGRATION.md",
-        _INTEGRATIONS_ROOT / f"{integration_id}.md",
-    ]
+    candidates = [_PROVIDERS_ROOT / integration_id / "INTEGRATION.md"]
     for path in candidates:
         if not path.is_file():
             continue

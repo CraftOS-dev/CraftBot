@@ -15,7 +15,7 @@ below. Producers must set `event_type` explicitly on every `log()` call.
 
 Every transformed UI event carries the session id it came from — the second
 argument of `transform()` (the owning session's event-stream id; "main" for
-the main session). It is stored on `UIEvent.task_id` (a legacy field name;
+the main session). It is stored on `UIEvent.task_id` (a historical field name;
 see event_types.py).
 """
 

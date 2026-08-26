@@ -320,7 +320,7 @@ def get_model_settings() -> Dict[str, Any]:
         # settings page — keeps cold-start cheap.
         subscription_status: Dict[str, Any] = {}
         try:
-            from craftos_integrations.integrations.llm_oauth.tokens import (
+            from craftos_integrations.llm_oauth.tokens import (
                 status as _oauth_status,
             )
 
@@ -338,7 +338,7 @@ def get_model_settings() -> Dict[str, Any]:
         if endpoints_settings.get("byteplus_base_url"):
             base_urls["byteplus"] = endpoints_settings["byteplus_base_url"]
 
-        # Support both the legacy "remote_model_url" key and "remote" key
+        # Support both the "remote_model_url" key and "remote" key
         remote_url = endpoints_settings.get(
             "remote_model_url"
         ) or endpoints_settings.get("remote")
@@ -713,7 +713,7 @@ def validate_can_save(
         # whole settings page; just falls back to api-key-only validation.
         connected_subscriptions: set[str] = set()
         try:
-            from craftos_integrations.integrations.llm_oauth.tokens import (
+            from craftos_integrations.llm_oauth.tokens import (
                 has_credential,
             )
 

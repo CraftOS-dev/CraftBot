@@ -1,6 +1,6 @@
-"""Slack listener — the legacy channel poll loop re-homed onto a bound client.
+"""Slack listener — the channel poll loop bound to one account's client.
 
-The legacy ``SlackClient`` listens by *polling*, not Socket Mode: every
+The ``SlackClient`` listens by *polling*, not Socket Mode: every
 POLL_INTERVAL it walks the joined channels (``conversations.list``) and
 fetches ``conversations.history`` newer than each channel's last-seen
 ``ts`` watermark, dispatching human messages (bot/self/subtype messages
@@ -9,15 +9,15 @@ walking and message filtering (``_get_joined_channels`` /
 ``_poll_channels`` / ``_process_message``) is inherited by
 ``BoundSlackClient`` and reused unchanged here.
 
-What could NOT be reused is the outer loop: the legacy ``_poll_loop``
+What could NOT be reused is the outer loop: ``_poll_loop``
 unconditionally runs a "catch-up" that stamps every channel's watermark to
 *now* — correct for a fresh start (no backlog flood) but it would clobber
 a persisted cursor on restart and drop everything received while the host
 was down. So this class owns a small outer loop (same retry cadence as
-legacy) and chooses at start: cursor present → seed ``_last_timestamps``
-from it; no cursor → run the legacy catch-up. Channels joined later are
+no cursor) and chooses at start: cursor present → seed ``_last_timestamps``
+from it; no cursor → run the catch-up. Channels joined later are
 picked up by the inherited ``_poll_channels`` (it stamps unknown channels
-at now, same as legacy).
+at now).
 
 One listener = one workspace (the account identity is the team id); bot
 tokens don't expire, so there is no refresh plumbing.
@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, Optional
 
-from ...integrations.slack import POLL_INTERVAL, RETRY_DELAY, _slack_acall
+from .client import POLL_INTERVAL, RETRY_DELAY, _slack_acall
 from ...logger import get_logger
 from .._shared import EmitFn, emit_callback
 
@@ -45,7 +45,7 @@ class SlackListener:
         self._initial_cursor = dict(cursor) if cursor else None
         self._emit = emit
         self._task: Optional[asyncio.Task] = None
-        self.poll_interval: float = POLL_INTERVAL  # legacy cadence (3s)
+        self.poll_interval: float = POLL_INTERVAL  # poll cadence (3s)
 
     async def start(self) -> None:
         client = self._client
@@ -53,7 +53,7 @@ class SlackListener:
             return
         client._message_callback = emit_callback(self._emit)
 
-        # Same auth sanity check as the legacy start_listening: it both
+        # Same auth sanity check as the start_listening: it both
         # validates the bot token and captures the bot user id used to
         # filter the bot's own messages out of the stream.
         cred = client._load()
@@ -72,9 +72,9 @@ class SlackListener:
             # the watermarks is replayed).
             client._last_timestamps = {str(k): str(v) for k, v in saved.items()}
         else:
-            # Fresh start: legacy catch-up — stamp every joined channel at
+            # Fresh start: stamp every joined channel at
             # "now" so history is not flooded into the agent. Failures are
-            # tolerated exactly like the legacy loop tolerated them.
+            # tolerated exactly like the loop tolerated them.
             try:
                 await client._refresh_channel_timestamps()
             except Exception as e:
@@ -85,7 +85,7 @@ class SlackListener:
         self._task = asyncio.create_task(self._loop())
 
     async def _loop(self) -> None:
-        """Legacy ``_poll_loop`` minus the catch-up (handled in start())."""
+        """``_poll_loop`` minus the catch-up (handled in start())."""
         client = self._client
         while client._listening:
             try:

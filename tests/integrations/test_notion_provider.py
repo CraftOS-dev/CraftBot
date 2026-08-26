@@ -28,7 +28,7 @@ NOTION_CRED = {
     "bot_id": "Bot-99",
 }
 
-# Pre-multi-account notion.json shape — token only, no identity → LEGACY_IDENTITY.
+# Pre-multi-account notion.json shape — token only, no identity → UNIDENTIFIED.
 LEGACY_CRED = {"token": "secret_legacytoken"}
 
 
@@ -46,7 +46,7 @@ def test_identity_is_workspace_id_lowercased():
     assert provider.identity_of(NOTION_CRED) == "ws-1234-abcd"
     # bot id is the fallback when workspace id is missing
     assert provider.identity_of({"bot_id": "Bot-99"}) == "bot-99"
-    assert provider.identity_of(LEGACY_CRED) is None  # → LEGACY_IDENTITY in core
+    assert provider.identity_of(LEGACY_CRED) is None  # → UNIDENTIFIED in core
 
 
 def test_oauth_spec_is_the_native_workspace_picker():

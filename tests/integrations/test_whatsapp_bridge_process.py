@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
-import craftos_integrations.integrations.whatsapp_web._bridge_client as bc
+import craftos_integrations.providers.whatsapp_web._bridge_client as bc
 
 SCRIPT = Path(__file__).parent / "fake_wa_bridge.py"
 

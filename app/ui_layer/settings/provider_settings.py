@@ -210,7 +210,7 @@ async def connect_subscription_async(provider: str) -> Tuple[bool, str]:
     that the manual Save flow uses.
     """
     try:
-        from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens
+        from craftos_integrations.llm_oauth import tokens as _oauth_tokens
     except Exception as e:
         return False, f"Subscription OAuth backend unavailable: {e}"
     try:
@@ -229,7 +229,7 @@ def disconnect_subscription(provider: str) -> Tuple[bool, str]:
     Synchronous — disconnect is just a file delete, no OAuth dance required.
     """
     try:
-        from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens
+        from craftos_integrations.llm_oauth import tokens as _oauth_tokens
     except Exception as e:
         return False, f"Subscription OAuth backend unavailable: {e}"
     success, message = _oauth_tokens.disconnect(provider)
@@ -253,7 +253,7 @@ def connect_subscription(provider: str) -> Tuple[bool, str]:
 def get_subscription_status(provider: str) -> Dict[str, Any]:
     """UI-facing status: connected? which account? plan? expiry?"""
     try:
-        from craftos_integrations.integrations.llm_oauth.tokens import status
+        from craftos_integrations.llm_oauth.tokens import status
     except Exception:
         return {"supported": False, "connected": False}
     return status(provider)
@@ -267,7 +267,7 @@ async def prepare_subscription_async(provider: str) -> Tuple[bool, Dict[str, Any
     hermes-agent client family in some browser contexts).
     """
     try:
-        from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens
+        from craftos_integrations.llm_oauth import tokens as _oauth_tokens
     except Exception as e:
         return False, {"error": f"Subscription OAuth backend unavailable: {e}"}
     return await _oauth_tokens.prepare_connect(provider)
@@ -278,7 +278,7 @@ def complete_subscription(
 ) -> Tuple[bool, str]:
     """Finalize a paste-back attempt by exchanging the pasted code for tokens."""
     try:
-        from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens
+        from craftos_integrations.llm_oauth import tokens as _oauth_tokens
     except Exception as e:
         return False, f"Subscription OAuth backend unavailable: {e}"
     success, message = _oauth_tokens.complete_connect(provider, code, attempt_id)

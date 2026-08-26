@@ -3,7 +3,7 @@
 No network: getMe and the long-poll fetch are stubbed. What's real is
 the binding chain bind_credential → _load → _api_url, the identity
 extraction from the bot_id captured at verify time, and the legacy
-getUpdates loop running end-to-end through LegacyListenerAdapter with
+getUpdates loop running end-to-end through ClientListenerAdapter with
 per-instance offset state.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 
 import craftos_integrations.providers.telegram_bot.provider as telegram_mod
-from craftos_integrations.providers._shared import LegacyListenerAdapter
+from craftos_integrations.providers._shared import ClientListenerAdapter
 from craftos_integrations.providers.telegram_bot import TelegramBotProvider
 from craftos_integrations.providers.telegram_bot.provider import (
     BoundTelegramBotClient,
@@ -34,7 +34,7 @@ TELEGRAM_CRED = {
 }
 
 # Legacy telegram_bot.json shape — saved by the legacy handler, before
-# the bridge captured a bot_id → no identity → LEGACY_IDENTITY in core.
+# the bridge captured a bot_id → no identity → UNIDENTIFIED in core.
 LEGACY_CRED = {
     "bot_token": "123456789:AAFakeTokenFakeTokenFakeToken",
     "bot_username": "CraftBotHelperBot",
@@ -55,7 +55,7 @@ def test_identity_is_bot_id():
     assert provider.identity_of(TELEGRAM_CRED) == "123456789"
     assert provider.identity_of({"bot_id": "  42  "}) == "42"
     assert provider.identity_of({"bot_id": 987654321}) == "987654321"  # int tolerated
-    assert provider.identity_of(LEGACY_CRED) is None  # → LEGACY_IDENTITY in core
+    assert provider.identity_of(LEGACY_CRED) is None  # → UNIDENTIFIED in core
     assert provider.identity_of({"bot_id": ""}) is None
     assert provider.identity_of({"bot_id": "   "}) is None
     assert provider.identity_of({"bot_id": None}) is None
@@ -118,12 +118,12 @@ def test_make_listener_wraps_the_legacy_poll_loop():
         pass
 
     listener = provider.make_listener(client, None, emit)
-    assert isinstance(listener, LegacyListenerAdapter)
+    assert isinstance(listener, ClientListenerAdapter)
     assert client.supports_listening
 
 
 def test_listener_runs_legacy_poll_loop_per_instance(monkeypatch):
-    """End-to-end through LegacyListenerAdapter: catch-up drain advances
+    """End-to-end through ClientListenerAdapter: catch-up drain advances
     the offset without emitting; the next poll batch is emitted in the
     host payload shape. The offset watermark is per bound instance, so a
     second concurrently-bound bot account is unaffected."""
