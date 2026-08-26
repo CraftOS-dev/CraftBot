@@ -1,14 +1,14 @@
-"""Stripe provider — auth-layer bridge over the legacy ``StripeClient``.
+"""Stripe provider — account-bound wrapper over ``StripeClient``.
 
-Bridge port: the v2 provider handles accounts/credentials only —
+Bridge port: the provider handles accounts/credentials only —
 ``operations()`` returns [] and ``guidance()`` returns "" because the
-legacy Stripe action surface stays in place; account routing happens
-centrally. The binding mixin below replaces the legacy client's disk
+Stripe action surface stays in place; account routing happens
+centrally. The binding mixin below replaces the API client's disk
 credential plumbing with the injected per-account credential, exactly
 like ``SlackClientBinding``.
 
 Stripe is token-only (a Restricted/Secret API key per merchant account —
-no OAuth; see the legacy module's rationale for skipping Stripe Connect),
+no OAuth; see the client module's rationale for skipping Stripe Connect),
 so ``oauth_spec()`` raises NotImplementedError and there is no
 ``run_login``. Keys never expire → ``refresh()`` returns None.
 
@@ -23,21 +23,22 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.stripe import (
+from .client import (
     STRIPE_API,
     STRIPE_API_VERSION,
     StripeClient,
+    StripeConfig,
     StripeCredential,
     _classify_key,
 )
-from .._shared import LegacyListenerAdapter
+from .._shared import ClientListenerAdapter
 
 _CRED_FIELDS = {f.name for f in fields(StripeCredential)}
 
 
 class StripeClientBinding:
     """Overrides StripeClient's disk plumbing: credential is injected per
-    account. MRO puts this before the legacy client:
+    account. MRO puts this before the API client:
 
         class BoundStripeClient(StripeClientBinding, StripeClient): pass
 
@@ -74,6 +75,48 @@ class StripeProvider:
     id = "stripe"
     family = None  # standalone — no cross-provider alias sharing
     display_name = "Stripe"
+    # ----- UI metadata -----
+    description = "Payments, subscriptions, invoices, payouts"
+    icon = "stripe"
+    fields = [
+        {
+            "key": "api_key",
+            "label": "Stripe API Key (sk_live_… / sk_test_… / rk_live_… / rk_test_…)",
+            "placeholder": "rk_live_…",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "Open https://dashboard.stripe.com/apikeys",
+        "Recommended: 'Create restricted key' — scopes the key to only the resources the agent needs",
+        "Pick read+write for the resources you'll let the agent touch (Customers, PaymentIntents, Invoices, Subscriptions, etc.)",
+        "Or use a Standard secret key (sk_live_… / sk_test_…) for full account access",
+        "Copy the key (it's shown only once) and paste it below",
+    ]
+    config_class = StripeConfig
+    config_fields = [
+        {
+            "key": "default_currency",
+            "label": "Default currency",
+            "type": "text",
+            "placeholder": "usd",
+            "help": "ISO 4217 lowercase code used when create_* actions omit 'currency'. Stripe stores amounts as integers in the smallest currency unit (cents for USD).",
+        },
+        {
+            "key": "default_expand",
+            "label": "Default expand[] fields",
+            "type": "list",
+            "placeholder": "customer, latest_invoice",
+            "help": "Comma-separated field paths auto-added to expand[] on every retrieve/list. Useful when downstream actions chain off nested objects. Empty by default.",
+        },
+        {
+            "key": "require_idempotency_key",
+            "label": "Auto-attach Idempotency-Key on mutations",
+            "type": "checkbox",
+            "help": "When enabled, the client sends a UUID Idempotency-Key on every POST/DELETE so that an agent retry doesn't double-create resources.",
+        },
+    ]
+
     client_cls = BoundStripeClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
@@ -89,7 +132,7 @@ class StripeProvider:
         return None
 
     def oauth_spec(self) -> OAuthSpec:
-        # Deliberate: no Stripe Connect OAuth (see the legacy module's
+        # Deliberate: no Stripe Connect OAuth (see the client module's
         # platform-risk rationale). Each user brings their own API key.
         raise NotImplementedError("stripe is token-only")
 
@@ -108,10 +151,10 @@ class StripeProvider:
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification the legacy StripeHandler.login() runs: prefix
+        """Token verification: prefix
         check + ``GET /v1/account`` with the key (falling back to
         ``GET /v1/balance`` for restricted keys that can't read the
-        account). Expects the legacy handler's field key: ``api_key``.
+        account). Expects the connect flow's field key: ``api_key``.
 
         Returns (ok, message, credential). The credential is the asdict
         of ``StripeCredential`` — which carries ``account_id`` (the
@@ -171,7 +214,7 @@ class StripeProvider:
             if "error" in balance:
                 return False, f"Stripe auth failed: {balance['error']}", None
             # /balance succeeded — key is valid but has no account_id
-            # (identity_of returns None; core stores as legacy account).
+            # (identity_of returns None; the core stores it unidentified).
 
         credential = asdict(
             StripeCredential(
@@ -188,21 +231,21 @@ class StripeProvider:
         return True, f"Stripe connected: {label} ({mode}, {kind_label})", credential
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy Stripe actions stay in place
+        return []  # bridge provider — Stripe actions stay in place
 
     def guidance(self) -> str:
-        return ""  # bridge provider — the legacy action surface has its own docs
+        return ""  # bridge provider — the action surface has its own docs
 
     def make_listener(
         self,
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> Optional[LegacyListenerAdapter]:
-        """Stripe's legacy client is request-response only
+    ) -> Optional[ClientListenerAdapter]:
+        """Stripe's API client is request-response only
         (``supports_listening`` is the BasePlatformClient default False),
         so there is nothing to listen to — checked dynamically so a future
-        legacy listen loop gets bridged automatically."""
+        listen loop gets bridged automatically."""
         if getattr(client, "supports_listening", False):
-            return LegacyListenerAdapter(client, emit)
+            return ClientListenerAdapter(client, emit)
         return None

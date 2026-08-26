@@ -102,7 +102,7 @@ def _create_openai_client(
         @property
         def auth_headers(self) -> dict:
             try:
-                from craftos_integrations.integrations.llm_oauth.tokens import (
+                from craftos_integrations.llm_oauth.tokens import (
                     get_bearer,
                 )
 
@@ -179,7 +179,7 @@ def _get_oauth_bearer(provider: str):
     user sees "reconnect" rather than a silent fallback to the API key.
     """
     try:
-        from craftos_integrations.integrations.llm_oauth.tokens import get_bearer
+        from craftos_integrations.llm_oauth.tokens import get_bearer
 
         return get_bearer(provider)
     except RuntimeError:
@@ -310,7 +310,7 @@ class ModelFactory:
                 # colocated with the flow that authenticates against it.
                 # See ``llm_oauth.chatgpt.CODEX_ACCEPTED_MODELS`` for the
                 # source-of-truth list and the reasoning behind the fallback.
-                from craftos_integrations.integrations.llm_oauth.chatgpt import (
+                from craftos_integrations.llm_oauth.chatgpt import (
                     CODEX_ACCEPTED_MODELS,
                     effective_model_for_subscription,
                 )

@@ -6,9 +6,9 @@ from typing import List
 
 from app.ui_layer.commands.base import Command, CommandResult
 from craftos_integrations import (
-    get_all_handlers,
     is_connected,
-    parse_status_accounts,
+    list_all,
+    list_metadata,
 )
 
 
@@ -78,14 +78,14 @@ Examples:
     async def _list_credentials(self) -> CommandResult:
         """List all configured credentials.
 
-        multi-account provider ids read connection state (and accounts) from the
-        IntegrationSystem; everything else keeps the legacy check.
+        Connection state and accounts come from the IntegrationSystem; an
+        connected means it has at least one account.
         """
         from app.data.action.integrations._helpers import system_for
 
         lines = ["Configured credentials:", ""]
 
-        for name in get_all_handlers():
+        for name in list_all():
             system = system_for(name)
             if system is not None:
                 try:
@@ -112,52 +112,39 @@ Examples:
         """Show integration status with per-account info when connected.
 
         multi-account provider ids read connection state from the
-        IntegrationSystem (fresh v2 connects never write the legacy cred
-        file handler.status() checks); everything else keeps the legacy path.
+        IntegrationSystem (fresh v2 connects never write a legacy cred file),
+        which is the only credential store.
         """
         from app.data.action.integrations._helpers import system_for
 
         lines = ["Integration status:", ""]
 
         connected_count = 0
-        all_handlers = get_all_handlers()
+        all_meta = list_metadata()
 
-        for name, handler in all_handlers.items():
-            display = handler.display_name or name
+        for meta in all_meta:
+            name = meta["id"]
+            display = meta["name"]
             system = system_for(name)
+            accounts = []
             if system is not None:
                 try:
                     accounts = system.list_accounts(name)
                 except Exception:
                     accounts = []
-                if accounts:
-                    connected_count += 1
-                    label = ", ".join(a.alias or a.identity for a in accounts)
-                    lines.append(f"  [+] {display} ({label})")
-                else:
-                    lines.append(f"  [ ] {display}")
-                continue
-            try:
-                _, status_msg = await handler.status()
-                first = status_msg.split("\n", 1)[0]
-                connected = "Connected" in first and "Not connected" not in first
-                if connected:
-                    connected_count += 1
-                    accounts = parse_status_accounts(status_msg)
-                    if accounts:
-                        account_label = ", ".join(
-                            a.get("display") or a.get("id", "") for a in accounts
-                        )
-                        lines.append(f"  [+] {display} ({account_label})")
-                    else:
-                        lines.append(f"  [+] {display}")
-                else:
-                    lines.append(f"  [ ] {display}")
-            except Exception:
-                lines.append(f"  [?] {display}")
+            if accounts:
+                connected_count += 1
+                label = ", ".join(a.alias or a.identity for a in accounts)
+                lines.append(f"  [+] {display} ({label})")
+            elif is_connected(name):
+                # Legacy credential file not yet migrated into an AccountSet.
+                connected_count += 1
+                lines.append(f"  [+] {display}")
+            else:
+                lines.append(f"  [ ] {display}")
 
         lines.append("")
-        lines.append(f"{connected_count}/{len(all_handlers)} integrations connected")
+        lines.append(f"{connected_count}/{len(all_meta)} integrations connected")
         lines.append("")
         lines.append("Use /<integration> to manage a specific integration.")
 
@@ -167,11 +154,10 @@ Examples:
         """List available integrations."""
         lines = ["Available integrations:", ""]
 
-        for name, handler in get_all_handlers().items():
-            display = handler.display_name or name
-            description = handler.description
+        for meta in list_metadata():
+            description = meta["description"]
             suffix = f" — {description}" if description else ""
-            lines.append(f"  /{name}  ({display}){suffix}")
+            lines.append(f"  /{meta['id']}  ({meta['name']}){suffix}")
 
         lines.append("")
         lines.append("Use /<integration> to see commands for that integration.")

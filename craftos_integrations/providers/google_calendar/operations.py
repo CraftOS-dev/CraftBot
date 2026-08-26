@@ -4,7 +4,7 @@ NOTE: no operation declares an ``account`` input — the host adapter
 injects it on every generated action and the core resolves it centrally
 (conformance-enforced).
 
-The legacy actions post-process results (``pick_result`` key reduction on
+The actions post-process results (``pick_result`` key reduction on
 writes, lean-event reduction on reads); ``_with_post`` reproduces that on
 top of the declarative ``client_op`` so ported operations return dicts
 identical to what agents already expect.
@@ -22,7 +22,7 @@ from ...contracts import Operation
 from .._shared import STATUS_OUTPUT, client_op, shape_result
 
 # The id + key fields writes return (agents fetch the full object with the
-# matching get_* operation) — mirrors the legacy pick_result key list.
+# matching get_* operation) — mirrors the pick_result key list.
 KEY_EVENT_FIELDS = ("id", "summary", "start", "end", "htmlLink", "hangoutLink", "status")
 
 
@@ -60,7 +60,7 @@ def _lean_event(ev: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _pick_result(res: Dict[str, Any], keys: Sequence[str]) -> Dict[str, Any]:
-    """Reduce a successful result to the named top-level keys (legacy
+    """Reduce a successful result to the named top-level keys (client
     pick_result: non-dict results, errors, and missing keys pass through)."""
     if res.get("status") == "success" and isinstance(res.get("result"), dict):
         r = res["result"]

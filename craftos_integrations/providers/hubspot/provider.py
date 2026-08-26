@@ -1,26 +1,26 @@
 """HubSpot provider — first non-Google provider with rotating tokens.
 
 Follows the Slack non-Google binding pattern (reuse the battle-tested
-legacy ``HubSpotClient`` API surface, override only its credential
+``HubSpotClient`` API surface, override only its credential
 plumbing) plus the Google refresh pattern: HubSpot OAuth access tokens
-expire (~30 min), so the binding reimplements the legacy client's
+expire (~30 min), so the binding reimplements the API client's
 ``_refresh_access_token`` but persists the rotated credential through
 the core via ``self._persist(...)`` — never to ``spec.cred_file``,
 which is single-account and would cross-wire secondaries.
 
-The legacy ``_get_valid_access_token`` (lazy expiry check on every
+The ``_get_valid_access_token`` (lazy expiry check on every
 request) is inherited unchanged: it calls ``self._load()`` and
 ``self._refresh_access_token()``, both of which the binding overrides,
 so per-request refresh flows through the account plumbing automatically.
 Private App tokens (``auth_kind == "token"``) never expire and skip the
-refresh path entirely, exactly as in the legacy client.
+refresh path entirely, exactly as in the API client.
 
 One account = one HubSpot **hub** (portal); identity is the hub id from
 the credential (stringified, lowercased). OAuth parameters are
-referenced from the legacy handler's ``OAuthFlow`` so the provider spec can
+referenced from ``OAuthFlow`` so the provider spec can
 never drift from it.
 
-multi-account plan decision — dropped legacy quirk: the old handler's ``logout``
+multi-account plan decision — dropped quirk: the old ``logout``
 also called ``manager.stop_platform(...)``, so the LAST logout stopped
 the whole integration platform. That special case is deliberately NOT
 ported; the last disconnect is now a plain disconnect, uniform across
@@ -37,12 +37,13 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from ...config import ConfigStore
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.hubspot import (
+from .client import (
     HUBSPOT_API,
     HUBSPOT_SCOPES,
     HubSpotClient,
+    HubSpotConfig,
     HubSpotCredential,
-    HubSpotHandler,
+    HUBSPOT_OAUTH,
 )
 from ...logger import get_logger
 from .._shared import read_guidance
@@ -56,7 +57,7 @@ _CRED_FIELDS = {f.name for f in fields(HubSpotCredential)}
 class HubSpotClientBinding:
     """Overrides HubSpotClient's disk plumbing: credential is injected per
     account, token refresh persists through the core. MRO puts this before
-    the legacy client:
+    the API client:
 
         class BoundHubSpotClient(HubSpotClientBinding, HubSpotClient): pass
     """
@@ -83,7 +84,7 @@ class HubSpotClientBinding:
     def _refresh_access_token(self) -> Optional[str]:
         """Swap the refresh_token for a fresh access_token + expiry.
 
-        Legacy logic verbatim (same endpoint, same params, same rotate-or-
+        Same endpoint, same params, same rotate-or-
         keep refresh_token handling, same 60s early-refresh margin) except
         for persistence: the mutated credential goes through
         ``self._persist(...)`` so the core routes it to the right account
@@ -148,12 +149,62 @@ class BoundHubSpotClient(HubSpotClientBinding, HubSpotClient):
 class HubSpotProvider:
     id = "hubspot"
     display_name = "HubSpot"
+    # ----- UI metadata -----
+    description = "CRM, marketing, sales, and service hub"
+    auth_type = "both"
+    icon = "hubspot"
+    fields = [
+        {
+            "key": "access_token",
+            "label": "Private App Access Token",
+            "placeholder": "pat-na1-...",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "OAuth (recommended): click 'Connect via CraftOS' — opens HubSpot to authorize",
+        "Token path: open app.hubspot.com → Settings → Integrations → Private Apps",
+        "Click 'Create a private app', name it (e.g. 'CraftBot')",
+        "Open the 'Scopes' tab and check the scopes the agent needs (CRM read/write at minimum)",
+        "Open the 'Auth' tab, copy the access token (starts with 'pat-')",
+    ]
+    subcommands = [
+        "invite",
+        "login",
+        "logout",
+        "status",
+    ]
+    config_class = HubSpotConfig
+    config_fields = [
+        {
+            "key": "default_pipeline_id",
+            "label": "Default deal pipeline",
+            "type": "text",
+            "placeholder": "default",
+            "help": "Deal pipeline ID used when create_hubspot_deal omits 'pipeline'. Leave empty to fall back to HubSpot's default pipeline.",
+        },
+        {
+            "key": "default_owner_id",
+            "label": "Default owner",
+            "type": "text",
+            "placeholder": "12345678",
+            "help": "Owner ID auto-assigned to new contacts / deals / tasks when the action omits the owner. Use list_hubspot_owners to find IDs.",
+        },
+        {
+            "key": "watch_object_types",
+            "label": "Watched object types",
+            "type": "list",
+            "placeholder": "contact,deal,ticket",
+            "help": "Object types the listener polls for changes. Comma-separated. Leave empty to disable polling.",
+        },
+    ]
+
     family = None  # standalone — no cross-provider alias sharing
     client_cls = BoundHubSpotClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
         """Hub (portal) id as a lowercase string. None for credentials saved
-        before the hub id was captured (pre-multi-account Private App token logins)."""
+        before the hub id was captured (single-account Private App token logins)."""
         hub_id = credential.get("hub_id")
         if hub_id is None or isinstance(hub_id, (dict, list)):
             return None
@@ -162,8 +213,8 @@ class HubSpotProvider:
 
     def oauth_spec(self) -> OAuthSpec:
         return OAuthSpec(
-            authorize_url=HubSpotHandler.oauth.auth_url,
-            token_url=HubSpotHandler.oauth.token_url,
+            authorize_url=HUBSPOT_OAUTH.auth_url,
+            token_url=HUBSPOT_OAUTH.token_url,
             scopes=tuple(s for s in HUBSPOT_SCOPES.split() if s),
             # HubSpot's authorize page always shows its own account/hub
             # chooser (pick which portal to grant access to) — no extra
@@ -190,8 +241,8 @@ class HubSpotProvider:
         return holder or None if token else None
 
     async def run_login(self) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
-        """Full add-account flow via the legacy handler's OAuthFlow — the
-        machinery behind the legacy ``invite()`` subcommand, including the
+        """Full add-account flow via the connect flow's OAuthFlow — the
+        machinery behind the ``invite`` flow, including the
         access-token introspection call that captures hub_id/hub_domain/
         user email (HubSpot has no OAuthFlow userinfo endpoint). The
         Private-App-token ``login()`` path is host UI territory and is
@@ -204,12 +255,12 @@ class HubSpotProvider:
 
         Returns (identity, credential, message). Identity is computed by
         ``identity_of`` (hub id). One deliberate deviation from the
-        legacy ``invite()``: a failed introspection no longer fails the
+        the old ``invite`` flow: a failed introspection no longer fails the
         whole login — the token itself is valid, so the credential is
         returned with identity None and the core stores it under
-        LEGACY_IDENTITY, upgrading in place on the next re-auth.
+        UNIDENTIFIED, upgrading in place on the next re-auth.
         """
-        oauth = copy.copy(HubSpotHandler.oauth)
+        oauth = copy.copy(HUBSPOT_OAUTH)
         oauth.extra_auth_params = dict(self.oauth_spec().extra_authorize_params)
         result = await oauth.run()
         if "error" in result and not result.get("access_token"):
@@ -219,7 +270,7 @@ class HubSpotProvider:
         expires_in = result.get("expires_in", 0) or 0
 
         # Hub metadata from the introspection endpoint (same call as the
-        # legacy invite()).
+        # the invite flow).
         info = http_request(
             "GET",
             f"{HUBSPOT_API}/oauth/v1/access-tokens/{access_token}",
@@ -250,7 +301,7 @@ class HubSpotProvider:
         message = f"HubSpot connected via OAuth: {label}"
         if not identity:
             message += (
-                " (no hub id captured — stored as the legacy account until "
+                " (no hub id captured — stored without an account identity until "
                 "the next re-auth)"
             )
         return identity, credential, message

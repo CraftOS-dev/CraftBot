@@ -109,20 +109,16 @@ class IntegrationBridge:
         if not project_id:
             return web.json_response({"error": "Unauthorized"}, status=401)
 
-        from craftos_integrations import get_registered_platforms, get_client
+        from craftos_integrations import get_registered_platforms
         from app.data.action.integrations._helpers import system_for
 
         integrations = []
         for platform_id in get_registered_platforms():
             system = system_for(platform_id)
-            if system is not None:
-                try:
-                    connected = bool(system.list_accounts(platform_id))
-                except Exception:
-                    connected = False
-            else:
-                client = get_client(platform_id)
-                connected = client.has_credentials() if client else False
+            try:
+                connected = bool(system and system.list_accounts(platform_id))
+            except Exception:
+                connected = False
             integrations.append(
                 {
                     "id": platform_id,
@@ -802,13 +798,7 @@ class IntegrationBridge:
                 # Not connected / bad account hint (AccountResolutionError)
                 # or build failure.
                 return None
-
-        from craftos_integrations import get_client
-
-        client = get_client(platform_id)
-        if not client or not client.has_credentials():
-            return None
-        return client
+        return None
 
     def _get_auth_headers(
         self, platform_id: str, account: Optional[str] = None

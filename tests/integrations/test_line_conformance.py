@@ -31,7 +31,7 @@ LINE_CRED = {
     "bot_display_name": "CraftBot",
 }
 
-# Pre-identity-capture shape — token only, no bot user id → LEGACY_IDENTITY.
+# Pre-identity-capture shape — token only, no bot user id → UNIDENTIFIED.
 LEGACY_CRED = {"channel_access_token": "test-old-token"}
 
 
@@ -47,7 +47,7 @@ class TestLineConformance(ProviderConformance):
 def test_identity_is_bot_user_id_lowercased():
     provider = LineProvider()
     assert provider.identity_of(LINE_CRED) == "ub1234abcdef9876"
-    assert provider.identity_of(LEGACY_CRED) is None  # → LEGACY_IDENTITY in core
+    assert provider.identity_of(LEGACY_CRED) is None  # → UNIDENTIFIED in core
     # junk shapes never raise
     assert provider.identity_of({"bot_user_id": "   "}) is None
     assert provider.identity_of({"bot_user_id": 123}) is None

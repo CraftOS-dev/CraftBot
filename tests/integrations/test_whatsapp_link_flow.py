@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-import craftos_integrations.integrations.whatsapp_web._bridge_client as bc
-import craftos_integrations.integrations.whatsapp_web._session as sess
+import craftos_integrations.providers.whatsapp_web._bridge_client as bc
+import craftos_integrations.providers.whatsapp_web._session as sess
 
 
 class FlowFakeBridge:

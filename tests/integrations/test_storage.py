@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import stat
 
@@ -55,37 +54,6 @@ def test_written_files_are_owner_only(store, tmp_path):
     assert mode == (stat.S_IRUSR | stat.S_IWUSR)
 
 
-def test_load_legacy_reads_bare_file_and_never_mutates_it(store, tmp_path):
-    legacy = {"email": "a@x.com", "access_token": "tok"}
-    (tmp_path / "gmail.json").write_text(json.dumps(legacy), encoding="utf-8")
-    assert store.load_legacy("gmail") == legacy
-    assert json.loads((tmp_path / "gmail.json").read_text()) == legacy
-
-
-def test_load_legacy_corrupt_is_skipped_and_left_alone(store, tmp_path):
-    (tmp_path / "gmail.json").write_text("garbage", encoding="utf-8")
-    assert store.load_legacy("gmail") is None
-    assert (tmp_path / "gmail.json").read_text() == "garbage"
-
-
-def test_legacy_filename_override(tmp_path):
-    store = storage_mod.FileCredentialStore(
-        root=tmp_path, legacy_filenames={"gmail": "google_gmail.json"}
-    )
-    (tmp_path / "google_gmail.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
-    assert store.load_legacy("gmail") == {"a": 1}
-
-
 def test_delete_missing_is_noop(store):
     store.delete("gmail")  # no raise
     assert store.load("gmail") is None
-
-
-def test_delete_legacy_removes_file_and_is_noop_when_absent(tmp_path):
-    store = storage_mod.FileCredentialStore(
-        root=tmp_path, legacy_filenames={"gmail": "google_gmail.json"}
-    )
-    (tmp_path / "google_gmail.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
-    store.delete_legacy("gmail")  # honors the filename override
-    assert not (tmp_path / "google_gmail.json").exists()
-    store.delete_legacy("gmail")  # no raise on second call

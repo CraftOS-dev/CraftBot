@@ -16,7 +16,7 @@ from ..contracts import (
     AccountInfo,
     CredentialStore,
     EventSink,
-    LEGACY_IDENTITY,
+    UNIDENTIFIED,
     OAuthTransport,
     Operation,
     Provider,
@@ -91,64 +91,9 @@ class IntegrationSystem:
         )
         if operation is None:
             raise LookupError(f"{provider_id} has no operation '{op_name}'")
-        self._migrate_legacy(provider)
         identity = self.accounts.resolve(provider_id, account)
         client = self._client_for(provider, identity)
         return await operation.fn(client, input_data)
-
-    def _migrate_legacy(self, provider: Provider) -> None:
-        """One-time upgrade migration for pre-multi-account installs (≤ V1.4.2).
-
-        A legacy single-account credential file with NO AccountSet document is
-        imported as the provider's first account, under a
-        provider-derived identity (the LEGACY sentinel when the credential
-        predates identity capture — upgraded in place on the next re-auth).
-        Once an AccountSet document exists the legacy file is never consulted again;
-        removing the last account deletes BOTH files (see
-        ``remove_account``), so a disconnect can never resurrect through
-        this path.
-        """
-        store = self._store
-        if not hasattr(store, "load_legacy"):
-            return
-        pid = provider.id
-        try:
-            if hasattr(store, "has_document"):
-                if store.has_document(pid):
-                    return
-            elif store.load(pid) is not None:
-                return
-            credential = store.load_legacy(pid)
-            if not credential:
-                return
-            identity = provider.identity_of(credential) or LEGACY_IDENTITY
-            stored = self.accounts.upsert_account(pid, identity, credential)
-            self.registry.invalidate(pid, stored)
-            logger.info(
-                f"[INTEGRATIONS] migrated legacy {pid} credential to account '{stored}'"
-            )
-        except Exception as e:
-            logger.warning(f"[INTEGRATIONS] legacy migration for {pid} failed: {e}")
-
-    def _delete_legacy_if_disconnected(self, provider_id: str) -> None:
-        """After a removal that may have deleted the AccountSet document (last
-        account gone), delete the legacy credential file too — otherwise
-        the one-time upgrade migration would re-import it on the next load
-        and resurrect the just-disconnected account. Best-effort."""
-        store = self._store
-        if not hasattr(store, "delete_legacy"):
-            return
-        try:
-            if hasattr(store, "has_document"):
-                if store.has_document(provider_id):
-                    return
-            elif store.load(provider_id) is not None:
-                return
-            store.delete_legacy(provider_id)
-        except Exception as e:
-            logger.warning(
-                f"[INTEGRATIONS] legacy cleanup for {provider_id} failed: {e}"
-            )
 
     def _client_for(self, provider: Provider, identity: str) -> Any:
         cached = self.registry.get_cached_client(provider.id, identity)
@@ -198,9 +143,6 @@ class IntegrationSystem:
     # ── account management (drives any settings UI) ──────────────────────
 
     def list_accounts(self, provider_id: str) -> List[AccountInfo]:
-        provider = self.registry.get(provider_id)
-        if provider is not None:
-            self._migrate_legacy(provider)
         self.accounts.sync_family_aliases(provider_id)
         return self.accounts.list_accounts(provider_id)
 
@@ -221,7 +163,7 @@ class IntegrationSystem:
 
         A provider without ``run_login`` (token-entry-only integrations)
         raises LookupError — hosts surface that as "connect via settings".
-        An identity-less success is still stored (under LEGACY_IDENTITY,
+        An identity-less success is still stored (under UNIDENTIFIED,
         upgraded in place on the next re-auth)."""
         provider = self._require_provider(provider_id)
         run_login = getattr(provider, "run_login", None)
@@ -232,7 +174,7 @@ class IntegrationSystem:
         identity, credential, message = await run_login()
         if not credential:
             return False, message, self.list_accounts(provider_id)
-        self.store_credential(provider_id, identity or LEGACY_IDENTITY, credential)
+        self.store_credential(provider_id, identity or UNIDENTIFIED, credential)
         accounts = self.list_accounts(provider_id)
         self.reconcile_listeners()
         return True, message, accounts
@@ -250,7 +192,6 @@ class IntegrationSystem:
     def remove_account(self, provider_id: str, hint: Optional[str]) -> str:
         identity = self.accounts.remove_account(provider_id, hint)
         self.registry.invalidate(provider_id, identity)
-        self._delete_legacy_if_disconnected(provider_id)
         self.reconcile_listeners()
         return identity
 
@@ -264,7 +205,6 @@ class IntegrationSystem:
             self.registry.invalidate(pid)
         # A batch may disconnect the last account — same resurrection
         # hazard as remove_account.
-        self._delete_legacy_if_disconnected(provider_id)
         self.reconcile_listeners()
         return result
 

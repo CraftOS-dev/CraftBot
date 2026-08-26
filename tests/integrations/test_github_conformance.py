@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import asyncio
 
-from craftos_integrations.integrations.github import GitHubClient
-from craftos_integrations.providers._shared import LegacyListenerAdapter
+from craftos_integrations.providers.github.client import GitHubClient
+from craftos_integrations.providers._shared import ClientListenerAdapter
 from craftos_integrations.providers.github import GitHubProvider
 from craftos_integrations.providers.github.provider import BoundGitHubClient
 
@@ -27,7 +27,7 @@ GITHUB_CRED = {
     "username": "OctoCat",  # mixed case: identity must lowercase it
 }
 
-# Token saved before the username was captured — no identity → LEGACY_IDENTITY.
+# Token saved before the username was captured — no identity → UNIDENTIFIED.
 LEGACY_CRED = {"access_token": "ghp_abc123", "username": ""}
 
 
@@ -44,7 +44,7 @@ def test_identity_is_username_lowercased():
     provider = GitHubProvider()
     assert provider.identity_of(GITHUB_CRED) == "octocat"
     assert provider.identity_of({"username": "  Hubber  "}) == "hubber"
-    assert provider.identity_of(LEGACY_CRED) is None  # → LEGACY_IDENTITY in core
+    assert provider.identity_of(LEGACY_CRED) is None  # → UNIDENTIFIED in core
     assert provider.identity_of({"username": 42}) is None  # junk never raises
 
 
@@ -90,7 +90,7 @@ def test_make_listener_wraps_the_legacy_poll_loop():
         pass
 
     listener = provider.make_listener(client, None, emit)
-    assert isinstance(listener, LegacyListenerAdapter)
+    assert isinstance(listener, ClientListenerAdapter)
     assert client.supports_listening
 
 

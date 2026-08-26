@@ -1,6 +1,6 @@
-"""Notion provider — multi-account wrapper over the legacy ``NotionClient``.
+"""Notion provider — multi-account wrapper over ``NotionClient``.
 
-API surface comes from the legacy client (all Notion REST methods live
+API surface comes from the API client (all Notion REST methods live
 there, unchanged); the binding below only replaces its disk credential
 plumbing with the injected per-account credential.
 
@@ -15,23 +15,23 @@ import copy
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
-from ...integrations.notion import NotionClient, NotionCredential, NotionHandler
-from .._google import read_guidance
+from .client import NotionClient, NotionCredential, NOTION_OAUTH
+from .._shared import read_guidance
 from .operations import build_operations
 
-# Real endpoints from the legacy NotionHandler.oauth flow.
+# Real endpoints from the NOTION_OAUTH flow.
 NOTION_AUTH_URL = "https://api.notion.com/v1/oauth/authorize"
 NOTION_TOKEN_URL = "https://api.notion.com/v1/oauth/token"
 
 # Notion's authorize page includes a native workspace picker, so
-# has_chooser=True; ``owner=user`` mirrors the legacy OAuthFlow params.
+# has_chooser=True; ``owner=user`` mirrors the OAuthFlow params.
 NOTION_AUTH_PARAMS = {"owner": "user"}
 
 
 class NotionClientBinding:
     """Overrides NotionClient's disk plumbing: credential is injected per
     account; there is no token refresh (Notion tokens don't expire). MRO
-    puts this before the legacy client:
+    puts this before the API client:
 
         class BoundNotionClient(NotionClientBinding, NotionClient): pass
     """
@@ -65,12 +65,36 @@ class NotionProvider:
     id = "notion"
     family = None
     display_name = "Notion"
+    # ----- UI metadata -----
+    description = "Notes and databases"
+    auth_type = "both"
+    icon = "notion"
+    fields = [
+        {
+            "key": "token",
+            "label": "Integration Token",
+            "placeholder": "secret_...",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "Open notion.so/my-integrations",
+        "Click 'New integration', give it a name and pick the workspace",
+        "Copy the 'Internal Integration Token' (starts with secret_)",
+        "In Notion, share each page/database you want CraftBot to access with the integration",
+    ]
+    subcommands = [
+        "invite",
+        "login",
+        "logout",
+        "status",
+    ]
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
         """Workspace id (falling back to bot id) from the OAuth response.
 
         Old token-only shapes ({"token": "secret_..."}) carry neither —
-        return None so the core stores them under LEGACY_IDENTITY and
+        return None so the core stores them under UNIDENTIFIED and
         upgrades in place on the next re-auth.
         """
         for key in ("workspace_id", "bot_id"):
@@ -101,30 +125,30 @@ class NotionProvider:
         return None  # Notion integration tokens do not expire
 
     async def run_login(self) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
-        """Full add-account flow via the legacy handler's OAuthFlow — the
-        machinery behind the legacy ``invite()`` subcommand (Basic-auth
+        """Full add-account flow via the connect flow's OAuthFlow — the
+        machinery behind the ``invite`` flow (Basic-auth
         JSON token exchange, no userinfo endpoint; workspace metadata
         arrives in the token response itself). The manual token-entry
         ``login()`` path is host UI territory and is not ported here.
 
         A *copy* of the shared flow gets the provider spec's
-        ``extra_authorize_params`` (``owner=user``, same as legacy)
+        ``extra_authorize_params`` (``owner=user``)
         applied — the shared handler instance is never mutated.
 
         Returns (identity, credential, message). Identity is computed by
         ``identity_of`` (workspace id, falling back to bot id). When the
         token response carries neither, the credential is returned with
-        identity None — the core stores it under LEGACY_IDENTITY and
+        identity None — the core stores it under UNIDENTIFIED and
         upgrades it in place on the next re-auth.
         """
-        oauth = copy.copy(NotionHandler.oauth)
+        oauth = copy.copy(NOTION_OAUTH)
         oauth.extra_auth_params = dict(self.oauth_spec().extra_authorize_params)
         result = await oauth.run()
         if "error" in result and not result.get("access_token"):
             return None, None, f"Notion OAuth failed: {result['error']}"
         raw = result.get("raw") or {}
         credential = {
-            # build_client accepts "token" (the legacy key) or "access_token".
+            # build_client accepts "token" (the key) or "access_token".
             "token": result.get("access_token", ""),
             "workspace_id": raw.get("workspace_id") or "",
             "bot_id": raw.get("bot_id") or "",
@@ -135,7 +159,7 @@ class NotionProvider:
         message = f"Notion connected via CraftOS integration: {ws_name}"
         if not identity:
             message += (
-                " (no workspace id returned — stored as the legacy account "
+                " (no workspace id returned — stored without an account identity "
                 "until the next re-auth)"
             )
         return identity, credential, message

@@ -1,21 +1,21 @@
-"""Slack operations — ported from the legacy slack_actions.py schemas.
+"""Slack operations — schemas for slack_actions.py.
 
 Complete port of app/data/action/integrations/slack/slack_actions.py —
 all 60 actions, same names/descriptions/schemas/arg mapping. No operation
 declares an ``account`` input (conformance-enforced; the host injects it).
 
 Porting notes:
-- Legacy ``irreversible=True`` (send_slack_message, send_slack_ephemeral)
+- ``irreversible=True`` (send_slack_message, send_slack_ephemeral)
   → ``destructive=True``; permanent deletes/removes are also flagged
   destructive per the conformance rule (delete/remove-named operations).
-- Legacy actions used ``run_client``'s default envelope handling; the
+- Actions used ``run_client``'s default envelope handling; the
   Slack client returns either the raw Slack body (with ``ok`` alongside
   payload fields — collapsed by ``shape_result``) or ``{error, details}``
-  — so ``client_op`` defaults match legacy behavior exactly.
+  — so ``client_op`` defaults match the client's behaviour exactly.
 - ``pick_result`` / lean-shaping post-processing is reproduced verbatim
   via fn-wrapping (same pattern as gmail's lean operations).
 
-The legacy file's "intentionally NOT exposed" list carries over
+The "intentionally NOT exposed" list carries over
 unchanged: Events API/RTM/Socket Mode plumbing, views.*/interactions.*,
 canvases/lists, admin.*/scim, dnd.*, deprecated surfaces (stars,
 dialog.*, chat.unfurl) were never actions and stay out.
@@ -33,7 +33,7 @@ _STATUS = {"status": {"type": "string", "example": "success"}}
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Post-processing helpers (legacy pick_result / lean shaping, verbatim)
+# Post-processing helpers (pick_result / lean shaping)
 # ────────────────────────────────────────────────────────────────────────
 
 
@@ -51,7 +51,7 @@ def _with_post(
 
 
 def _pick(keys: List[str]):
-    """Legacy ``pick_result``: reduce a successful result to named keys."""
+    """``pick_result``: reduce a successful result to named keys."""
 
     def post(res: Dict[str, Any], _input: Dict[str, Any]) -> Dict[str, Any]:
         if res.get("status") == "success" and isinstance(res.get("result"), dict):
@@ -239,7 +239,7 @@ def build_operations() -> List[Operation]:
                     "Send a message to a Slack channel or DM. Pass thread_ts "
                     "to reply in a thread."
                 ),
-                destructive=True,  # legacy irreversible — outward-facing send
+                destructive=True,  # outward-facing send
                 parallelizable=False,
                 tags=("slack_messages", "slack"),
                 input_schema={
@@ -350,7 +350,7 @@ def build_operations() -> List[Operation]:
                     "Send an ephemeral message visible only to one user in a "
                     "channel."
                 ),
-                destructive=True,  # legacy irreversible — outward-facing send
+                destructive=True,  # outward-facing send
                 parallelizable=False,
                 tags=("slack_messages", "slack"),
                 input_schema={

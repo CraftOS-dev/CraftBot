@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import re
 import os as _os
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -384,7 +385,29 @@ class MemoryManager:
                 "conda install -c conda-forge sentence-transformers"
             ) from e
 
-        return SentenceTransformerEmbeddingFunction(model_name=MEMORY_EMBEDDING_MODEL)
+        try:
+            return SentenceTransformerEmbeddingFunction(
+                model_name=MEMORY_EMBEDDING_MODEL
+            )
+        except (OSError, ImportError) as e:
+            # The constructor imports sentence-transformers → transformers →
+            # torch; a native-DLL failure (Windows without the VC++
+            # Redistributable: WinError 126 on torch_python.dll; Linux
+            # without libgomp) lands here as a 40-line torch traceback.
+            # Still fatal by design (thresholds are calibrated to this
+            # model) — but say what to do.
+            fix = (
+                "install the Visual C++ Redistributable "
+                "(https://aka.ms/vs/17/release/vc_redist.x64.exe)"
+                if sys.platform == "win32"
+                else "install libgomp1/libstdc++6 (apt-get install -y libgomp1 libstdc++6)"
+            )
+            raise RuntimeError(
+                f"[MEMORY] The embedding stack for '{MEMORY_EMBEDDING_MODEL}' is "
+                f"installed but cannot load: {e}. Usual fix: {fix}, or re-run "
+                "`python install.py` (it checks this). Escape hatch: "
+                "MEMORY_EMBEDDING_MODEL=default (lower retrieval quality)."
+            ) from e
 
     # ───────────────────────────── Public API ─────────────────────────────
 

@@ -1,11 +1,11 @@
-"""Gmail listener — the legacy poll loop re-homed onto a bound client.
+"""Gmail listener — poll loop bound to one account's client.
 
-The loop machinery is NOT rewritten: ``BoundGmailClient`` inherits the legacy
+The loop machinery is NOT rewritten: ``BoundGmailClient`` inherits the client's
 ``GmailClient``'s ``_poll_loop`` / ``_check_history`` /
 ``_fetch_and_dispatch`` (history.list on INBOX every POLL_INTERVAL,
 404-expired-historyId recovery, seen-id dedup, self-message filtering)
 unchanged. This class replaces only the two things that were host-global
-in the legacy design:
+in the design:
 
 * callback plumbing — ``_message_callback`` is a shim converting each
   ``PlatformMessage`` into the host event payload and awaiting the
@@ -15,7 +15,7 @@ in the legacy design:
   ``_seen_message_ids`` so a restart resumes where it left off (catching
   mail that arrived while the host was down) without re-emitting events.
 
-Config gating: the legacy ``GmailConfig.process_incoming`` toggle needs no
+Config gating: the ``GmailConfig.process_incoming`` toggle needs no
 porting — the inherited ``_fetch_and_dispatch`` re-reads
 ``gmail_config.json`` on every dispatch and drops incoming mail when the
 toggle is off, so it keeps working exactly as before for the integration listeners.
@@ -30,14 +30,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, Optional
 
-from ...integrations.gmail import POLL_INTERVAL
+from .client import POLL_INTERVAL
 from ...logger import get_logger
 from .._shared import EmitFn, emit_callback
 
 logger = get_logger(__name__)
 
 # How many recently-seen message ids survive into the cursor. Matches the
-# legacy in-memory trim floor (sets over 500 were cut back to 200).
+# in-memory trim floor (sets over 500 were cut back to 200).
 CURSOR_SEEN_IDS = 200
 
 
@@ -50,7 +50,7 @@ class GmailListener:
         self._client = client
         self._initial_cursor = dict(cursor) if cursor else None
         self._emit = emit
-        self.poll_interval: float = POLL_INTERVAL  # legacy cadence (5s)
+        self.poll_interval: float = POLL_INTERVAL  # poll cadence (5s)
 
     async def start(self) -> None:
         client = self._client
@@ -68,7 +68,7 @@ class GmailListener:
             client._seen_message_ids = set(saved.get("seen_ids") or [])
         else:
             # Fresh start: baseline at the live profile, exactly like the
-            # legacy start_listening — no historical backfill.
+            # start_listening — no historical backfill.
             try:
                 profile = await client._async_get_profile()
             except Exception as e:
@@ -84,7 +84,7 @@ class GmailListener:
         client._poll_task = asyncio.create_task(client._poll_loop())
 
     async def stop(self) -> None:
-        # Legacy stop_listening already does exactly what we need:
+        # The client's stop_listening already does exactly what we need:
         # flag off, cancel the poll task, await it.
         await self._client.stop_listening()
 

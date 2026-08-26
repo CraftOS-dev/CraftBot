@@ -7,6 +7,7 @@ import { Component, useEffect, type ReactNode } from 'react';
 import { getPbClient } from '../pb/client.ts';
 import { ThemeBridge } from '../theme/bridge.ts';
 import { ConsoleRelay } from './console-relay.ts';
+import { CoverageRelay } from './coverage-relay.ts';
 import { Toaster, toast } from './toast.tsx';
 
 interface BoundaryProps {
@@ -54,13 +55,16 @@ export function Shell({ children }: { children: ReactNode }): React.JSX.Element 
   useEffect(() => {
     const bridge = new ThemeBridge();
     const relay = new ConsoleRelay();
+    const coverage = new CoverageRelay();
     bridge.start();
     relay.start();
+    coverage.start();
     const offError = getPbClient().onError((err) => {
       toast.error(err.status === 0 ? 'Network error — is the backend running?' : err.message);
     });
     return () => {
       offError();
+      coverage.stop();
       relay.stop();
       bridge.stop();
     };

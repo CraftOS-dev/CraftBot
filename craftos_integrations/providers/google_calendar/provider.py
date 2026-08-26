@@ -1,6 +1,6 @@
-"""Google Calendar provider — multi-account port of the legacy calendar integration.
+"""Google Calendar provider — multi-account provider for calendar integration.
 
-API surface comes from the legacy ``GoogleCalendarClient`` (all Calendar
+API surface comes from ``GoogleCalendarClient`` (all Calendar
 REST methods live there and are unchanged); this class only rebinds its
 credential plumbing to the injected per-account credential.
 """
@@ -10,9 +10,10 @@ from __future__ import annotations
 from typing import List
 
 from ...contracts import Operation
-from ...integrations._google_common import CALENDAR_SCOPES
-from ...integrations.google_calendar import GoogleCalendarClient
-from .._google import GoogleProviderBase, GoogleClientBinding, read_guidance
+from .._google_common import CALENDAR_SCOPES
+from .client import GoogleCalendarClient
+from .._google import GoogleProviderBase, GoogleClientBinding
+from .._shared import read_guidance
 from .operations import build_operations
 
 
@@ -23,6 +24,11 @@ class BoundGoogleCalendarClient(GoogleClientBinding, GoogleCalendarClient):
 class GoogleCalendarProvider(GoogleProviderBase):
     id = "google_calendar"
     display_name = "Google Calendar"
+    # ----- UI metadata -----
+    description = "Calendar events, availability, and Meet links"
+    auth_type = "oauth"
+    icon = "google_calendar"
+
     scopes = CALENDAR_SCOPES
     client_cls = BoundGoogleCalendarClient
 

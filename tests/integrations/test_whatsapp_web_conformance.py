@@ -17,19 +17,17 @@ from pathlib import Path
 
 import pytest
 
-import craftos_integrations.integrations.whatsapp_web as wa_mod
-import craftos_integrations.integrations.whatsapp_web._bridge_client as bc
-from craftos_integrations.integrations.whatsapp_web import (
+import craftos_integrations.providers.whatsapp_web._bridge_client as bc
+from craftos_integrations.providers.whatsapp_web.client import (
     WhatsAppWebCredential,
-    cancel_qr_session,
     check_qr_session_status,
     start_qr_session,
 )
-from craftos_integrations.integrations.whatsapp_web._bridge_client import (
+from craftos_integrations.providers.whatsapp_web._bridge_client import (
     BridgeCapacityError,
     normalize_wa_identity,
 )
-from craftos_integrations.providers._shared import LegacyListenerAdapter
+from craftos_integrations.providers._shared import ClientListenerAdapter
 from craftos_integrations.providers.whatsapp_web import (
     WhatsAppWebProvider,
     teardown_account,
@@ -56,7 +54,7 @@ WA_CRED = {
 
 # Legacy whatsapp_web.json shape — saved by the pre-multi-account flow.
 # owner_phone still resolves an identity (migration lands on the right
-# account, not LEGACY_IDENTITY).
+# account, not UNIDENTIFIED).
 LEGACY_WA_CRED = {
     "session_id": "bridge",
     "owner_phone": "14155552671",
@@ -362,7 +360,7 @@ def _legacy_json(tmp_root: Path) -> Path:
 
 
 def _flows():
-    from craftos_integrations.integrations.whatsapp_web._session import (
+    from craftos_integrations.providers.whatsapp_web._session import (
         get_session_manager,
     )
 
@@ -385,7 +383,7 @@ def test_start_qr_session_uses_real_uuid_ids(fake_bridges):
         assert b1 is not b2 and b1.auth_dir != b2.auth_dir
         for sid in (first["session_id"], second["session_id"]):
             await check_qr_session_status(sid)  # poll shape sanity
-            from craftos_integrations.integrations.whatsapp_web._session import (
+            from craftos_integrations.providers.whatsapp_web._session import (
                 get_session_manager,
             )
 
@@ -499,7 +497,7 @@ def test_check_unknown_session(fake_bridges):
 
 def test_cancel_qr_session_cleans_pending_bridge_and_temp_dir(fake_bridges):
     async def scenario():
-        from craftos_integrations.integrations.whatsapp_web._session import (
+        from craftos_integrations.providers.whatsapp_web._session import (
             get_session_manager,
         )
 
@@ -615,5 +613,5 @@ def test_make_listener_wraps_the_legacy_bridge_loop(bridge_env):
         pass
 
     listener = provider.make_listener(client, None, emit)
-    assert isinstance(listener, LegacyListenerAdapter)
+    assert isinstance(listener, ClientListenerAdapter)
     assert client.supports_listening

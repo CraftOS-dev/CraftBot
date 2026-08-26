@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import pytest
 
 import app.integrations as integrations
-import app.ui_layer.adapters.browser_adapter as ba
 from app.ui_layer.adapters.browser_adapter import BrowserAdapter
 from craftos_integrations.contracts import AccountInfo, AccountResolutionError
 
@@ -406,26 +405,8 @@ def test_accounts_add_exception_keeps_real_accounts_when_available(system):
 # ── integration_disconnect: system routing + legacy fallthrough ──────────────
 
 
-def _patch_legacy_disconnect(
-    monkeypatch,
-    calls,
-    # Production reality: by the time the legacy disconnect runs, removing the
-    # last v2 account already deleted the legacy credential file, so legacy
-    # logout reports "no credentials found". Success must come from the
-    # account removal, not this tuple.
-    result=(False, "No credentials found."),
-):
-    async def fake_disconnect(integration_id, account_id=None):
-        calls.append((integration_id, account_id))
-        return result
-
-    monkeypatch.setattr(ba, "disconnect_integration", fake_disconnect)
-
-
-def test_disconnect_targeted_v2_skips_legacy(system, monkeypatch):
+def test_disconnect_targeted_removes_only_that_account(system):
     adapter, sent = make_adapter()
-    legacy_calls: List[Tuple[str, Optional[str]]] = []
-    _patch_legacy_disconnect(monkeypatch, legacy_calls)
 
     async def scenario():
         await adapter._handle_integration_disconnect("gmail", "school", "req-d1")
@@ -433,7 +414,6 @@ def test_disconnect_targeted_v2_skips_legacy(system, monkeypatch):
 
     asyncio.run(scenario())
     assert system.removed == [("gmail", "b@y.com")]
-    assert legacy_calls == []  # targeted removal never touches legacy
     (data,) = results_of(sent, "integration_disconnect_result")
     assert data["success"] is True
     assert data["requestId"] == "req-d1"
@@ -441,10 +421,8 @@ def test_disconnect_targeted_v2_skips_legacy(system, monkeypatch):
     assert results_of(sent, "integration_list")
 
 
-def test_disconnect_targeted_v2_unknown_account(system, monkeypatch):
+def test_disconnect_targeted_unknown_account(system):
     adapter, sent = make_adapter()
-    legacy_calls: List[Tuple[str, Optional[str]]] = []
-    _patch_legacy_disconnect(monkeypatch, legacy_calls)
 
     async def scenario():
         await adapter._handle_integration_disconnect("gmail", "ghost", "req-d2")
@@ -454,41 +432,34 @@ def test_disconnect_targeted_v2_unknown_account(system, monkeypatch):
     (data,) = results_of(sent, "integration_disconnect_result")
     assert data["success"] is False
     assert "ghost" in data["message"]
-    assert legacy_calls == []
     assert not results_of(sent, "integration_list")
 
 
-def test_disconnect_all_v2_falls_through_to_legacy(system, monkeypatch):
+def test_disconnect_all_removes_every_account(system):
     adapter, sent = make_adapter()
-    legacy_calls: List[Tuple[str, Optional[str]]] = []
-    _patch_legacy_disconnect(monkeypatch, legacy_calls)
 
     async def scenario():
         await adapter._handle_integration_disconnect("gmail", None, "req-d3")
         await drain_tasks()
 
     asyncio.run(scenario())
-    # every account removed, then legacy cleanup ran once
     assert system.removed == [("gmail", "a@x.com"), ("gmail", "b@y.com")]
-    assert legacy_calls == [("gmail", None)]
     (data,) = results_of(sent, "integration_disconnect_result")
     assert data["success"] is True
     assert data["requestId"] == "req-d3"
 
 
-def test_disconnect_non_v2_unchanged(system, monkeypatch):
+def test_disconnect_unknown_integration_reports_not_connected(system):
+    """Every integration is system-managed, so an id the system does not know
+    cannot be disconnected — there is no second path to try."""
     adapter, sent = make_adapter()
-    legacy_calls: List[Tuple[str, Optional[str]]] = []
-    # Non-v2 path: the legacy credential file still exists, so logout succeeds.
-    _patch_legacy_disconnect(monkeypatch, legacy_calls, result=(True, "Disconnected"))
 
     async def scenario():
-        await adapter._handle_integration_disconnect("jira", "acct-1", "req-d4")
+        await adapter._handle_integration_disconnect("jira", None, "req-d4")
         await drain_tasks()
 
     asyncio.run(scenario())
     assert system.removed == []
-    assert legacy_calls == [("jira", "acct-1")]
     (data,) = results_of(sent, "integration_disconnect_result")
-    assert data["success"] is True
+    assert data["success"] is False
     assert data["requestId"] == "req-d4"

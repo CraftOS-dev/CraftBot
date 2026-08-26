@@ -1,4 +1,4 @@
-"""Outlook operations — ported from the legacy outlook_actions.py schemas.
+"""Outlook operations — schemas for outlook_actions.py.
 
 NOTE: no operation declares an ``account`` input — the host adapter
 injects it on every generated action and the core resolves it centrally
@@ -7,8 +7,8 @@ injects it on every generated action and the core resolves it centrally
 Complete port of app/data/action/integrations/outlook/outlook_actions.py
 (all 40 actions). Names, descriptions, schemas, arg maps, envelope
 options, and the lean/include_metadata result shaping are reproduced
-verbatim; legacy ``irreversible`` sends plus permanent deletes map to
-``destructive=True``. The legacy file's intentionally-unexposed Graph
+verbatim; ``irreversible`` sends plus permanent deletes map to
+``destructive=True``. The intentionally-unexposed Graph
 surfaces (webhooks, >3 MB upload sessions, extensions, calendar,
 delta sync, delegation) stay unexposed here for the same reasons.
 """
@@ -32,12 +32,12 @@ def _csv_list(text: Optional[str], default: Any = _UNSET) -> Any:
 
 
 def _forward_outlook_email_op() -> Operation:
-    """forward_outlook_email with the legacy empty-recipient guard."""
+    """forward_outlook_email with the empty-recipient guard."""
     base = client_op(
         "forward_outlook_email",
         "forward_message",
         description="Forward an email to other recipients.",
-        destructive=True,  # outward-facing send (legacy irreversible)
+        destructive=True,  # outward-facing send
         parallelizable=False,
         tags=("outlook_mail", "outlook"),
         unwrap_envelope=True,
@@ -76,7 +76,7 @@ def _forward_outlook_email_op() -> Operation:
 
 
 def _get_outlook_mailbox_settings_op() -> Operation:
-    """get_outlook_mailbox_settings with the legacy lean shaping."""
+    """get_outlook_mailbox_settings with the lean shaping."""
     base = client_op(
         "get_outlook_mailbox_settings",
         "get_mailbox_settings",
@@ -125,7 +125,7 @@ def _get_outlook_mailbox_settings_op() -> Operation:
 
 
 def _get_outlook_automatic_replies_op() -> Operation:
-    """get_outlook_automatic_replies with the legacy lean/HTML-strip shaping."""
+    """get_outlook_automatic_replies with the lean/HTML-strip shaping."""
     base = client_op(
         "get_outlook_automatic_replies",
         "get_automatic_replies",
@@ -189,7 +189,7 @@ def _get_outlook_automatic_replies_op() -> Operation:
 
 
 def _update_draft_args(d: Dict[str, Any]) -> Dict[str, Any]:
-    """Legacy presence-based semantics: only keys present in the request
+    """Presence-based semantics: only keys present in the request
     replace draft fields; absent keys pass None (client skips them)."""
     return {
         "message_id": d["message_id"],
@@ -224,7 +224,7 @@ def build_operations() -> List[Operation]:
             "send_outlook_email",
             "send_email",
             description="Send an email via Outlook (Microsoft 365).",
-            destructive=True,  # outward-facing send (legacy irreversible)
+            destructive=True,  # outward-facing send
             parallelizable=False,
             tags=("outlook_mail", "outlook"),
             unwrap_envelope=True,
@@ -378,7 +378,7 @@ def build_operations() -> List[Operation]:
             "reply_outlook_email",
             "reply_to_message",
             description="Reply to the sender of an email. Sent immediately.",
-            destructive=True,  # outward-facing send (legacy irreversible)
+            destructive=True,  # outward-facing send
             parallelizable=False,
             tags=("outlook_mail", "outlook"),
             unwrap_envelope=True,
@@ -412,7 +412,7 @@ def build_operations() -> List[Operation]:
             "reply_all_outlook_email",
             "reply_all_to_message",
             description="Reply-all to an email. Sent immediately.",
-            destructive=True,  # outward-facing send (legacy irreversible)
+            destructive=True,  # outward-facing send
             parallelizable=False,
             tags=("outlook_mail", "outlook"),
             unwrap_envelope=True,
@@ -593,7 +593,7 @@ def build_operations() -> List[Operation]:
             "send_outlook_draft",
             "send_draft",
             description="Send a previously-created draft.",
-            destructive=True,  # outward-facing send (legacy irreversible)
+            destructive=True,  # outward-facing send
             parallelizable=False,
             tags=("outlook_mail", "outlook"),
             unwrap_envelope=True,

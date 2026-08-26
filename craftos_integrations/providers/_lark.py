@@ -1,13 +1,13 @@
 """Lark family provider base — shared by lark / lark_calendar / lark_drive.
 
-Auth-layer bridge port (wave 2) of the legacy Lark integrations. Like the
+Auth-layer bridge port (wave 2) of the Lark integrations. Like the
 Google family (``_google.py``), the three Lark services are sibling
 provider ids that share one conceptual account — a Lark Custom App
 (App ID + App Secret) — so ``family = "lark"`` lets the core sync aliases
 across siblings (``core/accounts.py sync_family_aliases``).
 
 Bridge pattern (see stripe/github providers for the wave-1 rationale):
-``operations()`` is empty and ``guidance()`` blank — the legacy Lark
+``operations()`` is empty and ``guidance()`` blank — the Lark
 action surface stays in place; only the credential plumbing is replaced.
 
 Token-only: a Lark Custom App has no per-user OAuth here (auth is the
@@ -15,12 +15,12 @@ app's own tenant_access_token minted from App ID + Secret), so
 ``oauth_spec()`` raises NotImplementedError and there is no ``run_login``.
 
 Tenant-token refresh — the one disk write the binding must intercept:
-the legacy clients cache a ~2h ``tenant_access_token`` in the credential
+the clients cache a ~2h ``tenant_access_token`` in the credential
 and refresh it via ``_lark_common.ensure_token``, which writes the
 refreshed credential back to the single-account ``lark*.json`` file
 (cross-wiring secondaries). The binding's ``_load()`` pre-refreshes the
 bound credential through ``persist`` whenever the token is within
-``_REFRESH_MARGIN`` seconds of expiry, so every legacy ``ensure_token``
+``_REFRESH_MARGIN`` seconds of expiry, so every ``ensure_token``
 call site (``make_headers`` plus lark_drive's direct upload/download
 calls) sees a fresh token, takes its cache-hit branch, and its
 ``save_credential`` is never reached.
@@ -33,9 +33,9 @@ from dataclasses import asdict, fields
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ..contracts import OAuthSpec, Operation
-from ..integrations._lark_common import LarkCredential, validate_and_mint_token
+from ._lark_common import LarkCredential, validate_and_mint_token
 from ..logger import get_logger
-from ._shared import LegacyListenerAdapter
+from ._shared import ClientListenerAdapter
 
 logger = get_logger(__name__)
 
@@ -44,21 +44,21 @@ LARK_FAMILY = "lark"
 _CRED_FIELDS = {f.name for f in fields(LarkCredential)}
 
 # The binding refreshes when within this many seconds of expiry. MUST stay
-# wider than the legacy ``ensure_token``'s 60s threshold: when the bound
-# credential reaches a legacy call site, the legacy freshness check
-# ``token_expires_at > now + 60`` must hold, so the legacy save branch
+# wider than ``ensure_token``'s 60s threshold: when the bound
+# credential reaches a call site, the freshness check
+# ``token_expires_at > now + 60`` must hold, so that save branch
 # (which writes the single-account credential file) is never entered.
 _REFRESH_MARGIN = 120.0
 
 
 class LarkClientBinding:
-    """Overrides a legacy Lark client's disk plumbing: credential is
+    """Overrides the Lark client's disk plumbing: credential is
     injected per account, tenant-token refresh persists through the core.
-    MRO puts this before the legacy client:
+    MRO puts this before the API client:
 
         class BoundLarkClient(LarkClientBinding, LarkClient): pass
 
-    Works unchanged for all three legacy clients (lark / lark_calendar /
+    Works unchanged for all three clients (lark / lark_calendar /
     lark_drive) because they share ``LarkCredential`` and the same
     ``has_credentials``/``_load``/``_headers`` plumbing shape.
     """
@@ -79,8 +79,8 @@ class LarkClientBinding:
 
     def _load(self) -> LarkCredential:
         """Bound credential, guaranteed token-fresh (see module docstring:
-        pre-refreshing here is what keeps the legacy ``ensure_token`` from
-        ever writing the legacy credential file)."""
+        pre-refreshing here is what keeps ``ensure_token`` from
+        ever writing the credential file)."""
         if self._cred is None:
             raise RuntimeError("client used before bind_credential()")
         self._refresh_token_if_needed(self._cred)
@@ -95,7 +95,7 @@ class LarkClientBinding:
             raise RuntimeError(f"Lark token refresh failed: {err}")
         cred.tenant_access_token = token or ""
         cred.token_expires_at = expires_at
-        # In-memory + core persist ONLY — never the legacy lark*.json file.
+        # In-memory + core persist ONLY — never the lark*.json file.
         self._persist(asdict(cred))
 
 
@@ -152,7 +152,7 @@ class LarkProviderBase:
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification every legacy Lark handler's login() runs:
+        """Token verification for every Lark service:
         mint a tenant_access_token from App ID + Secret via
         ``validate_and_mint_token``. Same field keys as the handlers'
         ``fields``: ``app_id`` + ``app_secret`` — identity (app_id) is in
@@ -183,10 +183,10 @@ class LarkProviderBase:
         return True, f"{self.display_name} connected: {app_id}", credential
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy Lark actions stay in place
+        return []  # bridge provider — Lark actions stay in place
 
     def guidance(self) -> str:
-        return ""  # bridge provider — the legacy action surface has its own docs
+        return ""  # bridge provider — the action surface has its own docs
 
     # Whether this sibling's platform has an inbound listen loop — a static
     # property of the platform, not of a client instance (the lark
@@ -199,7 +199,7 @@ class LarkProviderBase:
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> Optional[LegacyListenerAdapter]:
+    ) -> Optional[ClientListenerAdapter]:
         if self.has_listener:
-            return LegacyListenerAdapter(client, emit)
+            return ClientListenerAdapter(client, emit)
         return None

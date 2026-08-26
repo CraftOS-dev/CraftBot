@@ -84,5 +84,8 @@
   "auth_mode": {
     "grok": "subscription",
     "openai": "subscription"
+  },
+  "living_ui": {
+    "marketplace_ref": ""
   }
 }

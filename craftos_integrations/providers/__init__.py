@@ -11,7 +11,7 @@ what a host passes to ``IntegrationSystem(providers=...)``.
 
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List, Optional
 
 from ..contracts import Provider
 
@@ -54,7 +54,7 @@ def default_providers() -> List[Provider]:
         OutlookProvider(),
         SlackProvider(),
         # Auth-layer bridges — multi-account storage/UI/listeners; the
-        # legacy action surface stays, made account-aware centrally
+        # action surface stays, made account-aware centrally
         # (see app/data/action/integrations/account_bridge.py).
         # Wave 1:
         GitHubProvider(),
@@ -73,3 +73,35 @@ def default_providers() -> List[Provider]:
         TelegramUserProvider(),
         WhatsAppWebProvider(),
     ]
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Metadata registry
+# ════════════════════════════════════════════════════════════════════════
+#
+# Providers are the enumeration and metadata source for everything
+# user-facing. This is a cache of ``default_providers()`` for callers that
+# want static metadata without a configured IntegrationSystem.
+#
+# Safe to cache: the instances hold no credential state (the core injects
+# credentials per call), and the shipped provider set is fixed at import time.
+
+_INSTANCES: Optional[Dict[str, Provider]] = None
+
+
+def _instances() -> Dict[str, "Provider"]:
+    global _INSTANCES
+    if _INSTANCES is None:
+        _INSTANCES = {p.id: p for p in default_providers()}
+    return _INSTANCES
+
+
+def provider_ids() -> List[str]:
+    """Every shipped provider id, in ``default_providers()`` order."""
+    return list(_instances().keys())
+
+
+def get_provider(provider_id: str) -> Optional["Provider"]:
+    """One shipped provider by id, or None. For static metadata only —
+    use ``IntegrationSystem.registry`` for anything credential-bound."""
+    return _instances().get(provider_id)

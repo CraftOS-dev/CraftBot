@@ -1,9 +1,9 @@
-"""Google Docs operations — ported from the legacy google_docs_actions.py.
+"""Google Docs operations — schemas for google_docs_actions.py.
 
 Faithful port: names, descriptions, schemas, arg mapping, and result
-shaping match the legacy actions one-to-one. Deletes are flagged
+shaping match the actions one-to-one. Deletes are flagged
 ``destructive=True`` (wrong-account mistakes can't be undone through the
-API) and stay ``parallelizable=False`` like the legacy actions.
+API) and stay ``parallelizable=False`` like the actions.
 
 NOTE: no operation declares an ``account`` input — the host adapter
 injects it on every generated action and the core resolves it centrally
@@ -34,7 +34,7 @@ def _get_google_doc_op() -> Operation:
     """``get_google_doc`` needs post-processing (the include_metadata
     flatten), so it is hand-written instead of using ``client_op``.
 
-    Behavior matches the legacy action: default returns the body
+    Behavior matches the action: default returns the body
     flattened to plain text (the client's ``get_document_text`` uses the
     identical flattening); ``include_metadata=True`` returns the raw
     structured document JSON from ``get_document``.

@@ -58,10 +58,9 @@ def list_available_integrations(input_data: dict) -> dict:
         return {"status": "success", "integrations": [], "message": "Simulated mode"}
 
     try:
-        # multi-account providers (gmail, slack, notion, ...) source connection state +
-        # accounts from the multi-account IntegrationSystem; everything else
-        # keeps the legacy handler.status() path. Metadata (name, icon,
-        # auth_type, description) still comes from the legacy handlers.
+        # Connection state and accounts come from the IntegrationSystem;
+        # metadata (name, icon, auth_type, description) from the provider
+        # registry. Both cover every integration — there is no second path.
         from app.data.action.integrations._helpers import list_integrations_merged
 
         integrations = list_integrations_merged()
@@ -109,7 +108,7 @@ def list_available_integrations(input_data: dict) -> dict:
                 "google_docs, google_calendar, google_youtube (there is no single "
                 "'google' integration). Call list_available_integrations if unsure."
             ),
-            "example": "telegram",
+            "example": "telegram_bot",
         },
         "credentials": {
             "type": "object",
@@ -163,7 +162,7 @@ def list_available_integrations(input_data: dict) -> dict:
         },
     },
     test_payload={
-        "integration_id": "telegram",
+        "integration_id": "telegram_bot",
         "credentials": {"bot_token": "test_token"},
         "simulated_mode": True,
     },
@@ -186,13 +185,10 @@ def connect_integration(input_data: dict) -> dict:
 
     try:
         from craftos_integrations import (
-            connect_token as connect_integration_token,
-            connect_oauth as connect_integration_oauth,
-            connect_interactive as connect_integration_interactive,
             get_integration_fields,
             integration_registry,
         )
-        from craftos_integrations.integrations.whatsapp_web import (
+        from craftos_integrations.providers.whatsapp_web.client import (
             start_qr_session as start_whatsapp_qr_session,
         )
 
@@ -275,18 +271,17 @@ def connect_integration(input_data: dict) -> dict:
                     ],
                 }
 
-            # multi-account providers: validate the token the same way the legacy
-            # handler login does, then store through the integration system
-            # (multi-account store), never the legacy single-account save.
+            # Validate the token the same way the connect flow does, then
+            # store through the integration system.
             from app.data.action.integrations._helpers import (
                 system_connect_token,
                 system_for,
             )
 
-            v2_system = system_for(integration_id)
-            if v2_system is not None:
+            system = system_for(integration_id)
+            if system is not None:
                 success, message = system_connect_token(
-                    v2_system, integration_id, credentials
+                    system, integration_id, credentials
                 )
                 return {
                     "status": "success" if success else "error",
@@ -294,17 +289,9 @@ def connect_integration(input_data: dict) -> dict:
                     "auth_type": "token",
                 }
 
-            loop = asyncio.new_event_loop()
-            try:
-                success, message = loop.run_until_complete(
-                    connect_integration_token(integration_id, credentials)
-                )
-            finally:
-                loop.close()
-
             return {
-                "status": "success" if success else "error",
-                "message": message,
+                "status": "error",
+                "message": f"Unknown integration: {integration_id}",
                 "auth_type": "token",
             }
 
@@ -319,15 +306,15 @@ def connect_integration(input_data: dict) -> dict:
 
             # multi-account providers: real multi-account OAuth via the
             # IntegrationSystem (account chooser, identity capture,
-            # listener reconcile) instead of the legacy handler flow.
+            # listener reconcile) instead of the connect flow flow.
             from app.data.action.integrations._helpers import system_for
 
-            v2_system = system_for(integration_id)
-            if v2_system is not None:
+            system = system_for(integration_id)
+            if system is not None:
                 loop = asyncio.new_event_loop()
                 try:
                     success, message, _accounts = loop.run_until_complete(
-                        v2_system.add_account(integration_id)
+                        system.add_account(integration_id)
                     )
                 finally:
                     loop.close()
@@ -337,17 +324,9 @@ def connect_integration(input_data: dict) -> dict:
                     "auth_type": "oauth",
                 }
 
-            loop = asyncio.new_event_loop()
-            try:
-                success, message = loop.run_until_complete(
-                    connect_integration_oauth(integration_id)
-                )
-            finally:
-                loop.close()
-
             return {
-                "status": "success" if success else "error",
-                "message": message,
+                "status": "error",
+                "message": f"Unknown integration: {integration_id}",
                 "auth_type": "oauth",
             }
 
@@ -360,8 +339,11 @@ def connect_integration(input_data: dict) -> dict:
                     "auth_type": supported_auth,
                 }
 
-            # Special handling for WhatsApp QR code flow
-            if integration_id == "whatsapp":
+            # WhatsApp QR flow. The id is "whatsapp_web" — the provider id, which
+            # is what the registry gate above admits. It read "whatsapp" until
+            # 2026-08-26, so this branch never fired and WhatsApp fell through to
+            # the connect flow's refusal message.
+            if integration_id == "whatsapp_web":
                 loop = asyncio.new_event_loop()
                 try:
                     result = loop.run_until_complete(start_whatsapp_qr_session())
@@ -395,18 +377,14 @@ def connect_integration(input_data: dict) -> dict:
                         "auth_type": "interactive",
                     }
 
-            # Generic interactive flow for other integrations (e.g., Telegram user)
-            loop = asyncio.new_event_loop()
-            try:
-                success, message = loop.run_until_complete(
-                    connect_integration_interactive(integration_id)
-                )
-            finally:
-                loop.close()
-
+            # whatsapp_web is the only provider declaring interactive auth, and
+            # its QR flow is handled above. Anything else reaching here declared
+            # an interactive auth_type without a flow to run.
             return {
-                "status": "success" if success else "error",
-                "message": message,
+                "status": "error",
+                "message": (
+                    f"No interactive connect flow is implemented for {info['name']}."
+                ),
                 "auth_type": "interactive",
             }
 
@@ -475,7 +453,7 @@ def connect_integration(input_data: dict) -> dict:
         },
     },
     test_payload={
-        "integration_id": "telegram",
+        "integration_id": "telegram_bot",
         "simulated_mode": True,
     },
 )
@@ -522,9 +500,13 @@ def check_integration_status(input_data: dict) -> dict:
         }
 
     try:
-        # If a session_id is provided, check WhatsApp QR session status
-        if session_id and integration_id == "whatsapp":
-            from craftos_integrations.integrations.whatsapp_web import (
+        # If a session_id is provided, check WhatsApp QR session status.
+        # The id is the provider id, "whatsapp_web" — this read "whatsapp"
+        # until 2026-08-26, so polling with the id the registry actually
+        # reports never entered the branch and the scanned account was never
+        # stored. ("whatsapp" still lands here via INTEGRATION_ALIASES.)
+        if session_id and integration_id == "whatsapp_web":
+            from craftos_integrations.providers.whatsapp_web.client import (
                 check_qr_session_status as check_whatsapp_session_status,
             )
 
@@ -566,22 +548,22 @@ def check_integration_status(input_data: dict) -> dict:
             }
 
         # multi-account providers: connection state + accounts come from the
-        # multi-account IntegrationSystem (never the legacy credential
+        # multi-account IntegrationSystem (never the credential
         # files). Status text uses the shared plan-§6 line format; the
         # structured accounts array carries {identity, alias, isPrimary,
         # listen}.
         from app.data.action.integrations._helpers import (
             account_lines,
             accounts_payload,
-            v2_display_name,
+            display_name_for,
             system_for,
         )
 
-        v2_system = system_for(integration_id)
-        if v2_system is not None:
-            infos = v2_system.list_accounts(integration_id)
+        system = system_for(integration_id)
+        if system is not None:
+            infos = system.list_accounts(integration_id)
             accounts = accounts_payload(infos, integration_id)
-            name = v2_display_name(v2_system, integration_id)
+            name = display_name_for(system, integration_id)
             if accounts:
                 lines = "\n".join(account_lines(infos))
                 message = (
@@ -596,40 +578,22 @@ def check_integration_status(input_data: dict) -> dict:
                 "message": message,
             }
 
-        # Otherwise check general integration status
-        from craftos_integrations import (
-            get_integration_info_sync as get_integration_info,
-        )
+        # Unknown id — list the valid ones so the agent can self-correct
+        # instead of repeating an invalid guess.
+        try:
+            from craftos_integrations import list_all
 
-        info = get_integration_info(integration_id)
-        if not info:
-            # List the valid ids so the agent can self-correct instead of
-            # repeating an invalid guess.
-            try:
-                from craftos_integrations import list_all
-
-                valid = ", ".join(sorted(list_all()))
-            except Exception:
-                valid = ""
-            message = f"Unknown integration: '{integration_id}'."
-            if valid:
-                message += f" Valid integrations: {valid}."
-            return {
-                "status": "error",
-                "connected": False,
-                "accounts": [],
-                "message": message,
-            }
-
+            valid = ", ".join(sorted(list_all()))
+        except Exception:
+            valid = ""
+        message = f"Unknown integration: '{integration_id}'."
+        if valid:
+            message += f" Valid integrations: {valid}."
         return {
-            "status": "success",
-            "connected": info["connected"],
-            "accounts": info.get("accounts", []),
-            "message": (
-                f"{info['name']} is connected with {len(info.get('accounts', []))} account(s)."
-                if info["connected"]
-                else f"{info['name']} is not connected."
-            ),
+            "status": "error",
+            "connected": False,
+            "accounts": [],
+            "message": message,
         }
     except Exception as e:
         return {
@@ -678,7 +642,6 @@ def check_integration_status(input_data: dict) -> dict:
     },
 )
 def disconnect_integration(input_data: dict) -> dict:
-    import asyncio
 
     if input_data.get("simulated_mode"):
         return {"status": "success", "message": "Simulated mode"}
@@ -695,30 +658,20 @@ def disconnect_integration(input_data: dict) -> dict:
     try:
         # multi-account providers: remove accounts through the multi-account
         # IntegrationSystem (with account_id: just that account; without:
-        # all of them, plus a best-effort legacy-file double-cleanup).
+        # all of them).
         from app.data.action.integrations._helpers import system_disconnect, system_for
 
-        v2_system = system_for(integration_id)
-        if v2_system is not None:
-            success, message = system_disconnect(v2_system, integration_id, account_id)
+        system = system_for(integration_id)
+        if system is not None:
+            success, message = system_disconnect(system, integration_id, account_id)
             return {
                 "status": "success" if success else "error",
                 "message": message,
             }
 
-        from craftos_integrations import disconnect as _disconnect
-
-        loop = asyncio.new_event_loop()
-        try:
-            success, message = loop.run_until_complete(
-                _disconnect(integration_id, account_id)
-            )
-        finally:
-            loop.close()
-
         return {
-            "status": "success" if success else "error",
-            "message": message,
+            "status": "error",
+            "message": f"Unknown integration: {integration_id}",
         }
     except Exception as e:
         return {"status": "error", "message": f"Disconnect failed: {str(e)}"}

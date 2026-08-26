@@ -20,18 +20,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from app import node_runtime
+from app.node_runtime import MIN_NODE_MAJOR
+
 logger = logging.getLogger(__name__)
 
 GATE_TIMEOUT_S = 600
 INSTALL_TIMEOUT_S = 600
 HEALTH_TIMEOUT_S = 30
 
-# The lui CLI is TypeScript executed by Node's native type stripping —
-# default from 23.6, stable in 24. Older majors throw
-# ERR_UNKNOWN_FILE_EXTENSION on cli.ts, which used to surface as a raw
-# scaffold stack trace instead of this requirement (observed 2026-08-19,
-# system Node 22.14).
-MIN_NODE_MAJOR = 24
+# Node resolution: app/node_runtime.py. The lui CLI is the strictest
+# consumer — TypeScript run by native type stripping, >= 24 or
+# ERR_UNKNOWN_FILE_EXTENSION (observed 2026-08-19, system Node 22.14).
 
 
 @dataclass
@@ -78,8 +78,6 @@ class LivingUIRunner:
 
     def __init__(self, workspace_dir: Path):
         self.workspace_dir = Path(workspace_dir)
-        self._node = shutil.which("node")
-        self._node_version: Optional[str] = None  # probed lazily, cached
 
     # ------------------------------------------------------------------ setup
 
@@ -87,47 +85,35 @@ class LivingUIRunner:
     def cli_path(self) -> Path:
         return self.workspace_dir / "tools" / "src" / "cli.ts"
 
-    def _probe_node_version(self) -> Optional[str]:
-        """`node --version` output ("v24.1.0"), cached. None when the probe
-        fails — version enforcement then fails open (a broken probe must
-        never block a launch on a good Node)."""
-        if self._node_version is not None:
-            return self._node_version
-        try:
-            kwargs = {}
-            if sys.platform == "win32":
-                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            out = subprocess.run(
-                [self._node, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                **kwargs,
-            ).stdout.strip()
-            if out:
-                self._node_version = out
-        except Exception as e:
-            logger.warning(f"node version probe failed: {e}")
-        return self._node_version
-
     def ensure_available(self) -> None:
-        if self._node is None:
+        rt = node_runtime.resolve()
+        if rt is None:
+            hint = ""
+            path_version = None
+            path_node = shutil.which("node")
+            if path_node:
+                path_version = node_runtime.probe_version(path_node)
+                hint = (
+                    f" (PATH has {path_version or 'an unprobeable node'} at "
+                    f"{path_node}, which the lui CLI — TypeScript run by "
+                    "Node's native type stripping — cannot load; it is left "
+                    "untouched)"
+                )
             raise LivingUIRunnerUnavailable(
                 f"Node.js >= {MIN_NODE_MAJOR} is required to build Living UIs "
-                "(not found on PATH)."
+                f"and none was found{hint}. CraftBot never upgrades your "
+                "default Node: run `python install.py` to add a side-by-side "
+                "Node (nvm install 24 also works), or point the CRAFTBOT_NODE "
+                "env var at a >= 24 binary, then restart."
             )
-        version = self._probe_node_version()
-        try:
-            major = int((version or "").lstrip("v").split(".")[0])
-        except ValueError:
-            major = None
+        major = node_runtime.major_of(rt.version)
         if major is not None and major < MIN_NODE_MAJOR:
+            # Only reachable via a CRAFTBOT_NODE override pointing at an old
+            # binary — resolve() filters everything else by version.
             raise LivingUIRunnerUnavailable(
                 f"Node.js >= {MIN_NODE_MAJOR} is required to build Living UIs — "
-                f"found {version} at {self._node}. The lui CLI is TypeScript "
-                "run natively by Node (type stripping), which this version "
-                "cannot load. Upgrade Node (or install nodejs>=24 into the "
-                "conda env CraftBot runs in) and restart."
+                f"CRAFTBOT_NODE points at {rt.node} ({rt.version}). Point it "
+                "at a >= 24 binary or unset it, then restart."
             )
         if not self.cli_path.exists():
             raise LivingUIRunnerUnavailable(
@@ -135,10 +121,14 @@ class LivingUIRunner:
             )
 
     def _cli(self, *args: str) -> list:
-        return [self._node, str(self.cli_path), *args]
+        return [node_runtime.node_cmd() or "node", str(self.cli_path), *args]
 
     async def _run(
-        self, cmd: list, timeout: int, cwd: Optional[Path] = None
+        self,
+        cmd: list,
+        timeout: int,
+        cwd: Optional[Path] = None,
+        env_extra: Optional[dict] = None,
     ) -> "tuple[int, str]":
         """Run a command, return (exit_code, combined_output)."""
         kwargs = {}
@@ -155,6 +145,7 @@ class LivingUIRunner:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(cwd) if cwd else None,
+            env=node_runtime.child_env(env_extra),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             **kwargs,
@@ -238,9 +229,9 @@ class LivingUIRunner:
         frontend = project_dir / "frontend"
         if (frontend / "node_modules").exists():
             return
-        # Windows: bare "npm" is npm.cmd — CreateProcess only finds it via
-        # the resolved path, so always spawn the which()-resolved binary.
-        npm = shutil.which("npm") or "npm"
+        # Windows: bare "npm" is npm.cmd — CreateProcess only finds it via a
+        # full path, so never spawn the bare name.
+        npm = node_runtime.npm_cmd() or "npm"
         code, out = await self._run(
             # --ignore-scripts: any npm package is allowed in a project, so
             # lifecycle scripts must never run (supply-chain guard, spec B7).
@@ -252,16 +243,41 @@ class LivingUIRunner:
             raise RuntimeError(f"npm install failed:\n{out[-4000:]}")
 
     async def gate(self, project_dir: Path) -> V2GateResult:
-        """Run the validation gate; output is the machine-readable error list."""
+        """Run the validation gate; output is the machine-readable error list.
+
+        A DEV copy (manifest env == "dev") builds with LUI_COVERAGE=1: the
+        blueprint's vite config then instruments the bundle so the walk-verify
+        can record which code each feature runs through (scoped verify
+        Phase 2). Live builds never see the flag - bundles stay identical."""
         self.ensure_available()
+        env_extra = {"LUI_COVERAGE": "1"} if self._is_dev_copy(project_dir) else None
         code, out = await self._run(
-            self._cli("validate", str(project_dir)), timeout=GATE_TIMEOUT_S
+            self._cli("validate", str(project_dir)),
+            timeout=GATE_TIMEOUT_S,
+            env_extra=env_extra,
         )
         return V2GateResult(passed=code == 0, output=out)
+
+    @staticmethod
+    def _is_dev_copy(project_dir: Path) -> bool:
+        try:
+            import json as _json
+
+            manifest = _json.loads(
+                (Path(project_dir) / "manifest.json").read_text(encoding="utf-8")
+            )
+            return manifest.get("env") == "dev"
+        except Exception:
+            return False
 
     async def kit_sync(self, project_dir: Path) -> None:
         """Re-vendor the kit and re-canonize system-file hashes (used after
         import, where identity rewrites invalidate the shipped hash canon)."""
+        # Import/marketplace installs reach here without going through
+        # scaffold/gate — without this check an old Node surfaces as a raw
+        # ERR_UNKNOWN_FILE_EXTENSION stack trace instead of the friendly
+        # version requirement (observed 2026-08-25, marketplace install).
+        self.ensure_available()
         code, out = await self._run(
             self._cli("kit-sync", str(project_dir)), timeout=GATE_TIMEOUT_S
         )
@@ -282,6 +298,11 @@ class LivingUIRunner:
         Failure is NON-FATAL — an app that cannot be upgraded should still
         start, just without the newer guard.
         """
+        try:
+            self.ensure_available()
+        except LivingUIRunnerUnavailable as e:
+            logger.warning(f"[LIVING_UI] adapter-sync skipped: {e}")
+            return
         code, out = await self._run(
             self._cli("adapter-sync", str(project_dir)), timeout=GATE_TIMEOUT_S
         )
@@ -292,6 +313,7 @@ class LivingUIRunner:
             )
 
     async def pb_binary(self) -> Path:
+        self.ensure_available()
         code, out = await self._run(self._cli("pb", "path"), timeout=300)
         if code != 0:
             raise RuntimeError(f"could not resolve PocketBase binary:\n{out}")

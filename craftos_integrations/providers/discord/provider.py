@@ -1,12 +1,11 @@
-"""Discord bridge provider — auth-layer-only port of the legacy client.
+"""Discord bridge provider — account-bound wrapper over its API client.
 
-Bridge pattern (see stripe/provider.py and github/provider.py): the
-battle-tested legacy ``DiscordClient`` keeps its entire API surface (bot
+Bridge pattern (see stripe/provider.py and github/provider.py): ``DiscordClient`` keeps its entire API surface (bot
 REST, user-account REST, gateway listener, lazy voice); only the
 credential plumbing is overridden by a small binding mixin so the
-credential is injected per account and never read from the legacy
+credential is injected per account and never read from
 ``discord.json``. ``operations()`` is empty and ``guidance()`` blank —
-the legacy action functions remain the tool surface; account routing
+the action functions remain the tool surface; account routing
 happens centrally in the host adapter.
 
 Discord is token-only (a bot token per Discord application):
@@ -15,17 +14,15 @@ Discord is token-only (a bot token per Discord application):
 
 One account = one bot application; identity is the bot's Discord user
 id (snowflake) captured from ``GET /users/@me`` at verify time and
-stored as ``bot_id`` — the same field the legacy handler.login() saved.
+stored as ``bot_id`` — the field the connect flow captures.
 
 The credential dataclass also carries an optional ``user_token`` (a
-user-account token driving the ``user_*`` client methods). The legacy
-handler's ``fields`` only expose ``bot_token``, but ``verify_token``
+user-account token driving the ``user_*`` client methods). The ``fields`` only expose ``bot_token``, but ``verify_token``
 passes an optional ``user_token`` through unverified so a credential
 built with one keeps working — verification itself is bot-token-based,
-exactly like the legacy login.
+as the connect flow does.
 
-Known limitations carried over from the legacy module (NOT refactored
-here):
+Known limitations (NOT refactored here):
 * The listener filter config (``discord_config.json`` — mention_only +
   self/third-party allowlists) is loaded from a single global file
   inside ``_handle_message_create``, so every account shares one filter
@@ -47,24 +44,25 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.discord import (
+from .client import (
     DISCORD_API_BASE,
     DiscordClient,
+    DiscordConfig,
     DiscordCredential,
 )
-from .._shared import LegacyListenerAdapter
+from .._shared import ClientListenerAdapter
 
 _CRED_FIELDS = {f.name for f in fields(DiscordCredential)}
 
 
 class DiscordClientBinding:
     """Overrides DiscordClient's disk plumbing: credential is injected per
-    account. MRO puts this before the legacy client:
+    account. MRO puts this before the API client:
 
         class BoundDiscordClient(DiscordClientBinding, DiscordClient): pass
 
     No token refresh — Discord bot tokens are non-expiring — and the
-    legacy client never writes the credential file outside handler.login,
+    API client never writes the credential file outside handler.login,
     so ``_persist`` is never called (kept so the build_client contract is
     uniform across providers).
     """
@@ -97,6 +95,62 @@ class DiscordProvider:
     id = "discord"
     family = None  # standalone — no cross-provider alias sharing
     display_name = "Discord"
+    # ----- UI metadata -----
+    description = "Community chat"
+    icon = "discord"
+    fields = [
+        {
+            "key": "bot_token",
+            "label": "Bot Token",
+            "placeholder": "Enter bot token",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "Open Discord Developer Portal: discord.com/developers/applications",
+        "Click 'New Application' and give it a name",
+        "Open the 'Bot' tab in the left sidebar",
+        "Click 'Reset Token' (or 'Copy' if it's already shown)",
+        "Paste the bot token into the field below",
+    ]
+    config_class = DiscordConfig
+    config_fields = [
+        {
+            "key": "mention_only",
+            "label": "Only when @-mentioned",
+            "type": "checkbox",
+            "help": "When on, the bot only forwards messages where it's directly @-mentioned. When off, every message in every channel the bot can see is considered.",
+        },
+        {
+            "key": "third_party_usernames",
+            "label": "Third-party users",
+            "type": "list",
+            "placeholder": "alice, bob.s",
+            "help": "Their messages reach the agent as external incoming messages. Comma-separated Discord usernames/display names, case-insensitive. Leave empty to skip this sub-check.",
+        },
+        {
+            "key": "third_party_role_names",
+            "label": "Third-party roles",
+            "type": "list",
+            "placeholder": "Member, Contributor",
+            "help": "Same as Third-party users, but matched on Discord role names in the message's guild. DMs ignore this list. Leave empty to skip.",
+        },
+        {
+            "key": "self_usernames",
+            "label": "Self users",
+            "type": "list",
+            "placeholder": "ahmad",
+            "help": "Their messages are treated as if you (the bot owner) sent them - used for trusted admins who can drive the bot like its owner. Self matches win over third-party matches. Leave empty to skip.",
+        },
+        {
+            "key": "self_role_names",
+            "label": "Self roles",
+            "type": "list",
+            "placeholder": "Admin, Owner",
+            "help": "Same as Self users, but matched on role names. DMs ignore this list. Leave empty to skip. Note: if all four allow lists are empty, the filter is fully open and every message is treated as third-party (default).",
+        },
+    ]
+
     client_cls = BoundDiscordClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
@@ -114,7 +168,7 @@ class DiscordProvider:
     def oauth_spec(self) -> OAuthSpec:
         # Deliberate: no Discord OAuth2 flow — each account is a bot
         # application token pasted from the Developer Portal, exactly as
-        # the legacy handler worked.
+        # the connect flow works.
         raise NotImplementedError("discord is token-only")
 
     def build_client(
@@ -132,7 +186,7 @@ class DiscordProvider:
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification the legacy DiscordHandler.login() runs:
+        """Token verification:
         ``GET /users/@me`` with the ``Bot`` token; same handler ``fields``
         key (``bot_token``). The bot's ``id``/``username`` are captured as
         ``bot_id``/``bot_username`` so ``identity_of`` resolves the
@@ -140,7 +194,7 @@ class DiscordProvider:
 
         An optional ``user_token`` (the credential dataclass's second
         token, driving the ``user_*`` client methods) is passed through
-        unverified — the legacy handler never verified it either.
+        unverified — the connect flow does not verify it either.
         """
         token = (credentials.get("bot_token") or "").strip()
         if not token:
@@ -177,22 +231,22 @@ class DiscordProvider:
         )
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy Discord actions stay in place
+        return []  # bridge provider — Discord actions stay in place
 
     def guidance(self) -> str:
-        return ""  # bridge provider — the legacy action surface has its own docs
+        return ""  # bridge provider — the action surface has its own docs
 
     def make_listener(
         self,
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> LegacyListenerAdapter:
-        """Gateway listener — the legacy client's own websocket loop
+    ) -> ClientListenerAdapter:
+        """Gateway listener — the API client's own websocket loop
         (Discord Gateway v10: identify with the bot token, heartbeat,
         MESSAGE_CREATE → PlatformMessage), reused verbatim via the generic
         adapter. All gateway state is per-instance so two accounts can
         listen concurrently; the shared piece is the global
         ``discord_config.json`` filter config (see module docstring). No
-        restart-safe cursor, same as under the legacy manager."""
-        return LegacyListenerAdapter(client, emit)
+        restart-safe cursor, the poll loop keeps its watermark in memory."""
+        return ClientListenerAdapter(client, emit)

@@ -13,7 +13,7 @@ import asyncio
 
 import pytest
 
-from craftos_integrations.contracts import LEGACY_IDENTITY
+from craftos_integrations.contracts import UNIDENTIFIED
 from craftos_integrations.core.storage import FileCredentialStore
 from craftos_integrations.core.system import IntegrationSystem
 from craftos_integrations.oauth_flow import OAuthFlow
@@ -69,10 +69,10 @@ def test_outlook_run_login_extracts_upn_and_forces_chooser(monkeypatch):
     # The chooser fix this port exists for + the carried legacy param.
     assert captured["extra"]["prompt"] == "select_account"
     assert captured["extra"]["response_mode"] == "query"
-    # The shared handler flow is copied, never mutated.
-    from craftos_integrations.integrations.outlook import OutlookHandler
+    # The shared module-level flow is copied, never mutated.
+    from craftos_integrations.providers.outlook.client import OUTLOOK_OAUTH
 
-    assert "prompt" not in OutlookHandler.oauth.extra_auth_params
+    assert "prompt" not in OUTLOOK_OAUTH.extra_auth_params
 
 
 def test_outlook_run_login_refuses_identityless_result(monkeypatch):
@@ -116,7 +116,7 @@ def test_linkedin_run_login_identityless_still_returns_credential(monkeypatch):
     )
     identity, credential, message = run(LinkedInProvider().run_login())
     assert identity is None
-    assert credential is not None  # stored under LEGACY_IDENTITY by the core
+    assert credential is not None  # stored under UNIDENTIFIED by the core
     assert credential["access_token"] == "at"
 
 
@@ -175,7 +175,7 @@ def test_hubspot_run_login_survives_failed_introspection(monkeypatch):
     assert identity is None
     assert credential is not None  # the token itself is valid — keep it
     assert credential["access_token"] == "hs-at"
-    assert "legacy" in message
+    assert "without an account identity" in message
 
 
 def test_slack_run_login_team_identity(monkeypatch):
@@ -270,7 +270,7 @@ def test_add_account_identityless_stores_legacy_sentinel(tmp_path):
     system = make_system(tmp_path, provider)
     ok, message, accounts = run(system.add_account("linkedin"))
     assert ok is True
-    assert [a.identity for a in accounts] == [LEGACY_IDENTITY]
+    assert [a.identity for a in accounts] == [UNIDENTIFIED]
 
 
 def test_add_account_without_run_login_raises(tmp_path):

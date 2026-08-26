@@ -1,11 +1,11 @@
 """Default filesystem CredentialStore for AccountSet documents.
 
-Layout (same directory as the legacy store, ``<project_root>/.credentials``):
+Layout (``<project_root>/.credentials``):
 
     gmail.accounts.json        # AccountSet document
     .gmail.accounts.lock       # advisory-lock sidecar (empty)
     gmail.accounts.json.corrupt  # quarantined unparseable document
-    gmail.json                 # legacy single-credential file (pre-multi-account installs;
+    gmail.json                 # not used; the account document is the store (
                                # read once by the upgrade migration, deleted
                                # when the last account is removed)
 
@@ -29,7 +29,7 @@ import os
 import stat
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, Mapping, Optional
+from typing import Any, Dict, Iterator, Optional
 
 if os.name == "nt":
     import msvcrt
@@ -68,13 +68,9 @@ class FileCredentialStore:
     def __init__(
         self,
         root: Optional[Path] = None,
-        legacy_filenames: Optional[Mapping[str, str]] = None,
     ) -> None:
-        """``root`` defaults to the legacy store's directory so migration can
-        find pre-multi-account files. ``legacy_filenames`` maps provider ids whose old
-        cred file isn't simply ``<provider_id>.json``."""
+        """``root`` defaults to ``<project_root>/.credentials``."""
         self._root = root
-        self._legacy_filenames = dict(legacy_filenames or {})
 
     # Resolved lazily: ConfigStore.project_root is set by the host at
     # startup, which may be after this store is constructed.
@@ -141,32 +137,3 @@ class FileCredentialStore:
     def has_document(self, provider_id: str) -> bool:
         return self._path(provider_id).exists()
 
-    def _legacy_path(self, provider_id: str) -> Path:
-        filename = self._legacy_filenames.get(provider_id, f"{provider_id}.json")
-        return self._dir() / filename
-
-    def delete_legacy(self, provider_id: str) -> None:
-        """Remove the pre-multi-account single-account credential file, if present.
-
-        Called by the system when the last account is removed: the
-        one-time upgrade migration re-imports any surviving legacy file
-        into a provider with no AccountSet document, so a disconnect must delete
-        both the document AND the legacy file or the just-removed account
-        would resurrect on the next load."""
-        legacy = self._legacy_path(provider_id)
-        if legacy.exists():
-            legacy.unlink()
-            logger.info(f"[STORE] Removed legacy {legacy.name}")
-
-    def load_legacy(self, provider_id: str) -> Optional[Dict[str, Any]]:
-        path = self._legacy_path(provider_id)
-        if not path.exists():
-            return None
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            # A corrupt legacy file just means "nothing to migrate" —
-            # leave it in place for inspection.
-            logger.warning(f"[STORE] Legacy {path.name} unparseable, skipping: {e}")
-            return None

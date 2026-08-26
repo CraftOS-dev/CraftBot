@@ -1,11 +1,11 @@
-"""Twitter/X bridge provider — auth-layer-only port of the legacy client.
+"""Twitter/X bridge provider — account-bound wrapper over its API client.
 
 Bridge pattern (see slack/provider.py for the full binding rationale):
-the battle-tested legacy ``TwitterClient`` keeps its entire API surface;
+``TwitterClient`` keeps its entire API surface;
 only the credential plumbing is overridden by a small binding mixin so
-the credential is injected per account and never read from the legacy
+the credential is injected per account and never read from
 ``twitter.json``. ``operations()`` is empty and ``guidance()`` blank —
-the legacy action functions remain the tool surface; account routing
+the action functions remain the tool surface; account routing
 happens centrally in the host adapter.
 
 Twitter is token-only in this integration (OAuth 1.0a user context:
@@ -18,18 +18,18 @@ One account = one Twitter/X **user**; identity is the numeric user id
 from ``GET /2/users/me`` (stable across handle renames), falling back to
 the username for pre-bridge credentials saved without one. Lowercased.
 
-Per-instance state audit (two listening accounts): the legacy poll
+Per-instance state audit (two listening accounts): the poll
 watermarks ``_since_id``/``_seen_ids`` live on the client instance
 (set in ``__init__``), so bound clients never fight over them. The only
 shared state is the ``twitter_config.json`` watch-tag file — deliberate
 shared *config* (every account filters mentions by the same tag), not
 per-account listen state, so it is left alone.
 
-The one legacy disk write the binding must intercept: the client's
+The one direct disk write the binding must intercept: the client's
 ``start_listening`` backfills ``cred.user_id``/``cred.username`` from
-``GET /2/users/me`` when they differ and saves the legacy credential
-file (legacy module ~line 340). The binding pre-syncs both fields
-through ``persist`` instead, so the legacy save never fires and the
+``GET /2/users/me`` when they differ and saves the credential
+file . The binding pre-syncs both fields
+through ``persist`` instead, so that save never fires and the
 update lands on the right account entry.
 """
 
@@ -40,28 +40,29 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.twitter import (
+from .client import (
     TWITTER_API,
     TwitterClient,
+    TwitterConfig,
     TwitterCredential,
     _oauth1_header,
 )
-from .._shared import LegacyListenerAdapter
+from .._shared import ClientListenerAdapter
 
 _CRED_FIELDS = {f.name for f in fields(TwitterCredential)}
 
-# Same field keys the legacy TwitterHandler.fields declares.
+# Same field keys the TwitterHandler.fields declares.
 _REQUIRED_KEYS = ("api_key", "api_secret", "access_token", "access_token_secret")
 
 
 class TwitterClientBinding:
     """Overrides TwitterClient's disk plumbing: credential is injected per
-    account. MRO puts this before the legacy client:
+    account. MRO puts this before the API client:
 
         class BoundTwitterClient(TwitterClientBinding, TwitterClient): pass
 
     No token refresh — OAuth 1.0a user tokens are non-expiring — but
-    ``_persist`` IS used: the legacy ``start_listening`` backfills the
+    ``_persist`` IS used: ``start_listening`` backfills the
     stored user_id/username from the API and would write ``twitter.json``
     (cross-wiring secondaries), so the binding routes that one update
     through ``persist`` instead.
@@ -87,13 +88,13 @@ class TwitterClientBinding:
         return self._cred
 
     async def start_listening(self, callback) -> None:
-        """Pre-sync user_id/username so the legacy save never fires.
+        """Pre-sync user_id/username so that save never fires.
 
-        The legacy ``start_listening`` calls ``GET /2/users/me`` and, when
+        ``start_listening`` calls ``GET /2/users/me`` and, when
         the stored ``user_id`` or ``username`` differs from the live
-        account, writes the credential to the legacy single-account file.
+        account, writes the credential to the single-account file.
         Doing the same check here first — persisting through
-        ``self._persist`` — leaves the legacy branch false, so its
+        ``self._persist`` — leaves the branch false, so its
         ``save_credential`` is never reached. Costs one extra cheap
         ``get_me`` at listener start; keeps the poll loop unforked.
         """
@@ -121,6 +122,54 @@ class TwitterProvider:
     id = "twitter"
     family = None  # standalone — no cross-provider alias sharing
     display_name = "Twitter/X"
+    # ----- UI metadata -----
+    description = "Tweets, mentions, and timeline"
+    icon = "twitter"
+    fields = [
+        {
+            "key": "api_key",
+            "label": "Consumer Key",
+            "placeholder": "Enter Consumer key",
+            "password": True,
+        },
+        {
+            "key": "api_secret",
+            "label": "Consumer Secret",
+            "placeholder": "Enter Consumer secret",
+            "password": True,
+        },
+        {
+            "key": "access_token",
+            "label": "Access Token",
+            "placeholder": "Enter access token",
+            "password": True,
+        },
+        {
+            "key": "access_token_secret",
+            "label": "Access Token Secret",
+            "placeholder": "Enter access token secret",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "Open developer.twitter.com/en/portal/dashboard",
+        "Sign up for a developer account if you haven't (free tier works for posting)",
+        "Create a Project, then a Standalone App inside it",
+        "App settings → User authentication settings → enable OAuth 1.0a with Read+Write",
+        "Keys and tokens tab → copy Consumer Key + Consumer Secret",
+        "Scroll down → Generate Access Token + Secret → copy both",
+    ]
+    config_class = TwitterConfig
+    config_fields = [
+        {
+            "key": "watch_tag",
+            "label": "Watch tag",
+            "type": "text",
+            "placeholder": "@craftbot",
+            "help": "Trigger keyword in mentions. Leave empty to react to all mentions.",
+        },
+    ]
+
     client_cls = BoundTwitterClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
@@ -140,7 +189,7 @@ class TwitterProvider:
 
     def oauth_spec(self) -> OAuthSpec:
         # Deliberate: OAuth 1.0a keys are pasted from the developer portal
-        # (the legacy handler's token flow) — no browser OAuth dance.
+        # (the connect flow's token flow) — no browser OAuth dance.
         raise NotImplementedError("twitter is token-only")
 
     def build_client(
@@ -158,8 +207,8 @@ class TwitterProvider:
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification the legacy TwitterHandler.login() runs:
-        ``GET /2/users/me`` signed with the legacy module's own OAuth 1.0a
+        """Token verification:
+        ``GET /2/users/me`` signed with the client module's own OAuth 1.0a
         helper; same ``fields`` keys (api_key, api_secret, access_token,
         access_token_secret). The API's ``id``/``username`` are stored as
         ``user_id``/``username`` so ``identity_of`` resolves immediately.
@@ -221,7 +270,7 @@ class TwitterProvider:
         )
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy action functions stay the surface
+        return []  # bridge provider — action functions stay the surface
 
     def guidance(self) -> str:
         return ""
@@ -231,12 +280,12 @@ class TwitterProvider:
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> LegacyListenerAdapter:
-        """Mentions poll listener — the legacy client's own
+    ) -> ClientListenerAdapter:
+        """Mentions poll listener — the API client's own
         ``start_listening`` loop (``GET /2/users/{id}/mentions`` every 30s
         with since_id + in-memory seen-id dedup, optional watch-tag
         filter), reused verbatim via the generic adapter. The watermarks
         are instance attributes, so concurrent bound accounts don't
-        collide. No restart-safe cursor, same as under the legacy
-        manager."""
-        return LegacyListenerAdapter(client, emit)
+        collide. No restart-safe cursor — the client's own loop keeps its
+        watermark in memory."""
+        return ClientListenerAdapter(client, emit)

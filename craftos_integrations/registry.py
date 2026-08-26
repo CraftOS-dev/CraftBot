@@ -2,7 +2,7 @@
 
 Two parallel registries (clients and handlers) keep the runtime and auth
 lifecycles separate. Both are populated by decorators (@register_client,
-@register_handler) and resolved as singletons.
+@register_client) and resolved as singletons.
 
 autoload_integrations() walks the integrations/ subpackage and imports
 every module — that triggers the decorators. Adding a new integration
@@ -15,7 +15,7 @@ import importlib
 import pkgutil
 from typing import Dict, List, Optional, Type
 
-from .base import BasePlatformClient, IntegrationHandler
+from .base import BasePlatformClient
 from .logger import get_logger
 
 logger = get_logger(__name__)
@@ -55,20 +55,6 @@ def get_all_clients() -> Dict[str, BasePlatformClient]:
     return dict(_client_instances)
 
 
-def invalidate_client(platform_id: str) -> None:
-    """Drop the cached client singleton so the next get_client() rebuilds it.
-
-    Client instances cache the account credential in memory (e.g. the Google
-    mixin's ``_cred``). When an account is connected/disconnected at runtime the
-    credential file on disk changes, but the live instance keeps serving the old
-    account — so integration actions hit the wrong account until the agent is
-    restarted. Dropping the instance here forces a fresh build (and a fresh
-    credential read from disk) on next use, mirroring what a restart does.
-    See issue #314.
-    """
-    _client_instances.pop(platform_id, None)
-
-
 def get_registered_platforms() -> List[str]:
     return list(_client_classes.keys())
 
@@ -76,41 +62,6 @@ def get_registered_platforms() -> List[str]:
 # ════════════════════════════════════════════════════════════════════════
 # Integration handlers (auth side)
 # ════════════════════════════════════════════════════════════════════════
-
-_handler_classes: Dict[str, Type[IntegrationHandler]] = {}
-_handler_instances: Dict[str, IntegrationHandler] = {}
-
-
-def register_handler(name: str):
-    """Decorator: @register_handler("slack")."""
-
-    def deco(cls: Type[IntegrationHandler]) -> Type[IntegrationHandler]:
-        _handler_classes[name] = cls
-        return cls
-
-    return deco
-
-
-def get_handler(name: str) -> Optional[IntegrationHandler]:
-    if name in _handler_instances:
-        return _handler_instances[name]
-    cls = _handler_classes.get(name)
-    if cls is None:
-        return None
-    instance = cls()
-    _handler_instances[name] = instance
-    return instance
-
-
-def get_all_handlers() -> Dict[str, IntegrationHandler]:
-    for name in _handler_classes:
-        if name not in _handler_instances:
-            _handler_instances[name] = _handler_classes[name]()
-    return dict(_handler_instances)
-
-
-def get_registered_handler_names() -> List[str]:
-    return list(_handler_classes.keys())
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -121,42 +72,39 @@ _autoloaded = False
 
 
 def autoload_integrations(force: bool = False) -> None:
-    """Import every module under craftos_integrations.integrations.
+    """Import every provider's ``client`` module.
 
-    Triggers @register_client and @register_handler decorators on import.
-    Idempotent unless force=True.
+    Triggers the @register_client decorators. Idempotent unless force=True.
 
-    The ``integrations`` subpackage is **optional**: if a host has deleted
-    the folder (or the package is being used framework-only), the autoloader
-    logs a single info line and returns. The registry stays empty and every
-    ``get_client``/``get_handler`` call returns ``None`` — callers handle
-    that gracefully via ``{"error": "Unknown integration ..."}`` envelopes.
+    ``providers`` is **optional**: if a host has deleted the folder (or the
+    package is being used framework-only), this logs a single info line and
+    returns. The registry stays empty and every ``get_client`` call returns
+    ``None`` — callers handle that via ``{"error": "Unknown integration ..."}``
+    envelopes.
     """
     global _autoloaded
     if _autoloaded and not force:
         return
 
     try:
-        from . import integrations as pkg
+        from . import providers as pkg
     except ImportError:
-        logger.info(
-            "[REGISTRY] No integrations/ subpackage found — registry stays empty."
-        )
+        logger.info("[REGISTRY] No providers/ subpackage found — registry stays empty.")
         _autoloaded = True
         return
 
     pkg_path = getattr(pkg, "__path__", None)
     if not pkg_path:
         logger.info(
-            "[REGISTRY] integrations/ subpackage has no __path__ — registry stays empty."
+            "[REGISTRY] providers/ subpackage has no __path__ — registry stays empty."
         )
         _autoloaded = True
         return
 
-    for _, modname, _ in pkgutil.iter_modules(pkg_path):
-        if modname.startswith("_"):
+    for _, modname, ispkg in pkgutil.iter_modules(pkg_path):
+        if modname.startswith("_") or not ispkg:
             continue
-        full = f"{pkg.__name__}.{modname}"
+        full = f"{pkg.__name__}.{modname}.client"
         try:
             importlib.import_module(full)
         except Exception as e:
@@ -169,5 +117,4 @@ def reset() -> None:
     """Clear all instances (for testing)."""
     global _autoloaded
     _client_instances.clear()
-    _handler_instances.clear()
     _autoloaded = False

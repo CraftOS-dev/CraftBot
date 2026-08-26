@@ -1,7 +1,7 @@
 """Google family provider base — shared by gmail/calendar/drive/docs/youtube.
 
 Reuses the battle-tested API client classes from
-``craftos_integrations.integrations.*`` but replaces their credential
+the per-service clients but replaces their credential
 plumbing: clients are bound to ONE injected account credential and
 persist refreshed tokens through the core (never to spec.cred_file, which
 is single-account and would cross-wire secondaries).
@@ -19,9 +19,9 @@ import time
 from dataclasses import asdict, fields
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
-from ..contracts import LEGACY_IDENTITY, OAuthSpec, Operation
+from ..contracts import OAuthSpec, Operation
 from ..helpers import request as http_request
-from ..integrations._google_common import (
+from ._google_common import (
     GOOGLE_AUTH_URL,
     GOOGLE_TOKEN_URL,
     GoogleCredential,
@@ -46,7 +46,7 @@ GOOGLE_AUTH_PARAMS = {
 
 
 class GoogleClientBinding:
-    """Overrides GoogleApiClientMixin's disk plumbing on a legacy client
+    """Overrides GoogleApiClientMixin's disk plumbing on a API client
     class: credential is injected per account, refresh persists through the
     core. MRO puts this before the mixin:
 
@@ -184,8 +184,3 @@ class GoogleProviderBase:
 
     def guidance(self) -> str:
         raise NotImplementedError
-
-
-# Back-compat re-export: providers import read_guidance from here or from
-# _shared; the implementation now lives in _shared (it isn't Google-specific).
-from ._shared import read_guidance  # noqa: E402  (re-export)

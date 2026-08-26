@@ -1,11 +1,11 @@
-"""GitHub bridge provider — auth-layer-only port of the legacy client.
+"""GitHub bridge provider — account-bound wrapper over its API client.
 
 Bridge pattern (see slack/provider.py for the full binding rationale):
-the battle-tested legacy ``GitHubClient`` keeps its entire API surface;
+``GitHubClient`` keeps its entire API surface;
 only the credential plumbing is overridden by a small binding mixin so
-the credential is injected per account and never read from the legacy
+the credential is injected per account and never read from
 ``github.json``. ``operations()`` is empty and ``guidance()`` blank —
-the legacy action functions remain the tool surface; account routing
+the action functions remain the tool surface; account routing
 happens centrally in the host adapter.
 
 GitHub is token-only (personal access tokens): ``oauth_spec()`` raises
@@ -16,11 +16,11 @@ declaration) and there is no ``run_login``. PATs do not auto-refresh, so
 One account = one GitHub **user**; identity is the GitHub username
 (``login``), lowercased — GitHub usernames are case-insensitive.
 
-The one legacy disk write the binding must intercept: the client's
+The one direct disk write the binding must intercept: the client's
 ``start_listening`` backfills ``cred.username`` from ``GET /user`` when
-it differs and saves the credential file (legacy module ~line 284). The
-binding pre-syncs the username through ``persist`` instead, so the
-legacy save never fires and the update lands on the right account entry.
+it differs and saves the credential file . The
+binding pre-syncs the username through ``persist`` instead, so that
+save never fires and the update lands on the right account entry.
 """
 
 from __future__ import annotations
@@ -30,20 +30,20 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.github import GITHUB_API, GitHubClient, GitHubCredential
-from .._shared import LegacyListenerAdapter
+from .client import GITHUB_API, GitHubClient, GitHubConfig, GitHubCredential
+from .._shared import ClientListenerAdapter
 
 _CRED_FIELDS = {f.name for f in fields(GitHubCredential)}
 
 
 class GitHubClientBinding:
     """Overrides GitHubClient's disk plumbing: credential is injected per
-    account. MRO puts this before the legacy client:
+    account. MRO puts this before the API client:
 
         class BoundGitHubClient(GitHubClientBinding, GitHubClient): pass
 
     No token refresh — PATs are non-rotating — but ``_persist`` IS used:
-    the legacy ``start_listening`` backfills the stored username from the
+    ``start_listening`` backfills the stored username from the
     API and would write ``github.json`` (cross-wiring secondaries), so
     the binding routes that one update through ``persist`` instead.
     """
@@ -68,13 +68,13 @@ class GitHubClientBinding:
         return self._cred
 
     async def start_listening(self, callback) -> None:
-        """Pre-sync the username so the legacy save never fires.
+        """Pre-sync the username so that save never fires.
 
-        The legacy ``start_listening`` calls ``GET /user`` and, when the
+        ``start_listening`` calls ``GET /user`` and, when the
         stored ``username`` differs from the live login, writes the
-        credential to the legacy single-account file. Doing the same
+        credential to the single-account file. Doing the same
         check here first — persisting through ``self._persist`` — leaves
-        the legacy branch (``cred.username != username``) false, so its
+        the backfill branch (``cred.username != username``) false, so its
         ``save_credential`` is never reached. Costs one extra cheap
         ``GET /user`` at listener start; keeps the poll loop unforked.
         """
@@ -96,6 +96,41 @@ class BoundGitHubClient(GitHubClientBinding, GitHubClient):
 class GitHubProvider:
     id = "github"
     display_name = "GitHub"
+    # ----- UI metadata -----
+    description = "Repositories, issues, and pull requests"
+    icon = "github"
+    fields = [
+        {
+            "key": "access_token",
+            "label": "Personal Access Token",
+            "placeholder": "ghp_...",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "Open GitHub: github.com/settings/tokens",
+        "Click 'Generate new token' → 'Generate new token (classic)'",
+        "Set scopes: at minimum 'repo' (issues + PRs) - add 'workflow' if needed",
+        "Copy the ghp_... token before leaving the page (shown once)",
+    ]
+    config_class = GitHubConfig
+    config_fields = [
+        {
+            "key": "watch_tag",
+            "label": "Watch tag",
+            "type": "text",
+            "placeholder": "@craftbot",
+            "help": "Trigger keyword in PR/issue comments. Leave empty to react to all events.",
+        },
+        {
+            "key": "watch_repos",
+            "label": "Watched repos",
+            "type": "list",
+            "placeholder": "owner/repo",
+            "help": "Comma-separated. Leave empty to watch every repo the token has access to.",
+        },
+    ]
+
     family = None  # standalone — no cross-provider alias sharing
     client_cls = BoundGitHubClient
 
@@ -128,7 +163,7 @@ class GitHubProvider:
     def verify_token(
         self, credentials: Dict[str, str]
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Same verification the legacy GitHubHandler.login() runs:
+        """Token verification:
         ``GET /user`` with the PAT; same ``fields`` key (``access_token``).
         The API's ``login`` is stored as ``username`` so ``identity_of``
         resolves the account immediately.
@@ -168,7 +203,7 @@ class GitHubProvider:
         )
 
     def operations(self) -> List[Operation]:
-        return []  # bridge provider — legacy action functions stay the surface
+        return []  # bridge provider — action functions stay the surface
 
     def guidance(self) -> str:
         return ""
@@ -178,10 +213,10 @@ class GitHubProvider:
         client: Any,
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
-    ) -> LegacyListenerAdapter:
-        """Notification poll listener — the legacy client's own
+    ) -> ClientListenerAdapter:
+        """Notification poll listener — the API client's own
         ``start_listening`` loop (``GET /notifications`` every 15s with
         If-Modified-Since + in-memory seen-id dedup), reused verbatim via
         the generic adapter. No restart-safe cursor, same as under the
-        legacy manager."""
-        return LegacyListenerAdapter(client, emit)
+        client's own loop."""
+        return ClientListenerAdapter(client, emit)

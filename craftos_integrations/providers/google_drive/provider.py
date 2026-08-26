@@ -1,6 +1,6 @@
-"""Google Drive provider — multi-account port of the legacy google_drive integration.
+"""Google Drive provider — multi-account provider for google_drive integration.
 
-API surface comes from the legacy ``GoogleDriveClient`` (all Drive REST
+API surface comes from ``GoogleDriveClient`` (all Drive REST
 methods live there and are unchanged); this class only rebinds its
 credential plumbing to the injected per-account credential.
 """
@@ -10,9 +10,10 @@ from __future__ import annotations
 from typing import List
 
 from ...contracts import Operation
-from ...integrations._google_common import DRIVE_SCOPES
-from ...integrations.google_drive import GoogleDriveClient
-from .._google import GoogleProviderBase, GoogleClientBinding, read_guidance
+from .._google_common import DRIVE_SCOPES
+from .client import GoogleDriveClient
+from .._google import GoogleProviderBase, GoogleClientBinding
+from .._shared import read_guidance
 from .operations import build_operations
 
 
@@ -23,6 +24,11 @@ class BoundGoogleDriveClient(GoogleClientBinding, GoogleDriveClient):
 class GoogleDriveProvider(GoogleProviderBase):
     id = "google_drive"
     display_name = "Google Drive"
+    # ----- UI metadata -----
+    description = "Files, folders, and sharing"
+    auth_type = "oauth"
+    icon = "google_drive"
+
     scopes = DRIVE_SCOPES
     client_cls = BoundGoogleDriveClient
 

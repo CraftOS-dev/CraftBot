@@ -2,7 +2,7 @@
 
 Per real listener (gmail / outlook / slack), with the client's HTTP layer
 monkeypatched: start → synthetic incoming event → ``emit`` receives the
-exact payload shape the legacy ``ExternalCommsManager`` built from
+exact payload shape the host's trigger system consumes, built from
 ``PlatformMessage``; ``cursor()`` round-trips into a fresh listener that
 does NOT re-emit the same event; ``stop()`` terminates cleanly. Plus: all
 ten providers accept the 3-arg ``make_listener``.
@@ -15,9 +15,9 @@ from __future__ import annotations
 import asyncio
 import time
 
-import craftos_integrations.integrations.gmail as gmail_mod
-import craftos_integrations.integrations.outlook as outlook_mod
-import craftos_integrations.integrations.slack as slack_mod
+import craftos_integrations.providers.gmail.client as gmail_mod
+import craftos_integrations.providers.outlook.client as outlook_mod
+import craftos_integrations.providers.slack.client as slack_mod
 import craftos_integrations.providers.slack.listener as slack_listener_mod
 from craftos_integrations.providers import default_providers
 from craftos_integrations.providers.gmail.provider import GmailProvider
@@ -514,12 +514,12 @@ def test_every_provider_accepts_three_arg_make_listener():
             assert hasattr(listener, "stop")
             assert hasattr(listener, "cursor")
             # poll_interval is optional (stagger hint): hand-written
-            # listeners expose theirs; LegacyListenerAdapter does not.
+            # listeners expose theirs; ClientListenerAdapter does not.
             interval = getattr(listener, "poll_interval", None)
             if interval is not None:
                 assert interval > 0
     # Bridged platforms reuse their legacy listen loops via
-    # LegacyListenerAdapter: github/jira/twitter watch-polls, telegram_bot
+    # ClientListenerAdapter: github/jira/twitter watch-polls, telegram_bot
     # getUpdates long-poll, discord gateway, lark websocket.
     assert with_listeners == {
         "gmail",

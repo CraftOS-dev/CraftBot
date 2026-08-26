@@ -1,7 +1,7 @@
-"""Outlook listener — the legacy Graph poll loop re-homed onto a bound client.
+"""Outlook listener — the Graph poll loop bound to one account's client.
 
 The loop machinery is NOT rewritten: ``BoundOutlookClient`` inherits the
-legacy ``OutlookClient``'s ``_poll_loop`` / ``_check_new_messages`` /
+``OutlookClient``'s ``_poll_loop`` / ``_check_new_messages`` /
 ``_dispatch_message`` (``/me/messages`` filtered by ``receivedDateTime``
 every POLL_INTERVAL, 401-triggered refresh, seen-id dedup, self-message
 filtering) unchanged. This class replaces only:
@@ -25,14 +25,14 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from ...integrations.outlook import POLL_INTERVAL
+from .client import POLL_INTERVAL
 from ...logger import get_logger
 from .._shared import EmitFn, emit_callback
 
 logger = get_logger(__name__)
 
 # How many recently-seen message ids survive into the cursor. Matches the
-# legacy in-memory trim floor (sets over 500 were cut back to 200).
+# in-memory trim floor (sets over 500 were cut back to 200).
 CURSOR_SEEN_IDS = 200
 
 
@@ -45,7 +45,7 @@ class OutlookListener:
         self._client = client
         self._initial_cursor = dict(cursor) if cursor else None
         self._emit = emit
-        self.poll_interval: float = POLL_INTERVAL  # legacy cadence (5s)
+        self.poll_interval: float = POLL_INTERVAL  # poll cadence (5s)
 
     async def start(self) -> None:
         client = self._client
@@ -53,7 +53,7 @@ class OutlookListener:
             return
         client._message_callback = emit_callback(self._emit)
 
-        # Same connectivity/token sanity check the legacy start_listening
+        # Same connectivity/token sanity check the start_listening
         # performed (also warms the access token via the credential binding).
         try:
             profile = await client._async_get_profile()
@@ -71,7 +71,7 @@ class OutlookListener:
             client._last_poll_time = str(last_poll_time)
             client._seen_message_ids = set(saved.get("seen_ids") or [])
         else:
-            # Fresh start: watermark at "now", exactly like the legacy
+            # Fresh start: watermark at "now", like the
             # start_listening — no historical backfill.
             client._last_poll_time = datetime.now(timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"
@@ -82,7 +82,7 @@ class OutlookListener:
         client._poll_task = asyncio.create_task(client._poll_loop())
 
     async def stop(self) -> None:
-        # Legacy stop_listening already does exactly what we need.
+        # The client's stop_listening already does exactly what we need.
         await self._client.stop_listening()
 
     def cursor(self) -> Optional[Dict[str, Any]]:

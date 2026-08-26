@@ -27,6 +27,10 @@ import time
 import threading
 from typing import Tuple, Optional, Dict, Any
 
+# Single interpreter for every CraftBot process — see app/python_runtime.py
+# (stdlib-only; app/__init__.py is empty, so safe before any deps exist).
+from app import python_runtime
+
 multiprocessing.freeze_support()
 
 # Configuration is loaded from settings.json - no .env file is used
@@ -74,58 +78,6 @@ def _download_progress(count: int, block_size: int, total_size: int) -> None:
     bar = f"{ORANGE}{'▓' * filled}{DIM}{'░' * (40 - filled)}{RESET}"
     sys.stdout.write(f"\r  Downloading  {bar}  {ORANGE}[ {pct:3d}% ]{RESET}")
     sys.stdout.flush()
-
-
-def _find_existing_python310() -> Optional[str]:
-    """Return a verified Python 3.10 executable path if one is already installed, else None."""
-    candidates = []
-
-    if sys.platform == "win32":
-        local_app = os.environ.get("LOCALAPPDATA", "")
-        candidates = [
-            os.path.join(local_app, "Programs", "Python", "Python310", "python.exe"),
-            r"C:\Python310\python.exe",
-            os.path.join(
-                os.environ.get("PROGRAMFILES", r"C:\Program Files"),
-                "Python310",
-                "python.exe",
-            ),
-        ]
-        # Also try the py launcher
-        py_launcher = shutil.which("py")
-        if py_launcher:
-            try:
-                r = subprocess.run(
-                    [py_launcher, "-3.10", "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=8,
-                )
-                if "3.10" in (r.stdout + r.stderr):
-                    return py_launcher  # caller uses it with "-3.10" flag
-            except Exception:
-                pass
-    elif sys.platform == "darwin":
-        candidates = [
-            shutil.which("python3.10") or "",
-            "/Library/Frameworks/Python.framework/Versions/3.10/bin/python3.10",
-            "/usr/local/bin/python3.10",
-            "/opt/homebrew/bin/python3.10",
-        ]
-    else:
-        candidates = [shutil.which("python3.10") or ""]
-
-    for path in candidates:
-        if path and os.path.isfile(path):
-            try:
-                r = subprocess.run(
-                    [path, "--version"], capture_output=True, text=True, timeout=8
-                )
-                if "3.10" in (r.stdout + r.stderr):
-                    return path
-            except Exception:
-                pass
-    return None
 
 
 def _auto_install_python_310() -> None:
@@ -213,54 +165,12 @@ def _auto_install_python_310() -> None:
 
         print(f"\n  {GREEN}✓{RESET} {WHITE}Python {chosen_version} installed!{RESET}")
 
-        # Locate the freshly installed python.exe and verify it is actually 3.10.
-        local_app = os.environ.get("LOCALAPPDATA", "")
-        search_paths = [
-            os.path.join(local_app, "Programs", "Python", "Python310", "python.exe"),
-            r"C:\Python310\python.exe",
-            os.path.join(
-                os.environ.get("PROGRAMFILES", r"C:\Program Files"),
-                "Python310",
-                "python.exe",
-            ),
-        ]
-        new_python310 = None
-        for path in search_paths:
-            if os.path.isfile(path):
-                try:
-                    ver_result = subprocess.run(
-                        [path, "--version"], capture_output=True, text=True, timeout=10
-                    )
-                    ver_text = (ver_result.stdout + ver_result.stderr).strip()
-                    if "3.10" in ver_text:
-                        new_python310 = path
-                        break
-                except Exception:
-                    pass
-
-        # Fallback: try the py launcher with -3.10 and verify it resolves to 3.10
-        if new_python310 is None:
-            py_launcher = shutil.which("py")
-            if py_launcher:
-                try:
-                    ver_result = subprocess.run(
-                        [py_launcher, "-3.10", "--version"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
-                    ver_text = (ver_result.stdout + ver_result.stderr).strip()
-                    if "3.10" in ver_text:
-                        new_python310 = py_launcher  # will use with -3.10 flag below
-                except Exception:
-                    pass
+        # Locate the freshly installed interpreter (probe-verified).
+        new_python310 = python_runtime.find_python()
 
         if new_python310:
             print(f"\n  {ORANGE}▸{RESET} Re-launching installer with Python 3.10...\n")
-            if new_python310.lower().endswith("py.exe"):
-                cmd = [new_python310, "-3.10", __file__]
-            else:
-                cmd = [new_python310, __file__]
+            cmd = [new_python310, __file__]
             # Pass --skip-python-check so the re-launched process skips the
             # version gate and doesn't loop back into auto-install again.
             # Keep ALL flags — dropping --no-launch here made a craftbot.py
@@ -1018,155 +928,243 @@ def verify_conda_env(env_name: str) -> bool:
         return False
 
 
-def install_nodejs_linux():
-    """
-    Automatically install Node.js on Linux/macOS systems (including Kali).
-    Detects the package manager (brew, apt, pacman, yum) and installs accordingly.
-    """
+# Single resolved Node runtime — see app/node_runtime.py (stdlib-only;
+# app/__init__.py is empty, so this import is safe before any deps exist).
+from app import node_runtime
+from app.node_runtime import MIN_NODE_MAJOR
+
+
+def _install_node_sidecar() -> Optional[str]:
+    """Download an official Node build into <BASE_DIR>/runtime/node — no
+    PATH edits, nothing else touched; node_runtime discovery picks it up.
+    Returns the new binary path, or None."""
+    import platform
+    import ssl
+    import tarfile
+    import urllib.request
+    import zipfile
+
+    try:
+        import certifi
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    machine = platform.machine().lower()
+    arch = "arm64" if machine in ("arm64", "aarch64") else "x64"
     if sys.platform == "win32":
-        return True  # Windows users should install Node.js manually from nodejs.org
-
-    # Check if node is already installed
-    if shutil.which("node") and shutil.which("npm"):
-        print("✓ Node.js and npm are already installed")
-        return True
-
-    print("\n🔧 Installing Node.js...")
-
-    # macOS: try Homebrew first, then nvm
-    if sys.platform == "darwin":
-        if shutil.which("brew"):
-            print("   Found Homebrew, installing Node.js...")
-            try:
-                result = run_command(
-                    ["brew", "install", "node"],
-                    check=False,
-                    capture=True,
-                    quiet=True,
-                    show_error=False,
-                )
-                if result and hasattr(result, "returncode") and result.returncode == 0:
-                    print("✓ Node.js installed via Homebrew")
-                    time.sleep(1)
-                    if shutil.which("node") and shutil.which("npm"):
-                        return True
-                    print(
-                        "⚠ Node.js installed but not yet in PATH. Restart your terminal."
-                    )
-                    return False
-            except Exception as e:
-                print(f"   ⚠ brew install node failed: {str(e)[:100]}")
-        print("\n⚠ Could not automatically install Node.js on macOS")
-        print("\nOptions:")
-        print("  1. Install Homebrew (https://brew.sh), then run: brew install node")
-        print("  2. Download Node.js from: https://nodejs.org/ (LTS version)")
-        print(
-            "  3. Use nvm: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash"
-        )
-        print("     then: nvm install --lts")
-        print(
-            "\n  After installation, restart your terminal and run: python3 install.py"
-        )
-        return False
-
-    # Detect package manager and prepare install commands
-    # Format: (package_manager, update_cmd, install_cmd)
-    package_managers = [
-        (
-            "apt-get",
-            ["sudo", "apt-get", "update"],
-            ["sudo", "apt-get", "install", "-y", "nodejs", "npm"],
-        ),
-        (
-            "apt",
-            ["sudo", "apt", "update"],
-            ["sudo", "apt", "install", "-y", "nodejs", "npm"],
-        ),
-        ("dnf", None, ["sudo", "dnf", "install", "-y", "nodejs", "npm"]),
-        ("yum", None, ["sudo", "yum", "install", "-y", "nodejs", "npm"]),
-        ("pacman", None, ["sudo", "pacman", "-Sy", "nodejs", "npm"]),
-        ("zypper", None, ["sudo", "zypper", "install", "-y", "nodejs", "npm"]),
-    ]
-
-    installed = False
-    for pm_name, update_cmd, install_cmd in package_managers:
-        if shutil.which(pm_name.split()[0]):
-            print(f"   Found {pm_name}, installing Node.js...")
-            try:
-                # Run update command if available
-                if update_cmd:
-                    update_result = run_command(
-                        update_cmd,
-                        check=False,
-                        capture=True,
-                        quiet=True,
-                        show_error=False,
-                    )
-                    if (
-                        update_result
-                        and hasattr(update_result, "returncode")
-                        and update_result.returncode != 0
-                    ):
-                        print(
-                            "   ⚠ Package manager update failed, continuing anyway..."
-                        )
-
-                # Run install command
-                install_result = run_command(
-                    install_cmd, check=False, capture=True, quiet=True, show_error=False
-                )
-
-                if (
-                    install_result
-                    and hasattr(install_result, "returncode")
-                    and install_result.returncode == 0
-                ):
-                    print("✓ Node.js installed successfully")
-                    installed = True
-                    break
-                else:
-                    print(f"   ⚠ {pm_name} installation failed, trying next...")
-            except Exception as e:
-                print(f"   ⚠ Error with {pm_name}: {str(e)[:100]}, trying next...")
-
-    if not installed:
-        print("\n⚠ Could not automatically install Node.js")
-        print("\nOptions:")
-        print("  1. Enter sudo password when prompted")
-        print("  2. Manual installation via NodeSource (Debian/Ubuntu/Kali):")
-        print("     curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -")
-        print("     sudo apt-get install -y nodejs")
-        print("\n  3. Install from official website: https://nodejs.org/ (LTS version)")
-        print("\n  4. After installation, run: python install.py")
-        return False
-
-    # Verify installation (with small delay)
-    time.sleep(1)
-    if shutil.which("node") and shutil.which("npm"):
-        try:
-            node_version = run_command(
-                [shutil.which("node"), "--version"],
-                capture=True,
-                quiet=True,
-                show_error=False,
-            )
-            npm_version = run_command(
-                [shutil.which("npm"), "--version"],
-                capture=True,
-                quiet=True,
-                show_error=False,
-            )
-            if node_version and hasattr(node_version, "stdout"):
-                print(f"   Node.js {node_version.stdout.strip()}")
-            if npm_version and hasattr(npm_version, "stdout"):
-                print(f"   npm {npm_version.stdout.strip()}")
-        except Exception:
-            pass
-        return True
+        suffix, ext = f"win-{arch}", "zip"
+    elif sys.platform == "darwin":
+        suffix, ext = f"darwin-{arch}", "tar.gz"
     else:
-        print("⚠ Node.js verification failed - it may not be in PATH")
-        print("  Please restart your terminal and verify: node --version")
-        return False
+        suffix, ext = f"linux-{arch}", "tar.xz"
+
+    try:
+        # Latest release of the MIN_NODE_MAJOR line (index is newest-first).
+        req = urllib.request.Request(
+            "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
+        )
+        index = json.loads(
+            urllib.request.urlopen(req, timeout=60, context=ctx).read()
+        )
+        ver = next(
+            (
+                e["version"]
+                for e in index
+                if e.get("version", "").startswith(f"v{MIN_NODE_MAJOR}.")
+            ),
+            None,
+        )
+        if not ver:
+            print(f"   ⚠ No v{MIN_NODE_MAJOR}.x release found in the Node index")
+            return None
+
+        url = f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
+        dest_root = os.path.join(BASE_DIR, "runtime", "node")
+        os.makedirs(dest_root, exist_ok=True)
+        print(f"   Downloading {url} (may take a minute)...")
+        req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
+        # Stream to disk — the archive is 30-55MB and low-memory VPS
+        # deployments shouldn't hold it in RAM (twice) just to extract it.
+        archive = os.path.join(dest_root, f"_download.{ext}")
+        try:
+            with urllib.request.urlopen(req, timeout=600, context=ctx) as resp:
+                with open(archive, "wb") as fh:
+                    shutil.copyfileobj(resp, fh)
+            if ext == "zip":
+                zipfile.ZipFile(archive).extractall(dest_root)
+            else:
+                # tarfile preserves the executable bits
+                tarfile.open(archive, mode="r:*").extractall(dest_root)
+        finally:
+            try:
+                os.remove(archive)
+            except OSError:
+                pass
+        binary = os.path.join(
+            dest_root,
+            f"node-{ver}-{suffix}",
+            "node.exe" if sys.platform == "win32" else os.path.join("bin", "node"),
+        )
+        return binary if os.path.isfile(binary) else None
+    except Exception as e:
+        print(f"   ⚠ Sidecar Node download failed: {str(e)[:200]}")
+        return None
+
+
+def ensure_nodejs() -> bool:
+    """Use a suitable existing Node (>= MIN_NODE_MAJOR) for everything, else
+    download the sidecar. Resolution and the never-touch-the-system-Node
+    contract live in app/node_runtime.py. On False the install continues
+    with whatever PATH npm exists (frontend and bridge tolerate Node 20),
+    but Living UI stays off until fixed."""
+    rt = node_runtime.resolve(refresh=True)
+    if rt is not None:
+        source = {
+            "override": "CRAFTBOT_NODE",
+            "path": "PATH",
+            "discovered": "a discovered install",
+        }[rt.source]
+        print(
+            f"✓ Node.js {rt.version or '(version unprobed)'} via {source}: "
+            f"{rt.node} — used for all components"
+        )
+        if not (rt.npm or shutil.which("npm")):
+            # A bare node binary (e.g. CRAFTBOT_NODE at a lone executable)
+            # can't install frontend/bridge deps.
+            print("⚠ That Node has no npm beside it and none is on PATH —")
+            print("  frontend/bridge dependency installs below will fail.")
+            print("  Point CRAFTBOT_NODE at a full Node install (bin/ with npm).")
+            return False
+        return True
+
+    print(f"\n🔧 No Node.js >= {MIN_NODE_MAJOR} found — downloading a sidecar copy")
+    print("   (no system changes; any existing Node stays untouched)...")
+    if _install_node_sidecar():
+        rt = node_runtime.resolve(refresh=True)
+        if rt is not None:
+            print(
+                f"✓ Node.js {rt.version or ''} sidecar ready: {rt.node} — "
+                "used for all components"
+            )
+            return True
+
+    print(f"\n⚠ Could not set up Node.js >= {MIN_NODE_MAJOR}.")
+    print("  Browser frontend, WhatsApp bridge and Living UI apps need it. Options:")
+    print(f"    - nvm install {MIN_NODE_MAJOR}   (auto-discovered, default unchanged)")
+    print(f"    - set CRAFTBOT_NODE to a Node >= {MIN_NODE_MAJOR} binary")
+    print(f"    - install Node {MIN_NODE_MAJOR} LTS from https://nodejs.org/")
+    print("  Then re-run: python install.py")
+    return False
+
+
+def ensure_native_runtime() -> None:
+    """OS prerequisites that pip cannot provide for the native wheels
+    (torch, onnxruntime, ...) the memory stack imports at boot.
+
+    Windows: the Visual C++ 2015-2022 Redistributable — torch's DLLs link
+    against it and a fresh Windows (observed: Windows Sandbox, 2026-08-25)
+    lacks it, dying at first boot with WinError 126 on torch_python.dll.
+    Installed silently when missing (one-time, machine-wide, UAC prompt).
+    Linux: libgomp/libstdc++ (missing on minimal images) — sudo territory,
+    so only a hint. macOS: torch wheels are self-contained."""
+    if sys.platform == "win32":
+        import winreg
+
+        def _redist_installed() -> bool:
+            try:
+                key = winreg.OpenKey(
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+                )
+                installed, _ = winreg.QueryValueEx(key, "Installed")
+                return bool(installed)
+            except OSError:
+                sys32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+                return all(
+                    os.path.isfile(os.path.join(sys32, dll))
+                    for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+                )
+
+        if _redist_installed():
+            print("✓ Visual C++ Redistributable present")
+            return
+        import platform
+        import urllib.request
+
+        arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
+        url = f"https://aka.ms/vs/17/release/vc_redist.{arch}.exe"
+        dest = os.path.join(BASE_DIR, f"vc_redist.{arch}.exe")
+        print("\n🔧 Visual C++ Redistributable missing — installing (torch needs it)...")
+        print(f"   {url}  (a UAC prompt may appear)")
+        try:
+            urllib.request.urlretrieve(url, dest)
+            result = run_command(
+                [dest, "/install", "/quiet", "/norestart"],
+                check=False,
+                capture=True,
+                quiet=True,
+                show_error=False,
+            )
+            code = getattr(result, "returncode", None)
+            # 0 = installed, 1638 = a newer version is already present, 3010 = reboot pending
+            if code in (0, 1638, 3010) and _redist_installed():
+                print("✓ Visual C++ Redistributable installed")
+            else:
+                print(f"⚠ Redistributable installer exited with {code} — install it manually:")
+                print(f"   {url}")
+        except Exception as e:
+            print(f"⚠ Could not install the Visual C++ Redistributable: {str(e)[:200]}")
+            print(f"   Install it manually: {url}")
+        finally:
+            try:
+                os.remove(dest)
+            except OSError:
+                pass
+    elif sys.platform.startswith("linux"):
+        import ctypes.util
+
+        missing = [
+            name
+            for name, lib in (("libgomp1", "gomp"), ("libstdc++6", "stdc++"))
+            if ctypes.util.find_library(lib) is None
+        ]
+        if missing:
+            print(f"⚠ Missing system libraries torch needs: {', '.join(missing)}")
+            print(f"   Debian/Ubuntu/Kali:  sudo apt-get install -y {' '.join(missing)}")
+            print("   Fedora/RHEL:         sudo dnf install -y libgomp libstdc++")
+
+
+def verify_native_imports(python_cmd: list) -> bool:
+    """Prove the memory stack's native wheels actually LOAD in the interpreter
+    that will run the service — a pip success only means the files landed.
+    This is the cross-platform half of ensure_native_runtime: whatever the
+    OS-specific gap is, it surfaces here at install time with the fix,
+    instead of as a dead port after "INSTALLATION COMPLETE"."""
+    if os.environ.get("MEMORY_EMBEDDING_MODEL") == "default":
+        return True  # ChromaDB's bundled embedder; torch never loads
+    result = run_command(
+        python_cmd + ["-c", "import torch, sentence_transformers"],
+        check=False,
+        capture=True,
+        quiet=True,
+        show_error=False,
+    )
+    if result is not None and getattr(result, "returncode", 1) == 0:
+        print("✓ Memory embedding stack loads (torch, sentence-transformers)")
+        return True
+    tail = (getattr(result, "stderr", "") or "").strip().splitlines()[-1:] or ["(no output)"]
+    print("\n✗ The memory embedding stack is installed but does not load:")
+    print(f"   {tail[0][:300]}")
+    if sys.platform == "win32":
+        print("   Usual cause: Visual C++ Redistributable missing/failed —")
+        print("   https://aka.ms/vs/17/release/vc_redist.x64.exe, then re-run install.")
+    elif sys.platform.startswith("linux"):
+        print("   Usual cause: sudo apt-get install -y libgomp1 libstdc++6, then re-run install.")
+    print("   Escape hatch: set MEMORY_EMBEDDING_MODEL=default (ChromaDB's bundled")
+    print("   embedder, no torch) — memory retrieval quality is lower.")
+    return False
 
 
 def install_playwright_browser(use_conda: bool = False):
@@ -1270,8 +1268,38 @@ def _frontend_deps_stale(frontend_dir: str) -> Optional[str]:
     return None
 
 
-def install_browser_frontend():
-    """Install npm dependencies for the browser frontend."""
+def resolve_npm_cmd(
+    use_conda: bool = False, env_name: Optional[str] = None
+) -> Optional[list]:
+    """Command prefix for npm, or None when no npm is reachable.
+
+    The resolved runtime's npm first (same Node version as everything else);
+    in conda mode the env's npm via `conda run` comes BEFORE any stale PATH
+    npm (the env's Node 24 is what runs the result); plain PATH npm last."""
+    rt = node_runtime.resolve()
+    if rt and rt.npm:
+        return [rt.npm]
+    if use_conda and env_name:
+        conda_cmd = get_conda_command()
+        probe = run_command(
+            [conda_cmd, "run", "-n", env_name, "npm", "--version"],
+            check=False,
+            capture=True,
+            quiet=True,
+            show_error=False,
+        )
+        if probe and hasattr(probe, "returncode") and probe.returncode == 0:
+            print("   Using the conda env's npm")
+            return [conda_cmd, "run", "-n", env_name, "npm"]
+    npm = shutil.which("npm")
+    return [npm] if npm else None
+
+
+def install_browser_frontend(npm_cmd: Optional[list]):
+    """Install npm dependencies for the browser frontend.
+
+    npm_cmd is the command prefix from resolve_npm_cmd, or None when no npm
+    is reachable."""
     frontend_dir = os.path.join(BASE_DIR, "app", "ui_layer", "browser", "frontend")
 
     if not os.path.exists(frontend_dir):
@@ -1279,32 +1307,11 @@ def install_browser_frontend():
         print("   Browser interface will not work")
         return False
 
-    # Try to install Node.js on Linux if not already installed
-    npm_cmd = shutil.which("npm")
-    if not npm_cmd and sys.platform != "win32":
-        print("\n🔧 Node.js not detected. Attempting automatic installation...")
-        if not install_nodejs_linux():
-            # If auto-install failed, show manual instructions
-            print("\n⚠ Warning: npm not found in PATH")
-            print("   Browser interface requires Node.js and npm.")
-            print("\n   📥 Install Node.js from: https://nodejs.org/")
-            print("      (Choose LTS version)")
-            print("\n   After installation:")
-            print("   1. Restart your terminal")
-            print("   2. Run: python install.py")
-            print("\n   Or manually install frontend:")
-            print("      cd app/ui_layer/browser/frontend")
-            print("      npm install")
-            return False
-        # Refresh npm_cmd after installation
-        npm_cmd = shutil.which("npm")
-
-    # Final check for npm
-    if not npm_cmd:
+    if npm_cmd is None:
         print("\n⚠ Warning: npm not found in PATH")
         print("   Browser interface requires Node.js and npm.")
         print("\n   📥 Install Node.js from: https://nodejs.org/")
-        print("      (Choose LTS version)")
+        print(f"      (v{MIN_NODE_MAJOR}+ — Living UI apps need it)")
         print("\n   After installation:")
         print("   1. Restart your terminal")
         print("   2. Run: python install.py")
@@ -1322,10 +1329,11 @@ def install_browser_frontend():
     print(f"\n🔧 Installing browser frontend dependencies ({stale_reason})...")
     try:
         result = run_command_with_progress(
-            [npm_cmd, "install"],
+            npm_cmd + ["install"],
             message="Installing npm packages",
             cwd=frontend_dir,
             check=False,
+            env_extras=node_runtime.path_env(),
         )
         if result and hasattr(result, "returncode") and result.returncode == 0:
             print("✓ Browser frontend dependencies installed")
@@ -1348,7 +1356,7 @@ def install_browser_frontend():
         return False
 
 
-def install_whatsapp_bridge():
+def install_whatsapp_bridge(npm_cmd: Optional[list]):
     """Install npm dependencies for the WhatsApp bridge (Baileys).
 
     The bridge is a Node subprocess speaking WhatsApp's protocol via
@@ -1358,7 +1366,7 @@ def install_whatsapp_bridge():
     pulled branch that bumps the Baileys version reinstalls automatically.
     """
     bridge_dir = os.path.join(
-        BASE_DIR, "craftos_integrations", "integrations", "whatsapp_web"
+        BASE_DIR, "craftos_integrations", "providers", "whatsapp_web"
     )
 
     if not os.path.exists(os.path.join(bridge_dir, "package.json")):
@@ -1366,14 +1374,12 @@ def install_whatsapp_bridge():
         print("   WhatsApp integration will not work")
         return False
 
-    npm_cmd = shutil.which("npm")
-    if not npm_cmd:
-        # install_browser_frontend (which runs after this on failure paths)
-        # already walks the user through Node.js installation; keep this
-        # message short.
+    if npm_cmd is None:
+        # install_browser_frontend already walks the user through Node.js
+        # installation; keep this message short.
         print("\n⚠ Warning: npm not found — WhatsApp bridge dependencies skipped")
         print("   After installing Node.js, run:")
-        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
         return False
 
     stale_reason = _frontend_deps_stale(bridge_dir)
@@ -1384,22 +1390,23 @@ def install_whatsapp_bridge():
     print(f"\n🔧 Installing WhatsApp bridge dependencies ({stale_reason})...")
     try:
         result = run_command_with_progress(
-            [npm_cmd, "install"],
+            npm_cmd + ["install"],
             message="Installing WhatsApp bridge (Baileys)",
             cwd=bridge_dir,
             check=False,
+            env_extras=node_runtime.path_env(),
         )
         if result and hasattr(result, "returncode") and result.returncode == 0:
             print("✓ WhatsApp bridge dependencies installed")
             return True
         print("\n⚠ Warning: npm install for the WhatsApp bridge failed")
         print("   WhatsApp integration will not work until it succeeds:")
-        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
         return False
     except Exception as e:
         print(f"\n⚠ Warning: Failed to install WhatsApp bridge deps: {e}")
         print("   You can manually install with:")
-        print("     cd craftos_integrations/integrations/whatsapp_web && npm install")
+        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
         return False
 
 
@@ -2324,32 +2331,13 @@ if __name__ == "__main__":
             )
         sys.exit(1)
 
-    # ── Pre-release / wrong-version Python handling ───────────────────────
+    # ── Wrong-version Python: hop to the project's interpreter if one exists
+    # (recorded install / known 3.10 location; an activated conda env is
+    # never hijacked — see app/python_runtime.py). Returns only when there
+    # is nothing to hop to; the prompt below then offers to install one.
+    if not _skip_python_check:
+        python_runtime.reexec_if_needed()
     if (_ver >= (3, 14) or _ver < (3, 10)) and not _skip_python_check:
-        # Before prompting, check if Python 3.10 is already installed.
-        # If it is, silently re-launch with it — no need to ask the user again.
-        # EXCEPT inside an activated conda env: the user chose that env's
-        # interpreter, so hijacking a different Python would install the
-        # dependencies somewhere the service will never look. Fall through
-        # to the prompt instead so they can continue with the env's Python.
-        _in_conda_env = bool(os.environ.get("CONDA_PREFIX"))
-        _python310 = None if _in_conda_env else _find_existing_python310()
-        if _python310:
-            print(
-                f"\n  {GREEN}▸{RESET} {WHITE}Python 3.10 detected — re-launching automatically...{RESET}\n"
-            )
-            if _python310.lower().endswith("py.exe"):
-                _relaunch_cmd = [_python310, "-3.10", __file__]
-            else:
-                _relaunch_cmd = [_python310, __file__]
-            # Keep ALL flags (incl. --no-launch — craftbot.py relies on it)
-            # and propagate the child's exit code so a failed install isn't
-            # reported as success to the caller.
-            _extra = list(sys.argv[1:])
-            _result = subprocess.run(_relaunch_cmd + _extra + ["--skip-python-check"])
-            sys.exit(_result.returncode)
-
-        # Python 3.10 not found — show the prompt.
         if _ver >= (3, 14):
             _reason = f"Python {_ver.major}.{_ver.minor} is a pre-release version"
             _detail = (
@@ -2475,6 +2463,7 @@ if __name__ == "__main__":
                 sys.exit(1)
 
     # After user choice, setup the appropriate environment
+    env_name = None
     if use_conda:
         env_name = get_env_name_from_yml()
         setup_conda_environment(env_name)
@@ -2485,15 +2474,43 @@ if __name__ == "__main__":
         setup_pip_environment()
         print()
 
+    # Record the interpreter the dependencies went into. craftbot.py may have
+    # launched us under a different Python (a fresh box's only `python` is
+    # often 3.13/3.14 — the version gate above re-execs us under 3.10); its
+    # verify / start / auto-start must use THIS one, not the launcher's.
+    save_config_value("python_executable", sys.executable)
+
+    # Native prerequisites + proof the memory stack loads in the SERVICE
+    # interpreter. Hard stop on failure: the backend cannot boot without it,
+    # and "INSTALLATION COMPLETE" followed by a dead port is worse than a
+    # clear error here.
+    ensure_native_runtime()
+    _service_python = (
+        [get_conda_command(), "run", "-n", env_name, "python"]
+        if use_conda
+        else [sys.executable]
+    )
+    if not verify_native_imports(_service_python):
+        sys.exit(1)
+
+    # Node.js: one runtime for everything — use a suitable existing Node
+    # (>= MIN_NODE_MAJOR via CRAFTBOT_NODE/PATH/nvm/fnm/volta/sidecar) or
+    # download the sidecar; never touch the system Node. Conda mode skips
+    # this: environment.yml ships nodejs>=24 inside the env, which leads
+    # PATH when CraftBot runs and becomes that runtime.
+    if not use_conda:
+        ensure_nodejs()
+    npm_cmd = resolve_npm_cmd(use_conda, env_name)
+
     # Install Playwright browser (needed for browser-automation actions)
     install_playwright_browser(use_conda=use_conda)
 
     # Install browser frontend dependencies — required for browser mode
-    frontend_ok = install_browser_frontend()
+    frontend_ok = install_browser_frontend(npm_cmd)
 
     # Install the WhatsApp bridge's npm deps (Baileys) so the first QR
     # link isn't blocked behind an npm download.
-    install_whatsapp_bridge()
+    install_whatsapp_bridge(npm_cmd)
     if not frontend_ok:
         print(f"\n  {RED}✗{RESET} {WHITE}Browser frontend setup failed.{RESET}")
         print(

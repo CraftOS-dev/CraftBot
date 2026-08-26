@@ -41,7 +41,7 @@ def test_payload_tolerates_legacy_message_without_field():
 
 
 def test_discord_extract_attachments():
-    from craftos_integrations.integrations.discord import DiscordClient
+    from craftos_integrations.providers.discord.client import DiscordClient
 
     d = {
         "attachments": [
@@ -73,7 +73,7 @@ def test_discord_extract_attachments():
 
 
 def test_whatsapp_web_extract_attachments():
-    from craftos_integrations.integrations.whatsapp_web import WhatsAppWebClient
+    from craftos_integrations.providers.whatsapp_web.client import WhatsAppWebClient
 
     assert WhatsAppWebClient._extract_attachments(
         {"type": "image", "id": "m1", "has_media": True}
@@ -88,7 +88,7 @@ def test_whatsapp_web_extract_attachments():
 
 
 def test_lark_extract_attachments():
-    from craftos_integrations.integrations.lark import LarkClient
+    from craftos_integrations.providers.lark.client import LarkClient
 
     assert LarkClient._extract_attachments(
         "file", {"file_key": "fk1", "file_name": "report.pdf"}, "om_1"
@@ -117,7 +117,7 @@ def test_lark_extract_attachments():
 
 
 def test_slack_extract_attachments():
-    from craftos_integrations.integrations.slack import SlackClient
+    from craftos_integrations.providers.slack.client import SlackClient
 
     msg = {
         "files": [
@@ -146,7 +146,7 @@ def test_slack_extract_attachments():
 def test_telegram_user_extract_attachments():
     from types import SimpleNamespace
 
-    from craftos_integrations.integrations.telegram_user import TelegramUserClient
+    from craftos_integrations.providers.telegram_user.client import TelegramUserClient
 
     MessageMediaDocument = type("MessageMediaDocument", (), {})
     msg = SimpleNamespace(
@@ -183,7 +183,7 @@ def test_slack_download_stale_scope_reconnect_error(monkeypatch, tmp_path):
     """A token connected before files:read was added fails files.info with
     missing_scope — download_file must surface a reconnect message, never
     the login-page HTML Slack serves unauthorized url_private fetches."""
-    from craftos_integrations.integrations.slack import SlackClient
+    from craftos_integrations.providers.slack.client import SlackClient
 
     client = SlackClient.__new__(SlackClient)
     monkeypatch.setattr(

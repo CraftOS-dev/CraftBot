@@ -28,6 +28,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple, TYPE_CHECKING
 
+from app import node_runtime
+from app.living_ui import marketplace_source
+
 try:
     from loguru import logger
 except ImportError:
@@ -1274,7 +1277,9 @@ UI in {project.path}/frontend/src/app/."""
                     proc = await asyncio.create_subprocess_shell(
                         cmd,
                         cwd=str(project_dir),
-                        env={**os.environ, **bridge_env},
+                        # bare npm/node in pipeline commands resolve to the
+                        # single runtime (see app/node_runtime.py)
+                        env=node_runtime.child_env(bridge_env),
                         stdout=lh,
                         stderr=lh,
                     )
@@ -1465,6 +1470,15 @@ UI in {project.path}/frontend/src/app/."""
         # both markReady/markRunning are idempotent, so the overlap is benign.
         await self._broadcast_ready(project)
 
+        # Scoped walk-verify baseline: whatever the REAL project dir serves
+        # here IS the live app, so it is what the next verify's diff is
+        # taken against. Covers every path that never promotes (marketplace
+        # install, import, startup auto-launch, restart) - without it a
+        # marketplace app's first modify was a NO BASELINE full walk. Skipped
+        # while a dev env exists: the real dir then holds unverified edits.
+        if getattr(project, "project_type", "native") != "external":
+            await self._record_verify_baseline(project)
+
         logger.info(f"[LIVING_UI] {project.name} running at {project.url}")
         return {
             "status": "success",
@@ -1472,6 +1486,23 @@ UI in {project.path}/frontend/src/app/."""
             "backend_url": project.url,
             "port": project.port,
         }
+
+    async def _record_verify_baseline(self, project: LivingUIProject) -> None:
+        """Best-effort, off the event loop; never fails a launch."""
+        try:
+            from app.factory.host_craftbot import get_factory_host
+
+            if get_factory_host().get_staging_record(project.id):
+                return
+            from app.living_ui.verify_scope import ensure_baseline, verify_store_dir
+
+            written = await asyncio.to_thread(
+                ensure_baseline, project.path, verify_store_dir(project)
+            )
+            if written:
+                logger.info(f"[LIVING_UI] verify baseline recorded for {project.id}")
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] verify baseline skipped for {project.id}: {e}")
 
     async def _broadcast_ready(self, project: LivingUIProject) -> None:
         """Push a living_ui_ready event so open browser tabs clear the launch
@@ -1895,10 +1926,9 @@ UI in {project.path}/frontend/src/app/."""
         )
         log_handle.flush()
 
-        # Build env with integration bridge vars if project provided
-        env = os.environ.copy()
-        if extra_env:
-            env.update(extra_env)
+        # Build env with integration bridge vars if project provided; the
+        # resolved Node runtime leads PATH (see app/node_runtime.py).
+        env = node_runtime.child_env(extra_env)
         if project and project.bridge_token:
             bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
             env["CRAFTBOT_BRIDGE_URL"] = f"http://localhost:{bridge_port}"
@@ -2262,6 +2292,18 @@ UI in {project.path}/frontend/src/app/."""
                 logger.warning(
                     f"[LIVING_UI] stamp_delivered failed for {project.id}: {e}"
                 )
+            # Scoped walk-verify: an app that arrived finished is a VERIFIED
+            # state (walked upstream). Record its code as the baseline and
+            # say so in the verify history, so the first local modify diffs
+            # against the shipped code instead of walking everything.
+            try:
+                from app.living_ui.verify_scope import record_delivered, verify_store_dir
+
+                record_delivered(
+                    project.path, verify_store_dir(project), source="marketplace/import"
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] delivered baseline skipped for {project.id}: {e}")
         else:
             # Trigger-plane consent (spec TRIGGERS-PLAN): apps BUILT here are
             # first-party — the user asked for them and this CraftBot's agent
@@ -3052,11 +3094,11 @@ UI in {project.path}/frontend/src/app/."""
         preserved_hold: Optional[Path] = None
         try:
             # Download the repo as a zip
-            # GitHub API: /{owner}/{repo}/zipball/main
+            # GitHub API: /{owner}/{repo}/zipball/{ref}
             parts = repo_url.rstrip("/").split("/")
             owner = parts[-2]
             repo = parts[-1]
-            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+            zip_url = marketplace_source.zip_url(owner, repo)
             logger.info(f"[LIVING_UI:MARKETPLACE] Downloading {app_id} from {zip_url}")
 
             import ssl

@@ -1,20 +1,20 @@
 """Outlook provider — Microsoft Graph mail with rotating tokens.
 
-Reuses the battle-tested API surface of the legacy ``OutlookClient``
+Reuses the battle-tested API surface of ``OutlookClient``
 unchanged and overrides only its credential plumbing with a binding mixin
 (mirroring ``GoogleClientBinding``): the credential is injected per
 account by ``build_client`` and never read from ``spec.cred_file`` (which
 is single-account and would cross-wire secondaries).
 
 Unlike Slack, Outlook access tokens expire (~2h) and Microsoft *rotates*
-refresh tokens, so the binding reimplements the legacy refresh but
+refresh tokens, so the binding reimplements the refresh but
 persists through ``self._persist`` — the core routes the updated
-credential to the right account entry. The legacy client's inline
+credential to the right account entry. The API client's inline
 ``_ensure_token`` path picks up the overridden ``refresh_access_token``
 via MRO, so mid-operation refreshes also persist through the core.
 
 One account = one Microsoft account (email/UPN). OAuth parameters are
-referenced from the legacy handler's ``OAuthFlow`` so the provider spec cannot
+referenced from ``OAuthFlow`` so the provider spec cannot
 drift from it — except for the added account-chooser prompt below.
 """
 
@@ -27,12 +27,12 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...contracts import OAuthSpec, Operation
 from ...helpers import request as http_request
-from ...integrations.outlook import (
+from .client import (
     MS_TOKEN_URL,
     OUTLOOK_SCOPES,
     OutlookClient,
     OutlookCredential,
-    OutlookHandler,
+    OUTLOOK_OAUTH,
 )
 from ...logger import get_logger
 from .._shared import read_guidance
@@ -47,7 +47,7 @@ _CRED_FIELDS = {f.name for f in fields(OutlookCredential)}
 # "Add account" silently re-auths whichever Microsoft account the browser
 # is already signed into — the abandoned PR shipped without it and could
 # never actually add a *second* Outlook account. ``response_mode=query``
-# is carried from the legacy handler. If ``select_account`` regresses
+# is carried from the connect flow. If ``select_account`` regresses
 # token issuance for some tenant, that's a review conversation, never a
 # silent drop.
 OUTLOOK_AUTH_PARAMS = {
@@ -59,7 +59,7 @@ OUTLOOK_AUTH_PARAMS = {
 class OutlookClientBinding:
     """Overrides OutlookClient's disk plumbing: credential is injected per
     account, refresh persists through the core. MRO puts this before the
-    legacy client:
+    API client:
 
         class BoundOutlookClient(OutlookClientBinding, OutlookClient): pass
     """
@@ -84,7 +84,7 @@ class OutlookClientBinding:
         return self._cred
 
     def refresh_access_token(self) -> Optional[str]:
-        """Legacy Outlook refresh, re-homed: same PKCE public-client token
+        """Outlook refresh: PKCE public-client token
         request (no client_secret), but the refreshed credential goes to
         ``self._persist`` instead of ``spec.cred_file``."""
         cred = self._load()
@@ -121,11 +121,16 @@ class BoundOutlookClient(OutlookClientBinding, OutlookClient):
 class OutlookProvider:
     id = "outlook"
     display_name = "Outlook"
+    # ----- UI metadata -----
+    description = "Microsoft email and calendar"
+    auth_type = "oauth"
+    icon = "Inbox"
+
     family = None  # standalone — no cross-provider alias sharing
     client_cls = BoundOutlookClient
 
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
-        """The account's email/UPN, lowercased. The legacy login stored
+        """The account's email/UPN, lowercased. The connect flow stores
         ``mail`` or ``userPrincipalName`` under ``email``; None for
         credentials saved before that capture."""
         email = credential.get("email")
@@ -135,8 +140,8 @@ class OutlookProvider:
 
     def oauth_spec(self) -> OAuthSpec:
         return OAuthSpec(
-            authorize_url=OutlookHandler.oauth.auth_url,
-            token_url=OutlookHandler.oauth.token_url,
+            authorize_url=OUTLOOK_OAUTH.auth_url,
+            token_url=OUTLOOK_OAUTH.token_url,
             scopes=tuple(OUTLOOK_SCOPES.split()),
             # prompt=select_account is load-bearing (see OUTLOOK_AUTH_PARAMS).
             extra_authorize_params=OUTLOOK_AUTH_PARAMS,
@@ -161,7 +166,7 @@ class OutlookProvider:
         return holder or None if token else None
 
     async def run_login(self) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
-        """Full add-account flow via the legacy handler's OAuthFlow (same
+        """Full add-account flow via the connect flow's OAuthFlow (same
         PKCE public-client dance, localhost callback or host-injected
         oauth_runner), with the chooser params applied: a *copy* of the
         shared flow gets ``prompt=select_account`` (+ the carried
@@ -176,7 +181,7 @@ class OutlookProvider:
         """
         from ...config import ConfigStore
 
-        oauth = copy.copy(OutlookHandler.oauth)
+        oauth = copy.copy(OUTLOOK_OAUTH)
         oauth.extra_auth_params = dict(self.oauth_spec().extra_authorize_params)
         result = await oauth.run()
         if "error" in result and not result.get("access_token"):
@@ -212,5 +217,5 @@ class OutlookProvider:
         cursor: Optional[Dict[str, Any]],
         emit: Callable[[Dict[str, Any]], Awaitable[None]],
     ) -> OutlookListener:
-        """Mailbox poll listener (legacy loop re-homed — see listener.py)."""
+        """Mailbox poll listener (see listener.py)."""
         return OutlookListener(client, cursor, emit)

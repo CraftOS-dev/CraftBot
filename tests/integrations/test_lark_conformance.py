@@ -15,7 +15,7 @@ import time
 
 import craftos_integrations.providers._lark as lark_base
 import craftos_integrations.providers.lark.provider as lark_mod
-from craftos_integrations.providers._shared import LegacyListenerAdapter
+from craftos_integrations.providers._shared import ClientListenerAdapter
 from craftos_integrations.providers.lark import LarkProvider
 from craftos_integrations.providers.lark.provider import BoundLarkClient
 from craftos_integrations.providers.lark_calendar import LarkCalendarProvider
@@ -128,7 +128,7 @@ def test_token_refresh_routes_through_persist_not_legacy_file(monkeypatch):
     core; the legacy ``ensure_token``'s save_credential (which writes the
     single-account lark*.json) must never fire, even on the legacy
     ``_headers`` path that calls ``ensure_token`` after us."""
-    import craftos_integrations.integrations._lark_common as legacy_common
+    import craftos_integrations.providers._lark_common as legacy_common
 
     monkeypatch.setattr(
         lark_base,
@@ -189,7 +189,7 @@ def test_listener_support_per_platform():
     chat_client = lark_provider.build_client(LARK_CRED, lambda c: None)
     assert chat_client.supports_listening
     listener = lark_provider.make_listener(chat_client, None, emit)
-    assert isinstance(listener, LegacyListenerAdapter)
+    assert isinstance(listener, ClientListenerAdapter)
 
     # calendar / drive: request-response only → no listener.
     for provider in (LarkCalendarProvider(), LarkDriveProvider()):

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import asyncio
 
-from craftos_integrations.integrations.twitter import TwitterClient
-from craftos_integrations.providers._shared import LegacyListenerAdapter
+from craftos_integrations.providers.twitter.client import TwitterClient
+from craftos_integrations.providers._shared import ClientListenerAdapter
 from craftos_integrations.providers.twitter import TwitterProvider
 from craftos_integrations.providers.twitter.provider import BoundTwitterClient
 
@@ -63,7 +63,7 @@ def test_identity_prefers_user_id_falls_back_to_username():
     assert provider.identity_of({"user_id": "", "username": "  CraftBot  "}) == (
         "craftbot"
     )
-    assert provider.identity_of(LEGACY_CRED) is None  # → LEGACY_IDENTITY in core
+    assert provider.identity_of(LEGACY_CRED) is None  # → UNIDENTIFIED in core
     assert provider.identity_of({"user_id": 42}) is None  # junk never raises
     assert provider.identity_of({"username": 42}) is None
 
@@ -115,7 +115,7 @@ def test_make_listener_wraps_the_legacy_poll_loop():
         pass
 
     listener = provider.make_listener(client, None, emit)
-    assert isinstance(listener, LegacyListenerAdapter)
+    assert isinstance(listener, ClientListenerAdapter)
     assert client.supports_listening
     # Poll watermarks are instance state — two bound accounts don't collide.
     other = provider.build_client(dict(TWITTER_CRED), lambda c: None)

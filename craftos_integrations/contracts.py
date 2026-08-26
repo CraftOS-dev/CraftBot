@@ -27,10 +27,11 @@ from typing import (
     runtime_checkable,
 )
 
-# Sentinel identity for credentials saved before identity capture existed
-# (old LinkedIn/Notion files). Upgraded in place on the next successful
-# re-auth — never duplicated into a second account.
-LEGACY_IDENTITY = "legacy"
+# Sentinel identity for a credential whose provider cannot derive a stable
+# account key from it — LinkedIn and Notion tokens carry no id, for instance.
+# Upgraded in place on the first re-auth that DOES yield one, never duplicated
+# into a second account.
+UNIDENTIFIED = "unidentified"
 
 
 class AccountResolutionError(Exception):
@@ -115,11 +116,40 @@ class Provider(Protocol):
     id: str
     family: Optional[str]  # e.g. "google" — aliases shared across the family
 
+    # ----- UI / metadata -----
+    # Everything user-facing (the connect modal, `list_available_integrations`,
+    # the settings cards, the agent's "not connected" messages) reads these.
+    # Read them through ``provider_metadata()`` rather than by attribute so the
+    # defaults below apply uniformly.
+    display_name: str
+    description: str
+    # "token" | "oauth" | "both" | "interactive" | "token_with_interactive"
+    auth_type: str
+    # Lucide icon name (PascalCase) or a frontend-recognised slug; "" = generic.
+    icon: str
+    # Credential inputs the connect modal renders, in prompt order. Entry shape:
+    #   {"key", "label", "placeholder"?, "password"?, "optional"?}
+    fields: List[Dict[str, Any]]
+    # Inline "where do I find this" steps behind the connect modal's "?" button.
+    # None hides the button.
+    connect_help: Optional[List[str]]
+    # Subcommands the /<integration> command exposes beyond the default three.
+    subcommands: List[str]
+
+    # ----- Optional runtime config (post-connect knobs) -----
+    # ``config_class`` is a plain @dataclass of per-integration settings;
+    # ``config_fields`` is the matching render schema. Both default to "no
+    # config", which hides the Configure section. Entry shape:
+    #   {"key", "label", "type": text|textarea|list|checkbox|select|number,
+    #    "placeholder"?, "help"?, "options"? (required when type=="select")}
+    config_class: Optional[type]
+    config_fields: List[Dict[str, Any]]
+
     def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
         """Provider-stable key for the human account (email/workspace id/…).
 
         Returning None means the credential predates identity capture; the
-        core stores it under LEGACY_IDENTITY."""
+        core stores it under UNIDENTIFIED."""
         ...
 
     def oauth_spec(self) -> OAuthSpec: ...
@@ -166,8 +196,11 @@ class Provider(Protocol):
 
 
 class CredentialStore(Protocol):
-    """Where AccountSet documents persist. Implementations must make
-    ``replace`` atomic and ``locked`` a real mutual-exclusion boundary."""
+    """Where AccountSet documents persist — the only credential store.
+
+    Implementations must make ``replace`` atomic and ``locked`` a real
+    mutual-exclusion boundary. Stores may additionally offer ``has_document``
+    (optional, detected via hasattr)."""
 
     def load(self, provider_id: str) -> Optional[Dict[str, Any]]: ...
 
@@ -176,17 +209,6 @@ class CredentialStore(Protocol):
     def delete(self, provider_id: str) -> None: ...
 
     def locked(self, provider_id: str) -> ContextManager[None]: ...
-
-    def load_legacy(self, provider_id: str) -> Optional[Dict[str, Any]]:
-        """Bare single-account credential from a pre-multi-account install, if any.
-
-        Read exactly once per provider by the one-time upgrade migration
-        (``IntegrationSystem._migrate_legacy``: legacy file present, no
-        AccountSet document). Stores may additionally offer ``has_document`` and
-        ``delete_legacy`` (both optional, detected via hasattr) — the
-        latter lets the system delete the legacy file when the last
-        account is removed, so the migration cannot resurrect it."""
-        ...
 
 
 class OAuthTransport(Protocol):
@@ -210,3 +232,46 @@ class FamilyLookup(Protocol):
     (including itself). The registry implements this; tests fake it."""
 
     def __call__(self, provider_id: str) -> Sequence[str]: ...
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Provider metadata accessor
+# ════════════════════════════════════════════════════════════════════════
+
+# Defaults for every optional metadata attribute a Provider may omit. Keeping
+# them here (rather than on a base class) means a provider is free to inherit
+# from anything — the four family bases, or nothing at all.
+_METADATA_DEFAULTS: Dict[str, Any] = {
+    "display_name": "",
+    "description": "",
+    "auth_type": "token",
+    "icon": "",
+    "fields": [],
+    "connect_help": None,
+    "subcommands": ["login", "logout", "status"],
+    "config_fields": [],
+}
+
+
+def provider_metadata(provider: "Provider") -> Dict[str, Any]:
+    """Static UI metadata for one provider — no I/O.
+
+    Returns the exact dict shape ``service.get_metadata`` returned from the
+    handlers, so UI and action consumers did not change when the
+    metadata moved onto the providers.
+    """
+    get = lambda name: getattr(provider, name, None) or _METADATA_DEFAULTS[name]  # noqa: E731
+    config_class = getattr(provider, "config_class", None)
+    config_fields = getattr(provider, "config_fields", None) or []
+    return {
+        "id": provider.id,
+        "name": get("display_name") or provider.id,
+        "description": get("description"),
+        "auth_type": get("auth_type"),
+        "fields": [dict(f) for f in get("fields")],
+        "icon": get("icon"),
+        "has_config": config_class is not None,
+        "config_fields": [dict(f) for f in config_fields] if config_class else None,
+        "connect_help": getattr(provider, "connect_help", None),
+        "subcommands": get("subcommands"),
+    }

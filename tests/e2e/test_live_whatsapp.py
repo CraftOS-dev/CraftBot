@@ -340,7 +340,7 @@ def test_live_whatsapp_third_party_message_is_notification_only():
 # ---------------------------------------------------------------------------
 # Incoming-message scenarios with ``self_messages_only=True`` config —
 # the integration-level filter at
-# [whatsapp_web/__init__.py:_handle_incoming_message](craftos_integrations/integrations/whatsapp_web/__init__.py)
+# [whatsapp_web/__init__.py:_handle_incoming_message](craftos_integrations/providers/whatsapp_web/__init__.py)
 # drops non-self messages BEFORE the on-message callback. Self-messages
 # go through ``_handle_sent_message`` and aren't affected.
 # ---------------------------------------------------------------------------
