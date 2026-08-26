@@ -642,7 +642,11 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
         "env; external apps verify live instead). "
         "ONLY after building or modifying the app's CODE, never after a "
         "plain data change: it clicks through the UI creating test records "
-        "(in the dev env's disposable DB, but pointless for data edits)."
+        "(in the dev env's disposable DB, but pointless for data edits). "
+        "The verifier scopes itself to what the change can reach (it is "
+        "handed the diff since the last promote); pass scope='full' when "
+        "the user asks to verify everything or the change is deliberately "
+        "wide."
     ),
     default=False,
     mode="CLI",
@@ -653,6 +657,16 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
             "type": "string",
             "example": "abc12345",
             "description": "The Living UI project ID (provided in task instruction).",
+        },
+        "scope": {
+            "type": "string",
+            "example": "auto",
+            "description": (
+                "'auto' (default): the verifier decides which features the "
+                "change can reach and walks those. 'full': walk every "
+                "feature (user asked to verify everything, or the change is "
+                "wide). Never narrows below what the verifier decides."
+            ),
         },
     },
     output_schema={
@@ -739,6 +753,20 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
         verify_url = str(_dev_record.get("url")) if _dev_record else url
         verify_path = str(_dev_record.get("dir")) if _dev_record else None
 
+        # Scope (docs/design/scoped-walk-verify.md): the verifier decides
+        # from the diff; the builder may only request MORE ('full'). A fix
+        # mission's defects are handed over as must-include features.
+        _scope_mode = (
+            "full" if str(input_data.get("scope") or "auto").strip().lower() == "full" else "auto"
+        )
+        _defect_features = []
+        try:
+            from app.factory.host_craftbot import get_factory_host as _gfh2
+
+            _defect_features = list(_gfh2().get_last_defects(project_id) or [])
+        except Exception:
+            _defect_features = []
+
         try:
             await broadcast_living_ui_progress(
                 project_id,
@@ -754,7 +782,13 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             # cap: even if the verifier wedges, the turn must end. Timeout =
             # tooling failure (blocked), never an app defect.
             report = await _asyncio.wait_for(
-                run_walk_verify(project, base_url=verify_url, project_path=verify_path),
+                run_walk_verify(
+                    project,
+                    base_url=verify_url,
+                    project_path=verify_path,
+                    scope=_scope_mode,
+                    defect_features=_defect_features,
+                ),
                 timeout=2100,
             )
         except _asyncio.TimeoutError:
@@ -774,6 +808,12 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
 
         kind = (report or {}).get("kind")
         passed_n = len((report or {}).get("passed") or [])
+        try:
+            from app.living_ui.walk_verify import describe_scope as _describe_scope
+
+            _scope_note = _describe_scope(report or {})
+        except Exception:
+            _scope_note = ""
         try:
             if kind == "defects":
                 outcome = (
@@ -878,7 +918,17 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             if _is_external:
                 await manager.stop_project(project_id)
             defects = report.get("defects") or []
-            raw = (report.get("raw") or "")[:2500]
+            raw = report.get("raw") or ""
+            # The SCOPE block (which features the verifier chose and why)
+            # precedes the verdict; the distiller and the fix brief need the
+            # FEATURES/FAILURES evidence, not 2500 chars of exclusions
+            # (observed live 2026-08-25: a fix mission received a
+            # 'verify.unstructured-failure' card whose 'observed' was the
+            # SCOPE block, and had to rediscover the defect).
+            _v = raw.find("VERDICT:")
+            if _v > 0:
+                raw = raw[_v:]
+            raw = raw[:2500]
             # The browser report says WHAT failed; the server log says WHY
             # (hook exceptions, bad queries — logged via the console.error
             # pattern). Without it, agents invent causes: one read a bare
@@ -1060,6 +1110,7 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
             url=url,
             verified=report.get("passed") or [],
             caveat=caveat,
+            scope_note=_scope_note,
         )
         if _pass_decision is None:
             # Machine done (re-verify after delivery, outside a modify arc):

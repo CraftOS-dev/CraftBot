@@ -124,7 +124,11 @@ class LivingUIRunner:
         return [node_runtime.node_cmd() or "node", str(self.cli_path), *args]
 
     async def _run(
-        self, cmd: list, timeout: int, cwd: Optional[Path] = None
+        self,
+        cmd: list,
+        timeout: int,
+        cwd: Optional[Path] = None,
+        env_extra: Optional[dict] = None,
     ) -> "tuple[int, str]":
         """Run a command, return (exit_code, combined_output)."""
         kwargs = {}
@@ -141,7 +145,7 @@ class LivingUIRunner:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(cwd) if cwd else None,
-            env=node_runtime.child_env(),
+            env=node_runtime.child_env(env_extra),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             **kwargs,
@@ -239,12 +243,32 @@ class LivingUIRunner:
             raise RuntimeError(f"npm install failed:\n{out[-4000:]}")
 
     async def gate(self, project_dir: Path) -> V2GateResult:
-        """Run the validation gate; output is the machine-readable error list."""
+        """Run the validation gate; output is the machine-readable error list.
+
+        A DEV copy (manifest env == "dev") builds with LUI_COVERAGE=1: the
+        blueprint's vite config then instruments the bundle so the walk-verify
+        can record which code each feature runs through (scoped verify
+        Phase 2). Live builds never see the flag - bundles stay identical."""
         self.ensure_available()
+        env_extra = {"LUI_COVERAGE": "1"} if self._is_dev_copy(project_dir) else None
         code, out = await self._run(
-            self._cli("validate", str(project_dir)), timeout=GATE_TIMEOUT_S
+            self._cli("validate", str(project_dir)),
+            timeout=GATE_TIMEOUT_S,
+            env_extra=env_extra,
         )
         return V2GateResult(passed=code == 0, output=out)
+
+    @staticmethod
+    def _is_dev_copy(project_dir: Path) -> bool:
+        try:
+            import json as _json
+
+            manifest = _json.loads(
+                (Path(project_dir) / "manifest.json").read_text(encoding="utf-8")
+            )
+            return manifest.get("env") == "dev"
+        except Exception:
+            return False
 
     async def kit_sync(self, project_dir: Path) -> None:
         """Re-vendor the kit and re-canonize system-file hashes (used after

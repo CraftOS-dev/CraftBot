@@ -1469,6 +1469,15 @@ UI in {project.path}/frontend/src/app/."""
         # both markReady/markRunning are idempotent, so the overlap is benign.
         await self._broadcast_ready(project)
 
+        # Scoped walk-verify baseline: whatever the REAL project dir serves
+        # here IS the live app, so it is what the next verify's diff is
+        # taken against. Covers every path that never promotes (marketplace
+        # install, import, startup auto-launch, restart) - without it a
+        # marketplace app's first modify was a NO BASELINE full walk. Skipped
+        # while a dev env exists: the real dir then holds unverified edits.
+        if getattr(project, "project_type", "native") != "external":
+            await self._record_verify_baseline(project)
+
         logger.info(f"[LIVING_UI] {project.name} running at {project.url}")
         return {
             "status": "success",
@@ -1476,6 +1485,23 @@ UI in {project.path}/frontend/src/app/."""
             "backend_url": project.url,
             "port": project.port,
         }
+
+    async def _record_verify_baseline(self, project: LivingUIProject) -> None:
+        """Best-effort, off the event loop; never fails a launch."""
+        try:
+            from app.factory.host_craftbot import get_factory_host
+
+            if get_factory_host().get_staging_record(project.id):
+                return
+            from app.living_ui.verify_scope import ensure_baseline, verify_store_dir
+
+            written = await asyncio.to_thread(
+                ensure_baseline, project.path, verify_store_dir(project)
+            )
+            if written:
+                logger.info(f"[LIVING_UI] verify baseline recorded for {project.id}")
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] verify baseline skipped for {project.id}: {e}")
 
     async def _broadcast_ready(self, project: LivingUIProject) -> None:
         """Push a living_ui_ready event so open browser tabs clear the launch
@@ -2265,6 +2291,18 @@ UI in {project.path}/frontend/src/app/."""
                 logger.warning(
                     f"[LIVING_UI] stamp_delivered failed for {project.id}: {e}"
                 )
+            # Scoped walk-verify: an app that arrived finished is a VERIFIED
+            # state (walked upstream). Record its code as the baseline and
+            # say so in the verify history, so the first local modify diffs
+            # against the shipped code instead of walking everything.
+            try:
+                from app.living_ui.verify_scope import record_delivered, verify_store_dir
+
+                record_delivered(
+                    project.path, verify_store_dir(project), source="marketplace/import"
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] delivered baseline skipped for {project.id}: {e}")
         else:
             # Trigger-plane consent (spec TRIGGERS-PLAN): apps BUILT here are
             # first-party — the user asked for them and this CraftBot's agent

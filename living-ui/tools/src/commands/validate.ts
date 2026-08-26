@@ -45,6 +45,7 @@ const BASELINE_DEV_DEPS = new Set([
   'tailwindcss',
   'typescript',
   'vite',
+  'vite-plugin-istanbul', // dev-build coverage for scoped walk-verify (LUI_COVERAGE=1)
 ]);
 
 const BASELINE_SCRIPTS: Record<string, string> = {
@@ -761,6 +762,9 @@ function computeBuildFingerprint(frontendDir: string): string | null {
     walk(frontendDir, '');
     files.sort();
     const h = createHash('sha256');
+    // A coverage-instrumented (dev) build is a different artifact from a
+    // plain one — the flag is a build input.
+    h.update(`LUI_COVERAGE=${process.env['LUI_COVERAGE'] ?? ''}\0`);
     for (const rel of files) {
       h.update(rel);
       h.update('\0');

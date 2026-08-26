@@ -93,6 +93,19 @@ class Promoter:
 
         result["first"] = first
         host.stamp_delivered(project.id)
+        # Scoped walk-verify baseline (docs/design/scoped-walk-verify.md):
+        # the just-promoted code is what the NEXT verify's diff is taken
+        # against. Stored beside _staging/_backups, never in the project dir
+        # (the builder must not be able to edit its own baseline). A failure
+        # here degrades the next verify to "NO BASELINE - walk everything";
+        # it never fails the promote.
+        if not is_external:
+            try:
+                from app.living_ui.verify_scope import ensure_baseline, verify_store_dir
+
+                ensure_baseline(project.path, verify_store_dir(project))
+            except Exception as e:
+                logger.warning(f"[LIVING_UI:PROMOTE] verify baseline not written: {e}")
         # Trigger consent (spec TRIGGERS-PLAN): a supervised build or modify
         # that delivered is first-party work the user asked for in chat —
         # approve its declared triggers. This is also how apps built BEFORE

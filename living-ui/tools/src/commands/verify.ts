@@ -44,7 +44,26 @@ export async function run(args: string[]): Promise<number> {
   const screenshotPath = join(verifyDir, 'home.png');
 
   const consoleErrors: string[] = [];
-  const browser = await chromium.launch({ headless: true });
+  // A present `playwright` package with no matching browser binary (fresh
+  // npm install, no `npx playwright install`) throws here with Playwright's
+  // boxed "Executable doesn't exist" banner. That is the same tooling
+  // condition as "not installed" and must never fail a launch (observed
+  // live 2026-08-25: a workspace `npm install` flipped every launch from
+  // skipped to failed).
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (err) {
+    const reason = (err instanceof Error ? err.message : String(err))
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l !== '' && !/^[╔╚║═]+$/.test(l))
+      .slice(0, 3)
+      .join(' ')
+      .slice(0, 300);
+    log.raw(JSON.stringify({ status: 'skipped', reason: `browser unavailable: ${reason}` }));
+    return 2;
+  }
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.on('console', (msg) => {

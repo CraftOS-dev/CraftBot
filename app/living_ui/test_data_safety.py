@@ -511,7 +511,7 @@ async def _b_progress(pid, *a, **k):
     pass
 
 
-async def _walk_stub(project, base_url=None, project_path=None):
+async def _walk_stub(project, base_url=None, project_path=None, **_scope_kwargs):
     WALK.update(base_url=base_url, project_path=project_path)
     return WALK["report"]
 

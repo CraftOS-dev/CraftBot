@@ -356,9 +356,23 @@ class FactoryHost:
         url: str = "",
         verified: Optional[List[str]] = None,
         caveat: str = "",
+        scope_note: str = "",
     ) -> Optional[Decision]:
         """Feed the walk_verify verdict; act on the machine's Decision.
-        Returns the Decision so the action can shape its agent-facing text."""
+        Returns the Decision so the action can shape its agent-facing text.
+        `scope_note` is the verifier's scope in one clause ('' = full walk)
+        for the ready announcement."""
+        # Fix-mission input for the NEXT verify: the features observed broken
+        # (must-include), cleared on any clean verdict.
+        try:
+            side = self._sidecar_read(project_id)
+            if kind == "defects":
+                side["last_defects"] = self._defect_feature_names(defects or [])
+                self._sidecar_write(project_id, side)
+            elif kind in ("pass", "incomplete", "blocked") and side.pop("last_defects", None) is not None:
+                self._sidecar_write(project_id, side)
+        except Exception as e:
+            logger.debug(f"[FACTORY] last_defects bookkeeping failed: {e}")
         machine = self.machine_for(project_id)
         if machine is None:
             return None
@@ -406,6 +420,7 @@ class FactoryHost:
                     caveat,
                     modify=bool(generations)
                     and generations[-1].get("final_state") == DONE,
+                    scope_note=scope_note,
                 )
             return decision
 
@@ -812,6 +827,25 @@ status messages; when verification passes the user is informed automatically."""
         except Exception as e:
             logger.debug(f"[FACTORY] chat emit failed: {e}")
 
+    @staticmethod
+    def _defect_feature_names(defects: List[str]) -> List[str]:
+        """'- <feature> — FAIL — …' lines → feature names (fix-mission scope)."""
+        import re as _re
+
+        names: List[str] = []
+        for line in defects:
+            m = _re.match(r"^-?\s*(.{1,160}?)\s*(?:—|–|:|-)\s*FAIL\b", str(line).strip())
+            name = (m.group(1) if m else str(line)).strip(" -")
+            if name and name not in names:
+                names.append(name[:160])
+        return names[:20]
+
+    def get_last_defects(self, project_id: str) -> List[str]:
+        """Features the last walk observed broken (empty outside a fix arc)."""
+        side = self._sidecar_read(project_id)
+        val = side.get("last_defects")
+        return [str(x) for x in val] if isinstance(val, list) else []
+
     def _announce_ready(
         self,
         project_id: str,
@@ -819,6 +853,7 @@ status messages; when verification passes the user is informed automatically."""
         verified: List[str],
         caveat: str,
         modify: bool = False,
+        scope_note: str = "",
     ) -> None:
         n = len(verified)
         lead = (
@@ -826,7 +861,8 @@ status messages; when verification passes the user is informed automatically."""
             if modify
             else f"✅ The app is ready at {url}"
         )
-        text = lead + (f" — {n} feature(s) verified in a real browser." if n else ".")
+        scoped = f" ({scope_note})" if scope_note else ""
+        text = lead + (f" — {n} feature(s) verified in a real browser{scoped}." if n else ".")
         if caveat:
             text += f"\n⚠️ {caveat}"
         self._emit_chat(project_id, text)
