@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from './components/layout'
 import { ChatPage } from './pages/Chat'
@@ -13,7 +14,7 @@ import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
 
 // Forces LivingUIPage to remount per-project so useState initializers
-// (theme, custom colors) always start fresh — not carried over from a previous project.
+// (theme, custom colors) always start fresh - not carried over from a previous project.
 function LivingUIPageRoute() {
   const { projectId } = useParams<{ projectId: string }>()
   return <LivingUIPage key={projectId} />
@@ -31,6 +32,22 @@ function SessionChatRoute() {
 
 function App() {
   const { initReceived, needsHardOnboarding } = useWebSocket()
+
+  // Fade the main interface in once, right after the onboarding outro hands off
+  // (the wizard sets this flag just before completing). One-shot via
+  // sessionStorage so normal reloads don't fade.
+  useEffect(() => {
+    if (needsHardOnboarding) return
+    let flagged = false
+    try { flagged = sessionStorage.getItem('cb_onboarded_fade') === '1' } catch { /* ignore */ }
+    if (!flagged) return
+    try { sessionStorage.removeItem('cb_onboarded_fade') } catch { /* ignore */ }
+    const root = document.getElementById('root')
+    if (!root) return
+    root.classList.add('cb-app-fade')
+    const t = window.setTimeout(() => root.classList.remove('cb-app-fade'), 600)
+    return () => window.clearTimeout(t)
+  }, [needsHardOnboarding])
 
   // Block rendering until the backend sends the initial state.
   // Without this guard, needsHardOnboarding defaults to false and the chat
