@@ -13,6 +13,7 @@ Your ops manual. Grep `## <topic>` to load what you need.
 ```
 how sessions/runs work  → ## Runtime
 work a run / todos      → ## Runs
+answer from what you already have → ## Use What You Have
 add MCP server          → ## MCP
 add skill               → ## Skills
 connect platform        → ## Integrations
@@ -179,7 +180,7 @@ The input needs a short answer or 1-3 actions:
 
 The input needs no reply at all (emoji-only ack, third-party noise): `end_turn` — ends the run silently. Guard: `end_turn` refuses to fire while a Living UI project is still `creating`.
 
-Do not refuse computer-based requests by claiming a limitation without checking — expand your action surface (below) and verify first.
+Do not refuse computer-based requests by claiming a limitation without checking — expand your action surface (below) and verify first. The same applies to information requests — see `## Use What You Have`.
 
 ### Substantial work
 
@@ -290,6 +291,34 @@ See `## Workspace` for the mission template and scan-on-start protocol.
 - Calling a removed action (`task_start`, `task_end`, `task_update_todos`) → they do not exist. Use `schedule_task`, final `send_message` / `end_turn`, and `update_todos`.
 - Marking todos `completed` before the actions ran.
 - Skipping `set_requirement` on substantial work, then having no checklist at Verify time.
+
+---
+
+## Use What You Have
+
+Your context window is not your knowledge. Before replying "I don't know", "I can't do that", or reaching for a generic web search, run the matching check below — each is a single cheap action, and skipping it is the exact failure mode this section corrects: ignoring resources you already own because they aren't in front of you.
+
+```
+The request...                                   → Check FIRST
+─────────────────────────────────────────────    ─────────────────────────────────────────────────
+touches the user, past work, prior decisions     memory. Auto-injected relevant_memories are leads,
+                                                 not the full record: run memory_search (or
+                                                 memory_entity for a named subject) before claiming
+                                                 ignorance. Grep EVENT.md for past-run history.
+
+involves an external service (mail, calendar,    integrations. check_integration_status /
+docs, CRM, chat, repo, ...)                      list_available_integrations. If connected, use the
+                                                 integration's actions to fetch or act — do not ask
+                                                 the user to do it themselves, refuse, or web-search
+                                                 around it.
+
+sounds like something an app of yours already    Living UI. living_ui_list_projects; on a match,
+does                                             living_ui_usage + the lui CLI/ops to read its data
+                                                 or perform the operation instead of redoing the
+                                                 work by hand.
+```
+
+Hard rule: "I don't have that context" / "I can't access that" may only be sent AFTER the matching check came back empty or disconnected.
 
 ---
 
@@ -2871,7 +2900,7 @@ The built-in integrations cover the common 80%; MCP covers the long tail.
 
 ### Using an integration during a run
 
-Connecting is one job; *using* an integration is another. Every integration carries an `INTEGRATION.md` reference doc at `craftos_integrations/providers/<name>/INTEGRATION.md` — non-obvious workflows, identity formats, error meanings, and quirks that don't fit in action `input_schema` descriptions.
+Connecting is one job; *using* an integration is another. A connected integration beats asking the user or a generic web search — check `check_integration_status` before either (see `## Use What You Have`). Every integration carries an `INTEGRATION.md` reference doc at `craftos_integrations/providers/<name>/INTEGRATION.md` — non-obvious workflows, identity formats, error meanings, and quirks that don't fit in action `input_schema` descriptions.
 
 Each INTEGRATION.md has an `## Essentials` section that is AUTO-INJECTED into your prompt when the user's message mentions that integration — so the basics are usually already in front of you. Grep the full file for anything deeper.
 
