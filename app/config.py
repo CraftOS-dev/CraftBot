@@ -338,18 +338,11 @@ def get_base_url(provider: str) -> Optional[str]:
     settings = get_settings()
     endpoints = settings.get("endpoints", {})
 
-    if provider == "byteplus":
-        url = endpoints.get("byteplus_base_url", "")
-        return url if url else "https://ark.ap-southeast.bytepluses.com/api/v3"
-    elif provider == "remote":
-        url = endpoints.get("remote_model_url", "")
-        return url if url else "http://localhost:11434"
-    elif provider == "gemini" or provider == "google":
+    if provider == "gemini" or provider == "google":
+        # Gemini's override lives under the legacy google_api_base key and
+        # has no profile-derived slot (native wire, URL not exposed in UI).
         return endpoints.get("google_api_base") or None
-    elif provider == "openrouter":
-        url = endpoints.get("openrouter_base_url", "")
-        return url if url else "https://openrouter.ai/api/v1"
-    elif provider == "bedrock":
+    if provider == "bedrock":
         # For Bedrock the "base URL" slot carries the AWS region.
         region = (
             endpoints.get("aws_region")
@@ -358,7 +351,17 @@ def get_base_url(provider: str) -> Optional[str]:
         )
         return region or "us-east-1"
 
-    return None
+    # Every other provider: the saved endpoint under its profile-derived
+    # endpoints key, else the profile default. Covers local servers
+    # (lmstudio/vllm/llamacpp), the new cloud providers, and custom
+    # providers — not just the legacy byteplus/remote/openrouter trio.
+    from agent_core.core.models.registry import get_registry
+
+    profile = get_registry().get(provider)
+    if profile is None:
+        return None
+    url = endpoints.get(profile.settings_endpoint_key, "")
+    return url if url else profile.default_base_url
 
 
 def get_aws_credentials() -> Dict[str, str]:

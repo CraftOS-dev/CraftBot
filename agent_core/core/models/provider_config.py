@@ -135,6 +135,21 @@ class ProviderProfile:
     openrouter_namespace: Optional[str] = None  # was _OR_NAMESPACE
     openrouter_slug_map: Mapping[str, str] = field(default_factory=dict)
 
+    @property
+    def settings_endpoint_key(self) -> str:
+        """settings.json ``endpoints.<key>`` slot for this provider's base URL.
+
+        Derived so every provider (built-in, local server, custom) has a
+        persistence slot without hand-syncing a per-provider branch in the
+        save/load/test paths. The derivation reproduces the legacy keys
+        exactly: BYTEPLUS_BASE_URL -> byteplus_base_url, REMOTE_MODEL_URL ->
+        remote_model_url, OPENROUTER_BASE_URL -> openrouter_base_url,
+        AWS_REGION -> aws_region (Bedrock's "base URL" is the region).
+        """
+        if self.base_url_env:
+            return self.base_url_env.lower()
+        return f"{self.key}_base_url"
+
 
 # Legacy alias — every existing `from ... import ProviderConfig` keeps working.
 ProviderConfig = ProviderProfile
@@ -726,9 +741,10 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         # json_object — omit response_format and rely on prompt-instructed
         # JSON (vLLM and llama.cpp DO accept json_object, so they keep it).
         supports_json_object=False,
-        # Discovery fills the real loaded model from the running server; the
-        # default below is a common LM Studio download so the field is never
-        # blank pre-discovery (mirrors Ollama's llama3.2:3b default).
+        # /v1/models discovery stays available for tooling, but the settings
+        # UI keeps the model id free-text for local servers (local_kind set):
+        # the user types whatever they loaded. The default below is a common
+        # LM Studio download so the field is never blank.
         supports_model_discovery=True,
         local_kind="lmstudio",
         connection_test_model="openai/gpt-oss-20b",
@@ -749,9 +765,10 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         default_base_url="http://localhost:8000/v1",
         display_name="vLLM (Local)",
         requires_api_key=False,
-        # vLLM serves exactly one model — discovery reads /v1/models and
-        # fills it; the default is the canonical vLLM example model.
+        # vLLM serves exactly one model. Discovery stays available for
+        # tooling; the settings UI model field is free-text (local_kind).
         supports_model_discovery=True,
+        local_kind="vllm",
         connection_test_model="meta-llama/Llama-3.1-8B-Instruct",
         default_models={
             InterfaceType.LLM: "meta-llama/Llama-3.1-8B-Instruct",
@@ -768,9 +785,10 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         default_base_url="http://localhost:8080/v1",
         display_name="llama.cpp (Local)",
         requires_api_key=False,
-        # llama-server serves one loaded model — discovery reads /v1/models
-        # (always a single element) and fills it.
+        # llama-server serves one loaded model. Discovery stays available for
+        # tooling; the settings UI model field is free-text (local_kind).
         supports_model_discovery=True,
+        local_kind="llamacpp",
         connection_test_model="llama-3.1-8b-instruct",
         default_models={
             InterfaceType.LLM: "llama-3.1-8b-instruct",

@@ -28,6 +28,7 @@ from app.models import (
 # tests/settings/snapshots/provider_info.json; per-provider data (names, env
 # vars, subscription OAuth, is_bedrock, base_url_env visibility rules) lives
 # on ProviderProfile in agent_core/core/models/provider_config.py.
+from agent_core.core.models.registry import get_registry
 from agent_core.core.models.registry import provider_info as _derive_provider_info
 
 PROVIDER_INFO = _derive_provider_info()
@@ -257,20 +258,18 @@ def get_model_settings() -> Dict[str, Any]:
             # falls back to API-key-only mode rather than 500ing the settings call.
             pass
 
-        # Get base URLs for providers that support them (settings.json only)
+        # Get base URLs for providers that support them (settings.json only).
+        # Keys are derived from the provider profiles so every provider's
+        # saved endpoint round-trips back to the UI — not just the legacy four.
         base_urls = {}
-        if endpoints_settings.get("byteplus_base_url"):
-            base_urls["byteplus"] = endpoints_settings["byteplus_base_url"]
+        for pid, profile in get_registry().items():
+            saved_url = endpoints_settings.get(profile.settings_endpoint_key)
+            if saved_url:
+                base_urls[pid] = saved_url
 
-        # Support both the legacy "remote_model_url" key and "remote" key
-        remote_url = endpoints_settings.get(
-            "remote_model_url"
-        ) or endpoints_settings.get("remote")
-        if remote_url:
-            base_urls["remote"] = remote_url
-
-        if endpoints_settings.get("openrouter_base_url"):
-            base_urls["openrouter"] = endpoints_settings["openrouter_base_url"]
+        # Support the legacy "remote" key alongside "remote_model_url"
+        if not base_urls.get("remote") and endpoints_settings.get("remote"):
+            base_urls["remote"] = endpoints_settings["remote"]
 
         # Bedrock: surface the region through the same base_urls map so the
         # frontend can use the existing field. AWS creds status is reported
@@ -447,17 +446,19 @@ def update_model_settings(
             if settings_key:
                 settings["api_keys"][settings_key] = api_key
 
-        # Update base URL in settings.json
+        # Update base URL in settings.json. The endpoints key is derived from
+        # the provider profile so every provider with an endpoint (local
+        # servers, new cloud providers, custom) persists — not just the
+        # legacy four. Bedrock's derived slot is aws_region (the "base URL"
+        # carries the region).
         if provider_for_url and base_url is not None:
-            if provider_for_url == "byteplus":
-                settings["endpoints"]["byteplus_base_url"] = base_url
-            elif provider_for_url == "remote":
-                settings["endpoints"]["remote_model_url"] = base_url
-            elif provider_for_url == "openrouter":
-                settings["endpoints"]["openrouter_base_url"] = base_url
-            elif provider_for_url == "bedrock":
-                # Bedrock's "base URL" slot carries the AWS region.
-                settings["endpoints"]["aws_region"] = base_url
+            profile = get_registry().get(provider_for_url)
+            if profile is None:
+                return {
+                    "success": False,
+                    "error": f"Unknown provider for base URL: {provider_for_url}",
+                }
+            settings["endpoints"][profile.settings_endpoint_key] = base_url
 
         # Update AWS credentials block (bedrock-only)
         if aws_credentials:
@@ -534,24 +535,19 @@ def test_connection(
             if settings_key:
                 api_key = api_keys_settings.get(settings_key)
 
-        # If no base URL provided, try to get it from settings.json
-        if base_url is None and provider in [
-            "byteplus",
-            "remote",
-            "openrouter",
-            "bedrock",
-        ]:
-            if provider == "byteplus":
-                base_url = endpoints_settings.get("byteplus_base_url")
-            elif provider == "remote":
-                base_url = endpoints_settings.get("remote_model_url")
-            elif provider == "openrouter":
-                base_url = endpoints_settings.get("openrouter_base_url")
-            elif provider == "bedrock":
+        # If no base URL provided, try to get the saved one from settings.json
+        # (key derived from the provider profile — covers every provider).
+        if base_url is None:
+            profile = get_registry().get(provider)
+            if profile is not None:
+                base_url = (
+                    endpoints_settings.get(profile.settings_endpoint_key) or None
+                )
+            if provider == "bedrock" and base_url is None:
                 # `base_url` carries the AWS region through the existing
                 # plumbing — the connection tester reads boto3 creds from
                 # settings.json directly via app.config.get_aws_credentials.
-                base_url = endpoints_settings.get("aws_region", "us-east-1")
+                base_url = "us-east-1"
 
         # Run connection test
         result = test_provider_connection(
@@ -643,13 +639,17 @@ def get_provider_models(
 
     Returns {success, models: [id,...], error?}. Never raises.
     """
-    from agent_core.core.models.registry import get_registry
-
     profile = get_registry().get(provider)
     if profile is None:
         return {"success": False, "models": [], "error": f"Unknown provider: {provider}"}
 
-    url = base_url or profile.default_base_url
+    # Explicit URL wins, else the user's saved endpoint, else the default.
+    url = base_url
+    if not url:
+        settings = _load_settings()
+        url = settings.get("endpoints", {}).get(profile.settings_endpoint_key)
+    if not url:
+        url = profile.default_base_url
     if not url:
         return {"success": False, "models": [], "error": "No base URL configured."}
 

@@ -333,6 +333,11 @@ def _openai_compat_chat_test(
                 ErrorCategory.AUTH,
                 ErrorCategory.MODEL,
                 ErrorCategory.CREDIT,
+                # CONNECTION means the server was never reached — a "test"
+                # that never talked to the endpoint cannot pass. Critical for
+                # local servers (LM Studio/vLLM/llama.cpp/Ollama) where a
+                # down server previously reported success.
+                ErrorCategory.CONNECTION,
             ):
                 return {
                     "success": False,
@@ -340,7 +345,8 @@ def _openai_compat_chat_test(
                     "provider": provider,
                     "error": info.message,
                 }
-            # RATE_LIMIT, SERVER, BAD_REQUEST, etc. — auth+model are likely fine.
+            # RATE_LIMIT, SERVER, BAD_REQUEST, etc. — the endpoint answered,
+            # so auth+model are likely fine.
             return _success(provider, model)
         except Exception:
             return _classified_error_result(exc, provider, model)

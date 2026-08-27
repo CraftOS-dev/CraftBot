@@ -276,7 +276,10 @@ export function ModelSettings() {
         if (rec) setSelectedPullModel(rec.name)
       }),
       onMessage('provider_models_get', (data: unknown) => {
-        const d = data as { success: boolean; models?: string[] }
+        const d = data as { success: boolean; models?: string[]; provider?: string }
+        // Responses are broadcast and can arrive after a provider switch —
+        // only accept the list that belongs to the currently selected provider.
+        if (d.provider && d.provider !== provider) return
         setDiscoveredLoading(false)
         const models = d.success && d.models ? d.models : []
         setDiscoveredModels(models)
@@ -377,11 +380,18 @@ export function ModelSettings() {
   const currentProvider = providers.find(p => p.id === provider)
 
   // Generic /v1/models discovery: fetch whenever the active provider
-  // advertises has_model_discovery (new cloud providers + local servers).
-  // Ollama keeps its own native path above.
+  // advertises has_model_discovery (new cloud providers). Ollama keeps its
+  // own native path above. Local servers (lmstudio/vllm/llamacpp) are
+  // excluded: their model id is always a free-text input, so there is
+  // nothing to discover for the field.
   useEffect(() => {
     setDiscoveredModels([])
-    if (!isConnected || !currentProvider?.has_model_discovery || provider === 'remote') return
+    if (
+      !isConnected ||
+      !currentProvider?.has_model_discovery ||
+      currentProvider?.local_kind ||
+      provider === 'remote'
+    ) return
     setDiscoveredLoading(true)
     send('provider_models_get', {
       provider,
@@ -389,16 +399,20 @@ export function ModelSettings() {
       apiKey: newApiKey || undefined,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider, isConnected, currentProvider?.has_model_discovery, baseUrls, send])
+  }, [provider, isConnected, currentProvider?.has_model_discovery, currentProvider?.local_kind, baseUrls, send])
 
   // Options for the LLM/VLM dropdowns: Ollama native list, else the
   // live-discovered /v1/models list. We never ship a hardcoded model list —
   // providers we can't enumerate online fall back to a free-text input so the
   // suggestions can't go stale.
+  // Local servers (lmstudio/vllm/llamacpp) never get a dropdown: the model
+  // id is whatever the user loaded on their server, so it stays a text input.
   const modelOptions: string[] =
     provider === 'remote'
       ? ollamaModels
-      : discoveredModels
+      : currentProvider?.local_kind
+        ? []
+        : discoveredModels
   const modelsLoading = provider === 'remote' ? ollamaModelsLoading : discoveredLoading
 
   // Update models when provider changes — only before settings have loaded (fallback to

@@ -5243,10 +5243,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                     test_api_key = get_api_key(new_provider)
 
+                # Pass the model being saved so this test takes the same
+                # chat-completion path (and reaches the same verdict) as the
+                # frontend's test-before-save — with no model the tester
+                # falls back to a different auth-only probe and the two can
+                # contradict each other.
                 test_result = test_connection(
                     provider=new_provider,
                     api_key=test_api_key,
                     base_url=base_url,
+                    model=data.get("llmModel"),
                     aws_credentials=aws_credentials_in,
                 )
                 if not test_result.get("success"):
@@ -5489,12 +5495,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             result = await asyncio.to_thread(
                 get_provider_models, provider, base_url, api_key
             )
-            await self._broadcast({"type": "provider_models_get", "data": result})
+            # Echo the provider so the frontend can drop responses that
+            # arrive after the user switched provider — an untagged late
+            # response used to repopulate the model dropdown with another
+            # provider's models.
+            await self._broadcast(
+                {
+                    "type": "provider_models_get",
+                    "data": {**result, "provider": provider},
+                }
+            )
         except Exception as e:
             await self._broadcast(
                 {
                     "type": "provider_models_get",
-                    "data": {"success": False, "models": [], "error": str(e)},
+                    "data": {
+                        "success": False,
+                        "models": [],
+                        "error": str(e),
+                        "provider": provider,
+                    },
                 }
             )
 
