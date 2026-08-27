@@ -27,11 +27,14 @@ from agent_core.utils.logger import logger
 
 @profile("llm_byteplus_call", OperationCategory.LLM)
 def generate(
-    iface, system_prompt: str | None, user_prompt: str
+    iface, system_prompt: str | None, user_prompt: str, json_mode: bool = True
 ) -> Dict[str, Any]:
     """Generate response using BytePlus with automatic prefix caching.
 
     Routes to prefix cache or standard API based on context.
+
+    ``json_mode`` is accepted for transport-signature uniformity but unused:
+    the Responses API has no json_object knob here — JSON is prompt-instructed.
     """
     config = get_cache_config()
     # Use prefix caching if:

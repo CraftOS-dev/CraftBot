@@ -5,9 +5,14 @@
  *   3. migrations apply    (against a FRESH temp pb_data)
  *   4. operations.json     (structural validation)
  * Machine-readable failures: one line per error, `step: message`.
+ *
+ * Steps 1-2 are the wall-time cost (68-200s) and are skipped when the build
+ * inputs are unchanged since the last successful build (see the build-currency
+ * fast path below); every other step runs on every call.
  */
+import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileMatchesCanon, recordFileHash, verifySystemHashes } from '../lib/hashes.ts';
@@ -40,6 +45,7 @@ const BASELINE_DEV_DEPS = new Set([
   'tailwindcss',
   'typescript',
   'vite',
+  'vite-plugin-istanbul', // dev-build coverage for scoped walk-verify (LUI_COVERAGE=1)
 ]);
 
 const BASELINE_SCRIPTS: Record<string, string> = {
@@ -717,6 +723,79 @@ function validateOps(projectDir: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Build-currency fast path
+//
+// `tsc --noEmit` + `vite build` are 90%+ of the gate's wall time (measured
+// 68-200s per app) and reproduce identical output when their inputs are
+// unchanged. Fingerprint every build input under frontend/; when it matches
+// the last SUCCESSFUL build and pb_public still holds that output, skip both
+// steps. Every other gate step still runs, and the host's headless `verify`
+// remains the backstop: a stale or corrupt cached build fails to mount there,
+// which forces a full rebuild on the next launch (the fingerprint is only
+// written after a clean build, never after a failed one).
+// ---------------------------------------------------------------------------
+
+const BUILD_FP_FILE = join('.lui', 'build-fingerprint.txt');
+const BUILD_INPUT_IGNORE = new Set(['node_modules', 'dist', '.vite', '.turbo', '.cache']);
+
+/** SHA-256 over every build input under frontend/ (src, package.json, the
+ *  lockfile, tsconfig, vite/tailwind config, index.html, public assets),
+ *  excluding node_modules and any build output. Order-independent: relative
+ *  paths are sorted and both the path and the bytes feed the hash. Returns
+ *  null when frontend/ can't be read — a null is never treated as "current". */
+function computeBuildFingerprint(frontendDir: string): string | null {
+  if (!existsSync(frontendDir)) return null;
+  const files: string[] = [];
+  const walk = (dir: string, rel: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const childRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (BUILD_INPUT_IGNORE.has(entry.name)) continue;
+        walk(join(dir, entry.name), childRel);
+      } else if (entry.isFile()) {
+        files.push(childRel);
+      }
+    }
+  };
+  try {
+    walk(frontendDir, '');
+    files.sort();
+    const h = createHash('sha256');
+    // A coverage-instrumented (dev) build is a different artifact from a
+    // plain one — the flag is a build input.
+    h.update(`LUI_COVERAGE=${process.env['LUI_COVERAGE'] ?? ''}\0`);
+    for (const rel of files) {
+      h.update(rel);
+      h.update('\0');
+      h.update(readFileSync(join(frontendDir, rel)));
+      h.update('\0');
+    }
+    return h.digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function readBuildFingerprint(projectDir: string): string | null {
+  try {
+    return readFileSync(join(projectDir, BUILD_FP_FILE), 'utf8').trim();
+  } catch {
+    return null;
+  }
+}
+
+function writeBuildFingerprint(projectDir: string, fp: string): void {
+  try {
+    mkdirSync(join(projectDir, '.lui'), { recursive: true });
+    writeFileSync(join(projectDir, BUILD_FP_FILE), fp + '\n');
+  } catch (err) {
+    log.warn(
+      `could not record build fingerprint (next launch will rebuild): ${(err as Error).message}`,
+    );
+  }
+}
+
 export async function run(args: string[]): Promise<number> {
   const projectDir = args[0];
   if (projectDir === undefined || !existsSync(join(projectDir, 'manifest.json'))) {
@@ -746,9 +825,28 @@ export async function run(args: string[]): Promise<number> {
     }
   });
 
-  runStep(errors, 'types (tsc --noEmit)', () => npmRun('typecheck'));
+  // Skip tsc + vite build when the inputs are byte-for-byte the last-built
+  // state AND pb_public still holds that output; otherwise build and record
+  // the fingerprint — but only when BOTH steps pass, so a failed build never
+  // marks itself current. tsc --noEmit and vite build write nothing under
+  // frontend/, so the fingerprint taken before the build still describes the
+  // inputs afterward.
+  const builtIndex = join(projectDir, 'pb', 'pb_public', 'index.html');
+  const buildFp = computeBuildFingerprint(frontendDir);
+  const buildCurrent =
+    buildFp !== null && existsSync(builtIndex) && readBuildFingerprint(projectDir) === buildFp;
 
-  runStep(errors, 'build (vite)', () => npmRun('build'));
+  if (buildCurrent) {
+    log.ok('types (tsc --noEmit) — skipped (build inputs unchanged)');
+    log.ok('build (vite) — skipped (build inputs unchanged)');
+  } else {
+    const errorsBefore = errors.length;
+    runStep(errors, 'types (tsc --noEmit)', () => npmRun('typecheck'));
+    runStep(errors, 'build (vite)', () => npmRun('build'));
+    if (errors.length === errorsBefore && buildFp !== null && existsSync(builtIndex)) {
+      writeBuildFingerprint(projectDir, buildFp);
+    }
+  }
 
   const pbBin = await ensurePbBinary();
   await runStepAsync(errors, 'migrations (fresh pb_data)', async () => {

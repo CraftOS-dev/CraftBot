@@ -311,6 +311,94 @@ class UIController:
                     exc_info=True,
                 )
 
+    async def submit_question_answer(
+        self,
+        value: str,
+        question: str,
+        session_id: Optional[str] = None,
+        dismissed: bool = False,
+        adapter_id: str = "",
+        pending_questions: Optional[list] = None,
+    ) -> None:
+        """
+        Handle the user's response to a pinned agent question (suggested
+        responses UI).
+
+        Paints the answer as a normal user bubble, then hands the agent a
+        marker-prefixed copy that names the question being answered — the
+        answer rides the regular user-message trigger, so it queues/merges
+        like any other message when the agent is mid-run.
+
+        Args:
+            value: The chosen suggestion or typed free-text answer. Ignored
+                when dismissed.
+            question: The question message's text (for the agent-side marker).
+            session_id: The session the question belongs to.
+            dismissed: True when the user closed the question unanswered —
+                no bubble is painted; the agent is told to proceed on its
+                own judgment.
+            adapter_id: ID of the adapter that sent the response.
+            pending_questions: Contents of the session's OTHER still-
+                unanswered questions. Appended as a reminder so the agent
+                doesn't re-ask questions that are still pinned in the UI.
+        """
+        question_excerpt = " ".join(question.split())
+        if len(question_excerpt) > 200:
+            question_excerpt = question_excerpt[:200] + "..."
+
+        if dismissed:
+            agent_text = (
+                f'[QUESTION DISMISSED] The user dismissed your question '
+                f'("{question_excerpt}") without answering. Do NOT re-ask '
+                f"it; proceed using your best judgment."
+            )
+        else:
+            if not value.strip():
+                return
+            agent_text = f'[ANSWERING YOUR QUESTION "{question_excerpt}"] {value}'
+
+            # Paint the answer as a user bubble (and persist it) — only the
+            # answer text; the marker is agent-facing context.
+            self._event_bus.emit(
+                UIEvent(
+                    type=UIEventType.AGENT_STATE_CHANGED,
+                    data={
+                        "state": AgentStateType.WORKING.value,
+                        "status_message": "Agent is working...",
+                        "session_id": session_id,
+                    },
+                    source_adapter=adapter_id,
+                )
+            )
+            self._event_bus.emit(
+                UIEvent(
+                    type=UIEventType.USER_MESSAGE,
+                    data={
+                        "message": value,
+                        "adapter_id": adapter_id,
+                        "session_id": session_id,
+                    },
+                    source_adapter=adapter_id,
+                )
+            )
+
+        if pending_questions:
+            listed = " | ".join(
+                f'"{" ".join(q.split())[:120]}"' for q in pending_questions
+            )
+            agent_text += (
+                f"\n[Your other question(s) are STILL PINNED in the user's UI "
+                f"awaiting their response — do NOT re-send them: {listed}]"
+            )
+
+        await self._agent._handle_chat_message(
+            {
+                "text": agent_text,
+                "sender": {"id": adapter_id or "user", "type": "user"},
+                "session_id": session_id,
+            }
+        )
+
     async def handle_option_click(self, value: str, session_id: str) -> None:
         """
         Handle a user clicking an option button in a chat message.
@@ -460,14 +548,14 @@ class UIController:
     def _register_integration_commands(self) -> None:
         """Register integration-specific commands.
 
-        ``manager.start()`` (called during agent step 6) has already populated
-        the registry by the time the UI controller boots, so we just iterate
-        the registered handler names.
+        Enumerated from the provider registry, which is a static list built at
+        import time — no boot ordering to respect (the handler registry
+        this used to read had to be populated by ``manager.start()`` first).
         """
-        from craftos_integrations import get_registered_handler_names
+        from craftos_integrations import list_all
         from app.ui_layer.commands.builtin.integrations import IntegrationCommand
 
-        for integration_name in get_registered_handler_names():
+        for integration_name in list_all():
             cmd = IntegrationCommand(self, integration_name)
             self._command_registry.register(cmd)
 

@@ -5,7 +5,7 @@ All the wwebjs-bridge-specific knowledge lives here:
   - the self-chat id is the owner's phone (the bridge appends ``@c.us``).
   - chat history comes back from ``get_chat_messages`` as a list with
     ``{id, body, from, from_me, timestamp, type, has_media}`` per
-    [bridge.js:478-486](craftos_integrations/integrations/whatsapp_web/bridge.js#L478).
+    [bridge.js:478-486](craftos_integrations/providers/whatsapp_web/bridge.js#L478).
 
 Tests just call ``recent_messages_in_self_chat(since_ts=...)`` and assert
 on the returned list — no platform plumbing leaks into the test body.
@@ -23,7 +23,7 @@ from craftos_integrations.credentials_store import (
     remove_config,
     save_config,
 )
-from craftos_integrations.integrations.whatsapp_web import WhatsAppWebConfig
+from craftos_integrations.providers.whatsapp_web.client import WhatsAppWebConfig
 
 
 INTEGRATION_ID = "whatsapp_web"
@@ -39,7 +39,7 @@ def self_messages_only(enabled: bool):
     self-chat ones BEFORE the on-message callback fires — third-party
     messages never reach the agent at all (see
     ``WhatsAppWebClient._handle_incoming_message`` in
-    [whatsapp_web/__init__.py](craftos_integrations/integrations/whatsapp_web/__init__.py)).
+    [whatsapp_web/__init__.py](craftos_integrations/providers/whatsapp_web/__init__.py)).
 
     Usage in tests::
 

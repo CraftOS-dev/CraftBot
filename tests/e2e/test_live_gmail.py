@@ -136,7 +136,7 @@ def test_live_gmail_threads_user_content_through():
 
 def test_live_gmail_sends_unicode_body():
     """Emoji + non-Latin scripts must survive the MIME-encoded send path
-    in [gmail.py](craftos_integrations/integrations/gmail.py) and round-
+    in [gmail.py](craftos_integrations/providers/gmail.py) and round-
     trip back through Gmail's search.
     """
     agent = build_agent(require=["gmail"])

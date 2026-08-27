@@ -1,17 +1,20 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from './components/layout'
 import { ChatPage } from './pages/Chat'
 import { DashboardPage } from './pages/Dashboard'
+import { MemoryPage } from './pages/Memory'
 import { ScreenPage } from './pages/Screen'
 import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { LivingUIPage } from './pages/LivingUI'
 import { useWebSocket } from './contexts/WebSocketContext'
+import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
 
 // Forces LivingUIPage to remount per-project so useState initializers
-// (theme, custom colors) always start fresh — not carried over from a previous project.
+// (theme, custom colors) always start fresh - not carried over from a previous project.
 function LivingUIPageRoute() {
   const { projectId } = useParams<{ projectId: string }>()
   return <LivingUIPage key={projectId} />
@@ -29,6 +32,22 @@ function SessionChatRoute() {
 
 function App() {
   const { initReceived, needsHardOnboarding } = useWebSocket()
+
+  // Fade the main interface in once, right after the onboarding outro hands off
+  // (the wizard sets this flag just before completing). One-shot via
+  // sessionStorage so normal reloads don't fade.
+  useEffect(() => {
+    if (needsHardOnboarding) return
+    let flagged = false
+    try { flagged = sessionStorage.getItem('cb_onboarded_fade') === '1' } catch { /* ignore */ }
+    if (!flagged) return
+    try { sessionStorage.removeItem('cb_onboarded_fade') } catch { /* ignore */ }
+    const root = document.getElementById('root')
+    if (!root) return
+    root.classList.add('cb-app-fade')
+    const t = window.setTimeout(() => root.classList.remove('cb-app-fade'), 600)
+    return () => window.clearTimeout(t)
+  }, [needsHardOnboarding])
 
   // Block rendering until the backend sends the initial state.
   // Without this guard, needsHardOnboarding defaults to false and the chat
@@ -74,12 +93,17 @@ function App() {
     return <OnboardingPage />
   }
 
+  // TourProvider wraps the ready app (past hard onboarding), so the first-run
+  // walkthrough can never collide with the onboarding wizard. It sits inside
+  // the router, so the tour can navigate between pages.
   return (
+    <TourProvider autoStartEnabled>
     <Layout>
       <Routes>
         <Route path="/" element={<ChatPage key="main" sessionId="main" />} />
         <Route path="/session/:id" element={<SessionChatRoute />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/memory" element={<MemoryPage />} />
         <Route path="/screen" element={<ScreenPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/settings" element={<SettingsPage />} />
@@ -87,6 +111,7 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
+    </TourProvider>
   )
 }
 

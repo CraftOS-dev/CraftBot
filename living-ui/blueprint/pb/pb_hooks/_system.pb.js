@@ -4,6 +4,8 @@
  * - origin guard        CORS + frame-ancestors (spec A2APP-PLAN Phase 1 A1/A2)
  * - GET  /api/_ops      operations manifest discovery (spec O4)
  * - POST /api/_console  frontend console relay sink (spec K8/D12)
+ * - POST /api/_coverage       dev-build coverage deltas (scoped walk-verify)
+ * - POST /api/_coverage/mark  verifier's feature boundary on that timeline
  * (Health is PocketBase's built-in /api/health.)
  */
 
@@ -233,6 +235,7 @@ onBootstrap((e) => {
       { label: '/api/collections/', maxRequests: 1200, duration: 60 },
       { label: '/api/ops/', maxRequests: 300, duration: 60 },
       { label: '/api/_console', maxRequests: 120, duration: 60 },
+      { label: '/api/_coverage', maxRequests: 600, duration: 60 },
     ];
     $app.save(settings);
     console.log('[system] rate limits enabled');
@@ -286,4 +289,72 @@ routerAdd('POST', '/api/_console', (e) => {
     .join('\n');
   $os.writeFile(logFile, existing + lines + '\n', 0o644);
   return e.json(200, { ok: true });
+});
+
+/**
+ * COVERAGE TIMELINE (scoped walk-verify, docs/design/scoped-walk-verify.md).
+ * The DEV build (LUI_COVERAGE=1) is istanbul-instrumented; the kit's
+ * CoverageRelay posts function-hit DELTAS here every 2s, and the verifier
+ * posts a feature MARK before exercising each feature. Interleaved, the two
+ * make logs/coverage.jsonl a timeline the host folds into feature → executed
+ * functions. Live builds carry no instrumentation, so nothing ever posts.
+ * Same origin guard and disk cap as /api/_console. Inlined per callback.
+ */
+routerAdd('POST', '/api/_coverage', (e) => {
+  const ALLOWED_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+  let origin = '';
+  try {
+    origin = String(e.request.header.get('Origin') || '');
+  } catch {
+    origin = '';
+  }
+  if (origin !== '' && !ALLOWED_ORIGIN.test(origin)) {
+    return e.json(403, { ok: false, error: 'forbidden origin' });
+  }
+  const body = e.requestInfo().body;
+  const counters = body && typeof body.counters === 'object' && body.counters ? body.counters : null;
+  if (!counters) return e.json(200, { ok: true });
+
+  const logsDir = $filepath.join(__hooks, '..', '..', 'logs');
+  $os.mkdirAll(logsDir, 0o755);
+  const logFile = $filepath.join(logsDir, 'coverage.jsonl');
+  let existing = '';
+  try {
+    existing = toString($os.readFile(logFile));
+  } catch {
+    // first write
+  }
+  if (existing.length > 4 * 1024 * 1024) existing = existing.slice(-2 * 1024 * 1024);
+  const line = JSON.stringify({ ts: Date.now(), counters: counters }).slice(0, 512 * 1024);
+  $os.writeFile(logFile, existing + line + '\n', 0o644);
+  return e.json(200, { ok: true });
+});
+
+routerAdd('POST', '/api/_coverage/mark', (e) => {
+  const ALLOWED_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+  let origin = '';
+  try {
+    origin = String(e.request.header.get('Origin') || '');
+  } catch {
+    origin = '';
+  }
+  if (origin !== '' && !ALLOWED_ORIGIN.test(origin)) {
+    return e.json(403, { ok: false, error: 'forbidden origin' });
+  }
+  const body = e.requestInfo().body;
+  const feature = String((body && body.feature) || '').slice(0, 200);
+  if (!feature) return e.json(400, { ok: false, error: 'feature is required' });
+
+  const logsDir = $filepath.join(__hooks, '..', '..', 'logs');
+  $os.mkdirAll(logsDir, 0o755);
+  const logFile = $filepath.join(logsDir, 'coverage.jsonl');
+  let existing = '';
+  try {
+    existing = toString($os.readFile(logFile));
+  } catch {
+    // first write
+  }
+  if (existing.length > 4 * 1024 * 1024) existing = existing.slice(-2 * 1024 * 1024);
+  $os.writeFile(logFile, existing + JSON.stringify({ ts: Date.now(), mark: feature }) + '\n', 0o644);
+  return e.json(200, { ok: true, feature: feature });
 });

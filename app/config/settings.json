@@ -1,5 +1,5 @@
 {
-  "version": "1.4.1",
+  "version": "1.4.2",
   "general": {
     "agent_name": "CraftBot",
     "os_language": "en"
@@ -84,5 +84,8 @@
   "auth_mode": {
     "grok": "subscription",
     "openai": "subscription"
+  },
+  "living_ui": {
+    "marketplace_ref": ""
   }
 }

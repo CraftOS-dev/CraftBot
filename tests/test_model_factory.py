@@ -18,7 +18,7 @@ def _run_with_blocked_sdks(code: str) -> subprocess.CompletedProcess:
         # the OAuth-precedence path and eagerly build a client, making the
         # SDK-deferral contract depend on the developer's local credentials.
         _BLOCKED_PREFIXES = ("openai", "anthropic")
-        _BLOCKED_EXACT = ("craftos_integrations.integrations.llm_oauth.tokens",)
+        _BLOCKED_EXACT = ("craftos_integrations.llm_oauth.tokens",)
 
         def _is_blocked(name):
             return name in _BLOCKED_EXACT or any(

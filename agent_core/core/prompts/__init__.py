@@ -78,6 +78,12 @@ from agent_core.core.prompts.context import (
 # Reasoning prompts
 from agent_core.core.prompts.reasoning import PROMPT_ENHANCE_REASONING_PROMPT
 
+# Entity-judge pipeline prompts
+from agent_core.core.prompts.entity_pipeline import (
+    ENTITY_JUDGE_SYSTEM_PROMPT,
+    ENTITY_JUDGE_USER_PROMPT,
+)
+
 # Sub-agent prompts now live alongside the sub-agent runtime, in
 # ``app.subagent.definitions`` (per-type system prompts) and
 # ``app.subagent.context_engine`` (shared output-format contract).
@@ -104,4 +110,7 @@ __all__ = [
     "LANGUAGE_INSTRUCTION",
     # Reasoning prompts
     "PROMPT_ENHANCE_REASONING_PROMPT",
+    # Entity-judge pipeline
+    "ENTITY_JUDGE_SYSTEM_PROMPT",
+    "ENTITY_JUDGE_USER_PROMPT",
 ]

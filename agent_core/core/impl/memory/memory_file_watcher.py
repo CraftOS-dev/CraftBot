@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import threading
 import time
-from pathlib import Path
 from typing import Optional, Set
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -85,14 +84,16 @@ class MemoryFileWatcher:
         self._observer = Observer()
         event_handler = _TargetFileEventHandler(
             self._on_file_change,
-            self.watch_path,
-            MemoryManager.INDEX_TARGET_FILES,
+            self.memory_manager,
         )
 
         self._observer.schedule(
             event_handler,
             str(self.watch_path),
-            recursive=False,  # Target files are in root directory
+            # Recursive: user-selected extra files (e.g. workspace/notes.md)
+            # can live in subdirectories. The handler filters by the
+            # manager's current target set, so unrelated churn is ignored.
+            recursive=True,
         )
 
         self._observer.start()
@@ -185,27 +186,35 @@ class MemoryFileWatcher:
 
 class _TargetFileEventHandler(FileSystemEventHandler):
     """
-    Event handler that filters for specific target files and forwards events.
+    Event handler that filters for the manager's current index targets.
+
+    Membership is checked against the manager on every event (not a frozen
+    list), so files added or removed in the Memory panel take effect
+    immediately without restarting the watcher.
     """
 
-    def __init__(self, callback, watch_path: Path, target_files: list):
+    def __init__(self, callback, memory_manager: MemoryManager):
         """
         Initialize the handler.
 
         Args:
             callback: Function to call with (file_path, event_type) on changes
-            watch_path: The base directory being watched
-            target_files: List of filenames to watch (e.g., ["AGENT.md", "MEMORY.md"])
+            memory_manager: Source of truth for which files are indexed
         """
         super().__init__()
         self._callback = callback
-        self._watch_path = watch_path
-        self._target_files = set(target_files)
+        self._memory_manager = memory_manager
 
     def _is_target_file(self, path: str) -> bool:
-        """Check if the path is one of the target files."""
-        filename = Path(path).name
-        return filename in self._target_files
+        """Check if the path is currently an index target."""
+        from agent_core.core.impl.memory.text_extract import is_indexable_file
+
+        if not is_indexable_file(str(path)):
+            return False
+        try:
+            return self._memory_manager.is_index_target(str(path))
+        except Exception:
+            return False
 
     def on_created(self, event: FileSystemEvent) -> None:
         if not event.is_directory and self._is_target_file(event.src_path):

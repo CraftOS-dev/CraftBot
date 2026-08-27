@@ -22,6 +22,7 @@ except ImportError:
     BM25Okapi = None
     _HAS_BM25 = False
 
+from agent_core.core.impl.memory.tuning import BM25_SEARCH_TOP_K
 from agent_core.utils.logger import logger
 
 
@@ -76,7 +77,9 @@ class BM25Index:
                 logger.warning(f"[BM25Index] Failed to build index: {e}")
                 self._bm25 = None
 
-    def search(self, query: str, top_k: int = 20) -> List[Tuple[str, float]]:
+    def search(
+        self, query: str, top_k: int = BM25_SEARCH_TOP_K
+    ) -> List[Tuple[str, float]]:
         """Return ``[(chunk_id, score)]`` sorted high-to-low. Empty when index unavailable."""
         if not query or not query.strip():
             return []

@@ -109,7 +109,12 @@ def shell_exec(input_data: dict) -> dict:
             "pid": None,
         }
 
-    env = os.environ.copy()
+    # Resolved Node runtime leads PATH: the agent is instructed to run the
+    # lui CLI (TypeScript, needs node >= 24) via bare `node` through this
+    # action — the system default may be an older major (app/node_runtime.py).
+    from app import node_runtime
+
+    env = node_runtime.child_env()
     for k, v in env_input.items():
         env[str(k)] = str(v)
 
@@ -340,7 +345,12 @@ def shell_exec_windows(input_data: dict) -> dict:
             "pid": None,
         }
 
-    env = os.environ.copy()
+    # Resolved Node runtime leads PATH: the agent is instructed to run the
+    # lui CLI (TypeScript, needs node >= 24) via bare `node` through this
+    # action — the system default may be an older major (app/node_runtime.py).
+    from app import node_runtime
+
+    env = node_runtime.child_env()
     for k, v in env_input.items():
         env[str(k)] = str(v)
 
@@ -365,8 +375,11 @@ def shell_exec_windows(input_data: dict) -> dict:
             command,
         ]
     else:
-        # Use /d and /s to ensure quoted commands (e.g., paths with spaces) are handled consistently.
-        args = ["cmd.exe", "/d", "/s", "/c", command]
+        # Build the command line as a raw string: passing a list makes Popen
+        # escape embedded quotes as \" (MSVCRT rules), which cmd.exe does not
+        # understand, mangling any command containing a quoted path. With
+        # /s /c, cmd strips the outer quotes and runs the command verbatim.
+        args = 'cmd.exe /d /s /c "' + command + '"'
 
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -580,7 +593,12 @@ def shell_exec_darwin(input_data: dict) -> dict:
             "pid": None,
         }
 
-    env = os.environ.copy()
+    # Resolved Node runtime leads PATH: the agent is instructed to run the
+    # lui CLI (TypeScript, needs node >= 24) via bare `node` through this
+    # action — the system default may be an older major (app/node_runtime.py).
+    from app import node_runtime
+
+    env = node_runtime.child_env()
     for k, v in env_input.items():
         env[str(k)] = str(v)
 

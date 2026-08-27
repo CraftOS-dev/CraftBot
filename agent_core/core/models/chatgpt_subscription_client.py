@@ -611,7 +611,7 @@ def _translate_backend_error(exc: Exception, model: str) -> Exception:
         return exc
     plan = ""
     try:
-        from craftos_integrations.integrations.llm_oauth.chatgpt import load as _load
+        from craftos_integrations.llm_oauth.chatgpt import load as _load
 
         cred = _load()
         if cred is not None:

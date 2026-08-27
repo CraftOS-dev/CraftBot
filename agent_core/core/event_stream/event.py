@@ -142,6 +142,12 @@ class Event:
             uses it to keep the run's "Working…" indicator up across the
             bubble instead of treating every agent bubble as a run-ending
             reply. None/False for final replies and non-chat events.
+        question: For AGENT_MESSAGE events only: set when the message is a
+            question to the user with suggested responses (send_message with
+            suggested_responses). Shape:
+            ``{"options": ["Yes", "No"], "allow_free_text": true}``. The UI
+            renders it as answer chips plus a pinned question box above the
+            chat composer. None for ordinary messages.
     """
 
     message: str
@@ -157,6 +163,7 @@ class Event:
     action_output: Optional[Dict[str, Any]] = None
     platform: Optional[str] = None
     continue_work: Optional[bool] = None
+    question: Optional[Dict[str, Any]] = None
 
     def display_text(self) -> Optional[str]:
         """
@@ -189,6 +196,7 @@ class Event:
             "action_output": self.action_output,
             "platform": self.platform,
             "continue_work": self.continue_work,
+            "question": self.question,
         }
 
     @classmethod
@@ -228,6 +236,7 @@ class Event:
             action_output=data.get("action_output"),
             platform=data.get("platform"),
             continue_work=data.get("continue_work"),
+            question=data.get("question"),
         )
 
     @property

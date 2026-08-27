@@ -13,6 +13,7 @@ import {
   Trash2,
   Package,
   PackageOpen,
+  Compass,
 } from 'lucide-react'
 import {
   Button,
@@ -26,6 +27,7 @@ import {
 } from '../../components/ui'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { useTour } from '../../tour'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
@@ -73,6 +75,7 @@ function getInitialAgentName(): string {
 export function GeneralSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
+  const { startTour } = useTour()
   const version = useAppSelector(selectVersion)
   const dispatch = useAppDispatch()
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
@@ -713,6 +716,22 @@ export function GeneralSettings() {
             <option value="system">System</option>
           </select>
         </div>
+
+        <div className={styles.formGroup}>
+          <label>Product Tour</label>
+          <div>
+            <Button
+              variant="secondary"
+              icon={<Compass size={14} />}
+              onClick={() => startTour('core', { restart: true })}
+            >
+              Take the tour
+            </Button>
+          </div>
+          <span className={styles.hint}>
+            Replay the guided walkthrough of the CraftBot interface.
+          </span>
+        </div>
       </div>
 
       <div className={styles.sectionFooter}>
@@ -810,8 +829,8 @@ export function GeneralSettings() {
           <h4>Reset Agent</h4>
         </div>
         <p className={styles.dangerDescription}>
-          Reset the agent to its initial state. This will clear chat sessions, conversation history,
-          and restore the agent file system from templates. Saved settings and credentials are preserved.
+          Reset selected parts of the agent. Chats can be wiped without deleting
+          Living UI apps. Saved settings and credentials are preserved.
         </p>
         <Button
           variant="danger"

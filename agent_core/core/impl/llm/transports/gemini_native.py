@@ -22,6 +22,7 @@ def generate(
     user_prompt: str,
     call_type: Optional[str] = None,
     contents_override: Optional[List[Dict[str, Any]]] = None,
+    json_mode: bool = True,
 ) -> Dict[str, Any]:
     """Generate response using Gemini with explicit or implicit caching.
 
@@ -77,7 +78,7 @@ def generate(
                 system_prompt=system_prompt,
                 temperature=iface.temperature,
                 max_output_tokens=iface.max_tokens,
-                json_mode=True,
+                json_mode=json_mode,
             )
         else:
             # Use explicit caching when:
@@ -86,6 +87,10 @@ def generate(
             # 3. cache manager is available
             # Note: GeminiCacheManager will automatically fall back to implicit
             # caching if the system prompt is below Gemini's 1024 token minimum
+            # Explicit caching is only reachable from the session paths,
+            # whose calls are all JSON — a prose (json_mode=False) call
+            # never passes call_type, so it always lands on the
+            # generate_text fallback below where json_mode is honored.
             use_explicit_cache = (
                 call_type
                 and system_prompt
@@ -113,7 +118,7 @@ def generate(
                     system_prompt=system_prompt,
                     temperature=iface.temperature,
                     max_output_tokens=iface.max_tokens,
-                    json_mode=True,
+                    json_mode=json_mode,
                 )
 
         # Extract response data

@@ -8,7 +8,7 @@ session buffers, cache managers, and logging/usage hooks through it — all
 session state stays on LLMInterface (NFR-3 in docs/PROVIDER_LAYER_CATCHUP.md).
 
 TRANSPORTS maps ProviderProfile.wire -> the transport's generate callable
-with signature (iface, system_prompt, user_prompt) -> response dict
+with signature (iface, system_prompt, user_prompt, json_mode=True) -> response dict
 ({"content", "tokens_used", "cached_tokens"?, "error"?, "error_info_obj"?}).
 Session-mode entry points with richer signatures are exposed as module
 functions and called by the session dispatcher on LLMInterface.

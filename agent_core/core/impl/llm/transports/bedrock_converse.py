@@ -23,8 +23,12 @@ def generate(
     user_prompt: str,
     call_type: Optional[str] = None,
     messages: Optional[List[dict]] = None,
+    json_mode: bool = True,
 ) -> Dict[str, Any]:
     """Generate response via AWS Bedrock Converse API with prompt caching.
+
+    ``json_mode`` is accepted for transport-signature uniformity but unused:
+    Converse has no JSON output knob — JSON is prompt-instructed.
 
     Converse is the unified Bedrock API across Claude / Llama / Titan /
     Mistral. cachePoint markers are inserted only for models that support

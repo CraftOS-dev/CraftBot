@@ -20,7 +20,10 @@ from typing import List, Optional
 
 from app.factory.engine.cards import DefectCard
 
-_FAIL_LINE = re.compile(r"^-\s+(.{1,140}?)\s*[—–:]\s*FAIL\s*[—–:]\s*(.+)$")
+# Separator = em/en dash, colon, or a run of hyphens: verifiers write
+# "-- FAIL --" as often as "— FAIL —" (observed live 2026-08-25 — a report
+# with '--' produced a useless 'unstructured-failure' card).
+_FAIL_LINE = re.compile(r"^-\s+(.{1,140}?)\s*(?:[—–:]|-+)\s*FAIL\s*(?:[—–:]|-+)\s*(.+)$")
 _ROUTE = re.compile(r"(/api/[\w/.-]+)")
 _OP_ROUTE = re.compile(r"/api/ops/([\w/-]+)")
 # Server-side lines that name causes (the console.error convention + PB's own)

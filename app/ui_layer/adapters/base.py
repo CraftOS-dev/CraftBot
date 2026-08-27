@@ -289,6 +289,19 @@ class InterfaceAdapter(ABC):
                 )
                 for o in raw_options
             ]
+        # A question with suggested responses: the suggestions become the
+        # message's options (label == value, i.e. the answer text itself),
+        # and the question flags make the frontend pin it above the composer.
+        question = event.data.get("question")
+        is_question = False
+        allow_free_text = True
+        if isinstance(question, dict) and question.get("options"):
+            is_question = True
+            allow_free_text = bool(question.get("allow_free_text", True))
+            options = [
+                ChatMessageOption(label=str(o), value=str(o))
+                for o in question["options"]
+            ]
         asyncio.create_task(
             self._display_chat_message(
                 agent_name,
@@ -297,6 +310,8 @@ class InterfaceAdapter(ABC):
                 session_id=event.task_id,
                 options=options,
                 continue_work=bool(event.data.get("continue_work", False)),
+                is_question=is_question,
+                allow_free_text=allow_free_text,
             )
         )
 
@@ -308,6 +323,7 @@ class InterfaceAdapter(ABC):
                 event.data.get("message", ""),
                 "system",
                 session_id=event.task_id,
+                details=event.data.get("details"),
             )
         )
 
@@ -428,6 +444,9 @@ class InterfaceAdapter(ABC):
         options: Optional[List[ChatMessageOption]] = None,
         client_id: Optional[str] = None,
         continue_work: bool = False,
+        is_question: bool = False,
+        allow_free_text: bool = True,
+        details: Optional[str] = None,
     ) -> None:
         """
         Display a chat message.
@@ -441,6 +460,12 @@ class InterfaceAdapter(ABC):
             client_id: Optional client-generated UUID for reconciling with optimistic UI
             continue_work: True when this is a mid-run agent progress update
                 (the run keeps going after this message)
+            is_question: True when this is a question with suggested
+                responses — pinned above the composer until answered
+            allow_free_text: Whether the pinned question also accepts a
+                typed custom answer
+            details: Optional expandable payload rendered behind a disclosure
+                (e.g. the raw body of an incoming integration message)
         """
         import time
 
@@ -454,6 +479,12 @@ class InterfaceAdapter(ABC):
                 options=options,
                 client_id=client_id,
                 continue_work=continue_work,
+                is_question=is_question,
+                allow_free_text=allow_free_text,
+                # The pinned box / chips are the affordance for questions; the
+                # bubble must not add the "Please select a response" banner.
+                requires_choice=not is_question,
+                details=details,
             )
         )
 

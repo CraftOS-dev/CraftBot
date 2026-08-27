@@ -22,8 +22,12 @@ def generate(
     user_prompt: str,
     call_type: Optional[str] = None,
     messages: Optional[List[dict]] = None,
+    json_mode: bool = True,
 ) -> Dict[str, Any]:
     """Generate response using Anthropic with prompt caching.
+
+    ``json_mode`` is accepted for transport-signature uniformity but unused:
+    Anthropic has no response_format knob — JSON is prompt-instructed.
 
     Anthropic's prompt caching uses `cache_control` markers on content blocks.
     When the system prompt is long enough (≥1024 tokens), we enable caching.
@@ -105,8 +109,7 @@ def generate(
                 # Short prompt - use simple string format (no caching)
                 message_kwargs["system"] = system_prompt
 
-        # Always pass temperature for Anthropic (their default is 1.0, not 0.0)
-        message_kwargs["temperature"] = iface.temperature
+        message_kwargs["extra_body"] = {"temperature": iface.temperature}
 
         response = iface._anthropic_client.messages.create(**message_kwargs)
 

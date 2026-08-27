@@ -49,6 +49,7 @@ def generate_openai(
     user_prompt: str,
     call_type: Optional[str] = None,
     messages_override: Optional[List[Dict[str, Any]]] = None,
+    json_mode: bool = True,
 ) -> Dict[str, Any]:
     """Generate response using OpenAI with automatic prompt caching.
 
@@ -142,7 +143,11 @@ def generate_openai(
         # Perplexity (only text/json_schema) and LM Studio reject/ignore it,
         # so their profiles opt out and rely on prompt-instructed JSON (the
         # request messages already instruct JSON). See _profile above.
-        if _profile is None or _profile.supports_json_object:
+        # Gated on the caller's json_mode too: forcing json_object onto a
+        # prose prompt is out-of-contract — OpenAI rejects it (messages must
+        # mention JSON) and DeepSeek degenerates into whitespace-only output
+        # that reads as an empty response.
+        if json_mode and (_profile is None or _profile.supports_json_object):
             request_kwargs["response_format"] = {"type": "json_object"}
 
         # Build provider-specific cache hints in extra_body.
@@ -324,7 +329,7 @@ def generate_openai(
 
 @profile("llm_ollama_call", OperationCategory.LLM)
 def generate_ollama(
-    iface, system_prompt: str | None, user_prompt: str
+    iface, system_prompt: str | None, user_prompt: str, json_mode: bool = True
 ) -> Dict[str, Any]:
     token_count_input = token_count_output = 0
     total_tokens = 0
@@ -337,11 +342,15 @@ def generate_ollama(
             "model": iface.model,
             "prompt": user_prompt,
             "stream": False,
-            "format": "json",
             "options": {
                 "temperature": iface.temperature,
             },
         }
+        # JSON grammar only for calls whose prompt instructs JSON —
+        # Ollama's format=json on a prose prompt degenerates into
+        # whitespace/brace spam.
+        if json_mode:
+            payload["format"] = "json"
         if system_prompt:
             payload["system"] = system_prompt
         url: str = f"{iface.remote_url.rstrip('/')}/api/generate"

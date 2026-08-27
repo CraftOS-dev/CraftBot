@@ -6,6 +6,13 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 import time
 
+# Sentinel recorded as a question message's `option_selected` when the user
+# dismissed the pinned question instead of answering it. Any non-empty
+# option_selected un-pins the question; this value additionally tells the
+# frontend not to highlight an answer chip. Mirrored in the frontend as the
+# QUESTION_DISMISSED constant.
+QUESTION_DISMISSED_VALUE = "__dismissed__"
+
 
 @dataclass
 class Attachment:
@@ -103,6 +110,19 @@ class ChatMessage:
     # frontend must NOT treat it as the run-ending reply that hides the
     # "Working…" indicator.
     continue_work: bool = False
+    # True when this message is a question with suggested responses
+    # (send_message's suggested_responses): the frontend pins it above the
+    # chat composer until the user answers or dismisses it. `options` holds
+    # the suggested answers; `option_selected` records the answer (or the
+    # typed free-text / dismissal sentinel), which is what un-pins it.
+    is_question: bool = False
+    # Only meaningful when is_question: whether the pinned box also offers
+    # a free-text answer field alongside the suggestion chips.
+    allow_free_text: bool = True
+    # Expandable payload rendered behind a disclosure under the bubble —
+    # e.g. the raw body of an incoming integration message on the
+    # "📩 Incoming …" system stub (PR #419).
+    details: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided; normalize session id."""
@@ -156,6 +176,11 @@ class ChatMessage:
             data["requiresChoice"] = self.requires_choice
         if self.continue_work:
             data["continueWork"] = True
+        if self.is_question:
+            data["isQuestion"] = True
+            data["allowFreeText"] = self.allow_free_text
+        if self.details:
+            data["details"] = self.details
         return data
 
 

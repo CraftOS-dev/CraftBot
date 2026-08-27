@@ -48,7 +48,7 @@ CraftBot/
 │
 ├── skills/                         installable skill packages (each has SKILL.md)
 ├── craftos_integrations/           integration package (clients + handlers)
-│   ├── registry.py                 autoload + @register_client/@register_handler
+│   ├── registry.py                 autoload + @register_client
 │   └── integrations/               one subpackage per platform
 ├── agent_file_system/              the agent's working files (EVENT.md, MEMORY.md)
 └── run.py                          launcher that starts the process
@@ -136,7 +136,7 @@ CraftBot assembles its capabilities by discovery at import and boot time rather 
 
 **Prompts.** `agent_core/core/prompts/registry.py` defines `PromptRegistry` and the `prompt_registry` singleton, with `register_prompt(name, prompt)` and `get_prompt(name)`. Prompt constants are registered at import and referenced by name, which keeps the static prompt prefix identical across turns.
 
-**Integrations.** `craftos_integrations/registry.py` keeps two parallel registries, one for runtime platform clients and one for auth handlers, populated by the `@register_client` and `@register_handler` decorators. `autoload_integrations()` walks the `craftos_integrations/integrations/` subpackage and imports every module, firing those decorators. Adding an integration is one file drop with no edits to the registry, and `boot()` calls the autoload during external-library setup.
+**Integrations.** `craftos_integrations/registry.py` keeps the runtime platform-client registry, populated by the `@register_client` decorator. `autoload_integrations()` walks `craftos_integrations/providers/` and imports each provider's `client.py`, firing those decorators. Adding an integration is one folder drop plus one line in `default_providers()`, and `boot()` calls the autoload during external-library setup.
 
 Concrete subsystems are resolved through the component registries in `agent_core/core/registry/`. Code calls accessors such as `get_task_manager()`, `get_action_manager()`, `get_event_stream_manager()`, and `get_context_engine()` instead of constructing dependencies directly, so the app can register its own implementations once at boot and the engine stays decoupled from them.
 

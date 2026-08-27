@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import { getOllamaInstallPercent } from '../../utils/ollamaInstall'
 import {
   Check,
@@ -6,34 +6,14 @@ import {
   ChevronLeft,
   ChevronRight,
   SkipForward,
-  // Icons for Integrations and Skills
-  Folder,
-  Search,
-  Github,
-  Globe,
-  FileText,
-  MessageSquare,
-  Mail,
-  Calendar,
-  CheckSquare,
-  Gem,
-  FlaskConical,
-  Pencil,
-  ClipboardList,
-  Cloud,
-  Sheet,
   Download,
   Play,
   Wifi,
   WifiOff,
   RefreshCw,
-  Upload,
-  Trash2,
-  type LucideIcon,
 } from 'lucide-react'
 import { Button } from '../../components/ui'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { IntegrationsSettings } from '../Settings/IntegrationsSettings'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { getSocketClient } from '../../store/socket/socketInstance'
 import {
@@ -42,29 +22,36 @@ import {
   selectSubscriptionPasteback,
 } from '../../store/selectors/modelSettings'
 import { setSubscriptionPending, clearSubscriptionPasteback } from '../../store/slices/modelSettingsSlice'
+import { selectOnboardingFinishing } from '../../store/selectors/onboarding'
+import { markComplete } from '../../store/slices/onboardingSlice'
 import type { OnboardingStepOption, OnboardingFormField } from '../../types'
+import { OnboardingMascot, type OutroPhase } from './OnboardingMascot'
 import styles from './OnboardingPage.module.css'
 
-// Icon mapping for dynamic rendering
-const ICON_MAP: Record<string, LucideIcon> = {
-  Folder,
-  Search,
-  Github,
-  Globe,
-  FileText,
-  MessageSquare,
-  Mail,
-  Calendar,
-  CheckSquare,
-  Gem,
-  FlaskConical,
-  Pencil,
-  ClipboardList,
-  Cloud,
-  Sheet,
+// The agent's single-line prompt per step - first person, one short question,
+// so each step reads as the agent asking rather than a form label.
+const STEP_PROMPTS: Record<string, string> = {
+  provider: 'Which AI should power me?',
+  user_profile: 'So what should I call you?',
+  agent_name: 'And what would you like to call me?',
 }
 
-const STEP_NAMES = ['Provider', 'API Key', 'Agent Name', 'User Profile', 'Skills', 'Integrations']
+// Clean, sentence-friendly display names for the chosen provider - used to
+// personalise the API-key step's prompt. (The api_key prompt is built
+// dynamically since it also depends on whether the provider supports
+// subscription sign-in.)
+const PROVIDER_NAMES: Record<string, string> = {
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  byteplus: 'BytePlus',
+  anthropic: 'Anthropic',
+  deepseek: 'DeepSeek',
+  minimax: 'MiniMax',
+  moonshot: 'Moonshot',
+  grok: 'Grok',
+  glm: 'Z.ai',
+  fugu: 'Sakana',
+}
 
 // ── Ollama local-setup component ─────────────────────────────────────────────
 
@@ -124,7 +111,7 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
           <span className={styles.ollamaStatusLabel}>Ollama is not installed</span>
         </div>
         <p className={styles.ollamaHint}>
-          Ollama lets you run AI models locally — no cloud needed. We'll install it automatically for you.
+          Ollama lets you run AI models locally, no cloud needed. We'll install it automatically for you.
         </p>
         <Button variant="primary" onClick={installLocalLLM} icon={<Download size={16} />}>
           Install Ollama
@@ -211,7 +198,7 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaStatusRow}>
           <Wifi size={18} className={styles.iconMuted} />
-          <span className={styles.ollamaStatusLabel}>Ollama is running — no models yet</span>
+          <span className={styles.ollamaStatusLabel}>Ollama is running (no models yet)</span>
         </div>
         <p className={styles.ollamaHint}>Select a model to download so you can start chatting:</p>
         <input
@@ -282,7 +269,7 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
     )
   }
 
-  // ── Running — show URL field + test button ──
+  // ── Running - show URL field + test button ──
   const connected = phase === 'connected' && testResult?.success
 
   return (
@@ -330,6 +317,149 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
   )
 }
 
+// ── iOS-style wheel picker (provider selection) ──────────────────────────────
+
+// A short, scrollbar-free wheel like the iPhone date picker. It does NOT use
+// native scrolling (which overshoots and fights scroll-snap). Instead it keeps
+// a continuous offset, translates the list with it, and runs a single eased
+// rAF loop toward a target - so motion stays fluid - then settles onto the
+// nearest item once input goes idle.
+const WHEEL_ITEM_H = 44
+const WHEEL_VISIBLE = 5
+const WHEEL_EASE = 0.2        // per-frame approach fraction (higher = snappier)
+const WHEEL_WHEEL_SPEED = 0.5 // wheel px → offset px (one notch ≈ one item)
+
+interface ProviderWheelProps {
+  options: OnboardingStepOption[]
+  value: string
+  onChange: (value: string) => void
+}
+
+function ProviderWheel({ options, value, onChange }: ProviderWheelProps) {
+  const boxRef = useRef<HTMLDivElement | null>(null)
+  const listRef = useRef<HTMLDivElement | null>(null)
+  // Latest props without re-subscribing listeners / re-running the loop.
+  const valueRef = useRef(value)
+  const onChangeRef = useRef(onChange)
+  const optsRef = useRef(options)
+  valueRef.current = value
+  onChangeRef.current = onChange
+  optsRef.current = options
+
+  const height = WHEEL_VISIBLE * WHEEL_ITEM_H
+  const centerPad = ((WHEEL_VISIBLE - 1) / 2) * WHEEL_ITEM_H
+
+  const curRef = useRef(0)     // animated offset in px (0 → first item centred)
+  const targetRef = useRef(0)  // offset we're easing toward
+  const rafRef = useRef<number | null>(null)
+  const idleRef = useRef<number | null>(null)
+
+  const maxOffset = () => (optsRef.current.length - 1) * WHEEL_ITEM_H
+  const clampOffset = (v: number) => Math.min(maxOffset(), Math.max(0, v))
+
+  // Paint the current frame: translate the list, fade/scale items by their
+  // distance from centre, and report the centred item as the selection.
+  const paint = () => {
+    const list = listRef.current
+    if (!list) return
+    list.style.transform = `translate3d(0, ${centerPad - curRef.current}px, 0)`
+    const children = list.children
+    for (let i = 0; i < children.length; i++) {
+      const dist = Math.abs(i * WHEEL_ITEM_H - curRef.current) / WHEEL_ITEM_H
+      const el = children[i] as HTMLElement
+      el.style.opacity = String(Math.max(0.18, 1 - dist * 0.32))
+      el.style.transform = `scale(${Math.max(0.82, 1 - dist * 0.06)})`
+    }
+    const idx = Math.min(
+      optsRef.current.length - 1,
+      Math.max(0, Math.round(curRef.current / WHEEL_ITEM_H)),
+    )
+    const v = optsRef.current[idx]?.value
+    if (v && v !== valueRef.current) onChangeRef.current(v)
+  }
+
+  const tick = () => {
+    const diff = targetRef.current - curRef.current
+    if (Math.abs(diff) < 0.4) {
+      curRef.current = targetRef.current
+      paint()
+      rafRef.current = null
+      return
+    }
+    curRef.current += diff * WHEEL_EASE
+    paint()
+    rafRef.current = requestAnimationFrame(tick)
+  }
+
+  const animate = () => {
+    if (rafRef.current == null) rafRef.current = requestAnimationFrame(tick)
+  }
+
+  // Once the wheel goes quiet, settle the target onto the nearest item.
+  const settleSoon = () => {
+    if (idleRef.current != null) window.clearTimeout(idleRef.current)
+    idleRef.current = window.setTimeout(() => {
+      targetRef.current = clampOffset(Math.round(targetRef.current / WHEEL_ITEM_H) * WHEEL_ITEM_H)
+      animate()
+    }, 80)
+  }
+
+  const goToIndex = (i: number) => {
+    targetRef.current = clampOffset(i * WHEEL_ITEM_H)
+    animate()
+  }
+
+  // Position at the current value when the option set loads.
+  useLayoutEffect(() => {
+    let i = options.findIndex(o => o.value === valueRef.current)
+    if (i < 0) i = Math.max(0, options.findIndex(o => o.default))
+    curRef.current = i * WHEEL_ITEM_H
+    targetRef.current = curRef.current
+    paint()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options])
+
+  // Accumulate wheel delta into the target; the rAF loop eases toward it.
+  useEffect(() => {
+    const box = boxRef.current
+    if (!box) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      let dy = e.deltaY
+      if (e.deltaMode === 1) dy *= 16           // lines → px
+      else if (e.deltaMode === 2) dy *= height  // pages → px
+      targetRef.current = clampOffset(targetRef.current + dy * WHEEL_WHEEL_SPEED)
+      animate()
+      settleSoon()
+    }
+    box.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      box.removeEventListener('wheel', onWheel)
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+      if (idleRef.current != null) window.clearTimeout(idleRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div ref={boxRef} className={styles.wheel} style={{ height }}>
+      <div className={styles.wheelSelection} style={{ height: WHEEL_ITEM_H }} />
+      <div ref={listRef} className={styles.wheelList}>
+        {options.map((option, i) => (
+          <div
+            key={option.value}
+            className={styles.wheelItem}
+            style={{ height: WHEEL_ITEM_H }}
+            onClick={() => goToIndex(i)}
+          >
+            {option.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main onboarding page ──────────────────────────────────────────────────────
 
 export function OnboardingPage() {
@@ -343,13 +473,9 @@ export function OnboardingPage() {
     skipOnboardingStep,
     goBackOnboardingStep,
     localLLM,
-    agentProfilePictureUrl,
-    agentProfilePictureHasCustom,
-    uploadAgentProfilePicture,
-    removeAgentProfilePicture,
   } = useWebSocket()
 
-  // Providers that route through OpenRouter — model slug is configurable.
+  // Providers that route through OpenRouter - model slug is configurable.
   const OR_PROXIED = ['moonshot', 'minimax']
   const OR_MODEL_DEFAULTS: Record<string, string> = {
     moonshot: 'moonshotai/kimi-k2.5',
@@ -357,7 +483,7 @@ export function OnboardingPage() {
   }
 
   // Subscription OAuth (ChatGPT Plus/Pro, SuperGrok). The connect/status
-  // handlers are provider-agnostic and shared with the Settings model panel —
+  // handlers are provider-agnostic and shared with the Settings model panel -
   // we reuse the same WebSocket messages and redux state here so signing in
   // during onboarding behaves identically. Responses flow into redux via the
   // globally-registered modelSettings handlers.
@@ -373,7 +499,7 @@ export function OnboardingPage() {
   const [showKeyInput, setShowKeyInput] = useState(false)
 
   // Local form state
-  const [selectedValue, setSelectedValue] = useState<string | string[]>('')
+  const [selectedValue, setSelectedValue] = useState<string>('')
   const [textValue, setTextValue] = useState('')
   const [orModel, setOrModel] = useState('')
   // For proxied providers: 'direct' tries the native API, 'openrouter' routes via OR.
@@ -381,34 +507,42 @@ export function OnboardingPage() {
   // URL submitted from OllamaSetup
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
   const [ollamaConnected, setOllamaConnected] = useState(false)
-  // Form step state (for user_profile and similar multi-field steps)
-  const [formValues, setFormValues] = useState<Record<string, string | string[]>>({})
-  // Picture upload state (for image_upload fields)
-  const [pictureUploading, setPictureUploading] = useState(false)
-  const [pictureError, setPictureError] = useState<string | null>(null)
-  const pictureInputRef = useRef<HTMLInputElement | null>(null)
+  // Form step state (for the name steps)
+  const [formValues, setFormValues] = useState<Record<string, string>>({})
 
-  // Reset picture-upload feedback when transitioning between steps
-  useEffect(() => {
-    setPictureUploading(false)
-    setPictureError(null)
-  }, [onboardingStep?.name])
+  // ── Finishing outro ────────────────────────────────────────────────
+  // When onboarding completes the slice sets `finishing` (instead of swapping
+  // to the app immediately). We play the sequence here, in place, using the
+  // existing mascot: show the "all set" line -> fade everything but the mascot
+  // -> slide the mascot to centre -> crouch + launch it off-screen -> reveal
+  // the main app (which fades in via a one-shot flag read by App).
+  const finishing = useAppSelector(selectOnboardingFinishing)
+  const [outroPhase, setOutroPhase] = useState<OutroPhase>('idle')
 
-  // Clear uploading spinner once the context reflects the new picture
   useEffect(() => {
-    if (pictureUploading) {
-      setPictureUploading(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentProfilePictureUrl])
+    if (!finishing) return
+    const MESSAGE_HOLD = 1600
+    const FADE_MS = 450
+    const CENTER_MS = 560
+    const JUMP_MS = 840
+    const timers: number[] = []
+    setOutroPhase('message')
+    timers.push(window.setTimeout(() => setOutroPhase('fade'), MESSAGE_HOLD))
+    timers.push(window.setTimeout(() => setOutroPhase('center'), MESSAGE_HOLD + FADE_MS))
+    timers.push(window.setTimeout(() => setOutroPhase('jump'), MESSAGE_HOLD + FADE_MS + CENTER_MS))
+    timers.push(window.setTimeout(() => {
+      // Ask App to fade the main interface in, then swap to it.
+      try { sessionStorage.setItem('cb_onboarded_fade', '1') } catch { /* ignore */ }
+      dispatch(markComplete())
+    }, MESSAGE_HOLD + FADE_MS + CENTER_MS + JUMP_MS))
+    return () => timers.forEach(t => window.clearTimeout(t))
+  }, [finishing, dispatch])
 
-  // Safety: clear the spinner after a short timeout even if no ack arrives
-  // (e.g., on a failed upload that did not update the context URL).
-  useEffect(() => {
-    if (!pictureUploading) return
-    const t = window.setTimeout(() => setPictureUploading(false), 10000)
-    return () => window.clearTimeout(t)
-  }, [pictureUploading])
+  // Show the farewell line as soon as finishing starts (avoids a one-frame
+  // flash of the last step before the outro effect flips the phase).
+  const isFinishing = !!finishing
+  // Everything except the mascot fades away from the 'fade' phase onward.
+  const outroFading = outroPhase === 'fade' || outroPhase === 'center' || outroPhase === 'jump'
 
   // Request first step when connected
   useEffect(() => {
@@ -422,19 +556,17 @@ export function OnboardingPage() {
     if (onboardingStep) {
       setOllamaConnected(false)
 
-      // Form step (e.g., user_profile, agent_name)
-      // Preserve existing values when navigating back — only set defaults for missing fields
+      // Form step (user_profile / agent_name).
+      // Preserve existing values when navigating back - only set defaults for missing fields.
       if (onboardingStep.form_fields && onboardingStep.form_fields.length > 0) {
         const formFields = onboardingStep.form_fields
         setFormValues(prev => {
-          const defaults: Record<string, string | string[]> = {}
+          const defaults: Record<string, string> = {}
           for (const field of formFields) {
-            defaults[field.name] = prev[field.name] ?? (field.default ?? '')
+            defaults[field.name] = prev[field.name] ?? (typeof field.default === 'string' ? field.default : '')
           }
           return defaults
         })
-      } else if (onboardingStep.name === 'skills') {
-        setSelectedValue(Array.isArray(onboardingStep.default) ? onboardingStep.default : [])
       } else if (onboardingStep.options.length > 0) {
         const defaultOption = onboardingStep.options.find(opt => opt.default)
         setSelectedValue(defaultOption?.value || onboardingStep.options[0]?.value || '')
@@ -463,57 +595,7 @@ export function OnboardingPage() {
     setOllamaConnected(true)
   }, [])
 
-  const handlePictureSelect = useCallback(() => {
-    pictureInputRef.current?.click()
-  }, [])
-
-  const handlePictureChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>, fieldName: string) => {
-      const file = e.target.files?.[0]
-      e.target.value = ''
-      if (!file) return
-
-      setPictureError(null)
-      setPictureUploading(true)
-
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        const base64 = result.includes(',') ? result.split(',', 2)[1] : result
-        // Mark this form field as "has picture" using the file extension
-        const ext = (file.name.split('.').pop() || '').toLowerCase()
-        setFormValues(prev => ({ ...prev, [fieldName]: ext }))
-        uploadAgentProfilePicture(file.name, file.type || 'application/octet-stream', base64)
-      }
-      reader.onerror = () => {
-        setPictureUploading(false)
-        setPictureError('Could not read file')
-      }
-      reader.readAsDataURL(file)
-    },
-    [uploadAgentProfilePicture]
-  )
-
-  const handlePictureRemove = useCallback(
-    (fieldName: string) => {
-      setPictureError(null)
-      setFormValues(prev => ({ ...prev, [fieldName]: '' }))
-      removeAgentProfilePicture()
-    },
-    [removeAgentProfilePicture]
-  )
-
-  const handleOptionSelect = useCallback((value: string) => {
-    if (!onboardingStep) return
-    if (onboardingStep.name === 'skills') {
-      setSelectedValue(prev => {
-        const arr = Array.isArray(prev) ? prev : []
-        return arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value]
-      })
-    } else {
-      setSelectedValue(value)
-    }
-  }, [onboardingStep])
+  const isFormStep = !!(onboardingStep?.form_fields && onboardingStep.form_fields.length > 0)
 
   const handleSubmit = useCallback(() => {
     if (!onboardingStep) return
@@ -525,10 +607,6 @@ export function OnboardingPage() {
       submitOnboardingStep(ollamaUrl)
     } else if (isProxiedStep) {
       submitOnboardingStep({ api_key: textValue, via: proxiedVia, or_model: proxiedVia === 'openrouter' ? orModel : '' })
-    } else if (onboardingStep.name === 'integrations') {
-      // Panel step — the embedded IntegrationsSettings handles its own
-      // connect flows. Just advance.
-      submitOnboardingStep('')
     } else if (onboardingStep.form_fields && onboardingStep.form_fields.length > 0) {
       submitOnboardingStep(formValues)
     } else if (onboardingStep.options.length > 0) {
@@ -556,10 +634,6 @@ export function OnboardingPage() {
 
   const handleBack = useCallback(() => goBackOnboardingStep(), [goBackOnboardingStep])
 
-  const isMultiSelect = onboardingStep?.name === 'skills'
-  const isIntegrationsStep = onboardingStep?.name === 'integrations'
-  const isFormStep = !!(onboardingStep?.form_fields && onboardingStep.form_fields.length > 0)
-  const isWideStep = isMultiSelect || isFormStep || isIntegrationsStep
   const isLastStep = onboardingStep ? onboardingStep.index === onboardingStep.total - 1 : false
 
   const isOllamaStep =
@@ -601,15 +675,15 @@ export function OnboardingPage() {
   const canSubmit = (() => {
     if (!onboardingStep) return false
     if (onboardingLoading) return false
+    if (onboardingStep.name === 'intro') return true  // Welcome screen - just advance
     if (isOllamaStep) {
       return ollamaConnected || (localLLM.phase === 'connected' && !!localLLM.testResult?.success)
     }
-    if (isIntegrationsStep) return true  // Connection is optional — Next always works
-    if (isFormStep) return true  // All form fields are optional
+    if (isFormStep) return true  // Name steps are optional
     // A connected subscription authorizes the provider without an API key.
     if (isSubConnected) return true
     if (onboardingStep.options.length > 0) {
-      return isMultiSelect ? true : !!selectedValue
+      return !!selectedValue
     }
     return onboardingStep.required ? textValue.trim().length > 0 : true
   })()
@@ -634,6 +708,9 @@ export function OnboardingPage() {
   const renderStepForm = () => {
     if (!onboardingStep) return null
 
+    // Intro/welcome step - message only, no input.
+    if (onboardingStep.name === 'intro') return null
+
     // Ollama local setup
     if (isOllamaStep) {
       return (
@@ -646,239 +723,25 @@ export function OnboardingPage() {
       )
     }
 
-    // External app integrations — embed the full Settings → Integrations
-    // panel so the user can connect any integration in place.
-    if (isIntegrationsStep) {
-      return (
-        <div className={`${styles.formGroup} ${styles.integrationsPanel}`}>
-          <IntegrationsSettings hideHeader/>
-        </div>
-      )
-    }
-
-    // Agent Identity step — compact side-by-side layout (avatar + name)
-    if (
-      onboardingStep.name === 'agent_name' &&
-      onboardingStep.form_fields &&
-      onboardingStep.form_fields.length > 0
-    ) {
-      const nameField = onboardingStep.form_fields.find(f => f.field_type === 'text')
-      const avatarField = onboardingStep.form_fields.find(f => f.field_type === 'image_upload')
-
-      return (
-        <div className={styles.formGroup}>
-          <div className={styles.identityCard}>
-            {avatarField && (
-              <div className={styles.identityAvatar}>
-                <img
-                  src={agentProfilePictureUrl}
-                  alt=""
-                  className={styles.imageUploadPreview}
-                />
-                <input
-                  ref={pictureInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  onChange={(e) => handlePictureChange(e, avatarField.name)}
-                  style={{ display: 'none' }}
-                />
-              </div>
-            )}
-            <div className={styles.identityDetails}>
-              {nameField && (
-                <>
-                  <label className={styles.formFieldLabel}>{nameField.label}</label>
-                  <input
-                    type="text"
-                    className={styles.textInput}
-                    value={(formValues[nameField.name] as string) ?? ''}
-                    onChange={(e) =>
-                      setFormValues((prev) => ({ ...prev, [nameField.name]: e.target.value }))
-                    }
-                    placeholder={nameField.placeholder || 'Enter a name'}
-                  />
-                </>
-              )}
-              {avatarField && (
-                <div className={styles.identityAvatarActions}>
-                  <Button
-                    variant="secondary"
-                    onClick={handlePictureSelect}
-                    disabled={pictureUploading}
-                    icon={<Upload size={14} />}
-                  >
-                    {pictureUploading ? 'Uploading...' : 'Upload avatar'}
-                  </Button>
-                  {agentProfilePictureHasCustom && (
-                    <Button
-                      variant="secondary"
-                      onClick={() => handlePictureRemove(avatarField.name)}
-                      disabled={pictureUploading}
-                      icon={<Trash2 size={14} />}
-                    >
-                      Remove
-                    </Button>
-                  )}
-                </div>
-              )}
-              {pictureError && (
-                <div className={styles.imageUploadError}>{pictureError}</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )
-    }
-
-    // Form step (multi-field form, e.g., user_profile)
+    // Form step (the name steps - a single text field each)
     if (onboardingStep.form_fields && onboardingStep.form_fields.length > 0) {
       return (
         <div className={styles.formGroup}>
           <div className={styles.profileForm}>
             {onboardingStep.form_fields.map((field: OnboardingFormField) => (
               <div key={field.name} className={styles.formField}>
-                <label className={styles.formFieldLabel}>{field.label}</label>
-
                 {field.field_type === 'text' && (
                   <input
                     type="text"
                     className={styles.textInput}
-                    value={(formValues[field.name] as string) ?? ''}
+                    aria-label={field.label}
+                    value={formValues[field.name] ?? ''}
                     onChange={e => setFormValues(prev => ({ ...prev, [field.name]: e.target.value }))}
                     placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+                    maxLength={20}
+                    autoFocus
+                    onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
                   />
-                )}
-
-                {field.field_type === 'select' && field.options.length > 20 ? (
-                  /* Large option list (e.g., languages) — use native dropdown */
-                  <>
-                    <select
-                      className={styles.formDropdown}
-                      value={(formValues[field.name] as string) ?? ''}
-                      onChange={e => setFormValues(prev => ({ ...prev, [field.name]: e.target.value }))}
-                    >
-                      {field.options.map(opt => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}{opt.description && opt.description !== opt.label ? ` (${opt.description})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {field.placeholder && (
-                      <div className={styles.formFieldHint}>{field.placeholder}</div>
-                    )}
-                  </>
-                ) : field.field_type === 'select' ? (() => {
-                  const hasDescriptions = field.options.some(o => o.description && o.description !== o.label)
-                  if (hasDescriptions) {
-                    /* Options with descriptions — vertical stack */
-                    return (
-                      <div className={styles.formSelectVertical}>
-                        {field.options.map(opt => {
-                          const isSelected = formValues[field.name] === opt.value
-                          return (
-                            <div
-                              key={opt.value}
-                              className={`${styles.formSelectOptionVertical} ${isSelected ? styles.selected : ''}`}
-                              onClick={() => setFormValues(prev => ({ ...prev, [field.name]: opt.value }))}
-                            >
-                              <div className={styles.optionRadio} />
-                              <span className={styles.formSelectLabel}>{opt.label}</span>
-                              {opt.description && opt.description !== opt.label && (
-                                <span className={styles.formSelectDesc}>{opt.description}</span>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )
-                  }
-                  /* Simple options without descriptions — inline row */
-                  return (
-                    <div className={styles.formSelectInline}>
-                      {field.options.map(opt => {
-                        const isSelected = formValues[field.name] === opt.value
-                        return (
-                          <div
-                            key={opt.value}
-                            className={`${styles.formSelectOptionInline} ${isSelected ? styles.selected : ''}`}
-                            onClick={() => setFormValues(prev => ({ ...prev, [field.name]: opt.value }))}
-                          >
-                            <div className={styles.optionRadio} />
-                            <span className={styles.formSelectLabel}>{opt.label}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })() : null}
-
-                {field.field_type === 'image_upload' && (
-                  <div className={styles.imageUploadRow}>
-                    <img
-                      src={agentProfilePictureUrl}
-                      alt=""
-                      className={styles.imageUploadPreview}
-                    />
-                    <div className={styles.imageUploadActions}>
-                      <input
-                        ref={pictureInputRef}
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp,image/gif"
-                        onChange={(e) => handlePictureChange(e, field.name)}
-                        style={{ display: 'none' }}
-                      />
-                      <Button
-                        variant="secondary"
-                        onClick={handlePictureSelect}
-                        disabled={pictureUploading}
-                        icon={<Upload size={14} />}
-                      >
-                        {pictureUploading ? 'Uploading...' : 'Upload'}
-                      </Button>
-                      {agentProfilePictureHasCustom && (
-                        <Button
-                          variant="secondary"
-                          onClick={() => handlePictureRemove(field.name)}
-                          disabled={pictureUploading}
-                          icon={<Trash2 size={14} />}
-                        >
-                          Remove
-                        </Button>
-                      )}
-                    </div>
-                    {pictureError && (
-                      <div className={styles.imageUploadError}>{pictureError}</div>
-                    )}
-                  </div>
-                )}
-
-                {field.field_type === 'multi_checkbox' && (
-                  <div className={styles.formCheckboxGroup}>
-                    {field.options.map(opt => {
-                      const checked = Array.isArray(formValues[field.name]) &&
-                        (formValues[field.name] as string[]).includes(opt.value)
-                      return (
-                        <div
-                          key={opt.value}
-                          className={`${styles.formCheckboxItem} ${checked ? styles.selected : ''}`}
-                          onClick={() => {
-                            setFormValues(prev => {
-                              const current = Array.isArray(prev[field.name]) ? (prev[field.name] as string[]) : []
-                              const updated = current.includes(opt.value)
-                                ? current.filter(v => v !== opt.value)
-                                : [...current, opt.value]
-                              return { ...prev, [field.name]: updated }
-                            })
-                          }}
-                        >
-                          <div className={styles.optionCheckbox}>
-                            {checked && <Check size={12} />}
-                          </div>
-                          <span>{opt.label}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
                 )}
               </div>
             ))}
@@ -887,45 +750,15 @@ export function OnboardingPage() {
       )
     }
 
-    // Option-based step
+    // Option-based step: the provider list, shown as an iOS-style wheel picker.
     if (onboardingStep.options.length > 0) {
       return (
         <div className={styles.formGroup}>
-          <div className={styles.optionsList}>
-            {onboardingStep.options.map((option: OnboardingStepOption) => {
-              const isSelected = isMultiSelect
-                ? Array.isArray(selectedValue) && selectedValue.includes(option.value)
-                : selectedValue === option.value
-
-              return (
-                <div
-                  key={option.value}
-                  className={`${styles.optionItem} ${isSelected ? styles.selected : ''}`}
-                  onClick={() => handleOptionSelect(option.value)}
-                >
-                  <div className={isMultiSelect ? styles.optionCheckbox : styles.optionRadio}>
-                    {isMultiSelect && isSelected && <Check size={12} />}
-                  </div>
-                  <div className={styles.optionContent}>
-                    <div className={styles.optionLabel}>
-                      {option.icon && ICON_MAP[option.icon] && (
-                        <span className={styles.optionIcon}>
-                          {React.createElement(ICON_MAP[option.icon], { size: 16 })}
-                        </span>
-                      )}
-                      {option.label}
-                      {option.requires_setup && (
-                        <span className={styles.setupBadge}>Setup required</span>
-                      )}
-                    </div>
-                    {option.description && (
-                      <div className={styles.optionDescription}>{option.description}</div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <ProviderWheel
+            options={onboardingStep.options}
+            value={selectedValue}
+            onChange={setSelectedValue}
+          />
         </div>
       )
     }
@@ -952,7 +785,7 @@ export function OnboardingPage() {
           {isViaOR && (
             <div style={{ marginTop: 14 }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: 6 }}>
-                Model <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional — leave default or enter any OpenRouter slug)</span>
+                Model <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional; leave default or enter any OpenRouter slug)</span>
               </label>
               <input
                 type="text"
@@ -986,8 +819,8 @@ export function OnboardingPage() {
       )
     }
 
-    // Shared API-key input + hint (used by name step, plain-key providers, and
-    // the collapsible fallback under a connected subscription).
+    // Shared API-key input + hint (used by plain-key providers and the
+    // collapsible fallback under a connected subscription).
     const identityLine = [subStatus?.email, subStatus?.plan].filter(Boolean).join(' · ')
     const keyInputBlock = (
       <>
@@ -997,7 +830,6 @@ export function OnboardingPage() {
           value={textValue}
           onChange={e => setTextValue(e.target.value)}
           placeholder={isApiKey ? (isSubConnected ? 'API key (optional)' : 'Enter your API key') : 'Enter a name'}
-          maxLength={isApiKey ? undefined : 20}
           autoFocus={!supportsSub}
           onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
         />
@@ -1015,7 +847,7 @@ export function OnboardingPage() {
       </div>
     )
 
-    // Non-subscription providers (and the name step) keep the plain input.
+    // Non-subscription providers keep the plain input.
     if (!(isApiKey && supportsSub)) {
       return <div className={styles.formGroup}>{keyInputBlock}</div>
     }
@@ -1162,70 +994,65 @@ export function OnboardingPage() {
 
   return (
     <div className={styles.container}>
-      {/* Progress Bar */}
-      <div className={styles.progressBar}>
-        {STEP_NAMES.map((name, index) => {
-          const currentIndex = onboardingStep?.index ?? 0
-          const isActive = index === currentIndex
-          const isCompleted = index < currentIndex
-
-          return (
-            <React.Fragment key={name}>
-              <div className={styles.stepIndicator}>
-                <div className={`${styles.stepDot} ${isActive ? styles.active : ''} ${isCompleted ? styles.completed : ''}`}>
-                  {isCompleted ? <Check size={14} /> : index + 1}
-                </div>
-                <span className={`${styles.stepLabel} ${isActive ? styles.active : ''}`}>{name}</span>
-              </div>
-              {index < STEP_NAMES.length - 1 && (
-                <div className={`${styles.stepConnector} ${isCompleted ? styles.completed : ''} ${index === currentIndex - 1 ? styles.active : ''}`} />
-              )}
-            </React.Fragment>
-          )
-        })}
-      </div>
-
       {/* Main Content */}
       <div className={styles.content}>
-        <div className={`${styles.card} ${isWideStep ? styles.wide : ''}`}>
-          {onboardingStep && (
-            <>
-              <h2 className={styles.stepTitle}>
-                {(() => {
-                  const isProxiedApiKey = onboardingStep.name === 'api_key' && onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
-                  if (isProxiedApiKey && proxiedVia === 'openrouter') return 'Enter OpenRouter API Key'
-                  return onboardingStep.title
-                })()}
-                {!onboardingStep.required && (
-                  <span className={styles.optionalBadge}>Optional</span>
-                )}
-              </h2>
-              <p className={styles.stepDescription}>
-                {isOllamaStep ? (() => {
-                  switch (localLLM.phase) {
-                    case 'not_installed': return "Ollama isn't installed yet — we'll download and install it automatically."
-                    case 'installing':    return "Installing Ollama on your machine. This may take a minute…"
-                    case 'not_running':   return "Ollama is installed but not running. Click below to start the server."
-                    case 'starting':      return "Starting the Ollama server…"
-                    case 'running':       return "Ollama is running. Enter the server URL and test the connection."
-                    case 'selecting_model': return "Ollama is connected but has no models yet. Pick one to download."
-                    case 'pulling_model': return "Downloading your model — this may take a few minutes depending on size."
-                    case 'connected': {
-                      const n = localLLM.testResult?.models?.length ?? 0
-                      return `Connected to Ollama — ${n} model${n === 1 ? '' : 's'} available.`
+        {onboardingStep && (
+          <div className={styles.wizard}>
+            <div className={styles.topRow}>
+              <OnboardingMascot stepIndex={onboardingStep.index} outroPhase={outroPhase} />
+              {/* Keyed by step so the content remounts and replays the
+                  fade-in each time the step changes. */}
+              <div
+                key={onboardingStep.index}
+                className={`${styles.card} ${outroFading ? styles.outroFade : ''}`}
+              >
+              {isFinishing ? (
+                <div className={styles.doneMessage}>
+                  You're all set! <strong>{finishing?.agentName}</strong> is ready to work.
+                </div>
+              ) : (
+                <>
+              {onboardingStep.name === 'intro' ? (
+                <div className={styles.introMessage}>
+                  <p>
+                    <strong>Nice to meet you, I am CraftBot!</strong><br />
+                    I'm here to help you with work or life.
+                  </p>
+                  <p className={styles.introKicker}>
+                    Now, before we begin, there are a few settings we need to configure.
+                  </p>
+                </div>
+              ) : (
+                <h2 className={styles.stepPrompt}>
+                  {isOllamaStep ? (() => {
+                    switch (localLLM.phase) {
+                      case 'not_installed': return "Ollama isn't installed yet. I'll set it up for us."
+                      case 'installing':    return "Installing Ollama… this'll take a minute."
+                      case 'not_running':   return "Ollama's installed but not running. Start it up?"
+                      case 'starting':      return "Starting up Ollama…"
+                      case 'running':       return "Ollama's running. Let's test the connection."
+                      case 'selecting_model': return "Pick a model for me to download."
+                      case 'pulling_model': return "Downloading your model… this can take a few minutes."
+                      case 'connected': {
+                        const n = localLLM.testResult?.models?.length ?? 0
+                        return `Connected. ${n} model${n === 1 ? '' : 's'} ready to go.`
+                      }
+                      case 'error':         return localLLM.error ?? "Something went wrong. Mind retrying?"
+                      default:              return "Checking on Ollama…"
                     }
-                    case 'error':         return localLLM.error ?? "Something went wrong. Check the error below and retry."
-                    default:              return "Checking Ollama status…"
-                  }
-                })() : (() => {
-                  const isProxiedApiKey = onboardingStep.name === 'api_key' && onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
-                  if (isProxiedApiKey && proxiedVia === 'openrouter') {
-                    const display = { moonshot: 'Moonshot (Kimi)', minimax: 'MiniMax' }[onboardingStep.provider!] ?? onboardingStep.provider
-                    return `${display} models will be accessed via OpenRouter. Enter your OpenRouter API key — the model will be configured automatically. Get a free key at openrouter.ai`
-                  }
-                  return onboardingStep.description
-                })()}
-              </p>
+                  })() : (() => {
+                    const isProxiedApiKey = onboardingStep.name === 'api_key' && onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
+                    if (isProxiedApiKey && proxiedVia === 'openrouter') return "Paste your OpenRouter key and I'll wire it up."
+                    if (onboardingStep.name === 'api_key') {
+                      const name = PROVIDER_NAMES[apiKeyProvider] ?? 'your provider'
+                      return supportsSub
+                        ? `Connect your ${name} account so I can start working. Sign in, or paste an API key.`
+                        : `Paste your ${name} API key so I can connect and start working.`
+                    }
+                    return STEP_PROMPTS[onboardingStep.name] ?? onboardingStep.title
+                  })()}
+                </h2>
+              )}
 
               {/* Error Message */}
               {onboardingError && (
@@ -1237,17 +1064,33 @@ export function OnboardingPage() {
 
               {/* Step Form */}
               {renderStepForm()}
+                </>
+              )}
+              </div>
+            </div>
 
-              {/* Navigation Buttons */}
-              <div className={styles.buttons}>
-                <div className={styles.buttonsLeft}>
-                  {onboardingStep.index > 0 && (
-                    <Button variant="ghost" onClick={handleBack} disabled={onboardingLoading} icon={<ChevronLeft size={16} />}>
-                      Back
-                    </Button>
-                  )}
+            {/* Navigation row - spans under the mascot + form: dots on the
+                left (below the mascot), Back + Next on the right. The dots and
+                buttons fade out the moment finishing starts. */}
+            <div className={`${styles.buttons} ${isFinishing ? styles.outroFade : ''}`}>
+              <div className={styles.dots}>
+                  {Array.from({ length: onboardingStep.total }).map((_, i) => (
+                    <span
+                      key={i}
+                      className={`${styles.dot} ${i === onboardingStep.index ? styles.dotActive : ''}`}
+                    />
+                  ))}
                 </div>
                 <div className={styles.buttonsRight}>
+                  {onboardingStep.index > 0 && (
+                    <Button
+                      variant="ghost"
+                      onClick={handleBack}
+                      disabled={onboardingLoading}
+                      icon={<ChevronLeft size={18} />}
+                      aria-label="Back"
+                    />
+                  )}
                   {!onboardingStep.required && (
                     <Button variant="secondary" onClick={handleSkip} disabled={onboardingLoading} icon={<SkipForward size={16} />}>
                       Skip
@@ -1263,14 +1106,14 @@ export function OnboardingPage() {
                   >
                     {onboardingLoading && onboardingStep?.name === 'api_key'
                       ? (isOllamaStep ? 'Connecting…' : 'Testing API Key…')
+                      : onboardingStep.name === 'intro' ? 'Get started'
                       : isLastStep ? 'Finish' : 'Next'}
                   </Button>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
-    </div>
   )
 }

@@ -745,8 +745,17 @@ class LLMInterface:
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         log_response: bool = True,
+        json_mode: bool = True,
     ) -> str:
-        """Synchronous implementation shared by sync/async entry points."""
+        """Synchronous implementation shared by sync/async entry points.
+
+        ``json_mode`` declares the caller's expected output format. Callers
+        whose prompts instruct JSON keep the default; prose callers
+        (summarization, title generation, ...) MUST pass False — forcing a
+        provider's JSON mode onto a prompt that never asks for JSON is
+        out-of-contract and degenerates on several providers (DeepSeek
+        emits whitespace-only output, OpenAI rejects the request).
+        """
         if user_prompt is None:
             raise ValueError("`user_prompt` cannot be None.")
 
@@ -776,7 +785,9 @@ class LLMInterface:
             )
             if _transport is None:  # pragma: no cover
                 raise RuntimeError(f"Unknown provider {self.provider!r}")
-            response = _transport(self, system_prompt, user_prompt)
+            response = _transport(
+                self, system_prompt, user_prompt, json_mode=json_mode
+            )
             content = response.get("content", "").strip()
 
             # Check if response is empty and provide diagnostics
@@ -869,10 +880,17 @@ class LLMInterface:
         user_prompt: Optional[str] = None,
         log_response: bool = True,
         prompt_name: Optional[str] = None,
+        json_mode: bool = True,
     ) -> str:
-        """Generate a single response from the configured provider."""
+        """Generate a single response from the configured provider.
+
+        Pass ``json_mode=False`` when the prompt asks for prose — see
+        ``_generate_response_sync``.
+        """
         self._begin_call(prompt_name=prompt_name)
-        return self._generate_response_sync(system_prompt, user_prompt, log_response)
+        return self._generate_response_sync(
+            system_prompt, user_prompt, log_response, json_mode=json_mode
+        )
 
     @profile("llm_generate_response_async", OperationCategory.LLM)
     async def generate_response_async(
@@ -881,8 +899,13 @@ class LLMInterface:
         user_prompt: Optional[str] = None,
         log_response: bool = True,
         prompt_name: Optional[str] = None,
+        json_mode: bool = True,
     ) -> str:
-        """Async wrapper that defers the blocking call to a worker thread."""
+        """Async wrapper that defers the blocking call to a worker thread.
+
+        Pass ``json_mode=False`` when the prompt asks for prose — see
+        ``_generate_response_sync``.
+        """
         # Stamp the context here, in the caller's context, so asyncio.to_thread
         # copies it into the worker thread where the capture runs.
         self._begin_call(prompt_name=prompt_name)
@@ -891,6 +914,7 @@ class LLMInterface:
             system_prompt,
             user_prompt,
             log_response,
+            json_mode,
         )
 
     def reset_failure_counter(self) -> None:
@@ -1838,6 +1862,7 @@ class LLMInterface:
         user_prompt: str,
         call_type: Optional[str] = None,
         messages_override: Optional[List[Dict[str, Any]]] = None,
+        json_mode: bool = True,
     ) -> Dict[str, Any]:
         """Delegate to the chat_completions transport (Phase 2)."""
         return _transports.chat_completions.generate_openai(
@@ -1846,15 +1871,16 @@ class LLMInterface:
             user_prompt,
             call_type=call_type,
             messages_override=messages_override,
+            json_mode=json_mode,
         )
 
     @profile("llm_ollama_call", OperationCategory.LLM)
     def _generate_ollama(
-        self, system_prompt: str | None, user_prompt: str
+        self, system_prompt: str | None, user_prompt: str, json_mode: bool = True
     ) -> Dict[str, Any]:
         """Delegate to the chat_completions transport's Ollama path (Phase 2)."""
         return _transports.chat_completions.generate_ollama(
-            self, system_prompt, user_prompt
+            self, system_prompt, user_prompt, json_mode=json_mode
         )
 
     @profile("llm_gemini_call", OperationCategory.LLM)
@@ -1864,6 +1890,7 @@ class LLMInterface:
         user_prompt: str,
         call_type: Optional[str] = None,
         contents_override: Optional[List[Dict[str, Any]]] = None,
+        json_mode: bool = True,
     ) -> Dict[str, Any]:
         """Delegate to the gemini_native transport (Phase 2)."""
         return _transports.gemini_native.generate(
@@ -1872,6 +1899,7 @@ class LLMInterface:
             user_prompt,
             call_type=call_type,
             contents_override=contents_override,
+            json_mode=json_mode,
         )
 
     @profile("llm_byteplus_call", OperationCategory.LLM)
@@ -1967,5 +1995,5 @@ class LLMInterface:
             user_prompt = input("\nEnter prompt (or 'exit'): ").strip()
             if user_prompt.lower() in {"exit", "quit"}:
                 break
-            response = self.generate_response(user_prompt=user_prompt)
+            response = self.generate_response(user_prompt=user_prompt, json_mode=False)
             logger.debug(f"AI Response:\n{response}\n")

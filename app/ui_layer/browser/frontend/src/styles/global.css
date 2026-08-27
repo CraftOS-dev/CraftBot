@@ -2,6 +2,17 @@
 
 @import './variables.css';
 
+/* One-shot fade-in for the main app right after the onboarding outro. Added to
+   #root by App.tsx, then removed once played. */
+.cb-app-fade {
+  animation: cbAppFadeIn 460ms ease both;
+}
+
+@keyframes cbAppFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* ─────────────────────────────────────────────────────────────────────
  * CSS Reset
  * ───────────────────────────────────────────────────────────────────── */
@@ -30,7 +41,7 @@ body {
 }
 
 #root {
-  /* dvh with vh fallback — on iOS Safari 100vh overflows behind the URL bar */
+  /* dvh with vh fallback - on iOS Safari 100vh overflows behind the URL bar */
   height: 100vh;
   height: 100dvh;
   display: flex;

@@ -4,7 +4,9 @@ Every integration you connect stores a credential on disk so the agent can act a
 
 ## Where credentials live
 
-Credentials are stored locally in a `.credentials/` directory at the CraftBot project root. Nothing is sent to the cloud. Each connected integration writes one JSON file named after the integration, such as `github.json`, `slack.json`, or `gmail.json`. The file holds whatever that integration needs to authenticate: a bot token, an API key, an OAuth access token and refresh token, or a session string.
+Credentials are stored locally in a `.credentials/` directory at the CraftBot project root. Nothing is sent to the cloud. Each integration writes one JSON document named after it, such as `github.accounts.json`, `slack.accounts.json`, or `gmail.accounts.json`.
+
+Every integration is multi-account: that document holds an entry per connected account, keyed by a stable identity the integration derives (an email, a workspace id, a bot user id). Each entry holds whatever that account needs to authenticate — a bot token, an API key, an OAuth access token and refresh token, or a session string — plus its alias, whether it is the primary, and whether its listener is enabled.
 
 CraftBot sets restrictive permissions on a best-effort basis. The `.credentials/` directory is created with owner-only access (`0700`) and each file is written owner read-write only (`0600`). On Windows these calls are attempted and any failure is ignored, so the files are created regardless. Keep the directory off shared drives and out of version control.
 
@@ -14,14 +16,14 @@ Two file types sit side by side in `.credentials/`:
 
 | File | Holds | Example |
 |---|---|---|
-| `<integration>.json` | The credential itself (tokens, keys, session data) | `github.json` |
+| `<integration>.accounts.json` | Every connected account's credential (tokens, keys, session data) | `github.accounts.json` |
 | `<integration>_config.json` | Post-connect runtime settings, not secrets | `github_config.json` |
 
-The config file holds tunable listener settings such as GitHub's watch tag, Discord's mention-only flag, or a polling filter. It is kept separate so that saving a setting never rewrites the secret-bearing credential file. Not every integration has a config file. One appears only when the integration declares runtime settings.
+The config file holds tunable listener settings such as GitHub's watch tag, Discord's mention-only flag, or a polling filter. It is kept separate so that saving a setting never rewrites the secret-bearing account document. Not every integration has a config file. One appears only when the integration declares runtime settings. Config is per-integration, not per-account.
 
 ### What disconnect does
 
-Disconnecting an integration (`/<service> disconnect`, the settings page, or `disconnect_integration` in chat) removes the credential file and stops the listener for that platform. The matching config file, if any, is left in place, so reconnecting restores your previous settings. Disconnecting does not revoke the token on the provider's side. To fully revoke access, see [Revoking access](#revoking-access) below.
+Disconnecting an integration (`/<service> disconnect`, the settings page, or `disconnect_integration` in chat) removes its accounts and stops their listeners. Disconnect one account by naming it (its alias or identity) and the others keep working; disconnect without naming one and all of them go, deleting the account document. The matching config file, if any, is left in place, so reconnecting restores your previous settings. Disconnecting does not revoke the token on the provider's side. To fully revoke access, see [Revoking access](#revoking-access) below.
 
 ## The OAuth flow
 
@@ -58,7 +60,7 @@ You do not have to use the shared CraftOS applications. If you want OAuth integr
 
 ## Security
 
-A credential file grants whatever the token grants. A leaked `github.json` lets the holder act as your GitHub account within the token's scopes. A leaked OAuth credential lets the holder call the provider's API as you until the token is revoked. Treat the `.credentials/` directory as sensitive: do not commit it, do not copy it to shared storage, and remove it if you retire the machine.
+An account document grants whatever its tokens grant. A leaked `github.accounts.json` lets the holder act as every GitHub account you connected, within each token's scopes. A leaked OAuth credential lets the holder call the provider's API as you until the token is revoked. Treat the `.credentials/` directory as sensitive: do not commit it, do not copy it to shared storage, and remove it if you retire the machine.
 
 ### Revoking access
 

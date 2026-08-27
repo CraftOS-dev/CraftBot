@@ -1,0 +1,14 @@
+{
+  "name": "craftbot-whatsapp-bridge",
+  "version": "2.0.0",
+  "private": true,
+  "description": "WhatsApp bridge for CraftBot using Baileys (protocol-native, no browser)",
+  "main": "bridge.js",
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

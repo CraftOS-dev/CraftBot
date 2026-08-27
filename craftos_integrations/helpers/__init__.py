@@ -1,9 +1,9 @@
 """Internal helpers for integration authors.
 
 These are package-internal utilities used by integration files
-(``craftos_integrations/integrations/<name>.py``). They're not part of the
+(``craftos_integrations/providers/<name>.py``). They're not part of the
 public consumer API — host applications interact with the package via the
-top-level facade (``configure``, ``initialize_manager``, ``get_handler``, etc.).
+top-level facade (``configure``, ``get_client``, ``list_metadata``, etc.).
 
 Submodules:
     http: thin wrappers around httpx that handle the standard REST
