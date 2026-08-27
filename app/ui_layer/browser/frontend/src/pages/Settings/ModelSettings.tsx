@@ -138,6 +138,12 @@ export function ModelSettings() {
   // Ollama list loading flag (transient). Models + availability are slice-backed.
   const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false)
 
+  // Generic /v1/models discovery (any provider with has_model_discovery:
+  // the new cloud providers + LM Studio/vLLM/llama.cpp). Mirrors the Ollama
+  // dropdown but wire-generic. docs/PROVIDER_SETTINGS_UX_FIX.md A2.
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
+  const [discoveredLoading, setDiscoveredLoading] = useState(false)
+
   // Ollama auto-install state
   const [ollamaInstallPhase, setOllamaInstallPhase] = useState<'idle' | 'installing' | 'error'>('idle')
   const [ollamaInstallLog, setOllamaInstallLog] = useState<string[]>([])
@@ -269,6 +275,25 @@ export function ModelSettings() {
         const rec = d.models?.find(m => m.recommended)
         if (rec) setSelectedPullModel(rec.name)
       }),
+      onMessage('provider_models_get', (data: unknown) => {
+        const d = data as { success: boolean; models?: string[]; provider?: string }
+        // Responses are broadcast and can arrive after a provider switch —
+        // only accept the list that belongs to the currently selected provider.
+        if (d.provider && d.provider !== provider) return
+        setDiscoveredLoading(false)
+        const models = d.success && d.models ? d.models : []
+        setDiscoveredModels(models)
+        // If exactly one model is served (vLLM / llama.cpp) or the current
+        // selection isn't offered, auto-select the first discovered id so
+        // the field reflects what the server actually has.
+        if (models.length > 0) {
+          setNewLlmModel(prev => {
+            const eff = prev || currentLlmModel
+            if (!eff || !models.includes(eff)) { setHasChanges(true); return models[0] }
+            return prev
+          })
+        }
+      }),
       onMessage('local_llm_pull_progress', (data: unknown) => {
         const d = data as { message: string; total: number; completed: number; percent: number }
         setPullStatus(d.message || '')
@@ -353,6 +378,42 @@ export function ModelSettings() {
   }, [provider, isConnected, send, baseUrls])
 
   const currentProvider = providers.find(p => p.id === provider)
+
+  // Generic /v1/models discovery: fetch whenever the active provider
+  // advertises has_model_discovery (new cloud providers). Ollama keeps its
+  // own native path above. Local servers (lmstudio/vllm/llamacpp) are
+  // excluded: their model id is always a free-text input, so there is
+  // nothing to discover for the field.
+  useEffect(() => {
+    setDiscoveredModels([])
+    if (
+      !isConnected ||
+      !currentProvider?.has_model_discovery ||
+      currentProvider?.local_kind ||
+      provider === 'remote'
+    ) return
+    setDiscoveredLoading(true)
+    send('provider_models_get', {
+      provider,
+      baseUrl: newBaseUrl || baseUrls[provider] || undefined,
+      apiKey: newApiKey || undefined,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, isConnected, currentProvider?.has_model_discovery, currentProvider?.local_kind, baseUrls, send])
+
+  // Options for the LLM/VLM dropdowns: Ollama native list, else the
+  // live-discovered /v1/models list. We never ship a hardcoded model list —
+  // providers we can't enumerate online fall back to a free-text input so the
+  // suggestions can't go stale.
+  // Local servers (lmstudio/vllm/llamacpp) never get a dropdown: the model
+  // id is whatever the user loaded on their server, so it stays a text input.
+  const modelOptions: string[] =
+    provider === 'remote'
+      ? ollamaModels
+      : currentProvider?.local_kind
+        ? []
+        : discoveredModels
+  const modelsLoading = provider === 'remote' ? ollamaModelsLoading : discoveredLoading
 
   // Update models when provider changes — only before settings have loaded (fallback to
   // registry defaults for the initial render).  After hasInitialized is true, provider
@@ -520,7 +581,7 @@ export function ModelSettings() {
           {/* Model Configuration */}
           {currentProvider && (
             <>
-              {provider === 'openrouter' && currentProvider.supports_catalog ? (
+              {currentProvider.supports_catalog ? (
                 <OpenRouterModelPicker
                   models={orCatalog.models}
                   loading={orCatalog.loading}
@@ -533,12 +594,19 @@ export function ModelSettings() {
               ) : (
                 <div className={styles.formGroup}>
                   <label>LLM Model</label>
-                  {provider === 'remote' && ollamaModels.length > 0 ? (
+                  {modelOptions.length > 0 ? (
                     <select
                       value={newLlmModel || currentLlmModel || ''}
                       onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
                     >
-                      {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
+                      {/* keep the saved value visible even if not in the list */}
+                      {(newLlmModel || currentLlmModel) &&
+                        !modelOptions.includes(newLlmModel || currentLlmModel) && (
+                        <option value={newLlmModel || currentLlmModel}>
+                          {newLlmModel || currentLlmModel}
+                        </option>
+                      )}
+                      {modelOptions.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                   ) : (
                     <input
@@ -546,7 +614,7 @@ export function ModelSettings() {
                       value={newLlmModel || currentLlmModel || ''}
                       onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
                       placeholder={
-                        provider === 'remote' && ollamaModelsLoading
+                        modelsLoading
                           ? 'Loading models...'
                           : currentLlmModel || 'Enter LLM model name...'
                       }
@@ -717,7 +785,7 @@ export function ModelSettings() {
               )}
 
               {currentProvider.has_vlm && (
-                provider === 'openrouter' && currentProvider.supports_catalog ? (
+                currentProvider.supports_catalog ? (
                   <OpenRouterModelPicker
                     models={orCatalog.models}
                     loading={orCatalog.loading}
@@ -732,18 +800,29 @@ export function ModelSettings() {
                 <div className={styles.formGroup}>
                   <label>VLM Model</label>
                   {(() => {
-                    const visionKeywords = ['llava', 'vision', 'moondream', 'bakllava']
-                    const visionModels = ollamaModels.filter(m =>
-                      visionKeywords.some(kw => m.toLowerCase().includes(kw))
-                    )
-                    const vlmOptions = provider === 'remote' && ollamaModels.length > 0
-                      ? (visionModels.length > 0 ? visionModels : ollamaModels)
-                      : []
+                    // Ollama filters its list to vision-tagged names; other
+                    // providers expose opaque ids, so offer the full
+                    // discovered/curated list (the profile's vlm_model
+                    // default is pre-selected).
+                    const visionKeywords = ['llava', 'vision', 'moondream', 'bakllava', 'vl']
+                    const vlmOptions = provider === 'remote'
+                      ? (() => {
+                          const vm = ollamaModels.filter(m =>
+                            visionKeywords.some(kw => m.toLowerCase().includes(kw)))
+                          return vm.length > 0 ? vm : ollamaModels
+                        })()
+                      : modelOptions
                     return vlmOptions.length > 0 ? (
                       <select
                         value={newVlmModel || currentVlmModel || ''}
                         onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
                       >
+                        {(newVlmModel || currentVlmModel) &&
+                          !vlmOptions.includes(newVlmModel || currentVlmModel) && (
+                          <option value={newVlmModel || currentVlmModel}>
+                            {newVlmModel || currentVlmModel}
+                          </option>
+                        )}
                         {vlmOptions.map(m => <option key={m} value={m}>{m}</option>)}
                       </select>
                     ) : (
@@ -752,7 +831,7 @@ export function ModelSettings() {
                         value={newVlmModel || currentVlmModel || ''}
                         onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
                         placeholder={
-                          provider === 'remote' && ollamaModelsLoading
+                          modelsLoading
                             ? 'Loading models...'
                             : currentVlmModel || 'Enter VLM model name...'
                         }
@@ -937,7 +1016,7 @@ export function ModelSettings() {
                   onChange={(e) => { setNewApiKey(e.target.value); setHasChanges(true) }}
                   placeholder={hasStoredKey ? 'Enter new key to replace...' : 'Enter API key...'}
                 />
-                {(['moonshot', 'minimax'] as string[]).includes(provider) && (
+                {currentProvider?.openrouter_proxy && (
                   <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
                     {apiKeys['openrouter']?.has_key
                       ? 'OpenRouter is configured and will be used automatically if the direct API is unavailable in your region.'
@@ -963,8 +1042,8 @@ export function ModelSettings() {
             )
           })()}
 
-          {/* OpenRouter credits */}
-          {provider === 'openrouter' && currentProvider?.supports_catalog && (
+          {/* OpenRouter credits (catalog providers only — OR today) */}
+          {currentProvider?.supports_catalog && (
             <OpenRouterCreditsBanner
               send={send}
               onMessage={onMessage}
@@ -974,7 +1053,7 @@ export function ModelSettings() {
           )}
 
           {/* AWS Bedrock credentials */}
-          {provider === 'bedrock' && currentProvider?.is_bedrock && (
+          {currentProvider?.is_bedrock && (
             <>
               <div className={styles.formGroup}>
                 <label>
@@ -1062,7 +1141,7 @@ export function ModelSettings() {
                 type="text"
                 value={newBaseUrl || baseUrls[provider] || ''}
                 onChange={(e) => { setNewBaseUrl(e.target.value); setHasChanges(true) }}
-                placeholder={provider === 'remote' ? 'http://localhost:11434' : 'Enter base URL...'}
+                placeholder={currentProvider?.default_base_url || 'Enter base URL...'}
               />
             </div>
           )}
@@ -1074,13 +1153,11 @@ export function ModelSettings() {
               onClick={handleTestConnection}
               disabled={
                 isTesting ||
-                (provider !== 'remote' &&
-                  provider !== 'bedrock' &&
+                (!!currentProvider?.requires_api_key &&
                   !apiKeys[provider]?.has_key)
               }
               title={
-                provider !== 'remote' &&
-                provider !== 'bedrock' &&
+                currentProvider?.requires_api_key &&
                 !apiKeys[provider]?.has_key
                   ? 'API key required for testing'
                   : ''
@@ -1353,7 +1430,7 @@ export function ModelSettings() {
               ) : (
                 <span style={{ textAlign: 'center', display: 'block' }}>
                   <span>{testResult.error || testResult.message}</span>
-                  {(['moonshot', 'minimax'] as string[]).includes(provider) && (
+                  {currentProvider?.openrouter_proxy && (
                     <span style={{ marginTop: 12, display: 'block', fontSize: '0.82rem', color: 'var(--text-muted, #888)', lineHeight: 1.5 }}>
                       This provider may be geo-restricted in your region.
                       {apiKeys['openrouter']?.has_key
