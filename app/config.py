@@ -280,6 +280,52 @@ def get_api_key(provider: str) -> str:
     return api_keys.get(settings_key, "")
 
 
+def get_extra_api_keys(provider: str) -> list:
+    """Extra pool credentials for a provider (Phase 5, FR-7).
+
+    settings.json: {"extra_api_keys": {"<settings_key>": ["key2", "key3"]}}.
+    The primary key stays in api_keys (untouched agent self-config path);
+    extras only ever matter when the primary is cooling down.
+    """
+    settings = get_settings()
+    block = settings.get("extra_api_keys", {})
+    if not isinstance(block, dict):
+        return []
+    # Accept both the provider key and its settings_key alias (gemini/google).
+    key_map = {"gemini": "google"}
+    entries = block.get(provider) or block.get(key_map.get(provider, provider)) or []
+    return [k for k in entries if isinstance(k, str) and k] if isinstance(entries, list) else []
+
+
+def get_fallback_providers() -> list:
+    """Ordered cross-provider fallback chain (Phase 5, FR-9).
+
+    settings.json: {"model": {"fallback_providers": ["openrouter", ...]}}.
+    Empty by default — fallback is strictly opt-in.
+    """
+    settings = get_settings()
+    chain = settings.get("model", {}).get("fallback_providers", [])
+    return [p for p in chain if isinstance(p, str) and p] if isinstance(chain, list) else []
+
+
+def get_custom_providers() -> Dict[str, Any]:
+    """Return the user-defined custom_providers block from settings.json.
+
+    Shape (Phase 3, docs/PROVIDER_LAYER_CATCHUP.md section 7.2):
+        {"<name>": {"base_url": ..., "wire": ..., "api_key_env": ...,
+                    "display_name": ..., "models": [...], "headers": {...},
+                    "supports_prompt_cache_key": bool}}
+
+    Inline API keys are NOT stored here — save_custom_provider() routes them
+    into the regular api_keys block under the provider's name, so the whole
+    existing key plumbing (get_api_key, settings UI, agent self-config)
+    works unchanged for custom providers.
+    """
+    settings = get_settings()
+    block = settings.get("custom_providers", {})
+    return block if isinstance(block, dict) else {}
+
+
 def get_base_url(provider: str) -> Optional[str]:
     """Get base URL for a provider.
 
@@ -292,18 +338,11 @@ def get_base_url(provider: str) -> Optional[str]:
     settings = get_settings()
     endpoints = settings.get("endpoints", {})
 
-    if provider == "byteplus":
-        url = endpoints.get("byteplus_base_url", "")
-        return url if url else "https://ark.ap-southeast.bytepluses.com/api/v3"
-    elif provider == "remote":
-        url = endpoints.get("remote_model_url", "")
-        return url if url else "http://localhost:11434"
-    elif provider == "gemini" or provider == "google":
+    if provider == "gemini" or provider == "google":
+        # Gemini's override lives under the legacy google_api_base key and
+        # has no profile-derived slot (native wire, URL not exposed in UI).
         return endpoints.get("google_api_base") or None
-    elif provider == "openrouter":
-        url = endpoints.get("openrouter_base_url", "")
-        return url if url else "https://openrouter.ai/api/v1"
-    elif provider == "bedrock":
+    if provider == "bedrock":
         # For Bedrock the "base URL" slot carries the AWS region.
         region = (
             endpoints.get("aws_region")
@@ -312,7 +351,17 @@ def get_base_url(provider: str) -> Optional[str]:
         )
         return region or "us-east-1"
 
-    return None
+    # Every other provider: the saved endpoint under its profile-derived
+    # endpoints key, else the profile default. Covers local servers
+    # (lmstudio/vllm/llamacpp), the new cloud providers, and custom
+    # providers — not just the legacy byteplus/remote/openrouter trio.
+    from agent_core.core.models.registry import get_registry
+
+    profile = get_registry().get(provider)
+    if profile is None:
+        return None
+    url = endpoints.get(profile.settings_endpoint_key, "")
+    return url if url else profile.default_base_url
 
 
 def get_aws_credentials() -> Dict[str, str]:

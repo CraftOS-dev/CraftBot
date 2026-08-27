@@ -52,6 +52,10 @@ def _backend_for(provider: str):
         from . import grok
 
         return grok
+    if provider == "copilot":
+        from . import copilot
+
+        return copilot
     return None
 
 

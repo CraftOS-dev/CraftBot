@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional
 import httpx
 
 from agent_core.core.models.provider_config import PROVIDER_CONFIG
+from agent_core.core.models.registry import get_registry
 
 
 def test_provider_connection(
@@ -40,15 +41,34 @@ def test_provider_connection(
     Returns:
         Dictionary with success/message/provider/error.
     """
-    if provider not in PROVIDER_CONFIG:
+    return _test_provider_connection_inner(
+        provider,
+        api_key=api_key,
+        base_url=base_url,
+        timeout=timeout,
+        model=model,
+        aws_credentials=aws_credentials,
+    )
+
+
+def _test_provider_connection_inner(
+    provider: str,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    timeout: float = 15.0,
+    model: Optional[str] = None,
+    aws_credentials: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    registry = get_registry()
+    if provider not in registry:
         return {
             "success": False,
             "message": f"Unknown provider: {provider}",
             "provider": provider,
-            "error": f"Supported providers: {', '.join(PROVIDER_CONFIG.keys())}",
+            "error": f"Supported providers: {', '.join(registry.keys())}",
         }
 
-    cfg = PROVIDER_CONFIG[provider]
+    cfg = registry[provider]
 
     try:
         if provider == "openai":
@@ -94,6 +114,18 @@ def test_provider_connection(
                 timeout=timeout,
                 aws_credentials=aws_credentials,
             )
+        elif cfg.wire == "chat_completions":
+            # Generic OpenAI-compatible branch (Phase 3): covers every new
+            # profile (groq, mistral, together, fireworks, cerebras, qwen,
+            # huggingface, nvidia, perplexity), the -cn region variants,
+            # local servers, and settings.json custom providers.
+            url = base_url or cfg.default_base_url
+            effective_key = api_key
+            if not effective_key and not cfg.requires_api_key:
+                # Local servers ignore auth but the request shape needs a
+                # bearer string.
+                effective_key = "local"
+            return _test_openai_compat(provider, effective_key, url, timeout, model)
         else:
             return {
                 "success": False,
@@ -111,23 +143,20 @@ def test_provider_connection(
 
 
 # ─── OpenRouter proxy helpers (Moonshot / MiniMax) ────────────────────
+# Derived from the provider profiles (Phase 3) — this used to be a second
+# hand-maintained copy of the factory's slug map.
 
 _OR_MODEL_MAP: dict = {
-    "moonshot": {
-        "kimi-k2.5": "moonshotai/kimi-k2.5",
-        "moonshot-v1-8k": "moonshotai/moonshot-v1-8k",
-        "moonshot-v1-32k": "moonshotai/moonshot-v1-32k",
-        "moonshot-v1-128k": "moonshotai/moonshot-v1-128k",
-        "moonshot-v1-8k-vision-preview": "moonshotai/moonshot-v1-8k-vision-preview",
-    },
-    "minimax": {
-        "MiniMax-Text-01": "minimax/minimax-01",
-        "MiniMax-VL-01": "minimax/minimax-01",
-        "abab6.5s-chat": "minimax/abab6.5s-chat",
-    },
+    key: dict(p.openrouter_slug_map)
+    for key, p in PROVIDER_CONFIG.items()
+    if p.openrouter_slug_map
 }
 
-_OR_NAMESPACE = {"moonshot": "moonshotai", "minimax": "minimax"}
+_OR_NAMESPACE = {
+    key: p.openrouter_namespace
+    for key, p in PROVIDER_CONFIG.items()
+    if p.openrouter_namespace
+}
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
@@ -218,8 +247,10 @@ def _classified_error_result(
 
 
 def _resolve_test_model(provider: str, model: Optional[str], fallback: str) -> str:
-    """Use the user's model when provided; otherwise pull the default test
-    model from connection_test_models.json (auth-only validation)."""
+    """Use the user's model when provided; otherwise the profile's
+    connection_test_model (Phase 1: absorbed from
+    connection_test_models.json); app/config override kept for users who
+    still carry that file locally."""
     if model:
         return model
     try:
@@ -230,6 +261,9 @@ def _resolve_test_model(provider: str, model: Optional[str], fallback: str) -> s
             return configured
     except Exception:
         pass
+    profile = PROVIDER_CONFIG.get(provider)
+    if profile is not None and profile.connection_test_model:
+        return profile.connection_test_model
     return fallback
 
 
@@ -242,21 +276,9 @@ def _success(provider: str, model: Optional[str]) -> Dict[str, Any]:
     }
 
 
-_DISPLAY = {
-    "openai": "OpenAI",
-    "anthropic": "Anthropic",
-    "gemini": "Google Gemini",
-    "byteplus": "BytePlus",
-    "deepseek": "DeepSeek",
-    "moonshot": "Moonshot",
-    "minimax": "MiniMax",
-    "grok": "Grok (xAI)",
-    "glm": "Z.ai (GLM)",
-    "fugu": "Sakana (Fugu)",
-    "openrouter": "OpenRouter",
-    "remote": "Ollama",
-    "bedrock": "AWS Bedrock",
-}
+# Derived from the provider profiles (Phase 1). Note: "remote" now reads
+# "Local (Ollama)" (the settings-UI name) instead of the old "Ollama".
+_DISPLAY = {key: p.display_name for key, p in PROVIDER_CONFIG.items()}
 
 
 # ─── OpenAI / OpenAI-compat ───────────────────────────────────────────
@@ -311,6 +333,11 @@ def _openai_compat_chat_test(
                 ErrorCategory.AUTH,
                 ErrorCategory.MODEL,
                 ErrorCategory.CREDIT,
+                # CONNECTION means the server was never reached — a "test"
+                # that never talked to the endpoint cannot pass. Critical for
+                # local servers (LM Studio/vLLM/llama.cpp/Ollama) where a
+                # down server previously reported success.
+                ErrorCategory.CONNECTION,
             ):
                 return {
                     "success": False,
@@ -318,7 +345,8 @@ def _openai_compat_chat_test(
                     "provider": provider,
                     "error": info.message,
                 }
-            # RATE_LIMIT, SERVER, BAD_REQUEST, etc. — auth+model are likely fine.
+            # RATE_LIMIT, SERVER, BAD_REQUEST, etc. — the endpoint answered,
+            # so auth+model are likely fine.
             return _success(provider, model)
         except Exception:
             return _classified_error_result(exc, provider, model)

@@ -73,6 +73,7 @@ from app.ui_layer.settings import (
     test_connection,
     validate_can_save,
     get_ollama_models,
+    get_provider_models,
     # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok)
     complete_subscription,
     connect_subscription_async,
@@ -1587,6 +1588,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "ollama_models_get":
             base_url = data.get("baseUrl")
             await self._handle_ollama_models_get(base_url)
+
+        elif msg_type == "provider_models_get":
+            await self._handle_provider_models_get(
+                provider=data.get("provider", ""),
+                base_url=data.get("baseUrl"),
+                api_key=data.get("apiKey"),
+            )
 
         elif msg_type == "openrouter_models_get":
             await self._handle_openrouter_models_get(
@@ -5750,10 +5758,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                     test_api_key = get_api_key(new_provider)
 
+                # Pass the model being saved so this test takes the same
+                # chat-completion path (and reaches the same verdict) as the
+                # frontend's test-before-save — with no model the tester
+                # falls back to a different auth-only probe and the two can
+                # contradict each other.
                 test_result = test_connection(
                     provider=new_provider,
                     api_key=test_api_key,
                     base_url=base_url,
+                    model=data.get("llmModel"),
                     aws_credentials=aws_credentials_in,
                 )
                 if not test_result.get("success"):
@@ -5977,6 +5991,45 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {
                     "type": "ollama_models_get",
                     "data": {"success": False, "models": [], "error": str(e)},
+                }
+            )
+
+    async def _handle_provider_models_get(
+        self,
+        provider: str,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> None:
+        """Fetch a provider's models via GET /v1/models and broadcast them.
+
+        Wire-generic sibling of _handle_ollama_models_get; drives the model
+        dropdown for the new cloud + local providers. Runs the blocking HTTP
+        call off the event loop.
+        """
+        try:
+            result = await asyncio.to_thread(
+                get_provider_models, provider, base_url, api_key
+            )
+            # Echo the provider so the frontend can drop responses that
+            # arrive after the user switched provider — an untagged late
+            # response used to repopulate the model dropdown with another
+            # provider's models.
+            await self._broadcast(
+                {
+                    "type": "provider_models_get",
+                    "data": {**result, "provider": provider},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "provider_models_get",
+                    "data": {
+                        "success": False,
+                        "models": [],
+                        "error": str(e),
+                        "provider": provider,
+                    },
                 }
             )
 

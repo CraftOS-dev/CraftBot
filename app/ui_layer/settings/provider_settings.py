@@ -11,25 +11,16 @@ from app.models.provider_config import PROVIDER_CONFIG
 from app.config import SETTINGS_CONFIG_PATH
 
 
-# Provider to settings.json api_keys key mapping
-PROVIDER_TO_SETTINGS_KEY = {
-    "openai": "openai",
-    "gemini": "google",
-    "google": "google",
-    "byteplus": "byteplus",
-    "anthropic": "anthropic",
-    "deepseek": "deepseek",
-    "minimax": "minimax",
-    "moonshot": "moonshot",
-    "grok": "grok",
-    "glm": "glm",
-    "fugu": "fugu",
-    "openrouter": "openrouter",
-    # Bedrock has no single API key — credentials live under "aws_credentials"
-    # in settings.json (handled separately from the api_keys map). The entry
-    # here is left so PROVIDER_TO_SETTINGS_KEY.get("bedrock") returns None,
-    # which the save path can detect and route accordingly.
-}
+# Provider to settings.json api_keys key mapping — DERIVED from the provider
+# profiles (Phase 1, docs/PROVIDER_LAYER_CATCHUP.md). Bedrock has no single
+# API key (credentials live under "aws_credentials"), so it is absent and
+# ``.get("bedrock")`` returns None, which the save path detects and routes
+# accordingly. The legacy "google" alias entry is preserved.
+from agent_core.core.models.registry import (
+    provider_settings_keys as _derive_settings_keys,
+)
+
+PROVIDER_TO_SETTINGS_KEY = _derive_settings_keys()
 
 
 def _load_settings() -> Dict[str, Any]:
@@ -146,6 +137,77 @@ def save_remote_endpoint(url: str) -> bool:
     except Exception as e:
         logger.error(f"[SETTINGS] Failed to save remote endpoint: {e}")
         return False
+
+
+def save_custom_provider(name: str, spec: Dict[str, Any]) -> Tuple[bool, str]:
+    """Create or update a user-defined provider (Phase 3, FR-5).
+
+    ``spec`` follows docs/PROVIDER_LAYER_CATCHUP.md section 7.2:
+    base_url (required), wire, api_key or api_key_env, display_name,
+    models, default_model, headers, supports_prompt_cache_key,
+    requires_api_key. An inline "api_key" is routed into the regular
+    api_keys block under ``name`` (never stored in custom_providers), so
+    the whole existing key plumbing works unchanged.
+
+    The entry is validated through the registry builder before saving —
+    the agent can call this and get an actionable error instead of
+    persisting a broken provider.
+    """
+    from agent_core.core.models.provider_config import PROVIDER_CONFIG
+    from agent_core.core.models.registry import _build_custom_profile
+
+    name = (name or "").strip().lower()
+    if not name or not name.replace("-", "").replace("_", "").isalnum():
+        return False, "Provider name must be a slug (letters/digits/-/_)."
+    if name in PROVIDER_CONFIG:
+        return False, f"'{name}' collides with a built-in provider."
+    if not isinstance(spec, dict):
+        return False, "Provider spec must be an object."
+
+    spec = dict(spec)
+    inline_key = spec.pop("api_key", None)
+
+    if _build_custom_profile(name, spec) is None:
+        return False, (
+            "Invalid provider spec: base_url must be an http(s) URL and "
+            "wire (if set) must be 'chat_completions'."
+        )
+
+    try:
+        settings = _load_settings()
+        settings.setdefault("custom_providers", {})[name] = spec
+        if inline_key:
+            settings.setdefault("api_keys", {})[name] = inline_key
+        if not _save_settings(settings):
+            return False, "Failed to write settings.json."
+        from app.config import reload_settings
+
+        reload_settings()
+        logger.info(f"[SETTINGS] Saved custom provider {name!r}")
+        return True, f"Custom provider '{name}' saved."
+    except Exception as e:
+        logger.error(f"[SETTINGS] Failed to save custom provider {name!r}: {e}")
+        return False, f"Failed to save custom provider: {e}"
+
+
+def delete_custom_provider(name: str) -> Tuple[bool, str]:
+    """Remove a custom provider and its stored API key."""
+    try:
+        settings = _load_settings()
+        removed = settings.get("custom_providers", {}).pop(name, None)
+        settings.get("api_keys", {}).pop(name, None)
+        if removed is None:
+            return False, f"No custom provider named '{name}'."
+        if not _save_settings(settings):
+            return False, "Failed to write settings.json."
+        from app.config import reload_settings
+
+        reload_settings()
+        logger.info(f"[SETTINGS] Deleted custom provider {name!r}")
+        return True, f"Custom provider '{name}' deleted."
+    except Exception as e:
+        logger.error(f"[SETTINGS] Failed to delete custom provider {name!r}: {e}")
+        return False, f"Failed to delete custom provider: {e}"
 
 
 def get_api_key_env_name(provider: str) -> Optional[str]:

@@ -1515,8 +1515,8 @@ Run `/help` for the live list. If you need to verify a specific command, read it
 /exit                     quit the application
 /update (alias /upgrade)  check for updates and update CraftBot [--check]
 /tokens                   show this session's token usage (input / cached / output / total)
-/provider [name] [key]    view or switch LLM provider (openai, gemini, anthropic, byteplus,
-                          deepseek, grok, glm, fugu, openrouter, remote) and set its key
+/provider [name] [key]    view or switch LLM provider (any registered provider,
+                          see ## Models) and set its key
 ```
 
 ### Credential and integration overview
@@ -1764,9 +1764,8 @@ memory:
   item_word_limit: int           (default 150; words per stored memory item)
 
 model:
-  llm_provider: "openai" | "anthropic" | "gemini" | "byteplus" | "deepseek" |
-                "minimax" | "moonshot" | "grok" | "glm" | "fugu" | "openrouter" |
-                "bedrock" | "remote"
+  llm_provider: any provider key registered in the code (see ## Models);
+                this doc does not enumerate them; the registry is authoritative
   vlm_provider: same options (VLM-capable providers only)
   image_gen_provider / video_gen_provider: string
   llm_model: string | null       (null = provider default; e.g. "claude-sonnet-4-6")
@@ -2851,29 +2850,26 @@ Each interface picks its provider and model independently: `model.llm_provider`,
 
 ### Providers and what they support
 
-From [MODEL_REGISTRY](agent_core/core/models/model_registry.py) — 13 providers:
+The set of providers is defined in code (PROVIDER_CONFIG in
+[provider_config.py](agent_core/core/models/provider_config.py), surfaced as
+[MODEL_REGISTRY](agent_core/core/models/model_registry.py)) and GROWS over
+time. This document deliberately does NOT enumerate the providers: any list
+here goes stale the moment a provider is added. The code registry is the
+single source of truth.
 
-```
-provider     LLM default model                          VLM default model             notes
-─────────    ─────────────────────────────────────      ──────────────────────────    ─────────────────────────────
-openai       gpt-5.2-2025-12-11                         gpt-5.2-2025-12-11            embedding text-embedding-3-small; image gpt-image-2; video sora-2
-anthropic    claude-sonnet-4-6                          claude-sonnet-4-6             no embedding
-gemini       gemini-2.5-pro                             gemini-2.5-pro                embedding text-embedding-004; image gemini-3-pro-image; video veo-3.1-generate-preview
-byteplus     seed-2-0-pro-260328                        seed-2-0-pro-260328           embedding skylark; video seedance-1-0-pro-fast-251015
-remote       llama3.2:3b                                llava:7b                      Ollama or OpenAI-compat; embedding nomic-embed-text
-deepseek     deepseek-chat                              (none)                        text only
-moonshot     kimi-k2.5                                  moonshot-v1-8k-vision-preview
-grok         grok-3                                     grok-4-0709                   xAI
-minimax      MiniMax-Text-01                            MiniMax-VL-01
-glm          glm-5.2                                    glm-5.2                       Z.ai (GLM), OpenAI-compat
-fugu         fugu                                       (none)                        Sakana (Fugu), text only
-openrouter   anthropic/claude-sonnet-4.5                anthropic/claude-sonnet-4.5   proxy to many models
-bedrock      us.anthropic.claude-haiku-4-5-20251001-v1:0  same                        AWS; embedding amazon.titan-embed-text-v2:0; model IDs need the us. cross-region prefix
-```
+What this means for you:
+- NEVER refuse a provider switch because a name is not in a list you
+  remember. If the user names a provider, attempt the switch (procedure
+  below). If the name is not registered, the switch code returns a clear,
+  classified error, which you surface. Do not pre-judge from this doc.
+- To see the providers that exist right now, read PROVIDER_CONFIG in the
+  file above, or point the user at the Settings UI (it renders the live
+  list).
+- Each provider ships a default LLM model id (and a default VLM id where the
+  provider supports vision). Setting `model.llm_model: null` uses that
+  registry default; an explicit string overrides it.
 
-If you set `model.llm_model: null` in settings.json, the default from MODEL_REGISTRY is used. Set an explicit string to override.
-
-A provider with `(none)` for VLM cannot be used as `vlm_provider`. If the user asks for vision but only has a text-only provider configured, tell them to set a separate `vlm_provider`.
+A provider with no VLM default model cannot be used as `vlm_provider`; the code raises a clear error if you try. If the user asks for vision but only a text-only provider is configured, tell them to set a separate `vlm_provider`.
 
 Image generation falls back through providers in priority order `gemini, openai`; video generation `gemini, openai, byteplus`. Reinit paths: `reinitialize_image_gen` / `reinitialize_video_gen` (driven by the Settings UI save).
 
@@ -2902,7 +2898,7 @@ bedrock         (none — uses aws_credentials    NO — Settings UI only
                 block + endpoints.aws_region)
 ```
 
-When setting an API key for Gemini, edit `api_keys.google`, NOT `api_keys.gemini`. Same translation in the `api_keys_configured` block. Bedrock uses `aws_credentials.{access_key_id, secret_access_key, session_token}`, not `api_keys.*`.
+When setting an API key for Gemini, edit `api_keys.google`, NOT `api_keys.gemini`. Same translation in the `api_keys_configured` block. Bedrock uses `aws_credentials.{access_key_id, secret_access_key, session_token}`, not `api_keys.*`. This table covers the original providers only; providers added later follow the default rule (their key lives in `api_keys.<provider name>`).
 
 ### Model section schema (in settings.json)
 
@@ -2934,22 +2930,23 @@ At construction (and on `reinitialize_llm`), `ModelFactory.create(provider, inte
 4. Returns ctx with provider, model, client/handles, base URL, etc.
 ```
 
-The LLMInterface is constructed ONCE at startup (and reconstructed by `reinitialize_llm`). It is NOT recreated when settings.json is hot-reloaded. This is the most important gotcha in this section — see "Switching provider or model" below.
+The LLMInterface is constructed ONCE at startup and reconstructed by `reinitialize_llm`; it does not re-read settings per call. BUT a config-watcher reload callback calls `reinitialize_llm` AUTOMATICALLY whenever the `model` section of settings.json changes, so editing settings.json switches the live provider/model on its own. See "Switching provider or model" below.
 
 ### Switching provider or model — through chat
 
 The user asks: "switch to GPT-5" or "use Gemini" or "I'd like to try Claude".
 
-The one rule: **every model change requires a reinitialize.** The LLMInterface holds its provider client AND model name from construction; editing `settings.json` alone changes NOTHING on the live interface — nothing re-reads settings per call. This applies to same-provider model swaps too.
+The one rule: **every model change requires a reinitialize, and the config watcher does that for you.** The LLMInterface holds its provider client and model name from construction and does not re-read settings per call, BUT a config-watcher reload callback calls `agent.reinitialize_llm` automatically when the `model` section of settings.json changes (llm_provider, llm_model, vlm_provider, or vlm_model). So editing settings.json yourself IS enough to switch, for both provider changes and same-provider model swaps.
 
 Reinitialize paths:
 ```
-Provider switch          → user runs /provider <name> [<api_key>]
-                           (saves settings + calls agent.reinitialize_llm)
-Model-only swap          → Settings UI save (persists + reinitializes;
-                           /provider takes no model argument)
-minimax / moonshot /     → Settings UI only (/provider does not accept them)
-bedrock
+Provider or model switch → stream_edit the model section of settings.json;
+                           the config watcher calls reinitialize_llm for
+                           you (PRIMARY, self-service, every provider)
+Also (user-driven)       → /provider <name> [<api_key>] slash command, or a
+                           Settings UI save; both persist + reinitialize.
+                           /provider does not accept minimax/moonshot/
+                           bedrock; stream_edit does.
 Image / video gen change → Settings UI save (reinitialize_image_gen / _video_gen)
 ```
 
@@ -2958,17 +2955,17 @@ Procedure for a provider switch:
 1. Ensure api_keys.<settings_key> for the new provider is set.
    Remember the gemini → "google" name translation.
    If empty: ask the user for a key, then stream_edit api_keys + api_keys_configured.
-2. Tell the user to run:    /provider <name> [<api_key>]
-   Examples:    /provider openai sk-...
-                /provider anthropic
-                /provider gemini AIza...
-3. Verify by waiting for the next LLM-driven response; mention the new provider
-   is in effect.
+2. stream_edit model.llm_provider in settings.json (app/config/settings.json)
+   to the new provider name. If the user named a specific model, also set
+   model.llm_model; leave it null to use the provider's registry default.
+3. The config watcher reinitializes the live LLM/VLM automatically, no
+   /provider needed. Verify by waiting for the next LLM-driven response and
+   confirm the new provider is in effect.
 ```
 
 `reinitialize()` is a no-op if provider+model+key+base_url are all unchanged. A provider-unchanged reinit preserves session histories; a true provider change wipes them.
 
-Symptoms of editing settings without reinit: replies still come from the old model, or `LLMConsecutiveFailureError` if the old client now lacks credentials. If the user cannot run the slash command or open Settings, the fallback is restarting CraftBot. State that explicitly.
+If the config watcher is disabled or a reinit fails, replies still come from the old model, or `LLMConsecutiveFailureError` if the old client now lacks credentials. Fallbacks then are the /provider command, a Settings UI save, or restarting CraftBot. State that explicitly.
 
 ### Setting a missing API key (no provider switch)
 

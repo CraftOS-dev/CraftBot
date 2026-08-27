@@ -10,7 +10,7 @@ All settings are stored in settings.json (not .env).
 """
 
 import json
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -22,114 +22,16 @@ from app.models import (
 )
 
 
-# Provider display names and settings.json key mapping
-PROVIDER_INFO = {
-    "openai": {
-        "name": "OpenAI",
-        "api_key_env": "OPENAI_API_KEY",
-        "settings_key": "openai",
-        "requires_api_key": True,
-        "supports_subscription_oauth": True,
-        "subscription_label": "Sign in with ChatGPT",
-        # Codex-accepted models for ChatGPT subscription auth.
-        "subscription_models": [
-            "gpt-5.4",
-            "gpt-5.5",
-            "gpt-5.4-mini",
-            "gpt-5.3-codex-spark",
-        ],
-        "subscription_default_model": "gpt-5.4",
-    },
-    "anthropic": {
-        "name": "Anthropic",
-        "api_key_env": "ANTHROPIC_API_KEY",
-        "settings_key": "anthropic",
-        "requires_api_key": True,
-    },
-    "gemini": {
-        "name": "Google Gemini",
-        "api_key_env": "GOOGLE_API_KEY",
-        "settings_key": "google",
-        "requires_api_key": True,
-    },
-    "byteplus": {
-        "name": "BytePlus",
-        "api_key_env": "BYTEPLUS_API_KEY",
-        "settings_key": "byteplus",
-        "requires_api_key": True,
-    },
-    "minimax": {
-        "name": "MiniMax",
-        "api_key_env": "MINIMAX_API_KEY",
-        "settings_key": "minimax",
-        "requires_api_key": True,
-    },
-    "deepseek": {
-        "name": "DeepSeek",
-        "api_key_env": "DEEPSEEK_API_KEY",
-        "settings_key": "deepseek",
-        "requires_api_key": True,
-    },
-    "moonshot": {
-        "name": "Moonshot",
-        "api_key_env": "MOONSHOT_API_KEY",
-        "settings_key": "moonshot",
-        "requires_api_key": True,
-    },
-    "grok": {
-        "name": "Grok (xAI)",
-        "api_key_env": "XAI_API_KEY",
-        "settings_key": "grok",
-        "requires_api_key": True,
-        # Subscription OAuth (SuperGrok / X Premium+). xAI publicly endorsed
-        # this path in May 2026.
-        "supports_subscription_oauth": True,
-        "subscription_label": "Sign in with Grok",
-        "subscription_models": ["grok-4-0709", "grok-3"],
-    },
-    "glm": {
-        "name": "Z.ai (GLM)",
-        "api_key_env": "ZAI_API_KEY",
-        "settings_key": "glm",
-        "requires_api_key": True,
-    },
-    "fugu": {
-        "name": "Sakana (Fugu)",
-        "api_key_env": "SAKANA_API_KEY",
-        "settings_key": "fugu",
-        "requires_api_key": True,
-    },
-    "openrouter": {
-        "name": "OpenRouter",
-        "api_key_env": "OPENROUTER_API_KEY",
-        # Intentionally no base_url_env — the OpenRouter endpoint is fixed for
-        # almost everyone, and exposing the field confused users into thinking
-        # they had to fill it in. Power users who need a custom gateway can
-        # still set endpoints.openrouter_base_url in settings.json by hand;
-        # the backend still reads it (see app/config.py get_base_url).
-        "settings_key": "openrouter",
-        "requires_api_key": True,
-        # Frontend opts in to a catalog-aware picker for this provider.
-        "supports_catalog": True,
-    },
-    "remote": {
-        "name": "Local (Ollama)",
-        "base_url_env": "REMOTE_MODEL_URL",
-        "requires_api_key": False,
-    },
-    "bedrock": {
-        "name": "AWS Bedrock",
-        # Bedrock uses the boto3 credential chain — there is no single key,
-        # so `requires_api_key` is False and the frontend renders an AWS
-        # credentials block instead (access key / secret key / region).
-        "requires_api_key": False,
-        "is_bedrock": True,
-        # Region is exposed via the base_url slot so the existing plumbing
-        # threads it through. The frontend uses `is_bedrock` to swap the
-        # generic "Server URL" field for an AWS-specific form.
-        "base_url_env": "AWS_REGION",
-    },
-}
+# Provider display names and settings.json key mapping — DERIVED from the
+# provider profiles (Phase 1, docs/PROVIDER_LAYER_CATCHUP.md). The JSON shape
+# is a frozen frontend contract pinned by
+# tests/settings/snapshots/provider_info.json; per-provider data (names, env
+# vars, subscription OAuth, is_bedrock, base_url_env visibility rules) lives
+# on ProviderProfile in agent_core/core/models/provider_config.py.
+from agent_core.core.models.registry import get_registry
+from agent_core.core.models.registry import provider_info as _derive_provider_info
+
+PROVIDER_INFO = _derive_provider_info()
 
 
 def _load_settings() -> Dict[str, Any]:
@@ -194,11 +96,15 @@ def get_available_providers() -> Dict[str, Any]:
         Dict with provider info including name and models
     """
     try:
+        from agent_core.core.models.registry import get_registry
+
+        registry = get_registry()
         providers = []
 
         for provider_id, info in PROVIDER_INFO.items():
             # Get models for this provider
             provider_models = MODEL_REGISTRY.get(provider_id, {})
+            profile = registry.get(provider_id)
 
             llm_model = provider_models.get(InterfaceType.LLM)
             vlm_model = provider_models.get(InterfaceType.VLM)
@@ -212,6 +118,12 @@ def get_available_providers() -> Dict[str, Any]:
                     "requires_api_key": info.get("requires_api_key", True),
                     "api_key_env": info.get("api_key_env"),
                     "base_url_env": info.get("base_url_env"),
+                    # Default endpoint, so the UI can show a helpful
+                    # placeholder (e.g. http://localhost:1234/v1 for LM
+                    # Studio) instead of a generic "Enter base URL...".
+                    "default_base_url": (
+                        profile.default_base_url if profile else None
+                    ),
                     "llm_model": llm_model,
                     "vlm_model": vlm_model,
                     "has_vlm": vlm_model is not None,
@@ -226,6 +138,19 @@ def get_available_providers() -> Dict[str, Any]:
                     ),
                     "subscription_label": info.get("subscription_label"),
                     "subscription_models": info.get("subscription_models", []),
+                    # ── UX generalization (docs/PROVIDER_SETTINGS_UX_FIX.md) ──
+                    # Live GET /v1/models dropdown (all new cloud + local
+                    # servers except Perplexity).
+                    "has_model_discovery": bool(
+                        profile.supports_model_discovery if profile else False
+                    ),
+                    # "lmstudio" unlocks the native list-all + load UI.
+                    "local_kind": profile.local_kind if profile else None,
+                    # Drives the OpenRouter geo-fallback hint by flag instead
+                    # of a hardcoded ['moonshot','minimax'] list.
+                    "openrouter_proxy": bool(
+                        profile.openrouter_proxy if profile else False
+                    ),
                 }
             )
 
@@ -333,20 +258,18 @@ def get_model_settings() -> Dict[str, Any]:
             # falls back to API-key-only mode rather than 500ing the settings call.
             pass
 
-        # Get base URLs for providers that support them (settings.json only)
+        # Get base URLs for providers that support them (settings.json only).
+        # Keys are derived from the provider profiles so every provider's
+        # saved endpoint round-trips back to the UI — not just the legacy four.
         base_urls = {}
-        if endpoints_settings.get("byteplus_base_url"):
-            base_urls["byteplus"] = endpoints_settings["byteplus_base_url"]
+        for pid, profile in get_registry().items():
+            saved_url = endpoints_settings.get(profile.settings_endpoint_key)
+            if saved_url:
+                base_urls[pid] = saved_url
 
-        # Support both the "remote_model_url" key and "remote" key
-        remote_url = endpoints_settings.get(
-            "remote_model_url"
-        ) or endpoints_settings.get("remote")
-        if remote_url:
-            base_urls["remote"] = remote_url
-
-        if endpoints_settings.get("openrouter_base_url"):
-            base_urls["openrouter"] = endpoints_settings["openrouter_base_url"]
+        # Support the legacy "remote" key alongside "remote_model_url"
+        if not base_urls.get("remote") and endpoints_settings.get("remote"):
+            base_urls["remote"] = endpoints_settings["remote"]
 
         # Bedrock: surface the region through the same base_urls map so the
         # frontend can use the existing field. AWS creds status is reported
@@ -523,17 +446,19 @@ def update_model_settings(
             if settings_key:
                 settings["api_keys"][settings_key] = api_key
 
-        # Update base URL in settings.json
+        # Update base URL in settings.json. The endpoints key is derived from
+        # the provider profile so every provider with an endpoint (local
+        # servers, new cloud providers, custom) persists — not just the
+        # legacy four. Bedrock's derived slot is aws_region (the "base URL"
+        # carries the region).
         if provider_for_url and base_url is not None:
-            if provider_for_url == "byteplus":
-                settings["endpoints"]["byteplus_base_url"] = base_url
-            elif provider_for_url == "remote":
-                settings["endpoints"]["remote_model_url"] = base_url
-            elif provider_for_url == "openrouter":
-                settings["endpoints"]["openrouter_base_url"] = base_url
-            elif provider_for_url == "bedrock":
-                # Bedrock's "base URL" slot carries the AWS region.
-                settings["endpoints"]["aws_region"] = base_url
+            profile = get_registry().get(provider_for_url)
+            if profile is None:
+                return {
+                    "success": False,
+                    "error": f"Unknown provider for base URL: {provider_for_url}",
+                }
+            settings["endpoints"][profile.settings_endpoint_key] = base_url
 
         # Update AWS credentials block (bedrock-only)
         if aws_credentials:
@@ -610,24 +535,19 @@ def test_connection(
             if settings_key:
                 api_key = api_keys_settings.get(settings_key)
 
-        # If no base URL provided, try to get it from settings.json
-        if base_url is None and provider in [
-            "byteplus",
-            "remote",
-            "openrouter",
-            "bedrock",
-        ]:
-            if provider == "byteplus":
-                base_url = endpoints_settings.get("byteplus_base_url")
-            elif provider == "remote":
-                base_url = endpoints_settings.get("remote_model_url")
-            elif provider == "openrouter":
-                base_url = endpoints_settings.get("openrouter_base_url")
-            elif provider == "bedrock":
+        # If no base URL provided, try to get the saved one from settings.json
+        # (key derived from the provider profile — covers every provider).
+        if base_url is None:
+            profile = get_registry().get(provider)
+            if profile is not None:
+                base_url = (
+                    endpoints_settings.get(profile.settings_endpoint_key) or None
+                )
+            if provider == "bedrock" and base_url is None:
                 # `base_url` carries the AWS region through the existing
                 # plumbing — the connection tester reads boto3 creds from
                 # settings.json directly via app.config.get_aws_credentials.
-                base_url = endpoints_settings.get("aws_region", "us-east-1")
+                base_url = "us-east-1"
 
         # Run connection test
         result = test_provider_connection(
@@ -649,6 +569,28 @@ def test_connection(
         }
 
 
+def _sort_models_by_recency(items: List[Tuple[str, Any]]) -> List[str]:
+    """Order model ids newest-first, falling back to alphabetical.
+
+    ``items`` is a list of ``(model_id, recency)`` pairs, where ``recency`` is
+    a comparable value the provider reports for how new a model is — a unix
+    timestamp for /v1/models' ``created``, an ISO-8601 string for Ollama's
+    ``modified_at`` — or ``None`` when the provider doesn't report it (all
+    recency values in one call are the same type).
+
+    Ids that carry a recency sort newest-first; ids without one sort after
+    them, case-insensitively A→Z. When no id reports a recency at all, the
+    whole list is alphabetical.
+    """
+    if not any(r is not None for _, r in items):
+        return sorted((mid for mid, _ in items), key=str.lower)
+    dated = [(mid, r) for mid, r in items if r is not None]
+    undated = sorted((mid for mid, r in items if r is None), key=str.lower)
+    dated.sort(key=lambda t: t[0].lower())         # A→Z tiebreak (stable)
+    dated.sort(key=lambda t: t[1], reverse=True)   # then newest first
+    return [mid for mid, _ in dated] + undated
+
+
 def get_ollama_models(base_url: Optional[str] = None) -> Dict[str, Any]:
     """Fetch available models from a running Ollama instance.
 
@@ -663,7 +605,14 @@ def get_ollama_models(base_url: Optional[str] = None) -> Dict[str, Any]:
         with httpx.Client(timeout=5.0) as client:
             response = client.get(f"{url.rstrip('/')}/api/tags")
         if response.status_code == 200:
-            models = [m["name"] for m in response.json().get("models", [])]
+            raw = response.json().get("models", [])
+            models = _sort_models_by_recency(
+                [
+                    (m["name"], m.get("modified_at") or None)
+                    for m in raw
+                    if isinstance(m, dict) and m.get("name")
+                ]
+            )
             return {"success": True, "models": models}
         else:
             return {
@@ -671,6 +620,78 @@ def get_ollama_models(base_url: Optional[str] = None) -> Dict[str, Any]:
                 "models": [],
                 "error": f"Ollama returned status {response.status_code}",
             }
+    except Exception as e:
+        return {"success": False, "models": [], "error": str(e)}
+
+
+def get_provider_models(
+    provider: str,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """List a provider's models via the OpenAI-standard GET {base_url}/models.
+
+    The wire-generic analogue of get_ollama_models (which uses Ollama's
+    native /api/tags): powers the settings model dropdown for every provider
+    with supports_model_discovery — the 9 new cloud providers and the local
+    servers (LM Studio / vLLM / llama.cpp). See
+    docs/PROVIDER_SETTINGS_UX_FIX.md A2.
+
+    Returns {success, models: [id,...], error?}. Never raises.
+    """
+    profile = get_registry().get(provider)
+    if profile is None:
+        return {"success": False, "models": [], "error": f"Unknown provider: {provider}"}
+
+    # Explicit URL wins, else the user's saved endpoint, else the default.
+    url = base_url
+    if not url:
+        settings = _load_settings()
+        url = settings.get("endpoints", {}).get(profile.settings_endpoint_key)
+    if not url:
+        url = profile.default_base_url
+    if not url:
+        return {"success": False, "models": [], "error": "No base URL configured."}
+
+    # Resolve a bearer: explicit key, else the stored key, else a placeholder
+    # for keyless local servers (which ignore auth).
+    key = api_key
+    if not key:
+        try:
+            from app.config import get_api_key
+
+            key = get_api_key(provider) or None
+        except Exception:
+            key = None
+    if not key and not profile.requires_api_key:
+        key = "local"
+
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            response = client.get(f"{url.rstrip('/')}/models", headers=headers)
+        if response.status_code == 200:
+            data = response.json().get("data", []) or []
+
+            def _created(m: Dict[str, Any]) -> Optional[int]:
+                c = m.get("created")
+                # Several OpenAI-compatible providers stub `created` as 0/absent
+                # — treat those as "no recency" so they fall back to alpha.
+                return int(c) if isinstance(c, (int, float)) and c > 0 else None
+
+            models = _sort_models_by_recency(
+                [
+                    (m["id"], _created(m))
+                    for m in data
+                    if isinstance(m, dict) and m.get("id")
+                ]
+            )
+            return {"success": True, "models": models}
+        return {
+            "success": False,
+            "models": [],
+            "error": f"Provider returned status {response.status_code}",
+        }
     except Exception as e:
         return {"success": False, "models": [], "error": str(e)}
 
