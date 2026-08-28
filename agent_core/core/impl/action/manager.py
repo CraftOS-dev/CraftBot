@@ -131,9 +131,7 @@ try:
         except Exception:
             pass
 except Exception as _compat_ct_exc:
-    logger.warning(
-        f"[compat-shim] current_task rebinding skipped: {_compat_ct_exc!r}"
-    )
+    logger.warning(f"[compat-shim] current_task rebinding skipped: {_compat_ct_exc!r}")
 # ============================================================================
 
 

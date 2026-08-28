@@ -13,7 +13,9 @@ import pytest
 from craftos_integrations.core.storage import FileCredentialStore
 from craftos_integrations.core.system import IntegrationSystem
 from craftos_integrations.providers.google_youtube import GoogleYoutubeProvider
-from craftos_integrations.providers.google_youtube.provider import BoundGoogleYoutubeClient
+from craftos_integrations.providers.google_youtube.provider import (
+    BoundGoogleYoutubeClient,
+)
 
 from .conformance import ProviderConformance
 

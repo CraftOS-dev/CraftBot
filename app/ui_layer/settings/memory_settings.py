@@ -42,9 +42,7 @@ from agent_core.core.impl.memory.tuning import (
 # stamp content still lists the item, with the raw stamp as its identity.
 # Content may carry structured tail fields ({entities: ...}, {superseded});
 # those are parsed out by _parse_memory_items via the shared graph helpers.
-MEMORY_ITEM_PATTERN = re.compile(
-    r"^\[([^\]]+)\]\s+\[([\w\-]+)\]\s+(.+)$"
-)
+MEMORY_ITEM_PATTERN = re.compile(r"^\[([^\]]+)\]\s+\[([\w\-]+)\]\s+(.+)$")
 
 # Files that are always indexed (mirrors MemoryManager.INDEX_TARGET_FILES).
 CORE_INDEX_FILES = [
@@ -780,7 +778,11 @@ def list_indexable_candidates() -> Dict[str, Any]:
                     if not is_indexable_file(entry.name):
                         continue
                     rel = str(entry.relative_to(root)).replace("\\", "/")
-                    if rel in core or rel in selected or entry.name in _CANDIDATE_EXCLUDE:
+                    if (
+                        rel in core
+                        or rel in selected
+                        or entry.name in _CANDIDATE_EXCLUDE
+                    ):
                         continue
                     candidates.append({"path": rel, "size": entry.stat().st_size})
                     if len(candidates) >= CANDIDATE_MAX_RESULTS:

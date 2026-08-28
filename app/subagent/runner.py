@@ -710,39 +710,4 @@ class SubAgentRunner:
         return None
 
 
-    @staticmethod
-    def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
-        """First balanced `{…}` in `text` that parses as a dict, scanning
-        with string awareness so braces inside JSON strings don't confuse
-        the match. None when nothing parses."""
-        start = text.find("{")
-        while start != -1:
-            depth, in_str, esc = 0, False, False
-            for i in range(start, len(text)):
-                ch = text[i]
-                if in_str:
-                    if esc:
-                        esc = False
-                    elif ch == "\\":
-                        esc = True
-                    elif ch == '"':
-                        in_str = False
-                    continue
-                if ch == '"':
-                    in_str = True
-                elif ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 0:
-                        candidate = text[start : i + 1]
-                        try:
-                            obj = json.loads(candidate)
-                        except json.JSONDecodeError:
-                            break  # try the next '{'
-                        return obj if isinstance(obj, dict) else None
-            start = text.find("{", start + 1)
-        return None
-
-
 __all__ = ["SubAgentRunner"]

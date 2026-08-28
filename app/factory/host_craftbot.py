@@ -369,7 +369,10 @@ class FactoryHost:
             if kind == "defects":
                 side["last_defects"] = self._defect_feature_names(defects or [])
                 self._sidecar_write(project_id, side)
-            elif kind in ("pass", "incomplete", "blocked") and side.pop("last_defects", None) is not None:
+            elif (
+                kind in ("pass", "incomplete", "blocked")
+                and side.pop("last_defects", None) is not None
+            ):
                 self._sidecar_write(project_id, side)
         except Exception as e:
             logger.debug(f"[FACTORY] last_defects bookkeeping failed: {e}")
@@ -834,7 +837,9 @@ status messages; when verification passes the user is informed automatically."""
 
         names: List[str] = []
         for line in defects:
-            m = _re.match(r"^-?\s*(.{1,160}?)\s*(?:—|–|:|-)\s*FAIL\b", str(line).strip())
+            m = _re.match(
+                r"^-?\s*(.{1,160}?)\s*(?:—|–|:|-)\s*FAIL\b", str(line).strip()
+            )
             name = (m.group(1) if m else str(line)).strip(" -")
             if name and name not in names:
                 names.append(name[:160])
@@ -862,7 +867,9 @@ status messages; when verification passes the user is informed automatically."""
             else f"✅ The app is ready at {url}"
         )
         scoped = f" ({scope_note})" if scope_note else ""
-        text = lead + (f" — {n} feature(s) verified in a real browser{scoped}." if n else ".")
+        text = lead + (
+            f" — {n} feature(s) verified in a real browser{scoped}." if n else "."
+        )
         if caveat:
             text += f"\n⚠️ {caveat}"
         self._emit_chat(project_id, text)

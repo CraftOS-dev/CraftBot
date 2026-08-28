@@ -15,6 +15,7 @@ from typing import Final
 
 # ───────────────────────── Hybrid retrieval ─────────────────────────
 
+
 @dataclass(frozen=True)
 class HybridWeights:
     """Channel weights of the hybrid score. Vector is the primary signal,

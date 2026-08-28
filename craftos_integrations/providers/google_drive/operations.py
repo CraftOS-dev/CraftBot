@@ -69,8 +69,7 @@ def build_operations() -> List[Operation]:
                 "folder_id": {
                     "type": "string",
                     "description": (
-                        "Google Drive folder ID. Use 'root' for the user's "
-                        "My Drive."
+                        "Google Drive folder ID. Use 'root' for the user's My Drive."
                     ),
                     "example": "root",
                 },
@@ -249,8 +248,7 @@ def build_operations() -> List[Operation]:
                 "save_to": {
                     "type": "string",
                     "description": (
-                        "Local path to save to. Parent directories will be "
-                        "created."
+                        "Local path to save to. Parent directories will be created."
                     ),
                     "example": "C:/Users/me/downloads/report.pdf",
                 },
@@ -388,9 +386,7 @@ def build_operations() -> List[Operation]:
                 },
                 "trashed": {
                     "type": "boolean",
-                    "description": (
-                        "Send to trash without deleting (optional)."
-                    ),
+                    "description": ("Send to trash without deleting (optional)."),
                     "example": False,
                 },
             },
@@ -427,8 +423,7 @@ def build_operations() -> List[Operation]:
             "empty_drive_trash",
             "empty_drive_trash",
             description=(
-                "Permanently delete EVERYTHING in the user's Drive trash. "
-                "Irreversible."
+                "Permanently delete EVERYTHING in the user's Drive trash. Irreversible."
             ),
             destructive=True,
             parallelizable=False,
@@ -452,8 +447,7 @@ def build_operations() -> List[Operation]:
                 "include_metadata": {
                     "type": "boolean",
                     "description": (
-                        "Include exportFormats/importFormats maps "
-                        "(default false)."
+                        "Include exportFormats/importFormats maps (default false)."
                     ),
                     "example": False,
                 },
@@ -505,8 +499,7 @@ def build_operations() -> List[Operation]:
             "list_drive_permissions",
             "list_drive_permissions",
             description=(
-                "List who has access to a Drive file or folder, with their "
-                "role."
+                "List who has access to a Drive file or folder, with their role."
             ),
             tags=("google_drive_permissions", "google_drive"),
             unwrap_envelope=True,

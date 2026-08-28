@@ -121,9 +121,7 @@ def get_available_providers() -> Dict[str, Any]:
                     # Default endpoint, so the UI can show a helpful
                     # placeholder (e.g. http://localhost:1234/v1 for LM
                     # Studio) instead of a generic "Enter base URL...".
-                    "default_base_url": (
-                        profile.default_base_url if profile else None
-                    ),
+                    "default_base_url": (profile.default_base_url if profile else None),
                     "llm_model": llm_model,
                     "vlm_model": vlm_model,
                     "has_vlm": vlm_model is not None,
@@ -540,9 +538,7 @@ def test_connection(
         if base_url is None:
             profile = get_registry().get(provider)
             if profile is not None:
-                base_url = (
-                    endpoints_settings.get(profile.settings_endpoint_key) or None
-                )
+                base_url = endpoints_settings.get(profile.settings_endpoint_key) or None
             if provider == "bedrock" and base_url is None:
                 # `base_url` carries the AWS region through the existing
                 # plumbing — the connection tester reads boto3 creds from
@@ -586,8 +582,8 @@ def _sort_models_by_recency(items: List[Tuple[str, Any]]) -> List[str]:
         return sorted((mid for mid, _ in items), key=str.lower)
     dated = [(mid, r) for mid, r in items if r is not None]
     undated = sorted((mid for mid, r in items if r is None), key=str.lower)
-    dated.sort(key=lambda t: t[0].lower())         # A→Z tiebreak (stable)
-    dated.sort(key=lambda t: t[1], reverse=True)   # then newest first
+    dated.sort(key=lambda t: t[0].lower())  # A→Z tiebreak (stable)
+    dated.sort(key=lambda t: t[1], reverse=True)  # then newest first
     return [mid for mid, _ in dated] + undated
 
 
@@ -641,7 +637,11 @@ def get_provider_models(
     """
     profile = get_registry().get(provider)
     if profile is None:
-        return {"success": False, "models": [], "error": f"Unknown provider: {provider}"}
+        return {
+            "success": False,
+            "models": [],
+            "error": f"Unknown provider: {provider}",
+        }
 
     # Explicit URL wins, else the user's saved endpoint, else the default.
     url = base_url

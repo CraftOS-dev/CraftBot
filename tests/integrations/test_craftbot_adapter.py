@@ -65,7 +65,10 @@ def live_system(tmp_path, monkeypatch):
     monkeypatch.setattr(ConfigStore, "project_root", tmp_path)
     bootstrap.reset_system()
     system = bootstrap.get_system()
-    cred = lambda email: {"email": email, "access_token": f"tok-{email}"}
+
+    def cred(email):
+        return {"email": email, "access_token": f"tok-{email}"}
+
     system.store_credential("gmail", "a@x.com", cred("a@x.com"))
     system.store_credential("gmail", "b@y.com", cred("b@y.com"))
     system.set_alias("gmail", "b@y.com", "school")
@@ -96,9 +99,7 @@ def test_generated_action_routes_account_to_client(
     assert seen == [("b@y.com", 2)]
 
 
-def test_generated_action_bad_account_is_self_correcting(
-    adapter_registry, live_system
-):
+def test_generated_action_bad_account_is_self_correcting(adapter_registry, live_system):
     handler = _handler(adapter_registry, "list_gmail")
     result = asyncio.run(handler({"account": "ghost"}))
     assert result["status"] == "error"

@@ -78,7 +78,12 @@ GMAIL_MESSAGE = {
         # fields-mask shape: parts skeleton only, no body.data. The
         # nameless attachmentId part is an inline image — not reported.
         "parts": [
-            {"partId": "0", "mimeType": "text/plain", "filename": "", "body": {"size": 20}},
+            {
+                "partId": "0",
+                "mimeType": "text/plain",
+                "filename": "",
+                "body": {"size": 20},
+            },
             {
                 "partId": "1",
                 "mimeType": "application/pdf",
@@ -126,7 +131,9 @@ def _gmail_setup(monkeypatch):
     fake = FakeGmailAPI()
     monkeypatch.setattr(gmail_mod, "arequest", fake.arequest)
     # Config file may not exist in the test env; serve the default (toggle on).
-    monkeypatch.setattr(gmail_mod, "load_config", lambda *a, **k: gmail_mod.GmailConfig())
+    monkeypatch.setattr(
+        gmail_mod, "load_config", lambda *a, **k: gmail_mod.GmailConfig()
+    )
     provider = GmailProvider()
     client = provider.build_client(dict(GMAIL_CRED), lambda d: None)
     return fake, provider, client
@@ -392,11 +399,7 @@ class FakeSlackAPI:
         if path == "conversations.history":
             self.history_calls += 1
             oldest = float(params.get("oldest", "0"))
-            return {
-                "messages": [
-                    m for m in self.messages if float(m["ts"]) > oldest
-                ]
-            }
+            return {"messages": [m for m in self.messages if float(m["ts"]) > oldest]}
         raise AssertionError(f"unexpected Slack call {path}")
 
 

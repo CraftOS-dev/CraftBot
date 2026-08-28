@@ -36,6 +36,10 @@ from app.runtime_preflight import (
 )
 from app import python_runtime
 
+# Single resolved Node runtime — see app/node_runtime.py. install.py
+# downloads the sidecar when nothing suitable exists; run.py never installs.
+from app import node_runtime
+
 multiprocessing.freeze_support()
 
 CRAFTBOT_READY_MARKER = "CRAFTBOT IS READY"
@@ -396,11 +400,6 @@ def _free_ports(*ports: int) -> None:
         if _kill_stale_port_process(port):
             # Give the OS a moment to release the socket
             time.sleep(0.5)
-
-
-# Single resolved Node runtime — see app/node_runtime.py. install.py
-# downloads the sidecar when nothing suitable exists; run.py never installs.
-from app import node_runtime
 
 
 def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
@@ -968,7 +967,11 @@ def launch_agent_background(
         if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
             cmd = ["cmd.exe", "/d", "/c"] + cmd
     else:
-        cmd = [python_runtime.resolve() or sys.executable, "-u", main_script] + pass_args
+        cmd = [
+            python_runtime.resolve() or sys.executable,
+            "-u",
+            main_script,
+        ] + pass_args
 
     try:
         process = subprocess.Popen(
@@ -1174,7 +1177,11 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
         if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
             cmd = ["cmd.exe", "/d", "/c"] + cmd
     else:
-        cmd = [python_runtime.resolve() or sys.executable, "-u", main_script] + pass_args
+        cmd = [
+            python_runtime.resolve() or sys.executable,
+            "-u",
+            main_script,
+        ] + pass_args
 
     # Run in current terminal with all environment variables.
     try:

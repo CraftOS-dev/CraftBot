@@ -27,9 +27,7 @@ logger = logging.getLogger(__name__)
 # Derived from provider profiles (Phase 1, docs/PROVIDER_LAYER_CATCHUP.md).
 # OpenRouter proxy routing exists because some direct APIs are geo-restricted
 # for most international users; the per-provider data lives on the profiles.
-_OPENROUTER_PROXIED = {
-    key for key, p in PROVIDER_CONFIG.items() if p.openrouter_proxy
-}
+_OPENROUTER_PROXIED = {key for key, p in PROVIDER_CONFIG.items() if p.openrouter_proxy}
 
 # OpenRouter namespace per provider (for auto-slugging unknown model IDs).
 _OR_NAMESPACE = {
@@ -307,9 +305,7 @@ class ModelFactory:
                     f"default model)."
                 )
             supported = ", ".join(
-                p
-                for p, prof in registry.items()
-                if prof.default_models.get(interface)
+                p for p, prof in registry.items() if prof.default_models.get(interface)
             )
             raise ValueError(
                 f"Provider '{provider}' does not support {interface.value}. "

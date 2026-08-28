@@ -127,9 +127,7 @@ def generate(
         # Total input = input_tokens + cache_creation + cache_read
         base_input = response.usage.input_tokens
         token_count_output = response.usage.output_tokens
-        cache_creation = (
-            getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-        )
+        cache_creation = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
         cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
         token_count_input = base_input + cache_creation + cache_read
         total_tokens = token_count_input + token_count_output
@@ -152,14 +150,10 @@ def generate(
                 f"[CACHE] Anthropic {cache_type} cache created: {cache_creation} tokens cached"
             )
             # Cache creation is a "miss" for the current call but sets up future hits
-            metrics.record_miss(
-                "anthropic", cache_type, total_tokens=token_count_input
-            )
+            metrics.record_miss("anthropic", cache_type, total_tokens=token_count_input)
         elif system_prompt and len(system_prompt) >= config.min_cache_tokens:
             # Caching was attempted but no cache info returned - unexpected
-            metrics.record_miss(
-                "anthropic", cache_type, total_tokens=token_count_input
-            )
+            metrics.record_miss("anthropic", cache_type, total_tokens=token_count_input)
 
         status = "success"
 

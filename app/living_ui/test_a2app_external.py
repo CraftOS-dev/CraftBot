@@ -42,8 +42,7 @@ def _op(name, method="POST", upstream=None, params=None, **extra):
             "type": "http",
             "method": method,
             "path": op_route(name),
-            "upstream": upstream
-            or {"method": "POST", "path": "/api/todos"},
+            "upstream": upstream or {"method": "POST", "path": "/api/todos"},
         },
     }
     if params:
@@ -98,6 +97,7 @@ MANIFEST = {
 
 # ── validator ──────────────────────────────────────────────────────────────
 
+
 def test_validator() -> None:
     assert validate_external_manifest(MANIFEST) == []
 
@@ -137,8 +137,7 @@ def test_validator() -> None:
     }
     ghost["operations"][0]["executor"]["method"] = "GET"
     assert any(
-        "names no declared param" in p
-        for p in validate_external_manifest(ghost)
+        "names no declared param" in p for p in validate_external_manifest(ghost)
     )
     print("validator: OK")
 
@@ -179,6 +178,7 @@ def test_param_validation() -> None:
 
 
 # ── proxy end-to-end ───────────────────────────────────────────────────────
+
 
 async def _start_upstream():
     from aiohttp import web
@@ -258,8 +258,11 @@ async def _proxy_suite(tmp: Path) -> None:
             desc = await r.json()
             assert desc["entities"] == {}
             assert {o["name"] for o in desc["operations"]} == {
-                "todos.create", "todos.list", "todos.get",
-                "todos.boom", "todos.wipe",
+                "todos.create",
+                "todos.list",
+                "todos.get",
+                "todos.boom",
+                "todos.wipe",
             }
             assert "conventions" in desc
 
@@ -269,7 +272,8 @@ async def _proxy_suite(tmp: Path) -> None:
 
         # op invocation: typed body lands upstream via the template
         async with http.post(
-            f"{base}/api/ops/todos/create", json={"title": "call John"},
+            f"{base}/api/ops/todos/create",
+            json={"title": "call John"},
             headers=auth,
         ) as r:
             body = await r.json()
@@ -294,27 +298,25 @@ async def _proxy_suite(tmp: Path) -> None:
             assert codes == ["invalid_boolean", "missing_param", "unknown_param"]
 
         # GET op with query params + path placeholder
-        async with http.get(
-            f"{base}/api/ops/todos/get", params={"id": "1"}
-        ) as r:
+        async with http.get(f"{base}/api/ops/todos/get", params={"id": "1"}) as r:
             assert r.status == 200 and (await r.json())["title"] == "call John"
 
         # auth: mutation without token -> 401; GET needs none
-        async with http.post(
-            f"{base}/api/ops/todos/create", json={"title": "x"}
-        ) as r:
+        async with http.post(f"{base}/api/ops/todos/create", json={"title": "x"}) as r:
             assert r.status == 401 and (await r.json())["code"] == "unauthorized"
         async with http.get(f"{base}/api/ops/todos/list") as r:
             assert r.status == 200
 
         # origin guard: foreign-origin mutation refused outright; loopback ok
         async with http.post(
-            f"{base}/api/ops/todos/create", json={"title": "evil"},
+            f"{base}/api/ops/todos/create",
+            json={"title": "evil"},
             headers={"Origin": "https://evil.example"},
         ) as r:
             assert r.status == 403 and (await r.json())["code"] == "forbidden_origin"
         async with http.post(
-            f"{base}/api/ops/todos/create", json={"title": "ui"},
+            f"{base}/api/ops/todos/create",
+            json={"title": "ui"},
             headers={"Origin": f"http://127.0.0.1:{PROXY_PORT}"},
         ) as r:
             assert r.status == 200
@@ -323,16 +325,12 @@ async def _proxy_suite(tmp: Path) -> None:
             )
 
         # unknown op -> 404 envelope, never a silent passthrough
-        async with http.post(
-            f"{base}/api/ops/nope", json={}, headers=auth
-        ) as r:
+        async with http.post(f"{base}/api/ops/nope", json={}, headers=auth) as r:
             assert r.status == 404
             assert (await r.json())["code"] == "unknown_operation"
 
         # upstream failure relayed as an envelope, status preserved
-        async with http.post(
-            f"{base}/api/ops/todos/boom", json={}, headers=auth
-        ) as r:
+        async with http.post(f"{base}/api/ops/todos/boom", json={}, headers=auth) as r:
             body = await r.json()
             assert r.status == 500 and body["code"] == "upstream_error"
             assert body["upstreamStatus"] == 500

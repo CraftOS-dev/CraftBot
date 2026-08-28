@@ -78,7 +78,13 @@ def test_outlook_run_login_extracts_upn_and_forces_chooser(monkeypatch):
 def test_outlook_run_login_refuses_identityless_result(monkeypatch):
     patch_flow(
         monkeypatch,
-        {"access_token": "at", "refresh_token": "", "expires_in": 0, "userinfo": {}, "raw": {}},
+        {
+            "access_token": "at",
+            "refresh_token": "",
+            "expires_in": 0,
+            "userinfo": {},
+            "raw": {},
+        },
     )
     identity, credential, message = run(OutlookProvider().run_login())
     # Documented judgment call: Graph /me always returns a UPN on success,
@@ -112,7 +118,13 @@ def test_linkedin_run_login_no_fictitious_params(monkeypatch):
 def test_linkedin_run_login_identityless_still_returns_credential(monkeypatch):
     patch_flow(
         monkeypatch,
-        {"access_token": "at", "refresh_token": "", "expires_in": 0, "userinfo": {}, "raw": {}},
+        {
+            "access_token": "at",
+            "refresh_token": "",
+            "expires_in": 0,
+            "userinfo": {},
+            "raw": {},
+        },
     )
     identity, credential, message = run(LinkedInProvider().run_login())
     assert identity is None
@@ -143,7 +155,13 @@ def test_notion_run_login_workspace_identity(monkeypatch):
 def test_hubspot_run_login_introspects_hub_id(monkeypatch):
     patch_flow(
         monkeypatch,
-        {"access_token": "hs-at", "refresh_token": "hs-rt", "expires_in": 1800, "userinfo": {}, "raw": {}},
+        {
+            "access_token": "hs-at",
+            "refresh_token": "hs-rt",
+            "expires_in": 1800,
+            "userinfo": {},
+            "raw": {},
+        },
     )
     import craftos_integrations.providers.hubspot.provider as hs
 
@@ -151,7 +169,13 @@ def test_hubspot_run_login_introspects_hub_id(monkeypatch):
 
     def fake_request(method, url, **kwargs):
         calls.append(url)
-        return {"result": {"hub_id": 12345, "hub_domain": "acme.hubspot.com", "user": "me@acme.com"}}
+        return {
+            "result": {
+                "hub_id": 12345,
+                "hub_domain": "acme.hubspot.com",
+                "user": "me@acme.com",
+            }
+        }
 
     monkeypatch.setattr(hs, "http_request", fake_request)
     identity, credential, message = run(HubSpotProvider().run_login())
@@ -166,7 +190,13 @@ def test_hubspot_run_login_introspects_hub_id(monkeypatch):
 def test_hubspot_run_login_survives_failed_introspection(monkeypatch):
     patch_flow(
         monkeypatch,
-        {"access_token": "hs-at", "refresh_token": "hs-rt", "expires_in": 1800, "userinfo": {}, "raw": {}},
+        {
+            "access_token": "hs-at",
+            "refresh_token": "hs-rt",
+            "expires_in": 1800,
+            "userinfo": {},
+            "raw": {},
+        },
     )
     import craftos_integrations.providers.hubspot.provider as hs
 
@@ -186,7 +216,11 @@ def test_slack_run_login_team_identity(monkeypatch):
             "refresh_token": "",
             "expires_in": 0,
             "userinfo": {},
-            "raw": {"ok": True, "access_token": "xoxb-1", "team": {"id": "T123", "name": "Acme"}},
+            "raw": {
+                "ok": True,
+                "access_token": "xoxb-1",
+                "team": {"id": "T123", "name": "Acme"},
+            },
         },
     )
     identity, credential, message = run(SlackProvider().run_login())
@@ -214,7 +248,12 @@ def test_slack_run_login_surfaces_ok_false(monkeypatch):
 
 def test_run_login_oauth_error_fails_cleanly(monkeypatch):
     patch_flow(monkeypatch, {"error": "access_denied"})
-    for provider in (OutlookProvider(), LinkedInProvider(), NotionProvider(), SlackProvider()):
+    for provider in (
+        OutlookProvider(),
+        LinkedInProvider(),
+        NotionProvider(),
+        SlackProvider(),
+    ):
         identity, credential, message = run(provider.run_login())
         assert identity is None and credential is None
         assert "access_denied" in message
@@ -237,7 +276,9 @@ class LoginFakeProvider(FakeProvider):
 
 
 def make_system(tmp_path, *providers):
-    return IntegrationSystem(store=FileCredentialStore(root=tmp_path), providers=list(providers))
+    return IntegrationSystem(
+        store=FileCredentialStore(root=tmp_path), providers=list(providers)
+    )
 
 
 def test_add_account_success_stores_and_lists(tmp_path):
@@ -266,7 +307,9 @@ def test_add_account_failure_returns_current_accounts(tmp_path):
 
 
 def test_add_account_identityless_stores_legacy_sentinel(tmp_path):
-    provider = LoginFakeProvider("linkedin", (None, {"access_token": "at"}, "connected"))
+    provider = LoginFakeProvider(
+        "linkedin", (None, {"access_token": "at"}, "connected")
+    )
     system = make_system(tmp_path, provider)
     ok, message, accounts = run(system.add_account("linkedin"))
     assert ok is True

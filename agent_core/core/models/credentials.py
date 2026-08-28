@@ -74,7 +74,11 @@ def _load_state() -> Dict[str, Dict[str, Any]]:
         return _state
     path = _state_path()
     try:
-        _state = json.loads(path.read_text(encoding="utf-8")) if path and path.exists() else {}
+        _state = (
+            json.loads(path.read_text(encoding="utf-8"))
+            if path and path.exists()
+            else {}
+        )
     except Exception:
         _state = {}
     if not isinstance(_state, dict):
@@ -182,15 +186,11 @@ def note_failure(provider: str, category: Optional[str]) -> None:
         elif category in ("credit", "quota"):
             entry["cooling_until"] = now + _BILLING_COOLDOWN
             entry["reason"] = "billing"
-            logger.warning(
-                f"[POOL] {provider}: credential {fp} cooling 1h (billing)"
-            )
+            logger.warning(f"[POOL] {provider}: credential {fp} cooling 1h (billing)")
         elif category == "auth":
             entry["cooling_until"] = now + _AUTH_COOLDOWN
             entry["reason"] = "auth"
-            logger.warning(
-                f"[POOL] {provider}: credential {fp} cooling 5m (auth)"
-            )
+            logger.warning(f"[POOL] {provider}: credential {fp} cooling 5m (auth)")
         else:
             return
         _save_state()

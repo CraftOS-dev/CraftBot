@@ -226,7 +226,6 @@ def test_check_for_update_falls_back_to_release_tags(monkeypatch):
     )
 
 
-
 def test_perform_update_launches_posix_script_with_current_python(monkeypatch):
     class ExitCalled(Exception):
         def __init__(self, code):

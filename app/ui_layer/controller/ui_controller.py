@@ -348,7 +348,7 @@ class UIController:
 
         if dismissed:
             agent_text = (
-                f'[QUESTION DISMISSED] The user dismissed your question '
+                f"[QUESTION DISMISSED] The user dismissed your question "
                 f'("{question_excerpt}") without answering. Do NOT re-ask '
                 f"it; proceed using your best judgment."
             )

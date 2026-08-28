@@ -35,6 +35,7 @@ from agent_core.core.prompts.entity_pipeline import (
     ENTITY_JUDGE_USER_PROMPT,
 )
 
+
 def _batch_records(records: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
     """Split records into call-sized batches by count and summed text size."""
     batches: List[List[Dict[str, Any]]] = []
@@ -145,9 +146,7 @@ def _validate_response(
 
     absent = set(expected) - set(verdicts)
     if absent:
-        raise ValueError(
-            f"missing record id(s): {', '.join(sorted(absent))}"
-        )
+        raise ValueError(f"missing record id(s): {', '.join(sorted(absent))}")
     return verdicts, [n.strip() for n in new_entities if n.strip()]
 
 
@@ -204,9 +203,7 @@ async def run_entity_judge(memory_manager: Any, llm: Any) -> Dict[str, Any]:
     # Same guard as the event-stream summarizer: don't pile onto a failing LLM.
     max_failures = getattr(llm, "_max_consecutive_failures", 5)
     if getattr(llm, "consecutive_failures", 0) >= max_failures:
-        logger.warning(
-            "[ENTITY-JUDGE] Skipping: LLM is in a consecutive-failure state"
-        )
+        logger.warning("[ENTITY-JUDGE] Skipping: LLM is in a consecutive-failure state")
         return {"skipped": True}
 
     stats = {

@@ -62,7 +62,7 @@ def _checkout_branch(root: Path) -> Optional[str]:
     except Exception:
         return None
     prefix = "ref: refs/heads/"
-    return head[len(prefix):] if head.startswith(prefix) else None
+    return head[len(prefix) :] if head.startswith(prefix) else None
 
 
 def local_catalogue() -> Optional[Path]:

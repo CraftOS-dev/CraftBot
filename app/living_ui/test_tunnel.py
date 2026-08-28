@@ -47,7 +47,7 @@ from app.living_ui.manager import LivingUIManager, LivingUIProject
 
 # A stand-in for cloudflared: the real banner shape, then far more chatter
 # than any pipe buffer holds. This is the exact shape that used to wedge.
-FAKE_CLOUDFLARED = r'''
+FAKE_CLOUDFLARED = r"""
 import sys
 sys.stderr.write("INF Requesting new quick Tunnel on trycloudflare.com...\n")
 sys.stderr.write("+" + "-" * 60 + "+\n")
@@ -57,7 +57,7 @@ sys.stderr.flush()
 for i in range(4000):
     sys.stderr.write("INF served request %d %s\n" % (i, "x" * 60))
 sys.stderr.write("DONE\n")
-'''
+"""
 
 URL = "https://fake-tunnel-for-tests.trycloudflare.com"
 
@@ -97,6 +97,8 @@ async def _check_sink(tmp: Path) -> None:
     assert "=== cloudflared start" in body, "session header missing"
     assert body.rstrip().endswith("DONE"), "log truncated: tail=%r" % body[-80:]
     assert len(body) > 300_000, "only %d bytes captured" % len(body)
+
+
 print_sink = "§1 cloudflared output is captured, never buffered: OK"
 
 
@@ -116,6 +118,8 @@ async def _check_failure_paths(tmp: Path) -> None:
     handle, _, offset = mgr._open_tunnel_log(project, 3101)
     mgr._close_tunnel_log(handle)
     assert offset < 1000, "an oversized log must be rotated, not grown (%d)" % offset
+
+
 print_failures = "§2 dead process fails fast, log stays bounded: OK"
 
 
@@ -132,6 +136,8 @@ def _check_origin_grant(tmp: Path) -> None:
     mgr._publish_tunnel_origin(project, None)
     assert not origin_file.exists(), "stopping the tunnel must revoke the grant"
     mgr._publish_tunnel_origin(project, None)  # idempotent: stop_tunnel runs often
+
+
 print_origin = "§3 shared origin published and revoked: OK"
 
 
@@ -152,6 +158,8 @@ def _check_serving_port(tmp: Path) -> None:
 
     project.backend_port = None
     assert mgr._serving_port(project) is None
+
+
 print_port = "§5 sharing targets the bound port, not the reserved one: OK"
 
 
@@ -173,6 +181,8 @@ def _check_external_guard(tmp: Path) -> None:
 
     (tmp / ".tunnel-origin").unlink()
     assert not proxy._origin_allowed(URL), "revocation must take effect at once"
+
+
 print_external = "§4 external-app proxy honours the same grant: OK"
 
 

@@ -11,7 +11,6 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-import pytest
 
 from craftos_integrations.contracts import OAuthSpec
 from craftos_integrations.core.listeners import (
@@ -89,7 +88,10 @@ class FakeProvider:
         return OAuthSpec("https://auth.example/a", "https://auth.example/t")
 
     def build_client(self, credential, persist) -> Dict[str, Any]:
-        return {"email": credential.get("email"), "token": credential.get("access_token")}
+        return {
+            "email": credential.get("email"),
+            "token": credential.get("access_token"),
+        }
 
     async def refresh(self, credential):
         return None
@@ -112,9 +114,7 @@ class FakeProvider:
             cursor_out={"last_seen": f"msg-{identity}"},
             poll_interval=self.poll_interval,
         )
-        self.built.append(
-            {"client": client, "cursor": cursor, "listener": listener}
-        )
+        self.built.append({"client": client, "cursor": cursor, "listener": listener})
         return listener
 
 
@@ -269,15 +269,17 @@ def test_cursor_persisted_per_identity_and_handed_back(tmp_path):
 
     # A fresh manager hands each identity exactly its own cursor back.
     manager2 = ListenerManager(
-        system, sink, cursors, max_failures=3, backoff_base=0.005,
+        system,
+        sink,
+        cursors,
+        max_failures=3,
+        backoff_base=0.005,
         stagger_default=0.0,
     )
 
     async def again():
         await manager2.reconcile()
-        by_identity = {
-            b["client"]["email"]: b["cursor"] for b in provider.built[2:]
-        }
+        by_identity = {b["client"]["email"]: b["cursor"] for b in provider.built[2:]}
         assert by_identity == {
             "a@x.com": {"last_seen": "msg-a@x.com"},
             "b@y.com": {"last_seen": "msg-b@y.com"},
@@ -295,8 +297,9 @@ def test_stop_persists_cursors(tmp_path):
     async def main():
         await manager.reconcile()
         assert await eventually(
-            lambda: manager._instances[("fakemail", "a@x.com")].state
-            in ("running", "idle")
+            lambda: (
+                manager._instances[("fakemail", "a@x.com")].state in ("running", "idle")
+            )
         )
         await manager.stop()
 
@@ -393,9 +396,7 @@ def test_same_provider_pollers_are_staggered(tmp_path):
 
     async def main():
         await manager.reconcile()
-        delays = sorted(
-            info["delay"] for info in manager.status().values()
-        )
+        delays = sorted(info["delay"] for info in manager.status().values())
         assert delays == [0.0, 20.0, 40.0]  # k * (60 / 3)
         await manager.stop()
 
@@ -425,9 +426,7 @@ def test_system_mutations_trigger_reconcile(tmp_path):
         )
 
         # apply_account_changes schedules one too.
-        system.apply_account_changes(
-            "fakemail", {"listen": {"a@x.com": False}}
-        )
+        system.apply_account_changes("fakemail", {"listen": {"a@x.com": False}})
         assert await eventually(lambda: running_keys(manager) == set())
         await manager.stop()
 
