@@ -8,7 +8,7 @@ CraftBot is split into a reusable engine and a concrete application that wires t
 
 `agent_core/` is the runtime-agnostic engine. It defines the data types (`Trigger`, `Task`, `TodoItem`, `Event`), the interfaces a host must satisfy (`agent_core/core/llm_interface.py`, `database_interface.py`, `embedding_interface.py`), the component registries (`agent_core/core/registry/`), and the default implementations under `agent_core/core/impl/` (action execution, event streams, memory, skills, MCP, settings). It knows nothing about which UI is attached or which chat platform delivered a message. `agent_core/__init__.py` re-exports the public surface, so most code imports classes such as `Task`, `ActionRegistry`, `ActionManager`, and `EventStream` directly from `agent_core`.
 
-`app/` is the CraftBot application. It supplies a concrete runtime around the engine: the interface layer (`app/ui_layer/`), external communications (`app/external_comms/`, `craftos_integrations/`), the scheduler (`app/scheduler/`), configuration (`app/config/`), and the built-in actions and skills the agent ships with. `AgentBase` in `app/agent_base.py` is the object that holds all of this together.
+`app/` is the CraftBot application. It supplies a concrete runtime around the engine: the interface layer (`app/ui_layer/`), external communications (`craftos_integrations/`), the scheduler (`app/scheduler/`), configuration (`app/config/`), and the built-in actions and skills the agent ships with. `AgentBase` in `app/agent_base.py` is the object that holds all of this together.
 
 Many `app/*.py` modules are thin bindings over engine classes. `app/context_engine.py` is a pure re-export of `agent_core.core.impl.context.ContextEngine`. `app/task/task_manager.py` defines a `TaskManager` that subclasses the engine's `agent_core.core.impl.task.TaskManager` and passes CraftBot-specific hooks (the `STATE` singleton, per-task event streams, session persistence for crash recovery). This is the general pattern: the engine provides behavior, the app injects the concrete dependencies.
 
@@ -37,7 +37,6 @@ CraftBot/
 │   ├── ui_layer/                   interfaces + UIController (trigger consumer)
 │   ├── triggers/                   TriggerService, sources, durable store
 │   ├── scheduler/                  SchedulerManager: fires due schedules
-│   ├── external_comms/             inbound platform listeners and bridges
 │   ├── context_engine.py           re-export of engine ContextEngine
 │   ├── task/                       TaskManager subclass with app hooks
 │   ├── state/                      STATE singleton, StateManager

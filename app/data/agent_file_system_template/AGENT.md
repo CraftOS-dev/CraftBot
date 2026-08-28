@@ -972,7 +972,6 @@ Some persistent state the agent interacts with lives outside this directory:
 app/config/settings.json              model, API keys, OAuth, cache              (## Configs)
 app/config/mcp_config.json            MCP server registry                         (## MCP)
 app/config/skills_config.json         enabled / disabled skills                   (## Skills)
-app/config/external_comms_config.json platform listener configs                   (## Integrations)
 app/config/scheduler_config.json      cron schedules                              (## Proactive)
 app/config/onboarding_config.json     first-run state                             (## Onboarding)
 skills/<name>/SKILL.md                installed skills                            (## Skills)
@@ -1677,7 +1676,6 @@ app/config/settings.json              model, API keys, OAuth, cache, browser, me
 app/config/mcp_config.json            MCP server registry                                     hot-reload
 app/config/skills_config.json         enabled / disabled skills                               hot-reload
 app/config/scheduler_config.json      cron schedules                                          hot-reload
-app/config/external_comms_config.json telegram + whatsapp listener configs                    NOT watched — restart required
 app/config/onboarding_config.json     first-run state                                         NOT watched
 app/config/connection_test_models.json  per-provider cheap test models                        NOT watched
 ```
@@ -1749,11 +1747,6 @@ skills_config.json
                   Already-loaded skills on the current run are unaffected until reloaded.
   log signature   [SKILL] Reloaded skills_config ...
 
-external_comms_config.json
-  NOT watched. Editing it requires a restart to take effect. Telegram and whatsapp
-  listener configs live here; other platforms are managed by .credentials/ +
-  /<integration> commands.
-
 scheduler_config.json
   callback        scheduler.reload  (async)
   effect          schedules re-parsed. New entries fire on their first matching window.
@@ -1772,7 +1765,6 @@ onboarding_config.json
 - The live LLM client's provider/model (requires a reinitialize — `/provider` or Settings UI save, see `## Models`).
 - An LLM call already in flight (uses the old config; next turn uses the new one).
 - A loaded skill's body/metadata on the current run (unload and re-load the skill to pick up changes).
-- `external_comms_config.json` (not watched — restart required).
 - New built-in actions added by creating a new `.py` file under `app/data/action/` (code change, requires restart).
 - Changes to OS environment variables not stored in any config file (requires restart).
 - Code changes anywhere in `app/`, `agent_core/` (requires restart).
@@ -1796,9 +1788,6 @@ skills_config.json
   - run /skill list (user-side) or
   - call list_skills action  → confirms enabled/disabled state
   - new /<skill_name> slash commands appear after sync_skill_commands fires
-
-external_comms_config.json
-  - not hot-reloaded; verify after a restart (listener connection messages in the log)
 
 scheduler_config.json
   - check logs:  grep_files "[SCHEDULER]" logs/<run>/all.log -A 2
@@ -1948,37 +1937,6 @@ To remove a skill entirely: also delete the directory under skills/.
 SKILL.md frontmatter fields: see ## Skills.
 ```
 <!-- /schema:skills_config.json -->
-
-<!-- schema:external_comms_config.json -->
-```
-File: app/config/external_comms_config.json
-
-telegram:
-  enabled: bool                  master switch for the telegram listener
-  mode: "bot" | "mtproto"        bot = Bot API; mtproto = user-account API
-  bot_token: string              required for mode=bot (from @BotFather)
-  bot_username: string           the bot's @username (without the @)
-  api_id: string                 required for mode=mtproto (from my.telegram.org)
-  api_hash: string               required for mode=mtproto
-  phone_number: string           required for mode=mtproto (E.164 format)
-  auto_reply: bool               if true, incoming messages route to the agent
-
-whatsapp:
-  enabled: bool                  master switch for whatsapp listener
-  mode: "web" | "business"       web = WhatsApp Web (Playwright); business = Cloud API
-  session_id: string             web mode: cached browser session
-  phone_number_id: string        business mode (from Meta business)
-  access_token: string           business mode
-  auto_reply: bool
-
-NOTE: Other platforms (discord, slack, gmail, notion, linkedin, outlook,
-google, jira, github, twitter) do NOT live in this file.
-- Their credentials live under .credentials/<platform>.json.
-- OAuth client_id/secret for some live in settings.json's "oauth" section.
-- Connect/disconnect via /<platform> commands.
-See ## Integrations and ## Slash Commands.
-```
-<!-- /schema:external_comms_config.json -->
 
 <!-- schema:scheduler_config.json -->
 ```
@@ -2803,7 +2761,7 @@ Remember: Google is per-service. "Connect my Google account" → ask which servi
 
 ### Listener auto-start
 
-After a successful `connect_integration` call, the connect dispatcher auto-starts the platform's listener generically (`manager.start_platform(handler.spec.platform_id)`) for platforms that support push-style messaging. Telegram/WhatsApp listener runtime configs live in `external_comms_config.json` (restart to change).
+After a successful `connect_integration` call, the connect dispatcher auto-starts the platform's listener generically (`manager.start_platform(handler.spec.platform_id)`) for platforms that support push-style messaging.
 
 ### Verifying a connection
 

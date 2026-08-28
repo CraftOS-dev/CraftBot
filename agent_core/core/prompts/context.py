@@ -76,7 +76,6 @@ Key actions: read_file (with offset/limit), grep_files (search patterns), read_f
 Quick Reference - Config files (all auto-reload on change):
 - MCP servers: `app/config/mcp_config.json`
 - Skills: `app/config/skills_config.json` + `skills/` directory
-- Integrations: `app/config/external_comms_config.json`
 - Model/Settings/API keys: `app/config/settings.json`
 
 IMPORTANT: Always inform the user when you install new capabilities. Ask for permission if the installation requires credentials or has security implications.
