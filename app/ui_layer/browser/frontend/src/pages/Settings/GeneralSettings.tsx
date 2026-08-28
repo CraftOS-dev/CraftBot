@@ -43,6 +43,7 @@ import {
   selectUpdateChecked,
   selectUpdateAvailable,
   selectLatestVersion,
+  selectUpdateBranch,
 } from '../../store/selectors/generalSettings'
 import { selectVersion } from '../../store/selectors/connection'
 
@@ -177,6 +178,11 @@ export function GeneralSettings() {
   // Update state: result is cached in slice; in-progress flow is local.
   const updateAvailable = useAppSelector(selectUpdateAvailable)
   const latestVersion = useAppSelector(selectLatestVersion)
+  // Non-empty only when this checkout is off the main update channel.
+  const updateBranch = useAppSelector(selectUpdateBranch)
+  // Same tag, new commits on main — showing two identical versions reads as a
+  // bug, so the copy talks about the channel instead.
+  const isSameVersionUpdate = updateAvailable && latestVersion === version
   const updateCheckDone = useAppSelector(selectUpdateChecked)
   const isCheckingUpdate = !updateCheckDone
   const [isUpdating, setIsUpdating] = useState(false)
@@ -491,7 +497,9 @@ export function GeneralSettings() {
   const handleDoUpdate = () => {
     confirm({
       title: 'Update CraftBot',
-      message: `Are you sure you want to update CraftBot to v${latestVersion}? The application will restart automatically after the update.`,
+      message: latestVersion === version
+        ? 'Are you sure you want to update CraftBot to the latest changes on main? The application will restart automatically after the update.'
+        : `Are you sure you want to update CraftBot to v${latestVersion}? The application will restart automatically after the update.`,
       confirmText: 'Update',
       variant: 'danger',
     }, () => {
@@ -766,11 +774,16 @@ export function GeneralSettings() {
             Checking the latest version from GitHub...
           </>) : updateCheckDone && updateAvailable ? (<>
             Current version: v{version}<br />
-            Latest version: v{latestVersion}<br />
-            A newer version is available on GitHub. Updating will pull the latest code, install dependencies, and restart CraftBot automatically.
+            {!isSameVersionUpdate && <>Latest version: v{latestVersion}<br /></>}
+            {isSameVersionUpdate
+              ? 'New changes are available on the main branch. '
+              : 'A newer version is available on GitHub. '}
+            Updating will pull the latest code, install dependencies, and restart CraftBot automatically.
+          </>) : updateCheckDone && updateBranch ? (<>
+            Current version: v{version}<br />
+            You are on branch <strong>{updateBranch}</strong>. Updates are only applied on the main branch — switch to main to update CraftBot.
           </>) : updateCheckDone ? (<>
             Current version: v{version}<br />
-            Latest version: v{latestVersion || version}<br />
             You are running the latest version. No updates are available at this time.
           </>) : (<>
             Current version: v{version}<br />
@@ -792,7 +805,7 @@ export function GeneralSettings() {
             disabled={isUpdating}
             icon={isUpdating ? <Loader2 size={14} className={styles.spinning} /> : <Download size={14} />}
           >
-            {isUpdating ? 'Updating...' : `Update to v${latestVersion}`}
+            {isUpdating ? 'Updating...' : isSameVersionUpdate ? 'Update to latest' : `Update to v${latestVersion}`}
           </Button>
         ) : (
           <Button

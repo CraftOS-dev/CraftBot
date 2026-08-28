@@ -33,18 +33,14 @@ class _CountingLLM:
         return "SUMMARY OF OLD EVENTS"
 
 
-def _stream(tmp_path, llm):
-    return EventStream(
-        llm=llm,
-        summarize_at_tokens=30000,
-        tail_keep_after_summarize_tokens=10000,
-        temp_dir=tmp_path / "events",
-    )
+def _stream(tmp_path, llm, event_stream_limits):
+    event_stream_limits(30000, 10000)
+    return EventStream(llm=llm, temp_dir=tmp_path / "events")
 
 
-def test_oversized_pinned_event_is_collapsed_without_an_llm_call(tmp_path):
+def test_oversized_pinned_event_is_collapsed_without_an_llm_call(tmp_path, event_stream_limits):
     llm = _CountingLLM()
-    es = _stream(tmp_path, llm)
+    es = _stream(tmp_path, llm, event_stream_limits)
 
     for i in range(60):
         es.log("action_end", f"action {i} completed " + "x " * 200)
@@ -70,7 +66,7 @@ def test_oversized_pinned_event_is_collapsed_without_an_llm_call(tmp_path):
     assert written and written[0].read_text(encoding="utf-8") == giant.strip()
 
 
-def test_a_pass_never_finishes_still_over_threshold(tmp_path):
+def test_a_pass_never_finishes_still_over_threshold(tmp_path, event_stream_limits):
     """The core invariant the double-pass violated.
 
     A summarization pass that returns with the stream still above
@@ -80,7 +76,7 @@ def test_a_pass_never_finishes_still_over_threshold(tmp_path):
     every single append.
     """
     llm = _CountingLLM()
-    es = _stream(tmp_path, llm)
+    es = _stream(tmp_path, llm, event_stream_limits)
 
     es.log("requirements", "[ ] done_when: the ledger reconciles")
     for i in range(300):
@@ -100,7 +96,7 @@ def test_a_pass_never_finishes_still_over_threshold(tmp_path):
     assert any(r.event.kind == "requirements" for r in es.tail_events)
 
 
-def test_tiny_foldable_region_is_pruned_not_summarized(tmp_path):
+def test_tiny_foldable_region_is_pruned_not_summarized(tmp_path, event_stream_limits):
     """The 31,907 -> 31,529 case: a 15s LLM call that reclaimed 378 tokens.
 
     When the tail is dominated by events summarization is not allowed to touch,
@@ -108,7 +104,7 @@ def test_tiny_foldable_region_is_pruned_not_summarized(tmp_path):
     trip. Prune it instead.
     """
     llm = _CountingLLM()
-    es = _stream(tmp_path, llm)
+    es = _stream(tmp_path, llm, event_stream_limits)
 
     # A small foldable prefix...
     for i in range(3):

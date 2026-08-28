@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 
 def _frozen_user_data_root() -> Path:
@@ -75,6 +75,13 @@ def invalidate_settings_cache() -> None:
     _settings_cache = None
 
 
+# Event-stream summarization thresholds. Defined here rather than in
+# event_stream.py so settings.json defaults and the runtime fallback cannot
+# drift apart.
+DEFAULT_SUMMARIZE_AT_TOKENS = 100000
+DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS = 10000
+
+
 def _get_default_settings() -> Dict[str, Any]:
     """Return default settings structure.
 
@@ -88,6 +95,10 @@ def _get_default_settings() -> Dict[str, Any]:
         "general": {"agent_name": "CraftBot"},
         "proactive": {"enabled": True},
         "memory": {"enabled": True},
+        "context": {
+            "summarize_at_tokens": DEFAULT_SUMMARIZE_AT_TOKENS,
+            "tail_keep_after_summarize_tokens": DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS,
+        },
         "model": {
             "llm_provider": "anthropic",
             "vlm_provider": "anthropic",
@@ -195,6 +206,33 @@ def get_app_version() -> str:
         else ""
     )
     return v or "0.0.0"
+
+
+def get_context_limits() -> Tuple[int, int]:
+    """Get event-stream summarization thresholds from settings.json.
+
+    Returns ``(summarize_at_tokens, tail_keep_after_summarize_tokens)``.
+    Non-positive or non-integer values fall back to the defaults rather than
+    raising — a bad hand-edit must not take the agent down. EventStream still
+    validates the two against each other; this only guarantees sane types.
+    """
+    context = get_settings().get("context") or {}
+    if not isinstance(context, dict):
+        context = {}
+
+    def _positive_int(key: str, default: int) -> int:
+        value = context.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return default
+        return value
+
+    return (
+        _positive_int("summarize_at_tokens", DEFAULT_SUMMARIZE_AT_TOKENS),
+        _positive_int(
+            "tail_keep_after_summarize_tokens",
+            DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS,
+        ),
+    )
 
 
 def get_llm_provider() -> str:

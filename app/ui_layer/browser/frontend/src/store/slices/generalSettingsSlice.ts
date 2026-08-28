@@ -18,6 +18,9 @@ interface GeneralSettingsState {
   updateChecked: boolean
   updateAvailable: boolean
   latestVersion: string
+  // Set only when the checkout is off the main update channel; names the
+  // branch so the UI can explain why no update is offered.
+  updateBranch: string
 }
 
 const initialState: GeneralSettingsState = {
@@ -30,6 +33,7 @@ const initialState: GeneralSettingsState = {
   updateChecked: false,
   updateAvailable: false,
   latestVersion: '',
+  updateBranch: '',
 }
 
 const generalSettingsSlice = createSlice({
@@ -49,15 +53,20 @@ const generalSettingsSlice = createSlice({
         state.hasLoadedSoulMd = true
       }
     },
-    setUpdateInfo(state, action: PayloadAction<{ updateAvailable: boolean; latestVersion: string }>) {
+    setUpdateInfo(
+      state,
+      action: PayloadAction<{ updateAvailable: boolean; latestVersion: string; updateBranch: string }>
+    ) {
       state.updateAvailable = action.payload.updateAvailable
       state.latestVersion = action.payload.latestVersion
+      state.updateBranch = action.payload.updateBranch
       state.updateChecked = true
     },
     resetUpdateCheck(state) {
       state.updateChecked = false
       state.updateAvailable = false
       state.latestVersion = ''
+      state.updateBranch = ''
     },
   },
 })
@@ -85,6 +94,10 @@ register('agent_file_restore', (data, dispatch) => {
 })
 
 register('update_check_result', (data, dispatch) => {
-  const d = data as { updateAvailable: boolean; latestVersion: string }
-  dispatch(setUpdateInfo({ updateAvailable: d.updateAvailable, latestVersion: d.latestVersion }))
+  const d = data as { updateAvailable: boolean; latestVersion: string; branch?: string | null }
+  dispatch(setUpdateInfo({
+    updateAvailable: d.updateAvailable,
+    latestVersion: d.latestVersion,
+    updateBranch: d.branch ?? '',
+  }))
 })

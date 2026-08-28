@@ -13,6 +13,10 @@
     "prune_target": 135,
     "item_word_limit": 150
   },
+  "context": {
+    "summarize_at_tokens": 100000,
+    "tail_keep_after_summarize_tokens": 10000
+  },
   "model": {
     "slow_mode": true,
     "slow_mode_tpm_limit": 25000

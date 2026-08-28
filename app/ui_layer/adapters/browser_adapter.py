@@ -1946,14 +1946,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from app.updater import check_for_update
 
         try:
-            update_available, current, latest = await check_for_update()
+            status = await check_for_update()
             await self._broadcast(
                 {
                     "type": "update_check_result",
                     "data": {
-                        "updateAvailable": update_available,
-                        "currentVersion": current,
-                        "latestVersion": latest,
+                        "updateAvailable": status.available,
+                        "currentVersion": status.current,
+                        "latestVersion": status.latest,
+                        # Set only when the checkout is off the main update
+                        # channel, so the UI can say why rather than showing
+                        # a meaningless version comparison.
+                        "branch": status.branch,
                     },
                 }
             )
@@ -1965,6 +1969,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "updateAvailable": False,
                         "currentVersion": "",
                         "latestVersion": "",
+                        "branch": None,
                         "error": str(e),
                     },
                 }

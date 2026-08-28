@@ -30,6 +30,28 @@ from agent_core.utils.token import count_tokens
 import threading
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
+
+
+def _configured_context_limits() -> Tuple[int, int]:
+    """Read the summarization thresholds from settings.json.
+
+    app.config owns the defaults and already absorbs a missing file, bad JSON
+    and out-of-range values, so there is nothing left to guard here — a raised
+    ImportError means the app package is genuinely gone, which is a broken
+    install, not a case to paper over with a second copy of the numbers.
+
+    The import is deferred because app.config imports agent_core at module
+    scope (``from agent_core import get_credential``), and agent_core's
+    __init__ loads this module — a module-scope import would close that cycle.
+    By stream-construction time every module is loaded and the import is fine.
+
+    Read once per stream, so a settings.json edit applies to sessions created
+    after it; the main session's stream needs a restart.
+    """
+    from app.config import get_context_limits
+
+    return get_context_limits()
+
 # Messages longer than this are externalized to a temp file and replaced with a
 # pointer (+keywords) so a single large action output (e.g. get_notion, read_pdf,
 # an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the
@@ -92,10 +114,15 @@ class EventStream:
         self,
         *,
         llm: LLMInterfaceProtocol,
-        summarize_at_tokens: int = 30000,
-        tail_keep_after_summarize_tokens: int = 10000,
         temp_dir: Path | None = None,
     ) -> None:
+        # Thresholds come from settings.json — there is no per-stream override,
+        # so every session folds on the same rules. Tests pin them by patching
+        # _configured_context_limits (see the event_stream_limits fixture).
+        summarize_at_tokens, tail_keep_after_summarize_tokens = (
+            _configured_context_limits()
+        )
+
         self.head_summary: Optional[str] = None
         self.llm = llm
         self.tail_events: List[EventRecord] = []

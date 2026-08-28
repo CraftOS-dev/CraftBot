@@ -7,11 +7,12 @@ Both the /update command and browser adapter handlers call into this module.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Awaitable, Callable, Optional, Tuple
+from typing import Awaitable, Callable, NamedTuple, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,20 @@ def is_newer(remote: str, local: str) -> bool:
         return False
 
 
+class UpdateStatus(NamedTuple):
+    """Result of an update check.
+
+    ``branch`` is set only when the checkout sits off the update channel
+    (a feature branch, or diverged from it). The UI uses it to explain why
+    no update is offered instead of showing a misleading version comparison.
+    """
+
+    available: bool
+    current: str
+    latest: str
+    branch: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Remote version check
 # ---------------------------------------------------------------------------
@@ -43,40 +58,47 @@ GITHUB_LATEST_RELEASE_URL = GITHUB_TAGS_URL
 UPDATE_BRANCH = "main"
 GIT_PROBE_TIMEOUT = 15
 
+# Version file lookup on the remote branch, mirroring the order used by
+# config.get_app_version so the reported version matches what the updated
+# checkout will report once it restarts.
+REMOTE_VERSION_SOURCES = ("VERSION", "app/config/settings.json")
 
-async def check_for_update() -> Tuple[bool, str, str]:
-    """Check whether a newer version is available on the remote repo.
 
-    Source checkouts can be ahead or behind the update branch while still
-    carrying the same tagged app version. Keep the release tag as the primary
-    version signal, then use a git comparison to catch source-checkout updates
-    when the release tag is unchanged.
+async def check_for_update() -> UpdateStatus:
+    """Check whether a newer version is available on the update channel.
+
+    ``main`` is the only update channel. For a git checkout it is the sole
+    source of truth: being level with ``origin/main`` means up to date, even
+    if a stray tag elsewhere sorts higher. Release tags are only consulted
+    when the git probe is inconclusive — frozen builds and tarball installs,
+    which have no checkout to compare against.
 
     Returns:
-        (update_available, current_version, latest_version)
+        UpdateStatus(available, current_version, latest_version, branch)
     """
     from app.config import get_app_version
 
     current = get_app_version()
     project_root = Path(__file__).resolve().parent.parent
 
-    release_update = await _check_release_update(current)
-    if release_update[0]:
-        return release_update
-
     source_update = await _check_source_update(project_root, current)
     if source_update is not None:
         return source_update
 
-    return release_update
+    return await _check_release_update(current)
 
 
 async def _check_source_update(
     project_root: Path,
     current: str,
     branch: str = UPDATE_BRANCH,
-) -> Optional[Tuple[bool, str, str]]:
-    """Check whether this git checkout is behind the configured update branch.
+) -> Optional[UpdateStatus]:
+    """Check whether this git checkout is behind the update branch.
+
+    Only a checkout sitting *on* the update branch is eligible for an update:
+    updating runs ``git checkout main``, so offering it from a feature branch
+    would switch the user off their work. Anything off-channel reports no
+    update and names the branch instead.
 
     Returns ``None`` when the probe is inconclusive so callers can fall back to
     the release-tag check instead of blocking update checks on git-specific
@@ -91,6 +113,13 @@ async def _check_source_update(
         )
         if _decode_git_stdout(inside) != "true":
             return None
+
+        head_branch_stdout, _ = await _run_git(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], str(project_root)
+        )
+        head_branch = _decode_git_stdout(head_branch_stdout)
+        if head_branch != branch:
+            return UpdateStatus(False, current, current, head_branch or "HEAD")
 
         await _run_git(
             ["git", "fetch", "origin", f"{branch}:refs/remotes/origin/{branch}"],
@@ -108,7 +137,7 @@ async def _check_source_update(
         if not local_revision or not remote_revision:
             return None
         if local_revision == remote_revision:
-            return False, current, current
+            return UpdateStatus(False, current, current)
 
         count_stdout, _ = await _run_git(
             [
@@ -120,19 +149,62 @@ async def _check_source_update(
             ],
             str(project_root),
         )
-        _ahead_text, behind_text = _decode_git_stdout(count_stdout).split()
+        ahead_text, behind_text = _decode_git_stdout(count_stdout).split()
+        ahead = int(ahead_text)
         behind = int(behind_text)
-        if behind > 0:
-            latest = f"{current}+{branch}.{remote_revision[:7]}"
-            return True, current, latest
 
-        return False, current, current
+        # Local commits on top of main: a ff-only pull cannot land, and the
+        # checkout would need a merge the updater must not perform silently.
+        if ahead > 0:
+            return UpdateStatus(False, current, current, head_branch)
+
+        if behind > 0:
+            latest = await _remote_version(project_root, branch) or current
+            return UpdateStatus(True, current, latest)
+
+        return UpdateStatus(False, current, current)
     except Exception:
         return None
 
 
-async def _check_release_update(current: str) -> Tuple[bool, str, str]:
-    """Check GitHub release tags against the local app version."""
+async def _remote_version(project_root: Path, branch: str) -> Optional[str]:
+    """Read the app version recorded on ``origin/<branch>`` without checking out.
+
+    Returns ``None`` if no version can be read, so callers fall back to the
+    local version rather than displaying a placeholder.
+    """
+    for source in REMOTE_VERSION_SOURCES:
+        try:
+            stdout, _ = await _run_git(
+                ["git", "show", f"origin/{branch}:{source}"], str(project_root)
+            )
+        except Exception:
+            continue
+
+        raw = _decode_git_stdout(stdout)
+        if not raw:
+            continue
+
+        if source.endswith(".json"):
+            try:
+                version = json.loads(raw).get("version", "")
+            except (json.JSONDecodeError, AttributeError):
+                continue
+        else:
+            version = raw
+
+        version = version.strip().lstrip("vV") if isinstance(version, str) else ""
+        if version:
+            return version
+
+    return None
+
+
+async def _check_release_update(current: str) -> UpdateStatus:
+    """Check GitHub release tags against the local app version.
+
+    Fallback path for installs with no git checkout to compare against.
+    """
     import aiohttp
 
     try:
@@ -146,10 +218,10 @@ async def _check_release_update(current: str) -> Tuple[bool, str, str]:
                 tags = await resp.json(content_type=None)
     except Exception:
         # Network error — treat as "no update available".
-        return False, current, current
+        return UpdateStatus(False, current, current)
 
     if not tags or not isinstance(tags, list):
-        return False, current, current
+        return UpdateStatus(False, current, current)
 
     # Find the highest semver tag. GitHub tags are not guaranteed sorted.
     latest = "0.0.0"
@@ -161,7 +233,9 @@ async def _check_release_update(current: str) -> Tuple[bool, str, str]:
         except (ValueError, AttributeError):
             continue
 
-    return is_newer(latest, current), current, latest
+    if is_newer(latest, current):
+        return UpdateStatus(True, current, latest)
+    return UpdateStatus(False, current, current)
 
 
 # ---------------------------------------------------------------------------
