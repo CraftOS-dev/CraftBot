@@ -2,8 +2,11 @@
 /**
  * SYSTEM HOOKS — managed by tooling, never edited by agents (spec P1).
  * - origin guard        CORS + frame-ancestors (spec A2APP-PLAN Phase 1 A1/A2)
+ *                       plus the host-published shared origin, if any
  * - GET  /api/_ops      operations manifest discovery (spec O4)
  * - POST /api/_console  frontend console relay sink (spec K8/D12)
+ * - POST /api/_coverage       dev-build coverage deltas (scoped walk-verify)
+ * - POST /api/_coverage/mark  verifier's feature boundary on that timeline
  * (Health is PocketBase's built-in /api/health.)
  */
 
@@ -22,8 +25,15 @@
  * preflight for a destructive route is no longer approved. Direct clients
  * (curl, the CLI, an agent) are unaffected — they were never the threat.
  *
- * Policy: loopback origins only. That covers the app's own frontend
- * (same-origin) and the CraftBot shell, and excludes the public internet.
+ * Policy: loopback origins, PLUS the one public origin the host publishes in
+ * `<project>/.tunnel-origin` while the user is deliberately sharing this app
+ * (LivingUIManager.start_tunnel writes it, stop_tunnel deletes it). Loopback
+ * alone did not make sharing safe, it made it impossible: browsers send
+ * `Origin` on same-origin writes too, so through a tunnel the app LOADED (a
+ * GET carries no Origin) and then answered 403 to every save. The file is read
+ * per request, so the grant lasts exactly as long as the tunnel does and needs
+ * no app restart at either end — and with no tunnel up, the policy is
+ * loopback-only, exactly as before.
  *
  * NOTE FOR EDITORS: hook callbacks run in isolated VMs that CANNOT see this
  * file's scope — a callback referencing a const or function declared out here
@@ -32,6 +42,21 @@
  */
 
 routerUse((e) => {
+  // Inlined per the NOTE above — callbacks cannot see this file's scope, and
+  // cannot see each other's either, so this lives once per callback that needs
+  // it. Called late, so only a NON-loopback origin ever costs a file read.
+  function isSharedOrigin(candidate) {
+    var shared = '';
+    try {
+      shared = toString(
+        $os.readFile($filepath.join(__hooks, '..', '..', '.tunnel-origin'))
+      ).trim();
+    } catch {
+      return false; // no file = not sharing = loopback only
+    }
+    return shared !== '' && candidate.toLowerCase() === shared.toLowerCase();
+  }
+
   // Must run BEFORE e.next(): headers are flushed with the first body byte, so
   // post-next mutation is a no-op. PocketBase's own setters run before user
   // middleware, so changes made here win.
@@ -54,7 +79,7 @@ routerUse((e) => {
 
   if (origin === '') return e.next(); // not a browser cross-origin request
 
-  if (ALLOWED_ORIGIN.test(origin)) {
+  if (ALLOWED_ORIGIN.test(origin) || isSharedOrigin(origin)) {
     headers.set('Access-Control-Allow-Origin', origin);
     headers.set('Vary', 'Origin');
     return e.next();
@@ -83,7 +108,9 @@ routerUse((e) => {
     return e.json(403, {
       ok: false,
       error: 'forbidden origin: ' + origin,
-      hint: 'This app only accepts writes from loopback origins.',
+      hint:
+        'This app accepts writes from loopback origins, and from the shared ' +
+        'origin in .tunnel-origin while sharing is switched on.',
     });
   }
   return e.next();
@@ -233,6 +260,7 @@ onBootstrap((e) => {
       { label: '/api/collections/', maxRequests: 1200, duration: 60 },
       { label: '/api/ops/', maxRequests: 300, duration: 60 },
       { label: '/api/_console', maxRequests: 120, duration: 60 },
+      { label: '/api/_coverage', maxRequests: 600, duration: 60 },
     ];
     $app.save(settings);
     console.log('[system] rate limits enabled');
@@ -251,7 +279,9 @@ routerAdd('GET', '/api/_ops', (e) => {
 routerAdd('POST', '/api/_console', (e) => {
   // Unauthenticated arbitrary disk write otherwise: any page could fill the
   // user's disk 50 x 4000 chars at a time. Same-origin (the app's own
-  // frontend) or a loopback tool only. Inlined per the note at the top.
+  // frontend), a loopback tool, or the shared origin while sharing is on —
+  // the errors a remote tester hits are precisely the ones worth capturing,
+  // and the write stays capped and rate-limited. Inlined per the note at top.
   const ALLOWED_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
   let origin = '';
   try {
@@ -260,7 +290,18 @@ routerAdd('POST', '/api/_console', (e) => {
     origin = '';
   }
   if (origin !== '' && !ALLOWED_ORIGIN.test(origin)) {
-    return e.json(403, { ok: false, error: 'forbidden origin' });
+    // Read late: only a NON-loopback origin ever costs a file read.
+    let sharedOrigin = '';
+    try {
+      sharedOrigin = toString(
+        $os.readFile($filepath.join(__hooks, '..', '..', '.tunnel-origin'))
+      ).trim();
+    } catch {
+      sharedOrigin = '';
+    }
+    if (sharedOrigin === '' || origin.toLowerCase() !== sharedOrigin.toLowerCase()) {
+      return e.json(403, { ok: false, error: 'forbidden origin' });
+    }
   }
 
   const body = e.requestInfo().body;
@@ -286,4 +327,74 @@ routerAdd('POST', '/api/_console', (e) => {
     .join('\n');
   $os.writeFile(logFile, existing + lines + '\n', 0o644);
   return e.json(200, { ok: true });
+});
+
+/**
+ * COVERAGE TIMELINE (scoped walk-verify, docs/design/scoped-walk-verify.md).
+ * The DEV build (LUI_COVERAGE=1) is istanbul-instrumented; the kit's
+ * CoverageRelay posts function-hit DELTAS here every 2s, and the verifier
+ * posts a feature MARK before exercising each feature. Interleaved, the two
+ * make logs/coverage.jsonl a timeline the host folds into feature → executed
+ * functions. Live builds carry no instrumentation, so nothing ever posts.
+ * Same disk cap as /api/_console, but LOOPBACK-ONLY on purpose: the verifier
+ * that posts here always runs on this machine, so a shared origin has no
+ * business writing the coverage timeline. Inlined per callback.
+ */
+routerAdd('POST', '/api/_coverage', (e) => {
+  const ALLOWED_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+  let origin = '';
+  try {
+    origin = String(e.request.header.get('Origin') || '');
+  } catch {
+    origin = '';
+  }
+  if (origin !== '' && !ALLOWED_ORIGIN.test(origin)) {
+    return e.json(403, { ok: false, error: 'forbidden origin' });
+  }
+  const body = e.requestInfo().body;
+  const counters = body && typeof body.counters === 'object' && body.counters ? body.counters : null;
+  if (!counters) return e.json(200, { ok: true });
+
+  const logsDir = $filepath.join(__hooks, '..', '..', 'logs');
+  $os.mkdirAll(logsDir, 0o755);
+  const logFile = $filepath.join(logsDir, 'coverage.jsonl');
+  let existing = '';
+  try {
+    existing = toString($os.readFile(logFile));
+  } catch {
+    // first write
+  }
+  if (existing.length > 4 * 1024 * 1024) existing = existing.slice(-2 * 1024 * 1024);
+  const line = JSON.stringify({ ts: Date.now(), counters: counters }).slice(0, 512 * 1024);
+  $os.writeFile(logFile, existing + line + '\n', 0o644);
+  return e.json(200, { ok: true });
+});
+
+routerAdd('POST', '/api/_coverage/mark', (e) => {
+  const ALLOWED_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+  let origin = '';
+  try {
+    origin = String(e.request.header.get('Origin') || '');
+  } catch {
+    origin = '';
+  }
+  if (origin !== '' && !ALLOWED_ORIGIN.test(origin)) {
+    return e.json(403, { ok: false, error: 'forbidden origin' });
+  }
+  const body = e.requestInfo().body;
+  const feature = String((body && body.feature) || '').slice(0, 200);
+  if (!feature) return e.json(400, { ok: false, error: 'feature is required' });
+
+  const logsDir = $filepath.join(__hooks, '..', '..', 'logs');
+  $os.mkdirAll(logsDir, 0o755);
+  const logFile = $filepath.join(logsDir, 'coverage.jsonl');
+  let existing = '';
+  try {
+    existing = toString($os.readFile(logFile));
+  } catch {
+    // first write
+  }
+  if (existing.length > 4 * 1024 * 1024) existing = existing.slice(-2 * 1024 * 1024);
+  $os.writeFile(logFile, existing + JSON.stringify({ ts: Date.now(), mark: feature }) + '\n', 0o644);
+  return e.json(200, { ok: true, feature: feature });
 });

@@ -62,6 +62,13 @@ STATUS_FAILED = "FAILED"
 # dedup + audit, not bulk storage).
 MAX_STORED_OUTPUT_BYTES = 50_000
 
+# A DONE row only short-circuits an identical call for this long. The guard
+# exists to absorb crash-resume and duplicate-turn re-execution, which happen
+# within minutes; an identical call after the window is a deliberate repeat
+# ("send the same message again") and must go through. Dedup-forever is why
+# the guard was originally disabled (#404).
+DONE_DEDUP_WINDOW_SECONDS = 600.0
+
 # Output keys commonly carrying the provider's id for the side effect
 # (email message id, chat message ts, post id) — stored for audit.
 PROVIDER_REF_KEYS = ("message_id", "messageId", "id", "ts", "post_id", "email_id")
@@ -250,7 +257,16 @@ class ActivityLogGuard:
             return GuardDecision(proceed=True, idem_key=idem_key)
 
         if row["status"] == STATUS_DONE:
-            # This exact side effect already completed — return its stored
+            # Outside the dedup window, an identical call is a deliberate
+            # repeat, not a crash-resume duplicate — let it through.
+            try:
+                done_at = datetime.fromisoformat(row["updated_at"]).timestamp()
+            except (ValueError, TypeError):
+                done_at = 0.0
+            if time.time() - done_at > DONE_DEDUP_WINDOW_SECONDS:
+                self._log.record_intent(idem_key, action_name, session_id)
+                return GuardDecision(proceed=True, idem_key=idem_key)
+            # This exact side effect just completed — return its stored
             # output instead of doing it again.
             try:
                 stored = json.loads(row["output_json"]) if row["output_json"] else {}

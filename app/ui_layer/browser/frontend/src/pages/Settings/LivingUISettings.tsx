@@ -1,104 +1,31 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Play,
   Square,
   Trash2,
   Loader2,
-  RotateCcw,
   Check,
-  X,
-  Plus,
   Download,
   Copy,
   ChevronRight,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
-import { Button, Badge, ConfirmModal } from '../../components/ui'
+import { Button, ConfirmModal } from '../../components/ui'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
-  setGlobalConfig as setSliceGlobalConfig,
   updateProjectSetting,
+  setBackupBusy,
   type LivingUISettingsProject as LivingUIProject,
+  type LivingUIBackupOrphan,
 } from '../../store/slices/livingUiSettingsSlice'
 import {
   selectLivingUiSettingsProjects,
   selectLivingUiSettingsHasLoadedProjects,
-  selectLivingUiGlobalConfig,
-  selectLivingUiHasLoadedGlobalConfig,
 } from '../../store/selectors/livingUiSettings'
-
-interface ParsedRule {
-  enabled: boolean
-  text: string
-  lineIndex: number
-}
-
-interface ParsedPref {
-  key: string
-  value: string
-  lineIndex: number
-}
-
-interface ParsedSection {
-  title: string
-  rules: ParsedRule[]
-  prefs: ParsedPref[]
-}
-
-const FONT_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'System default (Segoe UI, sans-serif)', label: 'System Default' },
-  { value: 'Inter, sans-serif', label: 'Inter' },
-  { value: 'Roboto, sans-serif', label: 'Roboto' },
-  { value: 'Open Sans, sans-serif', label: 'Open Sans' },
-  { value: 'Poppins, sans-serif', label: 'Poppins' },
-  { value: 'Lato, sans-serif', label: 'Lato' },
-  { value: 'Nunito, sans-serif', label: 'Nunito' },
-  { value: 'Source Sans Pro, sans-serif', label: 'Source Sans Pro' },
-  { value: 'JetBrains Mono, monospace', label: 'JetBrains Mono' },
-  { value: 'Fira Code, monospace', label: 'Fira Code' },
-]
-
-function parseGlobalConfig(content: string): { sections: ParsedSection[]; rawLines: string[] } {
-  const lines = content.split('\n')
-  const sections: ParsedSection[] = []
-  let currentSection: ParsedSection | null = null
-
-  lines.forEach((line, i) => {
-    const sectionMatch = line.match(/^##\s+(.+)/)
-    if (sectionMatch) {
-      currentSection = { title: sectionMatch[1], rules: [], prefs: [] }
-      sections.push(currentSection)
-      return
-    }
-    const ruleMatch = line.match(/^- \[(x| )\]\s+(.+)/)
-    if (ruleMatch && currentSection) {
-      currentSection.rules.push({ enabled: ruleMatch[1] === 'x', text: ruleMatch[2], lineIndex: i })
-      return
-    }
-    const prefMatch = line.match(/^- \*\*(.+?):\*\*\s*(.*)/)
-    if (prefMatch && currentSection) {
-      currentSection.prefs.push({ key: prefMatch[1], value: prefMatch[2], lineIndex: i })
-    }
-  })
-
-  return { sections, rawLines: lines }
-}
-
-function rebuildConfig(rawLines: string[], changes: Map<number, string>): string {
-  return rawLines.map((line, i) => {
-    if (changes.has(i)) {
-      const newVal = changes.get(i)!
-      if (newVal === 'true' || newVal === 'false') {
-        return line.replace(/^- \[(x| )\]/, newVal === 'true' ? '- [x]' : '- [ ]')
-      }
-      const prefMatch = line.match(/^(- \*\*.+?:\*\*\s*)(.*)/)
-      if (prefMatch) return prefMatch[1] + newVal
-    }
-    return line
-  }).join('\n')
-}
 
 export function LivingUISettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
@@ -108,69 +35,18 @@ export function LivingUISettings() {
   // Slice-backed: cached across remounts.
   const projects = useAppSelector(selectLivingUiSettingsProjects)
   const hasLoadedProjects = useAppSelector(selectLivingUiSettingsHasLoadedProjects)
-  const originalConfig = useAppSelector(selectLivingUiGlobalConfig)
-  const hasLoadedGlobalConfig = useAppSelector(selectLivingUiHasLoadedGlobalConfig)
   const loading = !hasLoadedProjects
-  const globalLoading = !hasLoadedGlobalConfig
 
   // Transient UI state.
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
-  const [globalConfig, setLocalGlobalConfig] = useState('')
-  const [globalSaving, setGlobalSaving] = useState(false)
-  const [globalSaveStatus, setGlobalSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [newRule, setNewRule] = useState('')
-  const [rulesExpanded, setRulesExpanded] = useState(true)
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
-  const [lineChanges, setLineChanges] = useState<Map<number, string>>(new Map())
-  const globalConfigRef = useRef(globalConfig)
-  globalConfigRef.current = globalConfig
 
-  // Sync local editable copy to the slice's source-of-truth whenever the
-  // server-known content changes (initial load or post-restore refetch).
-  useEffect(() => {
-    setLocalGlobalConfig(originalConfig)
-  }, [originalConfig])
-
-  const isGlobalDirty = globalConfig !== originalConfig
-
-  // Fire-once fetches. Slice owns the data; we just trigger requests when
+  // Fire-once fetch. Slice owns the data; we just trigger the request when
   // not yet loaded.
   useEffect(() => {
     if (!isConnected) return
     if (!hasLoadedProjects) send('living_ui_settings_get')
-    if (!hasLoadedGlobalConfig) send('agent_file_read', { filename: 'GLOBAL_LIVING_UI.md' })
-  }, [isConnected, send, hasLoadedProjects, hasLoadedGlobalConfig])
-
-  // Side-effect handlers — toasts, success animations, modal close, action
-  // completion. List/config state itself flows through the slice registry.
-  useEffect(() => {
-    const cleanups = [
-      onMessage('agent_file_write', (data: unknown) => {
-        const d = data as { filename: string; success: boolean }
-        if (d.filename === 'GLOBAL_LIVING_UI.md') {
-          setGlobalSaving(false)
-          if (d.success) {
-            // Persist the just-saved content as the new server-known baseline
-            // so isDirty flips back to false.
-            dispatch(setSliceGlobalConfig(globalConfigRef.current))
-            setGlobalSaveStatus('success')
-            setTimeout(() => setGlobalSaveStatus('idle'), 2000)
-          } else {
-            setGlobalSaveStatus('error')
-            setTimeout(() => setGlobalSaveStatus('idle'), 3000)
-          }
-        }
-      }),
-      onMessage('agent_file_restore', (data: unknown) => {
-        const d = data as { filename: string; content: string; success: boolean }
-        if (d.filename === 'GLOBAL_LIVING_UI.md' && d.success) {
-          // Slice handler already updated originalConfig; clear local edits.
-          setLineChanges(new Map())
-        }
-      }),
-    ]
-    return () => cleanups.forEach(c => c())
-  }, [onMessage, dispatch])
+  }, [isConnected, send, hasLoadedProjects])
 
   useEffect(() => {
     const handleActionComplete = (data: unknown) => {
@@ -196,49 +72,6 @@ export function LivingUISettings() {
     return cleanup
   }, [send, onMessage])
 
-  const handleToggleRule = (lineIndex: number, enabled: boolean) => {
-    const newChanges = new Map<number, string>(lineChanges)
-    newChanges.set(lineIndex, String(enabled))
-    setLineChanges(newChanges)
-    setLocalGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
-  }
-
-  const handlePrefChange = (lineIndex: number, value: string) => {
-    const newChanges = new Map<number, string>(lineChanges)
-    newChanges.set(lineIndex, value)
-    setLineChanges(newChanges)
-    setLocalGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
-  }
-
-  const handleAddRule = () => {
-    if (!newRule.trim()) return
-    setLocalGlobalConfig(prev => prev.trimEnd() + '\n- [x] ' + newRule.trim() + '\n')
-    setNewRule('')
-  }
-
-
-  const handleDeleteRule = (lineIndex: number) => {
-    const lines = globalConfig.split('\n')
-    lines.splice(lineIndex, 1)
-    setLocalGlobalConfig(lines.join('\n'))
-  }
-
-  const handleSaveGlobal = () => {
-    setGlobalSaving(true)
-    send('agent_file_write', { filename: 'GLOBAL_LIVING_UI.md', content: globalConfig })
-  }
-
-  const handleRestoreGlobal = () => {
-    confirm({
-      title: 'Restore Defaults',
-      message: 'Reset global Living UI configuration to defaults? Your custom rules and changes will be lost.',
-      confirmText: 'Restore',
-      variant: 'danger',
-    }, () => {
-      send('agent_file_restore', { filename: 'GLOBAL_LIVING_UI.md' })
-    })
-  }
-
   const handleLaunch = (projectId: string) => {
     setActionInProgress(projectId)
     send('living_ui_launch', { projectId })
@@ -261,7 +94,7 @@ export function LivingUISettings() {
   const handleDelete = (project: LivingUIProject) => {
     confirm({
       title: 'Delete Living UI',
-      message: `Are you sure you want to delete "${project.name}"? This will remove all project files and cannot be undone.`,
+      message: `Are you sure you want to delete "${project.name}"? This will remove all project files. If the app has any live data, a final backup is saved first and KEPT — leftover backups can be removed below afterwards.`,
       confirmText: 'Delete',
       variant: 'danger',
     }, () => {
@@ -270,305 +103,24 @@ export function LivingUISettings() {
     })
   }
 
-  const { sections } = parseGlobalConfig(globalConfig)
-
-  // Collect design prefs (colors/fonts) across all sections
-  const designPrefs: ParsedPref[] = sections.flatMap(s =>
-    s.prefs.filter(p => {
-      const k = p.key.toLowerCase()
-      return k.includes('color') || k.includes('font')
+  const backupOrphans = useAppSelector(s => s.livingUiSettings.backupOrphans)
+  const handleDeleteOrphanBackups = (orphan: { id: string; name: string }) => {
+    confirm({
+      title: 'Delete leftover backups',
+      message: `Permanently delete all backup archives of the deleted app "${orphan.name}"? They are the only remaining copy of its data.`,
+      confirmText: 'Delete backups',
+      variant: 'danger',
+    }, () => {
+      send('living_ui_backup_delete', { projectId: orphan.id, filename: '', orphan: true })
+      send('living_ui_settings_get')
     })
-  )
-
-  const ruleSections = sections.filter(s => s.rules.length > 0)
-  const totalRules = ruleSections.reduce((acc, s) => acc + s.rules.length, 0)
-  const activeRules = ruleSections.reduce(
-    (acc, s) =>
-      acc +
-      s.rules.filter(r =>
-        lineChanges.has(r.lineIndex) ? lineChanges.get(r.lineIndex) === 'true' : r.enabled
-      ).length,
-    0
-  )
+  }
 
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
         <h3>Living UI</h3>
-        <p>Global design, rules, and project management</p>
-      </div>
-
-      {/* ── Design ────────────────────────────────────────── */}
-      <div className={styles.subsection}>
-        <h4 className={styles.subsectionTitle}>Design</h4>
-        <p className={styles.subsectionDesc}>
-          Colors and typography applied globally to every Living UI
-        </p>
-
-        {globalLoading ? (
-          <div className={styles.loadingState}>
-            <Loader2 size={20} className={styles.spinning} />
-            <span>Loading design...</span>
-          </div>
-        ) : designPrefs.length === 0 ? (
-          <div className={styles.emptyState}>
-            <p>No design preferences found in GLOBAL_LIVING_UI.md</p>
-          </div>
-        ) : (
-          <div className={styles.settingsForm}>
-            {designPrefs.map(pref => {
-              const val = lineChanges.has(pref.lineIndex)
-                ? lineChanges.get(pref.lineIndex)!
-                : pref.value
-              const key = pref.key.toLowerCase()
-              const isColor = key.includes('color')
-              const isFont = key.includes('font')
-
-              return (
-                <div key={pref.lineIndex} className={styles.formGroup}>
-                  <label>{pref.key}</label>
-                  {isColor ? (
-                    <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-                      <label
-                        className={styles.colorSwatch}
-                        style={{ background: val.startsWith('#') ? val : '#000000' }}
-                      >
-                        <input
-                          type="color"
-                          value={val.startsWith('#') ? val : '#000000'}
-                          onChange={e => handlePrefChange(pref.lineIndex, e.target.value)}
-                        />
-                      </label>
-                      <input
-                        type="text"
-                        value={val}
-                        onChange={e => handlePrefChange(pref.lineIndex, e.target.value)}
-                        style={{ flex: 1 }}
-                      />
-                    </div>
-                  ) : isFont ? (
-                    <select value={val} onChange={e => handlePrefChange(pref.lineIndex, e.target.value)}>
-                      {FONT_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={val}
-                      onChange={e => handlePrefChange(pref.lineIndex, e.target.value)}
-                    />
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Rules ─────────────────────────────────────────── */}
-      <div className={styles.subsection}>
-        <h4 className={styles.subsectionTitle}>Rules</h4>
-        <p className={styles.subsectionDesc}>
-          Toggle global behavior rules or add your own custom rules
-        </p>
-
-        {globalLoading ? (
-          <div className={styles.loadingState}>
-            <Loader2 size={20} className={styles.spinning} />
-            <span>Loading rules...</span>
-          </div>
-        ) : (
-          <div className={styles.fileEditorCard}>
-            <div
-              className={styles.fileEditorHeader}
-              onClick={() => setRulesExpanded(v => !v)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  setRulesExpanded(v => !v)
-                }
-              }}
-              aria-expanded={rulesExpanded}
-              style={{
-                cursor: 'pointer',
-                borderBottom: rulesExpanded ? '1px solid var(--border-primary)' : 'none',
-                userSelect: 'none',
-              }}
-            >
-              <div className={styles.fileEditorTitle}>
-                <h4>Rules</h4>
-                <Badge variant="default">
-                  {activeRules}/{totalRules} active
-                </Badge>
-                <ChevronRight
-                  size={14}
-                  className={`${styles.advancedChevron} ${rulesExpanded ? styles.open : ''}`}
-                  style={{ marginLeft: 'auto' }}
-                />
-              </div>
-              <p className={styles.fileEditorDescription}>
-                Toggle behavior rules applied globally to every Living UI, or add your own custom rules.
-              </p>
-            </div>
-
-            {rulesExpanded && (
-              <>
-                <div
-                  style={{
-                    background: 'var(--bg-primary)',
-                    maxHeight: '500px',
-                    overflowY: 'auto',
-                  }}
-                >
-                  {ruleSections.length === 0 ? (
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        textAlign: 'center',
-                        color: 'var(--text-muted)',
-                        fontSize: 'var(--text-sm)',
-                      }}
-                    >
-                      No rules defined yet. Add one below.
-                    </div>
-                  ) : (
-                    ruleSections.map((section, sIdx) => {
-                      const isCustom = section.title === 'Custom Rules'
-                      return (
-                        <div key={section.title}>
-                          <div
-                            style={{
-                              padding: 'var(--space-2) var(--space-3)',
-                              background: 'var(--bg-secondary)',
-                              borderTop: sIdx > 0 ? '1px solid var(--border-primary)' : 'none',
-                              borderBottom: '1px solid var(--border-primary)',
-                              fontSize: 'var(--text-xs)',
-                              fontWeight: 'var(--font-semibold)',
-                              color: 'var(--text-secondary)',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                            }}
-                          >
-                            {section.title}
-                          </div>
-                          {section.rules.map((rule, idx) => {
-                            const checked = lineChanges.has(rule.lineIndex)
-                              ? lineChanges.get(rule.lineIndex) === 'true'
-                              : rule.enabled
-                            return (
-                              <div
-                                key={rule.lineIndex}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 'var(--space-3)',
-                                  padding: 'var(--space-3)',
-                                  borderTop: idx > 0 ? '1px solid var(--border-primary)' : 'none',
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    flex: 1,
-                                    fontSize: 'var(--text-sm)',
-                                    color: 'var(--text-primary)',
-                                    lineHeight: 1.4,
-                                  }}
-                                >
-                                  {rule.text}
-                                </span>
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 'var(--space-1)',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {isCustom ? (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      icon={<Trash2 size={14} />}
-                                      onClick={() => handleDeleteRule(rule.lineIndex)}
-                                    />
-                                  ) : (
-                                    <input
-                                      type="checkbox"
-                                      className={styles.toggle}
-                                      checked={checked}
-                                      onChange={e => handleToggleRule(rule.lineIndex, e.target.checked)}
-                                    />
-                                  )}
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-
-                <div className={styles.fileEditorActions}>
-                  <input
-                    type="text"
-                    className={styles.searchInput}
-                    value={newRule}
-                    onChange={e => setNewRule(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAddRule()}
-                    placeholder="Add a custom rule..."
-                    style={{ flex: 1 }}
-                  />
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    icon={<Plus size={14} />}
-                    onClick={handleAddRule}
-                    disabled={!newRule.trim()}
-                  >
-                    Add
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Save / Restore ────────────────────────────────── */}
-      <div className={styles.sectionFooter} style={{ borderTop: 'none', paddingTop: 0 }}>
-        <Button
-          variant="secondary"
-          icon={<RotateCcw size={14} />}
-          onClick={handleRestoreGlobal}
-          disabled={globalLoading || globalSaving}
-        >
-          Restore Defaults
-        </Button>
-        <Button
-          variant="primary"
-          onClick={handleSaveGlobal}
-          disabled={!isGlobalDirty || globalSaving || globalLoading}
-          icon={globalSaving ? <Loader2 size={14} className={styles.spinning} /> : undefined}
-        >
-          {globalSaving ? 'Saving...' : 'Save Changes'}
-        </Button>
-        {globalSaveStatus === 'success' && (
-          <span className={styles.statusSuccess}>
-            <Check size={14} /> Saved
-          </span>
-        )}
-        {globalSaveStatus === 'error' && (
-          <span className={styles.statusError}>
-            <X size={14} /> Save failed
-          </span>
-        )}
-        {isGlobalDirty && globalSaveStatus === 'idle' && !globalSaving && (
-          <span className={styles.statusWarning}>Unsaved changes</span>
-        )}
+        <p>Manage and share your Living UI projects</p>
       </div>
 
       {/* ── Projects ──────────────────────────────────────── */}
@@ -600,11 +152,16 @@ export function LivingUISettings() {
                 onStop={() => handleStop(project.id)}
                 onDelete={() => handleDelete(project)}
                 onToggleSetting={(setting, value) => {
-                  // Optimistic so the toggle flips immediately; the refetch
+                  // Optimistic so the control flips immediately; the refetch
                   // triggered by the response reconciles authoritative state.
                   dispatch(updateProjectSetting({
                     projectId: project.id,
-                    setting: setting as 'autoLaunch' | 'logCleanup',
+                    setting: setting as
+                      | 'autoLaunch'
+                      | 'logCleanup'
+                      | 'backupsEnabled'
+                      | 'backupInterval'
+                      | 'backupKeep',
                     value,
                   }))
                   send('living_ui_project_setting_update', { projectId: project.id, setting, value })
@@ -616,6 +173,27 @@ export function LivingUISettings() {
           </div>
         )}
       </div>
+
+      {/* ── Leftover backups of deleted apps (kept on delete — removable here) ── */}
+      {backupOrphans.length > 0 && (
+        <div className={styles.subsection}>
+          <h4 className={styles.subsectionTitle}>Leftover backups</h4>
+          <p className={styles.subsectionDesc}>
+            Backup archives of deleted apps. They are kept when an app is deleted; remove them here when you no longer need the data.
+          </p>
+          <div className={styles.scheduleList}>
+            {backupOrphans.map(orphan => (
+              <OrphanBackupsRow
+                key={orphan.id}
+                orphan={orphan}
+                projects={projects}
+                send={send}
+                onDeleteAll={handleDeleteOrphanBackups}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <ConfirmModal {...confirmModalProps} />
     </div>
@@ -633,7 +211,7 @@ interface ProjectCardProps {
   onLaunch: () => void
   onStop: () => void
   onDelete: () => void
-  onToggleSetting: (setting: string, value: boolean) => void
+  onToggleSetting: (setting: string, value: boolean | string | number) => void
   send: (type: string, data?: Record<string, unknown>) => void
   onMessage: (type: string, handler: (data: unknown) => void) => () => void
 }
@@ -958,6 +536,25 @@ function ProjectCard({
         </div>
       </div>
 
+      {/* Zone 3b — Backups (native apps only: externals have no pb_data) */}
+      {project.projectType !== 'external' && (
+        <div
+          style={{
+            padding: 'var(--space-3)',
+            borderTop: '1px solid var(--border-primary)',
+          }}
+        >
+          <div style={{ ...sectionLabelStyle, marginBottom: 'var(--space-2)' }}>
+            Backups
+          </div>
+          <BackupsSection
+            project={project}
+            onToggleSetting={onToggleSetting}
+            send={send}
+          />
+        </div>
+      )}
+
       {/* Zone 4 — Share */}
       {isRunning && (
         <div
@@ -974,6 +571,542 @@ function ProjectCard({
       )}
 
       </>}
+    </div>
+  )
+}
+
+
+// ── Backups Section ────────────────────────────────────────────
+
+const INTERVAL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'hourly', label: 'Every hour' },
+  { value: '6h', label: 'Every 6 hours' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+]
+
+const TRIGGER_LABELS: Record<string, string> = {
+  scheduled: 'scheduled',
+  pre_promote: 'pre-update',
+  manual: 'manual',
+  pre_delete: 'before delete',
+  pre_restore: 'before restore',
+}
+
+/** Inline "restoring… / restored / failed" line under an archive list. */
+function RestoreStatusLine({
+  busy,
+  targetName,
+  result,
+}: {
+  busy: boolean
+  targetName?: string
+  result?: { ok: boolean; message: string }
+}) {
+  if (busy)
+    return (
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-2)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--text-muted)',
+          padding: 'var(--space-2) 0',
+        }}
+      >
+        <Loader2 size={12} className={styles.spinning} />
+        Restoring{targetName ? ` into "${targetName}"` : ''}… this can take a
+        minute.
+      </span>
+    )
+  if (result)
+    return (
+      <span
+        style={{
+          fontSize: 'var(--text-xs)',
+          color: result.ok ? 'var(--color-success)' : 'var(--color-error)',
+          padding: 'var(--space-2) 0',
+        }}
+      >
+        {result.message}
+      </span>
+    )
+  return null
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fmtWhen(msEpoch: number): string {
+  return new Date(msEpoch).toLocaleString()
+}
+
+// ── Leftover (orphan) backups row ──────────────────────────────
+// A deleted app's kept archives: expandable to list them, each restorable
+// into a still-existing app (the backend rolls back automatically when the
+// data doesn't fit), the whole dir deletable.
+
+interface OrphanBackupsRowProps {
+  orphan: LivingUIBackupOrphan
+  projects: LivingUIProject[]
+  send: (type: string, data?: Record<string, unknown>) => void
+  onDeleteAll: (orphan: LivingUIBackupOrphan) => void
+}
+
+function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackupsRowProps) {
+  const dispatch = useAppDispatch()
+  const { modalProps: confirmModalProps, confirm } = useConfirmModal()
+  const [expanded, setExpanded] = useState(false)
+  const backups = useAppSelector(
+    s => s.livingUiSettings.backupsByProject[orphan.id],
+  )
+  // Only native apps have pb_data to restore into.
+  const targets = projects.filter(p => (p.projectType || 'native') !== 'external')
+  const [targetId, setTargetId] = useState('')
+  const target = targets.find(p => p.id === targetId) || targets[0]
+  const busy = useAppSelector(
+    s => (target ? s.livingUiSettings.backupBusy[target.id] : false) || false,
+  )
+  const restoreResult = useAppSelector(s =>
+    target ? s.livingUiSettings.backupRestoreResult[target.id] : undefined,
+  )
+
+  const toggle = () => {
+    const next = !expanded
+    setExpanded(next)
+    if (next && backups === undefined)
+      send('living_ui_backups_list', { projectId: orphan.id })
+  }
+
+  const handleRestore = (filename: string, ts: number) => {
+    if (!target) return
+    confirm({
+      title: 'Restore into app',
+      message: `Restore the backup from ${fmtWhen(ts)} of the deleted app "${orphan.name}" into "${target.name}"? The current data of "${target.name}" will be replaced — a backup of that state is saved first, and if the restored data doesn't fit the app it is rolled back automatically.`,
+      confirmText: 'Restore',
+      variant: 'danger',
+    }, () => {
+      dispatch(setBackupBusy({ projectId: target.id, busy: true }))
+      send('living_ui_backup_restore', {
+        projectId: target.id,
+        filename,
+        sourceProjectId: orphan.id,
+      })
+    })
+  }
+
+  const handleDeleteEntry = (filename: string, ts: number) => {
+    confirm({
+      title: 'Delete backup',
+      message: `Permanently delete the backup from ${fmtWhen(ts)} of the deleted app "${orphan.name}"?`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    }, () => {
+      send('living_ui_backup_delete', { projectId: orphan.id, filename })
+    })
+  }
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--bg-tertiary)',
+        border: '1px solid var(--border-primary)',
+        borderRadius: 'var(--radius-md)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-3)',
+          padding: 'var(--space-2) var(--space-3)',
+          cursor: 'pointer',
+        }}
+        onClick={toggle}
+      >
+        <ChevronRight
+          size={14}
+          style={{
+            color: 'var(--text-muted)',
+            flexShrink: 0,
+            transform: expanded ? 'rotate(90deg)' : 'none',
+            transition: 'transform 0.15s',
+          }}
+        />
+        <Archive size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+        <span
+          style={{
+            flex: 1,
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-primary)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={orphan.id}
+        >
+          {orphan.name}
+          {orphan.name !== orphan.id && (
+            <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+              {' '}· {orphan.id}
+            </span>
+          )}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<Trash2 size={14} />}
+          onClick={e => {
+            e.stopPropagation()
+            onDeleteAll(orphan)
+          }}
+          title="Delete these backups"
+        />
+      </div>
+
+      {expanded && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            borderTop: '1px solid var(--border-primary)',
+            padding: 'var(--space-1) var(--space-3) var(--space-2)',
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {targets.length > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-2) 0',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              Restore into
+              <select
+                value={target?.id || ''}
+                onChange={e => setTargetId(e.target.value)}
+                style={{
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-primary)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '2px 6px',
+                  fontSize: 'var(--text-xs)',
+                }}
+              >
+                {targets.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <RestoreStatusLine
+            busy={busy}
+            targetName={target?.name}
+            result={restoreResult}
+          />
+          {backups === undefined && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', padding: 'var(--space-2) 0' }}>
+              Loading…
+            </span>
+          )}
+          {backups !== undefined && backups.length === 0 && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', padding: 'var(--space-2) 0' }}>
+              No archives.
+            </span>
+          )}
+          {(backups || []).map(b => (
+            <div
+              key={b.filename}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-1) 0',
+              }}
+            >
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--text-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={b.filename}
+              >
+                {fmtWhen(b.ts)}
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {' '}· {TRIGGER_LABELS[b.trigger] || b.trigger} · {fmtSize(b.size)}
+                </span>
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<RotateCcw size={13} />}
+                onClick={() => handleRestore(b.filename, b.ts)}
+                disabled={busy || !target}
+                title={
+                  target
+                    ? `Restore this backup into "${target.name}"`
+                    : 'No app to restore into'
+                }
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Trash2 size={13} />}
+                onClick={() => handleDeleteEntry(b.filename, b.ts)}
+                disabled={busy}
+                title="Delete this backup"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      <ConfirmModal {...confirmModalProps} />
+    </div>
+  )
+}
+
+interface BackupsSectionProps {
+  project: LivingUIProject
+  onToggleSetting: (setting: string, value: boolean | string | number) => void
+  send: (type: string, data?: Record<string, unknown>) => void
+}
+
+function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps) {
+  const dispatch = useAppDispatch()
+  const { modalProps: confirmModalProps, confirm } = useConfirmModal()
+  const backups = useAppSelector(
+    s => s.livingUiSettings.backupsByProject[project.id],
+  )
+  const busy = useAppSelector(
+    s => s.livingUiSettings.backupBusy[project.id] || false,
+  )
+  const restoreResult = useAppSelector(
+    s => s.livingUiSettings.backupRestoreResult[project.id],
+  )
+  // busy is shared with "Back up now" — only flag restores as such.
+  const [restoring, setRestoring] = useState(false)
+  useEffect(() => {
+    if (!busy) setRestoring(false)
+  }, [busy])
+  const status = project.backupStatus || {}
+
+  // Fetch the archive list when the section first shows (card expanded).
+  useEffect(() => {
+    if (backups === undefined)
+      send('living_ui_backups_list', { projectId: project.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, send])
+
+  const handleBackupNow = () => {
+    dispatch(setBackupBusy({ projectId: project.id, busy: true }))
+    send('living_ui_backup_now', { projectId: project.id })
+  }
+
+  const handleRestore = (filename: string, ts: number) => {
+    // Reversible by design (FR9): the backend captures the current state
+    // first and aborts if that fails — hence a plain consequence modal,
+    // not a typed confirmation.
+    confirm({
+      title: 'Restore backup',
+      message: `Restore "${project.name}" to its state from ${fmtWhen(ts)}? Data created after that point will be removed — a backup of the current state is taken first, so this can be undone.`,
+      confirmText: 'Restore',
+      variant: 'danger',
+    }, () => {
+      setRestoring(true)
+      dispatch(setBackupBusy({ projectId: project.id, busy: true }))
+      send('living_ui_backup_restore', { projectId: project.id, filename })
+    })
+  }
+
+  const handleDeleteEntry = (filename: string, ts: number) => {
+    confirm({
+      title: 'Delete backup',
+      message: `Permanently delete the backup from ${fmtWhen(ts)}?`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    }, () => {
+      send('living_ui_backup_delete', { projectId: project.id, filename })
+    })
+  }
+
+  const rowStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 'var(--space-3)',
+    padding: 'var(--space-2) 0',
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* Enable toggle */}
+      <div style={rowStyle}>
+        <div className={styles.toggleInfo}>
+          <span className={styles.toggleLabel}>Scheduled backups</span>
+          <span className={styles.toggleDesc}>
+            Back up this app's data and files automatically
+          </span>
+        </div>
+        <input
+          type="checkbox"
+          className={styles.toggle}
+          checked={project.backupsEnabled}
+          onChange={e => onToggleSetting('backupsEnabled', e.target.checked)}
+        />
+      </div>
+
+      {project.backupsEnabled && (
+        <>
+          <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
+            <div className={styles.toggleInfo}>
+              <span className={styles.toggleLabel}>Frequency</span>
+            </div>
+            <select
+              value={project.backupInterval}
+              onChange={e => onToggleSetting('backupInterval', e.target.value)}
+              style={{
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '4px 8px',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              {INTERVAL_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
+            <div className={styles.toggleInfo}>
+              <span className={styles.toggleLabel}>Backups to keep</span>
+              <span className={styles.toggleDesc}>
+                Oldest scheduled backups are removed beyond this count
+              </span>
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={30}
+              value={project.backupKeep}
+              onChange={e => {
+                const v = parseInt(e.target.value, 10)
+                if (Number.isFinite(v) && v >= 1 && v <= 30)
+                  onToggleSetting('backupKeep', v)
+              }}
+              style={{
+                width: 64,
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '4px 8px',
+                fontSize: 'var(--text-sm)',
+              }}
+            />
+          </div>
+        </>
+      )}
+
+      {/* Status line + Back up now */}
+      <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
+        <span style={{ fontSize: 'var(--text-xs)', color: status.lastError ? 'var(--color-error)' : 'var(--text-muted)' }}>
+          {status.lastError
+            ? `Last backup failed: ${status.lastError}`
+            : status.lastAt
+              ? `Last backup ${fmtWhen(status.lastAt * 1000)} · ${status.count || 0} kept · ${fmtSize(status.totalSize || 0)}`
+              : 'No backups yet'}
+        </span>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={busy ? <Loader2 size={14} className={styles.spinning} /> : <Archive size={14} />}
+          onClick={handleBackupNow}
+          disabled={busy}
+        >
+          Back up now
+        </Button>
+      </div>
+
+      {/* Restore progress/outcome (busy is shared with Back up now — the
+          "restoring" line only shows for actual restores) */}
+      <RestoreStatusLine
+        busy={busy && restoring}
+        targetName={project.name}
+        result={restoreResult}
+      />
+
+      {/* Archive list */}
+      {(backups || []).length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            borderTop: '1px solid var(--border-primary)',
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {(backups || []).map(b => (
+            <div key={b.filename} style={{ ...rowStyle, gap: 'var(--space-2)' }}>
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--text-primary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={b.filename}
+              >
+                {fmtWhen(b.ts)}
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {' '}· {TRIGGER_LABELS[b.trigger] || b.trigger} · {fmtSize(b.size)}
+                </span>
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<RotateCcw size={13} />}
+                onClick={() => handleRestore(b.filename, b.ts)}
+                disabled={busy}
+                title="Restore this backup"
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Trash2 size={13} />}
+                onClick={() => handleDeleteEntry(b.filename, b.ts)}
+                disabled={busy}
+                title="Delete this backup"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ConfirmModal {...confirmModalProps} />
     </div>
   )
 }

@@ -39,16 +39,6 @@ class FormField:
     placeholder: str = ""  # Hint text
 
 
-@dataclass
-class StepResult:
-    """Result of completing an onboarding step."""
-
-    success: bool
-    data: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
-    skip_remaining: bool = False  # Skip all remaining steps
-
-
 @runtime_checkable
 class HardOnboardingStep(Protocol):
     """
@@ -97,6 +87,33 @@ class HardOnboardingStep(Protocol):
     def get_default(self) -> Any:
         """Get default value for this step."""
         ...
+
+
+class IntroStep:
+    """Welcome screen. The agent introduces itself before setup begins.
+
+    Collects nothing; the only action is to advance. The browser wizard renders
+    it as a message beside the mascot with a single "Get started" button (no
+    input).
+    """
+
+    name = "intro"
+    title = "Nice to meet you, I'm CraftBot!"
+    description = (
+        "Nice to meet you, I am CraftBot! I am here to help you with work or "
+        "life. Now before we begin, there are some baseline settings we need "
+        "to configure."
+    )
+    required = True
+
+    def get_options(self) -> List[StepOption]:
+        return []
+
+    def validate(self, value: Any) -> tuple[bool, Optional[str]]:
+        return True, None
+
+    def get_default(self) -> str:
+        return ""
 
 
 class ProviderStep:
@@ -150,7 +167,7 @@ class ProviderStep:
 
 
 class ApiKeyStep:
-    """API key input step — or Ollama connection setup for the remote provider."""
+    """API key input step, or Ollama connection setup for the remote provider."""
 
     name = "api_key"
     required = True
@@ -201,7 +218,7 @@ class ApiKeyStep:
 
     def _subscription_connected(self) -> bool:
         """True when an OAuth subscription credential is already stored for
-        this provider — in which case an API key is optional."""
+        this provider, in which case an API key is optional."""
         if not self.supports_subscription_oauth():
             return False
         try:
@@ -285,14 +302,12 @@ class ApiKeyStep:
 
 
 class AgentNameStep:
-    """Agent name + profile picture configuration step."""
+    """Agent name configuration step (name only, no avatar)."""
 
     name = "agent_name"
-    title = "Agent Identity"
-    description = "Give your agent a name and an optional avatar."
+    title = "Name your agent"
+    description = "Give your agent a name."
     required = False
-
-    ALLOWED_PICTURE_EXTS = {"png", "jpg", "jpeg", "webp", "gif"}
 
     def get_form_fields(self) -> List[FormField]:
         return [
@@ -302,13 +317,6 @@ class AgentNameStep:
                 field_type="text",
                 default="CraftBot",
                 placeholder="Enter a name",
-            ),
-            FormField(
-                name="agent_profile_picture",
-                label="Avatar",
-                field_type="image_upload",
-                default="",
-                placeholder="",
             ),
         ]
 
@@ -325,59 +333,26 @@ class AgentNameStep:
             agent_name = value.get("agent_name")
             if agent_name and len(str(agent_name)) > 20:
                 return False, "Agent name must be 20 characters or fewer"
-            picture = value.get("agent_profile_picture")
-            if picture not in (None, ""):
-                if (
-                    not isinstance(picture, str)
-                    or picture.lower() not in self.ALLOWED_PICTURE_EXTS
-                ):
-                    return False, "Unsupported avatar format"
             return True, None
-        return False, "Invalid agent identity submission"
+        return False, "Invalid agent name submission"
 
     def get_default(self) -> Dict[str, Any]:
-        return {
-            "agent_name": "CraftBot",
-            "agent_profile_picture": "",
-        }
+        return {"agent_name": "CraftBot"}
 
 
 class UserProfileStep:
-    """User profile form step — collects identity and preferences in a compact form."""
+    """User step: collects only the user's name.
+
+    Location is inferred from the user's IP and the communication language from
+    the OS locale; the remaining preferences (tone, proactivity, approval,
+    notification platform) use sensible defaults rather than being asked. See
+    :meth:`enrich`, which fills those in at completion time.
+    """
 
     name = "user_profile"
-    title = "User Profile"
-    description = "Tell us about yourself to personalize your experience."
+    title = "Your Name"
+    description = "What should your agent call you?"
     required = False
-
-    TONE_OPTIONS = [
-        ("casual", "Casual"),
-        ("formal", "Formal"),
-        ("friendly", "Friendly"),
-        ("professional", "Professional"),
-    ]
-
-    PROACTIVITY_OPTIONS = [
-        ("low", "Low", "Wait for instructions"),
-        ("medium", "Medium", "Suggest when relevant"),
-        ("high", "High", "Proactively suggest things"),
-    ]
-
-    APPROVAL_OPTIONS = [
-        ("messages", "Messages", "Sending messages on your behalf"),
-        ("scheduling", "Scheduling", "Creating/modifying schedules"),
-        ("file_changes", "File Changes", "Modifying files on your system"),
-        ("purchases", "Purchases", "Making purchases or payments"),
-        ("all", "All Actions", "Ask approval for everything"),
-    ]
-
-    PLATFORM_OPTIONS = [
-        ("telegram", "Telegram"),
-        ("whatsapp", "WhatsApp"),
-        ("discord", "Discord"),
-        ("slack", "Slack"),
-        ("tui", "CraftBot Interface"),
-    ]
 
     @staticmethod
     def fetch_geolocation() -> str:
@@ -398,258 +373,73 @@ class UserProfileStep:
         return ""
 
     @staticmethod
-    def get_language_options() -> List[StepOption]:
-        """Get a dynamic list of languages using babel. Pre-select based on OS locale."""
+    def _default_language() -> str:
+        """Two-letter communication language derived from the OS locale."""
         try:
-            from babel import Locale
             import locale as _locale
 
-            # Get OS locale for pre-selection
-            try:
-                os_locale = _locale.getdefaultlocale()[0] or "en_US"
-                os_lang = os_locale.split("_")[0]
-            except Exception:
-                os_lang = "en"
-
-            # Get all language display names from babel (in English)
-            lang_names = Locale("en").languages
-
-            # Filter to commonly-used languages (those with 2-letter ISO codes)
-            # and sort by display name
-            seen = set()
-            options = []
-            for code, display_name in sorted(lang_names.items(), key=lambda x: x[1]):
-                # Only include 2-letter codes (ISO 639-1) to keep list manageable
-                if len(code) == 2 and code not in seen:
-                    seen.add(code)
-                    options.append(
-                        StepOption(
-                            value=code,
-                            label=display_name,
-                            description=code,
-                            default=(code == os_lang),
-                        )
-                    )
-            return options
-        except ImportError:
-            # Fallback if babel not installed — return a minimal list
-            return [
-                StepOption(value="en", label="English", description="en", default=True),
-                StepOption(value="zh", label="Chinese", description="zh"),
-                StepOption(value="es", label="Spanish", description="es"),
-                StepOption(value="fr", label="French", description="fr"),
-                StepOption(value="de", label="German", description="de"),
-                StepOption(value="ja", label="Japanese", description="ja"),
-                StepOption(value="ko", label="Korean", description="ko"),
-                StepOption(value="pt", label="Portuguese", description="pt"),
-                StepOption(value="ru", label="Russian", description="ru"),
-                StepOption(value="ar", label="Arabic", description="ar"),
-            ]
+            os_locale = _locale.getdefaultlocale()[0] or "en_US"
+            return os_locale.split("_")[0] or "en"
+        except Exception:
+            return "en"
 
     def get_form_fields(self) -> List[FormField]:
-        """Return all form fields for the user profile step."""
-        # Fetch defaults
-        try:
-            location_default = self.fetch_geolocation()
-        except Exception:
-            location_default = ""
-
-        language_options = self.get_language_options()
-
-        # Find pre-selected language
-        lang_default = "en"
-        for opt in language_options:
-            if opt.default:
-                lang_default = opt.value
-                break
-
+        """Only the user's name is collected in the UI."""
         return [
             FormField(
                 name="user_name",
                 label="Your Name",
                 field_type="text",
-                placeholder="What should we call you?",
+                placeholder="Your name",
                 default="",
-            ),
-            FormField(
-                name="location",
-                label="Location",
-                field_type="text",
-                placeholder="City, Country",
-                default=location_default,
-            ),
-            FormField(
-                name="language",
-                label="CraftBot's Language",
-                field_type="select",
-                options=language_options,
-                default=lang_default,
-                placeholder="The language CraftBot will communicate in (not the interface language)",
-            ),
-            FormField(
-                name="tone",
-                label="Communication Tone",
-                field_type="select",
-                options=[
-                    StepOption(value=val, label=label, default=(val == "casual"))
-                    for val, label in self.TONE_OPTIONS
-                ],
-                default="casual",
-            ),
-            FormField(
-                name="proactivity",
-                label="Proactive Level",
-                field_type="select",
-                options=[
-                    StepOption(
-                        value=val,
-                        label=label,
-                        description=desc,
-                        default=(val == "medium"),
-                    )
-                    for val, label, desc in self.PROACTIVITY_OPTIONS
-                ],
-                default="medium",
-            ),
-            FormField(
-                name="approval",
-                label="Require Approval For",
-                field_type="multi_checkbox",
-                options=[
-                    StepOption(value=val, label=label, description=desc)
-                    for val, label, desc in self.APPROVAL_OPTIONS
-                ],
-                default=[],
-            ),
-            FormField(
-                name="messaging_platform",
-                label="Preferred Notification Platform",
-                field_type="select",
-                options=[
-                    StepOption(value=val, label=label, default=(val == "tui"))
-                    for val, label in self.PLATFORM_OPTIONS
-                ],
-                default="tui",
             ),
         ]
 
+    def enrich(self, submitted: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Merge the name the user typed with values derived silently.
+
+        Location comes from the IP geolocation, language from the OS locale,
+        and the preference fields no longer shown in the UI fall back to
+        defaults, so ``write_profile_to_user_md`` still receives a full
+        profile dict.
+        """
+        data: Dict[str, Any] = dict(submitted or {})
+        if not data.get("location"):
+            try:
+                data["location"] = self.fetch_geolocation()
+            except Exception:
+                data["location"] = ""
+        if not data.get("language"):
+            data["language"] = self._default_language()
+        data.setdefault("tone", "casual")
+        data.setdefault("proactivity", "medium")
+        data.setdefault("approval", [])
+        data.setdefault("messaging_platform", "tui")
+        return data
+
     def get_options(self) -> List[StepOption]:
-        # Not a single-select step — form fields are used instead
+        # Not a single-select step; form fields are used instead
         return []
 
     def validate(self, value: Any) -> tuple[bool, Optional[str]]:
-        """Validate the form data dict. All fields are optional."""
+        """Validate the form data dict. The name is optional."""
         if not isinstance(value, dict):
             return False, "Expected a dictionary of form values"
         user_name = value.get("user_name")
         if user_name and len(str(user_name)) > 20:
             return False, "Name must be 20 characters or fewer"
-        # Validate approval is a list if present
-        approval = value.get("approval")
-        if approval is not None and not isinstance(approval, list):
-            return False, "Approval settings must be a list"
         return True, None
 
     def get_default(self) -> Dict[str, Any]:
-        """Return defaults for all fields."""
-        fields = self.get_form_fields()
-        return {f.name: f.default for f in fields}
+        """Return defaults for the visible fields."""
+        return {f.name: f.default for f in self.get_form_fields()}
 
 
-class IntegrationStep:
-    """External app integration setup step.
-
-    Renders the full Integrations settings panel inside the wizard so the
-    user can connect any registered integration in place. The step has no
-    submittable value of its own — clicking Next moves on whether or not
-    the user connected anything.
-    """
-
-    name = "integrations"
-    title = "Connect External Apps"
-    description = "Connect any external apps you want your agent to use — Gmail, Slack, GitHub, Notion, and more. You can connect now, or skip and connect later from Settings → Integrations."
-    required = False
-
-    def get_options(self) -> List[StepOption]:
-        return []
-
-    def validate(self, value: Any) -> tuple[bool, Optional[str]]:
-        # The step is a UI panel — any value (including empty) is acceptable.
-        return True, None
-
-    def get_default(self) -> str:
-        return ""
-
-
-class SkillsStep:
-    """Skills selection step."""
-
-    name = "skills"
-    title = "Recommended Skills"
-    description = "Skills teach your agent how to do specific tasks step-by-step. When you ask for help, your agent loads the right skill and follows its instructions to complete the task properly.\nItems marked 'Setup required' need their corresponding MCP server configured first."
-    required = False
-
-    # Top 10 recommended skills for onboarding (most popular/useful)
-    # Format: {name: icon}
-    RECOMMENDED_SKILLS = {
-        "research-assistant": "FlaskConical",
-        "writing-assistant": "Pencil",
-        "task-planner": "ClipboardList",
-        "brave-search": "Search",
-        "gmail": "Mail",
-        "google-drive": "Cloud",
-        "notion": "FileText",
-        "obsidian": "Gem",
-        "github": "Github",
-        "google-sheets": "Sheet",
-    }
-
-    def get_options(self) -> List[StepOption]:
-        """Get top 10 recommended skills for onboarding."""
-        try:
-            from app.ui_layer.settings.skill_settings import list_skills
-
-            skills = list_skills()
-
-            # Create a lookup by name (only user-invocable skills)
-            skill_lookup = {
-                s["name"]: s for s in skills if s.get("user_invocable", True)
-            }
-
-            # Return only recommended skills that exist
-            options = []
-            for name, icon in self.RECOMMENDED_SKILLS.items():
-                if name in skill_lookup:
-                    skill = skill_lookup[name]
-                    options.append(
-                        StepOption(
-                            value=skill["name"],
-                            label=skill["name"].replace("-", " ").title(),
-                            description=skill.get("description", ""),
-                            default=skill.get("enabled", False),
-                            icon=icon,
-                        )
-                    )
-            return options
-        except ImportError:
-            return []
-
-    def validate(self, value: Any) -> tuple[bool, Optional[str]]:
-        # Value should be a list of skill names
-        if not isinstance(value, list):
-            return False, "Expected a list of skill names"
-        return True, None
-
-    def get_default(self) -> List[str]:
-        return []
-
-
-# Ordered list of all step classes
+# Ordered list of the active hard-onboarding steps.
 ALL_STEPS = [
+    IntroStep,
     ProviderStep,
     ApiKeyStep,
-    AgentNameStep,
     UserProfileStep,
-    SkillsStep,
-    IntegrationStep,
+    AgentNameStep,
 ]

@@ -68,6 +68,15 @@ class SubAgentDefinition:
     early_end_guard: Optional[
         Callable[["SubAgent", Dict[str, object]], Optional[str]]
     ] = None
+    # Context compaction (scoped walk-verify Phase 3): action names whose
+    # OLDER outputs are replaced by a short stub once `compact_keep` newer
+    # ones exist — a browser snapshot is superseded by the next snapshot, so
+    # keeping 40 of them in context buys nothing. Takes effect when the
+    # provider-side session is rebuilt: every `session_reset_every` turns
+    # (0 = only on summarization).
+    compact_actions: Tuple[str, ...] = ()
+    compact_keep: int = 2
+    session_reset_every: int = 0
 
     def overrides_for(self, action_name: str) -> Dict[str, object]:
         """The forced parameters for one action ({} when none)."""
@@ -99,6 +108,9 @@ def register_subagent(
     early_end_guard: Optional[
         Callable[["SubAgent", Dict[str, object]], Optional[str]]
     ] = None,
+    compact_actions: Iterable[str] = (),
+    compact_keep: int = 2,
+    session_reset_every: int = 0,
 ) -> None:
     """Register a sub-agent type.
 
@@ -162,6 +174,9 @@ def register_subagent(
         max_wall_seconds=max_wall_seconds,
         param_overrides=param_overrides,
         early_end_guard=early_end_guard,
+        compact_actions=tuple(dict.fromkeys(compact_actions)),
+        compact_keep=max(1, int(compact_keep)),
+        session_reset_every=max(0, int(session_reset_every)),
     )
     logger.debug(
         f"[SubAgentRegistry] Registered {name!r} "

@@ -18,7 +18,7 @@ import asyncio
 
 from craftos_integrations import get_client
 from craftos_integrations.helpers import request as http_request
-from craftos_integrations.integrations.gmail import GMAIL_API_BASE
+from craftos_integrations.providers.gmail.client import GMAIL_API_BASE
 
 
 INTEGRATION_ID = "gmail"

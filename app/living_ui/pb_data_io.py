@@ -1,15 +1,15 @@
 """
-pb_data snapshot / restore — the data half of test-junk isolation.
+pb_data snapshot / restore utilities.
 
-Two callers, two eras (spec: plans/quizzical-greeting-alpaca):
-  - build era: LivingUIManager snapshots a pristine baseline of pb_data at the
-    first successful launch and restores it right before the delivery
-    announce, so the user's first sight of the app has no agent/verifier
-    test records in it. Migration files added during the build are not in the
-    restored DB's _migrations table, so PocketBase re-applies them on boot —
-    schema survives the restore, junk doesn't.
-  - modify era: StagingSupervisor clones the live DB into a staging copy so
-    the gate/verifier never touch real user data.
+NO LIFECYCLE CODE CALLS THESE ANY MORE. The baseline-restore era (snapshot
+at first launch, restore before the delivery announce) ended with the
+unified dev/live lifecycle (docs/plans/living-ui-unified-lifecycle-plan.md)
+after a stale delivered-flag made the restore wipe a live database
+(2026-08-19). Dev environments boot with a FRESH pb_data instead — nothing
+clones or restores over live data.
+
+The functions stay for the deferred pre-promote backup
+(Promoter.add_before_live_boot_hook is the reserved slot) and for tooling.
 
 Copies go through sqlite's backup API, never shutil: PocketBase runs its DBs
 in WAL mode, and a naive file copy of a live data.db loses every write still

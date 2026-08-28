@@ -63,7 +63,6 @@ datas = [
     (_root('app/config/connection_test_models.json'), 'app/config'),
     (_root('app/config/scheduler_config.json'), 'app/config'),
     (_root('app/config/skills_config.json'), 'app/config'),
-    (_root('app/config/external_comms_config.json'), 'app/config'),
     (_root('app/data'), 'app/data'),
     (_root('app/ui_layer/browser/frontend/dist'), 'app/ui_layer/browser/frontend/dist'),
     # app/gui was deleted with GUI mode (901ad92e); its docker files broke

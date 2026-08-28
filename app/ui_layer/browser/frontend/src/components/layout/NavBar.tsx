@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   FolderOpen,
   Settings,
+  Waypoints,
   Box,
   Loader2,
   PanelLeftClose,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import { useSkillCreator } from '../../hooks'
 import { CreateLivingUIModal } from '../ui/CreateLivingUIModal'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
@@ -39,6 +41,7 @@ interface NavItem {
   label: string
   icon: React.ReactNode
   path: string
+  tourAnchor?: TourAnchorId
 }
 
 // Sidebar title with a typewriter reveal: when the auto-title replaces the
@@ -84,8 +87,9 @@ function AnimatedSessionTitle({ title }: { title: string }) {
 }
 
 const utilityNavItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard' },
-  { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace' },
+  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard', tourAnchor: 'nav-dashboard' },
+  { id: 'memory', label: 'Memory', icon: <Waypoints size={16} />, path: '/memory', tourAnchor: 'nav-memory' },
+  { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace', tourAnchor: 'nav-workspace' },
 ]
 
 const settingsItem: NavItem = { id: 'settings', label: 'Settings', icon: <Settings size={16} />, path: '/settings' }
@@ -322,6 +326,19 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     navigate('/session/new')
   }
 
+  // Let the guided tour open a fresh New Chat via the exact same action as the
+  // button, so the chat is demonstrated on a clean draft, not the Main session.
+  useTourEnvAction('openNewChat', startNewChat)
+
+  // Let the tour expand the Chats group so the pinned Main row is on screen
+  // before it highlights it.
+  useTourEnvAction('ensureChatsExpanded', () => setChatsExpanded(true))
+
+  // Let the tour open and close the "Add Living UI" modal while it walks the
+  // creation methods.
+  useTourEnvAction('openLivingUIModal', () => setShowCreateModal(true))
+  useTourEnvAction('closeLivingUIModal', () => setShowCreateModal(false))
+
   // Close any open context menu when clicking anywhere else.
   useEffect(() => {
     if (!menu) return
@@ -455,6 +472,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         key={session.id}
         className={`${styles.sessionRow} ${active ? styles.sessionRowActive : ''} ${opts.isMain ? styles.sessionRowMain : ''}`}
         title={opts.isMain ? 'Main' : session.title}
+        {...(opts.isMain ? tourAnchorProps('nav-main-session') : {})}
       >
         {renaming ? (
           <input
@@ -582,6 +600,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               className={`${styles.navItem} ${location.pathname === '/session/new' ? styles.active : ''}`}
               onClick={startNewChat}
               title="New Chat"
+              {...tourAnchorProps('nav-new-chat')}
             >
               <span className={styles.icon}><SquarePen size={16} /></span>
               <span className={styles.label}>New Chat</span>
@@ -594,6 +613,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                 className={`${styles.navItem} ${isActive(item.path) ? styles.active : ''}`}
                 onClick={() => navigate(item.path)}
                 title={item.label}
+                {...(item.tourAnchor ? tourAnchorProps(item.tourAnchor) : {})}
               >
                 <span className={styles.icon}>{item.icon}</span>
                 <span className={styles.label}>{item.label}</span>
@@ -631,7 +651,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             ) : (
               <>
             {/* Living UI group */}
-            <div className={styles.groupRow}>
+            <div className={styles.groupRow} {...tourAnchorProps('nav-living-ui')}>
               <button
                 className={styles.groupToggle}
                 onClick={() => setLivingUIExpanded(v => !v)}
@@ -697,7 +717,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             <div className={styles.innerDivider} aria-hidden="true" />
 
             {/* Chats group — Main always pinned first inside it */}
-            <div className={styles.groupRow}>
+            <div className={styles.groupRow} {...tourAnchorProps('nav-chats')}>
               <button
                 className={styles.groupToggle}
                 onClick={() => setChatsExpanded(v => !v)}

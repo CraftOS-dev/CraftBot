@@ -12,11 +12,6 @@ from typing import List
 from app.errors import make_error
 from app.ui_layer.commands.base import Command, CommandResult
 from craftos_integrations import (
-    connect_token as connect_integration_token,
-    connect_oauth as connect_integration_oauth,
-    connect_interactive as connect_integration_interactive,
-    disconnect as _disconnect_integration,
-    get_handler,
     get_integration_auth_type,
     get_integration_fields,
     get_integration_info_sync as get_integration_info,
@@ -54,19 +49,19 @@ class IntegrationCommand(Command):
         lines.append("  disconnect - Disconnect from integration")
         lines.append("  status     - Show connection status")
 
-        # Surface handler-specific subcommands (login-qr, invite, etc.)
-        handler = get_handler(self._integration_name)
-        if handler:
-            extras = [
-                s
-                for s in getattr(handler, "subcommands", [])
-                if s not in {"login", "logout", "status"}
-            ]
-            if extras:
-                lines.append("")
-                lines.append("Integration-specific subcommands:")
-                for sub in extras:
-                    lines.append(f"  {sub}")
+        # Integration-specific subcommands (login-qr, invite, ...) come from
+        # the provider now that the metadata has moved off the handlers.
+        meta = get_metadata(self._integration_name) or {}
+        extras = [
+            sub
+            for sub in meta.get("subcommands", [])
+            if sub not in {"login", "logout", "status"}
+        ]
+        if extras:
+            lines.append("")
+            lines.append("Integration-specific subcommands:")
+            for sub in extras:
+                lines.append(f"  {sub}")
 
         return "\n".join(lines)
 
@@ -95,14 +90,14 @@ class IntegrationCommand(Command):
         elif subcommand == "disconnect":
             return await self._disconnect()
 
-        # Delegate handler-specific subcommands (login-qr, invite, etc.)
-        handler = get_handler(self._integration_name)
-        if handler:
-            try:
-                success, message = await handler.handle(subcommand, sub_args)
-                return CommandResult(success=success, message=message)
-            except Exception as e:
-                return CommandResult(success=False, message=f"Command error: {e}")
+        if subcommand == "invite":
+            return await self._connect_shared(sub_args)
+        if subcommand == "login":
+            return await self._connect(sub_args)
+        if subcommand == "login-qr":
+            return await self._connect_interactive()
+        if subcommand == "logout":
+            return await self._disconnect()
 
         return CommandResult(
             success=False,
@@ -131,10 +126,63 @@ class IntegrationCommand(Command):
         except Exception as e:
             return CommandResult(success=False, message=f"Failed to get status: {e}")
 
-    async def _connect(self, args: List[str]) -> CommandResult:
-        """Dispatch to the right craftos_integrations connect_* helper.
+    def _system(self):
+        """The configured IntegrationSystem for this integration, or None."""
+        from app.data.action.integrations._helpers import system_for
 
-        Picks the auth path (token / oauth / interactive) from the handler's
+        return system_for(self._integration_name)
+
+    async def _connect_shared(self, args: List[str]) -> CommandResult:
+        """`invite` — connect through a shared application rather than the
+        user's own credentials.
+
+        Two shapes exist. Providers with a ``shared_credentials()`` hand back a
+        token the deployment owns (Telegram's shared bot); everything else
+        means shared-app OAuth (Slack, HubSpot), which is what `_connect` runs.
+        """
+        import asyncio
+
+        from app.data.action.integrations._helpers import system_connect_token
+
+        system = self._system()
+        provider = system.registry.get(self._integration_name) if system else None
+        shared = getattr(provider, "shared_credentials", None)
+        credentials = shared() if callable(shared) else None
+        if credentials is None:
+            return await self._connect(args)
+
+        success, message = await asyncio.to_thread(
+            system_connect_token, system, self._integration_name, credentials
+        )
+        hint = getattr(provider, "shared_hint", "")
+        if success and hint:
+            message = "\n".join([message, hint])
+        return CommandResult(success=success, message=message)
+
+    async def _connect_interactive(self) -> CommandResult:
+        """QR login. WhatsApp's QR panel lives in the settings page — the
+        terminal cannot render or poll it, so point the user there rather than
+        start a session nothing will finish."""
+        if self._integration_name == "whatsapp_web":
+            return CommandResult(
+                success=False,
+                message=(
+                    "WhatsApp connects by scanning a QR code. Open Settings → "
+                    "Integrations → WhatsApp and scan it from your phone."
+                ),
+            )
+        return CommandResult(
+            success=False,
+            message=(
+                f"No interactive connect flow is implemented for "
+                f"{self._integration_name}."
+            ),
+        )
+
+    async def _connect(self, args: List[str]) -> CommandResult:
+        """Connect through the IntegrationSystem.
+
+        Picks the auth path (token / oauth / interactive) from the provider's
         declared ``auth_type``.
         """
         try:
@@ -151,8 +199,23 @@ class IntegrationCommand(Command):
                         credentials[field["key"]] = args[i]
 
                 if credentials:
-                    success, message = await connect_integration_token(
-                        self._integration_name, credentials
+                    import asyncio
+
+                    from app.data.action.integrations._helpers import (
+                        system_connect_token,
+                    )
+
+                    system = self._system()
+                    if system is None:
+                        return CommandResult(
+                            success=False,
+                            message=f"Unknown integration: {self._integration_name}",
+                        )
+                    success, message = await asyncio.to_thread(
+                        system_connect_token,
+                        system,
+                        self._integration_name,
+                        credentials,
                     )
                     return CommandResult(success=success, message=message)
 
@@ -164,19 +227,24 @@ class IntegrationCommand(Command):
                         message=f"Usage: /{self._integration_name} connect <{field_list}>",
                     )
 
-            # OAuth-based
+            # OAuth-based — add_account runs the provider's OAuth and stores
+            # the result as an account (what the "invite" did, except
+            # multi-account and without the credential file).
             if auth_type in ("oauth", "both"):
-                success, message = await connect_integration_oauth(
+                system = self._system()
+                if system is None:
+                    return CommandResult(
+                        success=False,
+                        message=f"Unknown integration: {self._integration_name}",
+                    )
+                success, message, _accounts = await system.add_account(
                     self._integration_name
                 )
                 return CommandResult(success=success, message=message)
 
             # Interactive (QR code, etc.)
             if auth_type in ("interactive", "token_with_interactive"):
-                success, message = await connect_integration_interactive(
-                    self._integration_name
-                )
-                return CommandResult(success=success, message=message)
+                return await self._connect_interactive()
 
             return CommandResult(
                 success=False,
@@ -189,8 +257,21 @@ class IntegrationCommand(Command):
             return CommandResult(success=False, message=info.message)
 
     async def _disconnect(self) -> CommandResult:
+        """Remove every account through the IntegrationSystem."""
         try:
-            success, message = await _disconnect_integration(self._integration_name)
+            import asyncio
+
+            from app.data.action.integrations._helpers import system_disconnect
+
+            system = self._system()
+            if system is None:
+                return CommandResult(
+                    success=False,
+                    message=f"Unknown integration: {self._integration_name}",
+                )
+            success, message = await asyncio.to_thread(
+                system_disconnect, system, self._integration_name, None
+            )
             return CommandResult(success=success, message=message)
         except Exception as e:
             return CommandResult(success=False, message=f"Disconnect failed: {e}")

@@ -457,8 +457,10 @@ class ContextEngine:
                 f"Session ID: {session.id}",
                 f"Session Type: {session.type}",
             ]
-            if session.title:
-                lines.append(f"Session Title: {session.title}")
+            # Session Title is intentionally omitted: it is auto-generated/
+            # updated a turn or two into a session, and this block sits in the
+            # cacheable prefix (ahead of the event stream), so a mutating title
+            # would break the KV-cache prefix every time it changed.
             if getattr(session, "living_ui_project_id", None):
                 lines.append(f"Living UI Project: {session.living_ui_project_id}")
             lines.append(f"Loaded Action Sets: {['core'] + list(session.action_sets)}")

@@ -612,7 +612,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+  /* No margin-bottom: modalBody is a flex column with gap, adding a margin
+     here would double the spacing to the Add-account button. */
 }
 
 .accountItem {
@@ -627,6 +628,273 @@
 .accountName {
   font-size: var(--text-sm);
   color: var(--text-primary);
+}
+
+/* --- Integration Manage modal: drill-down list + detail (v2 redesign) ---
+   Page 1 is a plain tappable list of accounts; tapping one opens its own
+   detail page; a "settings" row opens the integration-wide settings page.
+   Deliberately near-monochrome — connection state is a small neutral dot,
+   not a colored badge. */
+
+.mList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Shared list row (account row, "Add account", "… settings"). */
+.mRow,
+.mAddRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.mRow:hover {
+  background: var(--bg-hover);
+}
+
+.mAddRow {
+  color: var(--text-secondary);
+}
+
+.mAddRow:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.mAddRow:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.mRowId {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mRowSpacer {
+  flex: 1;
+}
+
+.mRowMeta {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.mChev {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+/* Connection dot: green = live, amber = transient, red = needs attention. */
+.mLive {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.mLiveOk {
+  background: var(--color-success);
+}
+
+.mLiveWarn {
+  background: var(--color-warning);
+}
+
+.mLiveBad {
+  background: var(--color-red);
+}
+
+.mDivider {
+  height: 1px;
+  background: var(--border-primary);
+  margin: var(--space-2) var(--space-1);
+}
+
+/* Modal title with the integration logo on the main page. */
+.mHeaderTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.mHeaderTitle h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Back button in the header for the account detail page. */
+.mBack {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}
+
+.mBack:hover {
+  color: var(--text-primary);
+}
+
+/* --- Account detail page --- */
+.mDetail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Detail header: identity + state on the left, default affordance on the right. */
+.mDetailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.mDetailHeadMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mDetailId {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.mDetailState {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* "Default" tag shown when this account is already the default. */
+.mDefaultTag {
+  flex-shrink: 0;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+/* Quiet "Make default" text action, top-right of the detail header. */
+.mMakeDefault {
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.mMakeDefault:hover {
+  opacity: 0.8;
+}
+
+/* Inline notice (e.g. a signed-out account needing a re-link). */
+.mNotice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.mNotice > span {
+  flex: 1;
+}
+
+.mRemovalNote {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-red);
+}
+
+/* --- Integration-wide settings (inline on the main page) --- */
+.mSettings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-primary);
+}
+
+.mSettingsHeading {
+  margin: 0 0 2px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.mSettingsScope {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Disconnect button in the account footer: reads as a quiet danger action
+   sitting between Discard and Save. */
+.mDisconnectBtn {
+  color: var(--color-red);
+}
+
+.mDisconnectBtn:hover {
+  color: var(--color-red);
+  border-color: var(--color-red);
+}
+
+.mSettingsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Left-aligned status text in the modal footer ("Unsaved changes"). */
+.mFootStatus {
+  margin-right: auto;
+  align-self: center;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 
 /* Danger Zone */
@@ -2693,4 +2961,151 @@
   font-size: var(--text-xs);
   color: var(--color-red, #d33);
   margin: 0;
+}
+
+/* Daily-time row: label left, time picker right on one line. */
+.inlineRow {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  /* Separate this row from the threshold section below so the time picker
+     and the event counter are not stacked right on top of each other. */
+  margin-bottom: var(--space-5);
+}
+
+.inlineRow input[type="time"] {
+  width: auto;
+  min-width: 150px;
+}
+
+/* Threshold gate: ONE bar carries both the live event fill (orange track,
+   how many events have piled up) and the draggable threshold thumb. The
+   fill width is fed in as the --fill custom property so the track and thumb
+   stay a single element and align perfectly. */
+.gateHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gateReadout {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom slider: one track carries the orange event-count fill and the
+   draggable threshold picker. Both are positioned as a percentage of the
+   SAME track element, so they align exactly (native range thumbs drift). */
+.gateTrack {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  height: 8px;
+  margin: 10px 0 4px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.gateTrack:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 5px;
+}
+
+.gateDisabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.gateEventFill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--color-primary);
+  pointer-events: none;
+  transition: width 0.3s ease;
+}
+
+.gateThumb {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  border: 3px solid var(--color-primary);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+/* Legend under the track: names the two things on the bar (orange fill =
+   events waiting, ringed dot = the draggable minimum) so the numbers need
+   no decoding. */
+.gateLegend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-4);
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gateLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gateSwatchFill {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.gateSwatchThumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  border: 2px solid var(--color-primary);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+/* One-line verdict on the next scheduled run: green when enough events have
+   accumulated (run will fire), muted while it would still be skipped. */
+.gateStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.gateStatus svg {
+  flex-shrink: 0;
+}
+
+.gateStatusReady {
+  color: var(--color-success);
+}
+
+/* Manual "Process Memory Now" trigger, inline with its explanation. */
+.processRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }

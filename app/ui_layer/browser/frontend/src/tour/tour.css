@@ -1,0 +1,123 @@
+/* Theme-aware overrides for the driver.js popover.
+ *
+ * Base styles come from driver.js/dist/driver.css (imported before this file
+ * in TourProvider). Everything here is scoped to `.cb-tour` (our popoverClass)
+ * and uses CraftBot design tokens, so the tour matches both light and dark
+ * themes automatically — the tokens flip with [data-theme]. */
+
+.driver-popover.cb-tour {
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-4);
+  min-width: 260px;
+  max-width: 340px;
+  font-family: var(--font-sans);
+}
+
+.driver-popover.cb-tour .driver-popover-title {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  /* Leave room for the close button so a long title never runs under it. */
+  padding-right: var(--space-5);
+}
+
+.driver-popover.cb-tour .driver-popover-description {
+  font-size: var(--text-sm);
+  font-weight: var(--font-normal);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+  /* driver.js defaults to a tight 5px under the title; give it more room. */
+  margin-top: var(--space-2);
+}
+
+.driver-popover.cb-tour .driver-popover-progress-text {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.driver-popover.cb-tour .driver-popover-close-btn {
+  /* Base driver.js pins this at top:0/right:0, ignoring the popover padding, so
+   * it floats above the title. Inset it to the padding and center the glyph on
+   * the title's line so the two line up. */
+  top: var(--space-4);
+  right: var(--space-4);
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+}
+.driver-popover.cb-tour .driver-popover-close-btn:hover,
+.driver-popover.cb-tour .driver-popover-close-btn:focus {
+  color: var(--text-primary);
+}
+
+.driver-popover.cb-tour .driver-popover-footer {
+  margin-top: var(--space-4);
+  gap: var(--space-2);
+}
+
+/* Neutral base for every footer button. */
+.driver-popover.cb-tour .driver-popover-footer-btn {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-tight);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  text-shadow: none;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+/* Secondary "Back" button. */
+.driver-popover.cb-tour .driver-popover-prev-btn {
+  background-color: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-secondary);
+}
+.driver-popover.cb-tour .driver-popover-prev-btn:hover:not(.driver-popover-btn-disabled) {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+/* Primary "Next" / "Done" button — the one accent, matching the design system's
+ * sparing use of brand orange for primary CTAs. */
+.driver-popover.cb-tour .driver-popover-next-btn,
+.driver-popover.cb-tour .driver-popover-done-btn {
+  background-color: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+}
+.driver-popover.cb-tour .driver-popover-next-btn:hover,
+.driver-popover.cb-tour .driver-popover-done-btn:hover {
+  background-color: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+/* Arrow: recolor only the border that points toward the target so it matches
+ * the popover surface. Scoped selectors outweigh driver's base rule. */
+.driver-popover.cb-tour .driver-popover-arrow-side-left {
+  border-left-color: var(--bg-elevated);
+}
+.driver-popover.cb-tour .driver-popover-arrow-side-right {
+  border-right-color: var(--bg-elevated);
+}
+.driver-popover.cb-tour .driver-popover-arrow-side-top {
+  border-top-color: var(--bg-elevated);
+}
+.driver-popover.cb-tour .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--bg-elevated);
+}

@@ -4,7 +4,7 @@ CLI implementation of hard onboarding using sequential prompts.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from app.cli.formatter import CLIFormatter
 from app.onboarding.interfaces.base import OnboardingInterface
@@ -13,7 +13,6 @@ from app.onboarding.interfaces.steps import (
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    SkillsStep,
 )
 from app.onboarding import onboarding_manager
 from app.ui_layer.settings.provider_settings import save_settings_to_json
@@ -30,11 +29,8 @@ class CLIHardOnboarding(OnboardingInterface):
     Presents a step-by-step wizard via stdin/stdout:
     1. LLM Provider selection
     2. API Key input
-    3. Agent name (optional)
-    4. External app integration selection (optional)
-    5. Skills selection (optional)
-
-    Note: User name is collected during soft onboarding (conversational interview).
+    3. Your name (optional)
+    4. Agent name (optional)
     """
 
     def __init__(self, cli_interface: "CLIInterface"):
@@ -127,55 +123,6 @@ class CLIHardOnboarding(OnboardingInterface):
             else:
                 print(f"Error: {error}")
 
-    async def _select_multiple(
-        self, step, current_selections: List[str] = None
-    ) -> List[str]:
-        """Present a multi-select menu and return selections."""
-        options = step.get_options()
-        if not options:
-            return []
-
-        if current_selections is None:
-            current_selections = []
-
-        print(f"\n{step.title}:")
-        print(f"{step.description}\n")
-
-        selections = set(current_selections)
-
-        for i, opt in enumerate(options, 1):
-            marker = "x" if opt.value in selections else " "
-            print(f"  {i}. [{marker}] {opt.label}")
-
-        print(
-            "\nEnter numbers to toggle (comma-separated), or press Enter to continue:"
-        )
-
-        try:
-            choice = await self._async_input("> ")
-        except (EOFError, KeyboardInterrupt):
-            return list(selections)
-
-        choice = choice.strip()
-        if not choice:
-            return list(selections)
-
-        # Parse comma-separated numbers
-        for part in choice.split(","):
-            part = part.strip()
-            try:
-                idx = int(part) - 1
-                if 0 <= idx < len(options):
-                    opt_value = options[idx].value
-                    if opt_value in selections:
-                        selections.discard(opt_value)
-                    else:
-                        selections.add(opt_value)
-            except ValueError:
-                continue
-
-        return list(selections)
-
     async def _input_form(self, step) -> Dict[str, Any]:
         """Present a multi-field form and return collected data as a dict."""
         form_fields = step.get_form_fields()
@@ -185,6 +132,7 @@ class CLIHardOnboarding(OnboardingInterface):
         print(f"{step.description}\n")
 
         for f in form_fields:
+            # Only text fields are used in hard onboarding (name steps).
             if f.field_type == "text":
                 default_display = f.default or ""
                 prompt = f"  {f.label}"
@@ -196,53 +144,6 @@ class CLIHardOnboarding(OnboardingInterface):
                 except (EOFError, KeyboardInterrupt):
                     value = ""
                 result[f.name] = value.strip() if value.strip() else (f.default or "")
-
-            elif f.field_type == "select":
-                print(f"\n  {f.label}:")
-                for i, opt in enumerate(f.options, 1):
-                    marker = "*" if (opt.value == f.default or opt.default) else " "
-                    label = f"    {i}. [{marker}] {opt.label}"
-                    if opt.description and opt.description != opt.label:
-                        label += f" - {opt.description}"
-                    print(label)
-                try:
-                    choice = await self._async_input(
-                        f"  Enter number [1-{len(f.options)}]: "
-                    )
-                except (EOFError, KeyboardInterrupt):
-                    choice = ""
-                choice = choice.strip()
-                if choice:
-                    try:
-                        idx = int(choice) - 1
-                        if 0 <= idx < len(f.options):
-                            result[f.name] = f.options[idx].value
-                            continue
-                    except ValueError:
-                        pass
-                result[f.name] = f.default
-
-            elif f.field_type == "multi_checkbox":
-                print(f"\n  {f.label}:")
-                for i, opt in enumerate(f.options, 1):
-                    print(f"    {i}. [ ] {opt.label} - {opt.description}")
-                print(
-                    "  Enter numbers to select (comma-separated), or press Enter to skip:"
-                )
-                try:
-                    choice = await self._async_input("  > ")
-                except (EOFError, KeyboardInterrupt):
-                    choice = ""
-                selected = []
-                for part in choice.split(","):
-                    part = part.strip()
-                    try:
-                        idx = int(part) - 1
-                        if 0 <= idx < len(f.options):
-                            selected.append(f.options[idx].value)
-                    except ValueError:
-                        continue
-                result[f.name] = selected
 
         return result
 
@@ -272,51 +173,16 @@ class CLIHardOnboarding(OnboardingInterface):
                 self._collected_data["api_key"] = ""
                 print("\nOllama selected - no API key required.")
 
-            # Step 3: Agent name (optional)
-            agent_name_step = AgentNameStep()
-            agent_name = await self._input_text(
-                agent_name_step, agent_name_step.get_default()
-            )
-            self._collected_data["agent_name"] = agent_name or "Agent"
-
-            # Step 4: User Profile (optional)
+            # Step 3: User name (optional). Location/language are derived
+            # silently at completion (see UserProfileStep.enrich).
             profile_step = UserProfileStep()
-            print("\nWould you like to set up your profile? (Y/n)")
-            try:
-                configure_profile = await self._async_input("> ")
-            except (EOFError, KeyboardInterrupt):
-                configure_profile = "n"
+            profile_data = await self._input_form(profile_step)
+            self._collected_data["user_profile"] = profile_data
 
-            if not configure_profile.lower().startswith("n"):
-                profile_data = await self._input_form(profile_step)
-                self._collected_data["user_profile"] = profile_data
-            else:
-                self._collected_data["user_profile"] = {}
-
-            # Step 5: Skills (optional)
-            skills_step = SkillsStep()
-            skills_options = skills_step.get_options()
-            if skills_options:
-                print("\nWould you like to configure skills? (y/N)")
-                try:
-                    configure_skills = await self._async_input("> ")
-                except (EOFError, KeyboardInterrupt):
-                    configure_skills = "n"
-
-                if configure_skills.lower().startswith("y"):
-                    skills = await self._select_multiple(skills_step)
-                    self._collected_data["skills"] = skills
-                else:
-                    self._collected_data["skills"] = []
-            else:
-                self._collected_data["skills"] = []
-
-            # Step 6: External app integrations (optional, web-only panel)
-            print(
-                "\nExternal app integrations (Gmail, Slack, GitHub, Notion, etc.)"
-                " are set up in the browser interface under Settings → Integrations."
-            )
-            self._collected_data["integrations"] = ""
+            # Step 4: Agent name (optional)
+            agent_name_step = AgentNameStep()
+            agent_form = await self._input_form(agent_name_step)
+            self._collected_data["agent_name"] = agent_form.get("agent_name") or "Agent"
 
             self._collected_data["completed"] = True
             self.on_complete()
@@ -347,12 +213,15 @@ class CLIHardOnboarding(OnboardingInterface):
             save_settings_to_json(provider, api_key)
             logger.info(f"[CLI ONBOARDING] Saved provider={provider} to settings.json")
 
-        # Write user profile data to USER.md
-        profile_data = self._collected_data.get("user_profile", {})
-        if profile_data:
-            from app.onboarding.profile_writer import write_profile_to_user_md
+        # Write user profile data to USER.md. The name is the only field
+        # collected in the UI; enrich() fills in location (IP), language (OS),
+        # and defaults for the rest.
+        from app.onboarding.profile_writer import write_profile_to_user_md
 
-            write_profile_to_user_md(profile_data)
+        profile_data = UserProfileStep().enrich(
+            self._collected_data.get("user_profile", {})
+        )
+        write_profile_to_user_md(profile_data)
 
         # Mark hard onboarding as complete
         agent_name = self._collected_data.get("agent_name", "Agent")

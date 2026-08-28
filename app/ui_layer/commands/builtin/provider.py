@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
+from agent_core.core.models.registry import cli_providers
 from app.ui_layer.commands.base import Command, CommandResult
 from app.ui_layer.settings.provider_settings import (
     save_settings_to_json,
@@ -15,18 +16,11 @@ from app.ui_layer.settings.provider_settings import (
 class ProviderCommand(Command):
     """Manage LLM provider settings."""
 
-    PROVIDERS = {
-        "openai": ("OPENAI_API_KEY", "OpenAI"),
-        "gemini": ("GOOGLE_API_KEY", "Google Gemini"),
-        "anthropic": ("ANTHROPIC_API_KEY", "Anthropic"),
-        "byteplus": ("BYTEPLUS_API_KEY", "BytePlus"),
-        "deepseek": ("DEEPSEEK_API_KEY", "DeepSeek"),
-        "grok": ("XAI_API_KEY", "Grok (xAI)"),
-        "glm": ("ZAI_API_KEY", "Z.ai (GLM)"),
-        "fugu": ("SAKANA_API_KEY", "Sakana (Fugu)"),
-        "openrouter": ("OPENROUTER_API_KEY", "OpenRouter"),
-        "remote": (None, "Ollama (Local)"),
-    }
+    # Derived from the provider profiles (Phase 1,
+    # docs/PROVIDER_LAYER_CATCHUP.md): {provider: (api_key_env, display)}.
+    # The old hand-maintained dict had drifted (missing minimax/moonshot/
+    # bedrock); derivation makes that class of bug impossible.
+    PROVIDERS = cli_providers()
 
     @property
     def name(self) -> str:
@@ -42,7 +36,12 @@ class ProviderCommand(Command):
 
     @property
     def help_text(self) -> str:
-        return """Manage LLM provider settings.
+        width = max(len(key) for key in self.PROVIDERS)
+        listing = "\n".join(
+            f"  {key:<{width}} - {display}"
+            for key, (_env, display) in self.PROVIDERS.items()
+        )
+        return f"""Manage LLM provider settings.
 
 Usage:
   /provider                    - Show current provider
@@ -50,16 +49,7 @@ Usage:
   /provider <name> <api_key>   - Set provider and API key
 
 Providers:
-  openai     - OpenAI GPT models
-  gemini     - Google Gemini models
-  anthropic  - Anthropic Claude models
-  byteplus   - BytePlus Kimi models
-  deepseek   - DeepSeek models
-  grok       - Grok (xAI) models
-  glm        - Z.ai (GLM) models
-  fugu       - Sakana (Fugu) models
-  openrouter - OpenRouter (300+ models, one key)
-  remote     - Ollama (local models)
+{listing}
 
 Examples:
   /provider

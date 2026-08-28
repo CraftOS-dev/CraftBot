@@ -139,6 +139,29 @@ class SubAgentRunner:
 
                 await self._run_one_step_safely(sub)
 
+                # Context compaction (definition-driven): stub superseded
+                # outputs, and periodically rebuild the provider-side session
+                # from the compacted stream so the growth actually leaves the
+                # context (a cached session keeps every old snapshot until
+                # it is recreated).
+                try:
+                    self._compact_stream(sub, defn)
+                    if (
+                        defn.session_reset_every
+                        and sub.iterations > 1
+                        and sub.iterations % defn.session_reset_every == 0
+                        and not sub.is_terminal()
+                    ):
+                        stream = self.event_stream_manager.get_stream_by_id(sub.id)
+                        if stream is not None:
+                            self._reset_session(sub, stream)
+                            logger.info(
+                                f"[SubAgentRunner] {sub.id} session rebuilt from "
+                                f"compacted stream at turn {sub.iterations}"
+                            )
+                except Exception as e:
+                    logger.debug(f"[SubAgentRunner] {sub.id} compaction skipped: {e}")
+
             logger.info(
                 f"[SubAgentRunner] {sub.id} loop done. status={sub.status} "
                 f"iterations={sub.iterations}"
@@ -154,6 +177,50 @@ class SubAgentRunner:
                 self.subagent_manager.release(sub.id)
             except Exception as e:
                 logger.warning(f"[SubAgentRunner] release({sub.id}) failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Context compaction
+    # ------------------------------------------------------------------
+
+    _COMPACT_MARK = "[superseded output elided"
+
+    def _compact_stream(self, sub: SubAgent, defn) -> None:
+        """Replace the OLDER outputs of `defn.compact_actions` with a short
+        stub, keeping the newest `defn.compact_keep`. A browser snapshot is
+        only useful until the next one; keeping every one of them in a
+        40-turn walk is the single biggest context cost of a verify."""
+        names = set(getattr(defn, "compact_actions", ()) or ())
+        if not names:
+            return
+        stream = self.event_stream_manager.get_stream_by_id(sub.id)
+        if stream is None:
+            return
+        lock = getattr(stream, "_lock", None)
+        keep = max(1, int(getattr(defn, "compact_keep", 2) or 1))
+
+        def _do() -> None:
+            records = [
+                rec
+                for rec in stream.tail_events
+                if getattr(rec.event, "action_name", None) in names
+                and getattr(rec.event, "action_output", None) is not None
+            ]
+            for rec in records[:-keep]:
+                msg = rec.event.message or ""
+                if msg.startswith(self._COMPACT_MARK):
+                    continue
+                rec.event.message = (
+                    f"{self._COMPACT_MARK} — {len(msg)} chars from "
+                    f"{rec.event.action_name}; a newer one exists below]"
+                )
+                rec.event.action_output = None
+                rec._cached_tokens = None
+
+        if lock is not None:
+            with lock:
+                _do()
+        else:
+            _do()
 
     # ------------------------------------------------------------------
     # Termination helpers (iteration cap / wall-clock cap)
@@ -584,7 +651,15 @@ class SubAgentRunner:
             try:
                 parsed = ast.literal_eval(text)
             except Exception as e2:
-                return None, f"json: {e}; literal_eval: {e2}"
+                # Models routinely prefix a sentence of reasoning before the
+                # JSON ("I'll click the pill next. {...}"). Observed live
+                # 2026-08-25: 13 such turns per walk, each costing a full
+                # retry call. Salvage the first balanced top-level object.
+                salvaged = SubAgentRunner._extract_json_object(text)
+                if salvaged is not None:
+                    parsed = salvaged
+                else:
+                    return None, f"json: {e}; literal_eval: {e2}"
 
         if not isinstance(parsed, dict):
             return None, "parsed value is not a dict"
@@ -599,6 +674,40 @@ class SubAgentRunner:
                 }, None
             return None, "missing 'action_name' field"
         return parsed, None
+
+    @staticmethod
+    def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
+        """First balanced `{…}` in `text` that parses as a dict, scanning
+        with string awareness so braces inside JSON strings don't confuse
+        the match. None when nothing parses."""
+        start = text.find("{")
+        while start != -1:
+            depth, in_str, esc = 0, False, False
+            for i in range(start, len(text)):
+                ch = text[i]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                if ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[start : i + 1]
+                        try:
+                            obj = json.loads(candidate)
+                        except json.JSONDecodeError:
+                            break  # try the next '{'
+                        return obj if isinstance(obj, dict) else None
+            start = text.find("{", start + 1)
+        return None
 
 
 __all__ = ["SubAgentRunner"]

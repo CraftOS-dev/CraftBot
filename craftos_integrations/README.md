@@ -1,17 +1,18 @@
 # craftos_integrations
 
-A plug-and-play package of 19 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Notion, LinkedIn, Outlook, Twitter, WhatsApp Web/Business, LINE, Lark, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
+A plug-and-play package of 23 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Stripe, HubSpot, Notion, LinkedIn, Outlook, Twitter, WhatsApp Web/Business, LINE, Lark + Lark Calendar/Drive, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
 
 The package owns:
 
 - **Auth flows** — OAuth (with PKCE), invite, interactive (QR), or raw tokens.
 - **Runtime clients** — REST/Gateway/WebSocket/MTProto/Node-bridge, polling listeners.
 - **Credential storage** — JSON files in `<project_root>/.credentials/`.
-- **A registry + autoloader** — drop a file in `integrations/`, restart, done.
+- **Multi-account storage** — every integration holds any number of accounts; one AccountSet document per provider.
+- **A registry + autoloader** — drop a folder in `providers/`, restart, done.
 - **A common-ops facade** — `send_message(integration, …)`, `is_connected(…)`, `list_integrations()`, etc.
 - **A standard envelope + REST helpers** — every method returns `{ok, result}` or `{error, details}`; `helpers.request`/`arequest` wrap httpx and emit that shape.
 
-The `integrations/` subfolder is **optional**: if a host ships the framework with no bundled integrations (or a consumer deletes the folder), the package still imports, `initialize_manager()` still boots, and every facade call returns a graceful `{"error": "Unknown integration: ..."}` instead of crashing. Drop in only the integrations you want.
+The `providers/` subfolder is **optional**: if a host ships the framework with no bundled integrations (or a consumer deletes the folder), the package still imports and every facade call returns a graceful `{"error": "Unknown integration: ..."}` instead of crashing. Drop in only the integrations you want.
 
 The package owns **no UI opinions**. The host wires its own settings page / slash commands / listener callback.
 
@@ -22,45 +23,47 @@ The package owns **no UI opinions**. The host wires its own settings page / slas
 ```python
 import asyncio, os
 from pathlib import Path
-from craftos_integrations import (
-    configure,
-    initialize_manager,
-    get_handler,
-    send_message,
-)
 
-
-async def on_message(payload: dict) -> None:
-    # payload keys: source, integrationType, contactId, contactName,
-    #               messageBody, channelId, channelName, messageId,
-    #               is_self_message, raw
-    print(f"[{payload['source']}] {payload['contactName']}: {payload['messageBody']}")
+from craftos_integrations import configure, send_message
+from craftos_integrations.core.storage import FileCredentialStore
+from craftos_integrations.core.system import IntegrationSystem
+from craftos_integrations.providers import default_providers
 
 
 async def main():
     configure(
         project_root=Path.cwd(),
         oauth={
-            "GITHUB_CLIENT_ID": os.getenv("GITHUB_CLIENT_ID"),
             "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID"),
             "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET"),
             # ...etc
         },
     )
 
-    # Boot the listener (starts every platform that has stored credentials)
-    manager = await initialize_manager(on_message=on_message)
+    system = IntegrationSystem(
+        store=FileCredentialStore(),
+        providers=default_providers(),
+    )
 
-    # Auth via slash-command-style handler dispatch
-    ok, msg = await get_handler("github").handle("login", ["<personal_access_token>"])
-    print(msg)
+    # Connect an account. OAuth opens the browser and captures the redirect;
+    # token auth goes through the provider's verify_token instead.
+    ok, message, accounts = await system.add_account("gmail")
+    print(message)
 
-    # Send a message via any integration through the facade
+    # Run an operation against a specific account (omit `account` for primary)
+    result = await system.execute(
+        "gmail", "search_gmail", {"query": "is:unread"}, account="work"
+    )
+
+    # Or reach a platform's send path through the facade
     await send_message("slack", recipient="C12345", text="hi from the agent")
 
 
 asyncio.run(main())
 ```
+
+Inbound messages arrive through a `ListenerManager` + your own `EventSink`;
+see **Listener wiring details** below.
 
 ---
 
@@ -73,38 +76,51 @@ asyncio.run(main())
                        └──────────────────────────────────────┘
                                       ▲
                                       │ read by everything
-       ┌──────────────────────────────┴──────────────────────────────┐
-       │                                                             │
-┌──────────────┐                                            ┌──────────────────┐
-│ Auth side    │                                            │ Runtime side     │
-│              │                                            │                  │
-│ IntegrationHandler  ─◀── @register_handler("name")        │ BasePlatformClient
-│  ├── login                                                │  ├── connect
-│  ├── logout                                               │  ├── send_message
-│  ├── status                                               │  ├── start_listening
-│  ├── invite       (composes OAuthFlow)                    │  ├── stop_listening
-│  ├── connect_token  (default impl on the ABC)             │  └── has_credentials
-│  ├── connect_oauth                                        │       ▲
-│  └── connect_interactive                                  │       │ @register_client
-│                                                           │       │
-│       ▲                                                   │       │
-│       │ both reference the same IntegrationSpec           │       │
-│       │   (composition, not inheritance)                  │       │
-│       ▼                                                   │       │
-│ IntegrationSpec(name, platform_id, cred_class, cred_file) ────────┘
-└──────────────┬─────────────────────────────────┬──────────────────┘
-               │                                 │
-       persists creds to                  manager starts/stops listeners
-               ▼                                 ▼
-       ┌──────────────────┐           ┌──────────────────────┐
-       │ <project_root>/  │           │ ExternalCommsManager │
-       │   .credentials/  │           │  ├── start_platform  │
-       │     <name>.json  │           │  ├── stop_platform   │
-       └──────────────────┘           │  └── on_message ─────┴──▶ host callback
-                                      └──────────────────────┘
+                                      │
+┌─────────────────────────────────────┴──────────────────────────────────┐
+│ providers/<name>/                                                      │
+│                                                                        │
+│   provider.py    Provider — the whole contract for one integration     │
+│     ├── id / display_name / description / auth_type / icon             │
+│     ├── fields / connect_help / subcommands                            │
+│     ├── config_class / config_fields    (runtime knobs)                │
+│     ├── identity_of(credential)         → stable account key           │
+│     ├── oauth_spec() | verify_token()   → how to connect               │
+│     ├── build_client(credential, persist) → account-bound client       │
+│     ├── refresh(credential)             → rotated tokens               │
+│     ├── operations() / guidance()       → the agent-facing surface     │
+│     └── make_listener(client, cursor, emit) → inbound events           │
+│                                                                        │
+│   client.py      BasePlatformClient ─◀── @register_client              │
+│     ├── connect / send_message                                         │
+│     ├── start_listening / stop_listening                               │
+│     └── the REST surface the actions call                              │
+│                                                                        │
+│   operations.py  schemas for the agent-facing operations               │
+│   listener.py    poll loop, when the client has none of its own        │
+│   INTEGRATION.md / GUIDANCE.md                                         │
+└────────────────────────────┬───────────────────────────────────────────┘
+                             │
+                    IntegrationSystem
+                      ├── add_account / remove_account / set_primary
+                      ├── resolve(provider_id, hint) → identity
+                      ├── client_for(provider_id, identity)
+                      └── execute(provider_id, op, input, account)
+                             │
+              ┌──────────────┴───────────────┐
+              ▼                              ▼
+   ┌──────────────────────┐      ┌──────────────────────┐
+   │ <project_root>/      │      │ ListenerManager      │
+   │   .credentials/      │      │  one listener per    │
+   │     <name>.accounts. │      │  (provider, account) │
+   │     json             │      │   └── EventSink ─────┴──▶ host callback
+   └──────────────────────┘      └──────────────────────┘
 ```
 
-Two ABCs per integration — `IntegrationHandler` (auth lifecycle) and `BasePlatformClient` (runtime lifecycle) — bound by composition through a shared `IntegrationSpec`. Both register via decorators; the autoloader walks `integrations/` and triggers them.
+One folder per integration. `Provider` is the contract the core talks to;
+`BasePlatformClient` is the API surface the agent's actions talk to.
+`build_client` binds a client to one account's credential — clients never
+read credential files themselves.
 
 ---
 
@@ -125,21 +141,25 @@ configure(
 
 Anything not passed falls back to **environment variables** with the same name. So a host that prefers env-only setup can call `configure(project_root=...)` alone.
 
-### 2. `initialize_manager(on_message=...)` — boot the listener
+### 2. Build the system and start listening
 
 ```python
-manager = await initialize_manager(on_message=callback, auto_start=True)
+from craftos_integrations.core.storage import FileCredentialStore
+from craftos_integrations.core.system import IntegrationSystem
+from craftos_integrations.providers import default_providers
+
+system = IntegrationSystem(store=FileCredentialStore(), providers=default_providers())
 ```
 
-- Walks the `integrations/` folder via `autoload_integrations()`.
-- For each registered platform that supports listening AND has stored credentials, starts a listener.
-- Routes incoming messages through the standardized payload (see below) into your `on_message`.
+Inbound events reach the host through an `EventSink` you implement and hand to
+`ListenerManager`. The manager starts one listener per (provider, account) that
+has `listen` enabled, and reconciles whenever accounts change.
 
 ### 3. Incoming-message payload contract
 
 ```python
 {
-    "source": "Discord",  # human display name (handler.display_name)
+    "source": "Discord",  # human display name (provider.display_name)
     "integrationType": "discord",  # platform_id
     "contactId": "<sender id>",
     "contactName": "<sender display name>",
@@ -182,9 +202,9 @@ The discord voice helper additionally reads `extras["openai_api_key"]` (or `OPEN
 
 ## Per-integration runtime config
 
-Some integrations expose **runtime knobs** the user tunes after connecting — Discord's `mention_only`, GitHub's `watch_tag` / `watch_repos`, Twitter's `watch_tag`, WhatsApp Web's `self_messages_only`, etc. The package provides a uniform, schema-driven way to declare these on the handler, persist them to disk, and surface them to UI hosts.
+Some integrations expose **runtime knobs** the user tunes after connecting — Discord's `mention_only`, GitHub's `watch_tag` / `watch_repos`, Twitter's `watch_tag`, WhatsApp Web's `self_messages_only`, etc. The package provides a uniform, schema-driven way to declare these on the provider, persist them to disk, and surface them to UI hosts.
 
-### Shape: declare two attributes on the handler
+### Shape: declare two attributes on the provider
 
 ```python
 @dataclass
@@ -193,9 +213,8 @@ class DiscordConfig:
     third_party_usernames: List[str] = field(default_factory=list)
 
 
-@register_handler(DISCORD.name)
-class DiscordHandler(IntegrationHandler):
-    spec = DISCORD
+class DiscordProvider:
+    id = "discord"
     display_name = "Discord"
     auth_type = "token"
     fields = [{"key": "bot_token", "label": "Bot Token", "password": True}]
@@ -252,7 +271,7 @@ Unknown keys in older config files are silently dropped on load, and missing fie
 
 ### Reading config from your client
 
-Use `craftos_integrations.load_config` inside `start_listening` or message handlers:
+Use `craftos_integrations.load_config` inside `start_listening` or message callbacks:
 
 ```python
 from craftos_integrations import load_config
@@ -292,11 +311,11 @@ get_config_schema("discord")
 
 ### Inline connect help (the `?` popover)
 
-Independent of `config_class`, handlers can declare a `connect_help: List[str]` for "where do I find these credentials" guidance shown in the connect modal:
+Independent of `config_class`, providers can declare a `connect_help: List[str]` for "where do I find these credentials" guidance shown in the connect modal:
 
 ```python
-@register_handler(LINE.name)
-class LineHandler(IntegrationHandler):
+@register_client(LINE.name)
+class LineProvider:
     ...
     connect_help = [
         "Open LINE Developers Console: developers.line.biz/console",
@@ -313,44 +332,38 @@ Steps surface to UI hosts via `get_metadata(integration)["connect_help"]` and ar
 
 ## Auth: three ways to connect
 
-Every handler exposes three **dispatchers** on the ABC. Hosts call the one that matches the integration's `auth_type`:
+Which one an integration uses is declared by its `auth_type`:
 
-| Dispatcher                                  | Used by `auth_type`              |
-|---------------------------------------------|----------------------------------|
-| `connect_token(integration, creds_dict)`    | `token`, `both`, `token_with_interactive` |
-| `connect_oauth(integration)`                | `oauth`, `both`                  |
-| `connect_interactive(integration)`          | `interactive`, `token_with_interactive` |
+| `auth_type`              | How it connects                                                       |
+|--------------------------|-----------------------------------------------------------------------|
+| `token`                  | Host collects the values named by `provider.fields`, then `verify_token` |
+| `oauth`                  | `IntegrationSystem.add_account()` runs the provider's `oauth_spec()`  |
+| `both`                   | Either path works                                                     |
+| `interactive`            | Bespoke flow (WhatsApp Web's QR session)                              |
+| `token_with_interactive` | Both                                                                  |
 
 ```python
-from craftos_integrations import (
-    connect_token,
-    connect_oauth,
-    connect_interactive,
-    disconnect,
-)
+# Token — verify, then store as an account
+ok, message, credential = provider.verify_token({"access_token": "ghp_..."})
+if ok:
+    system.store_credential("github", provider.identity_of(credential), credential)
 
-# Token — host collects field values matching handler.fields
-ok, msg = await connect_token("github", {"access_token": "ghp_..."})
+# OAuth — opens the browser, captures the redirect, stores the account
+ok, message, accounts = await system.add_account("gmail")
 
-# OAuth — opens the browser, captures the redirect on localhost:8765
-ok, msg = await connect_oauth("google")
-
-# Interactive — e.g. WhatsApp QR scan, Telegram phone-code
-ok, msg = await connect_interactive("whatsapp_web")
-
-# Disconnect
-ok, msg = await disconnect("github")
+# Disconnect one account, or all of them
+system.remove_account("github", "octocat")
 ```
 
-By default each dispatcher **also starts the listener** for the platform on success. Pass `start_listener=False` to skip.
-
-For UI-driven flows where you want metadata (display name, fields, auth type) to render a settings form:
+Every connect path stores a real **account**; there is no single-credential
+mode. For UI-driven flows that need metadata (display name, fields, auth type)
+to render a settings form:
 
 ```python
 from craftos_integrations import list_metadata, get_metadata, integration_registry
 
 list_metadata()  # all integrations as a list
-get_metadata("slack")  # single integration
+get_metadata("slack")  # one integration
 integration_registry()  # snapshot dict {id: metadata}
 ```
 
@@ -360,10 +373,10 @@ integration_registry()  # snapshot dict {id: metadata}
 
 An integration is **two folders** that get auto-wired — no central registry edits, no frontend changes (UI metadata flows from `get_metadata()`):
 
-1. **Platform package** — `craftos_integrations/integrations/<name>/__init__.py` holds the auth handler + runtime client. The autoloader walks this folder at startup and the `@register_handler` / `@register_client` decorators do the rest.
+1. **Provider package** — `craftos_integrations/providers/<name>/` holds `provider.py` (the contract: metadata, auth, account identity, listener) and `client.py` (the API surface, decorated `@register_client`). Add the provider to `default_providers()`; the autoloader imports `client.py` at startup.
 2. **Action surface** — `app/data/action/integrations/<name>/<name>_actions.py` holds the `@action`-decorated wrappers the agent calls. One wrapper per client method.
 
-The two files have separate audiences: file 1 is for the **human** connecting the account and the **listener** receiving inbound events; file 2 is for the **agent** calling the API on the user's behalf. You need both.
+The two have separate audiences: folder 1 is for the **human** connecting the account and the **listener** receiving inbound events; folder 2 is for the **agent** calling the API on the user's behalf. You need both.
 
 ### Recipe at a glance
 
@@ -371,9 +384,9 @@ For a production-level integration, produce in this order:
 
 | # | Output | Where |
 |---|--------|-------|
-| 1 | Pick `auth_type`, declare credential `fields` + `connect_help` | handler in `__init__.py` |
-| 2 | Implement `login` / `logout` / `status` against the real API | handler |
-| 3 | Optional: `config_class` + `config_fields` for post-connect knobs | handler |
+| 1 | Pick `auth_type`, declare credential `fields` + `connect_help` | `provider.py` |
+| 2 | Implement `verify_token` (token auth) or `oauth_spec` (OAuth), plus `identity_of` | `provider.py` |
+| 3 | Optional: `config_class` + `config_fields` for post-connect knobs | `provider.py` |
 | 4 | Build the client — one method per endpoint, using `helpers.arequest`, returning `Result` | client in `__init__.py` |
 | 5 | Optional: `start_listening` / `stop_listening` (webhook / polling / WebSocket) | client |
 | 6 | Write `INTEGRATION.md` — identifier shape, silent-drop config flags, auth gotchas | integration root |
@@ -386,7 +399,7 @@ The sources to mine for the API surface, in preference order: an **OpenAPI / Swa
 
 ### Choosing an auth strategy
 
-Decide this **before** you start scaffolding either example below. The decision determines whether you write a token handler or an OAuth handler, whether to embed shared client credentials, and how the connect modal looks.
+Decide this **before** you start scaffolding either example below. The decision determines whether you implement `verify_token` or `oauth_spec`, whether to embed shared client credentials, and how the connect modal looks.
 
 #### Default rule
 
@@ -454,26 +467,21 @@ The three integrations that are most often asked "why aren't these OAuth?":
 
 ### Minimal token-only example (e.g. Asana)
 
-```python
-# craftos_integrations/integrations/asana.py
-from dataclasses import dataclass, field
-from typing import List, Tuple
+Two files. `client.py` is the API surface; `provider.py` is the contract.
 
-from .. import (
-    BasePlatformClient,
-    IntegrationHandler,
-    IntegrationSpec,
-    has_credential,
-    load_credential,
-    save_credential,
-    remove_credential,
-    register_client,
-    register_handler,
-)
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
+```python
+# craftos_integrations/providers/asana/client.py
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional
+
+from ... import BasePlatformClient, IntegrationSpec, register_client
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
+ASANA_API = "https://app.asana.com/api/1.0"
 
 
 @dataclass
@@ -490,166 +498,164 @@ ASANA = IntegrationSpec(
 )
 
 
-@dataclass
-class AsanaConfig:
-    project_filter: List[str] = field(default_factory=list)
-
-
-@register_handler(ASANA.name)
-class AsanaHandler(IntegrationHandler):
-    spec = ASANA
-    display_name = "Asana"
-    description = "Tasks and projects"
-    auth_type = "token"
-    icon = "asana"  # Lucide icon name or frontend brand-SVG key
-    fields = [
-        {
-            "key": "access_token",
-            "label": "Personal Access Token",
-            "placeholder": "1/12345...",
-            "password": True,
-        },
-    ]
-
-    # Inline help shown in the connect modal's ``?`` popover
-    connect_help = [
-        "Open https://app.asana.com/0/my-apps",
-        "Click 'Create new token' → name it, copy the token",
-    ]
-
-    # Optional runtime config — schema-driven UI for post-connect knobs.
-    # Omit both attrs if your integration has no runtime settings.
-    config_class = AsanaConfig
-    config_fields = [
-        {
-            "key": "project_filter",
-            "label": "Watched projects",
-            "type": "list",
-            "placeholder": "GID1, GID2",
-            "help": "Comma-separated Asana project GIDs. Empty = watch all.",
-        },
-    ]
-
-    async def login(self, args: List[str]) -> Tuple[bool, str]:
-        # `args` is the credential values in field-declaration order
-        # (the default connect_token() on the ABC builds it from a dict)
-        token = args[0] if args else ""
-        if not token:
-            return False, "Personal access token is required."
-
-        result = http_request(
-            "GET",
-            "https://app.asana.com/api/1.0/users/me",
-            headers={"Authorization": f"Bearer {token}"},
-            expected=(200,),
-        )
-        if "error" in result:
-            return False, f"Asana auth failed: {result['error']}"
-        me = (result["result"] or {}).get("data", {})
-
-        save_credential(self.spec.cred_file, AsanaCredential(access_token=token))
-        return True, f"Asana connected as {me.get('name', 'unknown')}"
-
-    async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
-            return False, "No Asana credentials found."
-        remove_credential(self.spec.cred_file)
-        return True, "Removed Asana credential."
-
-    async def status(self) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
-            return True, "Asana: Not connected"
-        return True, "Asana: Connected"
-
-
 @register_client
 class AsanaClient(BasePlatformClient):
     spec = ASANA
     PLATFORM_ID = ASANA.platform_id
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._cred: Optional[AsanaCredential] = None
+
     def has_credentials(self) -> bool:
-        return has_credential(self.spec.cred_file)
+        return self._cred is not None
 
     def _load(self) -> AsanaCredential:
-        cred = load_credential(self.spec.cred_file, AsanaCredential)
-        if cred is None:
-            raise RuntimeError("No Asana credentials. Use /asana login first.")
-        return cred
+        if self._cred is None:
+            raise RuntimeError("client used before bind_credential()")
+        return self._cred
+
+    def _headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._load().access_token}"}
 
     async def connect(self) -> None:
         self._load()
         self._connected = True
 
-    async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
-        # Asana doesn't really do "send_message" — repurpose for adding a comment to a task
-        cred = self._load()
+    # ----- the REST surface the actions call -----
+
+    def list_tasks(self, project_id: str) -> Result:
         return http_request(
-            "POST",
-            f"https://app.asana.com/api/1.0/tasks/{recipient}/stories",
-            headers={"Authorization": f"Bearer {cred.access_token}"},
-            json={"data": {"text": text}},
-            transform=lambda d: d.get("data"),
+            "GET",
+            f"{ASANA_API}/tasks",
+            headers=self._headers(),
+            params={"project": project_id},
+            expected=(200,),
+            transform=lambda d: d.get("data", []),
         )
 ```
 
-That's it. No edits to `manager.py`, no central registry, no `__init__.py` changes. Restart the host, `get_handler("asana")` resolves, settings UI renders the form from `fields`.
-
-#### About `helpers.request` / `Result`
-
-The package ships a thin `httpx` wrapper at `craftos_integrations.helpers`. It owns the standard envelope so every integration returns the same shape:
-
 ```python
-# Success
-{"ok": True, "result": <transformed body>}
+# craftos_integrations/providers/asana/provider.py
+from __future__ import annotations
 
-# Failure (HTTP non-2xx, network error, exception)
-{"error": "<message>", "details": "<response text or omitted>"}
-```
+from dataclasses import asdict, fields
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
-Both shapes are codified as TypedDicts (`Ok`, `Err`, `Result`) — you just import `Result` and use it as the return annotation. `request` is the sync wrapper; `arequest` is the async one. Pass `expected=(...)` to override the success status set (default `(200, 201)`), `transform=` to reshape the parsed body, and `timeout=` to override the 15s default.
+from ...contracts import OAuthSpec, Operation
+from ...helpers import request as http_request
+from .client import ASANA_API, AsanaClient, AsanaCredential
 
-Three integrations (Slack, Telegram Bot, Notion) layer file-private wrappers on top of `request`/`arequest` because their wire envelope differs (Slack/Telegram bake `ok: bool` into the body, Notion returns errors as parsed JSON bodies). That's the only reason to deviate from the helper.
-
-### OAuth example (using `OAuthFlow`)
-
-For OAuth integrations, **compose** an `OAuthFlow` instance on the handler instead of writing the auth dance:
-
-```python
-from .. import OAuthFlow
+_CRED_FIELDS = {f.name for f in fields(AsanaCredential)}
 
 
-@register_handler(ASANA.name)
-class AsanaHandler(IntegrationHandler):
-    spec = ASANA
+class BoundAsanaClient(AsanaClient):
+    """AsanaClient with its credential injected per account."""
+
+    def bind_credential(self, credential, persist) -> None:
+        self._cred = AsanaCredential(
+            **{k: v for k, v in credential.items() if k in _CRED_FIELDS}
+        )
+        self._persist = persist
+
+
+class AsanaProvider:
+    id = "asana"
     display_name = "Asana"
     description = "Tasks and projects"
-    auth_type = "oauth"
-    fields: List = []
+    auth_type = "token"
+    icon = "asana"
+    fields = [
+        {
+            "key": "access_token",
+            "label": "Personal Access Token",
+            "placeholder": "1/1234...",
+            "password": True,
+        },
+    ]
+    connect_help = [
+        "Open Asana: app.asana.com/0/my-apps",
+        "Create a Personal Access Token and copy it",
+    ]
 
-    oauth = OAuthFlow(
-        client_id_key="ASANA_CLIENT_ID",
-        client_secret_key="ASANA_CLIENT_SECRET",
-        auth_url="https://app.asana.com/-/oauth_authorize",
-        token_url="https://app.asana.com/-/oauth_token",
-        userinfo_url="https://app.asana.com/api/1.0/users/me",
-        scopes="default",
-    )
+    family = None
+    client_cls = BoundAsanaClient
 
-    async def login(self, args: List[str]) -> Tuple[bool, str]:
-        result = await self.oauth.run()
-        if "error" in result and not result.get("access_token"):
-            return False, f"Asana OAuth failed: {result['error']}"
-        info = result.get("userinfo", {}).get("data", {})
-        save_credential(
-            self.spec.cred_file,
-            AsanaCredential(
-                access_token=result["access_token"],
-            ),
+    def identity_of(self, credential: Dict[str, Any]) -> Optional[str]:
+        """A stable key for the account. None means 'not captured yet' —
+        the core stores it under the UNIDENTIFIED sentinel and upgrades the
+        record in place on the first re-auth that yields one."""
+        gid = credential.get("user_gid")
+        return gid.strip().lower() if isinstance(gid, str) and gid.strip() else None
+
+    def oauth_spec(self) -> OAuthSpec:
+        raise NotImplementedError("asana is token-only")
+
+    def verify_token(
+        self, credentials: Dict[str, str]
+    ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """Prove the token works AND capture the account identity."""
+        token = (credentials.get("access_token") or "").strip()
+        if not token:
+            return False, "Access token is required.", None
+        result = http_request(
+            "GET",
+            f"{ASANA_API}/users/me",
+            headers={"Authorization": f"Bearer {token}"},
+            expected=(200,),
         )
-        return True, f"Asana connected as {info.get('name')}"
+        if "error" in result:
+            return False, f"Invalid token: {result['error']}", None
+        me = (result.get("result") or {}).get("data", {})
+        credential = asdict(AsanaCredential(access_token=token))
+        credential["user_gid"] = me.get("gid", "")
+        return True, f"Asana connected: {me.get('name', 'account')}", credential
+
+    def build_client(self, credential, persist) -> Any:
+        client = self.client_cls()
+        client.bind_credential(credential, persist)
+        return client
+
+    async def refresh(self, credential: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        return None  # PATs do not rotate
+
+    def operations(self) -> List[Operation]:
+        return []  # the action layer is the tool surface
+
+    def guidance(self) -> str:
+        return ""
+
+    def make_listener(self, client, cursor, emit):
+        return None  # no inbound events
 ```
 
-`OAuthFlow.run()` opens the browser, captures the callback on localhost:8765, exchanges the code for tokens, and (optionally) fetches the userinfo. Supports PKCE, HTTPS callback, custom auth params.
+Then add it to `default_providers()` in `providers/__init__.py`. That is the
+only central edit.
+
+### OAuth example
+
+Swap `verify_token` for `oauth_spec`, and let the core run the flow:
+
+```python
+class AsanaProvider:
+    # ... id / display_name / description / icon as above ...
+    auth_type = "oauth"
+    fields = []  # nothing for the user to type
+
+    def oauth_spec(self) -> OAuthSpec:
+        return OAuthSpec(
+            authorize_url="https://app.asana.com/-/oauth_authorize",
+            token_url="https://app.asana.com/-/oauth_token",
+            scopes=("default",),
+            # Account choosers matter: without one, a second connect silently
+            # re-authorises the account already signed in to the browser.
+            extra_authorize_params={"prompt": "consent"},
+        )
+```
+
+`IntegrationSystem.add_account()` runs the flow, calls `identity_of` on the
+result, and stores it as an account. `refresh()` is called when the token
+nears expiry; return the rotated credential dict.
 
 ### Auth types reference
 
@@ -663,30 +669,38 @@ class AsanaHandler(IntegrationHandler):
 
 ### Folder layout per integration
 
-Each integration lives in its own folder under `integrations/`. The handler + client go in `__init__.py`, docs in `INTEGRATION.md`, and any supporting modules sit alongside with an **underscore prefix** so the autoloader skips them. Helpers shared by multiple integrations (`_google_common.py`, `_lark_common.py`) stay at the `integrations/` root.
+Each integration is one folder under `providers/`. Supporting modules sit
+alongside with an **underscore prefix**. Helpers shared by a family
+(`_google_common.py`, `_lark_common.py`) live at the `providers/` root.
 
 ```
-craftos_integrations/integrations/
-├── _google_common.py          ← shared by gmail / google_* (autoloader skips)
-├── _lark_common.py            ← shared by lark / lark_* (autoloader skips)
+craftos_integrations/providers/
+├── _google_common.py          ← shared by gmail / google_*
+├── _lark_common.py            ← shared by lark / lark_*
+├── _google.py, _lark.py       ← shared provider bases
+├── _shared.py                 ← client_op, ClientListenerAdapter
 ├── discord/
-│   ├── __init__.py            ← handler + client
+│   ├── provider.py            ← the contract
+│   ├── client.py              ← the API client (@register_client)
 │   ├── INTEGRATION.md
-│   └── _discord_voice.py      ← skipped by autoloader
-├── telegram_user/
-│   ├── __init__.py
-│   ├── INTEGRATION.md
-│   └── _telegram_mtproto.py   ← skipped by autoloader
-├── whatsapp_web/
-│   ├── __init__.py
-│   ├── INTEGRATION.md
-│   ├── _bridge_client.py      ← skipped by autoloader
-│   ├── bridge.js              ← Node sidecar
-│   └── package.json
-├── github/
-│   └── __init__.py
-└── ... (one folder per integration)
+│   └── _discord_voice.py
+├── gmail/
+│   ├── provider.py
+│   ├── client.py
+│   ├── operations.py          ← agent-facing operation schemas
+│   ├── listener.py            ← poll loop
+│   ├── GUIDANCE.md
+│   └── INTEGRATION.md
+└── whatsapp_web/
+    ├── provider.py
+    ├── client.py
+    ├── _bridge_client.py
+    ├── _session.py
+    └── bridge.js
 ```
+
+Only `client.py` is imported by the autoloader — that is what fires
+`@register_client`. Everything else is reached through the provider.
 
 ### File 2: agent actions (the `@action` wrappers)
 
@@ -883,7 +897,7 @@ The agent doesn't load every action up front — it loads the **action sets** it
 
 7. **`connect_help` always populated.** Users need a 3–5 step recipe for "where do I find this token / app ID / etc." Test the steps yourself by following them in a fresh browser session before shipping. Outdated steps are worse than no steps.
 
-8. **`INTEGRATION.md` at the integration root.** One page of gotchas: identifier shape rules, silent-drop config flags (like GitHub's `watch_tag`), session-level facts (e.g. "username is on the credential, don't ask the user"), known auth failure modes (e.g. "403 means token lacks scope, retrying won't help"). See [github/INTEGRATION.md](craftos_integrations/integrations/github/INTEGRATION.md) for shape.
+8. **`INTEGRATION.md` at the integration root.** One page of gotchas: identifier shape rules, silent-drop config flags (like GitHub's `watch_tag`), session-level facts (e.g. "username is on the credential, don't ask the user"), known auth failure modes (e.g. "403 means token lacks scope, retrying won't help"). See [github/INTEGRATION.md](craftos_integrations/providers/github/INTEGRATION.md) for shape.
 
 9. **Token / rate-limit hygiene.** If the API has known rate limits, document them in `INTEGRATION.md` and bake a sensible default into the client (back-off, polling interval). The polling integrations (GitHub at 15s, others vary) tune this per-API.
 
@@ -897,9 +911,10 @@ Before declaring an integration done, run these three checks. Don't skip any.
 
    ```bash
    python -c "
-   from craftos_integrations import autoload_integrations, get_handler, get_client
+   from craftos_integrations import autoload_integrations, get_client
+   from craftos_integrations.providers import get_provider
    autoload_integrations(force=True)
-   print('handler:', get_handler('<name>') is not None)
+   print('provider:', get_provider('<name>') is not None)
    print('client :', get_client('<name>') is not None)
    "
    ```
@@ -948,15 +963,14 @@ Before declaring an integration done, run these three checks. Don't skip any.
 
 ### Setup
 - `configure(*, project_root, logger, oauth, oauth_runner, onboarding_hook, extras)` — call once at startup
-- `initialize_manager(*, on_message, auto_start=True) -> ExternalCommsManager`
-- `get_external_comms_manager() -> ExternalCommsManager | None`
+- `IntegrationSystem(store=..., providers=...)` — the system every connect/execute goes through
 
 ### Registry
-- `autoload_integrations(force=False)` — walks `integrations/`, imports every file (decorators fire)
-- `register_client`, `register_handler(name)` — decorators
-- `get_client(platform_id)` / `get_handler(name)` — singleton per registered class
-- `get_all_clients()` / `get_all_handlers()`
-- `get_registered_platforms()` / `get_registered_handler_names()`
+- `autoload_integrations(force=False)` — imports every `providers/<id>/client.py` (decorators fire)
+- `register_client` — decorator on the client class
+- `get_client(platform_id)` — unbound singleton (account-bound clients come from `IntegrationSystem.client_for`)
+- `get_all_clients()` / `get_registered_platforms()`
+- `providers.provider_ids()` / `providers.get_provider(id)` — the metadata registry
 
 ### Common ops (the facade)
 - `send_message(integration, recipient, text, **kw) -> dict` (async)
@@ -966,7 +980,7 @@ Before declaring an integration done, run these three checks. Don't skip any.
 - `disconnect(integration, account_id=None) -> (bool, str)` (async)
 - `status(integration) -> (bool, str)` (async)
 
-### Connect dispatchers (auto-start listener on success)
+### Connect
 - `connect_token(integration, creds: dict, *, start_listener=True) -> (bool, str)`
 - `connect_oauth(integration, *, start_listener=True) -> (bool, str)`
 - `connect_interactive(integration, *, start_listener=True) -> (bool, str)`
@@ -974,7 +988,7 @@ Before declaring an integration done, run these three checks. Don't skip any.
 ### Metadata
 - `get_metadata(integration) -> dict | None`
   - Shape: `{id, name, description, auth_type, fields, icon, has_config, config_fields, connect_help}`
-  - `has_config: bool` — True when the handler declared a `config_class`
+  - `has_config: bool` — True when the provider declared a `config_class`
   - `config_fields: list[dict] | None` — the runtime-config render schema (None when no config)
   - `connect_help: list[str] | None` — inline setup steps for the `?` popover
 - `list_metadata() -> list[dict]`
@@ -1023,13 +1037,13 @@ Before declaring an integration done, run these three checks. Don't skip any.
 - `get_messaging_actions_for_platforms(platforms) -> list[str]`
 
 ### WhatsApp Web QR (non-blocking UIs)
-- `from craftos_integrations.integrations.whatsapp_web import (start_qr_session, check_qr_session_status, cancel_qr_session)`
+- `from craftos_integrations.providers.whatsapp_web.client import (start_qr_session, check_qr_session_status, cancel_qr_session)`
 
 ---
 
 ## Listener wiring details
 
-When a successful connect happens, the `connect_token/oauth/interactive` dispatchers automatically call `manager.start_platform(handler.spec.platform_id)`. The manager:
+When an account is added or its `listen` flag changes, `IntegrationSystem` reconciles the `ListenerManager`. The manager:
 
 1. Resolves the registered `BasePlatformClient` for that `platform_id`.
 2. If `client.supports_listening` is True and `client.has_credentials()` is True, calls `client.start_listening(callback)`.
@@ -1073,14 +1087,14 @@ Two file types live side-by-side: `<name>.json` holds the credential (token, OAu
 
 | Term                     | Meaning                                                                |
 |--------------------------|------------------------------------------------------------------------|
-| `IntegrationSpec`        | Frozen dataclass shared between handler and client (composition glue) |
-| `IntegrationHandler`     | Auth lifecycle ABC: login / logout / status / invite / connect_*      |
+| `IntegrationSpec`        | Frozen dataclass naming a client's id, credential class and file |
+| `Provider`     | Auth lifecycle ABC: login / logout / status / invite / connect_*      |
 | `BasePlatformClient`     | Runtime lifecycle ABC: connect / send_message / start_listening / stop_listening |
 | `PlatformMessage`        | Normalized incoming-message dataclass (every listener emits these)    |
 | `ConfigStore`            | Singleton holding the host's setup (populated by `configure(...)`)    |
-| `ExternalCommsManager`   | Owns active listeners + on_message routing                            |
-| `OAuthFlow`              | Composition helper for OAuth handlers; runs the localhost callback server + token exchange |
+| `ListenerManager`   | Owns active listeners + on_message routing                            |
+| `OAuthFlow`              | Runs the localhost callback server + token exchange for OAuth providers |
 | `autoload_integrations`  | Walks `integrations/` and imports every module (triggers decorators)  |
-| `display_name` / `name` / `platform_id` | UI label / handler-registry key (slash command) / client-registry key |
+| `display_name` / `id` / `platform_id` | UI label / provider id (also the slash command) / client-registry key |
 | `Result` / `Ok` / `Err`  | TypedDicts for the standard `{ok, result} / {error, details}` envelope |
 | `request` / `arequest`   | Sync/async httpx wrappers in `helpers/` that emit the standard envelope |

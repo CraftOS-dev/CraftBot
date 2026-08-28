@@ -29,7 +29,7 @@
  *   missing required -> 400 validation_required
  */
 
-var ADAPTER_VERSION = '1.7.1';
+var ADAPTER_VERSION = '1.9.0';
 var RECORD_PATH = /^\/api\/collections\/([^\/]+)\/records(\/([^\/?]+))?$/;
 
 function rules() {

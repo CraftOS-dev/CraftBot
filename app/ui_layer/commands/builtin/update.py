@@ -45,22 +45,34 @@ dependencies, and restart CraftBot automatically."""
         session_id: str | None = None,
     ) -> CommandResult:
         """Execute the update command."""
-        from app.updater import check_for_update
+        from app.updater import UPDATE_BRANCH, check_for_update
 
         self.emit_message("Checking for updates...", "system", session_id=session_id)
 
         try:
-            update_available, current, latest = await check_for_update()
+            status = await check_for_update()
         except Exception as e:
             self.emit_message(
                 f"Failed to check for updates: {e}", "error", session_id=session_id
             )
             return CommandResult(success=False, message=str(e))
 
-        if not update_available:
-            self.emit_message(
-                f"CraftBot is up to date (v{current}).", "system", session_id=session_id
-            )
+        current, latest = status.current, status.latest
+
+        if not status.available:
+            if status.branch:
+                self.emit_message(
+                    f"On branch '{status.branch}' (v{current}). Updates only apply on "
+                    f"the {UPDATE_BRANCH} branch; switch to it to update.",
+                    "system",
+                    session_id=session_id,
+                )
+            else:
+                self.emit_message(
+                    f"CraftBot is up to date (v{current}).",
+                    "system",
+                    session_id=session_id,
+                )
             return CommandResult(success=True)
 
         # --check flag: report only, don't install

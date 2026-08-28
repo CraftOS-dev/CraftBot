@@ -117,8 +117,13 @@ class InternalActionInterface:
             raise RuntimeError(
                 "InternalActionInterface not initialized with LLMInterface."
             )
+        # json_mode=False: use_llm carries arbitrary agent-authored prompts
+        # (translations, drafts, analyses, ...) whose output is returned as
+        # text. If a prompt wants JSON it says so itself; forcing the
+        # provider's JSON mode onto prose prompts degenerates on several
+        # providers.
         response = await cls.llm_interface.generate_response_async(
-            system_message, prompt, prompt_name="USE_LLM"
+            system_message, prompt, prompt_name="USE_LLM", json_mode=False
         )
         return {"llm_response": response}
 
@@ -290,6 +295,43 @@ class InternalActionInterface:
             for ptr in pointers
         ]
 
+    @classmethod
+    def memory_entity(cls, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Everything the memory graph knows about one entity.
+
+        Args:
+            name: Entity name (case-insensitive)
+
+        Returns:
+            Dict with entity, mention_count, items, related_entities and
+            files, or None when the entity is unknown.
+        """
+        if cls.memory_manager is None:
+            raise RuntimeError(
+                "InternalActionInterface not initialized with MemoryManager."
+            )
+        return cls.memory_manager.entity_overview(name)
+
+    @classmethod
+    def memory_related(cls, name_a: str, name_b: str) -> List[Dict[str, Any]]:
+        """
+        Shortest connection between two entities in the memory graph.
+
+        Args:
+            name_a: First entity name
+            name_b: Second entity name
+
+        Returns:
+            Node sequence (entities, memory items, files) connecting the
+            two, or an empty list when no connection exists.
+        """
+        if cls.memory_manager is None:
+            raise RuntimeError(
+                "InternalActionInterface not initialized with MemoryManager."
+            )
+        return cls.memory_manager.related_path(name_a, name_b)
+
     # ─────────────────────── GUI Actions ───────────────────────
 
     @classmethod
@@ -342,6 +384,8 @@ class InternalActionInterface:
         platform: Optional[str] = None,
         session_id: Optional[str] = None,
         continue_work: bool = False,
+        suggested_responses: Optional[List[str]] = None,
+        allow_free_text: bool = True,
     ) -> None:
         """Record an agent-authored chat message to the event stream.
 
@@ -353,6 +397,11 @@ class InternalActionInterface:
             session_id: Optional task/session ID for multi-task isolation.
             continue_work: True when this is a mid-run progress update and
                 the agent keeps working after sending it.
+            suggested_responses: When the message is a question, the one-click
+                answers to offer. A non-empty list marks the message as a
+                question the UI pins above the chat composer.
+            allow_free_text: Whether the pinned question also accepts a typed
+                custom answer (only meaningful with suggested_responses).
         """
         if InternalActionInterface.state_manager is None:
             raise RuntimeError(
@@ -366,6 +415,8 @@ class InternalActionInterface:
             session_id=session_id,
             platform=resolved_platform,
             continue_work=continue_work,
+            suggested_responses=suggested_responses,
+            allow_free_text=allow_free_text,
         )
 
     @staticmethod

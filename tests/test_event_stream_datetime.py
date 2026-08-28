@@ -29,7 +29,8 @@ def _kinds(es):
     return [r.event.kind for r in es.tail_events]
 
 
-def test_first_event_gets_a_datetime_marker():
+def test_first_event_gets_a_datetime_marker(event_stream_limits):
+    event_stream_limits()
     es = EventStream(llm=_FakeLLM())
     es.log("action_end", "did a thing")
     kinds = _kinds(es)
@@ -42,14 +43,16 @@ def test_first_event_gets_a_datetime_marker():
     assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\b", msg)
 
 
-def test_no_datetime_spam_within_window():
+def test_no_datetime_spam_within_window(event_stream_limits):
+    event_stream_limits()
     es = EventStream(llm=_FakeLLM())
     for i in range(20):
         es.log("action_end", f"event {i}")
     assert _kinds(es).count("datetime") == 1  # only the first
 
 
-def test_datetime_refreshes_after_interval():
+def test_datetime_refreshes_after_interval(event_stream_limits):
+    event_stream_limits()
     es = EventStream(llm=_FakeLLM())
     es.log("action_end", "first")
     # Force the last stamp into the past to simulate >30 min elapsed.
@@ -60,10 +63,9 @@ def test_datetime_refreshes_after_interval():
     assert _kinds(es).count("datetime") == 2
 
 
-def test_datetime_restamped_after_summarization():
-    es = EventStream(
-        llm=_FakeLLM(), summarize_at_tokens=2100, tail_keep_after_summarize_tokens=100
-    )
+def test_datetime_restamped_after_summarization(event_stream_limits):
+    event_stream_limits(2100, 100)
+    es = EventStream(llm=_FakeLLM())
     for i in range(400):
         es.log("action_end", f"action {i} produced some output text to add tokens")
     assert es.head_summary is not None  # summarization happened

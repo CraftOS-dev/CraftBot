@@ -45,7 +45,7 @@ Every event is also appended to markdown files in `agent_file_system/` (see [Age
 
 | File | Contents |
 |---|---|
-| `EVENT.md` | The complete history: every event from every stream, in `[YYYY/MM/DD HH:MM:SS] [kind]: message` format. Auto-rotated when it grows too large. |
+| `EVENT.md` | The complete history: every event from every stream, in `[YYYY-MM-DD HH:MM:SS] [kind]: message` format. Auto-rotated when it grows too large. |
 | `EVENT_UNPROCESSED.md` | The staging buffer for the [memory pipeline](memory.md): the subset of events awaiting distillation into `MEMORY.md`, cleared after each processing run. |
 
 Routine event kinds that the memory processor would always discard (action starts/ends, reasoning, todos, errors, waiting notices, memory-retrieval pointers) are filtered out at write time, so `EVENT_UNPROCESSED.md` contains only dialogue and meaningful state changes. During a memory-processing task the buffer is frozen entirely, so the processor's own events can't loop back into it.
