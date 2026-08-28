@@ -1,7 +1,7 @@
 """Listener fan-out — one supervised listener per (provider, account).
 
-``ListenerManager`` owns every inbound-event instance centrally
-(multi-account-v2-plan §8): providers only implement
+``ListenerManager`` owns every inbound-event instance centrally:
+providers only implement
 ``make_listener(client, cursor, emit)``; the manager decides *which*
 instances exist by reconciling desired state (AccountSets × ``listen``
 flags) against running ones, tags every event with its account via the
