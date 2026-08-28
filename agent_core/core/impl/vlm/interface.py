@@ -563,15 +563,16 @@ class VLMInterface:
                 ],
             }
         )
-        # Newer OpenAI models (o1, o3, o4, gpt-5, etc.) require
-        # 'max_completion_tokens' instead of the legacy 'max_tokens' parameter.
         request_kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
         }
-        # Same temperature + json policy as the LLM chat_completions
-        # transport: omit temperature for Kimi/Moonshot; omit response_format
-        # json_object for providers that reject it (Perplexity/LM Studio).
+        # Same per-profile request policies as the LLM chat_completions
+        # transport: temperature via resolve_temperature (OpenAI and
+        # Kimi/Moonshot omit the field — their reasoning models reject an
+        # explicit value); response_format json_object omitted for providers
+        # that reject it (Perplexity/LM Studio); max-tokens field name via
+        # profile.uses_max_completion_tokens.
         from agent_core.core.models.registry import get_registry
         from agent_core.core.models.provider_config import (
             OMIT_TEMPERATURE,
@@ -584,14 +585,7 @@ class VLMInterface:
             request_kwargs["temperature"] = _temp
         if json_mode and (_profile is None or _profile.supports_json_object):
             request_kwargs["response_format"] = {"type": "json_object"}
-        model_lower = (self.model or "").lower()
-        uses_max_completion_tokens = (
-            model_lower.startswith("o1")
-            or model_lower.startswith("o3")
-            or model_lower.startswith("o4")
-            or model_lower.startswith("gpt-5")
-        )
-        if uses_max_completion_tokens:
+        if _profile is not None and _profile.uses_max_completion_tokens:
             request_kwargs["max_completion_tokens"] = 2048
         else:
             request_kwargs["max_tokens"] = 2048

@@ -28,6 +28,7 @@ from agent_core.core.impl.memory.tuning import (
     ENTITY_JUDGE_BATCH_MAX_RECORDS,
     ENTITY_JUDGE_MAX_PASSES,
     ENTITY_JUDGE_MAX_REASKS,
+    ENTITY_JUDGE_THINKING_BUDGET,
 )
 from agent_core.core.prompts.entity_pipeline import (
     ENTITY_JUDGE_SYSTEM_PROMPT,
@@ -168,6 +169,7 @@ async def _judge_batch(
             user_prompt=prompt,
             prompt_name="ENTITY_JUDGE",
             json_mode=True,
+            thinking_budget=ENTITY_JUDGE_THINKING_BUDGET,
         )
         try:
             return _validate_response(raw, batch)

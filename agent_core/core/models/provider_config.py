@@ -115,9 +115,9 @@ class ProviderProfile:
     # Values are battle-tested (Hermes default_max_tokens) or from docs.
     max_output_tokens: Optional[int] = None
     # True -> always send the OpenAI `max_completion_tokens` field instead of
-    # the legacy `max_tokens` (Cerebras/MiniMax require it; Groq deprecates
-    # max_tokens). None/False -> the model-name heuristic (o1/o3/o4/gpt-5)
-    # decides, preserving existing OpenAI behavior.
+    # the legacy `max_tokens` (OpenAI deprecated max_tokens; Cerebras/MiniMax
+    # require the new field; Groq deprecates max_tokens). False -> legacy
+    # `max_tokens`.
     uses_max_completion_tokens: bool = False
     # Whether the chat_completions session path accumulates a growing
     # [user, assistant, ...] history for this provider (the
@@ -190,6 +190,16 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         ),
         subscription_default_model="gpt-5.4",
         supports_prompt_cache_key=True,
+        # OpenAI deprecated `max_tokens` in favor of `max_completion_tokens`;
+        # every current chat model accepts the new field, and reasoning
+        # models (o-series, gpt-5.x) reject the old one.
+        uses_max_completion_tokens=True,
+        # Reasoning models reject an explicit temperature ("'temperature'
+        # does not support 0.0 with this model. Only the default (1) value
+        # is supported."). Omitting the field is valid on every OpenAI
+        # model (the server applies its default), so the profile drops it
+        # unconditionally — same policy as Kimi/Moonshot.
+        fixed_temperature=OMIT_TEMPERATURE,
         connection_test_model="gpt-4o-mini",
         default_models={
             InterfaceType.LLM: "gpt-5.2-2025-12-11",

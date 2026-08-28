@@ -50,6 +50,14 @@ def generate(
     """
     from app.google_gemini_client import GeminiAPIError
 
+    # Per-call reasoning cap, set by callers that pass thinking_budget (e.g. the
+    # entity-judge pipeline). Rides the shared per-call context so no transport
+    # signature changes; None for every ordinary call, in which case Gemini's
+    # default thinking behaviour is unchanged.
+    from agent_core.core.impl.llm.interface import _llm_call_ctx
+
+    thinking_budget = (_llm_call_ctx.get() or {}).get("thinking_budget")
+
     token_count_input = token_count_output = 0
     cached_tokens = 0
     total_tokens = 0
@@ -119,6 +127,7 @@ def generate(
                     temperature=iface.temperature,
                     max_output_tokens=iface.max_tokens,
                     json_mode=json_mode,
+                    thinking_budget=thinking_budget,
                 )
 
         # Extract response data

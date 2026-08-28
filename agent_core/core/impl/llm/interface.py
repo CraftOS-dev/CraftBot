@@ -567,6 +567,7 @@ class LLMInterface:
         prompt_name: Optional[str] = None,
         call_type: Optional[str] = None,
         task_id: Optional[str] = None,
+        thinking_budget: Optional[int] = None,
     ) -> None:
         """Stamp per-call identity + start time into the context for capture.
 
@@ -574,12 +575,16 @@ class LLMInterface:
         (`_call_log_to_db`). The explicit `prompt_name` (passed by the call
         site) is what lets the profiler tell apart prompts that share a
         call_type (e.g. the three action-selection prompts).
+
+        ``thinking_budget`` (when set) is read by the Gemini transport to cap
+        reasoning tokens; other transports never look at it.
         """
         _llm_call_ctx.set(
             {
                 "prompt_name": prompt_name,
                 "call_type": call_type,
                 "task_id": task_id,
+                "thinking_budget": thinking_budget,
                 "start": time.perf_counter(),
             }
         )
@@ -900,15 +905,20 @@ class LLMInterface:
         log_response: bool = True,
         prompt_name: Optional[str] = None,
         json_mode: bool = True,
+        thinking_budget: Optional[int] = None,
     ) -> str:
         """Async wrapper that defers the blocking call to a worker thread.
 
         Pass ``json_mode=False`` when the prompt asks for prose — see
         ``_generate_response_sync``.
+
+        ``thinking_budget`` caps reasoning tokens on providers that expose a
+        thinking budget (Gemini). It rides the per-call context and is a no-op
+        for every other provider; leave it None (the default) for normal calls.
         """
         # Stamp the context here, in the caller's context, so asyncio.to_thread
         # copies it into the worker thread where the capture runs.
-        self._begin_call(prompt_name=prompt_name)
+        self._begin_call(prompt_name=prompt_name, thinking_budget=thinking_budget)
         return await asyncio.to_thread(
             self._generate_response_sync,
             system_prompt,

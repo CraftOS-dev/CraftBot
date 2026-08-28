@@ -142,6 +142,15 @@ ENTITY_JUDGE_MAX_PASSES: Final[int] = 3
 # Re-asks after a schema-invalid LLM response (validation error appended).
 ENTITY_JUDGE_MAX_REASKS: Final[int] = 2
 
+# Thinking-token budget for the judge call on reasoning models (Gemini
+# `thinkingConfig.thinkingBudget`). The judge is mechanical classification
+# (confirm/reject each candidate, name new entities), not deep reasoning, so a
+# modest cap is plenty — its real job is to STOP a thinking model from spending
+# the entire output allocation on thoughts and hitting MAX_TOKENS before it
+# emits a single verdict (parts_count=0). Carried per-call and only honoured by
+# the Gemini transport; every other provider/call ignores it.
+ENTITY_JUDGE_THINKING_BUDGET: Final[int] = 8192
+
 
 # ──────────────────────── Trigger-driven injection ────────────────────────
 

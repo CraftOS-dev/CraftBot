@@ -106,9 +106,10 @@ def generate_openai(
 
         # Build request kwargs. Temperature follows the provider's policy
         # (resolve_temperature): most providers send the caller's value, but
-        # Kimi/Moonshot thinking models reject an explicit temperature, so it
-        # is omitted entirely for them (docs/PROVIDER_SETTINGS_UX_FIX.md; the
-        # Kimi API rejects "invalid temperature: only 1 is allowed").
+        # OpenAI and Kimi/Moonshot profiles omit the field entirely — their
+        # reasoning/thinking models reject an explicit temperature, and the
+        # server default is valid for every model (docs/
+        # PROVIDER_SETTINGS_UX_FIX.md; provider_config.fixed_temperature).
         request_kwargs: Dict[str, Any] = {
             "model": iface.model,
             "messages": messages,
@@ -120,19 +121,14 @@ def generate_openai(
 
         # Output tokens: cap the VALUE to the provider's output limit (several
         # providers — NVIDIA, Cerebras, Together, Groq — 400 rather than clamp
-        # when it's exceeded), and pick the FIELD NAME per provider policy.
-        # Newer OpenAI models (o1/o3/o4/gpt-5) and Cerebras/MiniMax require
-        # 'max_completion_tokens'; everyone else uses legacy 'max_tokens'.
+        # when it's exceeded), and pick the FIELD NAME per provider policy
+        # (profile.uses_max_completion_tokens: OpenAI/Cerebras/MiniMax/Groq
+        # take 'max_completion_tokens'; everyone else legacy 'max_tokens').
         _max_tokens_value = iface.max_tokens
         if _profile is not None and _profile.max_output_tokens:
             _max_tokens_value = min(_max_tokens_value, _profile.max_output_tokens)
-        model_lower = (iface.model or "").lower()
         uses_max_completion_tokens = (
-            (_profile is not None and _profile.uses_max_completion_tokens)
-            or model_lower.startswith("o1")
-            or model_lower.startswith("o3")
-            or model_lower.startswith("o4")
-            or model_lower.startswith("gpt-5")
+            _profile is not None and _profile.uses_max_completion_tokens
         )
         if uses_max_completion_tokens:
             request_kwargs["max_completion_tokens"] = _max_tokens_value
