@@ -347,8 +347,7 @@ def build_operations() -> List[Operation]:
                 "send_slack_ephemeral",
                 "post_ephemeral",
                 description=(
-                    "Send an ephemeral message visible only to one user in a "
-                    "channel."
+                    "Send an ephemeral message visible only to one user in a channel."
                 ),
                 destructive=True,  # outward-facing send
                 parallelizable=False,
@@ -467,8 +466,7 @@ def build_operations() -> List[Operation]:
                 "scheduled_message_id": {
                     "type": "string",
                     "description": (
-                        "Scheduled message ID (from schedule_slack_message "
-                        "response)."
+                        "Scheduled message ID (from schedule_slack_message response)."
                     ),
                     "example": "",
                 },
@@ -1128,8 +1126,7 @@ def build_operations() -> List[Operation]:
             "get_slack_file_info",
             "get_file_info",
             description=(
-                "Get metadata for a Slack file (name, size, URL, channels "
-                "shared into)."
+                "Get metadata for a Slack file (name, size, URL, channels shared into)."
             ),
             tags=("slack_files", "slack"),
             input_schema={
@@ -1240,8 +1237,7 @@ def build_operations() -> List[Operation]:
             "get_slack_user_presence",
             "get_user_presence",
             description=(
-                "Check whether a Slack user is online (active) or offline "
-                "(away)."
+                "Check whether a Slack user is online (active) or offline (away)."
             ),
             tags=("slack_users",),
             input_schema={
@@ -1432,8 +1428,7 @@ def build_operations() -> List[Operation]:
             "disable_slack_usergroup",
             "disable_usergroup",
             description=(
-                "Disable a Slack usergroup (keeps it but hides from "
-                "autocomplete)."
+                "Disable a Slack usergroup (keeps it but hides from autocomplete)."
             ),
             parallelizable=False,
             tags=("slack_users",),
@@ -1450,8 +1445,7 @@ def build_operations() -> List[Operation]:
             "get_slack_auth_info",
             "auth_test",
             description=(
-                "Get info about the authenticated Slack bot/user (team, user, "
-                "bot_id)."
+                "Get info about the authenticated Slack bot/user (team, user, bot_id)."
             ),
             tags=("slack_workspace", "slack"),
             input_schema={},

@@ -86,15 +86,11 @@ def system(tmp_path):
     return sys
 
 
-def test_execute_runs_operation_against_resolved_workspaces_client(
-    system, monkeypatch
-):
+def test_execute_runs_operation_against_resolved_workspaces_client(system, monkeypatch):
     seen = []
 
     async def fake_send_message(self, recipient, text, **kwargs):
-        seen.append(
-            (self._cred.workspace_id, recipient, text, kwargs.get("thread_ts"))
-        )
+        seen.append((self._cred.workspace_id, recipient, text, kwargs.get("thread_ts")))
         # Slack-style body: "ok" sits alongside the payload fields.
         return {
             "ok": True,

@@ -151,7 +151,10 @@ def test_listener_runs_legacy_poll_loop_per_instance(monkeypatch):
     }
 
     async def fake_get_me(self):
-        return {"ok": True, "result": {"id": 123456789, "username": "CraftBotHelperBot"}}
+        return {
+            "ok": True,
+            "result": {"id": 123456789, "username": "CraftBotHelperBot"},
+        }
 
     calls = {"n": 0}
 

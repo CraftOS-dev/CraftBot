@@ -168,11 +168,16 @@ def test_apply_changes_ui_wire_batch_alias_survives_reopen(store, clock):
 
     result = mgr.apply_changes(
         "gmail",
-        {"disconnect": [], "primary": None,
-         "aliases": {"b@y.com": "jobsearch"}, "listen": {}},
+        {
+            "disconnect": [],
+            "primary": None,
+            "aliases": {"b@y.com": "jobsearch"},
+            "listen": {},
+        },
     )
     assert {a.identity: a.alias for a in result} == {
-        "a@x.com": None, "b@y.com": "jobsearch",
+        "a@x.com": None,
+        "b@y.com": "jobsearch",
     }
 
     # "Reopen": a brand-new manager over the same store, after the family
@@ -180,7 +185,8 @@ def test_apply_changes_ui_wire_batch_alias_survives_reopen(store, clock):
     reopened = AccountManager(store, family_members=_family, clock=clock)
     reopened.sync_family_aliases("gmail")
     assert {a.identity: a.alias for a in reopened.list_accounts("gmail")} == {
-        "a@x.com": None, "b@y.com": "jobsearch",
+        "a@x.com": None,
+        "b@y.com": "jobsearch",
     }
     raw = store.load("gmail")
     assert raw["accounts"]["b@y.com"]["alias_updated_at"]  # stamped

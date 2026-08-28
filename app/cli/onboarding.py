@@ -182,9 +182,7 @@ class CLIHardOnboarding(OnboardingInterface):
             # Step 4: Agent name (optional)
             agent_name_step = AgentNameStep()
             agent_form = await self._input_form(agent_name_step)
-            self._collected_data["agent_name"] = (
-                agent_form.get("agent_name") or "Agent"
-            )
+            self._collected_data["agent_name"] = agent_form.get("agent_name") or "Agent"
 
             self._collected_data["completed"] = True
             self.on_complete()

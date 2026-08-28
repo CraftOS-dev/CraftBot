@@ -161,9 +161,7 @@ def generate_openai(
         #   it when the slug is Anthropic-routed.
         extra_body: Dict[str, Any] = {}
 
-        long_enough = (
-            system_prompt and len(system_prompt) >= config.min_cache_tokens
-        )
+        long_enough = system_prompt and len(system_prompt) >= config.min_cache_tokens
 
         # prompt_cache_key pins requests with the same key to the same
         # cache node (sticky routing), so a repeated stable prefix stays a
@@ -233,17 +231,13 @@ def generate_openai(
         # (Fireworks reports cached tokens only via a response HEADER, and
         #  HF-router / hosted NVIDIA NIM don't report them at all — those stay
         #  0% in metrics even though the provider may still cache server-side.)
-        prompt_tokens_details = getattr(
-            response.usage, "prompt_tokens_details", None
-        )
+        prompt_tokens_details = getattr(response.usage, "prompt_tokens_details", None)
         if prompt_tokens_details:
             cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
         if not cached_tokens:
             cached_tokens = getattr(response.usage, "cached_tokens", 0) or 0
         if not cached_tokens:
-            cached_tokens = (
-                getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
-            )
+            cached_tokens = getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
 
         # Record cache metrics
         provider_label = iface.provider  # "openai", "grok", "deepseek", etc.

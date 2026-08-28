@@ -187,12 +187,18 @@ class OutlookProvider:
         if "error" in result and not result.get("access_token"):
             return None, None, f"Outlook OAuth failed: {result['error']}"
         info = result.get("userinfo") or {}
-        email = (info.get("mail") or info.get("userPrincipalName") or "").strip().lower()
+        email = (
+            (info.get("mail") or info.get("userPrincipalName") or "").strip().lower()
+        )
         if not email:
-            return None, None, (
-                "Outlook sign-in completed but Microsoft Graph returned no "
-                "email/UPN — cannot store an unaddressable account. "
-                "Please try again."
+            return (
+                None,
+                None,
+                (
+                    "Outlook sign-in completed but Microsoft Graph returned no "
+                    "email/UPN — cannot store an unaddressable account. "
+                    "Please try again."
+                ),
             )
         credential = asdict(
             OutlookCredential(

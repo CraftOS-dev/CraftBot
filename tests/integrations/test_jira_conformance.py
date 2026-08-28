@@ -48,9 +48,7 @@ class TestJiraConformance(ProviderConformance):
 
 def test_identity_is_email_at_site_host_lowercased():
     provider = JiraProvider()
-    assert (
-        provider.identity_of(JIRA_CRED) == "you@example.com@mycompany.atlassian.net"
-    )
+    assert provider.identity_of(JIRA_CRED) == "you@example.com@mycompany.atlassian.net"
 
 
 def test_identity_same_user_two_sites_is_two_accounts():

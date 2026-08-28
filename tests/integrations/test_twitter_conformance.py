@@ -150,7 +150,9 @@ def test_start_listening_backfills_identity_via_persist(monkeypatch):
 
     run(client.start_listening(callback))
     assert started == [callback]  # delegated to the legacy loop
-    assert persisted == [dict(LEGACY_CRED, user_id="1234567890123456789", username="CraftBot")]
+    assert persisted == [
+        dict(LEGACY_CRED, user_id="1234567890123456789", username="CraftBot")
+    ]
     assert client._load().user_id == "1234567890123456789"
     assert client._load().username == "CraftBot"
 

@@ -369,8 +369,7 @@ class LivingUIManager:
                     # app's own (internal) port is the honest liveness probe.
                     if (
                         not frontend_dead
-                        and getattr(project, "project_type", "native")
-                        == "external"
+                        and getattr(project, "project_type", "native") == "external"
                         and project.internal_port
                         and not self._is_port_in_use(project.internal_port)
                     ):
@@ -1337,6 +1336,7 @@ UI in {project.path}/frontend/src/app/."""
         # the only reliable check — a status code never is).
         import importlib
         import sys as _sys
+
         if "app.living_ui.a2app_proxy" in _sys.modules:
             importlib.reload(_sys.modules["app.living_ui.a2app_proxy"])
         from app.living_ui.a2app_proxy import ExternalA2AppProxy
@@ -1413,9 +1413,7 @@ UI in {project.path}/frontend/src/app/."""
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, _sync_check
-            )
+            result = await asyncio.get_event_loop().run_in_executor(None, _sync_check)
             if result:
                 return True
             await asyncio.sleep(0.5)
@@ -1519,9 +1517,7 @@ UI in {project.path}/frontend/src/app/."""
 
             await broadcast_living_ui_ready(project.id, project.url, project.port)
         except Exception as e:
-            logger.debug(
-                f"[LIVING_UI] ready broadcast skipped for {project.id}: {e}"
-            )
+            logger.debug(f"[LIVING_UI] ready broadcast skipped for {project.id}: {e}")
 
     async def open_dev(self, project_id: str) -> dict:
         """Boot the DEV environment for a code change (first build or
@@ -2117,7 +2113,9 @@ UI in {project.path}/frontend/src/app/."""
         # has destroyed real user projects; logging is the safe behavior).
         orphan_count = self._log_orphan_folders()
         if orphan_count > 0:
-            logger.info(f"[LIVING_UI] Found {orphan_count} orphan folder(s) (left in place)")
+            logger.info(
+                f"[LIVING_UI] Found {orphan_count} orphan folder(s) (left in place)"
+            )
 
         # 2b. Reap dev environments. None is legitimately alive at boot
         # (their build/modify missions died with the previous process), but
@@ -2303,13 +2301,18 @@ UI in {project.path}/frontend/src/app/."""
             # say so in the verify history, so the first local modify diffs
             # against the shipped code instead of walking everything.
             try:
-                from app.living_ui.verify_scope import record_delivered, verify_store_dir
+                from app.living_ui.verify_scope import (
+                    record_delivered,
+                    verify_store_dir,
+                )
 
                 record_delivered(
                     project.path, verify_store_dir(project), source="marketplace/import"
                 )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] delivered baseline skipped for {project.id}: {e}")
+                logger.debug(
+                    f"[LIVING_UI] delivered baseline skipped for {project.id}: {e}"
+                )
         else:
             # Trigger-plane consent (spec TRIGGERS-PLAN): apps BUILT here are
             # first-party — the user asked for them and this CraftBot's agent
@@ -3984,10 +3987,9 @@ UI in {project.path}/frontend/src/app/."""
             try:
                 from app.living_ui.lifecycle import live_db_exists
 
-                if (
-                    getattr(project, "project_type", "native") != "external"
-                    and live_db_exists(project.path)
-                ):
+                if getattr(
+                    project, "project_type", "native"
+                ) != "external" and live_db_exists(project.path):
                     async with self._backup_lock:
                         await asyncio.to_thread(
                             self.backups.capture_stopped, project, "pre_delete"

@@ -67,7 +67,10 @@ def test_discord_extract_attachments():
         "url": "https://cdn.discordapp.com/attachments/1/111/cat.png",
     }
     assert atts[1]["kind"] == "document"  # no content_type → document
-    assert atts[2] == {"kind": "embed", "extra": {"title": "A link", "url": "https://x.test"}}
+    assert atts[2] == {
+        "kind": "embed",
+        "extra": {"title": "A link", "url": "https://x.test"},
+    }
     assert atts[3] == {"kind": "sticker", "id": "s1", "name": "wave"}
     assert len(atts) == 4  # empty embed skipped
 
@@ -174,9 +177,10 @@ def test_telegram_user_extract_attachments():
         {"kind": "location", "extra": {"lat": 1.0, "long": 2.0}}
     ]
 
-    assert TelegramUserClient._extract_attachments(
-        SimpleNamespace(id=44, media=None), 777
-    ) == []
+    assert (
+        TelegramUserClient._extract_attachments(SimpleNamespace(id=44, media=None), 777)
+        == []
+    )
 
 
 def test_slack_download_stale_scope_reconnect_error(monkeypatch, tmp_path):
@@ -189,7 +193,10 @@ def test_slack_download_stale_scope_reconnect_error(monkeypatch, tmp_path):
     monkeypatch.setattr(
         SlackClient,
         "get_file_info",
-        lambda self, fid: {"error": "missing_scope", "details": {"needed": "files:read"}},
+        lambda self, fid: {
+            "error": "missing_scope",
+            "details": {"needed": "files:read"},
+        },
     )
     out = client.download_file("F1", str(tmp_path))
     assert "files:read" in out["error"]
@@ -216,7 +223,14 @@ def test_host_descriptor_formatting():
     # Discord: direct CDN url, no action round-trip
     (line,) = format_attachment_descriptors(
         "discord",
-        [{"kind": "photo", "name": "cat.png", "mime": "image/png", "url": "https://cdn/x"}],
+        [
+            {
+                "kind": "photo",
+                "name": "cat.png",
+                "mime": "image/png",
+                "url": "https://cdn/x",
+            }
+        ],
     )
     assert line == (
         '[Attachment: photo "cat.png" (image/png) — fetch directly from url https://cdn/x]'

@@ -106,7 +106,9 @@ def test_bridge_surface_is_empty():
 def test_binding_replaces_disk_plumbing():
     for cls in (BoundLarkClient, BoundLarkCalendarClient, BoundLarkDriveClient):
         client = cls()
-        client.bind_credential(dict(LARK_CRED, extra_junk_key="ignored"), lambda c: None)
+        client.bind_credential(
+            dict(LARK_CRED, extra_junk_key="ignored"), lambda c: None
+        )
         assert client.has_credentials()
         cred = client._load()  # fresh token → no mint, no persist
         assert cred.app_id == LARK_CRED["app_id"]
@@ -160,9 +162,7 @@ def test_provider_refresh_out_of_band(monkeypatch):
         lambda app_id, app_secret: ("t-refreshed", time.time() + 7200, None),
     )
     provider = LarkDriveProvider()
-    updated = asyncio.run(
-        provider.refresh(dict(DRIVE_CRED, token_expires_at=0.0))
-    )
+    updated = asyncio.run(provider.refresh(dict(DRIVE_CRED, token_expires_at=0.0)))
     assert updated["tenant_access_token"] == "t-refreshed"
     # Still-fresh cached token → nothing persisted → None (no update).
     assert asyncio.run(provider.refresh(DRIVE_CRED)) is None
@@ -174,9 +174,7 @@ def test_provider_refresh_failure_returns_none(monkeypatch):
         "validate_and_mint_token",
         lambda app_id, app_secret: (None, 0.0, "Invalid Lark credentials: app deleted"),
     )
-    updated = asyncio.run(
-        LarkProvider().refresh(dict(LARK_CRED, token_expires_at=0.0))
-    )
+    updated = asyncio.run(LarkProvider().refresh(dict(LARK_CRED, token_expires_at=0.0)))
     assert updated is None
 
 
@@ -210,7 +208,11 @@ def test_verify_token_rejected_by_api(monkeypatch):
     monkeypatch.setattr(
         lark_base,
         "validate_and_mint_token",
-        lambda app_id, app_secret: (None, 0.0, "Invalid Lark credentials: app not found"),
+        lambda app_id, app_secret: (
+            None,
+            0.0,
+            "Invalid Lark credentials: app not found",
+        ),
     )
     for provider in ALL_PROVIDERS:
         ok, msg, cred = provider.verify_token(
@@ -273,9 +275,7 @@ def test_verify_token_lark_tolerates_bot_info_failure(monkeypatch):
         "validate_and_mint_token",
         lambda app_id, app_secret: ("t-minted", time.time() + 7200, None),
     )
-    monkeypatch.setattr(
-        lark_mod, "http_request", lambda *a, **k: {"error": "HTTP 400"}
-    )
+    monkeypatch.setattr(lark_mod, "http_request", lambda *a, **k: {"error": "HTTP 400"})
     ok, msg, cred = LarkProvider().verify_token(
         {"app_id": "cli_nobot", "app_secret": "s"}
     )

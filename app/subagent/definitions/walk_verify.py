@@ -325,7 +325,8 @@ def _guard_scope(sub, result: str):
         # A DELTA walk has no turn floor — but an included feature left
         # bare NOT REACHED while turns remain is an unfinished walk.
         bare_nr = [
-            k for k, v in verdicts.items()
+            k
+            for k, v in verdicts.items()
             if v == "NOT REACHED"
             and not _re.search(
                 rf"^-\s+{_re.escape(k)}\s*(?:—|–|:|-)\s*NOT REACHED\s*\((?:code present|tooling)",

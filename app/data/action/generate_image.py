@@ -1,5 +1,4 @@
 from agent_core import action
-from agent_core.utils.logger import logger
 
 
 @action(

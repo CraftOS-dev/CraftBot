@@ -675,7 +675,6 @@ class SubAgentRunner:
             return None, "missing 'action_name' field"
         return parsed, None
 
-
     @staticmethod
     def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
         """First balanced `{…}` in `text` that parses as a dict, scanning

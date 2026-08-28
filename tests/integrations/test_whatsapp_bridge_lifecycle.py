@@ -214,9 +214,7 @@ def test_system_disconnect_tears_down_bridge_before_removing_records(monkeypatch
 
     monkeypatch.setattr(wa_provider, "teardown_account", fake_teardown)
 
-    ok, message = _helpers.system_disconnect(
-        system, "whatsapp_web", "923334055616"
-    )
+    ok, message = _helpers.system_disconnect(system, "whatsapp_web", "923334055616")
 
     assert ok is True
     # Server-side logout + session-dir delete need the account to still

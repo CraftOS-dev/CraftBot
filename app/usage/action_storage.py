@@ -157,9 +157,7 @@ class ActionStorage:
         column-compatible (input_data vs input_json), and the feed is a
         disposable UI cache, so the fix is a drop, not a translation.
         """
-        cols = {
-            row[1] for row in cursor.execute("PRAGMA table_info(action_items)")
-        }
+        cols = {row[1] for row in cursor.execute("PRAGMA table_info(action_items)")}
         if not cols or self._REQUIRED_COLUMNS <= cols:
             return
         missing = sorted(self._REQUIRED_COLUMNS - cols)

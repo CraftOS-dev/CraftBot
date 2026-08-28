@@ -59,7 +59,9 @@ def test_oauth_spec_matches_legacy_handler_and_carries_the_chooser_fix():
         spec.authorize_url
         == "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
     )
-    assert spec.token_url == "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+    assert (
+        spec.token_url == "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+    )
     assert "Mail.Send" in spec.scopes and "offline_access" in spec.scopes
     # THE multi-account fix: without select_account, "Add account" silently
     # re-auths the browser's signed-in Microsoft account.

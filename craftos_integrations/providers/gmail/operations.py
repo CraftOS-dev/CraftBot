@@ -644,7 +644,11 @@ def build_operations() -> List[Operation]:
                 "subject": {"type": "string", "description": "Subject.", "example": ""},
                 "body": {"type": "string", "description": "Body text.", "example": ""},
                 "cc": {"type": "string", "description": "Optional CC.", "example": ""},
-                "bcc": {"type": "string", "description": "Optional BCC.", "example": ""},
+                "bcc": {
+                    "type": "string",
+                    "description": "Optional BCC.",
+                    "example": "",
+                },
                 "attachments": {
                     "type": "array",
                     "description": "Local file paths.",

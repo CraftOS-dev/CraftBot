@@ -27,9 +27,12 @@ import time
 import threading
 from typing import Tuple, Optional, Dict, Any
 
-# Single interpreter for every CraftBot process — see app/python_runtime.py
-# (stdlib-only; app/__init__.py is empty, so safe before any deps exist).
+# Single interpreter for every CraftBot process — see app/python_runtime.py,
+# and the single resolved Node runtime — see app/node_runtime.py (both are
+# stdlib-only; app/__init__.py is empty, so safe before any deps exist).
 from app import python_runtime
+from app import node_runtime
+from app.node_runtime import MIN_NODE_MAJOR
 
 multiprocessing.freeze_support()
 
@@ -928,12 +931,6 @@ def verify_conda_env(env_name: str) -> bool:
         return False
 
 
-# Single resolved Node runtime — see app/node_runtime.py (stdlib-only;
-# app/__init__.py is empty, so this import is safe before any deps exist).
-from app import node_runtime
-from app.node_runtime import MIN_NODE_MAJOR
-
-
 def _install_node_sidecar() -> Optional[str]:
     """Download an official Node build into <BASE_DIR>/runtime/node — no
     PATH edits, nothing else touched; node_runtime discovery picks it up.
@@ -965,9 +962,7 @@ def _install_node_sidecar() -> Optional[str]:
         req = urllib.request.Request(
             "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
         )
-        index = json.loads(
-            urllib.request.urlopen(req, timeout=60, context=ctx).read()
-        )
+        index = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
         ver = next(
             (
                 e["version"]
@@ -1081,10 +1076,16 @@ def ensure_native_runtime() -> None:
                 installed, _ = winreg.QueryValueEx(key, "Installed")
                 return bool(installed)
             except OSError:
-                sys32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+                sys32 = os.path.join(
+                    os.environ.get("SystemRoot", r"C:\Windows"), "System32"
+                )
                 return all(
                     os.path.isfile(os.path.join(sys32, dll))
-                    for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+                    for dll in (
+                        "msvcp140.dll",
+                        "vcruntime140.dll",
+                        "vcruntime140_1.dll",
+                    )
                 )
 
         if _redist_installed():
@@ -1096,7 +1097,9 @@ def ensure_native_runtime() -> None:
         arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
         url = f"https://aka.ms/vs/17/release/vc_redist.{arch}.exe"
         dest = os.path.join(BASE_DIR, f"vc_redist.{arch}.exe")
-        print("\n🔧 Visual C++ Redistributable missing — installing (torch needs it)...")
+        print(
+            "\n🔧 Visual C++ Redistributable missing — installing (torch needs it)..."
+        )
         print(f"   {url}  (a UAC prompt may appear)")
         try:
             urllib.request.urlretrieve(url, dest)
@@ -1112,7 +1115,9 @@ def ensure_native_runtime() -> None:
             if code in (0, 1638, 3010) and _redist_installed():
                 print("✓ Visual C++ Redistributable installed")
             else:
-                print(f"⚠ Redistributable installer exited with {code} — install it manually:")
+                print(
+                    f"⚠ Redistributable installer exited with {code} — install it manually:"
+                )
                 print(f"   {url}")
         except Exception as e:
             print(f"⚠ Could not install the Visual C++ Redistributable: {str(e)[:200]}")
@@ -1132,7 +1137,9 @@ def ensure_native_runtime() -> None:
         ]
         if missing:
             print(f"⚠ Missing system libraries torch needs: {', '.join(missing)}")
-            print(f"   Debian/Ubuntu/Kali:  sudo apt-get install -y {' '.join(missing)}")
+            print(
+                f"   Debian/Ubuntu/Kali:  sudo apt-get install -y {' '.join(missing)}"
+            )
             print("   Fedora/RHEL:         sudo dnf install -y libgomp libstdc++")
 
 
@@ -1154,14 +1161,18 @@ def verify_native_imports(python_cmd: list) -> bool:
     if result is not None and getattr(result, "returncode", 1) == 0:
         print("✓ Memory embedding stack loads (torch, sentence-transformers)")
         return True
-    tail = (getattr(result, "stderr", "") or "").strip().splitlines()[-1:] or ["(no output)"]
+    tail = (getattr(result, "stderr", "") or "").strip().splitlines()[-1:] or [
+        "(no output)"
+    ]
     print("\n✗ The memory embedding stack is installed but does not load:")
     print(f"   {tail[0][:300]}")
     if sys.platform == "win32":
         print("   Usual cause: Visual C++ Redistributable missing/failed —")
         print("   https://aka.ms/vs/17/release/vc_redist.x64.exe, then re-run install.")
     elif sys.platform.startswith("linux"):
-        print("   Usual cause: sudo apt-get install -y libgomp1 libstdc++6, then re-run install.")
+        print(
+            "   Usual cause: sudo apt-get install -y libgomp1 libstdc++6, then re-run install."
+        )
     print("   Escape hatch: set MEMORY_EMBEDDING_MODEL=default (ChromaDB's bundled")
     print("   embedder, no torch) — memory retrieval quality is lower.")
     return False

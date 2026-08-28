@@ -192,9 +192,12 @@ def test_moonshot_omits_temperature(golden):
     # sanity: a normal provider DOES send it
     iface2, rec2 = golden("deepseek", "deepseek-chat")
     iface2.generate_response(system_prompt="s" * 600, user_prompt="hi")
-    assert "temperature" in [
-        c for c in rec2.calls if c["method"] == "chat.completions.create"
-    ][0]["payload"]
+    assert (
+        "temperature"
+        in [c for c in rec2.calls if c["method"] == "chat.completions.create"][0][
+            "payload"
+        ]
+    )
 
 
 def test_provider_request_quirks(golden):
@@ -205,9 +208,9 @@ def test_provider_request_quirks(golden):
     def _payload(provider, model):
         iface, rec = golden(provider, model)
         iface.generate_response(system_prompt="respond in json " * 40, user_prompt="hi")
-        return [
-            c for c in rec.calls if c["method"] == "chat.completions.create"
-        ][0]["payload"]
+        return [c for c in rec.calls if c["method"] == "chat.completions.create"][0][
+            "payload"
+        ]
 
     # Perplexity: json_object is a hard 400 → must be omitted.
     ppx = _payload("perplexity", "sonar-pro")
@@ -266,17 +269,23 @@ def test_minimax_think_tags_stripped(golden):
 
         def _create(self, **kwargs):
             return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(
-                    content='<think>let me reason about this</think>{"action": "done"}'
-                ))],
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content='<think>let me reason about this</think>{"action": "done"}'
+                        )
+                    )
+                ],
                 usage=SimpleNamespace(
-                    prompt_tokens=10, completion_tokens=5,
+                    prompt_tokens=10,
+                    completion_tokens=5,
                     prompt_tokens_details=SimpleNamespace(cached_tokens=0),
                     prompt_cache_hit_tokens=0,
                 ),
             )
 
     import agent_core.core.impl.llm.transports.chat_completions as cc
+
     out = cc._strip_reasoning_tags(
         '<think>let me reason about this</think>{"action": "done"}'
     )
@@ -313,9 +322,7 @@ def test_openrouter_claude(golden):
     assert len(creates) == 4
 
     # Sessionless: cache_control present (long system prompt), 5-min TTL.
-    assert creates[0]["payload"]["extra_body"]["cache_control"] == {
-        "type": "ephemeral"
-    }
+    assert creates[0]["payload"]["extra_body"]["cache_control"] == {"type": "ephemeral"}
 
     # Session turns: cache_control with 1h TTL + prompt_cache_key.
     for call in creates[1:]:
