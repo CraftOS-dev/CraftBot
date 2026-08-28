@@ -109,12 +109,16 @@ class IntegrationBridge:
         if not project_id:
             return web.json_response({"error": "Unauthorized"}, status=401)
 
-        from craftos_integrations import get_registered_platforms, get_client
+        from craftos_integrations import get_registered_platforms
+        from app.data.action.integrations._helpers import system_for
 
         integrations = []
         for platform_id in get_registered_platforms():
-            client = get_client(platform_id)
-            connected = client.has_credentials() if client else False
+            system = system_for(platform_id)
+            try:
+                connected = bool(system and system.list_accounts(platform_id))
+            except Exception:
+                connected = False
             integrations.append(
                 {
                     "id": platform_id,
@@ -151,6 +155,9 @@ class IntegrationBridge:
         url = data.get("url", "")
         extra_headers = data.get("headers") or {}
         body = data.get("body")
+        # Optional multi-account selector: identity, alias, or unique
+        # fragment (same resolution as agent actions). Omitted = primary.
+        account = (data.get("account") or "").strip() or None
 
         if not integration or not url:
             return web.json_response(
@@ -191,11 +198,15 @@ class IntegrationBridge:
         url = resolved
 
         # Get auth headers from platform client
-        auth_headers = self._get_auth_headers(integration)
+        auth_headers = self._get_auth_headers(integration, account)
         if auth_headers is None:
+            detail = f" (account {account!r} not found?)" if account else ""
             return web.json_response(
                 {
-                    "error": f"Integration '{integration}' not connected (no credentials)"
+                    "error": (
+                        f"Integration '{integration}' not connected "
+                        f"(no credentials){detail}"
+                    )
                 },
                 status=424,
             )
@@ -479,21 +490,23 @@ class IntegrationBridge:
                     status=403,
                 )
 
-            # Gate 4 — era. Pre-delivery fires are agent/verifier test
-            # traffic (the walk verifier clicks ⚡ buttons), and a staging
-            # copy aliases to the real project id through the shared bridge
-            # token. Neither may start real agent runs — pre-delivery rows
-            # are wiped by the baseline restore anyway. NOT keyed on the
-            # factory machine: machine_for lazily creates a BUILDING machine
-            # for any project, so a marketplace install (which never builds
-            # here) would read as mid-arc forever.
-            delivered = host.is_delivered(project_id)
-            staging = host.get_staging_record(project_id)
-            if not delivered or staging:
+            # Gate 4 — era. While a DEV environment exists, fires are
+            # agent/verifier test traffic (the walk verifier clicks ⚡
+            # buttons in the dev instance, which aliases to the real project
+            # id through the shared bridge token) — they must not start real
+            # agent runs; the dev copy and its rows die at promote anyway.
+            # With no dev env there is nothing mid-change that could fire
+            # falsely: during a first build the live app does not run yet,
+            # and after a promote fires are legitimate operation. NOT keyed
+            # on the factory machine: machine_for lazily creates a BUILDING
+            # machine for any project, so a marketplace install (which never
+            # builds here) would read as mid-arc forever.
+            dev_env = host.get_staging_record(project_id)
+            if dev_env:
                 logger.info(
                     f"[INTEGRATION_BRIDGE] trigger fire deferred (era) "
                     f"project={project_id} trigger={trigger!r} "
-                    f"delivered={delivered} staging={bool(staging)}"
+                    f"dev_env=True"
                 )
                 return web.json_response(
                     {
@@ -765,17 +778,39 @@ class IntegrationBridge:
                 return True, raw
         return False, f"host {host!r} is not one of {', '.join(allowed)}"
 
-    def _get_auth_headers(self, platform_id: str) -> Optional[dict]:
+    def _client_for_platform(self, platform_id: str, account: Optional[str] = None):
+        """Credentialed client for a platform, or None.
+
+        Multi-account provider ids resolve ``account`` (identity / alias /
+        unique fragment, None = primary) through the IntegrationSystem —
+        the bound client subclasses the legacy client, so the
+        header-extraction below works unchanged. Platforms without a v2
+        provider keep the legacy single-account client.
+        """
+        from app.data.action.integrations._helpers import system_for
+
+        system = system_for(platform_id)
+        if system is not None:
+            try:
+                identity = system.resolve(platform_id, account)
+                return system.client_for(platform_id, identity)
+            except Exception:
+                # Not connected / bad account hint (AccountResolutionError)
+                # or build failure.
+                return None
+        return None
+
+    def _get_auth_headers(
+        self, platform_id: str, account: Optional[str] = None
+    ) -> Optional[dict]:
         """
         Get authentication headers from a platform client.
 
         Returns:
             Dict of auth headers, or None if credentials unavailable.
         """
-        from craftos_integrations import get_client
-
-        client = get_client(platform_id)
-        if not client or not client.has_credentials():
+        client = self._client_for_platform(platform_id, account)
+        if client is None:
             return None
 
         # Most clients expose _headers() — use it

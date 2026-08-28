@@ -30,17 +30,11 @@ from app.ui_layer.settings.skill_settings import (
 )
 
 from craftos_integrations import (
-    connect_token as connect_integration_token,
-    connect_oauth as connect_integration_oauth,
-    connect_interactive as connect_integration_interactive,
-    disconnect as disconnect_integration,
-    get_integration_accounts,
     get_integration_auth_type,
     get_integration_fields,
     get_integration_info_sync as get_integration_info,
-    list_integrations_sync as list_integrations,
 )
-from craftos_integrations.integrations.whatsapp_web import (
+from craftos_integrations.providers.whatsapp_web.client import (
     start_qr_session as start_whatsapp_qr_session,
     check_qr_session_status as check_whatsapp_session_status,
     cancel_qr_session as cancel_whatsapp_session,
@@ -96,8 +90,21 @@ from app.ui_layer.settings.memory_settings import (
     update_memory_item,
     remove_memory_item,
     reset_memory,
+    reset_entity_registry,
     clear_unprocessed_events,
     get_memory_stats,
+    # Auto-processing schedule + threshold
+    get_memory_processing_threshold,
+    get_memory_processing_threshold_max,
+    set_memory_processing_threshold,
+    get_unprocessed_event_count,
+    memory_schedule_expression,
+    # Indexed files
+    get_memory_indexed_files,
+    set_memory_indexed_files,
+    add_memory_indexed_file,
+    remove_memory_indexed_file,
+    list_indexable_candidates,
 )
 
 # Model settings
@@ -108,6 +115,7 @@ from app.ui_layer.settings.model_settings import (
     test_connection,
     validate_can_save,
     get_ollama_models,
+    get_provider_models,
 )
 
 # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok). Anthropic is excluded
@@ -144,13 +152,7 @@ __all__ = [
     "get_skill_template",
     "remove_skill",
     # Integration settings
-    "list_integrations",
     "get_integration_info",
-    "get_integration_accounts",
-    "connect_integration_token",
-    "connect_integration_oauth",
-    "connect_integration_interactive",
-    "disconnect_integration",
     "get_integration_auth_type",
     "get_integration_fields",
     # WhatsApp QR code flow
@@ -195,6 +197,17 @@ __all__ = [
     "update_memory_item",
     "remove_memory_item",
     "reset_memory",
+    "reset_entity_registry",
+    "get_memory_processing_threshold",
+    "get_memory_processing_threshold_max",
+    "set_memory_processing_threshold",
+    "get_unprocessed_event_count",
+    "memory_schedule_expression",
+    "get_memory_indexed_files",
+    "set_memory_indexed_files",
+    "add_memory_indexed_file",
+    "remove_memory_indexed_file",
+    "list_indexable_candidates",
     "clear_unprocessed_events",
     "get_memory_stats",
     # Model settings
@@ -204,6 +217,7 @@ __all__ = [
     "test_connection",
     "validate_can_save",
     "get_ollama_models",
+    "get_provider_models",
     # Subscription OAuth
     "connect_subscription",
     "connect_subscription_async",

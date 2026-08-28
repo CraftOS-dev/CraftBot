@@ -8,7 +8,7 @@ CraftBot is split into a reusable engine and a concrete application that wires t
 
 `agent_core/` is the runtime-agnostic engine. It defines the data types (`Trigger`, `Task`, `TodoItem`, `Event`), the interfaces a host must satisfy (`agent_core/core/llm_interface.py`, `database_interface.py`, `embedding_interface.py`), the component registries (`agent_core/core/registry/`), and the default implementations under `agent_core/core/impl/` (action execution, event streams, memory, skills, MCP, settings). It knows nothing about which UI is attached or which chat platform delivered a message. `agent_core/__init__.py` re-exports the public surface, so most code imports classes such as `Task`, `ActionRegistry`, `ActionManager`, and `EventStream` directly from `agent_core`.
 
-`app/` is the CraftBot application. It supplies a concrete runtime around the engine: the interface layer (`app/ui_layer/`), external communications (`app/external_comms/`, `craftos_integrations/`), the scheduler (`app/scheduler/`), configuration (`app/config/`), and the built-in actions and skills the agent ships with. `AgentBase` in `app/agent_base.py` is the object that holds all of this together.
+`app/` is the CraftBot application. It supplies a concrete runtime around the engine: the interface layer (`app/ui_layer/`), external communications (`craftos_integrations/`), the scheduler (`app/scheduler/`), configuration (`app/config/`), and the built-in actions and skills the agent ships with. `AgentBase` in `app/agent_base.py` is the object that holds all of this together.
 
 Many `app/*.py` modules are thin bindings over engine classes. `app/context_engine.py` is a pure re-export of `agent_core.core.impl.context.ContextEngine`. `app/task/task_manager.py` defines a `TaskManager` that subclasses the engine's `agent_core.core.impl.task.TaskManager` and passes CraftBot-specific hooks (the `STATE` singleton, per-task event streams, session persistence for crash recovery). This is the general pattern: the engine provides behavior, the app injects the concrete dependencies.
 
@@ -37,7 +37,6 @@ CraftBot/
 │   ├── ui_layer/                   interfaces + UIController (trigger consumer)
 │   ├── triggers/                   TriggerService, sources, durable store
 │   ├── scheduler/                  SchedulerManager: fires due schedules
-│   ├── external_comms/             inbound platform listeners and bridges
 │   ├── context_engine.py           re-export of engine ContextEngine
 │   ├── task/                       TaskManager subclass with app hooks
 │   ├── state/                      STATE singleton, StateManager
@@ -48,7 +47,7 @@ CraftBot/
 │
 ├── skills/                         installable skill packages (each has SKILL.md)
 ├── craftos_integrations/           integration package (clients + handlers)
-│   ├── registry.py                 autoload + @register_client/@register_handler
+│   ├── registry.py                 autoload + @register_client
 │   └── integrations/               one subpackage per platform
 ├── agent_file_system/              the agent's working files (EVENT.md, MEMORY.md)
 └── run.py                          launcher that starts the process
@@ -136,7 +135,7 @@ CraftBot assembles its capabilities by discovery at import and boot time rather 
 
 **Prompts.** `agent_core/core/prompts/registry.py` defines `PromptRegistry` and the `prompt_registry` singleton, with `register_prompt(name, prompt)` and `get_prompt(name)`. Prompt constants are registered at import and referenced by name, which keeps the static prompt prefix identical across turns.
 
-**Integrations.** `craftos_integrations/registry.py` keeps two parallel registries, one for runtime platform clients and one for auth handlers, populated by the `@register_client` and `@register_handler` decorators. `autoload_integrations()` walks the `craftos_integrations/integrations/` subpackage and imports every module, firing those decorators. Adding an integration is one file drop with no edits to the registry, and `boot()` calls the autoload during external-library setup.
+**Integrations.** `craftos_integrations/registry.py` keeps the runtime platform-client registry, populated by the `@register_client` decorator. `autoload_integrations()` walks `craftos_integrations/providers/` and imports each provider's `client.py`, firing those decorators. Adding an integration is one folder drop plus one line in `default_providers()`, and `boot()` calls the autoload during external-library setup.
 
 Concrete subsystems are resolved through the component registries in `agent_core/core/registry/`. Code calls accessors such as `get_task_manager()`, `get_action_manager()`, `get_event_stream_manager()`, and `get_context_engine()` instead of constructing dependencies directly, so the app can register its own implementations once at boot and the engine stays decoupled from them.
 

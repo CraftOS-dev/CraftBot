@@ -14,11 +14,26 @@ export const selectSessionHasMoreMessages = (state: RootState, sessionId: string
 export const selectSessionLoadingOlderMessages = (state: RootState, sessionId: string): boolean =>
   state.messages.bySession[sessionId]?.loadingOlder ?? false
 
+// State of the session's initial history load this connection
+// ('unfetched' | 'loading' | 'fetched'). Drives the mount-time
+// chat_history fetch.
+export const selectSessionHistoryStatus = (state: RootState, sessionId: string) =>
+  state.messages.bySession[sessionId]?.historyStatus ?? 'unfetched'
+
 export const selectSessionOldestMessageTimestamp = (
   state: RootState,
   sessionId: string,
 ): number | undefined =>
   state.messages.bySession[sessionId]?.items[0]?.timestamp
+
+// Unanswered agent questions of one session, oldest first — the pinned
+// question queue. Derived entirely from the messages bucket: a question is
+// pending until markOptionSelected records an answer (or dismissal), so it
+// survives reloads via chat history with no extra state.
+export const selectPendingQuestions = createSelector(
+  [selectSessionMessages],
+  (items): ChatMessage[] => items.filter(m => m.isQuestion && !m.optionSelected),
+)
 
 // All messages across every session, in timestamp order. Used by global
 // consumers (mascot, dashboard status) that watch overall agent activity.

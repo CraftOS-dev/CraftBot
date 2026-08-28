@@ -268,13 +268,22 @@ class VLMInterface:
             if log_response:
                 logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
 
+            # Native-wire providers are matched by name first; every other
+            # OpenAI-compatible provider (all Phase-3 additions: groq,
+            # mistral, together, fireworks, qwen, huggingface, nvidia,
+            # lmstudio, vllm, ... and openrouter) falls through to the
+            # OpenAI image_url path via a WIRE check — replacing the old
+            # hardcoded ("openai","minimax","moonshot","grok","glm") tuple
+            # that raised "Unknown provider" for any new VLM-capable
+            # provider (docs/PROVIDER_SETTINGS_UX_FIX.md A1).
+            from agent_core.core.models.registry import get_registry
+
+            _profile = get_registry().get(self.provider)
+            _wire = _profile.wire if _profile is not None else "chat_completions"
+
             if self.provider == "deepseek":
                 raise RuntimeError(
                     "DeepSeek does not support vision/VLM. Use a different provider for image description."
-                )
-            elif self.provider in ("openai", "minimax", "moonshot", "grok", "glm"):
-                response = self._openai_describe_bytes(
-                    image_bytes, system_prompt, user_prompt, json_mode=json_mode
                 )
             elif self.provider == "remote":
                 response = self._ollama_describe_bytes(
@@ -295,6 +304,10 @@ class VLMInterface:
             elif self.provider == "bedrock":
                 response = self._bedrock_describe_bytes(
                     image_bytes, system_prompt, user_prompt
+                )
+            elif _wire == "chat_completions":
+                response = self._openai_describe_bytes(
+                    image_bytes, system_prompt, user_prompt, json_mode=json_mode
                 )
             else:
                 raise RuntimeError(f"Unknown provider {self.provider!r}")
@@ -550,23 +563,29 @@ class VLMInterface:
                 ],
             }
         )
-        # Newer OpenAI models (o1, o3, o4, gpt-5, etc.) require
-        # 'max_completion_tokens' instead of the legacy 'max_tokens' parameter.
         request_kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "temperature": self.temperature,
         }
-        if json_mode:
-            request_kwargs["response_format"] = {"type": "json_object"}
-        model_lower = (self.model or "").lower()
-        uses_max_completion_tokens = (
-            model_lower.startswith("o1")
-            or model_lower.startswith("o3")
-            or model_lower.startswith("o4")
-            or model_lower.startswith("gpt-5")
+        # Same per-profile request policies as the LLM chat_completions
+        # transport: temperature via resolve_temperature (OpenAI and
+        # Kimi/Moonshot omit the field — their reasoning models reject an
+        # explicit value); response_format json_object omitted for providers
+        # that reject it (Perplexity/LM Studio); max-tokens field name via
+        # profile.uses_max_completion_tokens.
+        from agent_core.core.models.registry import get_registry
+        from agent_core.core.models.provider_config import (
+            OMIT_TEMPERATURE,
+            resolve_temperature,
         )
-        if uses_max_completion_tokens:
+
+        _profile = get_registry().get(self.provider)
+        _temp = resolve_temperature(_profile, self.temperature)
+        if _temp is not OMIT_TEMPERATURE:
+            request_kwargs["temperature"] = _temp
+        if json_mode and (_profile is None or _profile.supports_json_object):
+            request_kwargs["response_format"] = {"type": "json_object"}
+        if _profile is not None and _profile.uses_max_completion_tokens:
             request_kwargs["max_completion_tokens"] = 2048
         else:
             request_kwargs["max_tokens"] = 2048
@@ -791,7 +810,7 @@ class VLMInterface:
             else:
                 message_kwargs["system"] = sys
 
-        message_kwargs["temperature"] = self.temperature
+        message_kwargs["extra_body"] = {"temperature": self.temperature}
 
         response = self._anthropic_client.messages.create(**message_kwargs)
 

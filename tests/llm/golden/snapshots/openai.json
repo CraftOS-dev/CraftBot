@@ -1,0 +1,158 @@
+{
+  "calls": [
+    {
+      "client": "openai_compat",
+      "method": "chat.completions.create",
+      "payload": {
+        "extra_body": {
+          "prompt_cache_key": "907eed6c3582215b"
+        },
+        "max_completion_tokens": 50000,
+        "messages": [
+          {
+            "content": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. ",
+            "role": "system"
+          },
+          {
+            "content": "sessionless turn",
+            "role": "user"
+          }
+        ],
+        "model": "gpt-5.2-2025-12-11",
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    },
+    {
+      "client": "openai_compat",
+      "method": "chat.completions.create",
+      "payload": {
+        "extra_body": {
+          "prompt_cache_key": "reasoning_907eed6c3582215b"
+        },
+        "max_completion_tokens": 50000,
+        "messages": [
+          {
+            "content": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. ",
+            "role": "system"
+          },
+          {
+            "content": "session turn 1",
+            "role": "user"
+          }
+        ],
+        "model": "gpt-5.2-2025-12-11",
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    },
+    {
+      "client": "openai_compat",
+      "method": "chat.completions.create",
+      "payload": {
+        "extra_body": {
+          "prompt_cache_key": "reasoning_907eed6c3582215b"
+        },
+        "max_completion_tokens": 50000,
+        "messages": [
+          {
+            "content": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. ",
+            "role": "system"
+          },
+          {
+            "content": "session turn 1",
+            "role": "user"
+          },
+          {
+            "content": "{\"turn\": 2}",
+            "role": "assistant"
+          },
+          {
+            "content": "session turn 2",
+            "role": "user"
+          }
+        ],
+        "model": "gpt-5.2-2025-12-11",
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    },
+    {
+      "client": "openai_compat",
+      "method": "chat.completions.create",
+      "payload": {
+        "extra_body": {
+          "prompt_cache_key": "reasoning_907eed6c3582215b"
+        },
+        "max_completion_tokens": 50000,
+        "messages": [
+          {
+            "content": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. ",
+            "role": "system"
+          },
+          {
+            "content": "session turn 1",
+            "role": "user"
+          },
+          {
+            "content": "{\"turn\": 2}",
+            "role": "assistant"
+          },
+          {
+            "content": "session turn 2",
+            "role": "user"
+          },
+          {
+            "content": "{\"turn\": 3}",
+            "role": "assistant"
+          },
+          {
+            "content": "session turn 3",
+            "role": "user"
+          }
+        ],
+        "model": "gpt-5.2-2025-12-11",
+        "response_format": {
+          "type": "json_object"
+        }
+      }
+    }
+  ],
+  "session_buffers": {
+    "anthropic": {},
+    "bedrock": {},
+    "gemini": {},
+    "openai_compat": {
+      "task-golden:reasoning": [
+        {
+          "content": "session turn 1",
+          "role": "user"
+        },
+        {
+          "content": "{\"turn\": 2}",
+          "role": "assistant"
+        },
+        {
+          "content": "session turn 2",
+          "role": "user"
+        },
+        {
+          "content": "{\"turn\": 3}",
+          "role": "assistant"
+        },
+        {
+          "content": "session turn 3",
+          "role": "user"
+        },
+        {
+          "content": "{\"turn\": 4}",
+          "role": "assistant"
+        }
+      ]
+    },
+    "openrouter_anthropic": {}
+  }
+}

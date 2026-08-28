@@ -9,21 +9,19 @@ These interfaces define the contract that any UI implementation
 from app.onboarding.interfaces.base import OnboardingInterface
 from app.onboarding.interfaces.steps import (
     HardOnboardingStep,
-    StepResult,
+    IntroStep,
     ProviderStep,
     ApiKeyStep,
+    UserProfileStep,
     AgentNameStep,
-    IntegrationStep,
-    SkillsStep,
 )
 
 __all__ = [
     "OnboardingInterface",
     "HardOnboardingStep",
-    "StepResult",
+    "IntroStep",
     "ProviderStep",
     "ApiKeyStep",
+    "UserProfileStep",
     "AgentNameStep",
-    "IntegrationStep",
-    "SkillsStep",
 ]

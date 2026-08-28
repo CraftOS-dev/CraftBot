@@ -1,5 +1,5 @@
 {
-  "version": "1.4.1",
+  "version": "1.4.2",
   "general": {
     "agent_name": "CraftBot",
     "os_language": "en"
@@ -12,6 +12,10 @@
     "max_items": 200,
     "prune_target": 135,
     "item_word_limit": 150
+  },
+  "context": {
+    "summarize_at_tokens": 100000,
+    "tail_keep_after_summarize_tokens": 10000
   },
   "model": {
     "slow_mode": true,
@@ -84,5 +88,8 @@
   "auth_mode": {
     "grok": "subscription",
     "openai": "subscription"
+  },
+  "living_ui": {
+    "marketplace_ref": ""
   }
 }

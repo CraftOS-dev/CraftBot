@@ -75,11 +75,14 @@ async def browser_probe(input_data: dict) -> dict:
         }
 
     from app.config import PROJECT_ROOT
+    from app import node_runtime
 
     cli = Path(PROJECT_ROOT) / "living-ui" / "tools" / "src" / "cli.ts"
     out_dir = str(Path(input_data.get("project_path") or "/tmp") / "logs" / "verify")
     proc = await asyncio.create_subprocess_exec(
-        "node",
+        # the resolved >= 24 runtime — the CLI is TypeScript, bare PATH
+        # "node" may be an older major (see app/node_runtime.py)
+        node_runtime.node_cmd() or "node",
         str(cli),
         "probe",
         "--url",
@@ -88,6 +91,7 @@ async def browser_probe(input_data: dict) -> dict:
         json.dumps(steps),
         "--out",
         out_dir,
+        env=node_runtime.child_env(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )

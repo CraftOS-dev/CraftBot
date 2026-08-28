@@ -17,6 +17,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from aiohttp.client_exceptions import ClientConnectionResetError
 
+from agent_core.core.impl.memory.tuning import (
+    PROCESSING_THRESHOLD_DEFAULT,
+    SCHEDULE_HOUR_DEFAULT,
+    SCHEDULE_MINUTE_DEFAULT,
+)
 from agent_core.utils.logger import logger
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
@@ -49,8 +54,18 @@ from app.ui_layer.settings import (
     update_memory_item,
     remove_memory_item,
     reset_memory,
+    reset_entity_registry,
     clear_unprocessed_events,
     get_memory_stats,
+    get_memory_processing_threshold,
+    get_memory_processing_threshold_max,
+    set_memory_processing_threshold,
+    get_unprocessed_event_count,
+    memory_schedule_expression,
+    set_memory_indexed_files,
+    add_memory_indexed_file,
+    remove_memory_indexed_file,
+    list_indexable_candidates,
     # Model settings
     get_available_providers,
     get_model_settings,
@@ -58,6 +73,7 @@ from app.ui_layer.settings import (
     test_connection,
     validate_can_save,
     get_ollama_models,
+    get_provider_models,
     # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok)
     complete_subscription,
     connect_subscription_async,
@@ -85,12 +101,6 @@ from app.ui_layer.settings import (
     get_skill_template,
     remove_skill,
     # Integration settings
-    list_integrations,
-    get_integration_info,
-    connect_integration_token,
-    connect_integration_oauth,
-    connect_integration_interactive,
-    disconnect_integration,
     # WhatsApp QR code flow
     start_whatsapp_qr_session,
     check_whatsapp_session_status,
@@ -104,7 +114,12 @@ from app.ui_layer.components.protocols import (
     StatusBarProtocol,
     FootageComponentProtocol,
 )
-from app.ui_layer.components.types import ChatMessage, ActionItem, Attachment
+from app.ui_layer.components.types import (
+    ChatMessage,
+    ActionItem,
+    Attachment,
+    QUESTION_DISMISSED_VALUE,
+)
 from app.ui_layer.events import UIEvent, UIEventType
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
@@ -203,47 +218,54 @@ class BrowserChatComponent(ChatComponentProtocol):
             # Load recent messages from storage (initial page)
             stored_messages = self._storage.get_recent_messages(limit=50)
             for stored in stored_messages:
-                attachments = None
-                if stored.attachments:
-                    attachments = [
-                        Attachment(
-                            name=att.get("name", ""),
-                            path=att.get("path", ""),
-                            type=att.get("type", ""),
-                            size=att.get("size", 0),
-                            url=att.get("url", ""),
-                        )
-                        for att in stored.attachments
-                    ]
-                options = None
-                if stored.options:
-                    from app.ui_layer.components.types import ChatMessageOption
-
-                    options = [
-                        ChatMessageOption(
-                            label=o.get("label", ""),
-                            value=o.get("value", ""),
-                            style=o.get("style", "default"),
-                        )
-                        for o in stored.options
-                    ]
-                self._messages.append(
-                    ChatMessage(
-                        sender=stored.sender,
-                        content=stored.content,
-                        style=stored.style,
-                        timestamp=stored.timestamp,
-                        message_id=stored.message_id,
-                        attachments=attachments,
-                        session_id=stored.session_id,
-                        options=options,
-                        option_selected=stored.option_selected,
-                        continue_work=stored.continue_work,
-                    )
-                )
+                self._messages.append(self._stored_to_chat_message(stored))
         except Exception:
             # Storage may not be available, continue without persistence
             pass
+
+    @staticmethod
+    def _stored_to_chat_message(stored) -> ChatMessage:
+        """Rehydrate a StoredChatMessage row into the live ChatMessage shape."""
+        from app.ui_layer.components.types import ChatMessageOption
+
+        attachments = None
+        if stored.attachments:
+            attachments = [
+                Attachment(
+                    name=att.get("name", ""),
+                    path=att.get("path", ""),
+                    type=att.get("type", ""),
+                    size=att.get("size", 0),
+                    url=att.get("url", ""),
+                )
+                for att in stored.attachments
+            ]
+        options = None
+        if stored.options:
+            options = [
+                ChatMessageOption(
+                    label=o.get("label", ""),
+                    value=o.get("value", ""),
+                    style=o.get("style", "default"),
+                )
+                for o in stored.options
+            ]
+        return ChatMessage(
+            sender=stored.sender,
+            content=stored.content,
+            style=stored.style,
+            timestamp=stored.timestamp,
+            message_id=stored.message_id,
+            attachments=attachments,
+            session_id=stored.session_id,
+            options=options,
+            option_selected=stored.option_selected,
+            continue_work=stored.continue_work,
+            is_question=stored.is_question,
+            allow_free_text=stored.allow_free_text,
+            requires_choice=not stored.is_question,
+            details=stored.details,
+        )
 
     async def append_message(self, message: ChatMessage) -> None:
         """Append message and broadcast to clients."""
@@ -283,6 +305,9 @@ class BrowserChatComponent(ChatComponentProtocol):
                     session_id=message.session_id,
                     options=options_data,
                     continue_work=message.continue_work,
+                    is_question=message.is_question,
+                    allow_free_text=message.allow_free_text,
+                    details=message.details,
                 )
                 self._storage.insert_message(stored)
             except Exception:
@@ -343,47 +368,7 @@ class BrowserChatComponent(ChatComponentProtocol):
             stored = self._storage.get_messages_before(
                 before_timestamp, session_id=session_id, limit=limit
             )
-            messages = []
-            for s in stored:
-                attachments = None
-                if s.attachments:
-                    attachments = [
-                        Attachment(
-                            name=att.get("name", ""),
-                            path=att.get("path", ""),
-                            type=att.get("type", ""),
-                            size=att.get("size", 0),
-                            url=att.get("url", ""),
-                        )
-                        for att in s.attachments
-                    ]
-                options = None
-                if s.options:
-                    from app.ui_layer.components.types import ChatMessageOption
-
-                    options = [
-                        ChatMessageOption(
-                            label=o.get("label", ""),
-                            value=o.get("value", ""),
-                            style=o.get("style", "default"),
-                        )
-                        for o in s.options
-                    ]
-                messages.append(
-                    ChatMessage(
-                        sender=s.sender,
-                        content=s.content,
-                        style=s.style,
-                        timestamp=s.timestamp,
-                        message_id=s.message_id,
-                        attachments=attachments,
-                        session_id=s.session_id,
-                        options=options,
-                        option_selected=s.option_selected,
-                        continue_work=s.continue_work,
-                    )
-                )
-            return messages
+            return [self._stored_to_chat_message(s) for s in stored]
         except Exception:
             return []
 
@@ -401,13 +386,77 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
     """Browser activity feed component.
 
     Holds the per-session activity items (actions and reasoning) rendered
-    inline in each session's chat. In-memory only: activity is ephemeral
-    run telemetry, the durable record is the session's event stream.
+    inline in each session's chat. Write-through persisted to ActionStorage
+    (like chat messages), so the feed survives restarts and crashes
+    independently of the session's event stream, which summarizes and
+    prunes itself for LLM context.
     """
+
+    # How many items per session to load back into memory at boot. Bounds
+    # the init payload; the full history stays in storage.
+    RESTORE_PER_SESSION_LIMIT = 100
 
     def __init__(self, adapter: "BrowserAdapter") -> None:
         self._adapter = adapter
         self._items: List[ActionItem] = []
+        self._storage = None
+        self._init_storage()
+
+    def _init_storage(self) -> None:
+        """Initialize storage and load each session's recent items."""
+        try:
+            from app.usage.action_storage import get_action_storage
+
+            self._storage = get_action_storage()
+
+            # Anything still 'running' in storage died with the previous
+            # process — close it out before loading.
+            self._storage.mark_running_interrupted()
+
+            for stored in self._storage.get_recent_items_by_session(
+                self.RESTORE_PER_SESSION_LIMIT
+            ):
+                self._items.append(
+                    ActionItem(
+                        id=stored.id,
+                        name=stored.name,
+                        status=stored.status,
+                        item_type=stored.item_type,
+                        session_id=stored.session_id,
+                        created_at=stored.created_at,
+                        completed_at=stored.completed_at,
+                        input_data=stored.input_data,
+                        output_data=stored.output_data,
+                        error_message=stored.error_message,
+                    )
+                )
+        except Exception:
+            # Storage may not be available, continue without persistence
+            logger.exception("[ActionStorage] Failed to initialize activity storage")
+
+    def _persist_item(self, item: ActionItem) -> None:
+        """Write-through an item's full current state to storage."""
+        if not self._storage:
+            return
+        try:
+            from app.usage.action_storage import StoredActionItem
+
+            self._storage.save_item(
+                StoredActionItem(
+                    id=item.id,
+                    name=item.name,
+                    status=item.status,
+                    item_type=item.item_type,
+                    session_id=item.session_id,
+                    created_at=item.created_at,
+                    completed_at=item.completed_at,
+                    input_data=item.input_data,
+                    output_data=item.output_data,
+                    error_message=item.error_message,
+                )
+            )
+        except Exception as e:
+            logger.warning(f"[ActionStorage] Failed to persist item {item.id}: {e}")
 
     @staticmethod
     def _item_payload(item: ActionItem) -> Dict[str, Any]:
@@ -429,7 +478,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         }
 
     async def add_item(self, item: ActionItem) -> None:
-        """Add item and broadcast. Prevents duplicates by ID."""
+        """Add item, persist it, and broadcast. Prevents duplicates by ID."""
         # Check if item with same ID already exists
         for existing in self._items:
             if existing.id == item.id:
@@ -439,6 +488,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 return
 
         self._items.append(item)
+        self._persist_item(item)
 
         await self._adapter._broadcast(
             {
@@ -467,13 +517,14 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         )
 
     async def update_item(self, item_id: str, status: str) -> None:
-        """Update item status by ID and broadcast."""
+        """Update item status by ID, persist, and broadcast."""
         for item in self._items:
             if item.id == item_id:
                 item.status = status
                 # Record completion time for terminal statuses
                 if status in ("completed", "error") and item.completed_at is None:
                     item.completed_at = time.time()
+                self._persist_item(item)
                 await self._broadcast_update(item)
                 return
 
@@ -530,6 +581,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             if error is not None:
                 matched_item.error_message = error
 
+            self._persist_item(matched_item)
             await self._broadcast_update(matched_item)
 
     async def update_item_data(
@@ -545,6 +597,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     item.output_data = output
                 if error is not None:
                     item.error_message = error
+                self._persist_item(item)
                 await self._broadcast_update(item)
                 return
 
@@ -552,6 +605,11 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         """Remove item and broadcast."""
         removed = next((i for i in self._items if i.id == item_id), None)
         self._items = [i for i in self._items if i.id != item_id]
+        if self._storage:
+            try:
+                self._storage.delete_item(item_id)
+            except Exception:
+                pass
 
         await self._adapter._broadcast(
             {
@@ -564,14 +622,26 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         )
 
     async def clear(self) -> None:
-        """Clear all items and broadcast."""
+        """Clear all items (memory + storage) and broadcast."""
         self._items.clear()
+        if self._storage:
+            try:
+                self._storage.clear_items()
+            except Exception:
+                pass
 
         await self._adapter._broadcast(
             {
                 "type": "action_clear",
             }
         )
+
+    def drop_session_items(self, session_id: str) -> None:
+        """Drop a session's items from memory only (storage rows are cleared
+        by the owner of the operation — session deletion purges them via the
+        session-delete hook, conversation clears purge them alongside the
+        chat rows)."""
+        self._items = [i for i in self._items if i.session_id != session_id]
 
     def get_items(self) -> List[ActionItem]:
         """Get all loaded items."""
@@ -679,10 +749,6 @@ class BrowserAdapter(InterfaceAdapter):
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
-        # One-shot flag: the activity feed is rebuilt from persisted event
-        # streams on the first init request after boot (see
-        # _restore_activity_items).
-        self._activity_restored = False
         self._status_bar = BrowserStatusBarComponent(self)
         self._footage = BrowserFootageComponent(self)
         self._app: Optional["web.Application"] = None
@@ -1224,10 +1290,39 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._handle_chat_attachment_upload(data)
 
         elif msg_type == "command":
-            # User sent a command
+            # User sent a slash command. Mirror the "message" branch's lazy
+            # draft-session creation, but only for commands that operate on or
+            # produce the conversation they were typed in (skills, /clear —
+            # they declare requires_session). A draft must materialize a real
+            # session before those run: otherwise a skill turn leaks into the
+            # main session and session-scoped output orphans in the never-
+            # committed draft. Global informational commands (/help, /mcp, …)
+            # run in place — their output stays in the draft as immediate
+            # feedback without spawning an empty session in the sidebar.
             command = data.get("command", "")
             session_id = data.get("sessionId") or "main"
+            client_id = data.get("clientId")
             if command:
+                if session_id == "new":
+                    name = command.strip().split()[0].lower() if command.strip() else ""
+                    cmd = self._controller.command_registry.get(name) if name else None
+                    if cmd is not None and cmd.requires_session:
+                        session = self._controller.agent.create_chat_session()
+                        session_id = session.id
+                        await self._broadcast(
+                            {
+                                "type": "session_created",
+                                "data": {
+                                    "session": self._session_info(session),
+                                    "clientId": client_id,
+                                    # Only skills launch a turn; a state command
+                                    # like /clear commits a session but starts no
+                                    # run, so the draft handoff must not show a
+                                    # phantom typing indicator on it.
+                                    "startsRun": cmd.starts_run,
+                                },
+                            }
+                        )
                 await self.submit_message(command, session_id=session_id)
 
         elif msg_type == "enhance_prompt":
@@ -1324,6 +1419,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             message_id = data.get("messageId", "")
             await self._handle_option_click(value, session_id, message_id)
 
+        elif msg_type == "question_response":
+            value = data.get("value", "")
+            session_id = data.get("sessionId", "")
+            message_id = data.get("messageId", "")
+            dismissed = bool(data.get("dismissed", False))
+            await self._handle_question_response(
+                value, session_id, message_id, dismissed
+            )
+
         # Settings operations
         elif msg_type == "settings_get":
             await self._handle_settings_get()
@@ -1415,7 +1519,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             item_id = data.get("itemId", "")
             category = data.get("category")
             content = data.get("content")
-            await self._handle_memory_item_update(item_id, category, content)
+            superseded = data.get("superseded")
+            await self._handle_memory_item_update(
+                item_id, category, content, superseded
+            )
 
         elif msg_type == "memory_item_remove":
             item_id = data.get("itemId", "")
@@ -1424,11 +1531,36 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "memory_reset":
             await self._handle_memory_reset()
 
+
         elif msg_type == "memory_stats_get":
             await self._handle_memory_stats_get()
 
         elif msg_type == "memory_process_trigger":
             await self._handle_memory_process_trigger()
+
+        elif msg_type == "memory_schedule_get":
+            await self._handle_memory_schedule_get()
+
+        elif msg_type == "memory_schedule_set":
+            await self._handle_memory_schedule_set(data)
+
+        elif msg_type == "memory_graph_get":
+            await self._handle_memory_graph_get()
+
+        elif msg_type == "memory_indexed_files_get":
+            await self._handle_memory_indexed_files_get()
+
+        elif msg_type == "memory_indexed_files_set":
+            paths = data.get("paths", [])
+            await self._handle_memory_indexed_files_set(paths)
+
+        elif msg_type == "memory_index_file_add":
+            path = data.get("path", "")
+            await self._handle_memory_index_file_mutate("add", path)
+
+        elif msg_type == "memory_index_file_remove":
+            path = data.get("path", "")
+            await self._handle_memory_index_file_mutate("remove", path)
 
         # Model settings operations
         elif msg_type == "model_providers_get":
@@ -1456,6 +1588,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "ollama_models_get":
             base_url = data.get("baseUrl")
             await self._handle_ollama_models_get(base_url)
+
+        elif msg_type == "provider_models_get":
+            await self._handle_provider_models_get(
+                provider=data.get("provider", ""),
+                base_url=data.get("baseUrl"),
+                api_key=data.get("apiKey"),
+            )
 
         elif msg_type == "openrouter_models_get":
             await self._handle_openrouter_models_get(
@@ -1605,7 +1744,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "integration_disconnect":
             integration_id = data.get("id", "")
             account_id = data.get("account_id")
-            await self._handle_integration_disconnect(integration_id, account_id)
+            request_id = data.get("request_id")
+            await self._handle_integration_disconnect(
+                integration_id, account_id, request_id
+            )
+
+        # Multi-account integration handlers
+        elif msg_type == "integration_accounts_add":
+            integration_id = data.get("integration_id", "")
+            request_id = data.get("request_id")
+            await self._handle_integration_accounts_add(integration_id, request_id)
+
+        elif msg_type == "integration_apply_account_changes":
+            integration_id = data.get("integration_id", "")
+            request_id = data.get("request_id")
+            changes = data.get("changes") or {}
+            await self._handle_integration_apply_account_changes(
+                integration_id, request_id, changes
+            )
 
         # Generic per-integration config (replaces the old bespoke jira/github settings handlers)
         elif msg_type == "integration_get_config":
@@ -1627,6 +1783,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             value = data.get("value")
             await self._handle_living_ui_project_setting_update(
                 project_id, setting, value
+            )
+
+        elif msg_type == "living_ui_backups_list":
+            await self._handle_living_ui_backups_list(data.get("projectId", ""))
+
+        elif msg_type == "living_ui_backup_now":
+            await self._handle_living_ui_backup_now(data.get("projectId", ""))
+
+        elif msg_type == "living_ui_backup_restore":
+            await self._handle_living_ui_backup_restore(
+                data.get("projectId", ""),
+                data.get("filename", ""),
+                data.get("sourceProjectId") or None,
+            )
+
+        elif msg_type == "living_ui_backup_delete":
+            await self._handle_living_ui_backup_delete(
+                data.get("projectId", ""),
+                data.get("filename", ""),
+                orphan=bool(data.get("orphan", False)),
             )
 
         elif msg_type == "living_ui_marketplace_list":
@@ -1653,17 +1829,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "playbook_list":
             await self._handle_playbook_list()
 
-        # WhatsApp QR code flow handlers
+        # WhatsApp QR code flow handlers — session-scoped: QR/status results
+        # go to the requesting connection only, never broadcast (a second
+        # settings tab used to pick up the broadcast, run its own poll loop
+        # and double-complete the link).
         elif msg_type == "whatsapp_start_qr":
-            await self._handle_whatsapp_start_qr()
+            await self._handle_whatsapp_start_qr(
+                ws, force=bool(data.get("force", False))
+            )
 
         elif msg_type == "whatsapp_check_status":
             session_id = data.get("session_id", "")
-            await self._handle_whatsapp_check_status(session_id)
+            await self._handle_whatsapp_check_status(session_id, ws)
 
         elif msg_type == "whatsapp_cancel":
             session_id = data.get("session_id", "")
-            await self._handle_whatsapp_cancel(session_id)
+            await self._handle_whatsapp_cancel(session_id, ws)
 
         elif msg_type == "subscribe_dashboard_metrics":
             if ws is not None:
@@ -1733,7 +1914,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "living_ui_delete":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_delete(project_id)
+            await self._handle_living_ui_delete(
+                project_id, delete_backups=bool(data.get("deleteBackups", False))
+            )
 
         elif msg_type == "living_ui_state_update":
             await self._handle_living_ui_state_update(data)
@@ -1763,14 +1946,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from app.updater import check_for_update
 
         try:
-            update_available, current, latest = await check_for_update()
+            status = await check_for_update()
             await self._broadcast(
                 {
                     "type": "update_check_result",
                     "data": {
-                        "updateAvailable": update_available,
-                        "currentVersion": current,
-                        "latestVersion": latest,
+                        "updateAvailable": status.available,
+                        "currentVersion": status.current,
+                        "latestVersion": status.latest,
+                        # Set only when the checkout is off the main update
+                        # channel, so the UI can say why rather than showing
+                        # a meaningless version comparison.
+                        "branch": status.branch,
                     },
                 }
             )
@@ -1782,6 +1969,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "updateAvailable": False,
                         "currentVersion": "",
                         "latestVersion": "",
+                        "branch": None,
                         "error": str(e),
                     },
                 }
@@ -3011,13 +3199,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_delete(self, project_id: str) -> None:
+    async def _handle_living_ui_delete(
+        self, project_id: str, delete_backups: bool = False
+    ) -> None:
         """Delete a Living UI project (and its dedicated session)."""
         try:
             project = self._living_ui_manager.get_project(project_id)
             session_id = project.session_id if project else None
 
-            success = await self._living_ui_manager.delete_project(project_id)
+            success = await self._living_ui_manager.delete_project(
+                project_id, delete_backups=delete_backups
+            )
             try:
                 from app.living_ui import construction_events
 
@@ -3792,6 +3984,65 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 f"[OPTION_CLICK] Error handling option click: {e}", exc_info=True
             )
 
+    async def _handle_question_response(
+        self, value: str, session_id: str, message_id: str, dismissed: bool
+    ) -> None:
+        """Handle the user answering (or dismissing) a pinned agent question.
+
+        Marks the question message answered (which un-pins it everywhere),
+        then feeds the answer back into the agent as a regular user message
+        so the normal trigger queue/merge behavior applies.
+        """
+        try:
+            question_text = ""
+            recorded = QUESTION_DISMISSED_VALUE if dismissed else value
+            pending_questions: list = []
+            if self._chat and message_id:
+                for m in self._chat._messages:
+                    if m.message_id == message_id:
+                        question_text = m.content
+                        m.option_selected = recorded
+                        break
+                if self._chat._storage:
+                    try:
+                        self._chat._storage.update_option_selected(
+                            message_id, recorded
+                        )
+                        # After marking this one, whatever question messages
+                        # remain unanswered are still pinned in the user's UI.
+                        pending_questions = self._chat._storage.get_pending_questions(
+                            session_id
+                        )
+                    except Exception:
+                        pass
+
+            # Un-pin on every connected client (the answering client already
+            # marked the selection optimistically).
+            await self._broadcast(
+                {
+                    "type": "question_answered",
+                    "data": {
+                        "sessionId": session_id,
+                        "messageId": message_id,
+                        "value": recorded,
+                    },
+                }
+            )
+
+            await self._controller.submit_question_answer(
+                value,
+                question_text,
+                session_id,
+                dismissed,
+                adapter_id=self._adapter_id,
+                pending_questions=pending_questions,
+            )
+        except Exception as e:
+            logger.error(
+                f"[QUESTION_RESPONSE] Error handling question response: {e}",
+                exc_info=True,
+            )
+
     # ─────────────────────────────────────────────────────────────────────
     # Session Handlers (sidebar surface)
     # ─────────────────────────────────────────────────────────────────────
@@ -3817,13 +4068,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.warning(f"[SESSION] Refusing to delete session {session_id!r}")
             return
         try:
-            await self._controller.agent.delete_session(session_id)
+            # Durable rows (session, event stream, chat, activity) are purged
+            # by the session-delete hook; here we drop the in-memory feeds
+            # and notify clients.
+            if not await self._controller.agent.delete_session(session_id):
+                logger.warning(f"[SESSION] Delete refused for {session_id}")
+                return
             self._chat.drop_session_messages(session_id)
-            if self._chat._storage:
-                try:
-                    self._chat._storage.clear_messages(session_id)
-                except Exception:
-                    pass
+            self._action_panel.drop_session_items(session_id)
             await self._broadcast(
                 {
                     "type": "session_deleted",
@@ -3846,14 +4098,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.error(f"[SESSION] Rename failed for {session_id}: {e}")
 
     async def _handle_session_clear(self, data: Dict[str, Any]) -> None:
-        """Clear a session's conversation (chat rows + agent-side state)."""
+        """Clear a session's conversation (chat + activity rows and
+        agent-side state)."""
         session_id = (data.get("sessionId") or "").strip() or "main"
         try:
-            if self._chat._storage:
-                try:
-                    self._chat._storage.clear_messages(session_id)
-                except Exception:
-                    pass
+            from app.usage import get_action_storage, get_chat_storage
+
+            try:
+                get_chat_storage().clear_messages(session_id)
+            except Exception:
+                pass
+            try:
+                get_action_storage().clear_items(session_id)
+            except Exception:
+                pass
             await self._controller.agent.clear_session(session_id)
             await self.broadcast_session_cleared(session_id)
         except Exception as e:
@@ -3894,9 +4152,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Drop a session's rendered conversation on every client.
 
         Called by the /clear command (which has already cleared storage and
-        agent-side state) and by the session_clear handler.
+        agent-side state) and by the session_clear handler. The activity
+        feed is part of the conversation, so its items go with it.
         """
         self._chat.drop_session_messages(session_id)
+        self._action_panel.drop_session_items(session_id)
         await self._broadcast(
             {
                 "type": "session_cleared",
@@ -4088,15 +4348,49 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if isinstance(raw, list):
                 components = [str(c) for c in raw]
 
+        # Snapshot session ids before the reset: sessions deleted inside
+        # reset_agent_state bypass _handle_session_delete, so no
+        # session_deleted broadcasts happen — we diff and emit them below.
+        sessions_before = {
+            s.id
+            for s in self._controller.agent.session_manager.list_sessions(
+                include_archived=True
+            )
+        }
+
         result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
-            # Only clear the UI panels whose data was actually reset. A full
-            # reset (components is None) clears both.
-            if components is None or "conversation" in components:
+            # Chats (id "sessions", plus the "conversation" alias):
+            # clear transcripts, the action panel, and push the session list
+            # so extra chats drop from the sidebar without a refresh.
+            chats_reset = (
+                components is None
+                or "sessions" in components
+                or "conversation" in components
+            )
+            if chats_reset:
                 await self._chat.clear()
-            if components is None or "sessions" in components:
                 await self._action_panel.clear()
+                await self._handle_session_list()
+
+            # Tell clients which sessions the reset deleted so the sidebar
+            # (and each session's messages/activity/draft state) updates
+            # without a page refresh — the frontend session list is
+            # server-owned and only reacts to session_* events.
+            sessions_after = {
+                s.id
+                for s in self._controller.agent.session_manager.list_sessions(
+                    include_archived=True
+                )
+            }
+            for sid in sessions_before - sessions_after:
+                await self._broadcast(
+                    {
+                        "type": "session_deleted",
+                        "data": {"sessionId": sid},
+                    }
+                )
 
             # If LivingUI apps were deleted, push refreshed (now-empty) lists so
             # the frontend reflects the deletion. Both the main LivingUI page
@@ -4934,10 +5228,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_memory_item_update(
-        self, item_id: str, category: str = None, content: str = None
+        self,
+        item_id: str,
+        category: str = None,
+        content: str = None,
+        superseded: bool = None,
     ) -> None:
         """Update an existing memory item."""
-        result = update_memory_item(item_id=item_id, category=category, content=content)
+        result = update_memory_item(
+            item_id=item_id,
+            category=category,
+            content=content,
+            superseded=superseded,
+        )
 
         if result.get("success"):
             # Update memory index after updating
@@ -4998,17 +5301,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _handle_memory_reset(self) -> None:
-        """Reset memory by restoring MEMORY.md from template."""
+        """Reset memory: restore MEMORY.md + ENTITIES.md from template, clear
+        unprocessed events, then FORCE-rebuild the index.
+
+        Force rebuild (not incremental update) so every derived cache — the
+        ChromaDB chunks, the graph, and the entity embedding collection — is
+        reseeded from the reset markdown. An incremental update() would leave
+        stale chunks and entity vectors behind.
+        """
         result = reset_memory()
 
         if result.get("success"):
-            # Also clear unprocessed events
             clear_unprocessed_events()
+            reset_entity_registry()
 
-            # Update memory index after reset
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                agent.memory_manager.index_all(force=True)
 
             await self._broadcast(
                 {
@@ -5063,6 +5372,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 )
                 return
 
+            # Same emptiness condition as the MEMORY run pre-check
+            # (_prepare_memory_run): with nothing to process the trigger
+            # would be silently dropped there — surface that here instead.
+            from app.ui_layer.settings.memory_settings import memory_needs_pruning
+
+            if get_unprocessed_event_count() == 0 and not memory_needs_pruning():
+                await self._broadcast(
+                    {
+                        "type": "memory_process_trigger",
+                        "data": {
+                            "success": False,
+                            "error": "No unprocessed events to process.",
+                        },
+                    }
+                )
+                return
+
             # Queue a memory-processing run in the main session. The agent's
             # MEMORY pre-check decides whether there is actually work to do.
             from app.triggers import TriggerSource, TriggerSpec
@@ -5092,6 +5418,237 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": str(e),
                     },
+                }
+            )
+
+    async def _handle_memory_schedule_get(self) -> None:
+        """Send the auto-processing schedule + threshold to the panel."""
+        try:
+            agent = self._controller.agent
+            task = agent.scheduler.get_schedule("memory-processing")
+            if task is None:
+                await self._broadcast(
+                    {
+                        "type": "memory_schedule_get",
+                        "data": {"success": False, "error": "Schedule not found"},
+                    }
+                )
+                return
+
+            sched = task.schedule
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_get",
+                    "data": {
+                        "success": True,
+                        "schedule": {
+                            "hour": (
+                                sched.hour
+                                if sched.hour is not None
+                                else SCHEDULE_HOUR_DEFAULT
+                            ),
+                            "minute": sched.minute or SCHEDULE_MINUTE_DEFAULT,
+                        },
+                        "threshold": get_memory_processing_threshold(),
+                        "threshold_max": get_memory_processing_threshold_max(),
+                        "unprocessed": get_unprocessed_event_count(),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_schedule_set(self, data: dict) -> None:
+        """Apply the daily auto-processing time + threshold from the panel.
+
+        Auto-processing is daily by design; only the time of day and the
+        threshold are configurable. Applied live via update_schedule
+        (persists + reschedules next run).
+        """
+        try:
+            agent = self._controller.agent
+            set_memory_processing_threshold(
+                int(data.get("threshold", PROCESSING_THRESHOLD_DEFAULT))
+            )
+            expr = memory_schedule_expression(
+                hour=int(data.get("hour", SCHEDULE_HOUR_DEFAULT)),
+                minute=int(data.get("minute", SCHEDULE_MINUTE_DEFAULT)),
+            )
+            agent.scheduler.update_schedule(
+                "memory-processing", schedule=expr, enabled=True
+            )
+            await self._broadcast(
+                {"type": "memory_schedule_set", "data": {"success": True}}
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_schedule_set",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _memory_graph_snapshot(self) -> dict:
+        """Graph snapshot (nodes/edges) with the panel's pipeline stats folded in.
+
+        Shared by _handle_memory_graph_get and the per-file index mutations so
+        both push an identically shaped graph payload.
+        """
+        agent = self._controller.agent
+        snapshot = await asyncio.to_thread(agent.memory_manager.graph_snapshot)
+        stats = snapshot.get("stats", {})
+        memory_stats = get_memory_stats()
+        if memory_stats.get("success"):
+            stats["unprocessed_events"] = memory_stats.get("unprocessed_events", 0)
+            stats["memory_item_count"] = memory_stats.get("total_items", 0)
+        snapshot["stats"] = stats
+        return snapshot
+
+    async def _handle_memory_graph_get(self) -> None:
+        """Send the memory graph snapshot (nodes/edges/stats) to the panel."""
+        try:
+            snapshot = await self._memory_graph_snapshot()
+
+            await self._broadcast(
+                {
+                    "type": "memory_graph_get",
+                    "data": {"success": True, "graph": snapshot},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_graph_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_indexed_files_get(self) -> None:
+        """Send the indexed-files list and addable candidates."""
+        try:
+            agent = self._controller.agent
+            files = agent.memory_manager.get_index_files_info()
+            candidates_result = list_indexable_candidates()
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_get",
+                    "data": {
+                        "success": True,
+                        "files": files,
+                        "candidates": candidates_result.get("candidates", []),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_indexed_files_set(self, paths: list) -> None:
+        """Replace the extra indexed-files list and re-index."""
+        try:
+            result = set_memory_indexed_files(paths)
+            if not result.get("success"):
+                await self._broadcast(
+                    {
+                        "type": "memory_indexed_files_set",
+                        "data": {
+                            "success": False,
+                            "error": result.get("error", "Unknown error"),
+                        },
+                    }
+                )
+                return
+
+            # Re-index so added files appear (and removed files drop out)
+            # immediately rather than waiting for the file watcher.
+            agent = self._controller.agent
+            await asyncio.to_thread(agent.memory_manager.update)
+
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_set",
+                    "data": {
+                        "success": True,
+                        "files": agent.memory_manager.get_index_files_info(),
+                        "rejected": result.get("rejected", []),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "memory_indexed_files_set",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    async def _handle_memory_index_file_mutate(self, op: str, path: str) -> None:
+        """Add or remove a single indexed file and re-index.
+
+        Additive per-file counterpart to _handle_memory_indexed_files_set.
+        Each mutation reads the persisted list fresh, so simultaneous "+"
+        clicks (processed serially by the WS loop) each add their own file
+        instead of overwriting one another. The response echoes the path so
+        the frontend clears only that file's spinner.
+        """
+        msg_type = f"memory_index_file_{op}"
+        try:
+            if op == "add":
+                result = add_memory_indexed_file(path)
+            else:
+                result = remove_memory_indexed_file(path)
+
+            if not result.get("success"):
+                await self._broadcast(
+                    {
+                        "type": msg_type,
+                        "data": {
+                            "success": False,
+                            "path": path,
+                            "error": result.get("error", "Unknown error"),
+                        },
+                    }
+                )
+                return
+
+            # Re-index so the added file appears (or removed file drops out)
+            # immediately rather than waiting for the file watcher.
+            agent = self._controller.agent
+            await asyncio.to_thread(agent.memory_manager.update)
+
+            # Push the fresh graph + file list INSIDE this completion broadcast.
+            # The WS loop is serial, so if the panel replied by sending its own
+            # memory_graph_get it would queue behind the other still-pending
+            # index jobs and only refresh once they all finished. Piggy-backing
+            # the snapshot here lets each file appear the moment it's indexed.
+            candidates_result = list_indexable_candidates()
+            await self._broadcast(
+                {
+                    "type": msg_type,
+                    "data": {
+                        "success": True,
+                        "path": path,
+                        "files": agent.memory_manager.get_index_files_info(),
+                        "candidates": candidates_result.get("candidates", []),
+                        "graph": await self._memory_graph_snapshot(),
+                        "rejected": result.get("rejected", []),
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": msg_type,
+                    "data": {"success": False, "path": path, "error": str(e)},
                 }
             )
 
@@ -5190,7 +5747,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             has_active_subscription = False
             if new_provider:
                 try:
-                    from craftos_integrations.integrations.llm_oauth.tokens import (
+                    from craftos_integrations.llm_oauth.tokens import (
                         has_credential as _sub_has,
                     )
 
@@ -5206,10 +5763,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                     test_api_key = get_api_key(new_provider)
 
+                # Pass the model being saved so this test takes the same
+                # chat-completion path (and reaches the same verdict) as the
+                # frontend's test-before-save — with no model the tester
+                # falls back to a different auth-only probe and the two can
+                # contradict each other.
                 test_result = test_connection(
                     provider=new_provider,
                     api_key=test_api_key,
                     base_url=base_url,
+                    model=data.get("llmModel"),
                     aws_credentials=aws_credentials_in,
                 )
                 if not test_result.get("success"):
@@ -5433,6 +5996,45 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {
                     "type": "ollama_models_get",
                     "data": {"success": False, "models": [], "error": str(e)},
+                }
+            )
+
+    async def _handle_provider_models_get(
+        self,
+        provider: str,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> None:
+        """Fetch a provider's models via GET /v1/models and broadcast them.
+
+        Wire-generic sibling of _handle_ollama_models_get; drives the model
+        dropdown for the new cloud + local providers. Runs the blocking HTTP
+        call off the event loop.
+        """
+        try:
+            result = await asyncio.to_thread(
+                get_provider_models, provider, base_url, api_key
+            )
+            # Echo the provider so the frontend can drop responses that
+            # arrive after the user switched provider — an untagged late
+            # response used to repopulate the model dropdown with another
+            # provider's models.
+            await self._broadcast(
+                {
+                    "type": "provider_models_get",
+                    "data": {**result, "provider": provider},
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "provider_models_get",
+                    "data": {
+                        "success": False,
+                        "models": [],
+                        "error": str(e),
+                        "provider": provider,
+                    },
                 }
             )
 
@@ -6324,9 +6926,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # =====================
 
     async def _handle_integration_list(self) -> None:
-        """Get list of all integrations with status."""
+        """Get list of all integrations with status.
+
+        Uses the v2-merged list: multi-account providers source ``connected``
+        and ``accounts`` from the IntegrationSystem (the credential
+        file is never written, so the status path
+        reports them as disconnected — issue seen with youtube/notion).
+        """
         try:
-            integrations = list_integrations()
+            from app.data.action.integrations._helpers import (
+                list_integrations_merged_async,
+            )
+
+            integrations = await list_integrations_merged_async()
             # Calculate stats
             total = len(integrations)
             connected = sum(1 for i in integrations if i.get("connected", False))
@@ -6356,19 +6968,119 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_integration_info(self, integration_id: str) -> None:
-        """Get detailed info about an integration."""
+    # ── multi-account integration helpers ──────────────────────
+
+    @staticmethod
+    def _system_for(integration_id: str):
+        """Return the IntegrationSystem when it knows this provider id.
+
+        Returns None only for an unknown id or a failed bootstrap. Every
+        shipped integration has a provider, so None means the request cannot
+        be served — there is no legacy path to fall back to.
+        """
         try:
-            info = get_integration_info(integration_id)
+            from app.integrations import get_system
+
+            system = get_system()
+            if system.registry.get(integration_id) is not None:
+                return system
+        except Exception as e:
+            # Loud on purpose: with the control plane gone this is no
+            # longer a degrade to a lesser UI — it is a hard failure of every
+            # connect/disconnect/account operation. Never let it hide.
+            logger.error(
+                f"[INTEGRATIONS] integration-system bootstrap/lookup failed for "
+                f"{integration_id}; integration operations will fail: {e!r}"
+            )
+        return None
+
+    @staticmethod
+    def _accounts_payload(accounts, integration_id: str = "") -> List[Dict[str, Any]]:
+        """Serialize AccountInfo objects into the wire shape. whatsapp_web
+        rows gain ``sessionState`` (relink CTA / reconnect notice)."""
+        try:
+            from app.data.action.integrations._helpers import accounts_payload
+
+            return accounts_payload(accounts, integration_id)
+        except Exception:
+            return [
+                {
+                    "identity": a.identity,
+                    "alias": a.alias,
+                    "isPrimary": a.is_primary,
+                    "listen": a.listen,
+                }
+                for a in accounts
+            ]
+
+    def _current_accounts(self, integration_id: str) -> Optional[List[Dict[str, Any]]]:
+        """Best-effort current account list for error payloads.
+
+        Returns None (NOT []) when the list can't be fetched: the frontend
+        treats a present ``accounts`` array as the authoritative state and
+        prunes its staged edits against it, so a fabricated empty list would
+        blank the Manage modal and silently discard the user's unsaved
+        edits. Callers must OMIT the ``accounts`` key when this is None.
+        """
+        try:
+            system = self._system_for(integration_id)
+            if system is not None:
+                return self._accounts_payload(
+                    system.list_accounts(integration_id), integration_id
+                )
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _with_accounts(
+        data: Dict[str, Any], accounts: Optional[List[Dict[str, Any]]]
+    ) -> Dict[str, Any]:
+        """Attach ``accounts`` only when a real list is available."""
+        if accounts is not None:
+            data["accounts"] = accounts
+        return data
+
+    async def _handle_integration_info(self, integration_id: str) -> None:
+        """Get detailed info about an integration.
+
+        Metadata comes from the provider registry; connection state and
+        accounts come from the IntegrationSystem — every integration is
+        multi-account now, so the old ``handler.status()`` text-scraping path
+        is gone. A missing top-level ``accounts`` key tells the frontend the
+        account list couldn't be loaded (it renders a reload hint, never fake
+        rows).
+        """
+        try:
+            from craftos_integrations import get_metadata
+
+            info = get_metadata(integration_id)
             if info:
+                managed_accounts: Optional[List[Dict[str, Any]]] = None
+                try:
+                    system = self._system_for(integration_id)
+                    if system is not None:
+                        managed_accounts = self._accounts_payload(
+                            system.list_accounts(integration_id), integration_id
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"[INTEGRATIONS] accounts for {integration_id} "
+                        f"unavailable, Manage modal shows reload hint: {e!r}"
+                    )
+                info["connected"] = bool(managed_accounts)
+                info["accounts"] = managed_accounts or []
+                data: Dict[str, Any] = {
+                    "success": True,
+                    "id": integration_id,
+                    "integration": info,
+                }
+                if managed_accounts is not None:
+                    data["accounts"] = managed_accounts
                 await self._broadcast(
                     {
                         "type": "integration_info",
-                        "data": {
-                            "success": True,
-                            "id": integration_id,
-                            "integration": info,
-                        },
+                        "data": data,
                     }
                 )
             else:
@@ -6394,14 +7106,48 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    def _notify_agent_integration_event(self, message: str) -> None:
+        """Record a UI-initiated integration change in the agent's event stream.
+
+        Connect/disconnect from the settings page happens outside any agent
+        run, so without this the agent keeps answering from stale connection
+        state until an action fails.
+        """
+        try:
+            from agent_core.core.event_stream.event import EventType
+
+            agent = self._controller.agent
+            if agent and agent.event_stream_manager:
+                agent.event_stream_manager.log(
+                    "system",
+                    message,
+                    event_type=EventType.SYSTEM,
+                    display_message=message,
+                    task_id="main",
+                )
+                agent.state_manager.bump_event_stream()
+        except Exception as e:
+            logger.debug(f"integration event-stream notify failed: {e}")
+
     async def _handle_integration_connect_token(
         self, integration_id: str, credentials: Dict[str, str]
     ) -> None:
-        """Connect an integration using token/credentials."""
+        """Connect an integration using token/credentials.
+
+        multi-account providers (notion/hubspot/slack manual tokens) validate the token
+        the same way the handler login does, then store through the
+        IntegrationSystem — never the single-account save.
+        """
         try:
-            success, message = await connect_integration_token(
-                integration_id, credentials
-            )
+            system = self._system_for(integration_id)
+            if system is None:
+                success, message = False, f"Unknown integration: {integration_id}"
+            else:
+                from app.data.action.integrations._helpers import system_connect_token
+
+                success, message = await asyncio.to_thread(
+                    system_connect_token, system, integration_id, credentials
+                )
             await self._broadcast(
                 {
                     "type": "integration_connect_result",
@@ -6412,8 +7158,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-            # Refresh the list on success (listener is started by connect_integration_token)
+            # Refresh the list on success (listeners reconcile on account change)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except Exception as e:
             await self._broadcast(
@@ -6438,9 +7188,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._oauth_tasks[integration_id] = task
 
     async def _run_oauth_flow(self, integration_id: str) -> None:
-        """Execute OAuth flow and broadcast result (runs as background task)."""
+        """Execute OAuth flow and broadcast result (runs as background task).
+
+        multi-account providers route through ``IntegrationSystem.add_account`` (the
+        multi-account OAuth flow); the broadcast keeps the
+        ``integration_connect_result`` shape so the frontend needs no
+        changes.
+        """
         try:
-            success, message = await connect_integration_oauth(integration_id)
+            system = self._system_for(integration_id)
+            if system is None:
+                success, message = False, f"Unknown integration: {integration_id}"
+            else:
+                success, message, _accounts = await system.add_account(
+                    integration_id
+                )
             await self._broadcast(
                 {
                     "type": "integration_connect_result",
@@ -6451,8 +7213,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-            # Refresh the list on success (listener is started by connect_integration_oauth)
+            # Refresh the list on success (listeners reconcile on account change)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except asyncio.CancelledError:
             # OAuth was cancelled by user closing the modal
@@ -6493,9 +7259,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._oauth_tasks[integration_id] = task
 
     async def _run_interactive_flow(self, integration_id: str) -> None:
-        """Execute interactive flow and broadcast result (runs as background task)."""
+        """Execute interactive flow and broadcast result (runs as background task).
+
+        WhatsApp's QR flow has its own message pair (``whatsapp_start_qr`` /
+        ``whatsapp_check_status``) that the settings page drives directly; this
+        path exists for any other integration declaring interactive auth, of
+        which there are currently none.
+        """
         try:
-            success, message = await connect_integration_interactive(integration_id)
+            if integration_id == "whatsapp_web":
+                result = await start_whatsapp_qr_session()
+                success = bool(result.get("success"))
+                message = result.get(
+                    "message", "Use the QR panel to finish connecting WhatsApp."
+                )
+            else:
+                success, message = (
+                    False,
+                    f"No interactive connect flow is implemented for {integration_id}.",
+                )
             await self._broadcast(
                 {
                     "type": "integration_connect_result",
@@ -6506,8 +7288,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-            # Refresh the list on success (listener is started by connect_integration_interactive)
+            # Refresh the list on success (listeners reconcile on account change)
             if success:
+                self._notify_agent_integration_event(
+                    f"User connected integration '{integration_id}' from the "
+                    f"settings page. {message}"
+                )
                 await self._handle_integration_list()
         except asyncio.CancelledError:
             # Interactive flow was cancelled by user closing the modal
@@ -6542,7 +7328,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Result will be broadcast by the cancelled task's CancelledError handler
 
     async def _handle_integration_disconnect(
-        self, integration_id: str, account_id: Optional[str] = None
+        self,
+        integration_id: str,
+        account_id: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> None:
         """Disconnect an integration account.
 
@@ -6551,25 +7340,129 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         the frontend would show stale "connected" state until the teardown
         finishes. So we run the disconnect in a background task and let
         this handler return immediately.
+
+        For providers known to the integrations system:
+        - with ``account_id``: remove just that account via the integration
+          system.
+        - without ``account_id``: remove ALL accounts, then delete any stray
+          remaining account state.
         """
 
         async def _do_disconnect() -> None:
             try:
-                success, message = await disconnect_integration(
-                    integration_id, account_id
-                )
+                system = self._system_for(integration_id)
+
+                if system is not None and account_id:
+                    # Targeted removal — handled entirely by the integration
+                    # system. Platform teardown (whatsapp_web: server-side
+                    # logout + bridge stop + session-dir delete) runs FIRST,
+                    # while the account still exists — record removal
+                    # triggers a listener reconcile that would race a
+                    # trailing teardown on the same bridge.
+                    try:
+                        from app.data.action.integrations._helpers import (
+                            platform_teardown_accounts_async,
+                        )
+
+                        identity = await asyncio.to_thread(
+                            system.resolve, integration_id, account_id
+                        )
+                        await platform_teardown_accounts_async(
+                            integration_id, [identity]
+                        )
+                        await asyncio.to_thread(
+                            system.remove_account, integration_id, identity
+                        )
+                        success, message = (
+                            True,
+                            f"Removed account '{identity}' from {integration_id}",
+                        )
+                    except Exception as e:
+                        success, message = False, str(e)
+                    await self._broadcast(
+                        {
+                            "type": "integration_disconnect_result",
+                            "data": self._with_accounts(
+                                {
+                                    "success": success,
+                                    "message": message,
+                                    "id": integration_id,
+                                    "requestId": request_id,
+                                },
+                                self._current_accounts(integration_id),
+                            ),
+                        }
+                    )
+                    if success:
+                        self._notify_agent_integration_event(
+                            f"User disconnected account '{account_id}' of "
+                            f"integration '{integration_id}' from the settings page."
+                        )
+                        await self._handle_integration_list()
+                    return
+
+                removed: list[str] = []
+                if system is not None:
+                    # Disconnect-all: drop every account.
+                    # Platform teardown before each record removal — same
+                    # ordering rationale as the targeted path above.
+                    try:
+                        from app.data.action.integrations._helpers import (
+                            platform_teardown_accounts_async,
+                        )
+
+                        for account in await asyncio.to_thread(
+                            system.list_accounts, integration_id
+                        ):
+                            try:
+                                await platform_teardown_accounts_async(
+                                    integration_id, [account.identity]
+                                )
+                                await asyncio.to_thread(
+                                    system.remove_account,
+                                    integration_id,
+                                    account.identity,
+                                )
+                                removed.append(account.identity)
+                            except Exception as e:
+                                logger.warning(
+                                    f"remove_account {integration_id}/"
+                                    f"{account.identity} failed: {e}"
+                                )
+                    except Exception as e:
+                        logger.warning(
+                            f"disconnect-all for {integration_id} failed: {e}"
+                        )
+
+                if removed:
+                    success = True
+                    message = (
+                        f"Disconnected {integration_id}: removed "
+                        f"{len(removed)} account(s) ({', '.join(removed)})"
+                    )
+                else:
+                    success = False
+                    message = f"{integration_id} is not connected."
                 await self._broadcast(
                     {
                         "type": "integration_disconnect_result",
                         "data": {
                             "success": success,
                             "message": message,
+                            "error": None if success else message,
                             "id": integration_id,
+                            "requestId": request_id,
                         },
                     }
                 )
                 if success:
-                    await self._handle_integration_list()
+                    self._notify_agent_integration_event(
+                        f"User disconnected integration '{integration_id}' "
+                        f"(all accounts) from the settings page."
+                    )
+                # Always reconcile the list — the frontend flipped the row
+                # optimistically and needs the authoritative state either way.
+                await self._handle_integration_list()
             except Exception as e:
                 await self._broadcast(
                     {
@@ -6578,11 +7471,184 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "success": False,
                             "error": str(e),
                             "id": integration_id,
+                            "requestId": request_id,
                         },
                     }
                 )
 
         asyncio.create_task(_do_disconnect())
+
+    async def _handle_integration_accounts_add(
+        self, integration_id: str, request_id: Optional[str] = None
+    ) -> None:
+        """Add another account to a multi-account integration (real OAuth — the browser
+        opens and the flow may take minutes). Runs as a background task so
+        the WS message loop stays responsive, mirroring the OAuth
+        connect handlers. Result is broadcast as
+        ``integration_accounts_add_result``; the frontend correlates via
+        ``requestId``.
+        """
+        # Cancel any in-flight connect/add flow for this integration.
+        if integration_id in self._oauth_tasks:
+            self._oauth_tasks[integration_id].cancel()
+
+        task = asyncio.create_task(
+            self._run_accounts_add(integration_id, request_id)
+        )
+        self._oauth_tasks[integration_id] = task
+
+    async def _run_accounts_add(
+        self, integration_id: str, request_id: Optional[str]
+    ) -> None:
+        """Execute the add-account OAuth flow and broadcast the result."""
+        try:
+            from app.integrations import get_system
+
+            system = get_system()
+            if system.registry.get(integration_id) is None:
+                raise LookupError(f"Unknown integration '{integration_id}'")
+            ok, message, accounts = await system.add_account(integration_id)
+            await self._broadcast(
+                {
+                    "type": "integration_accounts_add_result",
+                    "data": {
+                        "id": integration_id,
+                        "requestId": request_id,
+                        "ok": bool(ok),
+                        "message": message,
+                        "accounts": self._accounts_payload(
+                            accounts or [], integration_id
+                        ),
+                    },
+                }
+            )
+            if ok:
+                await self._handle_integration_list()
+        except asyncio.CancelledError:
+            await self._broadcast(
+                {
+                    "type": "integration_accounts_add_result",
+                    "data": self._with_accounts(
+                        {
+                            "id": integration_id,
+                            "requestId": request_id,
+                            "ok": False,
+                            "message": "Add account cancelled",
+                        },
+                        self._current_accounts(integration_id),
+                    ),
+                }
+            )
+        except Exception as e:
+            # Contract note: the add-result failure text travels in "message"
+            # (Settings/types.ts IntegrationAccountsAddResult has no "error"
+            # field), unlike apply_account_changes_result which uses "error".
+            await self._broadcast(
+                {
+                    "type": "integration_accounts_add_result",
+                    "data": self._with_accounts(
+                        {
+                            "id": integration_id,
+                            "requestId": request_id,
+                            "ok": False,
+                            "message": str(e),
+                        },
+                        self._current_accounts(integration_id),
+                    ),
+                }
+            )
+        finally:
+            self._oauth_tasks.pop(integration_id, None)
+
+    async def _handle_integration_apply_account_changes(
+        self,
+        integration_id: str,
+        request_id: Optional[str] = None,
+        changes: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Apply one batched set of account edits from the Manage modal.
+
+        ``changes`` = {"disconnect": [identity...], "primary": identity|None,
+        "aliases": {identity: alias|None}, "listen": {identity: bool}}.
+        The integration system applies disconnects → primary → aliases → listen flags
+        inside its storage lock. Sync file I/O, so it runs in a thread. On
+        failure the frontend keeps its staged edits, so the error payload
+        carries the *current* (unchanged) account list.
+        """
+        try:
+            from craftos_integrations.contracts import AccountResolutionError
+            from app.integrations import get_system
+
+            system = get_system()
+            if system.registry.get(integration_id) is None:
+                raise LookupError(f"Unknown integration '{integration_id}'")
+            try:
+                accounts = await asyncio.to_thread(
+                    system.apply_account_changes, integration_id, changes or {}
+                )
+                # Batched disconnects need the platform-specific teardown too
+                # (whatsapp_web: stop the account's bridge, delete its
+                # session dir) — core removal only edits the AccountSet.
+                try:
+                    from app.data.action.integrations._helpers import (
+                        platform_teardown_accounts_async,
+                    )
+
+                    # Awaited (we're already off the WS handler in a task):
+                    # the result broadcast below must reflect completed
+                    # teardown, not a fire-and-forget race.
+                    await platform_teardown_accounts_async(
+                        integration_id, (changes or {}).get("disconnect") or []
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[INTEGRATIONS] platform teardown after batched "
+                        f"disconnect failed for {integration_id}: {e!r}"
+                    )
+                await self._broadcast(
+                    {
+                        "type": "integration_apply_account_changes_result",
+                        "data": {
+                            "id": integration_id,
+                            "requestId": request_id,
+                            "ok": True,
+                            "accounts": self._accounts_payload(
+                                accounts, integration_id
+                            ),
+                        },
+                    }
+                )
+                await self._handle_integration_list()
+            except (ValueError, AccountResolutionError) as e:
+                await self._broadcast(
+                    {
+                        "type": "integration_apply_account_changes_result",
+                        "data": self._with_accounts(
+                            {
+                                "id": integration_id,
+                                "requestId": request_id,
+                                "ok": False,
+                                "error": str(e),
+                            },
+                            self._current_accounts(integration_id),
+                        ),
+                    }
+                )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "integration_apply_account_changes_result",
+                    "data": self._with_accounts(
+                        {
+                            "id": integration_id,
+                            "requestId": request_id,
+                            "ok": False,
+                            "error": str(e),
+                        },
+                        self._current_accounts(integration_id),
+                    ),
+                }
+            )
 
     # ==========================
     # Generic per-integration config
@@ -6685,6 +7751,107 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             {"type": "living_ui_project_setting_update", "data": result}
         )
 
+    # Backups (spec docs/plans/living-ui-backups-plan.md Phase 4). Thin
+    # handlers: all policy lives in the manager/BackupStore. Restore and
+    # backup-now run as background tasks (stop+relaunch can take a minute)
+    # so the WS loop stays responsive; results broadcast with *_result types.
+
+    async def _handle_living_ui_backups_list(self, project_id: str) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        payload = {"projectId": project_id, "backups": [], "totalSize": 0}
+        try:
+            manager = get_living_ui_manager()
+            entries = manager.backups.store.list_backups(project_id)
+            payload["backups"] = [
+                {
+                    "filename": e.filename,
+                    "ts": int(e.ts * 1000),
+                    "trigger": e.trigger,
+                    "size": e.size,
+                }
+                for e in entries
+            ]
+            payload["totalSize"] = sum(e.size for e in entries)
+        except Exception as e:
+            payload["error"] = str(e)
+        await self._broadcast({"type": "living_ui_backups_list", "data": payload})
+
+    async def _handle_living_ui_backup_now(self, project_id: str) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        async def _run() -> None:
+            try:
+                result = await get_living_ui_manager().backup_now(project_id)
+            except Exception as e:
+                result = {"status": "error", "errors": [str(e)]}
+            await self._broadcast(
+                {
+                    "type": "living_ui_backup_now_result",
+                    "data": {"projectId": project_id, **result},
+                }
+            )
+            await self._handle_living_ui_backups_list(project_id)
+
+        asyncio.create_task(_run())
+
+    async def _handle_living_ui_backup_restore(
+        self, project_id: str, filename: str, source_project_id: str | None = None
+    ) -> None:
+        """source_project_id: restore an archive from ANOTHER project's
+        backup dir (a deleted app's leftovers) into project_id."""
+        from app.living_ui import get_living_ui_manager
+
+        async def _run() -> None:
+            try:
+                result = await get_living_ui_manager().restore_backup(
+                    project_id, filename, source_project_id=source_project_id
+                )
+            except Exception as e:
+                result = {"status": "error", "errors": [str(e)]}
+            await self._broadcast(
+                {
+                    "type": "living_ui_backup_restore_result",
+                    "data": {"projectId": project_id, "filename": filename, **result},
+                }
+            )
+            await self._handle_living_ui_backups_list(project_id)
+
+        asyncio.create_task(_run())
+
+    async def _handle_living_ui_backup_delete(
+        self, project_id: str, filename: str, orphan: bool = False
+    ) -> None:
+        from app.living_ui import get_living_ui_manager
+
+        data = {"projectId": project_id, "filename": filename, "success": True}
+        orphan_reaped = False
+        try:
+            manager = get_living_ui_manager()
+            if orphan:
+                # Whole-dir cleanup of a deleted project's leftovers (D5) —
+                # refuse if the id is (again) a registered project.
+                if project_id in manager.projects:
+                    raise ValueError("not an orphan — project exists")
+                manager.backups.store.delete_project_backups(project_id)
+            else:
+                manager.backups.store.delete(project_id, filename)
+                # An unregistered (deleted-app) dir whose last archive just
+                # went is pure residue (meta.json only) — reap it so the
+                # orphan row disappears instead of lingering empty.
+                if project_id not in manager.projects and not (
+                    manager.backups.store.list_backups(project_id)
+                ):
+                    manager.backups.store.delete_project_backups(project_id)
+                    orphan_reaped = True
+        except Exception as e:
+            data = {**data, "success": False, "error": str(e)}
+        await self._broadcast({"type": "living_ui_backup_delete", "data": data})
+        if not orphan:
+            await self._handle_living_ui_backups_list(project_id)
+        if orphan or orphan_reaped:
+            await self._handle_living_ui_settings_get()
+
     # =====================
     # Playbook Handlers
     # =====================
@@ -6755,7 +7922,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         import json as _json
         import re as _re
 
-        CATALOGUE_URL = "https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/catalogue.json"
+        from app.living_ui import marketplace_source
+
+        CATALOGUE_URL = marketplace_source.catalogue_url()
 
         try:
             import ssl
@@ -6770,10 +7939,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
             raw = _re.sub(r",\s*([}\]])", r"\1", raw)
             catalogue = _json.loads(raw)
+            # Resolve thumbnails here rather than in the frontend, which would
+            # otherwise build them against a hard-coded branch and 404 for any
+            # app that only exists on the ref being tested.
+            apps = catalogue.get("apps", [])
+            for app in apps:
+                if isinstance(app, dict) and not app.get("preview") and app.get("folder"):
+                    app["preview"] = marketplace_source.thumbnail_url(app["folder"])
             await self._broadcast(
                 {
                     "type": "living_ui_marketplace_list",
-                    "data": {"success": True, "apps": catalogue.get("apps", [])},
+                    "data": {"success": True, "apps": apps},
                 }
             )
         except Exception as e:
@@ -6915,7 +8091,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     workflow_skill=(
                         "living-ui-importer" if is_ext else "living-ui-modify"
                     ),
-                    status=None,
+                    # External adoption is a build-like run: "creating" shows
+                    # the construction dock while the agent writes the
+                    # pipeline verbs + operations map. Native imports stay
+                    # untouched (verify-only).
+                    status=("creating" if is_ext else None),
                 )
             except Exception as e:
                 logger.warning(f"[LIVING_UI] import verify dispatch failed: {e}")
@@ -6935,18 +8115,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
         return
 
-    async def _handle_whatsapp_start_qr(self) -> None:
-        """Start WhatsApp Web session and return QR code."""
+    async def _send_to(self, ws, message: Dict[str, Any]) -> None:
+        """Send to one connection (session-scoped flows); falls back to a
+        broadcast when the requesting socket is unknown/closed."""
+        if ws is not None:
+            try:
+                await ws.send_json(message)
+                return
+            except Exception:
+                pass
+        await self._broadcast(message)
+
+    async def _handle_whatsapp_start_qr(self, ws=None, force: bool = False) -> None:
+        """Start a WhatsApp link flow and return the QR to the requesting
+        connection only. ``force`` (explicit user click) bypasses the
+        just-connected ghost-flow guard."""
         try:
-            result = await start_whatsapp_qr_session()
-            await self._broadcast(
-                {
-                    "type": "whatsapp_qr_result",
-                    "data": result,
-                }
-            )
+            result = await start_whatsapp_qr_session(force=force)
+            await self._send_to(ws, {"type": "whatsapp_qr_result", "data": result})
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_qr_result",
                     "data": {
@@ -6954,24 +8143,47 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "status": "error",
                         "message": str(e),
                     },
-                }
+                },
             )
 
-    async def _handle_whatsapp_check_status(self, session_id: str) -> None:
-        """Check WhatsApp session status."""
+    async def _handle_whatsapp_check_status(self, session_id: str, ws=None) -> None:
+        """Poll a WhatsApp link flow (states: qr_ready / scanned / promoting /
+        connected / timeout / cancelled / error). Idempotent completion —
+        a second poller gets the same connected result, and the account
+        upsert below is an idempotent write."""
         try:
             result = await check_whatsapp_session_status(session_id)
-            await self._broadcast(
-                {
-                    "type": "whatsapp_status_result",
-                    "data": result,
-                }
-            )
-            # If connected, refresh the integrations list (listener is started by check_whatsapp_session_status)
+            # On connect, store the account into the AccountSet — the QR flow
+            # itself can't (craftos_integrations never imports the host); the
+            # v2 ListenerManager then picks the account up via reconcile.
+            if result.get("connected") and result.get("credential"):
+                try:
+                    from app.integrations import get_system
+
+                    system = get_system()
+                    identity = system.store_credential(
+                        "whatsapp_web",
+                        result.get("identity"),
+                        result["credential"],
+                    )
+                    system.reconcile_listeners()
+                    logger.info(
+                        f"[INTEGRATIONS] whatsapp_web account '{identity}' "
+                        f"stored via QR session {session_id}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"[INTEGRATIONS] storing whatsapp_web QR account "
+                        f"failed (session {session_id}): {e!r}"
+                    )
+            await self._send_to(ws, {"type": "whatsapp_status_result", "data": result})
             if result.get("connected"):
+                # The integrations *list* refresh stays a broadcast — every
+                # tab should see the new account.
                 await self._handle_integration_list()
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_status_result",
                     "data": {
@@ -6980,28 +8192,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "connected": False,
                         "message": str(e),
                     },
-                }
+                },
             )
 
-    async def _handle_whatsapp_cancel(self, session_id: str) -> None:
-        """Cancel WhatsApp session."""
+    async def _handle_whatsapp_cancel(self, session_id: str, ws=None) -> None:
+        """Cancel a WhatsApp link flow."""
         try:
             result = cancel_whatsapp_session(session_id)
-            await self._broadcast(
-                {
-                    "type": "whatsapp_cancel_result",
-                    "data": result,
-                }
-            )
+            await self._send_to(ws, {"type": "whatsapp_cancel_result", "data": result})
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "whatsapp_cancel_result",
                     "data": {
                         "success": False,
                         "message": str(e),
                     },
-                }
+                },
             )
 
     async def _broadcast(self, message: Dict[str, Any]) -> None:
@@ -7608,46 +8816,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     if storage
                     else []
                 )
-                messages = []
-                for s in stored:
-                    attachments = None
-                    if s.attachments:
-                        attachments = [
-                            Attachment(
-                                name=att.get("name", ""),
-                                path=att.get("path", ""),
-                                type=att.get("type", ""),
-                                size=att.get("size", 0),
-                                url=att.get("url", ""),
-                            )
-                            for att in s.attachments
-                        ]
-                    options = None
-                    if s.options:
-                        from app.ui_layer.components.types import ChatMessageOption
-
-                        options = [
-                            ChatMessageOption(
-                                label=o.get("label", ""),
-                                value=o.get("value", ""),
-                                style=o.get("style", "default"),
-                            )
-                            for o in s.options
-                        ]
-                    messages.append(
-                        ChatMessage(
-                            sender=s.sender,
-                            content=s.content,
-                            style=s.style,
-                            timestamp=s.timestamp,
-                            message_id=s.message_id,
-                            attachments=attachments,
-                            session_id=s.session_id,
-                            options=options,
-                            option_selected=s.option_selected,
-                            continue_work=s.continue_work,
-                        )
-                    )
+                messages = [
+                    BrowserChatComponent._stored_to_chat_message(s) for s in stored
+                ]
 
             await _reply(
                 {
@@ -8216,108 +9387,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._chat.append_message(error_message)
             return {"success": False, "files_sent": 0, "errors": [str(e)]}
 
-    def _restore_activity_items(self) -> None:
-        """Rebuild the in-memory activity feed from persisted event streams.
-
-        The action panel is a process-lifetime cache; the durable record of
-        actions + reasoning is each session's event stream. Replaying the
-        restored streams through the same EventTransformer used for live
-        events reconstructs the inline activity feed after a backend
-        restart. Runs once, lazily, on the first init request (streams are
-        guaranteed loaded by then).
-        """
-        if self._activity_restored:
-            return
-        self._activity_restored = True
-
-        from app.ui_layer.events.transformer import EventTransformer
-        from app.ui_layer.events import UIEventType
-
-        # Bound the restore so ancient sessions don't bloat the init payload.
-        PER_SESSION_ITEM_CAP = 100
-
-        try:
-            streams = (
-                self._controller.agent.event_stream_manager.get_all_streams_with_ids()
-            )
-        except Exception as e:
-            logger.warning(f"[ACTIVITY] Restore skipped — streams unavailable: {e}")
-            return
-
-        restored: List[ActionItem] = []
-        for session_id, stream in streams:
-            session_items: List[ActionItem] = []
-            by_action_id: Dict[str, ActionItem] = {}
-            for event in stream.as_list():
-                try:
-                    ui = EventTransformer.transform(event, session_id)
-                except Exception:
-                    continue
-                if ui is None:
-                    continue
-                ts = ui.timestamp.timestamp() if ui.timestamp else time.time()
-
-                if ui.type == UIEventType.REASONING:
-                    session_items.append(
-                        ActionItem(
-                            id=ui.data.get("reasoning_id", ""),
-                            name="Reasoning",
-                            status="completed",
-                            item_type="reasoning",
-                            session_id=session_id,
-                            created_at=ts,
-                            completed_at=ts,
-                            output_data=ui.data.get("content"),
-                        )
-                    )
-                elif ui.type == UIEventType.ACTION_START:
-                    item = ActionItem(
-                        id=ui.data.get("action_id", ""),
-                        name=ui.data.get("action_name", "Action"),
-                        status="running",
-                        item_type="action",
-                        session_id=session_id,
-                        created_at=ts,
-                        input_data=ui.data.get("input"),
-                    )
-                    session_items.append(item)
-                    by_action_id[item.id] = item
-                elif ui.type == UIEventType.ACTION_END:
-                    item = by_action_id.get(ui.data.get("action_id", ""))
-                    if item is None:
-                        continue  # start fell out of the stream head
-                    item.status = ui.data.get("status", "completed")
-                    item.completed_at = ts
-                    item.output_data = ui.data.get("output")
-                    item.error_message = ui.data.get("error_message")
-
-            # Anything still "running" died with the previous process.
-            for item in session_items:
-                if item.item_type == "action" and item.status == "running":
-                    item.status = "error"
-                    item.error_message = "Interrupted by restart"
-                    item.completed_at = item.created_at
-
-            restored.extend(session_items[-PER_SESSION_ITEM_CAP:])
-
-        if restored:
-            restored.sort(key=lambda i: i.created_at)
-            self._action_panel._items = restored + self._action_panel._items
-            logger.info(
-                f"[ACTIVITY] Restored {len(restored)} activity item(s) from "
-                f"{len(streams)} session stream(s)"
-            )
-
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
         from app.onboarding import onboarding_manager
         from app.ui_layer.settings.general_settings import (
             get_agent_profile_picture_info,
         )
-
-        # Rebuild the activity feed from persisted streams on first use so
-        # actions + reasoning survive backend restarts.
-        self._restore_activity_items()
 
         state = self._controller.state
         metrics = self._metrics_collector.get_metrics()

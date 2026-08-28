@@ -30,6 +30,28 @@ from agent_core.utils.token import count_tokens
 import threading
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
+
+
+def _configured_context_limits() -> Tuple[int, int]:
+    """Read the summarization thresholds from settings.json.
+
+    app.config owns the defaults and already absorbs a missing file, bad JSON
+    and out-of-range values, so there is nothing left to guard here — a raised
+    ImportError means the app package is genuinely gone, which is a broken
+    install, not a case to paper over with a second copy of the numbers.
+
+    The import is deferred because app.config imports agent_core at module
+    scope (``from agent_core import get_credential``), and agent_core's
+    __init__ loads this module — a module-scope import would close that cycle.
+    By stream-construction time every module is loaded and the import is fine.
+
+    Read once per stream, so a settings.json edit applies to sessions created
+    after it; the main session's stream needs a restart.
+    """
+    from app.config import get_context_limits
+
+    return get_context_limits()
+
 # Messages longer than this are externalized to a temp file and replaced with a
 # pointer (+keywords) so a single large action output (e.g. get_notion, read_pdf,
 # an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the
@@ -40,6 +62,11 @@ MAX_EVENT_INLINE_CHARS = 16000
 # same tick it arrives — the UI consumer polls tail_events and would otherwise miss it,
 # leaving the action displayed as "running" forever.
 MIN_KEEP_RECENT_EVENTS = 2
+
+# Smallest fold worth an LLM call. Summarization is a blocking ~15s round trip;
+# collapsing a couple of hundred tokens with one is a straight loss and the
+# threshold is breached again on the very next event, so we prune instead.
+MIN_FOLD_TOKENS = 2000
 
 # Event kinds that summarization must NEVER collapse — they are kept verbatim in
 # tail_events forever, so the contract they carry survives any number of
@@ -87,10 +114,15 @@ class EventStream:
         self,
         *,
         llm: LLMInterfaceProtocol,
-        summarize_at_tokens: int = 30000,
-        tail_keep_after_summarize_tokens: int = 10000,
         temp_dir: Path | None = None,
     ) -> None:
+        # Thresholds come from settings.json — there is no per-stream override,
+        # so every session folds on the same rules. Tests pin them by patching
+        # _configured_context_limits (see the event_stream_limits fixture).
+        summarize_at_tokens, tail_keep_after_summarize_tokens = (
+            _configured_context_limits()
+        )
+
         self.head_summary: Optional[str] = None
         self.llm = llm
         self.tail_events: List[EventRecord] = []
@@ -217,6 +249,7 @@ class EventStream:
         action_output: Optional[dict] = None,
         platform: Optional[str] = None,
         continue_work: Optional[bool] = None,
+        question: Optional[dict] = None,
     ) -> int:
         """
         Append a new event to the stream and trigger summarization if needed.
@@ -249,6 +282,9 @@ class EventStream:
             continue_work: For AGENT_MESSAGE events: True when this is a
                 mid-run progress update and the agent keeps working after
                 sending it (drives the UI's persistent "Working…" row).
+            question: For AGENT_MESSAGE events: suggested-response payload
+                (``{"options": [...], "allow_free_text": bool}``) when the
+                message is a question the UI should pin above the composer.
 
         Returns:
             The zero-based index of the event within ``tail_events``.
@@ -270,6 +306,7 @@ class EventStream:
             action_output=action_output,
             platform=platform,
             continue_work=continue_work,
+            question=question,
         )
         rec = EventRecord(event=ev)
 
@@ -298,9 +335,19 @@ class EventStream:
     # ───────────────────── summarization & pruning ───────────────────────
 
     def _externalize_message(
-        self, message: str, *, action_name: str | None = None
+        self,
+        message: str,
+        *,
+        action_name: str | None = None,
+        force: bool = False,
     ) -> str:
-        """Persist overly long messages to a temp file and return a pointer event."""
+        """Persist overly long messages to a temp file and return a pointer event.
+
+        `force` overrides the retrieval-action exemption below. It is used by
+        `_shrink_pinned_oversize`, where the agent has already consumed the
+        content in its own turn and the only thing left to do with an oversized
+        event is stop paying for it every prompt.
+        """
         if len(message) <= MAX_EVENT_INLINE_CHARS or self.temp_dir is None:
             return message
 
@@ -309,7 +356,12 @@ class EventStream:
         # send the agent chasing a pointer to a pointer. ("grep" / "stream
         # read" are legacy names kept for safety; the live actions are
         # grep_files / read_file.)
-        if action_name in ("grep_files", "read_file", "grep", "stream read"):
+        if not force and action_name in (
+            "grep_files",
+            "read_file",
+            "grep",
+            "stream read",
+        ):
             return message
 
         try:
@@ -388,6 +440,53 @@ class EventStream:
         )
         return cutoff
 
+    def _shrink_pinned_oversize(self, cutoff: int) -> int:
+        """Externalize oversized events in the surviving tail, in place.
+
+        MIN_KEEP_RECENT_EVENTS pins the newest events so the UI (which mirrors
+        `tail_events`) never loses an `action_end` in the tick it arrives — an
+        action purged that early renders as "running" forever. But the pin is
+        blind to size: when a retrieval action returns a huge payload (grep_files
+        and read_file are exempt from log-time externalization, because they ARE
+        how the agent reads externalized content back), the pin holds tens of
+        thousands of tokens verbatim and a summarization pass cannot get under
+        the threshold. The next event re-triggers it and the SAME chunk gets
+        folded on the second try — one entirely wasted blocking LLM call per
+        oversized event.
+
+        Shrinking in place satisfies both constraints: the record survives with
+        its `action_id` intact so the UI still pairs start↔end, and its message
+        becomes a pointer the agent can re-read on demand. Caller holds the lock.
+
+        Returns the number of tokens reclaimed.
+        """
+        if self.temp_dir is None:
+            return 0
+
+        reclaimed = 0
+        for rec in self.tail_events[cutoff:]:
+            message = rec.event.message
+            if len(message) <= MAX_EVENT_INLINE_CHARS:
+                continue
+            pointer = self._externalize_message(
+                message, action_name=rec.event.action_name, force=True
+            )
+            if pointer is message:
+                # Externalization failed (already logged); leave the event alone.
+                continue
+            before = get_cached_token_count(rec)
+            rec.event.message = pointer
+            rec._cached_tokens = None
+            reclaimed += before - get_cached_token_count(rec)
+
+        if reclaimed:
+            self._total_tokens -= reclaimed
+            logger.info(
+                f"[EventStream] Collapsed oversized pinned event(s) in place, "
+                f"reclaiming {reclaimed} tokens (now {self._total_tokens})"
+            )
+        return reclaimed
+
     def summarize_by_LLM(self) -> None:
         """
         Summarize the oldest tail events using the language model.
@@ -406,6 +505,17 @@ class EventStream:
             self.tail_events, self.tail_keep_after_summarize_tokens
         )
 
+        # Collapse anything oversized that the recent-event pin is holding
+        # verbatim BEFORE deciding whether an LLM call is warranted — that alone
+        # often drops the stream back under the threshold for free.
+        if self._shrink_pinned_oversize(cutoff):
+            if self._total_tokens < self.summarize_at_tokens:
+                return
+            # Budget changed; the fold boundary moves with it.
+            cutoff = self._find_token_cutoff(
+                self.tail_events, self.tail_keep_after_summarize_tokens
+            )
+
         if cutoff <= 0:
             # Nothing old enough to summarize
             return
@@ -417,6 +527,29 @@ class EventStream:
         chunk = [r for r in region if r.event.kind not in PROTECTED_SUMMARY_KINDS]
         if not chunk:
             # Everything old enough to summarize is protected — nothing to collapse.
+            return
+
+        chunk_tokens = sum(get_cached_token_count(r) for r in chunk)
+        if chunk_tokens < MIN_FOLD_TOKENS:
+            # The foldable region is smaller than the LLM call is worth — the tail
+            # is dominated by events we're required to keep (protected kinds, or
+            # the recent-event pin). Prune the chunk without a summary rather than
+            # burn ~15s and a full prompt to reclaim a rounding error. Losing this
+            # little detail is cheaper than the alternative, which is re-triggering
+            # on every subsequent log() call.
+            logger.warning(
+                f"[EventStream] Foldable region is only {chunk_tokens} tokens "
+                f"(< {MIN_FOLD_TOKENS}); pruning {len(chunk)} event(s) without an "
+                f"LLM call. Tail is dominated by pinned/protected events."
+            )
+            self._total_tokens -= chunk_tokens
+            self.tail_events = protected + self.tail_events[cutoff:]
+            self._append_summarization_notice(
+                folded_events=len(chunk),
+                folded_tokens=chunk_tokens,
+                summary=None,
+            )
+            self._session_sync_points.clear()
             return
 
         first_ts = chunk[0].ts
@@ -448,8 +581,13 @@ class EventStream:
             logger.info(
                 f"[EventStream] Running synchronous summarization ({self._total_tokens} tokens)"
             )
+            # json_mode=False: this prompt asks for a prose summary, and
+            # forcing a provider's JSON mode onto it degenerates (DeepSeek
+            # returns whitespace-only output that reads as empty).
             llm_output = self.llm.generate_response(
-                user_prompt=prompt, prompt_name="EVENT_STREAM_SUMMARIZATION"
+                user_prompt=prompt,
+                prompt_name="EVENT_STREAM_SUMMARIZATION",
+                json_mode=False,
             )
             new_summary = (llm_output or "").strip()
 
@@ -465,8 +603,8 @@ class EventStream:
 
             # Apply summary and prune events
             self.head_summary = new_summary
-            # Calculate tokens being removed from the snapshotted chunk
-            removed_tokens = sum(get_cached_token_count(r) for r in chunk)
+            # Tokens being removed from the snapshotted chunk (measured above).
+            removed_tokens = chunk_tokens
             self._total_tokens -= removed_tokens
             # Keep protected events verbatim at the front of the surviving tail.
             self.tail_events = protected + self.tail_events[cutoff:]
@@ -492,7 +630,7 @@ class EventStream:
             # Fallback: drop the oldest chunk without generating a summary so that
             # _total_tokens falls below the threshold.  Without this, every subsequent
             # log() call would immediately re-trigger summarization and flood the logs.
-            removed_tokens = sum(get_cached_token_count(r) for r in chunk)
+            removed_tokens = chunk_tokens
             self._total_tokens -= removed_tokens
             # Keep protected events verbatim even on the no-LLM prune fallback.
             self.tail_events = protected + self.tail_events[cutoff:]

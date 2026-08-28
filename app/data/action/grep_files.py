@@ -54,7 +54,7 @@ _INPUT_SCHEMA = {
     "head_limit": {
         "type": "integer",
         "example": 50,
-        "description": "Maximum number of results to return. For 'files_with_matches': max file paths. For 'content': max output lines. For 'count': max file entries. Default is 250. Pass 0 for unlimited results (no truncation). If results are truncated, the applied_limit field in the response tells you it happened — use offset to paginate through the rest.",
+        "description": "Maximum number of results to return. For 'files_with_matches': max file paths. For 'content': max output lines. For 'count': max file entries. Default is 250. Pass 0 for unlimited results (no truncation). If results are truncated, the applied_limit field in the response tells you it happened — use offset to paginate through the rest. Note: 'content' output is ALSO byte-capped independently of this (each line trimmed to 500 chars, whole payload to 40000 chars) so a file with very long lines cannot flood the context; the message field says so when it happens.",
     },
     "offset": {
         "type": "integer",
@@ -150,6 +150,15 @@ def grep_files(input_data: dict) -> dict:
     import os
     import re
     import fnmatch
+
+    # Byte caps on the returned payload. head_limit bounds the number of LINES,
+    # which is no bound at all when a "line" is a 160KB MIME header blob (raw
+    # Received/DKIM/ARC headers in an externalized get_gmail dump). Without these
+    # a single grep can land a ~77k-token event in the event stream, which blows
+    # the summarization threshold in one shot. Both are applied AFTER pagination
+    # so head_limit/offset still mean what they say.
+    MAX_LINE_CHARS = 500
+    MAX_CONTENT_CHARS = 40000
 
     # --- Helper functions (must be inside for sandboxed execution) ---
 
@@ -385,6 +394,45 @@ def grep_files(input_data: dict) -> dict:
             return after_offset
         return after_offset[:head_limit]
 
+    def clamp_line(line):
+        """Trim one output line to MAX_LINE_CHARS, keeping the 'NN:' prefix."""
+        if len(line) <= MAX_LINE_CHARS:
+            return line, 0
+        dropped = len(line) - MAX_LINE_CHARS
+        return (
+            f"{line[:MAX_LINE_CHARS]}… [line truncated, {dropped} chars dropped]",
+            dropped,
+        )
+
+    def clamp_content(lines):
+        """Apply the per-line and total byte caps. Returns (lines, note)."""
+        clamped = []
+        truncated_lines = 0
+        used = 0
+        stopped_at = None
+        for i, line in enumerate(lines):
+            text, dropped = clamp_line(line)
+            if dropped:
+                truncated_lines += 1
+            if used + len(text) + 1 > MAX_CONTENT_CHARS:
+                stopped_at = i
+                break
+            clamped.append(text)
+            used += len(text) + 1
+
+        notes = []
+        if truncated_lines:
+            notes.append(
+                f"{truncated_lines} line(s) were trimmed to {MAX_LINE_CHARS} chars"
+            )
+        if stopped_at is not None:
+            notes.append(
+                f"output capped at {MAX_CONTENT_CHARS} chars after {stopped_at} of "
+                f"{len(lines)} line(s) — narrow the pattern or use offset={offset + stopped_at} "
+                "to continue"
+            )
+        return clamped, "; ".join(notes)
+
     effective_limit = None if unlimited else head_limit
 
     if output_mode == "files_with_matches":
@@ -404,16 +452,23 @@ def grep_files(input_data: dict) -> dict:
         }
 
     elif output_mode == "content":
-        paginated = paginate(content_lines)
+        paginated, cap_note = clamp_content(paginate(content_lines))
         content_str = "\n".join(paginated)
         if paginated:
             content_str += "\n"
+        message = (
+            f"Found {total_match_count} match(es) in {len(matched_filenames)} file(s)"
+        )
+        if cap_note:
+            message += f" ({cap_note})"
         return {
             "status": "success",
-            "message": f"Found {total_match_count} match(es) in {len(matched_filenames)} file(s)",
+            "message": message,
             "mode": "content",
             "num_files": len(matched_filenames),
-            "filenames": matched_filenames,
+            # Content mode already carries each path inline in `content`; echoing an
+            # unbounded filename list on top of it is pure token cost on a wide search.
+            "filenames": matched_filenames[:100],
             "content": content_str,
             "num_lines": len(paginated),
             "num_matches": None,

@@ -53,3 +53,4 @@ pdfminer.six
 pymupdf
 pypdf
 rank_bm25
+sentence-transformers

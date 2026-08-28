@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.12.0",
+    "@ridemountainpig/svgl-react": "^1.0.17",
     "@tanstack/react-virtual": "^3.13.23",
+    "driver.js": "^1.8.0",
     "lucide-react": "^0.344.0",
     "prism-react-renderer": "^2.4.1",
     "react": "^18.2.0",

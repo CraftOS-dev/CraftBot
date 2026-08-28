@@ -93,6 +93,7 @@ class GeminiClient:
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
         json_mode: bool = False,
+        thinking_budget: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Generate text for a purely textual prompt.
 
@@ -115,6 +116,11 @@ class GeminiClient:
             temperature: Sampling temperature
             max_output_tokens: Maximum output tokens
             json_mode: If True, enforce JSON output format
+            thinking_budget: Optional cap on reasoning tokens for Gemini 2.5
+                thinking models. Left unset, the model chooses its own budget
+                (and can exhaust maxOutputTokens on thoughts alone, emitting no
+                text — finishReason=MAX_TOKENS, parts_count=0). Set it to
+                reserve output room for the actual answer.
 
         Returns:
             Dict with generation results and token counts
@@ -133,6 +139,8 @@ class GeminiClient:
             generation_config["maxOutputTokens"] = max_output_tokens
         if json_mode:
             generation_config["responseMimeType"] = "application/json"
+        if thinking_budget is not None:
+            generation_config["thinkingConfig"] = {"thinkingBudget": thinking_budget}
 
         payload: Dict[str, Any] = {"contents": contents}
         if system_prompt:

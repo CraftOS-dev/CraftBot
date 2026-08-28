@@ -9,3 +9,4 @@ export const selectHasLoadedSoulMd = (state: RootState) => state.generalSettings
 export const selectUpdateChecked = (state: RootState) => state.generalSettings.updateChecked
 export const selectUpdateAvailable = (state: RootState) => state.generalSettings.updateAvailable
 export const selectLatestVersion = (state: RootState) => state.generalSettings.latestVersion
+export const selectUpdateBranch = (state: RootState) => state.generalSettings.updateBranch

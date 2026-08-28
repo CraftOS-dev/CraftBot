@@ -138,7 +138,7 @@ def fetch_credits(
 
     Hits /api/v1/credits (preferred — newer endpoint with `total_credits` /
     `total_usage`). Falls back to /api/v1/auth/key on 404 since older keys /
-    routes still expose the legacy shape.
+    routes still expose the shape.
 
     Returns:
         {"success": bool, "balance": float, "usage": float, "limit": float?,

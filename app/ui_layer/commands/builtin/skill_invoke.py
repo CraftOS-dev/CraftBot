@@ -54,6 +54,19 @@ class SkillInvokeCommand(Command):
     def hidden(self) -> bool:
         return True
 
+    @property
+    def requires_session(self) -> bool:
+        # Skill invocations route into an agent turn; without a real session
+        # the turn falls back to the main session (see _handle_chat_message),
+        # so a draft must be committed to a real session first.
+        return True
+
+    @property
+    def starts_run(self) -> bool:
+        # invoke_skill() routes into _handle_chat_message, launching an agent
+        # turn — the committed session should show the typing indicator.
+        return True
+
     async def execute(
         self,
         args: List[str],

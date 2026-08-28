@@ -76,7 +76,6 @@ class ConfigWatcher:
     - settings.json
     - mcp_config.json
     - skills_config.json
-    - external_comms_config.json
 
     When a file changes, the appropriate reload callback is invoked.
     """

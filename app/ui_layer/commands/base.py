@@ -113,6 +113,37 @@ class Command(ABC):
         """
         return False
 
+    @property
+    def requires_session(self) -> bool:
+        """
+        Whether this command operates on or produces the conversation it was
+        typed in.
+
+        When True, invoking the command from the draft view (/session/new)
+        first materializes a real session so the command runs there — the
+        same lazy commit a chat message triggers. This keeps skill turns from
+        leaking into the main session and keeps session-scoped output from
+        orphaning in a draft that never becomes a real chat.
+
+        Global/informational commands (/help, /mcp, /tokens, …) leave this
+        False: they run in place and render their output in the draft without
+        cluttering the sidebar with an empty session.
+        """
+        return False
+
+    @property
+    def starts_run(self) -> bool:
+        """
+        Whether executing this command launches an agent turn.
+
+        Only meaningful alongside requires_session=True: it tells the draft
+        handoff whether to show the typing indicator on the freshly committed
+        session. Skill invocations start a run (True); a state command like
+        /clear commits a session but starts no turn (False), so the session
+        must not be left showing a phantom "working…" indicator.
+        """
+        return False
+
     @abstractmethod
     async def execute(
         self,

@@ -1,5 +1,14 @@
-"""Data-safety acceptance: baseline restore (build era) + staging copies
-(modify era) keep agent/verifier test junk out of the production DB.
+"""Data-safety acceptance for the unified dev/live lifecycle.
+
+The single invariant under test (docs/plans/living-ui-unified-lifecycle-plan.md):
+
+    Nothing writes to a live environment's pb_data except PocketBase's
+    migration replay during Promoter.promote().
+
+Every code change — first build or modify — develops and verifies in a DEV
+environment (code copy, hidden port, FRESH schema-only DB); a clean verify
+promotes. There is no stored "delivered" flag: first-vs-update is derived
+from live_db_exists().
 
 Run:  python3 -m app.living_ui.test_data_safety
 
@@ -32,7 +41,7 @@ import app.living_ui.wizard as wizard_mod
 from app.data.action import living_ui_actions as LA
 from app.living_ui.manager import LivingUIManager, LivingUIProject
 from app.living_ui.pb_data_io import restore_pb_data, snapshot_pb_data
-from app.living_ui.staging import STAGING_PORT_RANGE, StagingSupervisor
+from app.living_ui.lifecycle import DEV_PORT_RANGE, DevProvisioner, live_db_exists
 from app.living_ui.runner import LivingUIRunner
 from app.living_ui.wizard import _unwrap_document, adapt_chosen, fresh_build_chosen
 
@@ -177,7 +186,7 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§2 pb_data_io guards: OK")
 
 
-# ── §3 StagingSupervisor ───────────────────────────────────────────────────
+# ── §3 DevProvisioner ──────────────────────────────────────────────────────
 
 
 class _StubRunner:
@@ -190,43 +199,45 @@ class _StubRunner:
 
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "living_ui"
-    proj = _make_project_dir(living, "stage0001", 3125)
-    project = _Project("stage0001", proj, 3125)
-    # Trigger declaration MUST travel to staging: without it the copy's guard
-    # declares nothing, every ⚡ fire 400s, and the walker fails an
+    proj = _make_project_dir(living, "dev00001", 3125)
+    project = _Project("dev00001", proj, 3125)
+    # Trigger declaration MUST travel to the dev copy: without it the copy's
+    # guard declares nothing, every ⚡ fire 400s, and the walker fails an
     # unfixable "defect" (observed live 2026-08-06 — three identical STUCKs).
     (proj / "triggers.json").write_text(
         '{"triggers": {"ping": {"instruction": "reply", "description": "d"}}}'
     )
     runner = _StubRunner()
-    sup = StagingSupervisor(living, runner)
+    sup = DevProvisioner(living, runner)
 
     inst = asyncio.run(sup.create_copy(project))
     sdir = inst.dir
-    assert sdir == living / "_staging" / "project" / "stage0001"
-    assert STAGING_PORT_RANGE[0] <= inst.port <= STAGING_PORT_RANGE[1]
+    assert sdir == living / "_staging" / "project" / "dev00001"
+    assert DEV_PORT_RANGE[0] <= inst.port <= DEV_PORT_RANGE[1]
     manifest = _json.loads((sdir / "manifest.json").read_text())
     assert manifest["port"] == inst.port, "manifest.port must be rewritten"
+    assert manifest["env"] == "dev", "dev copies must be stamped env=dev (A2APP)"
     assert str(inst.port) in manifest["pipeline"]["start"], "pipeline keeps port inline"
     assert "3125" not in manifest["pipeline"]["start"], "old port must be gone"
     assert runner.kit_synced == [sdir], "hash canon must be re-recorded after rewrite"
     assert not (sdir / "pb" / "pb_public").exists(), (
         "gate rebuilds pb_public — never copy"
     )
+    # THE POINT of the unified lifecycle: the dev copy has NO database at
+    # all — PocketBase creates it at boot and replays the migration chain.
+    # Live data is never cloned into an environment the agent writes to.
+    assert not (sdir / "pb" / "pb_data").exists(), (
+        "dev copy must NOT contain a database — schema comes from migrations"
+    )
     assert (sdir / "frontend" / "node_modules" / "somepkg").exists(), (
         "node_modules rides along"
     )
     assert (sdir / ".superuser").exists() and (sdir / ".lui").exists()
     assert (sdir / "triggers.json").exists(), (
-        "triggers.json must travel to staging — its absence 400s every fire"
+        "triggers.json must travel to the dev copy — its absence 400s every fire"
     )
 
-    # DB isolation: staging writes never reach the original.
-    assert _count(sdir / "pb" / "pb_data" / "data.db") == 2
-    _mkdb(sdir / "pb" / "pb_data" / "data.db", rows=9)
-    assert _count(proj / "pb" / "pb_data" / "data.db") == 2, "original DB polluted!"
-
-    # sync_code: refreshes agent-owned paths, keeps staging pb_data + manifest.
+    # sync_code: refreshes agent-owned paths, keeps the rewritten manifest.
     (proj / "frontend" / "src" / "App.tsx").write_text("export const A = 2\n")
     (proj / "frontend" / "package.json").write_text(
         '{"name": "app", "dependencies": {"x": "1.0.0"}}'
@@ -237,34 +248,38 @@ with tempfile.TemporaryDirectory() as tmp:
     sup.sync_code(project, sdir)
     assert "A = 2" in (sdir / "frontend" / "src" / "App.tsx").read_text()
     assert "pong" in (sdir / "triggers.json").read_text(), (
-        "fix-iteration edits to triggers.json must reach staging"
+        "fix-iteration edits to triggers.json must reach the dev copy"
     )
     assert not (sdir / "frontend" / "node_modules").exists(), (
         "changed package.json must clear node_modules so install runs"
     )
-    assert _count(sdir / "pb" / "pb_data" / "data.db") == 11, (
-        "sync_code must not touch staging data"
-    )
     assert _json.loads((sdir / "manifest.json").read_text())["port"] == inst.port
+
+    # reset_db drops the dev DB (a booted dev instance leaves one behind);
+    # the next boot replays migrations from empty.
+    _mkdb(sdir / "pb" / "pb_data" / "data.db", rows=9)
+    sup.reset_db(sdir)
+    assert not (sdir / "pb" / "pb_data").exists(), "reset_db must drop the dev DB"
+    assert _count(proj / "pb" / "pb_data" / "data.db") == 2, "original DB polluted!"
 
     # guarded rmtree refuses anything outside _staging
     try:
         sup._guarded_rmtree(proj)
-        raise AssertionError("guarded rmtree left the staging root!")
+        raise AssertionError("guarded rmtree left the dev root!")
     except ValueError:
         pass
 
     # destroy + reap
-    sup.destroy("stage0001", inst.to_record())
+    sup.destroy("dev00001", inst.to_record())
     assert not sdir.exists()
     leftover = living / "_staging" / "project" / "leftover99"
     leftover.mkdir(parents=True)
     reaped = sup.reap_all({"gone12345": {"dir": str(leftover), "pid": 99999999}})
     assert reaped >= 1 and not leftover.exists()
-print("§3 StagingSupervisor: OK")
+print("§3 DevProvisioner: OK")
 
 
-# ── §4 FactoryHost delivery helpers ────────────────────────────────────────
+# ── §4 FactoryHost delivery bookkeeping + live_db_exists ───────────────────
 
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "living_ui"
@@ -277,22 +292,32 @@ with tempfile.TemporaryDirectory() as tmp:
 
     living_ui_mod.get_living_ui_manager = lambda: _MgrOne()
     host = host_mod.FactoryHost()
-    assert host.is_delivered("sidecar01") is False
-    host.mark_delivered("sidecar01")
-    assert host.is_delivered("sidecar01") is True
+    # delivered_at is a cosmetic stamp, written once, never a control input.
+    assert host.delivered_at("sidecar01") is None
+    host.stamp_delivered("sidecar01")
+    first_stamp = host.delivered_at("sidecar01")
+    assert first_stamp is not None
+    host.stamp_delivered("sidecar01")
+    assert host.delivered_at("sidecar01") == first_stamp, "stamp is write-once"
     assert host.get_staging_record("sidecar01") is None
     host.set_staging_record("sidecar01", {"url": "http://127.0.0.1:3901", "port": 3901})
     assert host.get_staging_record("sidecar01")["port"] == 3901
-    # delivered flag survives alongside the staging record
+    # stamp survives alongside the dev record
     side = _json.loads((proj / ".factory" / "host.json").read_text())
-    assert side["delivered"] is True and side["staging"]["port"] == 3901
+    assert side["delivered_at"] == first_stamp and side["staging"]["port"] == 3901
     host.clear_staging_record("sidecar01")
     assert host.get_staging_record("sidecar01") is None
-    assert host.is_delivered("sidecar01") is True
-print("§4 FactoryHost delivery helpers: OK")
+
+    # live_db_exists: the structural first-vs-update predicate.
+    assert live_db_exists(proj) is True
+    (proj / "pb" / "pb_data" / "data.db").unlink()
+    assert live_db_exists(proj) is False
+    assert live_db_exists("") is False and live_db_exists(None) is False
+    _mkdb(proj / "pb" / "pb_data" / "data.db", rows=2)  # restore for reuse
+print("§4 FactoryHost bookkeeping + live_db_exists: OK")
 
 
-# ── §5 manager.launch_staging / finalize_modify / finalize_first_delivery ──
+# ── §5 manager.open_dev / promote — THE INVARIANT ──────────────────────────
 
 with tempfile.TemporaryDirectory() as tmp:
     workspace = Path(tmp)
@@ -309,12 +334,11 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     project.bridge_token = "tok"
     mgr.projects["mgrtest01"] = project
-    mgr.staging.runner = _StubRunner()  # no node in tests
+    mgr.lifecycle.provisioner.runner = _StubRunner()  # no node in tests
 
     living_ui_mod.get_living_ui_manager = lambda: mgr
     host_mod._HOST = None  # fresh singleton bound to this manager
     host = host_mod.get_factory_host()
-    host.mark_delivered("mgrtest01")
 
     PIPELINE_RUNS = []
 
@@ -338,9 +362,17 @@ with tempfile.TemporaryDirectory() as tmp:
         return {"status": "success", "process": _FakeProc()}
 
     mgr._run_launch_pipeline = _fake_pipeline
+    mgr.lifecycle._launch_pipeline = _fake_pipeline
 
-    result = asyncio.run(mgr.launch_staging("mgrtest01"))
-    assert result["status"] == "success" and result.get("staging") is True
+    # Fingerprint the LIVE DB before the whole arc: the invariant is that
+    # no lifecycle step below changes a single byte of it (the fake launch
+    # stands in for the promote boot, whose migration replay is the one
+    # sanctioned writer).
+    _live_db = proj_dir / "pb" / "pb_data" / "data.db"
+    _live_bytes_before = _live_db.read_bytes()
+
+    result = asyncio.run(mgr.open_dev("mgrtest01"))
+    assert result["status"] == "success" and result.get("dev") is True
     record = host.get_staging_record("mgrtest01")
     assert record and record["pid"] == 4242
     sdir = Path(record["dir"])
@@ -348,79 +380,85 @@ with tempfile.TemporaryDirectory() as tmp:
         "pipeline must target the COPY"
     )
     assert PIPELINE_RUNS[-1][1] == record["port"] != 3127
+    assert result.get("dir") == str(sdir), "agents need the dev dir for logs/CLI"
+    assert not (sdir / "pb" / "pb_data").exists(), "dev copy must start with no DB"
+    # live DB exists → open_dev re-armed the machine as a MODIFY
+    machine = host.machine_for("mgrtest01")
+    assert machine is not None and machine.state == "modifying", machine.state
 
-    # flip: relaunch real app, then destroy staging + record
-    FLIPPED = []
+    # a second open_dev (fix iteration) reuses the copy and resets its DB
+    _mkdb(sdir / "pb" / "pb_data" / "data.db", rows=9)  # simulated boot junk
+    result = asyncio.run(mgr.open_dev("mgrtest01"))
+    assert result["status"] == "success"
+    assert not (sdir / "pb" / "pb_data").exists(), (
+        "each open_dev must reset the dev DB — migrations replay from empty"
+    )
+
+    # promote (update): relaunch real app, then destroy dev copy + record
+    PROMOTED = []
 
     async def _fake_launch_and_verify(pid):
-        FLIPPED.append(pid)
+        PROMOTED.append(pid)
         return {"status": "success", "url": "http://127.0.0.1:3127", "port": 3127}
 
-    mgr.launch_and_verify = _fake_launch_and_verify
-    flip = asyncio.run(mgr.finalize_modify("mgrtest01"))
-    assert flip["status"] == "success" and FLIPPED == ["mgrtest01"]
-    assert not sdir.exists(), "flip must destroy the staging copy"
+    mgr.lifecycle.promoter._launch_live = _fake_launch_and_verify
+    up = asyncio.run(mgr.promote("mgrtest01"))
+    assert up["status"] == "success" and PROMOTED == ["mgrtest01"]
+    assert up["first"] is False, "live DB existed — this is an UPDATE promote"
+    assert not sdir.exists(), "promote must destroy the dev copy"
     assert host.get_staging_record("mgrtest01") is None
+    assert host.delivered_at("mgrtest01") is not None, "promote stamps delivery"
+    assert _live_db.read_bytes() == _live_bytes_before, (
+        "INVARIANT VIOLATED: the live DB changed outside the promote boot"
+    )
 
-    # failed flip keeps the copy and the record
-    result = asyncio.run(mgr.launch_staging("mgrtest01"))
+    # failed promote keeps the copy and the record
+    result = asyncio.run(mgr.open_dev("mgrtest01"))
     sdir = Path(host.get_staging_record("mgrtest01")["dir"])
 
     async def _failing_launch(pid):
         return {"status": "error", "step": "health", "errors": ["boom"]}
 
-    mgr.launch_and_verify = _failing_launch
-    flip = asyncio.run(mgr.finalize_modify("mgrtest01"))
-    assert flip["status"] == "error"
+    mgr.lifecycle.promoter._launch_live = _failing_launch
+    up = asyncio.run(mgr.promote("mgrtest01"))
+    assert up["status"] == "error"
     assert sdir.exists() and host.get_staging_record("mgrtest01") is not None
+    mgr.lifecycle.provisioner.destroy("mgrtest01", host.get_staging_record("mgrtest01"))
+    host.clear_staging_record("mgrtest01")
 
-    # finalize_first_delivery: junk after baseline → restored before announce
+    # FIRST promote: no live DB → first=True; nothing restores or wipes.
     proj2_dir = _make_project_dir(living, "firstdel01", 3128)
+    import shutil as _shutil
+
+    _shutil.rmtree(proj2_dir / "pb" / "pb_data")  # a never-delivered build
     project2 = LivingUIProject(
         id="firstdel01",
         name="firstdel01",
         description="t",
         path=str(proj2_dir),
-        status="running",
+        status="stopped",
         port=3128,
     )
     project2.bridge_token = "tok"
     mgr.projects["firstdel01"] = project2
-    snapshot_pb_data(
-        proj2_dir / "pb" / "pb_data", proj2_dir / ".snapshots" / "baseline", living
-    )
-    _mkdb(proj2_dir / "pb" / "pb_data" / "data.db", rows=6)  # verifier junk
 
-    async def _fake_start(project_dir, port, bridge_token=""):
-        return _FakeProc()
+    dev = asyncio.run(mgr.open_dev("firstdel01"))
+    assert dev["status"] == "success"
+    # no live DB → build era: the machine must NOT be re-armed into modify
+    m2 = host.machine_for("firstdel01")
+    assert m2 is not None and m2.state == "building", m2.state
 
-    async def _fake_healthy(port, timeout=None):
-        return True
+    async def _first_launch(pid):
+        # the promote boot creates the live DB from migrations — simulate it
+        _mkdb(proj2_dir / "pb" / "pb_data" / "data.db", rows=0)
+        return {"status": "success", "url": "http://127.0.0.1:3128", "port": 3128}
 
-    mgr.runner.start = _fake_start
-    mgr.runner.wait_healthy = _fake_healthy
-    fin = asyncio.run(mgr.finalize_first_delivery("firstdel01"))
-    assert fin["status"] == "success" and fin["restored"] is True
-    assert _count(proj2_dir / "pb" / "pb_data" / "data.db") == 2, (
-        "junk survived delivery!"
-    )
-    assert project2.status == "running"
-
-    # no baseline → deliver as-is, never guess-wipe
-    proj3_dir = _make_project_dir(living, "legacy0001", 3129)
-    project3 = LivingUIProject(
-        id="legacy0001",
-        name="legacy0001",
-        description="t",
-        path=str(proj3_dir),
-        status="running",
-        port=3129,
-    )
-    mgr.projects["legacy0001"] = project3
-    fin = asyncio.run(mgr.finalize_first_delivery("legacy0001"))
-    assert fin["status"] == "success" and fin["restored"] is False
-    assert _count(proj3_dir / "pb" / "pb_data" / "data.db") == 2
-print("§5 manager staging/finalize: OK")
+    mgr.lifecycle.promoter._launch_live = _first_launch
+    up = asyncio.run(mgr.promote("firstdel01"))
+    assert up["status"] == "success" and up["first"] is True
+    assert live_db_exists(proj2_dir)
+    assert host.get_staging_record("firstdel01") is None
+print("§5 manager open_dev/promote invariant: OK")
 
 
 # ── §6-8 action branching (bare-exec, like the real executor) ──────────────
@@ -432,6 +470,7 @@ WALK = {"report": None, "base_url": None, "project_path": None}
 class _StubMgr:
     def __init__(self, project):
         self._p = project
+        self.projects = {project.id: project}
 
     def get_project(self, pid):
         return self._p if pid == self._p.id else None
@@ -440,26 +479,28 @@ class _StubMgr:
         EVENTS.append("launch_and_verify")
         return {"status": "success", "url": self._p.url, "port": self._p.port}
 
-    async def launch_staging(self, pid):
-        EVENTS.append("launch_staging")
+    async def open_dev(self, pid):
+        EVENTS.append("open_dev")
         return {
             "status": "success",
             "url": "http://127.0.0.1:3901",
             "port": 3901,
-            "staging": True,
+            "dir": "/tmp/devcopy",
+            "dev": True,
         }
 
     async def stop_project(self, pid):
         EVENTS.append("stop_project")
         return True
 
-    async def finalize_first_delivery(self, pid):
-        EVENTS.append("finalize_first_delivery")
-        return {"status": "success", "restored": True}
-
-    async def finalize_modify(self, pid):
-        EVENTS.append("finalize_modify")
-        return {"status": "success"}
+    async def promote(self, pid):
+        EVENTS.append("promote")
+        return {
+            "status": "success",
+            "url": self._p.url,
+            "port": self._p.port,
+            "first": False,
+        }
 
 
 async def _b_ready(pid, url, port):
@@ -470,7 +511,7 @@ async def _b_progress(pid, *a, **k):
     pass
 
 
-async def _walk_stub(project, base_url=None, project_path=None):
+async def _walk_stub(project, base_url=None, project_path=None, **_scope_kwargs):
     WALK.update(base_url=base_url, project_path=project_path)
     return WALK["report"]
 
@@ -494,51 +535,27 @@ def _wire(project, host):
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "living_ui"
 
-    # §6a build mode, clean verdict: finalize + mark_delivered BEFORE announce
-    proj = _make_project_dir(living, "actbuild01", 3131)
-    project = _Project("actbuild01", proj, 3131)
-    host_mod._HOST = None
-    host = host_mod.get_factory_host()
-    _wire(project, host)
-    EVENTS.clear()
-    WALK["report"] = {
-        "kind": "pass",
-        "passed": ["feature one"],
-        "defects": [],
-        "raw": "VERDICT: PASS",
-    }
-    out = _run_action(LA.living_ui_walk_verify, {"project_id": "actbuild01"})
-    assert out["status"] == "success", out
-    assert WALK["base_url"] == "http://127.0.0.1:3131" and WALK["project_path"] is None
-    fin_i = EVENTS.index("finalize_first_delivery")
-    ready_i = next(
-        i
-        for i, e in enumerate(EVENTS)
-        if isinstance(e, tuple) and e[0] == "broadcast_ready"
-    )
-    assert fin_i < ready_i, "restore must precede the delivery announce"
-    assert host.is_delivered("actbuild01") is True
-    print("§6a build clean → finalize→mark→announce: OK")
-
-    # §6b delivered but no staging: walk refuses, notify_ready boots staging
+    # §6a no dev env: walk refuses; notify_ready boots the dev env
     proj = _make_project_dir(living, "actnostg01", 3132)
     project = _Project("actnostg01", proj, 3132)
+    host_mod._HOST = None
+    host = host_mod.get_factory_host()
     stub = _wire(project, host)
-    host.mark_delivered("actnostg01")
     EVENTS.clear()
     out = _run_action(LA.living_ui_walk_verify, {"project_id": "actnostg01"})
-    assert out["status"] == "error" and "staging" in out["message"], out
+    assert out["status"] == "error" and "dev" in out["message"].lower(), out
     out = _run_action(LA.living_ui_notify_ready, {"project_id": "actnostg01"})
-    assert out["status"] == "success" and "launch_staging" in EVENTS
-    assert "launch_and_verify" not in EVENTS
-    assert "STAGING" in out["message"]
-    print("§6b delivered gating: OK")
+    assert out["status"] == "success" and "open_dev" in EVENTS
+    assert "launch_and_verify" not in EVENTS, "native apps never launch live here"
+    assert "DEV environment" in out["message"]
+    assert "/tmp/devcopy" in out["message"], "message must name the dev dir"
+    print("§6a dev-env gating: OK")
 
-    # §6c staging defects: live app NOT stopped; staging log quoted
+    # §6c dev defects: live app NOT stopped; dev log quoted
     sdir = living / "_staging" / "project" / "actnostg01"
     (sdir / "logs").mkdir(parents=True)
     (sdir / "logs" / "pocketbase.log").write_text(
-        "ERROR hook exploded: staging-only-line\n"
+        "ERROR hook exploded: dev-only-line\n"
     )
     host.set_staging_record(
         "actnostg01", {"url": "http://127.0.0.1:3905", "port": 3905, "dir": str(sdir)}
@@ -556,16 +573,16 @@ with tempfile.TemporaryDirectory() as tmp:
     }
     out = _run_action(LA.living_ui_walk_verify, {"project_id": "actnostg01"})
     assert out["status"] == "error"
-    assert "stop_project" not in EVENTS, "modify defects must not stop the live app"
+    assert "stop_project" not in EVENTS, "native defects must not stop the live app"
     assert "previous working version" in out["message"]
     assert WALK["base_url"] == "http://127.0.0.1:3905", "verifier must drive the COPY"
     assert WALK["project_path"] == str(sdir)
-    assert "staging-only-line" in captured.get("server_log", ""), (
-        "evidence must come from the staging log"
+    assert "dev-only-line" in captured.get("server_log", ""), (
+        "evidence must come from the dev log"
     )
-    print("§6c staging defects: OK")
+    print("§6c dev defects: OK")
 
-    # §6d staging clean: flip before announce; flip failure blocks announce
+    # §6d clean verdict: promote before announce; promote failure blocks it
     host.report_verify = lambda *a, **k: types.SimpleNamespace(
         next_state="done", payload={}
     )
@@ -578,46 +595,54 @@ with tempfile.TemporaryDirectory() as tmp:
     }
     out = _run_action(LA.living_ui_walk_verify, {"project_id": "actnostg01"})
     assert out["status"] == "success", out
-    flip_i = EVENTS.index("finalize_modify")
+    promote_i = EVENTS.index("promote")
     ready_i = next(
         i
         for i, e in enumerate(EVENTS)
         if isinstance(e, tuple) and e[0] == "broadcast_ready"
     )
-    assert flip_i < ready_i, "deploy must precede the announce"
+    assert promote_i < ready_i, "the promote must precede the announce"
     assert EVENTS[ready_i][1] == "http://127.0.0.1:3132", (
         "announce must carry the REAL url"
     )
+    assert "finalize_first_delivery" not in EVENTS, (
+        "the baseline-restore path must not exist"
+    )
 
-    class _FlipFailMgr(_StubMgr):
-        async def finalize_modify(self, pid):
-            EVENTS.append("finalize_modify")
+    class _PromoteFailMgr(_StubMgr):
+        async def promote(self, pid):
+            EVENTS.append("promote")
             return {
                 "status": "error",
                 "step": "health",
                 "errors": ["real app did not boot"],
             }
 
-    living_ui_mod.get_living_ui_manager = lambda: _FlipFailMgr(project)
+    living_ui_mod.get_living_ui_manager = lambda: _PromoteFailMgr(project)
     EVENTS.clear()
     out = _run_action(LA.living_ui_walk_verify, {"project_id": "actnostg01"})
     assert out["status"] == "error" and "deploy" in out["message"].lower()
     assert not any(
         isinstance(e, tuple) and e[0] == "broadcast_ready" for e in EVENTS
-    ), "a failed deploy must never announce"
-    print("§6d staging clean/flip: OK")
+    ), "a failed promote must never announce"
+    print("§6d clean verdict promotes: OK")
 
-    # §7 build mode notify_ready unchanged
+    # §7 notify_ready always routes native apps to the dev env — even a
+    # first build with no live DB (the unified flow's whole point).
     proj = _make_project_dir(living, "actnr0001", 3133)
+    import shutil as _sh
+
+    _sh.rmtree(proj / "pb" / "pb_data")  # a never-delivered scaffold
     project = _Project("actnr0001", proj, 3133)
     _wire(project, host)
     EVENTS.clear()
     out = _run_action(LA.living_ui_notify_ready, {"project_id": "actnr0001"})
-    assert out["status"] == "success" and "launch_and_verify" in EVENTS
-    assert "STAGING" not in out["message"]
-    print("§7 notify_ready build mode: OK")
+    assert out["status"] == "success" and "open_dev" in EVENTS
+    assert "launch_and_verify" not in EVENTS
+    assert "DEV environment" in out["message"]
+    print("§7 notify_ready first build → dev env: OK")
 
-    # §8 living_ui_http: staging redirect, no iframe reload, write refusal
+    # §8 living_ui_http: dev redirect, no iframe reload, mid-arc refusal
     import requests as _requests
 
     _orig_request = _requests.request
@@ -640,31 +665,21 @@ with tempfile.TemporaryDirectory() as tmp:
         project = _Project("acthttp01", proj, 3134)
         _wire(project, host)
 
-        # not delivered → real app + data_changed dispatch
-        EVENTS.clear()
+        # mid-arc (machine non-terminal), no dev env → writes refused,
+        # reads allowed. A virgin machine reads as mid-arc — that is the
+        # safe direction: agent test writes belong in the dev env.
         out = _run_action(
             LA.living_ui_http,
             {"project_id": "acthttp01", "method": "POST", "path": "/api/x", "json": {}},
         )
-        assert out["status"] == "success" and HTTP[-1][1].startswith(
-            "http://127.0.0.1:3134"
-        )
-        assert "data_changed" in EVENTS
-
-        # delivered, no staging → writes refused, reads allowed
-        host.mark_delivered("acthttp01")
-        out = _run_action(
-            LA.living_ui_http,
-            {"project_id": "acthttp01", "method": "POST", "path": "/api/x", "json": {}},
-        )
-        assert out["status"] == "error" and "staging" in out["message"], out
+        assert out["status"] == "error" and "dev" in out["message"], out
         out = _run_action(
             LA.living_ui_http,
             {"project_id": "acthttp01", "method": "GET", "path": "/api/x"},
         )
         assert out["status"] == "success"
 
-        # delivered + staging → redirected, and NO iframe reload
+        # dev env up → ALL agent HTTP redirected there, and NO iframe reload
         host.set_staging_record(
             "acthttp01", {"url": "http://127.0.0.1:3906", "port": 3906, "dir": "x"}
         )
@@ -678,8 +693,23 @@ with tempfile.TemporaryDirectory() as tmp:
             "write must hit the COPY"
         )
         assert "data_changed" not in EVENTS, (
-            "staging writes must not reload the user's iframe"
+            "dev writes must not reload the user's iframe"
         )
+
+        # arc closed (machine terminal), no dev env → live writes are USER
+        # data and flow to the real app + data_changed dispatch.
+        host.clear_staging_record("acthttp01")
+        host._machines["acthttp01"] = types.SimpleNamespace(terminal=True)
+        EVENTS.clear()
+        out = _run_action(
+            LA.living_ui_http,
+            {"project_id": "acthttp01", "method": "POST", "path": "/api/x", "json": {}},
+        )
+        assert out["status"] == "success" and HTTP[-1][1].startswith(
+            "http://127.0.0.1:3134"
+        )
+        assert "data_changed" in EVENTS
+        host._machines.pop("acthttp01", None)
     finally:
         _requests.request = _orig_request
     print("§8 living_ui_http redirect/refusal: OK")
@@ -906,6 +936,10 @@ print("§10d marketplace candidate ranking: OK")
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "living_ui"
     proj = _make_project_dir(living, "adopt0001", 3141)
+    import shutil as _sh11
+
+    # A wizard scaffold mid-build has NO live DB (builds run in the dev env).
+    _sh11.rmtree(proj / "pb" / "pb_data")
     project = _Project("adopt0001", proj, 3141)
     host_mod._HOST = None
     host = host_mod.get_factory_host()
@@ -956,10 +990,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert INSTALLS[-1] == "adopt0001" and not VERDICTS
     assert "notify_ready" in out["message"] and "adaptations" in out["message"].lower()
 
-    # c) delivered session project holding the SAME app → idempotent no-op
+    # c) session project holding the SAME installed app → idempotent no-op
     # (the crash-resume path: redispatched "continue build" must not mint a
-    # duplicate)
-    host.mark_delivered("adopt0001")
+    # duplicate). "Installed" is structural: live DB + marketplaceAppId.
+    _mkdb(proj / "pb" / "pb_data" / "data.db", rows=2)
     _mf = _json.loads((proj / "manifest.json").read_text())
     _mf["marketplaceAppId"] = "kanban-board"
     (proj / "manifest.json").write_text(_json.dumps(_mf))
@@ -1005,12 +1039,12 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     project.bridge_token = "tok"
     mgr.projects["modarc001"] = project
-    mgr.staging.runner = _StubRunner()
+    mgr.lifecycle.provisioner.runner = _StubRunner()
 
     living_ui_mod.get_living_ui_manager = lambda: mgr
     host_mod._HOST = None
     host = host_mod.get_factory_host()
-    host.mark_delivered("modarc001")
+    host.stamp_delivered("modarc001")
     assert isinstance(host.delivered_at("modarc001"), float)
 
     # Simulate the finished BUILD arc (wizard-built app): machine at DONE.
@@ -1046,9 +1080,11 @@ with tempfile.TemporaryDirectory() as tmp:
         return {"status": "success", "process": _ModProc()}
 
     mgr._run_launch_pipeline = _mod_pipeline
+    mgr.lifecycle._launch_pipeline = _mod_pipeline
 
-    # First modify: staging up → machine re-armed into MODIFYING, gen 1
-    result = asyncio.run(mgr.launch_staging("modarc001"))
+    # First modify: dev env up (live DB exists) → machine re-armed into
+    # MODIFYING, gen 1
+    result = asyncio.run(mgr.open_dev("modarc001"))
     assert result["status"] == "success"
     machine = host.machine_for("modarc001")
     assert machine.state == "modifying" and machine.generation == 1
@@ -1070,8 +1106,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert machine.state == "fixing"
     assert MISSIONS and MISSIONS[-1][0] == "fix" and MISSIONS[-1][1] == 1
 
-    # Fix mission re-enters launch_staging → begin_modify no-ops mid-arc
-    result = asyncio.run(mgr.launch_staging("modarc001"))
+    # Fix mission re-enters open_dev → begin_modify no-ops mid-arc
+    result = asyncio.run(mgr.open_dev("modarc001"))
     assert result["status"] == "success"
     assert machine.state == "fixing" and machine.generation == 1
 
@@ -1087,7 +1123,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert CHAT and "change is live" in CHAT[-1], CHAT
 
     # Second modify: fresh generation, fresh budget
-    result = asyncio.run(mgr.launch_staging("modarc001"))
+    result = asyncio.run(mgr.open_dev("modarc001"))
     assert machine.state == "modifying" and machine.generation == 2
     state_file = _json.loads((proj_dir / ".factory" / "state.json").read_text())
     assert state_file["total_missions"] == 0 and len(state_file["generations"]) == 2
@@ -1102,7 +1138,7 @@ with tempfile.TemporaryDirectory() as tmp:
     host_mod._HOST = None
     host = host_mod.get_factory_host()
     stub = _wire(project, host)
-    host.mark_delivered("specbelt01")
+    host.stamp_delivered("specbelt01")
     host.set_staging_record(
         "specbelt01", {"url": "http://127.0.0.1:3907", "port": 3907, "dir": "x"}
     )
@@ -1164,7 +1200,9 @@ with tempfile.TemporaryDirectory() as tmp:
     _mf = _json.loads((dest / "manifest.json").read_text())
     assert _mf["id"] == project.id and _mf["port"] == project.port
     assert str(project.port) in _mf["pipeline"]["start"]
-    assert host.is_delivered(project.id), "imports are delivered on arrival"
+    assert host.delivered_at(project.id) is not None, (
+        "imports are stamped delivered on arrival"
+    )
     assert (src_dir / ".superuser").exists(), "the source folder is never modified"
 
     # zip import through the same core
@@ -1176,7 +1214,7 @@ with tempfile.TemporaryDirectory() as tmp:
             if f.is_file() and ".git" not in f.parts and "node_modules" not in f.parts:
                 zf.write(f, Path("exported_app") / f.relative_to(src_dir))
     project2 = asyncio.run(mgr.import_project_source(str(zip_path)))
-    assert project2.id != project.id and host.is_delivered(project2.id)
+    assert project2.id != project.id and host.delivered_at(project2.id) is not None
 
     # git import via a real local repo (file:// clone path)
     import subprocess as _sub
@@ -1194,7 +1232,7 @@ with tempfile.TemporaryDirectory() as tmp:
     ):
         _sub.run(cmd, cwd=git_src, check=True, capture_output=True)
     project3 = asyncio.run(mgr.import_project_source(f"file://{git_src}"))
-    assert host.is_delivered(project3.id)
+    assert host.delivered_at(project3.id) is not None
     assert len({project.id, project2.id, project3.id}) == 3
 
     # A TEMPLATE tree (marketplace checkout imported by path) must have its
@@ -1358,7 +1396,7 @@ with tempfile.TemporaryDirectory() as tmp:
     req_text = (dest / "reference" / "requirements.md").read_text()
     assert "The user can add a todo." in req_text
     assert "## Original source" in req_text and "reference/source/" in req_text
-    assert not host.is_delivered(project.id), "a conversion is a pre-delivery BUILD"
+    assert host.delivered_at(project.id) is None, "a conversion is a pre-delivery BUILD"
 
     # A native Living UI source must be refused toward living_ui_import
     v2src = Path(tmp) / "v2app"
@@ -1431,7 +1469,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # foreign folder → EXTERNAL registration (not delivered, craftbot.json)
     project = asyncio.run(mgr.import_project_source(str(site), name="Ext Site"))
     assert project.project_type == "external" and project.app_runtime == "static"
-    assert project.status == "stopped" and not host.is_delivered(project.id)
+    assert project.status == "stopped" and host.delivered_at(project.id) is None
     cfg = _json.loads((Path(project.path) / "craftbot.json").read_text())
     assert cfg["external"] is True and cfg["port"] == project.port
     assert cfg["pipeline"]["start"] == "", "adoption fills the verbs"
@@ -1466,10 +1504,9 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         asyncio.run(mgr.stop_project(project.id))
 
-    # launch_staging refuses externals (changes run live)
-    host.mark_delivered(project.id)
-    res = asyncio.run(mgr.launch_staging(project.id))
-    assert res["status"] == "error" and "no staging" in res["errors"][0]
+    # open_dev refuses externals (changes run live)
+    res = asyncio.run(mgr.open_dev(project.id))
+    assert res["status"] == "error" and "no dev environment" in res["errors"][0]
 
     # broken start command → health failure with app.log evidence
     cfg["pipeline"]["start"] = "python3 -c 'import sys; sys.exit(3)'"
@@ -1479,7 +1516,7 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§19 external apps run as-is: OK")
 
 
-# ── §20 delivered EXTERNAL app skips staging in the actions ────────────────
+# ── §20 EXTERNAL apps skip the dev env in the actions ──────────────────────
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "living_ui"
     proj = _make_project_dir(living, "extact0001", 3154)
@@ -1489,17 +1526,17 @@ with tempfile.TemporaryDirectory() as tmp:
     host_mod._HOST = None
     host = host_mod.get_factory_host()
     stub = _wire(project, host)
-    host.mark_delivered("extact0001")
 
     EVENTS.clear()
     out = _run_action(LA.living_ui_notify_ready, {"project_id": "extact0001"})
     assert out["status"] == "success"
-    assert "launch_and_verify" in EVENTS and "launch_staging" not in EVENTS, (
-        "delivered externals must relaunch LIVE, never stage"
+    assert "launch_and_verify" in EVENTS and "open_dev" not in EVENTS, (
+        "externals must relaunch LIVE, never open a dev env"
     )
     assert "EXTERNAL app runs live" in out["message"]
 
-    # walk_verify: no staging requirement; build-mode branches apply
+    # walk_verify: no dev-env requirement; a clean verdict promotes
+    # (bookkeeping only for externals — the new code already runs live)
     EVENTS.clear()
     WALK["report"] = {
         "kind": "pass",
@@ -1509,11 +1546,8 @@ with tempfile.TemporaryDirectory() as tmp:
     }
     out = _run_action(LA.living_ui_walk_verify, {"project_id": "extact0001"})
     assert out["status"] == "success", out
-    assert "finalize_first_delivery" in EVENTS, (
-        "external clean verdict follows the (no-op-safe) build finalize"
-    )
-    assert "finalize_modify" not in EVENTS
-print("§20 delivered external action branches: OK")
+    assert "promote" in EVENTS, "external clean verdict still promotes (bookkeeping)"
+print("§20 external action branches: OK")
 
 
 # ── §21 surrender loops are capped by the machine (chili3d incident) ───────
@@ -1574,7 +1608,7 @@ with tempfile.TemporaryDirectory() as tmp:
     _mf["craftbotVersion"] = "0.9.9"  # the original creator
     (src_dir / "manifest.json").write_text(_json.dumps(_mf))
     # donor lifecycle state must NOT travel with an import (a fresh sidecar
-    # IS created by the import's own mark_delivered — check donor CONTENT)
+    # IS created by the import's own stamp_delivered — check donor CONTENT)
     (src_dir / ".factory").mkdir()
     (src_dir / ".factory" / "host.json").write_text(
         '{"delivered": true, "donor_marker": 1}'

@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 
 def _frozen_user_data_root() -> Path:
@@ -75,6 +75,13 @@ def invalidate_settings_cache() -> None:
     _settings_cache = None
 
 
+# Event-stream summarization thresholds. Defined here rather than in
+# event_stream.py so settings.json defaults and the runtime fallback cannot
+# drift apart.
+DEFAULT_SUMMARIZE_AT_TOKENS = 100000
+DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS = 10000
+
+
 def _get_default_settings() -> Dict[str, Any]:
     """Return default settings structure.
 
@@ -88,6 +95,10 @@ def _get_default_settings() -> Dict[str, Any]:
         "general": {"agent_name": "CraftBot"},
         "proactive": {"enabled": True},
         "memory": {"enabled": True},
+        "context": {
+            "summarize_at_tokens": DEFAULT_SUMMARIZE_AT_TOKENS,
+            "tail_keep_after_summarize_tokens": DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS,
+        },
         "model": {
             "llm_provider": "anthropic",
             "vlm_provider": "anthropic",
@@ -197,6 +208,33 @@ def get_app_version() -> str:
     return v or "0.0.0"
 
 
+def get_context_limits() -> Tuple[int, int]:
+    """Get event-stream summarization thresholds from settings.json.
+
+    Returns ``(summarize_at_tokens, tail_keep_after_summarize_tokens)``.
+    Non-positive or non-integer values fall back to the defaults rather than
+    raising — a bad hand-edit must not take the agent down. EventStream still
+    validates the two against each other; this only guarantees sane types.
+    """
+    context = get_settings().get("context") or {}
+    if not isinstance(context, dict):
+        context = {}
+
+    def _positive_int(key: str, default: int) -> int:
+        value = context.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return default
+        return value
+
+    return (
+        _positive_int("summarize_at_tokens", DEFAULT_SUMMARIZE_AT_TOKENS),
+        _positive_int(
+            "tail_keep_after_summarize_tokens",
+            DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS,
+        ),
+    )
+
+
 def get_llm_provider() -> str:
     """Get configured LLM provider."""
     settings = get_settings()
@@ -280,6 +318,52 @@ def get_api_key(provider: str) -> str:
     return api_keys.get(settings_key, "")
 
 
+def get_extra_api_keys(provider: str) -> list:
+    """Extra pool credentials for a provider (Phase 5, FR-7).
+
+    settings.json: {"extra_api_keys": {"<settings_key>": ["key2", "key3"]}}.
+    The primary key stays in api_keys (untouched agent self-config path);
+    extras only ever matter when the primary is cooling down.
+    """
+    settings = get_settings()
+    block = settings.get("extra_api_keys", {})
+    if not isinstance(block, dict):
+        return []
+    # Accept both the provider key and its settings_key alias (gemini/google).
+    key_map = {"gemini": "google"}
+    entries = block.get(provider) or block.get(key_map.get(provider, provider)) or []
+    return [k for k in entries if isinstance(k, str) and k] if isinstance(entries, list) else []
+
+
+def get_fallback_providers() -> list:
+    """Ordered cross-provider fallback chain (Phase 5, FR-9).
+
+    settings.json: {"model": {"fallback_providers": ["openrouter", ...]}}.
+    Empty by default — fallback is strictly opt-in.
+    """
+    settings = get_settings()
+    chain = settings.get("model", {}).get("fallback_providers", [])
+    return [p for p in chain if isinstance(p, str) and p] if isinstance(chain, list) else []
+
+
+def get_custom_providers() -> Dict[str, Any]:
+    """Return the user-defined custom_providers block from settings.json.
+
+    Shape (Phase 3, docs/PROVIDER_LAYER_CATCHUP.md section 7.2):
+        {"<name>": {"base_url": ..., "wire": ..., "api_key_env": ...,
+                    "display_name": ..., "models": [...], "headers": {...},
+                    "supports_prompt_cache_key": bool}}
+
+    Inline API keys are NOT stored here — save_custom_provider() routes them
+    into the regular api_keys block under the provider's name, so the whole
+    existing key plumbing (get_api_key, settings UI, agent self-config)
+    works unchanged for custom providers.
+    """
+    settings = get_settings()
+    block = settings.get("custom_providers", {})
+    return block if isinstance(block, dict) else {}
+
+
 def get_base_url(provider: str) -> Optional[str]:
     """Get base URL for a provider.
 
@@ -292,18 +376,11 @@ def get_base_url(provider: str) -> Optional[str]:
     settings = get_settings()
     endpoints = settings.get("endpoints", {})
 
-    if provider == "byteplus":
-        url = endpoints.get("byteplus_base_url", "")
-        return url if url else "https://ark.ap-southeast.bytepluses.com/api/v3"
-    elif provider == "remote":
-        url = endpoints.get("remote_model_url", "")
-        return url if url else "http://localhost:11434"
-    elif provider == "gemini" or provider == "google":
+    if provider == "gemini" or provider == "google":
+        # Gemini's override lives under the legacy google_api_base key and
+        # has no profile-derived slot (native wire, URL not exposed in UI).
         return endpoints.get("google_api_base") or None
-    elif provider == "openrouter":
-        url = endpoints.get("openrouter_base_url", "")
-        return url if url else "https://openrouter.ai/api/v1"
-    elif provider == "bedrock":
+    if provider == "bedrock":
         # For Bedrock the "base URL" slot carries the AWS region.
         region = (
             endpoints.get("aws_region")
@@ -312,7 +389,17 @@ def get_base_url(provider: str) -> Optional[str]:
         )
         return region or "us-east-1"
 
-    return None
+    # Every other provider: the saved endpoint under its profile-derived
+    # endpoints key, else the profile default. Covers local servers
+    # (lmstudio/vllm/llamacpp), the new cloud providers, and custom
+    # providers — not just the legacy byteplus/remote/openrouter trio.
+    from agent_core.core.models.registry import get_registry
+
+    profile = get_registry().get(provider)
+    if profile is None:
+        return None
+    url = endpoints.get(profile.settings_endpoint_key, "")
+    return url if url else profile.default_base_url
 
 
 def get_aws_credentials() -> Dict[str, str]:
@@ -394,6 +481,17 @@ def is_prewarm_all_drives_enabled() -> bool:
     """Whether to pre-warm the find_files index for all local drives at startup."""
     settings = get_settings()
     return settings.get("file_index", {}).get("prewarm_all_drives", True)
+
+
+def get_marketplace_ref() -> Optional[str]:
+    """Branch the Living UI marketplace is read from, or None for the default.
+
+    Set living_ui.marketplace_ref in settings.json to test a marketplace
+    branch; CRAFTBOT_MARKETPLACE_REF overrides it for one-off runs.
+    """
+    settings = get_settings()
+    ref = settings.get("living_ui", {}).get("marketplace_ref")
+    return ref.strip() if isinstance(ref, str) and ref.strip() else None
 
 
 def reload_settings() -> Dict[str, Any]:

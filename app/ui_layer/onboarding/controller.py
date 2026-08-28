@@ -6,12 +6,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 
 from app.onboarding.interfaces.steps import (
+    IntroStep,
     ProviderStep,
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    IntegrationStep,
-    SkillsStep,
     HardOnboardingStep,
     StepOption,
 )
@@ -66,12 +65,11 @@ class OnboardingFlowController:
 
     # Steps in order of execution
     STEP_CLASSES: List[Type] = [
+        IntroStep,
         ProviderStep,
         ApiKeyStep,
-        AgentNameStep,
         UserProfileStep,
-        SkillsStep,
-        IntegrationStep,
+        AgentNameStep,
     ]
 
     def __init__(self, controller: Optional["UIController"] = None) -> None:
@@ -250,7 +248,6 @@ class OnboardingFlowController:
             data.get("api_key", "")
         )
         agent_name = self._parse_agent_name(data.get("agent_name", "Agent"))
-        selected_skills = data.get("skills", [])
 
         # Persist the provider + key (may reassign provider, e.g. a
         # geo-restricted provider routed via OpenRouter), then activate it on
@@ -264,27 +261,28 @@ class OnboardingFlowController:
         if self._controller:
             self._controller.state_store.dispatch("SET_PROVIDER", provider)
 
-        # Apply skill selections
-        if selected_skills:
-            from app.ui_layer.settings.skill_settings import enable_skill
+        # Detect the interface language from the OS locale (used by app.i18n).
+        try:
+            from app.config import detect_and_save_os_language
 
-            for skill_name in selected_skills:
-                enable_skill(skill_name)
+            detect_and_save_os_language()
+        except Exception as e:
+            logger.warning(f"[ONBOARDING] Failed to detect OS language: {e}")
 
-        # Write user profile data to USER.md (replaces _initialize_user_language)
-        user_profile = self._state.collected_data.get("user_profile", {})
-        if user_profile:
-            from app.onboarding.profile_writer import write_profile_to_user_md
+        # The profile step now collects only the user's name; location is
+        # inferred from IP, language from the OS locale, and the remaining
+        # preferences use defaults (see UserProfileStep.enrich).
+        user_profile = UserProfileStep().enrich(
+            self._state.collected_data.get("user_profile", {})
+        )
+        from app.onboarding.profile_writer import write_profile_to_user_md
 
-            write_profile_to_user_md(user_profile)
-        else:
-            # Fallback: initialize language from OS locale if profile step was skipped
-            self._initialize_user_language()
+        write_profile_to_user_md(user_profile)
 
         # Mark hard onboarding complete. The profile picture is already
         # persisted via the immediate-upload websocket handler; the
         # authoritative value is onboarding_manager.state.agent_profile_picture.
-        user_name = user_profile.get("user_name") if user_profile else None
+        user_name = user_profile.get("user_name") or None
         success = onboarding_manager.mark_hard_complete(
             user_name=user_name,
             agent_name=agent_name,
@@ -292,7 +290,7 @@ class OnboardingFlowController:
         )
         if not success:
             logger.error(
-                "[ONBOARDING] Failed to persist hard onboarding state — "
+                "[ONBOARDING] Failed to persist hard onboarding state. "
                 "onboarding will re-trigger on next launch. "
                 "Check disk space or file permissions."
             )
@@ -355,10 +353,10 @@ class OnboardingFlowController:
 
         if provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
             if proxied_via != "openrouter":
-                # Direct access — save the key under the native provider.
+                # Direct access: save the key under the native provider.
                 save_settings_to_json(provider, api_key)
                 return provider
-            # Routed via OpenRouter — save the key as openrouter + set the slug.
+            # Routed via OpenRouter: save the key as openrouter + set the slug.
             or_model = submitted_or_model or self._default_openrouter_model(provider)
             save_settings_to_json("openrouter", api_key)
             from app.ui_layer.settings.model_settings import update_model_settings
@@ -414,7 +412,7 @@ class OnboardingFlowController:
                 logger.warning(f"[ONBOARDING] Error reinitializing LLM: {e}")
 
         # Point image generation at the chosen provider when it can generate
-        # images (OpenAI/Gemini), reusing the key just entered — so image gen
+        # images (OpenAI/Gemini), reusing the key just entered, so image gen
         # works out of the box instead of being stranded on the default with no
         # key. Image-incapable providers (Anthropic, DeepSeek, Ollama, …) are
         # left on the existing image-gen default.
@@ -451,38 +449,6 @@ class OnboardingFlowController:
             logger.info(
                 f"[ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}"
             )
-
-    def _initialize_user_language(self) -> None:
-        """
-        Initialize USER.md language from OS locale on first launch.
-
-        Detects the system language, saves it to settings.json as os_language,
-        and updates USER.md with the detected language.
-        """
-        from app.config import detect_and_save_os_language, AGENT_FILE_SYSTEM_PATH
-        import re
-
-        # Detect and save OS language
-        os_lang = detect_and_save_os_language()
-
-        # Update USER.md with the detected language
-        user_md_path = AGENT_FILE_SYSTEM_PATH / "USER.md"
-        if user_md_path.exists():
-            try:
-                content = user_md_path.read_text(encoding="utf-8")
-                # Replace the Language field value
-                # Pattern: - **Language**: <value>
-                updated_content = re.sub(
-                    r"(\*\*Language\*\*:\s*)\S+", f"\\1{os_lang}", content
-                )
-                user_md_path.write_text(updated_content, encoding="utf-8")
-                from agent_core.utils.logger import logger
-
-                logger.info(f"[ONBOARDING] Initialized USER.md language to: {os_lang}")
-            except Exception as e:
-                from agent_core.utils.logger import logger
-
-                logger.warning(f"[ONBOARDING] Failed to update USER.md language: {e}")
 
     def get_progress_text(self) -> str:
         """

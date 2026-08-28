@@ -8,83 +8,6 @@
   color: var(--text-primary);
 }
 
-/* Progress Bar */
-.progressBar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-6);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-primary);
-  flex-shrink: 0;
-}
-
-.stepIndicator {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.stepDot {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-full);
-  background: var(--bg-tertiary);
-  border: 2px solid var(--border-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
-  color: var(--text-tertiary);
-  transition: all var(--transition-base);
-}
-
-.stepDot.active {
-  background: #FF4F18;
-  border-color: #FF4F18;
-  color: var(--color-white);
-}
-
-.stepDot.completed {
-  background: var(--color-success);
-  border-color: var(--color-success);
-  color: var(--color-white);
-}
-
-.stepLabel {
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-  display: none;
-}
-
-@media (min-width: 768px) {
-  .stepLabel {
-    display: block;
-  }
-}
-
-.stepLabel.active {
-  color: var(--text-primary);
-  font-weight: var(--font-medium);
-}
-
-.stepConnector {
-  width: 40px;
-  height: 2px;
-  background: var(--border-secondary);
-  transition: background var(--transition-base);
-}
-
-.stepConnector.completed {
-  background: var(--color-success);
-}
-
-.stepConnector.active {
-  background: #FF4F18;
-}
-
 /* Main Content */
 .content {
   flex: 1;
@@ -95,37 +18,187 @@
   overflow-y: auto;
 }
 
-.card {
+/* Wizard: a column holding the mascot+form row and, underneath, the step/nav
+   row that spans the full width (so the dots sit under the mascot). */
+.wizard {
+  display: flex;
+  flex-direction: column;
   width: 100%;
-  max-width: 480px;
-  max-height: calc(100vh - 120px);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-xl);
+  max-width: 660px;
+  box-sizing: border-box;
+}
+
+/* Top row - mascot on the left, form card on the right, same row. */
+.topRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+/* Mascot column - stationary; wraps the character tightly so cursor
+   eye-tracking measures from the mascot's centre. */
+.mascotCol {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Inner wrapper that carries the crouch + launch transform during the outro,
+   kept separate from the column's move-to-centre transform. Origin at the feet
+   so the squash reads as a crouch (body compresses down), not a shrink. */
+.mascotJump {
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+/* Finishing outro: everything except the mascot fades away. */
+.outroFade {
+  opacity: 0;
+  transition: opacity 440ms ease;
+  pointer-events: none;
+}
+
+/* Farewell line shown in the card when onboarding finishes. Fades in as the
+   dots and buttons fade out. */
+.doneMessage {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-normal);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  animation: doneMessageIn 480ms ease both;
+}
+
+.doneMessage strong {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+@keyframes doneMessageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* On narrow viewports drop the mascot so the form keeps its space. */
+@media (max-width: 720px) {
+  .mascotCol {
+    display: none;
+  }
+}
+
+/* Flat container: no border, no background - the form sits directly on the
+   page background. Fills the row's remaining width beside the mascot.
+   Fades/slides in on mount; the JSX keys it by step so this replays on
+   every step change. */
+.card {
+  flex: 1;
+  min-width: 0;
+  max-height: calc(100vh - 200px);
   padding: var(--space-8);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  animation: onboardingFormIn 280ms ease;
 }
 
-.card.wide {
-  max-width: 640px;
+@keyframes onboardingFormIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.stepTitle {
+/* Step dots - a minimal position indicator sitting at the left of the nav row. */
+.dots {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--border-secondary);
+  transition: all var(--transition-base);
+}
+
+.dotActive {
+  width: 22px;
+  background: #FF4F18;
+}
+
+/* iOS-style wheel picker (provider selection). Motion is driven in JS via a
+   translated list; opacity/scale per item are set imperatively per frame. */
+.wheel {
+  position: relative;
+  width: 100%;
+  margin: var(--space-2) 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+}
+
+.wheelList {
+  will-change: transform;
+}
+
+.wheelItem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  will-change: opacity, transform;
+}
+
+/* Centre band marking the current selection. */
+.wheelSelection {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top: 1px solid var(--border-secondary);
+  border-bottom: 1px solid var(--border-secondary);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* The agent's single-line question - replaces the old title + description.
+   Bit more breathing room below since the input follows directly. */
+.stepPrompt {
   font-size: var(--text-2xl);
   font-weight: var(--font-semibold);
-  margin-bottom: var(--space-2);
+  line-height: var(--leading-tight);
+  margin-bottom: var(--space-5);
   flex-shrink: 0;
 }
 
-.stepDescription {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin-bottom: var(--space-4);
+/* Intro/welcome message - regular weight so only the key phrases (in <strong>)
+   stand out; two lines with a gap before the "Now, before we begin…" kicker. */
+.introMessage {
+  font-size: var(--text-xl);
+  font-weight: var(--font-normal);
   line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-5);
   flex-shrink: 0;
-  white-space: pre-line;
+}
+
+.introMessage p {
+  margin: 0;
+}
+
+.introMessage strong {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.introMessage .introKicker {
+  margin-top: var(--space-4);
 }
 
 /* Form Elements */
@@ -136,192 +209,6 @@
   flex-direction: column;
   width: 100%;
   box-sizing: border-box;
-}
-
-.optionsList {
-  flex: 1;
-  overflow-y: auto;
-  padding-right: var(--space-2);
-}
-
-/* Embedded IntegrationsSettings panel — the panel ships its own inner
-   max-height scroll for the integrations list, but inside the onboarding
-   card the available height is smaller, so we let the whole panel scroll
-   here and disable the inner scroll (uses a global selector to reach into
-   the foreign CSS-module class). */
-.integrationsPanel {
-  overflow-y: auto;
-  padding-right: var(--space-2);
-}
-
-.integrationsPanel :global([class*="integrationsList"]) {
-  max-height: none;
-  overflow: visible;
-}
-
-/* The embedded panel's root (.settingsSection) ships with a 600px max-width
-   and auto margins for the Settings page. Inside the onboarding card those
-   constraints leave dead space on the right, so we let it fill the card.
-   Scoped to .integrationsPanel — the Settings page is untouched. */
-.integrationsPanel :global([class*="settingsSection"]) {
-  max-width: none;
-  margin: 0;
-}
-
-/* Scrollbar styling */
-.optionsList::-webkit-scrollbar,
-.integrationsPanel::-webkit-scrollbar {
-  width: 6px;
-}
-
-.optionsList::-webkit-scrollbar-track,
-.integrationsPanel::-webkit-scrollbar-track {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-full);
-}
-
-.optionsList::-webkit-scrollbar-thumb,
-.integrationsPanel::-webkit-scrollbar-thumb {
-  background: var(--border-secondary);
-  border-radius: var(--radius-full);
-}
-
-.optionsList::-webkit-scrollbar-thumb:hover,
-.integrationsPanel::-webkit-scrollbar-thumb:hover {
-  background: var(--border-hover);
-}
-
-/* Option Item */
-.optionItem {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-2);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  box-sizing: border-box;
-}
-
-.optionItem:last-child {
-  margin-bottom: 0;
-}
-
-.optionItem:hover {
-  border-color: var(--border-hover);
-  background: var(--bg-hover);
-}
-
-.optionItem.selected {
-  border-color: var(--text-primary);
-  background: var(--color-primary-subtle);
-}
-
-.optionRadio {
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  min-height: 18px;
-  border-radius: var(--radius-full);
-  border: 2px solid var(--border-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 2px;
-  transition: all var(--transition-base);
-}
-
-.optionItem.selected .optionRadio {
-  border-color: var(--text-primary);
-}
-
-.optionRadio::after {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-  background: var(--text-primary);
-  opacity: 0;
-  transition: opacity var(--transition-base);
-}
-
-.optionItem.selected .optionRadio::after {
-  opacity: 1;
-}
-
-.optionCheckbox {
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  min-height: 18px;
-  border-radius: var(--radius-sm);
-  border: 2px solid var(--border-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 2px;
-  transition: all var(--transition-base);
-}
-
-.optionItem.selected .optionCheckbox {
-  border-color: var(--text-primary);
-  background: var(--text-primary);
-  color: var(--color-white);
-}
-
-/* THE FIX: Use calc to constrain width and force text wrapping */
-.optionContent {
-  flex: 1;
-  max-width: calc(100% - 30px);
-}
-
-.optionLabel {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-base);
-  font-weight: var(--font-medium);
-  margin-bottom: var(--space-1);
-  flex-wrap: wrap;
-}
-
-.optionIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.optionItem.selected .optionIcon {
-  color: var(--text-primary);
-}
-
-.optionDescription {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  line-height: 1.5;
-  /* Force text to wrap */
-  white-space: normal;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-}
-
-.setupBadge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: var(--font-medium);
-  color: var(--color-warning);
-  background: var(--color-warning-light, rgba(245, 158, 11, 0.1));
-  padding: 2px 6px;
-  border-radius: var(--radius-full);
-  margin-left: var(--space-2);
-  white-space: nowrap;
 }
 
 /* Text Input */
@@ -393,288 +280,6 @@
   gap: var(--space-1);
 }
 
-.formFieldLabel {
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--text-primary);
-  margin-bottom: 2px;
-}
-
-.formFieldHint {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  margin-top: 4px;
-}
-
-/* ── Agent Identity step (avatar + name, side-by-side) ── */
-
-.identityCard {
-  display: flex;
-  flex-direction: row;
-  gap: var(--space-4);
-  /* Stretch children to the row's natural height so the avatar matches
-     the right section exactly (no feedback loop from min sizes). */
-  align-items: stretch;
-  flex-wrap: wrap;
-}
-
-.identityAvatar {
-  flex-shrink: 0;
-  display: flex;
-}
-
-/* Inside the identity card, the preview matches the row height so it
-   aligns with the right section. */
-.identityAvatar .imageUploadPreview {
-  width: 118px;
-  height: 118px;
-}
-
-.identityDetails {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  flex: 1;
-  min-width: 220px;
-}
-
-.identityAvatarActions {
-  display: flex;
-  flex-direction: row;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  margin-top: var(--space-1);
-}
-
-/* ── Image upload field (agent profile picture) ── */
-
-.imageUploadRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.imageUploadPreview {
-  width: 96px;
-  height: 96px;
-  /* Square with the same fillet as chat bubbles */
-  border-radius: var(--radius-lg);
-  object-fit: cover;
-  border: 1px solid var(--border-primary);
-  background: var(--bg-tertiary);
-  flex-shrink: 0;
-}
-
-.imageUploadActions {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.imageUploadError {
-  flex-basis: 100%;
-  font-size: var(--text-xs);
-  color: var(--color-error);
-}
-
-/* ── Shared radio dot styles ── */
-
-.formSelectOptionInline .optionRadio,
-.formSelectOptionVertical .optionRadio {
-  width: 14px;
-  height: 14px;
-  min-width: 14px;
-  min-height: 14px;
-  border: 2px solid var(--text-secondary);
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all var(--transition-base);
-}
-
-.formSelectOptionInline .optionRadio::after,
-.formSelectOptionVertical .optionRadio::after {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--text-primary);
-  opacity: 0;
-  transition: opacity var(--transition-base);
-}
-
-.formSelectOptionInline.selected .optionRadio,
-.formSelectOptionVertical.selected .optionRadio {
-  border-color: var(--text-primary);
-}
-
-.formSelectOptionInline.selected .optionRadio::after,
-.formSelectOptionVertical.selected .optionRadio::after {
-  opacity: 1;
-}
-
-.formSelectOptionInline:hover .optionRadio,
-.formSelectOptionVertical:hover .optionRadio {
-  border-color: var(--text-primary);
-}
-
-/* ── Inline select (no descriptions, e.g. Communication Tone) ── */
-
-.formSelectInline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.formSelectOptionInline {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 8px 14px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  font-size: var(--text-sm);
-}
-
-.formSelectOptionInline:hover {
-  border-color: var(--text-secondary);
-}
-
-.formSelectOptionInline.selected {
-  border-color: var(--text-primary);
-  background: var(--color-primary-subtle);
-}
-
-/* ── Vertical select (with descriptions, e.g. Proactive Level) ── */
-
-.formSelectVertical {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.formSelectOptionVertical {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 10px 14px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  font-size: var(--text-sm);
-}
-
-.formSelectOptionVertical:hover {
-  border-color: var(--text-secondary);
-}
-
-.formSelectOptionVertical.selected {
-  border-color: var(--text-primary);
-  background: var(--color-primary-subtle);
-}
-
-/* Native dropdown for large option lists (e.g., language) */
-.formDropdown {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  font-family: var(--font-sans);
-  cursor: pointer;
-  transition: border-color var(--transition-base);
-  appearance: auto;
-}
-
-.formDropdown:focus {
-  outline: none;
-  border-color: var(--border-hover);
-}
-
-.formDropdown option {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.formSelectLabel {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-}
-
-.formSelectDesc {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  margin-left: 4px;
-}
-
-.formSelectDesc::before {
-  content: '— ';
-}
-
-/* Checkbox group for form fields */
-.formCheckboxGroup {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-2);
-}
-
-.formCheckboxItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-}
-
-.formCheckboxItem:hover {
-  border-color: var(--text-secondary);
-}
-
-.formCheckboxItem.selected {
-  border-color: var(--text-primary);
-  background: var(--color-primary-subtle);
-}
-
-.formCheckboxItem .optionCheckbox {
-  width: 16px;
-  height: 16px;
-  min-width: 16px;
-  min-height: 16px;
-  border: 2px solid var(--text-secondary);
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all var(--transition-base);
-}
-
-.formCheckboxItem.selected .optionCheckbox {
-  border-color: var(--text-primary);
-  background: var(--text-primary);
-  color: var(--color-white, #fff);
-}
-
-.formCheckboxItem:hover .optionCheckbox {
-  border-color: var(--text-primary);
-}
-
 /* Error Message */
 .errorMessage {
   display: flex;
@@ -693,17 +298,12 @@
 /* Buttons */
 .buttons {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   margin-top: var(--space-4);
   padding-top: var(--space-4);
-  border-top: 1px solid var(--border-primary);
   flex-shrink: 0;
-}
-
-.buttonsLeft {
-  display: flex;
-  gap: var(--space-2);
 }
 
 .buttonsRight {
@@ -741,46 +341,11 @@
   color: var(--text-secondary);
 }
 
-/* Empty Options */
-.emptyOptions {
-  text-align: center;
-  padding: var(--space-6);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
-
-/* Optional Badge */
-.optionalBadge {
-  display: inline-block;
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  background: var(--bg-tertiary);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  margin-left: var(--space-2);
-  vertical-align: middle;
-}
-
 /* ─────────────────────────────────────────────────────────────────────
    Mobile Responsive Styles
    ───────────────────────────────────────────────────────────────────── */
 
 @media (max-width: 640px) {
-  .progressBar {
-    padding: var(--space-3);
-    gap: var(--space-1);
-  }
-
-  .stepDot {
-    width: 20px;
-    height: 20px;
-    font-size: 10px;
-  }
-
-  .stepConnector {
-    width: 16px;
-  }
-
   .content {
     padding: var(--space-3);
     align-items: center;
@@ -795,76 +360,14 @@
     max-width: 100%;
   }
 
-  .card.wide {
-    max-width: 100%;
-  }
-
-  .stepTitle {
-    font-size: var(--text-xl);
-  }
-
-  .stepDescription {
-    font-size: 11px;
-    line-height: 1.3;
-    margin-bottom: var(--space-2);
-  }
-
-  .optionItem {
-    padding: var(--space-2) var(--space-3);
-    gap: var(--space-2);
-  }
-
-  .optionRadio,
-  .optionCheckbox {
-    width: 16px;
-    height: 16px;
-    min-width: 16px;
-    min-height: 16px;
-  }
-
-  .optionRadio::after {
-    width: 6px;
-    height: 6px;
-  }
-
-  .optionContent {
-    max-width: calc(100% - 24px);
-  }
-
-  .optionLabel {
-    font-size: var(--text-sm);
-  }
-
-  .optionDescription {
-    font-size: 11px;
-    line-height: 1.4;
-  }
-
   .textInput {
     padding: var(--space-2) var(--space-3);
     font-size: var(--text-sm);
   }
 
   .buttons {
-    flex-direction: column-reverse;
-    gap: var(--space-2);
     margin-top: var(--space-3);
     padding-top: var(--space-3);
-  }
-
-  .buttonsLeft,
-  .buttonsRight {
-    width: 100%;
-    justify-content: stretch;
-  }
-
-  .buttonsRight {
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .buttonsLeft {
-    justify-content: center;
   }
 
   .errorMessage {
@@ -874,16 +377,6 @@
 
   .inputHint {
     font-size: var(--text-xs);
-  }
-
-  .optionalBadge {
-    font-size: 10px;
-    padding: 1px 6px;
-  }
-
-  .setupBadge {
-    font-size: 9px;
-    padding: 1px 4px;
   }
 }
 
@@ -1172,39 +665,8 @@
   white-space: nowrap;
 }
 
-/* Touch device optimizations */
-@media (hover: none) and (pointer: coarse) {
-  .optionItem {
-    min-height: 48px;
-  }
-
-  .optionItem:hover {
-    border-color: var(--border-primary);
-    background: var(--bg-tertiary);
-  }
-
-  .optionItem.selected:hover {
-    border-color: var(--text-primary);
-    background: var(--color-primary-subtle);
-  }
-
-  .optionsList {
-    -webkit-overflow-scrolling: touch;
-    scroll-behavior: smooth;
-  }
-}
-
 /* Landscape mobile */
 @media (max-height: 500px) and (orientation: landscape) {
-  .progressBar {
-    padding: var(--space-2) var(--space-4);
-  }
-
-  .stepDot {
-    width: 20px;
-    height: 20px;
-  }
-
   .content {
     padding: var(--space-2) var(--space-4);
     align-items: center;
@@ -1214,15 +676,6 @@
   .card {
     max-height: calc(100vh - 60px);
     padding: var(--space-3) var(--space-4);
-  }
-
-  .stepTitle {
-    font-size: var(--text-lg);
-    margin-bottom: var(--space-1);
-  }
-
-  .stepDescription {
-    margin-bottom: var(--space-2);
   }
 
   .buttons {

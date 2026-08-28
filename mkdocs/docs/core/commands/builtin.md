@@ -40,7 +40,7 @@ Removes tasks whose status is completed, failed, or cancelled from the task pane
 
 ## /reset
 
-Resets the agent to its initial state: clears the current task, action history, and conversation context, and wipes the chat view. Saved settings and credentials are **not** affected. Feedback arrives as system messages while the reset runs in the background.
+Resets the agent to its initial state: deletes extra chat sessions, clears Main, and clears Living UI chat history (Living UI **apps** are kept unless you choose that option in Settings → Reset Agent). It also restores the agent's markdown files in `agent_file_system/` from their templates, rebuilds the memory index, and clears dashboard usage data. Workspace outputs are wiped too. Saved settings and credentials are **not** affected. Feedback arrives as system messages while the reset runs in the background.
 
 ## /exit
 

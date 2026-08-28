@@ -27,7 +27,7 @@ Everything that shapes CraftBot's behavior lives in plain local files inside the
 | Enable or disable a skill | `/skill` or **Settings → Skills** | `skills_config.json` |
 | Add a recurring schedule | Ask the agent, or **Settings → Proactive** (see [Scheduling](../concepts/scheduling.md)) | `scheduler_config.json` |
 | Change the agent's personality | Edit `agent_file_system/SOUL.md` | `SOUL.md` |
-| Connect Telegram, Slack, Gmail… | **Settings → Integrations** | `external_comms_config.json`, `.credentials/` |
+| Connect Telegram, Slack, Gmail… | **Settings → Integrations** | `.credentials/` |
 | Install a specialist agent | Import a `.craftbot` bundle in **Settings → General** (see [agent.yaml](agent-config-yaml.md)) | skills, MCP config, `SOUL.md`/`AGENT.md` |
 
 ## Prefer the UI over hand-editing

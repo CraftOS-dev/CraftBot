@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Living UI kit \u2014 system-managed. Vendored into projects; never edited by agents.",
   "publicApi": "src/index.ts"
 }

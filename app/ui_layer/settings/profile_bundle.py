@@ -211,7 +211,7 @@ def _load_json(path: Path, default: Any) -> Any:
 
 def _load_living_ui_projects(path: Path) -> List[Dict[str, Any]]:
     """Read a Living UI registry, tolerating both the {"projects":[...]} envelope
-    used by the LivingUIManager and a bare list (legacy / hand-written)."""
+    used by the LivingUIManager and a bare list (hand-written)."""
     data = _load_json(path, {"projects": []})
     if isinstance(data, dict):
         return data.get("projects", []) or []

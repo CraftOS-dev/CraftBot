@@ -13,6 +13,17 @@ export interface IntegrationAccount {
   id: string
 }
 
+// Multi-account (v2) wire shape — integrations backed by the
+// IntegrationSystem carry this in ``integration_list`` instead of the
+// status-parsed IntegrationAccount. The list UI only reads ``.length``;
+// the Manage modal gets its own copy via ``integration_info``.
+export interface ManagedListAccount {
+  identity: string
+  alias: string | null
+  isPrimary: boolean
+  listen: boolean
+}
+
 // Schema for a single config input rendered by the Configure section in
 // the Manage modal. Sourced from the backend handler's ``config_fields``.
 export interface ConfigField {
@@ -30,7 +41,7 @@ export interface Integration {
   description: string
   auth_type: 'oauth' | 'token' | 'both' | 'interactive' | 'token_with_interactive'
   connected: boolean
-  accounts: IntegrationAccount[]
+  accounts: IntegrationAccount[] | ManagedListAccount[]
   fields: IntegrationField[]
   icon?: string
   has_config?: boolean

@@ -45,6 +45,7 @@ _WATCHED_ACTIONS = (
         {
             "living_ui_scaffold",
             "living_ui_notify_ready",
+            "living_ui_ops_verify",
             "run_shell",
             "spawn_subagent",
             "browser_probe",
@@ -90,7 +91,7 @@ def _area_for(rel_path: str) -> str:
         return "backend"
     if p.startswith("frontend/"):
         return "frontend"
-    if p == "operations.json" or p.startswith("config"):
+    if p in ("operations.json", "craftbot.json") or p.startswith("config"):
         return "config"
     if p.startswith("reference/") or p.endswith(".md"):
         return "docs"
@@ -161,6 +162,25 @@ def _project_snapshot(project_path: Any) -> Optional[Dict[str, int]]:
                 text = f.read_text(encoding="utf-8", errors="replace")
                 for m, path in _PB_ROUTE_RE.findall(text):
                     routes.add(f"{m.upper()} {path}")
+
+        try:
+            import json as _json
+
+            ops_file = root / "operations.json"
+            if ops_file.is_file():
+                manifest = _json.loads(
+                    ops_file.read_text(encoding="utf-8", errors="replace")
+                )
+                for op in manifest.get("operations") or []:
+                    executor = (
+                        op.get("executor") if isinstance(op, dict) else None
+                    ) or {}
+                    method = executor.get("method")
+                    path = executor.get("path")
+                    if isinstance(method, str) and isinstance(path, str):
+                        routes.add(f"{method.upper()} {path}")
+        except Exception:
+            pass
 
         # Components = declared (function/class Foo) ∪ rendered JSX tags
         # (kit + custom) — so a monolithic App that renders Button/Card/Dialog
@@ -403,19 +423,36 @@ def _classify_scaffold_end(
     return project_id, event
 
 
+def _is_external(project_id: str) -> bool:
+    manager = get_living_ui_manager()
+    project = manager.projects.get(project_id) if manager else None
+    return getattr(project, "project_type", "native") == "external"
+
+
 def _classify_notify_ready_end(
     run_id: str, inputs: Dict[str, Any], outputs: Dict[str, Any]
 ) -> Optional[Tuple[str, Dict[str, Any]]]:
-    """The validation gate + walk-verify capstone: a single test_run row."""
+    """The validation gate + walk-verify capstone: a single test_run row.
+    For EXTERNAL apps the same action means launch + health + A2App
+    adapter self-check — label it as what it is."""
     project_id = str(inputs.get("project_id", ""))
     if not project_id:
         return None
     ok = isinstance(outputs, dict) and outputs.get("status") == "success"
+    external = _is_external(project_id)
     if ok:
-        label = "Validation gate and walk-verify passed"
+        label = (
+            "App launched behind the A2App adapter"
+            if external
+            else "Validation gate and walk-verify passed"
+        )
         tests = {"passed": 1, "failed": 0}
     else:
-        label = "Validation failed: fixing and retrying"
+        label = (
+            "Launch failed: fixing and retrying"
+            if external
+            else "Validation failed: fixing and retrying"
+        )
         tests = {"passed": 0, "failed": 1}
     event = _build_event(
         run_id,
@@ -423,6 +460,42 @@ def _classify_notify_ready_end(
         label,
         area="tests",
         tests=tests,
+        snapshot=_snapshot_for_id(project_id),
+    )
+    return project_id, event
+
+
+def _classify_ops_verify_end(
+    run_id: str, inputs: Dict[str, Any], outputs: Dict[str, Any]
+) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """Live A2App operation verification (external adoption): one test_run
+    row per attempt, counting real op invocations."""
+    project_id = str(inputs.get("project_id", ""))
+    if not project_id:
+        return None
+    out = outputs if isinstance(outputs, dict) else {}
+    ok = out.get("status") == "success"
+    passed = int(out.get("passed") or 0)
+    failed = int(out.get("failed") or 0)
+    if ok:
+        label = (
+            f"A2App operations verified live ({passed} invoked)"
+            if passed
+            else "A2App surface verified (no invocable operations)"
+        )
+    else:
+        label = (
+            f"Operation mapping failed live verification ({failed} of "
+            f"{passed + failed}): fixing"
+            if (passed + failed)
+            else "Operations manifest invalid: fixing"
+        )
+    event = _build_event(
+        run_id,
+        "test_run",
+        label,
+        area="tests",
+        tests={"passed": passed, "failed": failed},
         snapshot=_snapshot_for_id(project_id),
     )
     return project_id, event
@@ -564,6 +637,8 @@ def make_action_hooks():
                 result = _classify_scaffold_end(run_id, out)
             elif name == "living_ui_notify_ready":
                 result = _classify_notify_ready_end(run_id, inputs, out)
+            elif name == "living_ui_ops_verify":
+                result = _classify_ops_verify_end(run_id, inputs, out)
             elif not failed:
                 result = _classify_activity(run_id, name, inputs)
 

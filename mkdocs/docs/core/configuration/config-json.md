@@ -177,7 +177,6 @@ A few limits are Python constants in `app/config.py`. Change them by editing the
 | `mcp_config.json` | [MCP server](../../integrations/mcp.md) definitions: name, transport, command/URL, env, enabled flag. Hot-reloaded. | `/mcp`, **Settings → MCP** |
 | `skills_config.json` | Which [skills](../concepts/skills.md) are enabled/disabled, plus `auto_load`. Hot-reloaded. | `/skill`, **Settings → Skills** |
 | `scheduler_config.json` | All [schedules](../concepts/scheduling.md), including the built-in memory-processing and heartbeat entries. Hot-reloaded. | The agent's scheduling actions, **Settings → Proactive** |
-| `external_comms_config.json` | Telegram and WhatsApp listener config (tokens, mode, auto-reply). Other platforms keep credentials in `.credentials/` instead. | **Settings → Integrations** |
 | `onboarding_config.json` | [Onboarding](../../start/onboarding.md) completion flags, your name, the agent's name. Not hot-reloaded. | The onboarding flow only; don't hand-edit |
 | `connection_test_models.json` | Cheap model IDs used per provider for the "test connection" check. | You, rarely, when a test model is deprecated |
 
