@@ -3122,15 +3122,19 @@ UI in {project.path}/frontend/src/app/."""
                 root_prefix = None
                 app_prefix = None
 
+                # Match on path SEGMENTS, never substrings. GitHub names the
+                # zip root "{repo}-{ref with / as -}", so a ref named after the
+                # app it carries ("feature/invoice-tracker") produces a root
+                # folder ENDING in the app id. A substring search then resolves
+                # the prefix to the repo root and extracts the whole
+                # marketplace, leaving no manifest.json where one is expected.
                 for name in zf.namelist():
+                    parts = name.split("/")
                     if root_prefix is None:
-                        root_prefix = name.split("/")[0] + "/"
-                    # Look for the app folder: root/{app_id}/
-                    if f"/{app_id}/" in name:
-                        if app_prefix is None:
-                            # Find the prefix up to and including the app folder
-                            idx = name.index(f"{app_id}/")
-                            app_prefix = name[: idx + len(app_id) + 1]
+                        root_prefix = parts[0] + "/"
+                    # The app folder is exactly root/{app_id}/
+                    if len(parts) > 2 and parts[1] == app_id:
+                        app_prefix = f"{root_prefix}{app_id}/"
                         break
 
                 if not app_prefix:
@@ -3179,14 +3183,40 @@ UI in {project.path}/frontend/src/app/."""
             # projects (root manifest.json, livingUIVersion 2, PocketBase
             # backend). Legacy V1 apps (config/manifest.json, FastAPI
             # backend) are rejected until re-published in the current format.
+            # Say WHICH check failed. A missing manifest is usually an
+            # extraction/layout fault on our side, not a stale publish, and
+            # reporting both as "legacy V1" sends people to fix the wrong repo.
             mf = project_path / "manifest.json"
             is_v2 = False
-            if mf.exists():
+            reason = ""
+            if not mf.exists():
+                if (project_path / "config" / "manifest.json").exists():
+                    # config/manifest.json + FastAPI backend == the real V1.
+                    reason = (
+                        f"'{app_id}' is in the legacy V1 format and needs to "
+                        "be re-published in the current format in the "
+                        "marketplace"
+                    )
+                else:
+                    reason = (
+                        f"no manifest.json at the root of '{app_id}' after "
+                        f"extraction (looked in {project_path.name})"
+                    )
+            else:
                 try:
-                    is_v2 = json.loads(mf.read_text()).get("livingUIVersion") == 2
-                except Exception:
-                    is_v2 = False
+                    version = json.loads(mf.read_text()).get("livingUIVersion")
+                    is_v2 = version == 2
+                    if not is_v2:
+                        reason = (
+                            f"'{app_id}' declares livingUIVersion "
+                            f"{version!r}; this platform runs 2 (legacy V1 "
+                            "apps must be re-published in the current format "
+                            "in the marketplace)"
+                        )
+                except Exception as e:
+                    reason = f"manifest.json for '{app_id}' is unreadable: {e}"
             if not is_v2:
+                logger.error(f"[LIVING_UI:MARKETPLACE] Compatibility gate: {reason}")
                 shutil.rmtree(project_path, ignore_errors=True)
                 if preserved_hold is not None:
                     # Adoption: give the scaffold its requirements/factory
@@ -3201,10 +3231,8 @@ UI in {project.path}/frontend/src/app/."""
                 return {
                     "status": "error",
                     "error": (
-                        f"Marketplace app '{app_id}' is in the legacy V1 "
-                        "format and cannot run on this platform. It "
-                        "needs to be re-published in the current format in the "
-                        "marketplace."
+                        f"Marketplace app '{app_id}' cannot run on this "
+                        f"platform: {reason}."
                     ),
                 }
 
