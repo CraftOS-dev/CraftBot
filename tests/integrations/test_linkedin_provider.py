@@ -115,10 +115,7 @@ def test_refresh_persists_through_the_core(monkeypatch):
 
     def fake_http_request(method, url, **kwargs):
         calls.append((method, url, kwargs.get("data")))
-        return {
-            "ok": True,
-            "result": {"access_token": "AQV-new", "expires_in": 5184000},
-        }
+        return {"ok": True, "result": {"access_token": "AQV-new", "expires_in": 5184000}}
 
     monkeypatch.setattr(
         "craftos_integrations.providers.linkedin.provider.http_request",
@@ -203,7 +200,9 @@ def system(tmp_path):
     return sys
 
 
-def test_execute_builds_person_urn_from_resolved_accounts_client(system, monkeypatch):
+def test_execute_builds_person_urn_from_resolved_accounts_client(
+    system, monkeypatch
+):
     seen = []
 
     def fake_create_text_post(self, author_urn, text, visibility="PUBLIC"):

@@ -77,8 +77,9 @@ PER_ITEM_FILES = frozenset({"MEMORY.md", "EVENT_UNPROCESSED.md"})
 # The optional colon after the category bracket is the EVENT_UNPROCESSED.md
 # event-line separator ("[kind]: message").
 # Captures: stamp, category, content.
-MEMORY_ITEM_LINE_RE = re.compile(r"^\s*\[([^\]]+)\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$")
-
+MEMORY_ITEM_LINE_RE = re.compile(
+    r"^\s*\[([^\]]+)\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
+)
 
 def _log_preview(text: str, max_chars: int) -> str:
     """Collapse whitespace and truncate text for safe logging."""
@@ -679,7 +680,9 @@ class MemoryManager:
         if self._graph is None:
             return
         current = (
-            registry_path.read_text(encoding="utf-8") if registry_path.exists() else ""
+            registry_path.read_text(encoding="utf-8")
+            if registry_path.exists()
+            else ""
         )
         header = "## Connections"
 
@@ -701,11 +704,15 @@ class MemoryManager:
             header_index = len(kept) - 1
         else:
             # Blank lines directly under the header are re-added below.
-            while header_index + 1 < len(kept) and not kept[header_index + 1].strip():
+            while (
+                header_index + 1 < len(kept) and not kept[header_index + 1].strip()
+            ):
                 kept.pop(header_index + 1)
 
         records = self._graph.connection_lines()
-        rebuilt = kept[: header_index + 1] + [""] + records + kept[header_index + 1 :]
+        rebuilt = (
+            kept[: header_index + 1] + [""] + records + kept[header_index + 1 :]
+        )
         rendered = "\n".join(rebuilt).rstrip("\n") + "\n"
         if rendered != current:
             registry_path.write_text(rendered, encoding="utf-8")
@@ -875,7 +882,9 @@ class MemoryManager:
         if not registry_path.exists():
             return []
         try:
-            registry = parse_entity_registry(registry_path.read_text(encoding="utf-8"))
+            registry = parse_entity_registry(
+                registry_path.read_text(encoding="utf-8")
+            )
         except Exception as e:
             logger.warning(f"[MEMORY] Failed to parse {ENTITY_REGISTRY_FILE}: {e}")
             return []
@@ -902,7 +911,9 @@ class MemoryManager:
         """
         registry_path = self.agent_fs_path / ENTITY_REGISTRY_FILE
         current = (
-            registry_path.read_text(encoding="utf-8") if registry_path.exists() else ""
+            registry_path.read_text(encoding="utf-8")
+            if registry_path.exists()
+            else ""
         )
 
         def _norm(name: str) -> str:
@@ -961,14 +972,14 @@ class MemoryManager:
             accepted.append(name)
         if accepted:
             header_idx = next(
-                (i for i, line in enumerate(out) if line.strip() == "## Entities"), None
+                (i for i, l in enumerate(out) if l.strip() == "## Entities"), None
             )
             if header_idx is None:
                 conn_idx = next(
                     (
                         i
-                        for i, line in enumerate(out)
-                        if line.strip() == "## Connections"
+                        for i, l in enumerate(out)
+                        if l.strip() == "## Connections"
                     ),
                     len(out),
                 )
@@ -1066,9 +1077,7 @@ class MemoryManager:
             metas = result.get("metadatas") or []
             docs = result.get("documents") or []
             meta_map = {ids[i]: metas[i] for i in range(len(ids))}
-            doc_map = {
-                ids[i]: (docs[i] if i < len(docs) else "") for i in range(len(ids))
-            }
+            doc_map = {ids[i]: (docs[i] if i < len(docs) else "") for i in range(len(ids))}
             return meta_map, doc_map
         except Exception as e:
             logger.warning(f"[MEMORY] Metadata/document fetch failed: {e}")

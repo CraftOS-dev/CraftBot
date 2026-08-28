@@ -113,6 +113,7 @@ CONNECTION_LINE_RE = re.compile(
 _CONNECTION_TEXT_SEPARATOR = " :: "
 
 
+
 def normalize_timestamp(ts: str) -> str:
     """Validate an item timestamp against the canonical 'YYYY-MM-DD HH:MM:SS'.
 
@@ -385,9 +386,7 @@ class MemoryGraph:
             node.name = name.strip()
         return node
 
-    def _add_item_chunk(
-        self, chunk_id: str, document: str, meta: Dict[str, Any]
-    ) -> None:
+    def _add_item_chunk(self, chunk_id: str, document: str, meta: Dict[str, Any]) -> None:
         # The chunk document is the full bracketed line; clean content and
         # flags live in metadata written by the chunker. The entities value
         # is the item's {entities: ...} field — LLM-authored, parsed from
@@ -582,7 +581,9 @@ class MemoryGraph:
             if item.superseded and not parts:
                 continue
             status = (
-                "judged" if item.reviewed and not item.pending_entities else "pending"
+                "judged"
+                if item.reviewed and not item.pending_entities
+                else "pending"
             )
             if item.superseded:
                 status = "judged"
@@ -591,7 +592,8 @@ class MemoryGraph:
                 preview = preview[: CONNECTION_PREVIEW_MAX_CHARS - 3] + "..."
             names = f" {', '.join(parts)}" if parts else ""
             lines.append(
-                f"[{item_id}] [{status}]{names}{_CONNECTION_TEXT_SEPARATOR}{preview}"
+                f"[{item_id}] [{status}]{names}"
+                f"{_CONNECTION_TEXT_SEPARATOR}{preview}"
             )
         return lines
 
@@ -617,9 +619,7 @@ class MemoryGraph:
                     continue
                 best_count = max(neighbour_labels.values())
                 best = min(
-                    label
-                    for label, count in neighbour_labels.items()
-                    if count == best_count
+                    label for label, count in neighbour_labels.items() if count == best_count
                 )
                 if labels[key] != best:
                     labels[key] = best

@@ -58,7 +58,6 @@ else:
     def _lock_release(f) -> None:
         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
-
 from ..config import ConfigStore
 from ..logger import get_logger
 
@@ -137,3 +136,4 @@ class FileCredentialStore:
 
     def has_document(self, provider_id: str) -> bool:
         return self._path(provider_id).exists()
+

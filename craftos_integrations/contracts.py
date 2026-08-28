@@ -6,7 +6,7 @@ implement ``CredentialStore`` / ``OAuthTransport`` / ``EventSink`` (or use
 the defaults in ``core/``). Nothing in ``craftos_integrations`` may import
 from a host application — see tests/integrations/test_isolation.py.
 
-Design reference: craftos_integrations/README.md
+Design reference: docs/plans/multi-account-v2-plan.md
 """
 
 from __future__ import annotations

@@ -100,7 +100,9 @@ def generate_with_prefix_cache(
 
         # Log cache hit info if available and record metrics
         # Responses API uses input_tokens_details instead of prompt_tokens_details
-        cached_tokens = usage.get("input_tokens_details", {}).get("cached_tokens", 0)
+        cached_tokens = usage.get("input_tokens_details", {}).get(
+            "cached_tokens", 0
+        )
         metrics = get_cache_metrics()
         if cached_tokens and cached_tokens > 0:
             logger.info(
@@ -114,7 +116,9 @@ def generate_with_prefix_cache(
             )
         else:
             # First call or cache miss
-            metrics.record_miss("byteplus", "prefix", total_tokens=token_count_input)
+            metrics.record_miss(
+                "byteplus", "prefix", total_tokens=token_count_input
+            )
 
         status = "success"
 
@@ -374,7 +378,9 @@ def generate_with_session(
 
         # Log cache info and record metrics
         # Responses API uses input_tokens_details instead of prompt_tokens_details
-        cached_tokens = usage.get("input_tokens_details", {}).get("cached_tokens", 0)
+        cached_tokens = usage.get("input_tokens_details", {}).get(
+            "cached_tokens", 0
+        )
         metrics = get_cache_metrics()
         if cached_tokens and cached_tokens > 0:
             logger.info(
@@ -388,7 +394,9 @@ def generate_with_session(
             )
         else:
             # First call in session or growing context
-            metrics.record_miss("byteplus", "session", total_tokens=token_count_input)
+            metrics.record_miss(
+                "byteplus", "session", total_tokens=token_count_input
+            )
 
         status = "success"
 

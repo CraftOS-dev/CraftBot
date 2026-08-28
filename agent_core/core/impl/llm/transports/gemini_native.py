@@ -152,7 +152,9 @@ def generate(
         elif system_prompt and len(system_prompt) >= config.min_cache_tokens:
             # Caching should have been attempted (prompt long enough)
             # This is a miss - either first call or cache expired
-            metrics.record_miss("gemini", cache_type, total_tokens=token_count_input)
+            metrics.record_miss(
+                "gemini", cache_type, total_tokens=token_count_input
+            )
 
         status = "success"
     except GeminiAPIError as exc:  # pragma: no cover

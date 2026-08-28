@@ -32,10 +32,7 @@ from craftos_integrations.contracts import AccountInfo
 
 def acct(identity: str, alias: Optional[str] = None) -> AccountInfo:
     return AccountInfo(
-        identity=identity,
-        alias=alias,
-        is_primary=False,
-        listen=True,
+        identity=identity, alias=alias, is_primary=False, listen=True,
         added_at="2026-08-10T00:00:00+00:00",
     )
 
@@ -92,7 +89,9 @@ def sink_with_accounts(monkeypatch, accounts, raise_on_list=False) -> CraftBotEv
 
 
 def test_sink_enriches_and_forwards_alias_preferred(monkeypatch, captured):
-    sink = sink_with_accounts(monkeypatch, [acct("a@x.com", "work"), acct("b@y.com")])
+    sink = sink_with_accounts(
+        monkeypatch, [acct("a@x.com", "work"), acct("b@y.com")]
+    )
     asyncio.run(sink.on_event("gmail", "a@x.com", event()))
     (payload,) = captured
     assert payload["account"] == "a@x.com"

@@ -55,17 +55,10 @@ def results_of(sent: List[Dict[str, Any]], msg_type: str) -> List[Dict[str, Any]
     return [m["data"] for m in sent if m["type"] == msg_type]
 
 
-def acct(
-    identity: str,
-    alias: Optional[str] = None,
-    primary: bool = False,
-    listen: bool = True,
-) -> AccountInfo:
+def acct(identity: str, alias: Optional[str] = None, primary: bool = False,
+         listen: bool = True) -> AccountInfo:
     return AccountInfo(
-        identity=identity,
-        alias=alias,
-        is_primary=primary,
-        listen=listen,
+        identity=identity, alias=alias, is_primary=primary, listen=listen,
         added_at="2026-08-10T00:00:00+00:00",
     )
 
@@ -79,9 +72,7 @@ class FakeSystem:
         self.removed: List[Tuple[str, str]] = []
         self.applied: List[Tuple[str, Dict[str, Any]]] = []
         self.add_result: Tuple[bool, str, Optional[List[AccountInfo]]] = (
-            True,
-            "Connected",
-            None,
+            True, "Connected", None,
         )
         self.apply_error: Optional[Exception] = None
 
@@ -105,13 +96,17 @@ class FakeSystem:
         return list(self._accounts)
 
     def resolve(self, provider_id: str, hint: Optional[str]) -> str:
-        match = next((a for a in self._accounts if hint in (a.identity, a.alias)), None)
+        match = next(
+            (a for a in self._accounts if hint in (a.identity, a.alias)), None
+        )
         if match is None:
             raise AccountResolutionError(f"No account matching '{hint}'")
         return match.identity
 
     def remove_account(self, provider_id: str, hint: Optional[str]) -> str:
-        match = next((a for a in self._accounts if hint in (a.identity, a.alias)), None)
+        match = next(
+            (a for a in self._accounts if hint in (a.identity, a.alias)), None
+        )
         if match is None:
             raise AccountResolutionError(f"No account matching '{hint}'")
         self._accounts.remove(match)
@@ -119,9 +114,7 @@ class FakeSystem:
         return match.identity
 
 
-def TWO():
-    return [acct("a@x.com", "work", primary=True), acct("b@y.com", "school")]
-
+TWO = lambda: [acct("a@x.com", "work", primary=True), acct("b@y.com", "school")]
 
 WIRE_TWO = [
     {"identity": "a@x.com", "alias": "work", "isPrimary": True, "listen": True},
@@ -152,7 +145,9 @@ def test_info_carries_v2_accounts_at_top_level(system, monkeypatch):
     adapter, sent = make_adapter()
     import craftos_integrations
 
-    monkeypatch.setattr(craftos_integrations, "get_metadata", lambda _id: {"id": _id})
+    monkeypatch.setattr(
+        craftos_integrations, "get_metadata", lambda _id: {"id": _id}
+    )
     asyncio.run(adapter._handle_integration_info("gmail"))
     (data,) = results_of(sent, "integration_info")
     assert data["success"] is True
@@ -173,7 +168,9 @@ def test_info_unknown_to_system_reports_disconnected(system, monkeypatch):
     adapter, sent = make_adapter()
     import craftos_integrations
 
-    monkeypatch.setattr(craftos_integrations, "get_metadata", lambda _id: {"id": _id})
+    monkeypatch.setattr(
+        craftos_integrations, "get_metadata", lambda _id: {"id": _id}
+    )
     asyncio.run(adapter._handle_integration_info("jira"))
     (data,) = results_of(sent, "integration_info")
     assert "accounts" not in data
@@ -193,7 +190,9 @@ def test_info_v2_lookup_failure_shows_reload_hint(monkeypatch):
     monkeypatch.setattr(integrations, "get_system", boom)
     import craftos_integrations
 
-    monkeypatch.setattr(craftos_integrations, "get_metadata", lambda _id: {"id": _id})
+    monkeypatch.setattr(
+        craftos_integrations, "get_metadata", lambda _id: {"id": _id}
+    )
     asyncio.run(adapter._handle_integration_info("gmail"))
     (data,) = results_of(sent, "integration_info")
     assert data["success"] is True
@@ -220,9 +219,7 @@ def test_accounts_add_success_echoes_request_id(system):
     assert data["ok"] is True
     assert data["message"] == "Connected c@z.com"
     assert [a["identity"] for a in data["accounts"]] == [
-        "a@x.com",
-        "b@y.com",
-        "c@z.com",
+        "a@x.com", "b@y.com", "c@z.com",
     ]
     # success refreshes the integration list
     assert results_of(sent, "integration_list")
@@ -317,7 +314,9 @@ def test_apply_changes_success(system):
 def test_apply_changes_failure_keeps_current_accounts(system, error):
     adapter, sent = make_adapter()
     system.apply_error = error
-    asyncio.run(adapter._handle_integration_apply_account_changes("gmail", "req-9", {}))
+    asyncio.run(
+        adapter._handle_integration_apply_account_changes("gmail", "req-9", {})
+    )
     (data,) = results_of(sent, "integration_apply_account_changes_result")
     assert data["ok"] is False
     assert data["error"] == str(error)
@@ -329,7 +328,9 @@ def test_apply_changes_failure_keeps_current_accounts(system, error):
 
 def test_apply_changes_unknown_provider(system):
     adapter, sent = make_adapter()
-    asyncio.run(adapter._handle_integration_apply_account_changes("nope", "r", {}))
+    asyncio.run(
+        adapter._handle_integration_apply_account_changes("nope", "r", {})
+    )
     (data,) = results_of(sent, "integration_apply_account_changes_result")
     assert data["ok"] is False
     assert "Unknown integration" in data["error"]
@@ -353,7 +354,9 @@ def test_apply_changes_failure_omits_accounts_when_list_unavailable(system):
     adapter, sent = make_adapter()
     system.apply_error = ValueError("nickname clash")
     system.list_accounts = _raise
-    asyncio.run(adapter._handle_integration_apply_account_changes("gmail", "req-x", {}))
+    asyncio.run(
+        adapter._handle_integration_apply_account_changes("gmail", "req-x", {})
+    )
     (data,) = results_of(sent, "integration_apply_account_changes_result")
     assert data["ok"] is False
     assert data["error"] == "nickname clash"

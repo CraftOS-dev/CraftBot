@@ -73,7 +73,9 @@ def test_binding_accepts_both_token_key_shapes():
     assert legacy_client._load().token == "secret_legacytoken"
 
 
-def test_execute_runs_operation_against_resolved_accounts_client(tmp_path, monkeypatch):
+def test_execute_runs_operation_against_resolved_accounts_client(
+    tmp_path, monkeypatch
+):
     system = IntegrationSystem(
         store=FileCredentialStore(root=tmp_path), providers=[NotionProvider()]
     )

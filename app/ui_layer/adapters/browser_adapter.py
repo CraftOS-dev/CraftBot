@@ -1531,6 +1531,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "memory_reset":
             await self._handle_memory_reset()
 
+
         elif msg_type == "memory_stats_get":
             await self._handle_memory_stats_get()
 
@@ -4004,7 +4005,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         break
                 if self._chat._storage:
                     try:
-                        self._chat._storage.update_option_selected(message_id, recorded)
+                        self._chat._storage.update_option_selected(
+                            message_id, recorded
+                        )
                         # After marking this one, whatever question messages
                         # remain unanswered are still pinned in the user's UI.
                         pending_questions = self._chat._storage.get_pending_questions(
@@ -7197,7 +7200,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if system is None:
                 success, message = False, f"Unknown integration: {integration_id}"
             else:
-                success, message, _accounts = await system.add_account(integration_id)
+                success, message, _accounts = await system.add_account(
+                    integration_id
+                )
             await self._broadcast(
                 {
                     "type": "integration_connect_result",
@@ -7487,7 +7492,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if integration_id in self._oauth_tasks:
             self._oauth_tasks[integration_id].cancel()
 
-        task = asyncio.create_task(self._run_accounts_add(integration_id, request_id))
+        task = asyncio.create_task(
+            self._run_accounts_add(integration_id, request_id)
+        )
         self._oauth_tasks[integration_id] = task
 
     async def _run_accounts_add(
@@ -7937,11 +7944,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # app that only exists on the ref being tested.
             apps = catalogue.get("apps", [])
             for app in apps:
-                if (
-                    isinstance(app, dict)
-                    and not app.get("preview")
-                    and app.get("folder")
-                ):
+                if isinstance(app, dict) and not app.get("preview") and app.get("folder"):
                     app["preview"] = marketplace_source.thumbnail_url(app["folder"])
             await self._broadcast(
                 {

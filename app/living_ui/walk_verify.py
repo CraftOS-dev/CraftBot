@@ -114,10 +114,7 @@ def _exact_symbols_factory(manager, store_dir: Path):
                     pass
             if proc.returncode != 0:
                 return None
-            line = next(
-                (ln for ln in proc.stdout.splitlines() if ln.strip().startswith("[")),
-                "",
-            )
+            line = next((ln for ln in proc.stdout.splitlines() if ln.strip().startswith("[")), "")
             data = json.loads(line) if line else []
             if not data:
                 return None
@@ -152,12 +149,7 @@ def build_verify_evidence(
     verify."""
     from app.living_ui import verify_scope as vs
 
-    out: Dict[str, Any] = {
-        "text": "",
-        "changes": [],
-        "baseline": None,
-        "store_dir": None,
-    }
+    out: Dict[str, Any] = {"text": "", "changes": [], "baseline": None, "store_dir": None}
     try:
         store_dir = vs.verify_store_dir(project)
         out["store_dir"] = store_dir
@@ -169,9 +161,7 @@ def build_verify_evidence(
             changes = vs.diff_against_baseline(verify_path, store_dir, baseline)
             total_watched = len(baseline.get("files") or {})
             vs.attribute_changes(
-                verify_path,
-                changes,
-                symbols_for=_exact_symbols_factory(manager, store_dir),
+                verify_path, changes, symbols_for=_exact_symbols_factory(manager, store_dir)
             )
         out["changes"] = changes
 
@@ -189,9 +179,7 @@ def build_verify_evidence(
             )
         blocks.append(vs.render_diff_block(changes, baseline, total_watched))
         blocks.append(vs.render_history_block(store_dir))
-        cov = (
-            vs.render_coverage_block(store_dir, changes) if baseline is not None else ""
-        )
+        cov = vs.render_coverage_block(store_dir, changes) if baseline is not None else ""
         if cov:
             blocks.append(cov)
         if defect_features:
@@ -215,9 +203,7 @@ def build_verify_evidence(
         )
         out["text"] = "\n\n".join(b for b in blocks if b)
     except Exception as e:
-        logger.warning(
-            f"[WALK_VERIFY] evidence builder failed (walking everything): {e}"
-        )
+        logger.warning(f"[WALK_VERIFY] evidence builder failed (walking everything): {e}")
         out["text"] = (
             "CHANGED SINCE LAST PROMOTE: unavailable (evidence builder error) — "
             "treat as NO BASELINE and walk everything."
@@ -466,13 +452,7 @@ def parse_check_report(text: str) -> Dict[str, Any]:
             verdict = "FAIL"
 
     if verdict == "PASS":
-        return {
-            "kind": "pass",
-            "passed": _passed(text),
-            "defects": [],
-            "raw": text,
-            **extra,
-        }
+        return {"kind": "pass", "passed": _passed(text), "defects": [], "raw": text, **extra}
 
     if verdict == "FAIL":
         # Feature lines come from the FEATURES section ONLY — prose in
@@ -493,20 +473,8 @@ def parse_check_report(text: str) -> Dict[str, Any]:
             )
         ]
         if not defects and re.search(r"NOT REACHED", feature_section, re.IGNORECASE):
-            return {
-                "kind": "incomplete",
-                "passed": passed,
-                "defects": [],
-                "raw": text,
-                **extra,
-            }
-        return {
-            "kind": "defects",
-            "passed": passed,
-            "defects": defects,
-            "raw": text,
-            **extra,
-        }
+            return {"kind": "incomplete", "passed": passed, "defects": [], "raw": text, **extra}
+        return {"kind": "defects", "passed": passed, "defects": defects, "raw": text, **extra}
 
     return {"kind": "blocked", "passed": [], "defects": [], "raw": text, **extra}
 

@@ -90,10 +90,7 @@ def system(tmp_path):
 
 
 def test_execute_routes_to_resolved_account(system):
-    assert (
-        run(system.execute("gmail", "whoami", {}, account="school"))["email"]
-        == "b@y.com"
-    )
+    assert run(system.execute("gmail", "whoami", {}, account="school"))["email"] == "b@y.com"
     assert run(system.execute("gmail", "whoami", {}))["email"] == "a@x.com"  # → primary
 
 

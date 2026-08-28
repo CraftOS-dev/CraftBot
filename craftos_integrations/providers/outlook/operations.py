@@ -170,7 +170,9 @@ def _get_outlook_automatic_replies_op() -> Operation:
                             "scheduledStartDateTime": setting.get(
                                 "scheduledStartDateTime"
                             ),
-                            "scheduledEndDateTime": setting.get("scheduledEndDateTime"),
+                            "scheduledEndDateTime": setting.get(
+                                "scheduledEndDateTime"
+                            ),
                             "internalReplyMessage": _strip_html(
                                 setting.get("internalReplyMessage")
                             ),
@@ -203,8 +205,12 @@ def _update_draft_args(d: Dict[str, Any]) -> Dict[str, Any]:
 def _update_automatic_replies_args(d: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "status": d["status"],
-        "internal_reply": d.get("internal_reply") if "internal_reply" in d else None,
-        "external_reply": d.get("external_reply") if "external_reply" in d else None,
+        "internal_reply": d.get("internal_reply")
+        if "internal_reply" in d
+        else None,
+        "external_reply": d.get("external_reply")
+        if "external_reply" in d
+        else None,
         "external_audience": d.get("external_audience", "all"),
         "scheduled_start": d.get("scheduled_start") or None,
         "scheduled_end": d.get("scheduled_end") or None,
@@ -355,11 +361,7 @@ def build_operations() -> List[Operation]:
                     "description": "Search text.",
                     "example": "invoice contoso",
                 },
-                "top": {
-                    "type": "integer",
-                    "description": "Max results.",
-                    "example": 25,
-                },
+                "top": {"type": "integer", "description": "Max results.", "example": 25},
                 "folder": {
                     "type": "string",
                     "description": "Optional folder name (inbox/sentitems/etc.) or ID.",
@@ -886,7 +888,8 @@ def build_operations() -> List[Operation]:
             "create_outlook_folder",
             "create_folder",
             description=(
-                "Create a new mail folder. Defaults to top-level (under msgfolderroot)."
+                "Create a new mail folder. Defaults to top-level (under "
+                "msgfolderroot)."
             ),
             parallelizable=False,
             tags=("outlook_folders", "outlook"),
@@ -981,11 +984,7 @@ def build_operations() -> List[Operation]:
                     "description": "Folder ID or well-known name.",
                     "example": "inbox",
                 },
-                "count": {
-                    "type": "integer",
-                    "description": "Max results.",
-                    "example": 25,
-                },
+                "count": {"type": "integer", "description": "Max results.", "example": 25},
                 "unread_only": {
                     "type": "boolean",
                     "description": "Filter to unread.",

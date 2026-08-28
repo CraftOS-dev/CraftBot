@@ -207,10 +207,7 @@ def test_registry_keys_by_normalized_identity(bridge_env):
     # Any spelling of the same account resolves to the same bridge.
     assert a is bc.get_whatsapp_bridge("+1 (415) 555-2671")
     assert a is bc.get_whatsapp_bridge("14155552671:12@c.us")
-    assert (
-        Path(a.auth_dir)
-        == bridge_env / ".credentials" / "whatsapp_wwebjs_auth" / "14155552671"
-    )
+    assert Path(a.auth_dir) == bridge_env / ".credentials" / "whatsapp_wwebjs_auth" / "14155552671"
 
     b = bc.get_whatsapp_bridge("923001234567")
     assert b is not a
@@ -468,11 +465,7 @@ def test_second_account_leaves_existing_legacy_json_untouched(fake_bridges):
     _legacy_json(fake_bridges).parent.mkdir(parents=True, exist_ok=True)
     _legacy_json(fake_bridges).write_text(
         json.dumps(
-            {
-                "session_id": "14155552671",
-                "owner_phone": "14155552671",
-                "owner_name": "Ada",
-            }
+            {"session_id": "14155552671", "owner_phone": "14155552671", "owner_name": "Ada"}
         )
     )
 
@@ -584,11 +577,7 @@ def test_bound_clients_get_their_own_accounts_bridge(bridge_env):
     provider = WhatsAppWebProvider()
     ada = provider.build_client(dict(WA_CRED), lambda c: None)
     bea = provider.build_client(
-        {
-            "owner_phone": "923001234567",
-            "owner_name": "Bea",
-            "wid": "923001234567:1@c.us",
-        },
+        {"owner_phone": "923001234567", "owner_name": "Bea", "wid": "923001234567:1@c.us"},
         lambda c: None,
     )
     ada_bridge = ada._get_bridge()

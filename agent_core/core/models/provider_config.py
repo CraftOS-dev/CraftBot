@@ -75,7 +75,9 @@ class ProviderProfile:
 
     # ── models ────────────────────────────────────────────────────────
     # {InterfaceType: default model id} (was MODEL_REGISTRY row).
-    default_models: Mapping[InterfaceType, Optional[str]] = field(default_factory=dict)
+    default_models: Mapping[InterfaceType, Optional[str]] = field(
+        default_factory=dict
+    )
     # Tiny known-good model for auth checks (was connection_test_models.json).
     connection_test_model: Optional[str] = None
     connection_test_max_tokens: Optional[int] = None
@@ -833,7 +835,8 @@ def _sanity_check_profiles() -> None:
         if profile.settings_key:
             prior = seen_settings_keys.setdefault(profile.settings_key, key)
             assert prior == key, (
-                f"settings_key {profile.settings_key!r} shared by {prior!r} and {key!r}"
+                f"settings_key {profile.settings_key!r} shared by "
+                f"{prior!r} and {key!r}"
             )
 
 

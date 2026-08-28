@@ -88,7 +88,9 @@ def test_binding_injects_credential_and_ignores_extra_keys():
     assert cred.channel_access_token == "test-channel-token-1"
     assert cred.bot_user_id == "Ub1234ABCDEF9876"
     # the auth header the legacy REST methods build uses the bound token
-    assert client._headers()["Authorization"] == "Bearer test-channel-token-1"
+    assert (
+        client._headers()["Authorization"] == "Bearer test-channel-token-1"
+    )
 
 
 def test_verify_token_mirrors_legacy_login(monkeypatch):
@@ -98,7 +100,9 @@ def test_verify_token_mirrors_legacy_login(monkeypatch):
 
     def fake_request(method, url, **kwargs):
         calls.append((method, url, kwargs.get("headers", {})))
-        return {"result": {"userId": "Ub1234ABCDEF9876", "displayName": "CraftBot"}}
+        return {
+            "result": {"userId": "Ub1234ABCDEF9876", "displayName": "CraftBot"}
+        }
 
     monkeypatch.setattr(
         "craftos_integrations.providers.line.provider.http_request", fake_request

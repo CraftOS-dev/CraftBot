@@ -27,9 +27,7 @@ logger = get_logger(__name__)
 
 _system: Optional[IntegrationSystem] = None
 _listeners: Optional[Any] = None  # ListenerManager, built lazily in start_listeners()
-_listener_task: Optional[asyncio.Task] = (
-    None  # holds ListenerManager.start()'s run-loop
-)
+_listener_task: Optional[asyncio.Task] = None  # holds ListenerManager.start()'s run-loop
 
 
 # ── attachment descriptors ───────────────────────────────────────────────
@@ -67,9 +65,7 @@ _ATTACHMENT_HINTS: Dict[str, Any] = {
         if att.get("id")
         else ""
     ),
-    "discord": lambda att: (
-        f"fetch directly from url {att['url']}" if att.get("url") else ""
-    ),
+    "discord": lambda att: (f"fetch directly from url {att['url']}" if att.get("url") else ""),
     "slack": lambda att: (
         f"retrieve with download_slack_file(file_id={att['id']!r})"
         if att.get("id")
@@ -109,7 +105,9 @@ def _human_size(size: Any) -> str:
     return ""
 
 
-def format_attachment_descriptors(integration_type: str, attachments: Any) -> list[str]:
+def format_attachment_descriptors(
+    integration_type: str, attachments: Any
+) -> list[str]:
     """Render normalized attachment dicts into `[Attachment: …]` lines.
 
     Tolerant of junk entries — a malformed attachment yields no line
@@ -130,9 +128,7 @@ def format_attachment_descriptors(integration_type: str, attachments: Any) -> li
         extra = att.get("extra")
         if isinstance(extra, dict):
             inline = ", ".join(
-                f"{k}={v}"
-                for k, v in extra.items()
-                if k not in ("chat_id", "message_id")
+                f"{k}={v}" for k, v in extra.items() if k not in ("chat_id", "message_id")
             )
             if inline:
                 parts.append(f"[{inline}]")
@@ -224,9 +220,7 @@ class CraftBotEventSink:
         except Exception:
             pass  # best-effort: fall back to the bare identity
         payload["account_alias"] = alias
-        payload["source"] = (
-            f"{payload.get('source', provider_id)} ({alias or identity})"
-        )
+        payload["source"] = f"{payload.get('source', provider_id)} ({alias or identity})"
 
         await on_message(payload)
 

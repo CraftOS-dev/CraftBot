@@ -63,18 +63,8 @@ WATCHED_FILES: Tuple[str, ...] = (
 )
 _SKIP_DIR_NAMES = {"node_modules", ".git", "dist", "__pycache__", "logs"}
 _TEXT_SUFFIXES = {
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".json",
-    ".css",
-    ".md",
-    ".html",
-    ".txt",
-    ".svg",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css", ".md",
+    ".html", ".txt", ".svg",
 }
 MAX_DIFF_LINES_PER_FILE = 200
 MAX_FILES_IN_BLOCK = 40
@@ -159,9 +149,7 @@ def ensure_baseline(project_path: Path, store_dir: Path) -> bool:
     True when a new baseline was written."""
     project_path, store_dir = Path(project_path), Path(store_dir)
     current = read_baseline(store_dir)
-    if current is not None and (current.get("files") or {}) == snapshot_files(
-        project_path
-    ):
+    if current is not None and (current.get("files") or {}) == snapshot_files(project_path):
         return False
     write_baseline(project_path, store_dir)
     return True
@@ -239,16 +227,12 @@ def diff_against_baseline(
             continue
         kind = "added" if then is None else "deleted" if now is None else "modified"
         new_text = _read_text(project_path / rel) if now else None
-        old_text = (
-            _read_text(snap_dir / rel) if then and (snap_dir / rel).is_file() else None
-        )
+        old_text = _read_text(snap_dir / rel) if then and (snap_dir / rel).is_file() else None
         fc = FileChange(rel=rel, kind=kind, old_text=old_text, new_text=new_text)
         if old_text is not None or new_text is not None:
             a = (old_text or "").splitlines()
             b = (new_text or "").splitlines()
-            for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
-                None, a, b
-            ).get_opcodes():
+            for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b).get_opcodes():
                 if tag in ("replace", "delete"):
                     fc.removed_lines += i2 - i1
                 if tag in ("replace", "insert"):
@@ -364,42 +348,22 @@ def ts_symbols(text: str) -> List[Symbol]:
         m = _TS_DECL.match(line)
         if not m:
             continue
-        name = (
-            m.group("fn")
-            or m.group("cls")
-            or m.group("ty")
-            or m.group("var")
-            or m.group("meth")
-        )
-        if not name or name in (
-            "if",
-            "for",
-            "while",
-            "switch",
-            "return",
-            "catch",
-            "else",
-        ):
+        name = m.group("fn") or m.group("cls") or m.group("ty") or m.group("var") or m.group("meth")
+        if not name or name in ("if", "for", "while", "switch", "return", "catch", "else"):
             continue
         kind = "class" if m.group("cls") else "type" if m.group("ty") else "fn"
         if m.group("var") is not None:
             val = (m.group("varval") or "").strip()
             # Only VALUE declarations that hold code or data blocks are symbols;
             # `const x = 5` on its own line still counts (module constant).
-            kind = (
-                "const"
-                if not re.match(r"(async\s*)?(\(|[A-Za-z_$][\w$]*\s*=>|function)", val)
-                else "fn"
-            )
+            kind = "const" if not re.match(r"(async\s*)?(\(|[A-Za-z_$][\w$]*\s*=>|function)", val) else "fn"
         end = _block_end(blanked, i)
         depth = (len(line) - len(line.lstrip())) // 2
         # A local `const x = …` inside a function is not a symbol — only
         # module-level constants and anything holding code are.
         if kind == "const" and depth > 0:
             continue
-        symbols.append(
-            Symbol(name=name, start=i + 1, end=end + 1, depth=depth, kind=kind)
-        )
+        symbols.append(Symbol(name=name, start=i + 1, end=end + 1, depth=depth, kind=kind))
     # Drop false positives: a JSX line like `<Foo onClick={...}>` or a bare
     # call `foo(x) {` inside JSX is not a declaration.
     symbols = [
@@ -416,40 +380,22 @@ def hook_symbols(text: str) -> List[Symbol]:
     blanked = _blank_strings(text).splitlines()
     symbols: List[Symbol] = []
     for i, line in enumerate(blanked):
-        route = (
-            _ROUTE.search(text.splitlines()[i]) if i < len(text.splitlines()) else None
-        )
+        route = _ROUTE.search(text.splitlines()[i]) if i < len(text.splitlines()) else None
         if route:
             end = _block_end(blanked, i)
             symbols.append(
-                Symbol(
-                    name=f"{route.group('method')} {route.group('path')}",
-                    start=i + 1,
-                    end=end + 1,
-                    kind="route",
-                )
+                Symbol(name=f"{route.group('method')} {route.group('path')}", start=i + 1, end=end + 1, kind="route")
             )
             continue
         cron = _CRON.search(text.splitlines()[i])
         if cron:
             end = _block_end(blanked, i)
-            symbols.append(
-                Symbol(
-                    name=f"cron {cron.group('name')}",
-                    start=i + 1,
-                    end=end + 1,
-                    kind="cron",
-                )
-            )
+            symbols.append(Symbol(name=f"cron {cron.group('name')}", start=i + 1, end=end + 1, kind="cron"))
             continue
         hm = re.match(r"^(on[A-Z]\w+)\(", line)
         if hm:
             end = _block_end(blanked, i)
-            symbols.append(
-                Symbol(
-                    name=f"{hm.group(1)} hook", start=i + 1, end=end + 1, kind="hook"
-                )
-            )
+            symbols.append(Symbol(name=f"{hm.group(1)} hook", start=i + 1, end=end + 1, kind="hook"))
             continue
         m = _TS_DECL.match(line)
         if m and (m.group("fn") or m.group("var")):
@@ -473,12 +419,8 @@ def _innermost(symbols: Sequence[Symbol], line: int) -> Optional[Symbol]:
 def _symbol_path(symbols: Sequence[Symbol], sym: Symbol) -> str:
     """'Outer > inner' for nested declarations (containers by range)."""
     chain = [
-        s
-        for s in symbols
-        if s is not sym
-        and s.start <= sym.start
-        and s.end >= sym.end
-        and s.depth < sym.depth
+        s for s in symbols
+        if s is not sym and s.start <= sym.start and s.end >= sym.end and s.depth < sym.depth
     ]
     chain.sort(key=lambda s: s.span, reverse=True)
     names = [s.name for s in chain] + [sym.name]
@@ -505,9 +447,7 @@ def attribute_symbols(
                 label = _symbol_path(syms, s)
                 # The hunk sits in the function's own body (render/JSX,
                 # top-level statements), not in a nested declaration.
-                if s.kind == "fn" and any(
-                    o is not s and s.start < o.start and o.end < s.end for o in syms
-                ):
+                if s.kind == "fn" and any(o is not s and s.start < o.start and o.end < s.end for o in syms):
                     label += " (body)"
             label += suffix
             if label not in changed:
@@ -524,20 +464,10 @@ def attribute_symbols(
     # New symbols get an explicit "(new)" marker.
     old_names = {s.name for s in old_syms}
     changed = [
-        (c + " (new)")
-        if (
-            c.split(" > ")[-1] in new_names
-            and c.split(" > ")[-1] not in old_names
-            and "(removed)" not in c
-            and old_text is not None
-        )
-        else c
+        (c + " (new)") if (c.split(" > ")[-1] in new_names and c.split(" > ")[-1] not in old_names and "(removed)" not in c and old_text is not None) else c
         for c in changed
     ]
-    touched_top = {
-        c.split(" > ")[0].replace(" (new)", "").replace(" (removed)", "")
-        for c in changed
-    }
+    touched_top = {c.split(" > ")[0].replace(" (new)", "").replace(" (removed)", "") for c in changed}
     unchanged = [s.name for s in new_syms if s.depth == 0 and s.name not in touched_top]
     return changed, unchanged
 
@@ -571,9 +501,7 @@ def _migration_notes(text: str) -> List[str]:
     return notes or ["migration (no collection reference found — read it)"]
 
 
-def _json_key_changes(
-    old_text: Optional[str], new_text: Optional[str]
-) -> Tuple[List[str], List[str]]:
+def _json_key_changes(old_text: Optional[str], new_text: Optional[str]) -> Tuple[List[str], List[str]]:
     def load(t: Optional[str]) -> Any:
         try:
             return json.loads(t) if t else None
@@ -600,9 +528,7 @@ def _json_key_changes(
     return changed, unchanged
 
 
-def _css_changes(
-    old_text: Optional[str], new_text: Optional[str]
-) -> Tuple[List[str], List[str]]:
+def _css_changes(old_text: Optional[str], new_text: Optional[str]) -> Tuple[List[str], List[str]]:
     old_lines, new_lines = _changed_line_sets(old_text or "", new_text or "")
     text = new_text or ""
     lines = text.splitlines()
@@ -610,9 +536,7 @@ def _css_changes(
     for m in _CSS_RULE.finditer(text):
         start = text.count("\n", 0, m.start()) + 1
         end = _block_end(lines, start - 1) + 1
-        rules.append(
-            Symbol(name=m.group(1).strip()[:60], start=start, end=end, kind="rule")
-        )
+        rules.append(Symbol(name=m.group(1).strip()[:60], start=start, end=end, kind="rule"))
     changed: List[str] = []
     for ln in sorted(new_lines):
         s = _innermost(rules, ln)
@@ -622,9 +546,7 @@ def _css_changes(
             label = f"{label} {var.group(1)}"
         if label not in changed:
             changed.append(label)
-    unchanged = [
-        r.name for r in rules if r.name not in {c.split(" --")[0] for c in changed}
-    ]
+    unchanged = [r.name for r in rules if r.name not in {c.split(" --")[0] for c in changed}]
     return changed, unchanged
 
 
@@ -654,19 +576,7 @@ def _package_changes(old_text: Optional[str], new_text: Optional[str]) -> List[s
 
 # ── references ───────────────────────────────────────────────────────────────
 _REF_MIN_LEN = 4
-_REF_SKIP = {
-    "render",
-    "default",
-    "props",
-    "state",
-    "index",
-    "main",
-    "handler",
-    "value",
-    "data",
-    "type",
-    "name",
-}
+_REF_SKIP = {"render", "default", "props", "state", "index", "main", "handler", "value", "data", "type", "name"}
 
 
 def _leaf(label: str) -> str:
@@ -675,11 +585,7 @@ def _leaf(label: str) -> str:
 
 
 def find_references(
-    project_path: Path,
-    rel: str,
-    symbol_name: str,
-    own_text: str,
-    own_range: Optional[Tuple[int, int]],
+    project_path: Path, rel: str, symbol_name: str, own_text: str, own_range: Optional[Tuple[int, int]]
 ) -> Tuple[int, List[str]]:
     """(same-file references outside the symbol's own range, other files
     referencing the name). Word-boundary grep over the agent-owned source."""
@@ -698,12 +604,7 @@ def find_references(
         if not d.is_dir():
             continue
         for p in d.rglob("*"):
-            if not p.is_file() or p.suffix.lower() not in (
-                ".ts",
-                ".tsx",
-                ".js",
-                ".jsx",
-            ):
+            if not p.is_file() or p.suffix.lower() not in (".ts", ".tsx", ".js", ".jsx"):
                 continue
             prel = _posix(p, Path(project_path))
             if prel == rel:
@@ -718,11 +619,7 @@ def find_references(
     return same, others
 
 
-def attribute_changes(
-    project_path: Path,
-    changes: List[FileChange],
-    symbols_for: Optional[Callable[[str, str], Optional[List[Symbol]]]] = None,
-) -> None:
+def attribute_changes(project_path: Path, changes: List[FileChange], symbols_for: Optional[Callable[[str, str], Optional[List[Symbol]]]] = None) -> None:
     """Fill changed/unchanged symbols + notes on every FileChange, in place.
     `symbols_for(rel, text)` may return an exact symbol table (lui symbols)
     or None to fall back to the heuristic."""
@@ -733,9 +630,7 @@ def attribute_changes(
         try:
             if rel.startswith("frontend/src/kit/"):
                 fc.attribution = "file"
-                fc.notes.append(
-                    "kit (system-managed) — re-vendored by tooling, not an agent edit"
-                )
+                fc.notes.append("kit (system-managed) — re-vendored by tooling, not an agent edit")
             elif rel.startswith("pb/pb_migrations/"):
                 fc.attribution = "file"
                 fc.notes.extend(_migration_notes(fc.new_text or fc.old_text or ""))
@@ -744,7 +639,6 @@ def attribute_changes(
                     fc.old_text, fc.new_text, hook_symbols
                 )
             elif low.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs")):
-
                 def _syms(text: str, _rel=rel) -> List[Symbol]:
                     exact = symbols_for(_rel, text) if symbols_for else None
                     return exact if exact else ts_symbols(text)
@@ -754,19 +648,12 @@ def attribute_changes(
                 )
             elif rel == "frontend/package.json":
                 fc.attribution = "file"
-                fc.notes.extend(
-                    _package_changes(fc.old_text, fc.new_text)
-                    or ["package.json changed (no dependency delta)"]
-                )
+                fc.notes.extend(_package_changes(fc.old_text, fc.new_text) or ["package.json changed (no dependency delta)"])
             elif low.endswith(".json"):
-                fc.changed_symbols, fc.unchanged_symbols = _json_key_changes(
-                    fc.old_text, fc.new_text
-                )
+                fc.changed_symbols, fc.unchanged_symbols = _json_key_changes(fc.old_text, fc.new_text)
                 fc.attribution = "key"
             elif low.endswith(".css"):
-                fc.changed_symbols, fc.unchanged_symbols = _css_changes(
-                    fc.old_text, fc.new_text
-                )
+                fc.changed_symbols, fc.unchanged_symbols = _css_changes(fc.old_text, fc.new_text)
                 fc.attribution = "rule"
             elif rel.startswith("reference/"):
                 fc.attribution = "file"
@@ -780,17 +667,11 @@ def attribute_changes(
                 fc.notes.append("file deleted")
             # References: who else uses the changed symbols.
             if fc.attribution == "symbol" and fc.new_text:
-                syms = (
-                    hook_symbols(fc.new_text)
-                    if rel.startswith("pb/pb_hooks/")
-                    else ts_symbols(fc.new_text)
-                )
+                syms = hook_symbols(fc.new_text) if rel.startswith("pb/pb_hooks/") else ts_symbols(fc.new_text)
                 for label in fc.changed_symbols[:12]:
                     leaf = _leaf(label)
                     rng = next(((s.start, s.end) for s in syms if s.name == leaf), None)
-                    same, others = find_references(
-                        project_path, rel, leaf, fc.new_text, rng
-                    )
+                    same, others = find_references(project_path, rel, leaf, fc.new_text, rng)
                     if same or others:
                         parts = []
                         if same:
@@ -808,14 +689,7 @@ def _unified(fc: FileChange) -> str:
     a = (fc.old_text or "").splitlines()
     b = (fc.new_text or "").splitlines()
     out = list(
-        difflib.unified_diff(
-            a,
-            b,
-            fromfile=f"promoted/{fc.rel}",
-            tofile=f"now/{fc.rel}",
-            lineterm="",
-            n=2,
-        )
+        difflib.unified_diff(a, b, fromfile=f"promoted/{fc.rel}", tofile=f"now/{fc.rel}", lineterm="", n=2)
     )
     if len(out) > MAX_DIFF_LINES_PER_FILE:
         out = out[:MAX_DIFF_LINES_PER_FILE] + [
@@ -833,9 +707,7 @@ def _join(items: Sequence[str], limit: int = 10) -> str:
     return ", ".join(items)
 
 
-def render_diff_block(
-    changes: List[FileChange], baseline: Optional[Dict[str, Any]], total_watched: int
-) -> str:
+def render_diff_block(changes: List[FileChange], baseline: Optional[Dict[str, Any]], total_watched: int) -> str:
     if baseline is None:
         return (
             "CHANGED SINCE LAST PROMOTE: NO BASELINE — first verify of this code "
@@ -853,11 +725,7 @@ def render_diff_block(
     rest = [c for c in changes if c not in kit]
     lines = [f"CHANGED SINCE LAST PROMOTE ({when}):"]
     for fc in rest[:MAX_FILES_IN_BLOCK]:
-        stat = (
-            f"(+{fc.added_lines} / -{fc.removed_lines})"
-            if fc.kind == "modified"
-            else ""
-        )
+        stat = f"(+{fc.added_lines} / -{fc.removed_lines})" if fc.kind == "modified" else ""
         lines.append(f"  {fc.kind:<9} {fc.rel}   {stat}".rstrip())
         if fc.attribution in ("symbol", "key", "rule"):
             what = {"symbol": "", "key": " (keys)", "rule": " (rules)"}[fc.attribution]
@@ -878,11 +746,7 @@ def render_diff_block(
     lines.append(f"UNCHANGED: {unchanged_n} watched file(s)")
     # Unified diffs below the block (text files only).
     diffs = [
-        _unified(fc)
-        for fc in rest[:MAX_FILES_IN_BLOCK]
-        if fc.kind != "deleted"
-        and (fc.old_text or fc.new_text)
-        and not fc.rel.startswith("reference/")
+        _unified(fc) for fc in rest[:MAX_FILES_IN_BLOCK] if fc.kind != "deleted" and (fc.old_text or fc.new_text) and not fc.rel.startswith("reference/")
     ]
     if diffs:
         lines.append("")
@@ -940,12 +804,8 @@ def render_history_block(store_dir: Path) -> str:
     last = entries[-1]
     excluded = (last.get("scope") or {}).get("excluded") or []
     if excluded:
-        lines.append(
-            f"  (last walk on {last.get('at_human')} skipped {len(excluded)} feature(s) with reasons)"
-        )
-    full_walks = [
-        e for e in entries if (e.get("scope") or {}).get("mode", "FULL") == "FULL"
-    ]
+        lines.append(f"  (last walk on {last.get('at_human')} skipped {len(excluded)} feature(s) with reasons)")
+    full_walks = [e for e in entries if (e.get("scope") or {}).get("mode", "FULL") == "FULL"]
     if full_walks:
         lines.append(f"  last FULL walk: {full_walks[-1].get('at_human')}")
     return "\n".join(lines)
@@ -975,7 +835,7 @@ def parse_scope(text: str) -> Optional[Dict[str, Any]]:
     bare: List[str] = []
     em = _EXCLUDED_HDR.search(text)
     if em:
-        tail = text[em.end() :]
+        tail = text[em.end():]
         inline = em.group(1).strip()
         # "none", "none (single-feature walk…)", "nothing excluded", "n/a"
         # all mean: no exclusions. A parenthetical after "none" is a note.
@@ -1011,12 +871,7 @@ _FEATURE_LINE = re.compile(
 
 def feature_verdicts(report_text: str) -> Dict[str, str]:
     """{feature: PASS|FAIL|NOT REACHED} from the FEATURES section only."""
-    section = re.split(
-        r"^\s*(?:FAILURES|BLOCKED BY)\b",
-        report_text or "",
-        maxsplit=1,
-        flags=re.M | re.I,
-    )[0]
+    section = re.split(r"^\s*(?:FAILURES|BLOCKED BY)\b", report_text or "", maxsplit=1, flags=re.M | re.I)[0]
     section = section.split("FEATURES:", 1)[-1] if "FEATURES:" in section else section
     out: Dict[str, str] = {}
     for m in _FEATURE_LINE.finditer(section):
@@ -1028,7 +883,7 @@ def feature_verdicts(report_text: str) -> Dict[str, str]:
 def _norm_cov_path(path: str) -> str:
     p = path.replace("\\", "/")
     i = p.find("/frontend/")
-    return p[i + 1 :] if i >= 0 else p.lstrip("/")
+    return p[i + 1:] if i >= 0 else p.lstrip("/")
 
 
 def fold_coverage(jsonl_path: Path) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
@@ -1067,9 +922,7 @@ def fold_coverage(jsonl_path: Path) -> Dict[str, Dict[str, List[Dict[str, Any]]]
     return result
 
 
-def merge_coverage(
-    store_dir: Path, folded: Dict[str, Any], baseline_at: Optional[float]
-) -> None:
+def merge_coverage(store_dir: Path, folded: Dict[str, Any], baseline_at: Optional[float]) -> None:
     if not folded:
         return
     store_dir = Path(store_dir)
@@ -1083,11 +936,7 @@ def merge_coverage(
     for feat, files in folded.items():
         if feat == "(unattributed)":
             continue
-        features[feat] = {
-            "files": files,
-            "at": time.time(),
-            "at_human": time.strftime("%Y-%m-%d %H:%M"),
-        }
+        features[feat] = {"files": files, "at": time.time(), "at_human": time.strftime("%Y-%m-%d %H:%M")}
     data["features"] = features
     data["recorded_against_promote"] = baseline_at
     f.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -1106,9 +955,7 @@ def render_coverage_block(store_dir: Path, changes: List[FileChange]) -> str:
     features = cov.get("features") or {}
     if not features:
         return ""
-    lines = [
-        "CODE ON THE DIFF WAS LAST EXECUTED BY (recorded coverage; information, not a rule):"
-    ]
+    lines = ["CODE ON THE DIFF WAS LAST EXECUTED BY (recorded coverage; information, not a rule):"]
     any_hit = False
     for fc in changes:
         if fc.attribution != "symbol" or not fc.new_text:
@@ -1123,20 +970,14 @@ def render_coverage_block(store_dir: Path, changes: List[FileChange]) -> str:
                     if not file.endswith(fc.rel) and not fc.rel.endswith(file):
                         continue
                     for fn in fns:
-                        if fn.get("fn") == leaf or (
-                            rng
-                            and fn.get("line")
-                            and rng[0] <= int(fn["line"]) <= rng[1]
-                        ):
+                        if fn.get("fn") == leaf or (rng and fn.get("line") and rng[0] <= int(fn["line"]) <= rng[1]):
                             hits.append(f"{feat} ({rec.get('at_human', '?')})")
                             break
             if hits:
                 any_hit = True
                 lines.append(f"  {fc.rel}: {label} → " + "; ".join(sorted(set(hits))))
             else:
-                lines.append(
-                    f"  {fc.rel}: {label} → no coverage recorded (new code, or never walked with coverage on)"
-                )
+                lines.append(f"  {fc.rel}: {label} → no coverage recorded (new code, or never walked with coverage on)")
     if not any_hit and len(lines) == 1:
         return ""
     return "\n".join(lines)

@@ -134,7 +134,9 @@ class IntegrationSystem:
             # own loop if it has one running; otherwise skip quietly.
             manager_loop = getattr(manager, "loop", None)
             if manager_loop is not None and manager_loop.is_running():
-                asyncio.run_coroutine_threadsafe(manager.reconcile(), manager_loop)
+                asyncio.run_coroutine_threadsafe(
+                    manager.reconcile(), manager_loop
+                )
         except Exception as e:
             logger.warning(f"[INTEGRATIONS] listener reconcile scheduling failed: {e}")
 
@@ -155,9 +157,7 @@ class IntegrationSystem:
             self.registry.invalidate(pid, identity)
         return identity
 
-    async def add_account(
-        self, provider_id: str
-    ) -> Tuple[bool, str, List[AccountInfo]]:
+    async def add_account(self, provider_id: str) -> Tuple[bool, str, List[AccountInfo]]:
         """Interactive OAuth add-account flow, driven by the provider's
         ``run_login()``. Returns (ok, message, accounts-after).
 
@@ -168,7 +168,9 @@ class IntegrationSystem:
         provider = self._require_provider(provider_id)
         run_login = getattr(provider, "run_login", None)
         if run_login is None:
-            raise LookupError(f"{provider_id} does not support interactive login")
+            raise LookupError(
+                f"{provider_id} does not support interactive login"
+            )
         identity, credential, message = await run_login()
         if not credential:
             return False, message, self.list_accounts(provider_id)

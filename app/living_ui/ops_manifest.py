@@ -16,7 +16,7 @@ verifier and the tests all share one set of rules.
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 OP_NAME_RE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
 PARAM_TYPES = ("string", "number", "boolean")

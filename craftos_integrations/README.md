@@ -362,9 +362,9 @@ to render a settings form:
 ```python
 from craftos_integrations import list_metadata, get_metadata, integration_registry
 
-list_metadata()  # all integrations as a list
-get_metadata("slack")  # one integration
-integration_registry()  # snapshot dict {id: metadata}
+list_metadata()          # all integrations as a list
+get_metadata("slack")    # one integration
+integration_registry()   # snapshot dict {id: metadata}
 ```
 
 ---
@@ -637,8 +637,6 @@ only central edit.
 Swap `verify_token` for `oauth_spec`, and let the core run the flow:
 
 ```python
-class AsanaProvider:
-    # ... id / display_name / description / icon as above ...
     auth_type = "oauth"
     fields = []  # nothing for the user to type
 

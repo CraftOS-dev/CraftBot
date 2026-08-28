@@ -70,9 +70,7 @@ class WhatsAppBusinessClientBinding:
         return self._cred
 
 
-class BoundWhatsAppBusinessClient(
-    WhatsAppBusinessClientBinding, WhatsAppBusinessClient
-):
+class BoundWhatsAppBusinessClient(WhatsAppBusinessClientBinding, WhatsAppBusinessClient):
     """WhatsAppBusinessClient with per-account credential binding (see
     WhatsAppBusinessClientBinding)."""
 
@@ -160,11 +158,7 @@ class WhatsAppBusinessProvider:
         if not access_token:
             return False, "Missing WhatsApp Business access token (access_token).", None
         if not phone_number_id:
-            return (
-                False,
-                "Missing WhatsApp Business phone number ID (phone_number_id).",
-                None,
-            )
+            return False, "Missing WhatsApp Business phone number ID (phone_number_id).", None
 
         result = http_request(
             "GET",

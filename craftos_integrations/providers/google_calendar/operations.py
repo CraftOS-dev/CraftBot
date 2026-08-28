@@ -23,15 +23,7 @@ from .._shared import STATUS_OUTPUT, client_op, shape_result
 
 # The id + key fields writes return (agents fetch the full object with the
 # matching get_* operation) — mirrors the pick_result key list.
-KEY_EVENT_FIELDS = (
-    "id",
-    "summary",
-    "start",
-    "end",
-    "htmlLink",
-    "hangoutLink",
-    "status",
-)
+KEY_EVENT_FIELDS = ("id", "summary", "start", "end", "htmlLink", "hangoutLink", "status")
 
 
 def _lean_event(ev: Dict[str, Any]) -> Dict[str, Any]:
@@ -106,9 +98,7 @@ def _lean_list_post(res: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str
     return res
 
 
-def _lean_single_post(
-    res: Dict[str, Any], input_data: Dict[str, Any]
-) -> Dict[str, Any]:
+def _lean_single_post(res: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
     if not input_data.get("include_metadata") and res.get("status") == "success":
         ev = res.get("result")
         if isinstance(ev, dict):

@@ -30,7 +30,12 @@ def action_registry():
     from agent_core.core.action_framework.registry import registry_instance
 
     path = (
-        REPO / "app" / "data" / "action" / "integrations" / "integration_management.py"
+        REPO
+        / "app"
+        / "data"
+        / "action"
+        / "integrations"
+        / "integration_management.py"
     )
     spec = importlib.util.spec_from_file_location(
         "test_integration_management_mod", path
@@ -64,9 +69,7 @@ def system(tmp_path, monkeypatch):
 
 @pytest.fixture
 def gmail_two_accounts(system):
-    def cred(email):
-        return {"email": email, "access_token": f"tok-{email}"}
-
+    cred = lambda email: {"email": email, "access_token": f"tok-{email}"}
     system.store_credential("gmail", "a@x.com", cred("a@x.com"))
     system.store_credential("gmail", "b@y.com", cred("b@y.com"))
     system.set_alias("gmail", "b@y.com", "school")
@@ -77,9 +80,7 @@ def gmail_two_accounts(system):
 
 
 def test_status_shows_v2_accounts(action_registry, gmail_two_accounts):
-    result = _run(
-        action_registry, "check_integration_status", {"integration_id": "gmail"}
-    )
+    result = _run(action_registry, "check_integration_status", {"integration_id": "gmail"})
     assert result["status"] == "success"
     assert result["connected"] is True
     assert result["accounts"] == [
@@ -142,7 +143,9 @@ def test_slack_token_connect_stores_through_v2(
         "auth_type": "token",
     }
     # Verified exactly like the legacy login: auth.test with the bot token.
-    assert calls == [("POST", "auth.test", {"Authorization": "Bearer xoxb-test-token"})]
+    assert calls == [
+        ("POST", "auth.test", {"Authorization": "Bearer xoxb-test-token"})
+    ]
     # Stored through the integration system under the team-id identity...
     accounts = system.list_accounts("slack")
     assert [a.identity for a in accounts] == ["t999"]
@@ -230,7 +233,9 @@ def test_notion_token_connect_captures_bot_identity(
     }
 
 
-def test_identity_less_token_connect_is_rejected(action_registry, system, monkeypatch):
+def test_identity_less_token_connect_is_rejected(
+    action_registry, system, monkeypatch
+):
     """When verification can't produce an identity, the connect is refused —
     storing under the UNIDENTIFIED sentinel would let the next identity-less
     connect overwrite this account's credential."""

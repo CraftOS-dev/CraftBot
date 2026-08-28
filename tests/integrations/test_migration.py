@@ -35,9 +35,7 @@ def test_reauth_upgrades_sentinel_in_place_never_duplicates(mgr, tmp_path):
     assert upgraded.is_primary
     assert upgraded.alias == "me"  # alias survived the upgrade
     assert upgraded.listen is False  # listen flag survived
-    assert (
-        mgr.credential_for("linkedin", "a@corp.com")["access_token"] == "tok-a@corp.com"
-    )
+    assert mgr.credential_for("linkedin", "a@corp.com")["access_token"] == "tok-a@corp.com"
 
 
 def test_upsert_refuses_empty_identity(mgr):
@@ -66,3 +64,5 @@ def _system(tmp_path):
         store=FileCredentialStore(root=tmp_path),
         providers=[FakeProvider("gmail")],
     )
+
+

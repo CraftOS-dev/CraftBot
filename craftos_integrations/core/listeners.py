@@ -1,7 +1,7 @@
 """Listener fan-out — one supervised listener per (provider, account).
 
-``ListenerManager`` owns every inbound-event instance centrally:
-providers only implement
+``ListenerManager`` owns every inbound-event instance centrally
+(multi-account-v2-plan §8): providers only implement
 ``make_listener(client, cursor, emit)``; the manager decides *which*
 instances exist by reconciling desired state (AccountSets × ``listen``
 flags) against running ones, tags every event with its account via the
@@ -82,7 +82,9 @@ class FileCursorStore:
         cursor = self.load_all(provider_id).get(identity)
         return cursor if isinstance(cursor, dict) else None
 
-    def set(self, provider_id: str, identity: str, cursor: Dict[str, Any]) -> None:
+    def set(
+        self, provider_id: str, identity: str, cursor: Dict[str, Any]
+    ) -> None:
         data = self.load_all(provider_id)
         data[identity] = cursor
         self._write(provider_id, data)
@@ -257,7 +259,9 @@ class ListenerManager:
             return True  # account gone mid-flight; reconcile drops it next
         return current != instance.credential
 
-    def _build_instance(self, provider: Provider, identity: str) -> Optional[_Instance]:
+    def _build_instance(
+        self, provider: Provider, identity: str
+    ) -> Optional[_Instance]:
         provider_id = provider.id
         try:
             credential = copy.deepcopy(

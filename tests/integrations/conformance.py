@@ -27,7 +27,9 @@ import pytest
 
 # Reversible verbs (trash, archive) are deliberately absent — the flag
 # exists for operations a wrong-account mistake can't undo.
-DESTRUCTIVE_HINTS = re.compile(r"(^|_)(delete|clear|remove|revoke|destroy|cancel)(_|$)")
+DESTRUCTIVE_HINTS = re.compile(
+    r"(^|_)(delete|clear|remove|revoke|destroy|cancel)(_|$)"
+)
 VALID_OP_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 

@@ -75,7 +75,7 @@ def _dir_for(handler) -> str | None:
     marker_at = filename.rfind(_MARKER)
     if marker_at == -1:
         return None
-    rest = filename[marker_at + len(_MARKER) :]
+    rest = filename[marker_at + len(_MARKER):]
     return rest.split(os.sep, 1)[0] if os.sep in rest else None
 
 

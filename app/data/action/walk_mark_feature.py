@@ -42,10 +42,7 @@ from agent_core import action
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
-        "message": {
-            "type": "string",
-            "example": "marked: Column drag-and-drop reordering",
-        },
+        "message": {"type": "string", "example": "marked: Column drag-and-drop reordering"},
     },
     test_payload={
         "project_id": "test123",
@@ -84,9 +81,7 @@ async def walk_mark_feature(input_data: dict) -> dict:
         if base is None:
             # No dev env → the walk is against an external app (live). Marks
             # there are pointless (no instrumentation) but harmless.
-            base = (
-                getattr(project, "url", None) or f"http://127.0.0.1:{project.port}"
-            ).rstrip("/")
+            base = (getattr(project, "url", None) or f"http://127.0.0.1:{project.port}").rstrip("/")
         body = _json.dumps({"feature": feature}).encode("utf-8")
         req = _url.Request(
             base + "/api/_coverage/mark",
@@ -106,7 +101,4 @@ async def walk_mark_feature(input_data: dict) -> dict:
             }
         return {"status": "success", "message": f"marked: {feature}"}
     except Exception as e:
-        return {
-            "status": "success",
-            "message": f"marked: {feature} (not recorded: {e})",
-        }
+        return {"status": "success", "message": f"marked: {feature} (not recorded: {e})"}

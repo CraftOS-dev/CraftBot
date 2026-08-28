@@ -332,11 +332,7 @@ def get_extra_api_keys(provider: str) -> list:
     # Accept both the provider key and its settings_key alias (gemini/google).
     key_map = {"gemini": "google"}
     entries = block.get(provider) or block.get(key_map.get(provider, provider)) or []
-    return (
-        [k for k in entries if isinstance(k, str) and k]
-        if isinstance(entries, list)
-        else []
-    )
+    return [k for k in entries if isinstance(k, str) and k] if isinstance(entries, list) else []
 
 
 def get_fallback_providers() -> list:
@@ -347,11 +343,7 @@ def get_fallback_providers() -> list:
     """
     settings = get_settings()
     chain = settings.get("model", {}).get("fallback_providers", [])
-    return (
-        [p for p in chain if isinstance(p, str) and p]
-        if isinstance(chain, list)
-        else []
-    )
+    return [p for p in chain if isinstance(p, str) and p] if isinstance(chain, list) else []
 
 
 def get_custom_providers() -> Dict[str, Any]:

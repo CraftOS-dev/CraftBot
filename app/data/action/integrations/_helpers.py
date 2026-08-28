@@ -251,43 +251,31 @@ def _bridge_client_or_error(integration: str):
     system = system_for(integration)
     if system is None:
         if hint:
-            return (
-                None,
-                {
-                    "status": "error",
-                    "message": (
-                        f"{integration} does not support account selection yet — "
-                        f"retry without the 'account' parameter."
-                    ),
-                },
-                True,
-            )
+            return None, {
+                "status": "error",
+                "message": (
+                    f"{integration} does not support account selection yet — "
+                    f"retry without the 'account' parameter."
+                ),
+            }, True
         return None, None, False
     try:
         # list_accounts (not resolve) first: it syncs family aliases and
         # gives a friendlier no-accounts message.
         if not system.list_accounts(integration):
-            return (
-                None,
-                {
-                    "status": "error",
-                    "message": _no_cred_message(integration),
-                },
-                True,
-            )
+            return None, {
+                "status": "error",
+                "message": _no_cred_message(integration),
+            }, True
         identity = system.resolve(integration, hint)
         return system.client_for(integration, identity), None, True
     except AccountResolutionError as e:
         return None, {"status": "error", "message": str(e)}, True
     except Exception as e:
-        return (
-            None,
-            {
-                "status": "error",
-                "message": f"{integration} account resolution failed: {e}",
-            },
-            True,
-        )
+        return None, {
+            "status": "error",
+            "message": f"{integration} account resolution failed: {e}",
+        }, True
 
 
 async def run_client(

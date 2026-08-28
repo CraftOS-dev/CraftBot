@@ -103,7 +103,9 @@ def _build_custom_profile(name: str, spec: Any) -> Optional[ProviderProfile]:
         default_base_url=base_url,
         settings_key=name,
         requires_api_key=bool(spec.get("requires_api_key", True)),
-        supports_prompt_cache_key=bool(spec.get("supports_prompt_cache_key", False)),
+        supports_prompt_cache_key=bool(
+            spec.get("supports_prompt_cache_key", False)
+        ),
         # New chat_completions providers get session accumulation — it is
         # the correct behavior; only legacy minimax/moonshot opt out.
         session_accumulation=True,
@@ -181,7 +183,9 @@ def provider_settings_keys() -> Dict[str, str]:
     None and the save path routes accordingly.
     """
     mapping = {
-        key: p.settings_key for key, p in get_registry().items() if p.settings_key
+        key: p.settings_key
+        for key, p in get_registry().items()
+        if p.settings_key
     }
     mapping["google"] = "google"
     return mapping
@@ -195,7 +199,10 @@ def cli_providers() -> Dict[str, Tuple[Optional[str], str]]:
     missing minimax/moonshot/bedrock — a hand-sync failure this derivation
     makes impossible).
     """
-    return {key: (p.api_key_env, p.display_name) for key, p in get_registry().items()}
+    return {
+        key: (p.api_key_env, p.display_name)
+        for key, p in get_registry().items()
+    }
 
 
 def display_name(provider: str) -> str:

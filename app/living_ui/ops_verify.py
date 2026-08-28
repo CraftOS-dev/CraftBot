@@ -69,7 +69,9 @@ async def verify_external_ops(
         try:
             async with session.get(f"{base}/api/_a2app") as resp:
                 ident = await resp.json(content_type=None)
-                identity_ok = resp.status == 200 and ident.get("a2app") is True
+                identity_ok = (
+                    resp.status == 200 and ident.get("a2app") is True
+                )
         except Exception:
             identity_ok = False
         if not identity_ok:
@@ -116,8 +118,12 @@ async def verify_external_ops(
             else:
                 kwargs["json"] = params
             try:
-                async with session.request(executor["method"], url, **kwargs) as resp:
-                    body = (await resp.read())[:2000].decode("utf-8", errors="replace")
+                async with session.request(
+                    executor["method"], url, **kwargs
+                ) as resp:
+                    body = (await resp.read())[:2000].decode(
+                        "utf-8", errors="replace"
+                    )
                     results.append(_classify(name, params, resp.status, body))
             except Exception as e:
                 results.append(

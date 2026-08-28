@@ -757,9 +757,7 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
         # from the diff; the builder may only request MORE ('full'). A fix
         # mission's defects are handed over as must-include features.
         _scope_mode = (
-            "full"
-            if str(input_data.get("scope") or "auto").strip().lower() == "full"
-            else "auto"
+            "full" if str(input_data.get("scope") or "auto").strip().lower() == "full" else "auto"
         )
         _defect_features = []
         try:
@@ -1189,7 +1187,9 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
         "failed": {"type": "integer", "example": 0},
         "results": {
             "type": "array",
-            "example": [{"op": "todos.create", "outcome": "pass", "status": 200}],
+            "example": [
+                {"op": "todos.create", "outcome": "pass", "status": 200}
+            ],
             "description": (
                 "Per-op outcome: pass | skipped_destructive | "
                 "unknown_operation | upstream_not_found | rejected_params | "

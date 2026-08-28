@@ -790,7 +790,9 @@ class LLMInterface:
             )
             if _transport is None:  # pragma: no cover
                 raise RuntimeError(f"Unknown provider {self.provider!r}")
-            response = _transport(self, system_prompt, user_prompt, json_mode=json_mode)
+            response = _transport(
+                self, system_prompt, user_prompt, json_mode=json_mode
+            )
             content = response.get("content", "").strip()
 
             # Check if response is empty and provide diagnostics
@@ -972,7 +974,8 @@ class LLMInterface:
             (self.provider == "byteplus" and self._byteplus_cache_manager)
             or (self.provider == "gemini" and self._gemini_cache_manager)
             or (
-                self.provider in _session_cc_providers() and self.client
+                self.provider in _session_cc_providers()
+                and self.client
             )  # OpenAI/DeepSeek/Grok/OpenRouter use automatic caching with prompt_cache_key (and cache_control for Anthropic-routed OpenRouter models)
             or (
                 self.provider == "anthropic" and self._anthropic_client
@@ -1914,7 +1917,9 @@ class LLMInterface:
         self, system_prompt: str | None, user_prompt: str
     ) -> Dict[str, Any]:
         """Delegate to the byteplus_responses transport (Phase 2)."""
-        return _transports.byteplus_responses.generate(self, system_prompt, user_prompt)
+        return _transports.byteplus_responses.generate(
+            self, system_prompt, user_prompt
+        )
 
     def _parse_responses_api_content(self, result: Dict[str, Any]) -> str:
         """Parse content from BytePlus Responses API response.

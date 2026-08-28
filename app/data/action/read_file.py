@@ -151,9 +151,7 @@ def read_file(input_data: dict) -> dict:
 
             from agent_core.core.impl.memory.text_extract import extract_text
 
-            all_lines = [
-                line + "\n" for line in extract_text(Path(file_path)).splitlines()
-            ]
+            all_lines = [line + "\n" for line in extract_text(Path(file_path)).splitlines()]
         else:
             with open(file_path, "r", encoding=encoding, errors="replace") as f:
                 all_lines = f.readlines()

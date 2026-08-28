@@ -38,9 +38,7 @@ def _stream(tmp_path, llm, event_stream_limits):
     return EventStream(llm=llm, temp_dir=tmp_path / "events")
 
 
-def test_oversized_pinned_event_is_collapsed_without_an_llm_call(
-    tmp_path, event_stream_limits
-):
+def test_oversized_pinned_event_is_collapsed_without_an_llm_call(tmp_path, event_stream_limits):
     llm = _CountingLLM()
     es = _stream(tmp_path, llm, event_stream_limits)
 

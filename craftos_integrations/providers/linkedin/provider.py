@@ -225,13 +225,9 @@ class LinkedInProvider:
         if identity:
             name = info.get("name") or identity
             return identity, credential, f"LinkedIn connected as {name} ({identity})"
-        return (
-            None,
-            credential,
-            (
-                "LinkedIn connected, but no email or member id was returned — "
-                "stored without an account identity until the next re-auth."
-            ),
+        return None, credential, (
+            "LinkedIn connected, but no email or member id was returned — "
+            "stored without an account identity until the next re-auth."
         )
 
     def operations(self) -> List[Operation]:

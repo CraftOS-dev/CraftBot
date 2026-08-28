@@ -984,9 +984,7 @@ def build_operations() -> List[Operation]:
                 input_schema={
                     "subject": _s("Task title.", "Follow up on demo"),
                     "body": _s("Task description.", "Ask about pricing tier"),
-                    "due_timestamp_ms": _i(
-                        "Due date in ms since epoch.", 1735689600000
-                    ),
+                    "due_timestamp_ms": _i("Due date in ms since epoch.", 1735689600000),
                     "owner_id": _s("Owner (user) ID to assign.", "12345"),
                     "priority": _s("NONE | LOW | MEDIUM | HIGH.", "MEDIUM"),
                     "status": _s(
@@ -1724,7 +1722,8 @@ def build_operations() -> List[Operation]:
                 "list_hubspot_associations",
                 "list_associations",
                 description=(
-                    "List all objects of a given type associated with a source object."
+                    "List all objects of a given type associated with a source "
+                    "object."
                 ),
                 tags=("hubspot_associations",),
                 input_schema={
@@ -1952,7 +1951,8 @@ def build_operations() -> List[Operation]:
                     "file_path": _s("Local path to the file.", "/tmp/contract.pdf"),
                     "folder_path": _s("HubSpot folder path.", "/"),
                     "access": _s(
-                        "PUBLIC_INDEXABLE | PUBLIC_NOT_INDEXABLE | HIDDEN | PRIVATE.",
+                        "PUBLIC_INDEXABLE | PUBLIC_NOT_INDEXABLE | HIDDEN | "
+                        "PRIVATE.",
                         "PRIVATE",
                     ),
                     "overwrite": _b("Overwrite existing file with the same name."),
@@ -2067,7 +2067,8 @@ def build_operations() -> List[Operation]:
                         "Channel account ID (from thread metadata).", "12345"
                     ),
                     "recipients": _arr(
-                        "Recipient list [{actorId, deliveryIdentifier:{type,value}}].",
+                        "Recipient list [{actorId, "
+                        "deliveryIdentifier:{type,value}}].",
                         [
                             {
                                 "actorId": "V-123",
@@ -2122,7 +2123,9 @@ def build_operations() -> List[Operation]:
                 tags=("hubspot_webhooks",),
                 input_schema={
                     "app_id": _s("HubSpot App ID.", "1234567"),
-                    "event_type": _s("Event type to subscribe to.", "contact.creation"),
+                    "event_type": _s(
+                        "Event type to subscribe to.", "contact.creation"
+                    ),
                     "property_name": _s(
                         "Property name (only for *.propertyChange event types).",
                         "",

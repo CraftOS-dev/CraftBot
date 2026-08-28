@@ -121,7 +121,9 @@ def env(tmp_path, monkeypatch):
 
 
 def install(identity: str, **kwargs) -> ScriptedBridge:
-    bridge = ScriptedBridge(auth_dir=str(bc._identity_auth_dir(identity)), **kwargs)
+    bridge = ScriptedBridge(
+        auth_dir=str(bc._identity_auth_dir(identity)), **kwargs
+    )
     bc._bridges[identity] = bridge
     return bridge
 
@@ -265,10 +267,8 @@ def test_heartbeat_hang_restarts(env):
 
         bridge.ping_error = TimeoutError("hung")
         assert await until(
-            lambda: (
-                session.state in (sess.RECONNECTING, sess.LAUNCHING, sess.CONNECTED)
-                and bridge.stop_calls >= 1
-            ),
+            lambda: session.state in (sess.RECONNECTING, sess.LAUNCHING, sess.CONNECTED)
+            and bridge.stop_calls >= 1,
             timeout=2.0,
         )
         bridge.ping_error = None
@@ -339,10 +339,8 @@ def test_shutdown_all_stops_every_session(env):
         for identity in ("111", "222"):
             await manager.session_for(identity).ensure_started()
         assert await until(
-            lambda: (
-                manager.session_for("111").state == sess.CONNECTED
-                and manager.session_for("222").state == sess.CONNECTED
-            )
+            lambda: manager.session_for("111").state == sess.CONNECTED
+            and manager.session_for("222").state == sess.CONNECTED
         )
 
         await manager.shutdown_all()

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """GitHub Copilot subscription OAuth backend (Phase 6 subset,
 docs/PROVIDER_LAYER_CATCHUP.md).
 
@@ -69,10 +69,10 @@ EDITOR_HEADERS = {
 
 @dataclass
 class CopilotOAuthCredential:
-    github_token: str = ""  # long-lived gho_/ghu_ OAuth token
-    access_token: str = ""  # short-lived Copilot bearer
-    expires_at: float = 0.0  # Copilot bearer expiry (epoch seconds)
-    email: str = ""  # GitHub login, for the settings UI
+    github_token: str = ""          # long-lived gho_/ghu_ OAuth token
+    access_token: str = ""          # short-lived Copilot bearer
+    expires_at: float = 0.0         # Copilot bearer expiry (epoch seconds)
+    email: str = ""                 # GitHub login, for the settings UI
     plan: str = field(default="copilot")
 
 
@@ -93,13 +93,9 @@ def load() -> Optional[CopilotOAuthCredential]:
 
 def remove() -> Tuple[bool, str]:
     removed = _store_remove(CRED_FILE)
-    return (
-        (True, "GitHub Copilot disconnected.")
-        if removed
-        else (
-            False,
-            "No Copilot credential to remove.",
-        )
+    return (True, "GitHub Copilot disconnected.") if removed else (
+        False,
+        "No Copilot credential to remove.",
     )
 
 
@@ -175,9 +171,7 @@ async def run_login() -> Tuple[bool, str]:
 
     device_code = start.get("device_code")
     user_code = start.get("user_code")
-    verification_uri = (
-        start.get("verification_uri") or "https://github.com/login/device"
-    )
+    verification_uri = start.get("verification_uri") or "https://github.com/login/device"
     interval = int(start.get("interval") or 5)
     if not device_code or not user_code:
         return False, f"GitHub device flow returned an unexpected payload: {start}"
@@ -266,3 +260,4 @@ async def run_login() -> Tuple[bool, str]:
     )
     who = f" as {login}" if login else ""
     return True, f"GitHub Copilot connected{who}."
+

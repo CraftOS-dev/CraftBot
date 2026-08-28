@@ -45,7 +45,8 @@ def _get_google_doc_op() -> Operation:
         "include_metadata": {
             "type": "boolean",
             "description": (
-                "Return the full structured document JSON (default false = plain text)."
+                "Return the full structured document JSON "
+                "(default false = plain text)."
             ),
             "example": False,
         },
@@ -121,7 +122,8 @@ def build_operations() -> List[Operation]:
             "list_google_docs",
             "list_documents",
             description=(
-                "List Google Docs the user owns or has access to, most recent first."
+                "List Google Docs the user owns or has access to, most "
+                "recent first."
             ),
             tags=("google_docs_files", "google_docs"),
             unwrap_envelope=True,
@@ -778,7 +780,8 @@ def build_operations() -> List[Operation]:
             "insert_google_doc_image",
             "insert_inline_image",
             description=(
-                "Insert an inline image (referenced by public URI) at a document index."
+                "Insert an inline image (referenced by public URI) at a "
+                "document index."
             ),
             parallelizable=False,
             tags=("google_docs_images", "google_docs"),
@@ -865,7 +868,8 @@ def build_operations() -> List[Operation]:
             "insert_google_doc_section_break",
             "insert_section_break",
             description=(
-                "Insert a section break (NEXT_PAGE or CONTINUOUS) at a document index."
+                "Insert a section break (NEXT_PAGE or CONTINUOUS) at a "
+                "document index."
             ),
             parallelizable=False,
             tags=("google_docs_structure",),
@@ -895,7 +899,8 @@ def build_operations() -> List[Operation]:
             "create_google_doc_header",
             "create_header",
             description=(
-                "Create a document header. Returns the header ID for further edits."
+                "Create a document header. Returns the header ID for further "
+                "edits."
             ),
             parallelizable=False,
             tags=("google_docs_structure",),
@@ -919,7 +924,8 @@ def build_operations() -> List[Operation]:
             "create_google_doc_footer",
             "create_footer",
             description=(
-                "Create a document footer. Returns the footer ID for further edits."
+                "Create a document footer. Returns the footer ID for further "
+                "edits."
             ),
             parallelizable=False,
             tags=("google_docs_structure",),

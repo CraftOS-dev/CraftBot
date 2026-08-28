@@ -27,28 +27,21 @@ def main():
     if mode == "crash":
         sys.exit(3)
     if mode == "qr":
-        emit(
-            {
-                "type": "event",
-                "event": "qr",
-                "data": {
-                    "qr_string": "FAKE",
-                    "qr_data_url": "data:image/png;base64,QUFBQQ==",
-                },
-            }
-        )
+        emit({
+            "type": "event",
+            "event": "qr",
+            "data": {"qr_string": "FAKE", "qr_data_url": "data:image/png;base64,QUFBQQ=="},
+        })
     else:
-        emit(
-            {
-                "type": "event",
-                "event": "ready",
-                "data": {
-                    "owner_phone": "14155552671",
-                    "owner_name": "Ada",
-                    "wid": "14155552671:1@c.us",
-                },
-            }
-        )
+        emit({
+            "type": "event",
+            "event": "ready",
+            "data": {
+                "owner_phone": "14155552671",
+                "owner_name": "Ada",
+                "wid": "14155552671:1@c.us",
+            },
+        })
 
     for line in sys.stdin:
         line = line.strip()
@@ -60,34 +53,16 @@ def main():
             continue
         cid, name = cmd.get("id"), cmd.get("cmd")
         if name == "ping":
-            emit(
-                {
-                    "type": "response",
-                    "id": cid,
-                    "data": {"success": True, "ready": True},
-                }
-            )
+            emit({"type": "response", "id": cid, "data": {"success": True, "ready": True}})
         elif name in ("shutdown", "logout"):
             emit({"type": "response", "id": cid, "data": {"success": True}})
             if mode == "hang-on-shutdown":
                 time.sleep(600)  # force-kill target
             sys.exit(0)
         elif name == "get_status":
-            emit(
-                {
-                    "type": "response",
-                    "id": cid,
-                    "data": {"success": True, "ready": True},
-                }
-            )
+            emit({"type": "response", "id": cid, "data": {"success": True, "ready": True}})
         else:
-            emit(
-                {
-                    "type": "response",
-                    "id": cid,
-                    "data": {"success": False, "error": f"unknown: {name}"},
-                }
-            )
+            emit({"type": "response", "id": cid, "data": {"success": False, "error": f"unknown: {name}"}})
     sys.exit(0)
 
 

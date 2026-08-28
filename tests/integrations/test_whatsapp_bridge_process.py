@@ -39,9 +39,7 @@ def make_bridge(tmp_path, monkeypatch):
     async def cleanup():
         for bridge in live:
             if bridge.is_running:
-                await bridge._teardown(
-                    cmd="shutdown", send_timeout=1.0, wait_timeout=1.0
-                )
+                await bridge._teardown(cmd="shutdown", send_timeout=1.0, wait_timeout=1.0)
 
     asyncio.run(cleanup())
 
@@ -110,7 +108,9 @@ def test_wait_exited_supports_multiple_waiters(make_bridge):
         # A cancelled waiter must not kill the shared exit future.
         waiters[0].cancel()
         await bridge.stop()
-        results = await asyncio.wait_for(asyncio.gather(*waiters[1:]), timeout=5.0)
+        results = await asyncio.wait_for(
+            asyncio.gather(*waiters[1:]), timeout=5.0
+        )
         assert results == [0, 0]
 
     asyncio.run(scenario())

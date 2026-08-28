@@ -14,9 +14,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 @pytest.fixture(scope="module")
 def essentials():
-    path = (
-        REPO / "app" / "data" / "action" / "integrations" / "_integration_essentials.py"
-    )
+    path = REPO / "app" / "data" / "action" / "integrations" / "_integration_essentials.py"
     spec = importlib.util.spec_from_file_location("test_essentials_mod", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

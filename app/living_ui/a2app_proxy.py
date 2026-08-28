@@ -25,6 +25,7 @@ describe, so the surface can never drift from the file on disk.
 
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -254,9 +255,9 @@ class ExternalA2AppProxy:
 
     def _agent_token(self) -> str:
         try:
-            return (
-                (self.project_dir / ".agent-token").read_text(encoding="utf-8").strip()
-            )
+            return (self.project_dir / ".agent-token").read_text(
+                encoding="utf-8"
+            ).strip()
         except Exception:
             return ""
 
@@ -273,11 +274,9 @@ class ExternalA2AppProxy:
         if LOOPBACK_ORIGIN.match(origin):
             return True
         try:
-            shared = (
-                (self.project_dir / ".tunnel-origin")
-                .read_text(encoding="utf-8")
-                .strip()
-            )
+            shared = (self.project_dir / ".tunnel-origin").read_text(
+                encoding="utf-8"
+            ).strip()
         except Exception:
             return False  # no file = not sharing = loopback only
         return bool(shared) and origin.lower() == shared.lower()
@@ -618,7 +617,9 @@ class ExternalA2AppProxy:
 
         url = self._upstream_base() + str(request.rel_url)
         headers = {
-            k: v for k, v in request.headers.items() if k.lower() not in HOP_HEADERS
+            k: v
+            for k, v in request.headers.items()
+            if k.lower() not in HOP_HEADERS
         }
         try:
             async with self._session.request(
@@ -750,7 +751,8 @@ def _validate_params(
         value: Any = raw
         if ptype == "number":
             if isinstance(raw, bool) or (
-                not isinstance(raw, (int, float)) and not _is_numeric_string(raw)
+                not isinstance(raw, (int, float))
+                and not _is_numeric_string(raw)
             ):
                 violations.append(
                     {
@@ -830,7 +832,9 @@ def _fill_template(template: Dict[str, Any], values: Dict[str, Any]) -> Any:
             exact = PLACEHOLDER_RE.fullmatch(node)
             if exact:
                 return values.get(exact.group(1))
-            return PLACEHOLDER_RE.sub(lambda m: str(values.get(m.group(1), "")), node)
+            return PLACEHOLDER_RE.sub(
+                lambda m: str(values.get(m.group(1), "")), node
+            )
         return node
 
     return fill(template)

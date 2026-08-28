@@ -52,7 +52,6 @@ def _configured_context_limits() -> Tuple[int, int]:
 
     return get_context_limits()
 
-
 # Messages longer than this are externalized to a temp file and replaced with a
 # pointer (+keywords) so a single large action output (e.g. get_notion, read_pdf,
 # an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the

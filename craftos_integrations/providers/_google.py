@@ -153,14 +153,10 @@ class GoogleProviderBase:
             return None, None, f"{self.display_name} OAuth failed: {result['error']}"
         email = (result.get("userinfo") or {}).get("email", "").strip().lower()
         if not email:
-            return (
-                None,
-                None,
-                (
-                    f"{self.display_name} sign-in completed but Google returned no "
-                    f"email address — cannot store an unaddressable account. "
-                    f"Please try again."
-                ),
+            return None, None, (
+                f"{self.display_name} sign-in completed but Google returned no "
+                f"email address — cannot store an unaddressable account. "
+                f"Please try again."
             )
         credential = asdict(
             GoogleCredential(
