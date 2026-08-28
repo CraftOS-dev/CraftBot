@@ -289,6 +289,8 @@ and return an `OAuthSpec` instead of implementing `verify_token`. The core runs
 the browser flow, calls `identity_of` on the result, and stores the account.
 
 ```python
+class AsanaProvider:
+    # ... id / display_name / description / icon as above ...
     auth_type = "oauth"
     fields = []
 
