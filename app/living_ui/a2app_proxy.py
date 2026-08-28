@@ -261,6 +261,26 @@ class ExternalA2AppProxy:
         except Exception:
             return ""
 
+    def _origin_allowed(self, origin: str) -> bool:
+        """Loopback, or the one public origin the host is currently sharing.
+
+        LivingUIManager.start_tunnel writes `.tunnel-origin` and stop_tunnel
+        deletes it, so the grant lasts exactly as long as the tunnel. Read per
+        request for the same reason the native guard does: sharing starts and
+        stops without restarting anything. Loopback-only was not a safe
+        default for a shared app, it was a broken one — browsers send `Origin`
+        on same-origin writes too, so through a tunnel every write was refused.
+        """
+        if LOOPBACK_ORIGIN.match(origin):
+            return True
+        try:
+            shared = (self.project_dir / ".tunnel-origin").read_text(
+                encoding="utf-8"
+            ).strip()
+        except Exception:
+            return False  # no file = not sharing = loopback only
+        return bool(shared) and origin.lower() == shared.lower()
+
     def _json(self, request, status: int, payload: Dict[str, Any]):
         from aiohttp import web
 
@@ -269,11 +289,11 @@ class ExternalA2AppProxy:
         return resp
 
     def _reflect_cors(self, request, resp) -> None:
-        """Loopback origins get the grant reflected; foreign origins get
-        nothing, so the browser refuses to expose the response — the same
-        posture as the native origin guard."""
+        """Loopback and the shared origin get the grant reflected; foreign
+        origins get nothing, so the browser refuses to expose the response —
+        the same posture as the native origin guard."""
         origin = request.headers.get("Origin", "")
-        if origin and LOOPBACK_ORIGIN.match(origin):
+        if origin and self._origin_allowed(origin):
             resp.headers["Access-Control-Allow-Origin"] = origin
             resp.headers["Vary"] = "Origin"
 
@@ -361,8 +381,9 @@ class ExternalA2AppProxy:
         agent = request.headers.get("X-LUI-Agent", "unknown")[:120]
 
         # Check 1 (browser): mutations from foreign origins are refused
-        # outright; loopback origins are the app's own UI and pass free.
-        if origin and not LOOPBACK_ORIGIN.match(origin):
+        # outright; loopback origins are the app's own UI and pass free, as
+        # does the shared origin while the user is tunnelling this app.
+        if origin and not self._origin_allowed(origin):
             if request.method in MUTATING:
                 return self._json(
                     request,

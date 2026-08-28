@@ -92,6 +92,9 @@ class LivingUIProject:
     internal_port: Optional[int] = None
     tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
     tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
+    # Open file object the tunnel process writes into (NOT serialized). Held
+    # so it can be closed when the tunnel stops — see start_tunnel.
+    tunnel_log: Optional[Any] = None
     process: Optional[subprocess.Popen] = None  # Frontend process
 
     def to_dict(self) -> Dict[str, Any]:
@@ -780,6 +783,9 @@ UI in {project.path}/frontend/src/app/."""
                                     f"[LIVING_UI] Tunnel expired for '{project.name}', clearing"
                                 )
                                 project.tunnel_url = None
+                                # The app must stop trusting an origin that no
+                                # longer reaches it.
+                                self._publish_tunnel_origin(project, None)
                         # Reset status to stopped for all loaded projects
                         project.status = (
                             "stopped" if project.status == "running" else project.status
@@ -2897,6 +2903,7 @@ UI in {project.path}/frontend/src/app/."""
 
         # Never trust shipped credentials or runtime state.
         (dest / ".superuser").unlink(missing_ok=True)
+        (dest / ".tunnel-origin").unlink(missing_ok=True)
 
         # Rewrite identity + port (pipeline start command embeds the port).
         old_port = manifest.get("port")
@@ -4062,6 +4069,9 @@ UI in {project.path}/frontend/src/app/."""
             "credentials.json",
             "token.json",
             ".jwt_secret",
+            # Host-local, tunnel-lifetime state: an exported app must not
+            # arrive somewhere else already trusting a foreign origin.
+            ".tunnel-origin",
         }
 
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -4107,17 +4117,31 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 return None
 
+    @staticmethod
+    def _serving_port(project: LivingUIProject) -> Optional[int]:
+        """The port the app ACTUALLY listens on.
+
+        `port` — never `backend_port`. Under the unified lifecycle the app is
+        one PocketBase process serving API and frontend together, launched as
+        `runner.start(project_dir, project.port)`; for an external app the
+        A2App proxy holds `project.port` in front of the foreign process.
+        `backend_port` is a survivor of the old vite+backend split: it is still
+        allocated and persisted, but NOTHING binds it. Sharing preferred it and
+        so pointed cloudflared at a port that answered every connection with
+        "connection refused" — the app was up on :3100 the whole time.
+        """
+        return project.port or project.backend_port
+
     def get_lan_url(self, project_id: str) -> Optional[str]:
         """Get the LAN-accessible URL for a running project.
 
-        Uses the backend port since the backend also serves the frontend
-        static files — single port for everything.
+        One port for everything: the app serves its API and its frontend
+        static files from the same listener.
         """
         project = self.projects.get(project_id)
         if not project or project.status != "running":
             return None
-        # Prefer backend port (serves both API + frontend static files)
-        port = project.backend_port or project.port
+        port = self._serving_port(project)
         if not port:
             return None
         ip = self.get_lan_ip()
@@ -4240,7 +4264,7 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 pass
 
-        port = project.backend_port or project.port
+        port = self._serving_port(project)
         if not port:
             return None
 
@@ -4249,30 +4273,58 @@ UI in {project.path}/frontend/src/app/."""
             logger.error("[LIVING_UI] cloudflared binary not found")
             return None
 
+        # cloudflared writes to stderr for the WHOLE life of the tunnel, not
+        # just at startup. Piping that into this process and then not draining
+        # it — which is what "find the URL, return from the reader thread"
+        # did — fills the OS pipe buffer (4 KB by default on Windows) and
+        # cloudflared then BLOCKS forever on its next write. The tunnel stops
+        # proxying while the process still looks perfectly alive, so remote
+        # visitors hang until their client times out, and every byte that would
+        # explain why is stuck unread in that buffer. A file sink has no such
+        # backpressure, and doubles as the log this had no way to produce.
+        log_handle, log_path, log_offset = self._open_tunnel_log(project, port)
+        if log_handle is None:
+            logger.error("[LIVING_UI] No writable location for the cloudflared log")
+            return None
+
+        # 127.0.0.1, NOT localhost: PocketBase binds --http=127.0.0.1:<port>
+        # (runner.start) and the external-app proxy binds the same, so neither
+        # ever listens on ::1. cloudflared resolves 'localhost' to ::1 first on
+        # Windows and got "connectex: No connection could be made" on every
+        # single request — the tunnel came up healthy, announced its URL, and
+        # then refused every visitor.
+        origin_url = f"http://127.0.0.1:{port}"
         logger.info(
-            f"[LIVING_UI] Starting cloudflared: {cloudflared} tunnel --url http://localhost:{port}"
+            f"[LIVING_UI] Starting cloudflared: {cloudflared} tunnel "
+            f"--url {origin_url} (log: {log_path})"
         )
         proc = subprocess.Popen(
-            [cloudflared, "tunnel", "--url", f"http://localhost:{port}"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            [cloudflared, "tunnel", "--url", origin_url],
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW
             if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
             else 0,
         )
         logger.info(f"[LIVING_UI] cloudflared started, PID={proc.pid}, parsing URL...")
-        url = await self._parse_cloudflare_url(proc)
+        url = await self._parse_cloudflare_url(proc, log_path, log_offset)
         logger.info(f"[LIVING_UI] cloudflared URL parse result: {url}")
 
         if url:
             project.tunnel_process = proc
+            project.tunnel_log = log_handle
             project.tunnel_url = url
+            self._publish_tunnel_origin(project, url)
             self._save_projects()
             logger.info(f"[LIVING_UI] Tunnel started for {project.name}: {url}")
             return url
         else:
             self._terminate_process(proc)
-            logger.error("[LIVING_UI] Failed to get tunnel URL")
+            self._close_tunnel_log(log_handle)
+            logger.error(
+                f"[LIVING_UI] Failed to get tunnel URL; cloudflared's own "
+                f"output is in {log_path}"
+            )
             return None
 
     async def stop_tunnel(self, project_id: str) -> None:
@@ -4283,50 +4335,142 @@ UI in {project.path}/frontend/src/app/."""
         if project.tunnel_process:
             self._terminate_process(project.tunnel_process)
             project.tunnel_process = None
+        self._close_tunnel_log(project.tunnel_log)
+        project.tunnel_log = None
         project.tunnel_url = None
+        self._publish_tunnel_origin(project, None)
         self._save_projects()
         logger.info(f"[LIVING_UI] Tunnel stopped for {project.name}")
 
-    async def _parse_cloudflare_url(
-        self, proc: subprocess.Popen, timeout: int = 30
-    ) -> Optional[str]:
-        """Parse the public URL from cloudflared output."""
-        import re
-        import threading
+    @staticmethod
+    def _tunnel_log_path(project: LivingUIProject) -> Path:
+        return Path(project.path) / "logs" / "cloudflared.log"
 
-        url_result = [None]
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+    def _open_tunnel_log(
+        self, project: LivingUIProject, port: int
+    ) -> Tuple[Optional[Any], Path, int]:
+        """Open cloudflared's output sink. Returns (handle, path, offset).
 
-        def _read_stream(stream):
+        The sink is not optional — it is both the tunnel's only log and the
+        only place the public URL is announced — so an unwritable project
+        directory falls back to the temp dir rather than failing the share.
+        """
+        candidates = [
+            self._tunnel_log_path(project),
+            Path(tempfile.gettempdir()) / f"cloudflared-{project.id}.log",
+        ]
+        for path in candidates:
             try:
-                for line_bytes in stream:
-                    text = line_bytes.decode("utf-8", errors="replace")
-                    match = pattern.search(text)
-                    if match:
-                        url_result[0] = match.group(0)
-                        return
-            except Exception:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # Append across restarts, but never grow without bound: this
+                # file collects everything cloudflared logs while sharing.
+                too_big = path.exists() and path.stat().st_size > 2_000_000
+                handle = open(
+                    path,
+                    "w" if too_big else "a",
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                handle.write(
+                    f"\n=== cloudflared start "
+                    f"{datetime.now().isoformat(timespec='seconds')} "
+                    f"port={port} ===\n"
+                )
+                handle.flush()
+                return handle, path, path.stat().st_size
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] Tunnel log unusable at {path}: {e}")
+        return None, candidates[-1], 0
+
+    @staticmethod
+    def _close_tunnel_log(handle: Optional[Any]) -> None:
+        if handle is None:
+            return
+        try:
+            handle.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _tunnel_origin_file(project: LivingUIProject) -> Path:
+        return Path(project.path) / ".tunnel-origin"
+
+    def _publish_tunnel_origin(
+        self, project: LivingUIProject, url: Optional[str]
+    ) -> None:
+        """Tell the app which public origin to trust, or that there is none.
+
+        The app's origin guard (pb/pb_hooks/_system.pb.js) allows loopback
+        origins only — right for a loopback app, fatal for a shared one:
+        browsers send `Origin` on same-origin writes too, so through a tunnel
+        the app LOADED (GET carries no Origin) and then 403'd every save. The
+        guard reads this file per request, so the grant appears and disappears
+        with the tunnel, with no app restart in between.
+        """
+        path = self._tunnel_origin_file(project)
+        try:
+            if url:
+                origin = url.rstrip("/")
+                path.write_text(origin + "\n", encoding="utf-8")
+                logger.info(f"[LIVING_UI] Shared origin published: {origin}")
+            elif path.exists():
+                path.unlink()
+                logger.info(f"[LIVING_UI] Shared origin revoked for {project.name}")
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] Could not update {path.name}: {e}")
+
+    async def _parse_cloudflare_url(
+        self,
+        proc: subprocess.Popen,
+        log_path: Path,
+        start_offset: int = 0,
+        timeout: int = 30,
+    ) -> Optional[str]:
+        """Wait for cloudflared to announce its public URL in its log file.
+
+        Tails the file rather than reading the process pipes — see the note in
+        start_tunnel about the pipe-buffer deadlock that cost us the tunnel.
+        """
+        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+        deadline = time.time() + timeout
+        offset = start_offset
+        seen = ""
+
+        while True:
+            # Sample liveness BEFORE reading, so a process that dies between
+            # the two still gets its final bytes examined.
+            exited = proc.poll() is not None
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+                    fh.seek(offset)
+                    seen += fh.read()
+                    offset = fh.tell()
+            except FileNotFoundError:
                 pass
 
-        # Read both stdout and stderr in parallel threads
-        t1 = threading.Thread(target=_read_stream, args=(proc.stdout,), daemon=True)
-        t2 = threading.Thread(target=_read_stream, args=(proc.stderr,), daemon=True)
-        t1.start()
-        t2.start()
+            match = pattern.search(seen)
+            if match:
+                logger.info(f"[LIVING_UI] Parsed cloudflare URL: {match.group(0)}")
+                return match.group(0)
 
-        # Wait for either thread to find the URL
-        deadline = time.time() + timeout
-        while time.time() < deadline and url_result[0] is None:
-            if proc.poll() is not None and url_result[0] is None:
-                break
-            await asyncio.sleep(0.5)
+            # cloudflared boxes the URL inside an ASCII banner, so it can land
+            # split across two reads: keep a tail long enough to re-match.
+            if len(seen) > 8192:
+                seen = seen[-1024:]
 
-        if url_result[0]:
-            logger.info(f"[LIVING_UI] Parsed cloudflare URL: {url_result[0]}")
-        else:
-            logger.error("[LIVING_UI] Failed to parse cloudflare URL within timeout")
-
-        return url_result[0]
+            if exited:
+                logger.error(
+                    f"[LIVING_UI] cloudflared exited (code {proc.returncode}) "
+                    f"before announcing a URL; see {log_path}"
+                )
+                return None
+            if time.time() >= deadline:
+                logger.error(
+                    f"[LIVING_UI] Failed to parse cloudflare URL within "
+                    f"{timeout}s; see {log_path}"
+                )
+                return None
+            await asyncio.sleep(0.3)
 
     async def auto_launch_projects(self, project_ids: List[str] = None) -> None:
         """Auto-launch projects on startup.
