@@ -1,5 +1,5 @@
 ---
-version: 7
+version: 8
 purpose: agent operations manual
 ---
 
@@ -13,6 +13,7 @@ Your ops manual. Grep `## <topic>` to load what you need.
 ```
 how sessions/runs work  → ## Runtime
 work a run / todos      → ## Runs
+answer from what you already have → ## Use What You Have
 add MCP server          → ## MCP
 add skill               → ## Skills
 connect platform        → ## Integrations
@@ -120,7 +121,7 @@ If a workflow pre-check skips the turn but the aggregated batch also carried use
 
 ### Waiting for the user
 
-There is no wait-for-reply state. To ask the user something, make the question your final `send_message` — the run ends and the session sleeps until the next input wakes it as a NEW run in the same session (same event stream, so context carries over). The `wait` action is only for short in-turn pauses (max 60s) between actions.
+There is no wait-for-reply state. To ask the user something, make the question your final `send_message` — the run ends and the session sleeps until the next input wakes it as a NEW run in the same session (same event stream, so context carries over). Attach `suggested_responses` so the user can answer with one click (see `## Communication Rules`). The `wait` action is only for short in-turn pauses (max 60s) between actions.
 
 ### Force-stop
 
@@ -146,7 +147,8 @@ MCPClient              external MCP tool servers
 SkillManager           SKILL.md discovery + selection + reload
 Scheduler              cron-driven trigger fires from scheduler_config.json
 ProactiveManager       PROACTIVE.md registry + get_all_due_tasks()
-ExternalCommsManager   platform listeners + senders
+IntegrationSystem      integration accounts + clients
+ListenerManager        platform listeners, one per (integration, account)
 ```
 
 Concurrency: per-session serialization plus trigger aggregation. A session processes one turn at a time, and everything due folds into the next turn. There are no workflow locks.
@@ -178,7 +180,7 @@ The input needs a short answer or 1-3 actions:
 
 The input needs no reply at all (emoji-only ack, third-party noise): `end_turn` — ends the run silently. Guard: `end_turn` refuses to fire while a Living UI project is still `creating`.
 
-Do not refuse computer-based requests by claiming a limitation without checking — expand your action surface (below) and verify first.
+Do not refuse computer-based requests by claiming a limitation without checking — expand your action surface (below) and verify first. The same applies to information requests — see `## Use What You Have`.
 
 ### Substantial work
 
@@ -289,6 +291,34 @@ See `## Workspace` for the mission template and scan-on-start protocol.
 - Calling a removed action (`task_start`, `task_end`, `task_update_todos`) → they do not exist. Use `schedule_task`, final `send_message` / `end_turn`, and `update_todos`.
 - Marking todos `completed` before the actions ran.
 - Skipping `set_requirement` on substantial work, then having no checklist at Verify time.
+
+---
+
+## Use What You Have
+
+Your context window is not your knowledge. Before replying "I don't know", "I can't do that", or reaching for a generic web search, run the matching check below — each is a single cheap action, and skipping it is the exact failure mode this section corrects: ignoring resources you already own because they aren't in front of you.
+
+```
+The request...                                   → Check FIRST
+─────────────────────────────────────────────    ─────────────────────────────────────────────────
+touches the user, past work, prior decisions     memory. Auto-injected relevant_memories are leads,
+                                                 not the full record: run memory_search (or
+                                                 memory_entity for a named subject) before claiming
+                                                 ignorance. Grep EVENT.md for past-run history.
+
+involves an external service (mail, calendar,    integrations. check_integration_status /
+docs, CRM, chat, repo, ...)                      list_available_integrations. If connected, use the
+                                                 integration's actions to fetch or act — do not ask
+                                                 the user to do it themselves, refuse, or web-search
+                                                 around it.
+
+sounds like something an app of yours already    Living UI. living_ui_list_projects; on a match,
+does                                             living_ui_usage + the lui CLI/ops to read its data
+                                                 or perform the operation instead of redoing the
+                                                 work by hand.
+```
+
+Hard rule: "I don't have that context" / "I can't access that" may only be sent AFTER the matching check came back empty or disconnected.
 
 ---
 
@@ -806,6 +836,7 @@ agent_file_system/
 ├── SOUL.md                   Personality (injected to system prompt)
 ├── FORMAT.md                 Document / design standards
 ├── MEMORY.md                 Distilled facts                     DO NOT EDIT
+├── ENTITIES.md               Entity-graph registry               DO NOT EDIT
 ├── EVENT.md                  Full event log                      DO NOT EDIT
 ├── EVENT_UNPROCESSED.md      Memory-pipeline staging buffer      DO NOT EDIT
 ├── PROACTIVE.md              Recurring tasks + Goals/Plan/Status
@@ -824,9 +855,10 @@ PROACTIVE.md
 MEMORY.md
 USER.md
 EVENT_UNPROCESSED.md
+ENTITIES.md
 ```
 
-Editing any of these triggers re-indexing via [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/core/impl/memory/memory_file_watcher.py). Other files in `agent_file_system/` are NOT indexed. To find content in non-indexed files, use `grep_files` directly.
+plus any user-added extras from `memory.indexed_files` in settings.json. Editing any of these triggers re-indexing via [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/core/impl/memory/memory_file_watcher.py). Other files in `agent_file_system/` are NOT indexed. To find content in non-indexed files, use `grep_files` directly.
 
 ### AGENT.md
 - Purpose: operational manual for you.
@@ -862,11 +894,17 @@ Editing any of these triggers re-indexing via [agent_core/core/impl/memory/memor
 - Format: `[YYYY-MM-DD HH:MM:SS] [type] content` — one fact per line.
 - Types: `fact`, `preference`, `event`, `decision`, `learning`.
 
+### ENTITIES.md
+- Purpose: entity-graph registry — named entities plus memory→entity connection records. Powers the graph channel of `memory_search`.
+- Write access: ONLY the entity pipeline (deterministic matcher + entity judge, fired automatically after each memory-processing run). Hard rule: DO NOT edit.
+- Read pattern: `read_file` / `grep_files` to inspect the graph when troubleshooting retrieval. See `## Memory` "The entity graph".
+- Format: `## Entities` (one name per line) and `## Connections` (`[chunk-id] [pending|judged] names :: preview`; marks: plain = confirmed, `!` = rejected, `?` = pending judgment).
+
 ### EVENT.md
 - Purpose: complete chronological event log. Append-only.
 - Write access: EventStreamManager. Hard rule: DO NOT edit.
 - Read pattern: `read_file` / `grep_files` for self-troubleshooting. See `## Errors` for log workflow.
-- Format: `[YYYY/MM/DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
+- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
 - Auto-rotated when size threshold is exceeded.
 
 ### EVENT_UNPROCESSED.md
@@ -934,11 +972,12 @@ Some persistent state the agent interacts with lives outside this directory:
 app/config/settings.json              model, API keys, OAuth, cache              (## Configs)
 app/config/mcp_config.json            MCP server registry                         (## MCP)
 app/config/skills_config.json         enabled / disabled skills                   (## Skills)
-app/config/external_comms_config.json platform listener configs                   (## Integrations)
 app/config/scheduler_config.json      cron schedules                              (## Proactive)
 app/config/onboarding_config.json     first-run state                             (## Onboarding)
 skills/<name>/SKILL.md                installed skills                            (## Skills)
-.credentials/<platform>.json          OAuth tokens, bot tokens, API keys
+.credentials/<platform>.accounts.json multi-account credential store (primary +
+                                      extras, aliases, listen flags); legacy
+                                      <platform>.json files are migrated in once
                                       DO NOT print contents to chat or logs
 logs/<run>/all.log                  runtime logs                                (## Errors)
 chroma_db_memory/                     ChromaDB index for memory_search
@@ -1159,17 +1198,25 @@ living_ui_scaffold(name, description, ...)  Create a project: copies the bluepri
 living_ui_list_projects()                   {id, name, description, status, url, path, delivered}.
                                             Resolve "the app" to an id here, never by filesystem search.
 living_ui_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
-                                            build, migrations, ops manifest) → boot PocketBase +
-                                            frontend → health check. On a delivered app it boots a
-                                            STAGING copy (cloned data, hidden port), never the live app.
-                                            Gate failures come back in test_errors. Circuit breaker:
-                                            identical error ×3 warns, ×6 stops.
-living_ui_walk_verify(project_id)           Headless-browser sub-agent drives the running app
+                                            build, migrations, ops manifest) → boot the DEV environment
+                                            (your code on a hidden port with a FRESH schema-only DB —
+                                            migrations replay; live data is never cloned). The live app
+                                            (if any) keeps running untouched. Gate failures come back
+                                            in test_errors. Circuit breaker: identical error ×3 warns,
+                                            ×6 stops.
+living_ui_walk_verify(project_id, scope?)   Headless-browser sub-agent drives the DEV instance
                                             feature-by-feature against reference/requirements.md.
+                                            scope="auto" (default): the verifier decides which features
+                                            the change can reach (it is handed the diff since the last
+                                            promote) and walks those. scope="full": walk every feature —
+                                            use when the user asks to verify everything or the change is
+                                            deliberately wide. It never narrows below the verifier's own
+                                            decision; first builds always run full.
                                             Verdicts: pass | incomplete | defects | blocked | unparseable.
-                                            A clean pass is the ONLY way a build completes: first build
-                                            → project marked delivered; delivered app → staging flips
-                                            to live. 35-minute ceiling.
+                                            A clean pass is the ONLY way a change completes: it PROMOTES
+                                            the code to the live app (first build → live DB created
+                                            fresh from migrations; update → new migrations apply to the
+                                            real data) and destroys the dev copy. 35-minute ceiling.
 living_ui_restart(project_id)               Stop + full launch pipeline.
 living_ui_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
 living_ui_usage(project_id)                 Returns the project's operating manual: path, live data
@@ -1180,13 +1227,32 @@ living_ui_http(project_id, method, path)    FALLBACK HTTP access — prefer the 
                                             use /api/collections/<name>/records.
 living_ui_marketplace_list() /
 living_ui_marketplace_install(app_id, ...)  Install pre-built marketplace apps. As-is installs skip
-                                            walk_verify.
+                                            walk_verify. Marketplace source branch: settings.json
+                                            living_ui.marketplace_ref (default "" = main; env
+                                            CRAFTBOT_MARKETPLACE_REF overrides one run). Only touch
+                                            it to test a non-main marketplace branch.
 living_ui_import_zip(zip_path) /
 living_ui_import(source)                    Import a Living UI project from ZIP / local folder / git URL.
-                                            Non-Living-UI sources register as external apps (craftbot.json).
+                                            Non-Living-UI sources register as external apps: craftbot.json
+                                            (install/build/start/health verbs) + an operations.json that
+                                            maps declared ops onto the app's own endpoints via an A2App
+                                            adapter on the assigned port. lui ops / lui run (and raw HTTP
+                                            with the project's .agent-token) work against them; lui data
+                                            does not. If the app has no server API, leave operations
+                                            empty — never invent verbs or map direct DB writes.
+living_ui_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operations.json against the
+                                            RUNNING app — invokes every non-destructive op FOR REAL
+                                            through the adapter (destructive ops are shape-checked).
+                                            Run during adoption after notify_ready and after every
+                                            operations.json edit; the import isn't done until it passes.
+living_ui_approve_triggers(project_id)      Record the USER'S consent for an app's declared agent
+                                            triggers (triggers.json — requests the app may fire at you).
+                                            Call ONLY after the user explicitly agreed in chat. Apps
+                                            built here are pre-approved; marketplace/imported apps'
+                                            fires are refused until approved.
 living_ui_convert(source, ...)              Rebuild a foreign app as a Living UI: fresh scaffold, original kept
                                             in reference/source/, requirements synthesized,
-                                            supervised build dispatched.
+                                            supervised build dispatched. Non-Living-UI sources register as external apps (craftbot.json).
 ```
 
 ### Data and ops: the lui CLI
@@ -1200,19 +1266,23 @@ node <craftbot_root>/living-ui/tools/src/cli.ts run  <project_path> <op-name> --
 node <craftbot_root>/living-ui/tools/src/cli.ts ops  <project_path>
 ```
 
-`living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. Writes to a delivered app's real data outside a staging arc are refused.
+`living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
 
-### Build / delivery lifecycle
+### Build / delivery lifecycle (one flow for builds and modifies)
 
 ```
-scaffold → dedicated build session writes code → notify_ready (validation gate + boot)
-        → walk_verify pass → delivered (live URL announced by the factory host)
-modify a delivered app → changes go to a STAGING clone on a hidden port
-        → notify_ready boots staging → walk_verify pass → staging flips to live
+write code in the project dir → notify_ready (validation gate + boot of the
+        DEV env: code copy, hidden port, fresh schema-only DB)
+        → walk_verify drives the dev instance → clean pass PROMOTES:
+        live app boots the new code (first build: live DB created fresh from
+        migrations; update: new migrations apply to real data), dev copy
+        destroyed, ready announced by the factory host
 ```
 
 - The factory host owns retries, fix-mission dispatch, and the "ready" announcement. Do not author success status messages for a build yourself.
 - Any modify must append a dated bullet to the `## Changes` section of `reference/requirements.md` — walk_verify checks the app against that file, so a stale spec means a wrong verdict.
+- **Live data lives at `<project>/pb/pb_data/data.db`, and its PRESENCE is what decides first-build vs update** (there is no "delivered" flag anymore). NEVER hand-delete or reset `pb/pb_data/` — that turns the next promote into a "first build" and the live DB is recreated empty.
+- **Backups**: every native app's live data is auto-backed-up to `workspace/living_ui/_backups/<project_id>/` (scheduled daily + a pre-update backup taken right before every deploy onto existing live data — if that backup fails, the deploy is ABORTED; fix the backup error, don't bypass). Backups survive app deletion. Restore is a user-only operation from the UI; you cannot trigger it.
 
 ### Skills
 
@@ -1247,6 +1317,7 @@ When a project misbehaves: grep `logs/pocketbase.log` (server side) and `logs/fr
 - Editing `frontend/src/kit/` or system-managed pb_hooks. They are re-vendored and your edits are lost.
 - Skipping the `reference/requirements.md` update on modify. walk_verify then verifies against a stale spec.
 - Renaming a project directory by hand. `manifest.json` (project root) is the source of truth for identity and ports.
+- Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the lui CLI.
 - Using `living_ui_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the lui CLI.
 - Putting project-specific design changes in GLOBAL_LIVING_UI.md instead of the project's LIVING_UI.md.
 
@@ -1352,7 +1423,8 @@ living_ui                living_ui_scaffold, living_ui_list_projects, living_ui_
                          living_ui_walk_verify, living_ui_restart, living_ui_report_progress,
                          living_ui_http, living_ui_usage, living_ui_marketplace_list,
                          living_ui_marketplace_install, living_ui_import_zip, living_ui_import,
-                         living_ui_convert, browser_probe
+                         living_ui_convert, living_ui_ops_verify, living_ui_approve_triggers,
+                         browser_probe
 
 per-integration sets     Discord, Slack, Telegram (bot/user), Notion, LinkedIn, Jira, GitHub,
                          Outlook, WhatsApp, Twitter, HubSpot, Stripe, LINE, Lark (+calendar/drive),
@@ -1510,8 +1582,8 @@ Run `/help` for the live list. If you need to verify a specific command, read it
 /exit                     quit the application
 /update (alias /upgrade)  check for updates and update CraftBot [--check]
 /tokens                   show this session's token usage (input / cached / output / total)
-/provider [name] [key]    view or switch LLM provider (openai, gemini, anthropic, byteplus,
-                          deepseek, grok, glm, fugu, openrouter, remote) and set its key
+/provider [name] [key]    view or switch LLM provider (any registered provider,
+                          see ## Models) and set its key
 ```
 
 ### Credential and integration overview
@@ -1575,7 +1647,7 @@ For each integration registered in the `craftos_integrations` package, a slash c
 plus handler-specific subcommands (e.g. login-qr for whatsapp_web, invite for OAuth flows)
 ```
 
-There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (23 integrations) and each one's credential fields live in `craftos_integrations/integrations/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
+There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (23 integrations) and each one's credential fields live in `craftos_integrations/providers/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
 
 ### Agent-provided commands
 
@@ -1604,7 +1676,6 @@ app/config/settings.json              model, API keys, OAuth, cache, browser, me
 app/config/mcp_config.json            MCP server registry                                     hot-reload
 app/config/skills_config.json         enabled / disabled skills                               hot-reload
 app/config/scheduler_config.json      cron schedules                                          hot-reload
-app/config/external_comms_config.json telegram + whatsapp listener configs                    NOT watched — restart required
 app/config/onboarding_config.json     first-run state                                         NOT watched
 app/config/connection_test_models.json  per-provider cheap test models                        NOT watched
 ```
@@ -1676,11 +1747,6 @@ skills_config.json
                   Already-loaded skills on the current run are unaffected until reloaded.
   log signature   [SKILL] Reloaded skills_config ...
 
-external_comms_config.json
-  NOT watched. Editing it requires a restart to take effect. Telegram and whatsapp
-  listener configs live here; other platforms are managed by .credentials/ +
-  /<integration> commands.
-
 scheduler_config.json
   callback        scheduler.reload  (async)
   effect          schedules re-parsed. New entries fire on their first matching window.
@@ -1699,7 +1765,6 @@ onboarding_config.json
 - The live LLM client's provider/model (requires a reinitialize — `/provider` or Settings UI save, see `## Models`).
 - An LLM call already in flight (uses the old config; next turn uses the new one).
 - A loaded skill's body/metadata on the current run (unload and re-load the skill to pick up changes).
-- `external_comms_config.json` (not watched — restart required).
 - New built-in actions added by creating a new `.py` file under `app/data/action/` (code change, requires restart).
 - Changes to OS environment variables not stored in any config file (requires restart).
 - Code changes anywhere in `app/`, `agent_core/` (requires restart).
@@ -1723,9 +1788,6 @@ skills_config.json
   - run /skill list (user-side) or
   - call list_skills action  → confirms enabled/disabled state
   - new /<skill_name> slash commands appear after sync_skill_commands fires
-
-external_comms_config.json
-  - not hot-reloaded; verify after a restart (listener connection messages in the log)
 
 scheduler_config.json
   - check logs:  grep_files "[SCHEDULER]" logs/<run>/all.log -A 2
@@ -1759,9 +1821,8 @@ memory:
   item_word_limit: int           (default 150; words per stored memory item)
 
 model:
-  llm_provider: "openai" | "anthropic" | "gemini" | "byteplus" | "deepseek" |
-                "minimax" | "moonshot" | "grok" | "glm" | "fugu" | "openrouter" |
-                "bedrock" | "remote"
+  llm_provider: any provider key registered in the code (see ## Models);
+                this doc does not enumerate them; the registry is authoritative
   vlm_provider: same options (VLM-capable providers only)
   image_gen_provider / video_gen_provider: string
   llm_model: string | null       (null = provider default; e.g. "claude-sonnet-4-6")
@@ -1876,37 +1937,6 @@ To remove a skill entirely: also delete the directory under skills/.
 SKILL.md frontmatter fields: see ## Skills.
 ```
 <!-- /schema:skills_config.json -->
-
-<!-- schema:external_comms_config.json -->
-```
-File: app/config/external_comms_config.json
-
-telegram:
-  enabled: bool                  master switch for the telegram listener
-  mode: "bot" | "mtproto"        bot = Bot API; mtproto = user-account API
-  bot_token: string              required for mode=bot (from @BotFather)
-  bot_username: string           the bot's @username (without the @)
-  api_id: string                 required for mode=mtproto (from my.telegram.org)
-  api_hash: string               required for mode=mtproto
-  phone_number: string           required for mode=mtproto (E.164 format)
-  auto_reply: bool               if true, incoming messages route to the agent
-
-whatsapp:
-  enabled: bool                  master switch for whatsapp listener
-  mode: "web" | "business"       web = WhatsApp Web (Playwright); business = Cloud API
-  session_id: string             web mode: cached browser session
-  phone_number_id: string        business mode (from Meta business)
-  access_token: string           business mode
-  auto_reply: bool
-
-NOTE: Other platforms (discord, slack, gmail, notion, linkedin, outlook,
-google, jira, github, twitter) do NOT live in this file.
-- Their credentials live under .credentials/<platform>.json.
-- OAuth client_id/secret for some live in settings.json's "oauth" section.
-- Connect/disconnect via /<platform> commands.
-See ## Integrations and ## Slash Commands.
-```
-<!-- /schema:external_comms_config.json -->
 
 <!-- schema:scheduler_config.json -->
 ```
@@ -2485,7 +2515,7 @@ To enumerate the full installed set: `list_folder skills/` or `read_file app/con
 
 You can help the user connect external integrations directly through chat. Most token-based integrations can be fully driven by you: collect the credential from the user, call `connect_integration` with it, and the listener auto-starts. OAuth integrations require the user to run a slash command that opens a browser — your job is to walk them through it. Treat connecting an integration like helping a non-technical friend: tell them exactly where to go, what to copy, and what to paste back.
 
-Code: the standalone [craftos_integrations/](craftos_integrations/) package owns the whole subsystem — auth handlers, runtime clients, credential store, autoloader, and the registry facade (`craftos_integrations/registry.py`). Handlers register via `@register_handler` in `craftos_integrations/integrations/<name>/__init__.py`; the agent-facing `@action` wrappers live under [app/data/action/integrations/](app/data/action/integrations/). The authoring recipe is in [craftos_integrations/README.md](craftos_integrations/README.md).
+Code: the standalone [craftos_integrations/](craftos_integrations/) package owns the whole subsystem — providers, runtime clients, multi-account credential store, autoloader, and the registry facade (`craftos_integrations/registry.py`). Each integration is one folder: `craftos_integrations/providers/<name>/` holds `provider.py` (metadata + auth + listener) and `client.py` (the API surface, `@register_client`); the agent-facing `@action` wrappers live under [app/data/action/integrations/](app/data/action/integrations/). The authoring recipe is in [craftos_integrations/README.md](craftos_integrations/README.md).
 
 ### What's wired in
 
@@ -2521,13 +2551,33 @@ lark                token                    Lark messaging
 
 To enumerate at runtime: call the `list_available_integrations` action. To check what's already connected: `check_integration_status`. Guessed ids get normalized via an alias map (e.g. `gdrive` → `google_drive`, `gcal` → `google_calendar`).
 
+### Multi-account
+
+Ten integrations support **multiple connected accounts**: the five Google services, Outlook, LinkedIn, Notion, HubSpot, and Slack. Each holds one **primary** account plus any number of additional ones; every account can carry a user-set nickname (alias), and nicknames are shared across the Google family for the same underlying account.
+
+Rules that matter to you:
+
+- **Every action for these integrations takes an optional `account` input** — an email/identity, the nickname, or any unique fragment of either. Omit it to act as the primary account.
+- **Extract account qualifiers from natural language.** "My school calendar" → `account="school"`. "The work inbox" → `account="work"`. Never silently default to primary when the user named an account in any form.
+- **Bad hints self-correct.** An unresolvable or ambiguous `account` returns an error listing the connected accounts — choose from that list or ask the user; don't retry the same hint.
+- **IDs are account-scoped.** A message/event/file/page id returned under `account="work"` must be used with `account="work"` on every follow-up action.
+- **Ask before irreversible actions when ambiguous.** Multiple accounts connected + a send/delete/clear request that names no account → ask which account first.
+- **Alias/primary/listening management is agent-driven too**: `manage_integration_account(integration_id, account, operation, value)` with `set_primary`, `set_alias` (value = new nickname, empty clears), or `set_listening` (value = "true"/"false"). The user can also do it from Settings.
+- Credentials live in `.credentials/<provider>.accounts.json` (one document per provider: primary + all accounts with alias/listen flags). A `<provider>.accounts.json.corrupt` sidecar means the store was quarantined after a parse failure — the integration reads as disconnected but the data is preserved; tell the user to reconnect rather than editing the file.
+- The Google services stay split per service, but the same person's account connects to each service separately; an alias set once applies across all five.
+
 ### The agent's connection toolkit (actions)
 
 ```
-list_available_integrations()                  → returns full registry + connected state for each
-check_integration_status(integration_id)       → status of one integration
-connect_integration(integration_id, ...)       → token-based connect (requires credentials)
-disconnect_integration(integration_id)         → remove connection
+list_available_integrations()                        → returns full registry + connected state for each
+check_integration_status(integration_id)             → status of one integration, incl. an accounts array:
+                                                       {identity, alias, isPrimary, listen} per account
+connect_integration(integration_id, ...)             → token-based connect (requires credentials); on a
+                                                       multi-account integration it ADDS an account
+disconnect_integration(integration_id, account_id?)  → remove one account (with hint) or ALL (omitted)
+manage_integration_account(integration_id,           → account admin: operation = set_primary | set_alias
+    account, operation, value?)                        | set_listening. value: the new alias (empty clears)
+                                                       or "true"/"false" for set_listening.
 ```
 
 `connect_integration` is the workhorse for token-based flows. The exact required fields depend on the integration; if you call it without them, it returns `status="needs_credentials"` with a `required_fields` list — collect those from the user and retry. Read [app/data/action/integrations/integration_management.py](app/data/action/integrations/integration_management.py) for the action's input_schema.
@@ -2577,7 +2627,7 @@ Never invent a credential. If the user has not provided one, ask. If the user pa
 
 ### Required fields and where to obtain them
 
-The fields each token integration needs (declared per integration in `craftos_integrations/integrations/<name>/`; `connect_integration` returns `needs_credentials` + `required_fields` if you omit them):
+The fields each token integration needs (declared per integration in `craftos_integrations/providers/<name>/provider.py`; `connect_integration` returns `needs_credentials` + `required_fields` if you omit them):
 
 ```
 slack
@@ -2711,14 +2761,15 @@ Remember: Google is per-service. "Connect my Google account" → ask which servi
 
 ### Listener auto-start
 
-After a successful `connect_integration` call, the connect dispatcher auto-starts the platform's listener generically (`manager.start_platform(handler.spec.platform_id)`) for platforms that support push-style messaging. Telegram/WhatsApp listener runtime configs live in `external_comms_config.json` (restart to change).
+After a successful `connect_integration` call, the connect dispatcher auto-starts the platform's listener generically (`manager.start_platform(handler.spec.platform_id)`) for platforms that support push-style messaging.
 
 ### Verifying a connection
 
 After any connect attempt:
 
 ```
-1. check_integration_status(integration_id)         → returns success + account display
+1. check_integration_status(integration_id)         → returns success + the accounts array
+                                                       (identity, alias, isPrimary, listen per account)
 2. /cred status (user-side)                          → overview of all integrations
 3. grep_files "[<platform>]" logs/<run>/all.log     → look for connect / auth errors
 ```
@@ -2765,6 +2816,20 @@ twitter: invalid signature                         API tier doesn't allow    use
 connection works once, fails next session          token expired (some       user regenerates and
                                                    GitHub fine-grained       reconnects
                                                    tokens have short TTL)
+
+action errors "account not found" or               account hint didn't       the error lists the
+"ambiguous account"                                resolve                    connected accounts — pick
+                                                                              from that list or ask the
+                                                                              user; never retry the
+                                                                              same hint
+
+integration shows disconnected though the          .credentials/<provider>   store quarantined after a
+user says it was connected                         .accounts.json.corrupt     parse failure; user
+                                                   sidecar exists             reconnects (data preserved,
+                                                                              do not hand-edit)
+
+whatsapp shows disconnected after an upgrade       engine moved to per-       user re-links once via
+                                                   account Baileys bridges    /whatsapp login QR scan
 ```
 
 When in doubt: read the action's error message in full, then check `logs/<run>/all.log` for the integration's tag.
@@ -2789,11 +2854,11 @@ The built-in integrations cover the common 80%; MCP covers the long tail.
 - ALWAYS confirm the credential format roughly matches before submitting (e.g., GitHub PAT starts with `ghp_` or `github_pat_`). If it doesn't, ask the user to verify.
 - ALWAYS mask tokens in your replies. Don't echo back the full credential — use a prefix or a `...` truncation.
 - ALWAYS verify connection success before declaring victory.
-- NEVER write the token to memory, MEMORY.md, USER.md, or chat history beyond the immediate connect step. The handler stores it under `.credentials/<platform>.json` (see `## File System` for the do-not-print rule).
+- NEVER write the token to memory, MEMORY.md, USER.md, or chat history beyond the immediate connect step. The handler stores it under `.credentials/<platform>.accounts.json` (see `## File System` for the do-not-print rule).
 
 ### Using an integration during a run
 
-Connecting is one job; *using* an integration is another. Every integration carries an `INTEGRATION.md` reference doc at `craftos_integrations/integrations/<name>/INTEGRATION.md` — non-obvious workflows, identity formats, error meanings, and quirks that don't fit in action `input_schema` descriptions.
+Connecting is one job; *using* an integration is another. A connected integration beats asking the user or a generic web search — check `check_integration_status` before either (see `## Use What You Have`). Every integration carries an `INTEGRATION.md` reference doc at `craftos_integrations/providers/<name>/INTEGRATION.md` — non-obvious workflows, identity formats, error meanings, and quirks that don't fit in action `input_schema` descriptions.
 
 Each INTEGRATION.md has an `## Essentials` section that is AUTO-INJECTED into your prompt when the user's message mentions that integration — so the basics are usually already in front of you. Grep the full file for anything deeper.
 
@@ -2832,29 +2897,26 @@ Each interface picks its provider and model independently: `model.llm_provider`,
 
 ### Providers and what they support
 
-From [MODEL_REGISTRY](agent_core/core/models/model_registry.py) — 13 providers:
+The set of providers is defined in code (PROVIDER_CONFIG in
+[provider_config.py](agent_core/core/models/provider_config.py), surfaced as
+[MODEL_REGISTRY](agent_core/core/models/model_registry.py)) and GROWS over
+time. This document deliberately does NOT enumerate the providers: any list
+here goes stale the moment a provider is added. The code registry is the
+single source of truth.
 
-```
-provider     LLM default model                          VLM default model             notes
-─────────    ─────────────────────────────────────      ──────────────────────────    ─────────────────────────────
-openai       gpt-5.2-2025-12-11                         gpt-5.2-2025-12-11            embedding text-embedding-3-small; image gpt-image-2; video sora-2
-anthropic    claude-sonnet-4-6                          claude-sonnet-4-6             no embedding
-gemini       gemini-2.5-pro                             gemini-2.5-pro                embedding text-embedding-004; image gemini-3-pro-image; video veo-3.1-generate-preview
-byteplus     seed-2-0-pro-260328                        seed-2-0-pro-260328           embedding skylark; video seedance-1-0-pro-fast-251015
-remote       llama3.2:3b                                llava:7b                      Ollama or OpenAI-compat; embedding nomic-embed-text
-deepseek     deepseek-chat                              (none)                        text only
-moonshot     kimi-k2.5                                  moonshot-v1-8k-vision-preview
-grok         grok-3                                     grok-4-0709                   xAI
-minimax      MiniMax-Text-01                            MiniMax-VL-01
-glm          glm-5.2                                    glm-5.2                       Z.ai (GLM), OpenAI-compat
-fugu         fugu                                       (none)                        Sakana (Fugu), text only
-openrouter   anthropic/claude-sonnet-4.5                anthropic/claude-sonnet-4.5   proxy to many models
-bedrock      us.anthropic.claude-haiku-4-5-20251001-v1:0  same                        AWS; embedding amazon.titan-embed-text-v2:0; model IDs need the us. cross-region prefix
-```
+What this means for you:
+- NEVER refuse a provider switch because a name is not in a list you
+  remember. If the user names a provider, attempt the switch (procedure
+  below). If the name is not registered, the switch code returns a clear,
+  classified error, which you surface. Do not pre-judge from this doc.
+- To see the providers that exist right now, read PROVIDER_CONFIG in the
+  file above, or point the user at the Settings UI (it renders the live
+  list).
+- Each provider ships a default LLM model id (and a default VLM id where the
+  provider supports vision). Setting `model.llm_model: null` uses that
+  registry default; an explicit string overrides it.
 
-If you set `model.llm_model: null` in settings.json, the default from MODEL_REGISTRY is used. Set an explicit string to override.
-
-A provider with `(none)` for VLM cannot be used as `vlm_provider`. If the user asks for vision but only has a text-only provider configured, tell them to set a separate `vlm_provider`.
+A provider with no VLM default model cannot be used as `vlm_provider`; the code raises a clear error if you try. If the user asks for vision but only a text-only provider is configured, tell them to set a separate `vlm_provider`.
 
 Image generation falls back through providers in priority order `gemini, openai`; video generation `gemini, openai, byteplus`. Reinit paths: `reinitialize_image_gen` / `reinitialize_video_gen` (driven by the Settings UI save).
 
@@ -2883,7 +2945,7 @@ bedrock         (none — uses aws_credentials    NO — Settings UI only
                 block + endpoints.aws_region)
 ```
 
-When setting an API key for Gemini, edit `api_keys.google`, NOT `api_keys.gemini`. Same translation in the `api_keys_configured` block. Bedrock uses `aws_credentials.{access_key_id, secret_access_key, session_token}`, not `api_keys.*`.
+When setting an API key for Gemini, edit `api_keys.google`, NOT `api_keys.gemini`. Same translation in the `api_keys_configured` block. Bedrock uses `aws_credentials.{access_key_id, secret_access_key, session_token}`, not `api_keys.*`. This table covers the original providers only; providers added later follow the default rule (their key lives in `api_keys.<provider name>`).
 
 ### Model section schema (in settings.json)
 
@@ -2915,22 +2977,23 @@ At construction (and on `reinitialize_llm`), `ModelFactory.create(provider, inte
 4. Returns ctx with provider, model, client/handles, base URL, etc.
 ```
 
-The LLMInterface is constructed ONCE at startup (and reconstructed by `reinitialize_llm`). It is NOT recreated when settings.json is hot-reloaded. This is the most important gotcha in this section — see "Switching provider or model" below.
+The LLMInterface is constructed ONCE at startup and reconstructed by `reinitialize_llm`; it does not re-read settings per call. BUT a config-watcher reload callback calls `reinitialize_llm` AUTOMATICALLY whenever the `model` section of settings.json changes, so editing settings.json switches the live provider/model on its own. See "Switching provider or model" below.
 
 ### Switching provider or model — through chat
 
 The user asks: "switch to GPT-5" or "use Gemini" or "I'd like to try Claude".
 
-The one rule: **every model change requires a reinitialize.** The LLMInterface holds its provider client AND model name from construction; editing `settings.json` alone changes NOTHING on the live interface — nothing re-reads settings per call. This applies to same-provider model swaps too.
+The one rule: **every model change requires a reinitialize, and the config watcher does that for you.** The LLMInterface holds its provider client and model name from construction and does not re-read settings per call, BUT a config-watcher reload callback calls `agent.reinitialize_llm` automatically when the `model` section of settings.json changes (llm_provider, llm_model, vlm_provider, or vlm_model). So editing settings.json yourself IS enough to switch, for both provider changes and same-provider model swaps.
 
 Reinitialize paths:
 ```
-Provider switch          → user runs /provider <name> [<api_key>]
-                           (saves settings + calls agent.reinitialize_llm)
-Model-only swap          → Settings UI save (persists + reinitializes;
-                           /provider takes no model argument)
-minimax / moonshot /     → Settings UI only (/provider does not accept them)
-bedrock
+Provider or model switch → stream_edit the model section of settings.json;
+                           the config watcher calls reinitialize_llm for
+                           you (PRIMARY, self-service, every provider)
+Also (user-driven)       → /provider <name> [<api_key>] slash command, or a
+                           Settings UI save; both persist + reinitialize.
+                           /provider does not accept minimax/moonshot/
+                           bedrock; stream_edit does.
 Image / video gen change → Settings UI save (reinitialize_image_gen / _video_gen)
 ```
 
@@ -2939,17 +3002,17 @@ Procedure for a provider switch:
 1. Ensure api_keys.<settings_key> for the new provider is set.
    Remember the gemini → "google" name translation.
    If empty: ask the user for a key, then stream_edit api_keys + api_keys_configured.
-2. Tell the user to run:    /provider <name> [<api_key>]
-   Examples:    /provider openai sk-...
-                /provider anthropic
-                /provider gemini AIza...
-3. Verify by waiting for the next LLM-driven response; mention the new provider
-   is in effect.
+2. stream_edit model.llm_provider in settings.json (app/config/settings.json)
+   to the new provider name. If the user named a specific model, also set
+   model.llm_model; leave it null to use the provider's registry default.
+3. The config watcher reinitializes the live LLM/VLM automatically, no
+   /provider needed. Verify by waiting for the next LLM-driven response and
+   confirm the new provider is in effect.
 ```
 
 `reinitialize()` is a no-op if provider+model+key+base_url are all unchanged. A provider-unchanged reinit preserves session histories; a true provider change wipes them.
 
-Symptoms of editing settings without reinit: replies still come from the old model, or `LLMConsecutiveFailureError` if the old client now lacks credentials. If the user cannot run the slash command or open Settings, the fallback is restarting CraftBot. State that explicitly.
+If the config watcher is disabled or a reinit fails, replies still come from the old model, or `LLMConsecutiveFailureError` if the old client now lacks credentials. Fallbacks then are the /provider command, a Settings UI save, or restarting CraftBot. State that explicitly.
 
 ### Setting a missing API key (no provider switch)
 
@@ -3087,10 +3150,10 @@ This list is opinion, not authoritative. The user has the final say.
 
 ## Memory
 
-Memory is your long-term recall. It is RAG-backed (relevance search over MEMORY.md and a few other files), not text-grep. Items reach MEMORY.md only after the daily memory-processing pipeline distills them from the event stream. You do NOT write MEMORY.md directly.
+Memory is your long-term recall. It is RAG-backed (relevance search over MEMORY.md and a few other files), not text-grep. Items reach MEMORY.md only after the memory-processing pipeline distills them from the event stream — a daily run that is GATED on enough unprocessed events accumulating (see the pipeline below). You do NOT write MEMORY.md directly.
 
 Two ways memory reaches you:
-- **Automatic injection (passive).** On every user message, the most relevant memories (top 5, relevance ≥ 0.5) are retrieved and dropped into your context as a `relevant_memories` event — one line per pointer: `- [file_path] section_path: summary (relevance: 0.XX)`. If nothing clears the threshold, no event is emitted. You do NOT need to call `memory_search` just to see what you already know.
+- **Automatic injection (passive).** On every user message, the most relevant memories (top 5, relevance ≥ 0.5) are retrieved and dropped into your context as a `relevant_memories` event — one line per pointer: `- [file_path] section_path: summary (relevance: 0.XX)`. If nothing clears the threshold, no event is emitted. You do NOT need to call `memory_search` just to see what you already know. Each `summary` is a TRUNCATED preview (a pointer), not the full memory: it is a snippet centred on the words that matched your query, and a leading/trailing `...` marks text that was cut. Treat these as leads, not complete records — if a preview is on-topic but clipped where it matters, expand it with `memory_search` or by reading the source file before you rely on it.
 - **`memory_search` action (active).** Use it when you need to dig deeper on a specific question mid-run, beyond what got auto-injected.
 
 Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manager.py) (`MemoryManager`), [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/core/impl/memory/memory_file_watcher.py) (incremental re-indexing), [app/data/action/memory_search.py](app/data/action/memory_search.py) (action).
@@ -3108,8 +3171,12 @@ Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manag
    EVENT_UNPROCESSED.md                              buffer; see filter below)
         |
         v
-4. Daily 3am: scheduler fires a MEMORY-source        (or on startup if buffer
-   trigger                                           is non-empty)
+4. Daily at the configured time (default 3am) the    (or on startup if buffer
+   scheduler fires a MEMORY-source trigger — but      is non-empty)
+   the run proceeds ONLY if unprocessed events ≥
+   memory.processing_threshold (default 25) OR
+   MEMORY.md pruning is due; otherwise the fire
+   is skipped (idle days cost nothing)
         |
         v
 5. Run loads the memory-processor skill             (set_skip_unprocessed_logging
@@ -3124,6 +3191,15 @@ Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manag
         v
 7. memory_file_watcher detects MEMORY.md changed,
    triggers MemoryManager.update() to reindex
+        |
+        v
+8. After the memory run ends, the entity-judge       (background task; no agent
+   pipeline fires: a deterministic matcher links      action can trigger it;
+   the new memory chunks to known entities and        skipped when memory is
+   marks uncertain links pending (?), then an LLM     disabled or nothing is
+   judge confirms/rejects each pending link and       pending)
+   names new entities; the verdicts are written
+   deterministically into ENTITIES.md
 ```
 
 EVENT_UNPROCESSED.md filter (events NOT staged): `action_start`, `action_end`, `todos`, `error`, `waiting_for_user`, `gui_action`, `agent reasoning`, `screen_description`, `relevant_memories`. The pipeline focuses on user-facing dialogue and important state changes. See `## File System` for full details.
@@ -3175,11 +3251,11 @@ output:
 
 Pointers are LIGHTWEIGHT references, not full content. To read the full chunk, `read_file <file_path>` and find the section, OR call the manager's `retrieve_full_content(chunk_id)` if exposed via an action.
 
-Ranking is a weighted hybrid: `0.65 * vector similarity + 0.35 * BM25 keyword score`, both normalized to [0,1]. The BM25 corpus includes the chunk body, summary, and extracted entities (proper nouns, quoted strings), so exact names match well. Results below `min_relevance` (0.55 for the action) are dropped. Embeddings use BGE-small (`BAAI/bge-small-en-v1.5`, override with env `MEMORY_EMBEDDING_MODEL`); if `rank_bm25` isn't installed, retrieval silently degrades to pure vector. Treat scores as a ranking hint within one query — don't compare across queries. Ranking is NOT influenced by how recent a memory is; timestamps are metadata only.
+Ranking is a weighted hybrid of THREE channels: `0.55 * vector similarity + 0.30 * BM25 keyword score + 0.15 * graph score`, all normalized to [0,1]. The BM25 corpus includes the chunk body, summary, and extracted entities (proper nouns, quoted strings), so exact names match well. The graph channel scores a chunk by its ENTITIES.md connections to entities the query mentions — including 2-hop neighbors (memory → entity → other memory), so a strongly-connected related memory can surface even when its own text similarity is below the normal floor. Entity matching is itself semantic (entities are embedded in a dedicated collection inside `chroma_db_memory/`), so a partial name like "Tobias" resolves to "Tobias Garcia". Results below `min_relevance` (0.55 for the action) are otherwise dropped. Embeddings use BGE-small (`BAAI/bge-small-en-v1.5`, override with env `MEMORY_EMBEDDING_MODEL`); if `rank_bm25` isn't installed, retrieval silently degrades to pure vector. Treat scores as a ranking hint within one query — don't compare across queries. Ranking is NOT influenced by how recent a memory is; timestamps are metadata only. All memory tuning constants (channel weights, floors, seed caps, chunk sizes, judge limits) are code constants centralized in [agent_core/core/impl/memory/tuning.py](agent_core/core/impl/memory/tuning.py) — do not expect them in settings.json.
 
 ### Indexed files (what memory_search can find)
 
-The MemoryManager indexes these files only ([agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manager.py) `INDEX_TARGET_FILES`):
+The MemoryManager indexes this fixed set ([agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manager.py) `INDEX_TARGET_FILES`):
 
 ```
 AGENT.md
@@ -3187,9 +3263,27 @@ PROACTIVE.md
 MEMORY.md
 USER.md
 EVENT_UNPROCESSED.md
+ENTITIES.md
 ```
 
-Searches over these are semantic. Files outside this list are NOT in the vector index, even if you `read_file` them often. To find content in non-indexed files, use `grep_files` directly.
+plus any extra files the user has added via `memory.indexed_files` in settings.json (managed from the Memory settings panel; merged in at runtime).
+
+Searches over these are semantic. Files outside this set are NOT in the vector index, even if you `read_file` them often. To find content in non-indexed files, use `grep_files` directly.
+
+### The entity graph (ENTITIES.md)
+
+`agent_file_system/ENTITIES.md` is the memory graph's registry: the named entities you know about, plus connection records linking each memory chunk to the entities it mentions. It powers the graph channel of `memory_search`. It is SYSTEM-MAINTAINED — you MUST NOT edit it (same hard rule as MEMORY.md). Reading/grepping it to inspect the graph is fine.
+
+Format (two sections):
+- `## Entities` — one entity name per line; the graph's entire entity set.
+- `## Connections` — one record line per memory chunk: `[chunk-id] [pending|judged] names :: text preview`. Name marks: plain = confirmed link, `!` = rejected, `?` = awaiting the entity judge's decision. The preview is truncated and display-only.
+
+How it is maintained: a deterministic matcher establishes memory→entity connections; an LLM **entity judge** then confirms/rejects pending (`?`) marks and names new entities. The judge fires automatically in the background after each memory-processing run ends. There is NO agent action to trigger it — do not fabricate one — and it costs nothing when no connections are pending.
+
+Troubleshooting:
+- An empty `## Entities` on a fresh install is normal; the graph populates as memory runs accumulate.
+- `?` marks lingering across multiple days → the judge is not completing. It self-skips when memory is disabled or the LLM is in a failure state; grep `[MEMORY]` in the newest run log after a memory run.
+- The entity embeddings live in `chroma_db_memory/` alongside the chunk index; a full index rebuild reseeds them from ENTITIES.md.
 
 ### Incremental re-indexing
 
@@ -3241,7 +3335,7 @@ You can request a manual prune in chat: tell the user, then either wait for next
 
 ### Adding a fact you want remembered NOW (between cycles)
 
-memory-processing only runs daily at 3am (or on startup with non-empty buffer). If the user wants something remembered immediately:
+memory-processing runs at most once daily (default 3am; the time is user-configurable from the Memory settings panel, which rewrites the `memory-processing` entry in scheduler_config.json) — and only when the unprocessed buffer has reached `memory.processing_threshold` (default 25) or pruning is due. On quiet days the run is skipped, so a fact can wait MORE than a day. If the user wants something remembered immediately:
 
 ```
 Option 1: Add to USER.md
@@ -3263,6 +3357,7 @@ Option 3: Manual trigger (if user requests)
 ### Hard rules
 
 - You MUST NOT `stream_edit` or `write_file` MEMORY.md. Only the memory processor writes there.
+- You MUST NOT edit ENTITIES.md. The entity pipeline owns it; hand edits desync the graph from the index.
 - You MUST NOT edit EVENT.md or EVENT_UNPROCESSED.md.
 - You MAY edit USER.md (with user confirmation, see `## Self-Edit`).
 - You MAY edit AGENT.md (with caution, see `## Self-Edit`).
@@ -3280,7 +3375,15 @@ memory.enabled            bool. If false, memory_search returns empty + no
 memory.max_items          int (default 200). Trigger threshold for pruning.
 memory.prune_target       int (default 135). Target size after a prune.
 memory.item_word_limit    int (default 150). Soft cap on words per stored item.
+memory.processing_threshold  int (default 25, max 100). Minimum unprocessed
+                          events before the daily run proceeds; 0 = no minimum.
+                          Below it (and with no prune due) the daily fire is
+                          skipped entirely.
+memory.indexed_files      list. Extra user-chosen files indexed for
+                          memory_search on top of the fixed set.
 ```
+
+Keys absent from settings.json fall back to the defaults in [agent_core/core/impl/memory/tuning.py](agent_core/core/impl/memory/tuning.py) — the single home of every memory tuning constant.
 
 Toggling `memory.enabled` to false does NOT delete `MEMORY.md` or `chroma_db_memory/`. It just stops the pipeline from running and `memory_search` from returning results.
 
@@ -4499,6 +4602,8 @@ core (action set)         always-loaded set; cannot be opted out                
 craftos_integrations      standalone package owning the integration subsystem              ## Integrations
 Decision Rubric           proactive task scoring (Impact/Risk/Cost/Urgency/Confidence)     PROACTIVE.md, ## Proactive
 end_turn                  action ending a run silently (no message)                        ## Runs
+ENTITIES.md               entity-graph registry: entities + memory connections (do not edit) ## Memory / ## File System
+entity judge              LLM pass confirming pending entity connections after memory runs ## Memory
 EVENT.md                  complete chronological event log (do not edit)                   ## File System
 EVENT_UNPROCESSED.md      memory pipeline staging buffer (do not edit)                     ## File System / ## Memory
 event pipeline            flow from event -> EVENT_UNPROCESSED -> MEMORY.md                ## Memory
@@ -4507,7 +4612,7 @@ GLOBAL_LIVING_UI.md       global Living UI design rules                         
 heartbeat                 scheduler entry firing every 30 min to run due proactive tasks   ## Proactive
 heartbeat-processor       skill that executes due tasks during a heartbeat                 ## Proactive
 hot-reload                config-watcher debounced 0.5s reload of /app/config/             ## Configs
-INDEX_TARGET_FILES        five files indexed by memory_search                              ## Memory
+INDEX_TARGET_FILES        the six files indexed by memory_search (+ user extras)           ## Memory
 integration               external-service connection (Slack, GitHub, Jira, ...)           ## Integrations
 INTEGRATION.md            per-integration reference doc; ## Essentials auto-injected       ## Integrations
 LIVING_UI.md              per-project doc inside a Living UI project                       ## Living UI / ## File System
@@ -4515,9 +4620,10 @@ Living UI                 generated React + PocketBase apps served from CraftBot
 LLM                       large language model used for text generation                    ## Models
 LLMConsecutiveFailureError  circuit-breaker on repeated LLM failures                       ## Errors / ## Models
 lui CLI                   node CLI for Living UI data/ops (living-ui/tools)             ## Living UI
+manage_integration_account  account admin action: set_primary / set_alias / set_listening  ## Integrations
 MCP                       Model Context Protocol; external tool servers                    ## MCP
 mcp_<server_name>         action set name registered when an MCP server connects           ## MCP / ## Action Sets
-memory_search             hybrid vector+BM25 action over indexed agent_file_system files   ## Memory
+memory_search             hybrid vector+BM25+graph action over indexed agent_file_system files  ## Memory
 MemoryManager             singleton for memory indexing + retrieval                        ## Memory
 MEMORY.md                 distilled long-term memory; read via memory_search only          ## Memory / ## File System
 MISSION_INDEX_TEMPLATE.md template for workspace/missions/<name>/INDEX.md                  ## File System / ## Workspace

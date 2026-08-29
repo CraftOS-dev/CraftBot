@@ -2,8 +2,13 @@
 """
 app.usage.action_storage
 
-SQLite-based storage for action panel items (tasks and actions).
-Provides local persistence for action history across agent restarts.
+SQLite-based storage for the per-session activity feed (action and
+reasoning items rendered inline in each session's chat).
+
+Write-through, like chat_storage: the browser action panel persists every
+item as it happens, so the feed survives restarts and crashes. The
+session's event stream stays what it is — LLM context — and is free to
+summarize/prune without affecting the UI's history.
 """
 
 from __future__ import annotations
@@ -11,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -22,83 +27,66 @@ except Exception:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
-def _decode_skills(value: Optional[str]) -> List[str]:
-    """Decode the JSON-encoded selected_skills column. Tolerates legacy NULL/garbage."""
-    if not value:
-        return []
-    try:
-        decoded = json.loads(value)
-        return decoded if isinstance(decoded, list) else []
-    except (ValueError, TypeError):
-        return []
+_ROW_COLUMNS = (
+    "id, name, status, item_type, session_id, created_at, "
+    "completed_at, input_json, output_json, error_message"
+)
+
+
+def _encode(value: Any) -> Optional[str]:
+    """JSON-encode an item's input/output payload (None passes through)."""
+    if value is None:
+        return None
+    return json.dumps(value, default=str)
+
+
+def _decode(value: Optional[str]) -> Any:
+    """Decode a JSON payload column (None passes through)."""
+    if value is None:
+        return None
+    return json.loads(value)
 
 
 @dataclass
 class StoredActionItem:
-    """An action item stored in the database."""
+    """An activity feed item stored in the database."""
 
     id: str
     name: str
-    status: str  # "running", "completed", "error", "cancelled", "pending"
-    item_type: str  # "task" or "action"
-    parent_id: Optional[str] = None
-    created_at: float = 0.0
+    status: str  # "running", "completed", "error"
+    item_type: str  # "action" or "reasoning"
+    session_id: str
+    created_at: float
     completed_at: Optional[float] = None
-    input_data: Optional[str] = None
-    output_data: Optional[str] = None
+    input_data: Any = None
+    output_data: Any = None
     error_message: Optional[str] = None
-    # Task-level metadata (populated only when item_type == "task")
-    selected_skills: List[str] = field(default_factory=list)
-    workflow_id: Optional[str] = None
-    # Per-task cumulative LLM token usage (task-level only; None for actions)
-    input_tokens: Optional[int] = None
-    output_tokens: Optional[int] = None
-    cache_tokens: Optional[int] = None
 
-    @property
-    def duration(self) -> Optional[int]:
-        """Get duration in milliseconds, or None if still running."""
-        if self.completed_at is not None and self.created_at:
-            return int((self.completed_at - self.created_at) * 1000)
-        return None
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "status": self.status,
-            "itemType": self.item_type,
-            "parentId": self.parent_id,
-            "createdAt": int(self.created_at * 1000) if self.created_at else 0,
-            "duration": self.duration,
-            "input": self.input_data,
-            "output": self.output_data,
-            "error": self.error_message,
-            "selectedSkills": self.selected_skills,
-            "workflowId": self.workflow_id,
-            "inputTokens": self.input_tokens,
-            "outputTokens": self.output_tokens,
-            "cacheTokens": self.cache_tokens,
-        }
+def _row_to_item(row) -> StoredActionItem:
+    return StoredActionItem(
+        id=row[0],
+        name=row[1],
+        status=row[2],
+        item_type=row[3],
+        session_id=row[4],
+        created_at=row[5],
+        completed_at=row[6],
+        input_data=_decode(row[7]),
+        output_data=_decode(row[8]),
+        error_message=row[9],
+    )
 
 
 class ActionStorage:
     """
-    SQLite-based storage for action panel items.
+    SQLite-based storage for activity feed items.
 
-    Provides local persistence for action/task history.
+    Every item belongs to a session; reads are grouped per session.
     Items are stored in a SQLite database in app/data/.usage.
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        """
-        Initialize action storage.
-
-        Args:
-            db_path: Path to the SQLite database file.
-                     If None, uses default location in app/data/.usage.
-        """
         if db_path is None:
             from app.config import APP_DATA_PATH
 
@@ -110,373 +98,187 @@ class ActionStorage:
         self._init_db()
         logger.info(f"[ActionStorage] Initialized at {self._db_path}")
 
+    # Columns every query in this module relies on. A table missing any of
+    # them is from an earlier feed generation and cannot be column-patched
+    # (the old layout used different payload columns entirely, e.g.
+    # input_data instead of input_json).
+    _REQUIRED_COLUMNS = frozenset(
+        {
+            "id",
+            "name",
+            "status",
+            "item_type",
+            "session_id",
+            "created_at",
+            "completed_at",
+            "input_json",
+            "output_json",
+            "error_message",
+        }
+    )
+
     def _init_db(self) -> None:
         """Initialize the database schema."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
+            self._retire_incompatible_table(cursor)
+
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS action_items (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     status TEXT NOT NULL,
                     item_type TEXT NOT NULL,
-                    parent_id TEXT,
+                    session_id TEXT NOT NULL,
                     created_at REAL NOT NULL,
                     completed_at REAL,
-                    input_data TEXT,
-                    output_data TEXT,
+                    input_json TEXT,
+                    output_json TEXT,
                     error_message TEXT,
-                    selected_skills TEXT,
-                    workflow_id TEXT,
                     db_created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
-            # Idempotent column add for pre-existing DBs
-            cursor.execute("PRAGMA table_info(action_items)")
-            existing_columns = {row[1] for row in cursor.fetchall()}
-            if "selected_skills" not in existing_columns:
-                cursor.execute(
-                    "ALTER TABLE action_items ADD COLUMN selected_skills TEXT"
-                )
-            if "workflow_id" not in existing_columns:
-                cursor.execute("ALTER TABLE action_items ADD COLUMN workflow_id TEXT")
-            if "input_tokens" not in existing_columns:
-                cursor.execute(
-                    "ALTER TABLE action_items ADD COLUMN input_tokens INTEGER"
-                )
-            if "output_tokens" not in existing_columns:
-                cursor.execute(
-                    "ALTER TABLE action_items ADD COLUMN output_tokens INTEGER"
-                )
-            if "cache_tokens" not in existing_columns:
-                cursor.execute(
-                    "ALTER TABLE action_items ADD COLUMN cache_tokens INTEGER"
-                )
-
-            # Create indexes for common queries
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_action_created_at
-                ON action_items(created_at)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_action_status
-                ON action_items(status)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_action_item_type
-                ON action_items(item_type)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_action_parent_id
-                ON action_items(parent_id)
+                CREATE INDEX IF NOT EXISTS idx_action_session_created
+                ON action_items(session_id, created_at)
             """)
 
             conn.commit()
 
-    def insert_item(self, item: StoredActionItem) -> None:
-        """
-        Insert or update an action item.
+    def _retire_incompatible_table(self, cursor) -> None:
+        """Drop a pre-session_id action_items table so the current schema
+        can be created fresh.
 
-        Args:
-            item: The StoredActionItem to insert or update.
+        CREATE TABLE IF NOT EXISTS never migrates an existing table, so a
+        database created by an older build made every query here fail with
+        'no such column: session_id' (observed live 2026-08-24) — the feed
+        silently lost persistence at every boot. The old layout is not
+        column-compatible (input_data vs input_json), and the feed is a
+        disposable UI cache, so the fix is a drop, not a translation.
         """
-        skills_json = json.dumps(item.selected_skills) if item.selected_skills else None
+        cols = {row[1] for row in cursor.execute("PRAGMA table_info(action_items)")}
+        if not cols or self._REQUIRED_COLUMNS <= cols:
+            return
+        missing = sorted(self._REQUIRED_COLUMNS - cols)
+        cursor.execute("DROP TABLE action_items")
+        logger.warning(
+            "[ActionStorage] Dropped incompatible action_items table "
+            f"(missing columns: {missing}); a fresh one will be created."
+        )
+
+    def save_item(self, item: StoredActionItem) -> None:
+        """Upsert an activity item (full row — used for insert and update)."""
         with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
+            conn.execute(
                 """
                 INSERT OR REPLACE INTO action_items
-                (id, name, status, item_type, parent_id, created_at,
-                 completed_at, input_data, output_data, error_message,
-                 selected_skills, workflow_id,
-                 input_tokens, output_tokens, cache_tokens)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+                (id, name, status, item_type, session_id, created_at,
+                 completed_at, input_json, output_json, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 (
                     item.id,
                     item.name,
                     item.status,
                     item.item_type,
-                    item.parent_id,
+                    item.session_id,
                     item.created_at,
                     item.completed_at,
-                    item.input_data,
-                    item.output_data,
+                    _encode(item.input_data),
+                    _encode(item.output_data),
                     item.error_message,
-                    skills_json,
-                    item.workflow_id,
-                    item.input_tokens,
-                    item.output_tokens,
-                    item.cache_tokens,
                 ),
             )
             conn.commit()
 
-    def update_item_status(
-        self,
-        item_id: str,
-        status: str,
-        completed_at: Optional[float] = None,
-        output_data: Optional[str] = None,
-        error_message: Optional[str] = None,
-    ) -> bool:
-        """
-        Update an item's status and related fields.
-
-        Args:
-            item_id: The item ID to update.
-            status: New status value.
-            completed_at: Completion timestamp (if applicable).
-            output_data: Output data (if any).
-            error_message: Error message (if any).
-
-        Returns:
-            True if item was updated, False if not found.
-        """
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-
-            # Build dynamic update query
-            updates = ["status = ?"]
-            params: List[Any] = [status]
-
-            if completed_at is not None:
-                updates.append("completed_at = ?")
-                params.append(completed_at)
-            if output_data is not None:
-                updates.append("output_data = ?")
-                params.append(output_data)
-            if error_message is not None:
-                updates.append("error_message = ?")
-                params.append(error_message)
-
-            params.append(item_id)
-            query = f"UPDATE action_items SET {', '.join(updates)} WHERE id = ?"
-
-            cursor.execute(query, params)
-            conn.commit()
-            return cursor.rowcount > 0
-
-    def get_items(
-        self,
-        limit: int = 500,
-        include_running: bool = True,
+    def get_recent_items_by_session(
+        self, limit_per_session: int = 100
     ) -> List[StoredActionItem]:
         """
-        Get action items ordered by created_at.
-
-        Args:
-            limit: Maximum number of items to return.
-            include_running: Whether to include running items.
-
-        Returns:
-            List of StoredActionItem objects.
+        Get each session's most recent items, all together in chronological
+        order. Bounds the boot-time feed without a global cutoff that would
+        starve older sessions.
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-
-            query = """
-                SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id,
-                       input_tokens, output_tokens, cache_tokens
-                FROM action_items
-            """
-            if not include_running:
-                query += " WHERE status != 'running'"
-            query += " ORDER BY created_at ASC LIMIT ?"
-
-            cursor.execute(query, (limit,))
-            rows = cursor.fetchall()
-
-            return [
-                StoredActionItem(
-                    id=row[0],
-                    name=row[1],
-                    status=row[2],
-                    item_type=row[3],
-                    parent_id=row[4],
-                    created_at=row[5],
-                    completed_at=row[6],
-                    input_data=row[7],
-                    output_data=row[8],
-                    error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
-                    input_tokens=row[12],
-                    output_tokens=row[13],
-                    cache_tokens=row[14],
-                )
-                for row in rows
-            ]
-
-    def get_recent_items(self, limit: int = 100) -> List[StoredActionItem]:
-        """
-        Get most recent action items.
-
-        Args:
-            limit: Maximum number of items to return.
-
-        Returns:
-            List of recent items ordered by created_at ascending.
-        """
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-            # Get last N items ordered by created_at DESC, then reverse
             cursor.execute(
-                """
-                SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id,
-                       input_tokens, output_tokens, cache_tokens
-                FROM action_items
-                ORDER BY created_at DESC
-                LIMIT ?
-            """,
-                (limit,),
-            )
-            rows = cursor.fetchall()
-
-            items = [
-                StoredActionItem(
-                    id=row[0],
-                    name=row[1],
-                    status=row[2],
-                    item_type=row[3],
-                    parent_id=row[4],
-                    created_at=row[5],
-                    completed_at=row[6],
-                    input_data=row[7],
-                    output_data=row[8],
-                    error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
-                    input_tokens=row[12],
-                    output_tokens=row[13],
-                    cache_tokens=row[14],
+                f"""
+                SELECT {_ROW_COLUMNS} FROM (
+                    SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY session_id ORDER BY created_at DESC
+                    ) AS recency_rank
+                    FROM action_items
                 )
-                for row in rows
-            ]
-            # Reverse to get chronological order
-            items.reverse()
+                WHERE recency_rank <= ?
+                ORDER BY created_at ASC
+                """,
+                (limit_per_session,),
+            )
+            items: List[StoredActionItem] = []
+            for row in cursor.fetchall():
+                try:
+                    items.append(_row_to_item(row))
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(
+                        f"[ActionStorage] Skipping corrupt activity row {row[0]}: {e}"
+                    )
             return items
 
-    def get_item(self, item_id: str) -> Optional[StoredActionItem]:
+    def mark_running_interrupted(self) -> int:
         """
-        Get a single item by ID.
-
-        Args:
-            item_id: The item ID to retrieve.
+        Close out items left 'running' by a previous process. Called once at
+        startup, before the feed is loaded: anything still running at that
+        point died with the process that started it.
 
         Returns:
-            StoredActionItem or None if not found.
+            Number of items updated.
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id,
-                       input_tokens, output_tokens, cache_tokens
-                FROM action_items
-                WHERE id = ?
-            """,
-                (item_id,),
+                UPDATE action_items
+                SET status = 'error',
+                    error_message = 'Interrupted by restart',
+                    completed_at = created_at
+                WHERE status = 'running'
+                """
             )
-            row = cursor.fetchone()
+            conn.commit()
+            return cursor.rowcount
 
-            if row:
-                return StoredActionItem(
-                    id=row[0],
-                    name=row[1],
-                    status=row[2],
-                    item_type=row[3],
-                    parent_id=row[4],
-                    created_at=row[5],
-                    completed_at=row[6],
-                    input_data=row[7],
-                    output_data=row[8],
-                    error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
-                    input_tokens=row[12],
-                    output_tokens=row[13],
-                    cache_tokens=row[14],
-                )
-            return None
-
-    def clear_items(self) -> int:
+    def clear_items(self, session_id: Optional[str] = None) -> int:
         """
-        Clear all items.
+        Clear items — one session's, or all when session_id is None.
 
         Returns:
             Number of items deleted.
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM action_items")
-            count = cursor.fetchone()[0]
-            cursor.execute("DELETE FROM action_items")
+            if session_id:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM action_items WHERE session_id = ?",
+                    (session_id,),
+                )
+                count = cursor.fetchone()[0]
+                cursor.execute(
+                    "DELETE FROM action_items WHERE session_id = ?", (session_id,)
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) FROM action_items")
+                count = cursor.fetchone()[0]
+                cursor.execute("DELETE FROM action_items")
             conn.commit()
             return count
-
-    def clear_terminal_tasks(self) -> List[str]:
-        """
-        Delete tasks whose status is completed/error/cancelled, plus all
-        their child actions. Running/waiting tasks are preserved so the
-        user can keep monitoring active work.
-
-        Returns:
-            List of removed item IDs (terminal tasks + their child actions).
-        """
-        terminal_statuses = ("completed", "error", "cancelled")
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-
-            placeholders = ",".join("?" for _ in terminal_statuses)
-            cursor.execute(
-                f"""
-                SELECT id FROM action_items
-                WHERE item_type = 'task' AND status IN ({placeholders})
-                """,
-                terminal_statuses,
-            )
-            terminal_task_ids = [row[0] for row in cursor.fetchall()]
-
-            if not terminal_task_ids:
-                return []
-
-            id_placeholders = ",".join("?" for _ in terminal_task_ids)
-            cursor.execute(
-                f"""
-                SELECT id FROM action_items
-                WHERE id IN ({id_placeholders}) OR parent_id IN ({id_placeholders})
-                """,
-                terminal_task_ids + terminal_task_ids,
-            )
-            removed_ids = [row[0] for row in cursor.fetchall()]
-
-            cursor.execute(
-                f"""
-                DELETE FROM action_items
-                WHERE id IN ({id_placeholders}) OR parent_id IN ({id_placeholders})
-                """,
-                terminal_task_ids + terminal_task_ids,
-            )
-            conn.commit()
-            return removed_ids
 
     def delete_item(self, item_id: str) -> bool:
         """
         Delete an item by ID.
 
-        Args:
-            item_id: The item ID to delete.
-
         Returns:
-            True if item was deleted, False if not found.
+            True if the item was deleted, False if not found.
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
@@ -484,262 +286,37 @@ class ActionStorage:
             conn.commit()
             return cursor.rowcount > 0
 
-    def delete_task_with_actions(self, task_id: str) -> List[str]:
-        """
-        Delete a single task and all of its child actions.
-
-        Mirrors clear_terminal_tasks() but scoped to one task — used when the
-        user explicitly clicks "Delete" on an ended task in the UI.
-
-        Returns:
-            List of removed item IDs (task + child actions).
-        """
+    def get_item_count(self, session_id: Optional[str] = None) -> int:
+        """Get total number of items (optionally for one session)."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id FROM action_items
-                WHERE id = ? OR parent_id = ?
-                """,
-                (task_id, task_id),
-            )
-            removed_ids = [row[0] for row in cursor.fetchall()]
-
-            if not removed_ids:
-                return []
-
-            cursor.execute(
-                """
-                DELETE FROM action_items
-                WHERE id = ? OR parent_id = ?
-                """,
-                (task_id, task_id),
-            )
-            conn.commit()
-            return removed_ids
-
-    def mark_running_as_cancelled(self, exclude: Optional[set] = None) -> int:
-        """
-        Mark running items as cancelled, optionally excluding some.
-
-        This should be called on startup to clean up stale running items
-        from a previous session.
-
-        Args:
-            exclude: Set of item IDs to skip (e.g., restored tasks that
-                     are still legitimately running).
-
-        Returns:
-            Number of items updated.
-        """
-        import time as time_module
-
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-            if exclude:
-                placeholders = ",".join("?" for _ in exclude)
+            if session_id:
                 cursor.execute(
-                    f"""
-                    UPDATE action_items
-                    SET status = 'cancelled', completed_at = ?
-                    WHERE status = 'running' AND id NOT IN ({placeholders})
-                """,
-                    (time_module.time(), *exclude),
+                    "SELECT COUNT(*) FROM action_items WHERE session_id = ?",
+                    (session_id,),
                 )
             else:
-                cursor.execute(
-                    """
-                    UPDATE action_items
-                    SET status = 'cancelled', completed_at = ?
-                    WHERE status = 'running'
-                """,
-                    (time_module.time(),),
-                )
-            conn.commit()
-            return cursor.rowcount
-
-    def get_recent_tasks_with_actions(
-        self,
-        task_limit: int = 15,
-    ) -> List[StoredActionItem]:
-        """
-        Get the N most recent tasks and all their child actions.
-
-        Args:
-            task_limit: Maximum number of tasks to return.
-
-        Returns:
-            List of items (tasks + their actions) ordered by created_at ascending.
-        """
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-            # Get recent task IDs
-            cursor.execute(
-                """
-                SELECT id FROM action_items
-                WHERE item_type = 'task'
-                ORDER BY created_at DESC
-                LIMIT ?
-            """,
-                (task_limit,),
-            )
-            task_ids = [row[0] for row in cursor.fetchall()]
-
-            if not task_ids:
-                return []
-
-            # Get those tasks + all their child actions
-            placeholders = ",".join("?" * len(task_ids))
-            cursor.execute(
-                f"""
-                SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id,
-                       input_tokens, output_tokens, cache_tokens
-                FROM action_items
-                WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
-                ORDER BY created_at ASC
-            """,
-                task_ids + task_ids,
-            )
-            rows = cursor.fetchall()
-
-            return [
-                StoredActionItem(
-                    id=row[0],
-                    name=row[1],
-                    status=row[2],
-                    item_type=row[3],
-                    parent_id=row[4],
-                    created_at=row[5],
-                    completed_at=row[6],
-                    input_data=row[7],
-                    output_data=row[8],
-                    error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
-                    input_tokens=row[12],
-                    output_tokens=row[13],
-                    cache_tokens=row[14],
-                )
-                for row in rows
-            ]
-
-    def get_tasks_before(
-        self,
-        before_timestamp: float,
-        task_limit: int = 15,
-    ) -> List[StoredActionItem]:
-        """
-        Get tasks (and their actions) older than a given timestamp.
-
-        Args:
-            before_timestamp: Unix timestamp upper bound (exclusive), in seconds.
-            task_limit: Maximum number of tasks to load.
-
-        Returns:
-            List of items (tasks + their actions) ordered by created_at ascending.
-        """
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-            # Get older task IDs
-            cursor.execute(
-                """
-                SELECT id FROM action_items
-                WHERE item_type = 'task' AND created_at < ?
-                ORDER BY created_at DESC
-                LIMIT ?
-            """,
-                (before_timestamp, task_limit),
-            )
-            task_ids = [row[0] for row in cursor.fetchall()]
-
-            if not task_ids:
-                return []
-
-            placeholders = ",".join("?" * len(task_ids))
-            cursor.execute(
-                f"""
-                SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id,
-                       input_tokens, output_tokens, cache_tokens
-                FROM action_items
-                WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
-                ORDER BY created_at ASC
-            """,
-                task_ids + task_ids,
-            )
-            rows = cursor.fetchall()
-
-            return [
-                StoredActionItem(
-                    id=row[0],
-                    name=row[1],
-                    status=row[2],
-                    item_type=row[3],
-                    parent_id=row[4],
-                    created_at=row[5],
-                    completed_at=row[6],
-                    input_data=row[7],
-                    output_data=row[8],
-                    error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
-                    input_tokens=row[12],
-                    output_tokens=row[13],
-                    cache_tokens=row[14],
-                )
-                for row in rows
-            ]
-
-    def get_task_count(self) -> int:
-        """Get total number of tasks (not actions)."""
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM action_items WHERE item_type = 'task'")
-            return cursor.fetchone()[0]
-
-    def get_item_count(self) -> int:
-        """Get total number of items."""
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM action_items")
+                cursor.execute("SELECT COUNT(*) FROM action_items")
             return cursor.fetchone()[0]
 
     def get_stats(self) -> Dict[str, Any]:
-        """
-        Get storage statistics.
-
-        Returns:
-            Dictionary with storage info.
-        """
+        """Get storage statistics."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
 
             cursor.execute("SELECT COUNT(*) FROM action_items")
             total_items = cursor.fetchone()[0]
 
-            cursor.execute("""
-                SELECT COUNT(*) FROM action_items WHERE item_type = 'task'
-            """)
-            total_tasks = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(DISTINCT session_id) FROM action_items")
+            total_sessions = cursor.fetchone()[0]
 
-            cursor.execute("""
-                SELECT COUNT(*) FROM action_items WHERE item_type = 'action'
-            """)
-            total_actions = cursor.fetchone()[0]
-
-            cursor.execute("""
-                SELECT MIN(created_at), MAX(created_at) FROM action_items
-            """)
+            cursor.execute("SELECT MIN(created_at), MAX(created_at) FROM action_items")
             row = cursor.fetchone()
 
             return {
                 "db_path": self._db_path,
                 "total_items": total_items,
-                "total_tasks": total_tasks,
-                "total_actions": total_actions,
+                "total_sessions": total_sessions,
                 "earliest_item": row[0] if row[0] else None,
                 "latest_item": row[1] if row[1] else None,
             }

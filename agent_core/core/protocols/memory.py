@@ -62,6 +62,36 @@ class MemoryManagerProtocol(Protocol):
         """
         ...
 
+    def graph_snapshot(self) -> Dict[str, Any]:
+        """
+        Full memory-graph serialisation (nodes, edges, stats) for UIs.
+        """
+        ...
+
+    def entity_overview(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Everything the memory graph knows about one entity, or None.
+        """
+        ...
+
+    def related_path(self, name_a: str, name_b: str) -> List[Dict[str, Any]]:
+        """
+        Shortest connection between two entities through items/files.
+        """
+        ...
+
+    def get_index_target_files(self) -> List[str]:
+        """
+        Core index files plus validated user-selected extras.
+        """
+        ...
+
+    def get_index_files_info(self) -> List[Dict[str, Any]]:
+        """
+        Per-file index status (path, core, exists, chunk_count, indexed_at).
+        """
+        ...
+
     def update(self) -> Dict[str, Any]:
         """
         Incrementally update the memory index.

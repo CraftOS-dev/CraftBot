@@ -1,117 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Model registry mapping providers to default models."""
+"""Model registry mapping providers to default models.
 
-from agent_core.core.models.types import InterfaceType
+Since Phase 1 (docs/PROVIDER_LAYER_CATCHUP.md) this is DERIVED from the
+provider profiles in provider_config.py — the per-provider default models
+live on ``ProviderProfile.default_models``. The dict shape and import path
+are unchanged for all existing consumers.
+"""
 
-MODEL_REGISTRY = {
-    "openai": {
-        InterfaceType.LLM: "gpt-5.2-2025-12-11",
-        InterfaceType.VLM: "gpt-5.2-2025-12-11",
-        InterfaceType.EMBEDDING: "text-embedding-3-small",
-        InterfaceType.IMAGE_GEN: "gpt-image-2",
-        InterfaceType.VIDEO_GEN: "sora-2",
-    },
-    "gemini": {
-        InterfaceType.LLM: "gemini-2.5-pro",
-        InterfaceType.VLM: "gemini-2.5-pro",
-        InterfaceType.EMBEDDING: "text-embedding-004",
-        InterfaceType.IMAGE_GEN: "gemini-3-pro-image",
-        InterfaceType.VIDEO_GEN: "veo-3.1-generate-preview",
-    },
-    "anthropic": {
-        InterfaceType.LLM: "claude-sonnet-4-6",
-        InterfaceType.VLM: "claude-sonnet-4-6",
-        InterfaceType.EMBEDDING: None,  # Anthropic does not provide native embedding models
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "byteplus": {
-        InterfaceType.LLM: "seed-2-0-pro-260328",
-        InterfaceType.VLM: "seed-2-0-pro-260328",
-        InterfaceType.EMBEDDING: "skylark-embedding-vision-250615",
-        InterfaceType.IMAGE_GEN: None,
-        # BytePlus international (ap-southeast.bytepluses.com) model IDs use
-        # dated build suffixes, no dots, no `doubao-` prefix (`doubao-*` is
-        # the Volcengine China naming). Verified from BytePlus ModelArk docs.
-        InterfaceType.VIDEO_GEN: "seedance-1-0-pro-fast-251015",
-    },
-    "remote": {
-        InterfaceType.LLM: "llama3.2:3b",
-        InterfaceType.VLM: "llava:7b",
-        InterfaceType.EMBEDDING: "nomic-embed-text",
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "minimax": {
-        InterfaceType.LLM: "MiniMax-Text-01",
-        InterfaceType.VLM: "MiniMax-VL-01",
-        InterfaceType.EMBEDDING: None,
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "deepseek": {
-        InterfaceType.LLM: "deepseek-chat",
-        InterfaceType.VLM: None,
-        InterfaceType.EMBEDDING: None,
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "moonshot": {
-        InterfaceType.LLM: "kimi-k2.5",
-        InterfaceType.VLM: "moonshot-v1-8k-vision-preview",
-        InterfaceType.EMBEDDING: None,
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "grok": {
-        InterfaceType.LLM: "grok-3",
-        InterfaceType.VLM: "grok-4-0709",
-        InterfaceType.EMBEDDING: None,
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "glm": {
-        # Z.ai (Zhipu AI) GLM-5.2 -- 1M-context, OpenAI-compatible, multimodal.
-        InterfaceType.LLM: "glm-5.2",
-        InterfaceType.VLM: "glm-5.2",
-        InterfaceType.EMBEDDING: None,
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "fugu": {
-        # Sakana AI Fugu -- OpenAI-compatible orchestration model. Text/LLM
-        # only here; no native vision/embedding/image/video models exposed.
-        InterfaceType.LLM: "fugu",
-        InterfaceType.VLM: None,
-        InterfaceType.EMBEDDING: None,
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "openrouter": {
-        # OpenRouter slugs follow `<provider>/<model>` format. Default to a Claude
-        # model so KV caching exercises the cache_control path on first use.
-        InterfaceType.LLM: "anthropic/claude-sonnet-4.5",
-        InterfaceType.VLM: "anthropic/claude-sonnet-4.5",
-        InterfaceType.EMBEDDING: None,
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-    "bedrock": {
-        # Default to Claude Haiku 4.5 — best price/performance on Bedrock with
-        # cachePoint support (5-min + 1-hour TTL). The `us.` prefix is the
-        # cross-region inference profile, which is required because Claude 4.x
-        # models reject on-demand invocations against the bare `anthropic.*`
-        # ID ("Invocation of model ID ... with on-demand throughput isn't
-        # supported. Retry your request with the ID or ARN of an inference
-        # profile that contains this model."). The `us.anthropic.` prefix
-        # still matches `_BEDROCK_CACHE_PREFIXES`, so cachePoint is exercised.
-        # Users in EU / APAC regions should change `us.` to `eu.` / `ap.`.
-        # Haiku 4.5 also accepts image content blocks via Converse, so it
-        # doubles as the VLM default. Embedding stays on Titan.
-        InterfaceType.LLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-        InterfaceType.VLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-        InterfaceType.EMBEDDING: "amazon.titan-embed-text-v2:0",
-        InterfaceType.IMAGE_GEN: None,
-        InterfaceType.VIDEO_GEN: None,
-    },
-}
+from agent_core.core.models.registry import default_models_registry
+
+MODEL_REGISTRY = default_models_registry()

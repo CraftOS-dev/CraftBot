@@ -58,9 +58,12 @@ def list_available_integrations(input_data: dict) -> dict:
         return {"status": "success", "integrations": [], "message": "Simulated mode"}
 
     try:
-        from craftos_integrations import list_integrations_sync as list_integrations
+        # Connection state and accounts come from the IntegrationSystem;
+        # metadata (name, icon, auth_type, description) from the provider
+        # registry. Both cover every integration — there is no second path.
+        from app.data.action.integrations._helpers import list_integrations_merged
 
-        integrations = list_integrations()
+        integrations = list_integrations_merged()
         filter_connected = input_data.get("filter_connected", False)
 
         if filter_connected:
@@ -105,7 +108,7 @@ def list_available_integrations(input_data: dict) -> dict:
                 "google_docs, google_calendar, google_youtube (there is no single "
                 "'google' integration). Call list_available_integrations if unsure."
             ),
-            "example": "telegram",
+            "example": "telegram_bot",
         },
         "credentials": {
             "type": "object",
@@ -159,7 +162,7 @@ def list_available_integrations(input_data: dict) -> dict:
         },
     },
     test_payload={
-        "integration_id": "telegram",
+        "integration_id": "telegram_bot",
         "credentials": {"bot_token": "test_token"},
         "simulated_mode": True,
     },
@@ -182,13 +185,10 @@ def connect_integration(input_data: dict) -> dict:
 
     try:
         from craftos_integrations import (
-            connect_token as connect_integration_token,
-            connect_oauth as connect_integration_oauth,
-            connect_interactive as connect_integration_interactive,
             get_integration_fields,
             integration_registry,
         )
-        from craftos_integrations.integrations.whatsapp_web import (
+        from craftos_integrations.providers.whatsapp_web.client import (
             start_qr_session as start_whatsapp_qr_session,
         )
 
@@ -271,17 +271,27 @@ def connect_integration(input_data: dict) -> dict:
                     ],
                 }
 
-            loop = asyncio.new_event_loop()
-            try:
-                success, message = loop.run_until_complete(
-                    connect_integration_token(integration_id, credentials)
+            # Validate the token the same way the connect flow does, then
+            # store through the integration system.
+            from app.data.action.integrations._helpers import (
+                system_connect_token,
+                system_for,
+            )
+
+            system = system_for(integration_id)
+            if system is not None:
+                success, message = system_connect_token(
+                    system, integration_id, credentials
                 )
-            finally:
-                loop.close()
+                return {
+                    "status": "success" if success else "error",
+                    "message": message,
+                    "auth_type": "token",
+                }
 
             return {
-                "status": "success" if success else "error",
-                "message": message,
+                "status": "error",
+                "message": f"Unknown integration: {integration_id}",
                 "auth_type": "token",
             }
 
@@ -294,17 +304,29 @@ def connect_integration(input_data: dict) -> dict:
                     "auth_type": supported_auth,
                 }
 
-            loop = asyncio.new_event_loop()
-            try:
-                success, message = loop.run_until_complete(
-                    connect_integration_oauth(integration_id)
-                )
-            finally:
-                loop.close()
+            # multi-account providers: real multi-account OAuth via the
+            # IntegrationSystem (account chooser, identity capture,
+            # listener reconcile) instead of the connect flow flow.
+            from app.data.action.integrations._helpers import system_for
+
+            system = system_for(integration_id)
+            if system is not None:
+                loop = asyncio.new_event_loop()
+                try:
+                    success, message, _accounts = loop.run_until_complete(
+                        system.add_account(integration_id)
+                    )
+                finally:
+                    loop.close()
+                return {
+                    "status": "success" if success else "error",
+                    "message": message,
+                    "auth_type": "oauth",
+                }
 
             return {
-                "status": "success" if success else "error",
-                "message": message,
+                "status": "error",
+                "message": f"Unknown integration: {integration_id}",
                 "auth_type": "oauth",
             }
 
@@ -317,8 +339,11 @@ def connect_integration(input_data: dict) -> dict:
                     "auth_type": supported_auth,
                 }
 
-            # Special handling for WhatsApp QR code flow
-            if integration_id == "whatsapp":
+            # WhatsApp QR flow. The id is "whatsapp_web" — the provider id, which
+            # is what the registry gate above admits. It read "whatsapp" until
+            # 2026-08-26, so this branch never fired and WhatsApp fell through to
+            # the connect flow's refusal message.
+            if integration_id == "whatsapp_web":
                 loop = asyncio.new_event_loop()
                 try:
                     result = loop.run_until_complete(start_whatsapp_qr_session())
@@ -352,18 +377,14 @@ def connect_integration(input_data: dict) -> dict:
                         "auth_type": "interactive",
                     }
 
-            # Generic interactive flow for other integrations (e.g., Telegram user)
-            loop = asyncio.new_event_loop()
-            try:
-                success, message = loop.run_until_complete(
-                    connect_integration_interactive(integration_id)
-                )
-            finally:
-                loop.close()
-
+            # whatsapp_web is the only provider declaring interactive auth, and
+            # its QR flow is handled above. Anything else reaching here declared
+            # an interactive auth_type without a flow to run.
             return {
-                "status": "success" if success else "error",
-                "message": message,
+                "status": "error",
+                "message": (
+                    f"No interactive connect flow is implemented for {info['name']}."
+                ),
                 "auth_type": "interactive",
             }
 
@@ -432,7 +453,7 @@ def connect_integration(input_data: dict) -> dict:
         },
     },
     test_payload={
-        "integration_id": "telegram",
+        "integration_id": "telegram_bot",
         "simulated_mode": True,
     },
 )
@@ -479,9 +500,13 @@ def check_integration_status(input_data: dict) -> dict:
         }
 
     try:
-        # If a session_id is provided, check WhatsApp QR session status
-        if session_id and integration_id == "whatsapp":
-            from craftos_integrations.integrations.whatsapp_web import (
+        # If a session_id is provided, check WhatsApp QR session status.
+        # The id is the provider id, "whatsapp_web" — this read "whatsapp"
+        # until 2026-08-26, so polling with the id the registry actually
+        # reports never entered the branch and the scanned account was never
+        # stored. ("whatsapp" still lands here via INTEGRATION_ALIASES.)
+        if session_id and integration_id == "whatsapp_web":
+            from craftos_integrations.providers.whatsapp_web.client import (
                 check_qr_session_status as check_whatsapp_session_status,
             )
 
@@ -493,6 +518,28 @@ def check_integration_status(input_data: dict) -> dict:
             finally:
                 loop.close()
 
+            # On connect, store the account into the AccountSet — the QR
+            # flow itself can't (craftos_integrations never imports the
+            # host). Idempotent: repeated polls upsert the same identity.
+            if result.get("connected") and result.get("credential"):
+                try:
+                    from app.integrations import get_system
+
+                    system = get_system()
+                    system.store_credential(
+                        "whatsapp_web",
+                        result.get("identity"),
+                        result["credential"],
+                    )
+                    system.reconcile_listeners()
+                except Exception as e:
+                    return {
+                        "status": "error",
+                        "connected": False,
+                        "accounts": [],
+                        "message": f"WhatsApp connected but storing the account failed: {e}",
+                    }
+
             return {
                 "status": result.get("status", "error"),
                 "connected": result.get("connected", False),
@@ -500,40 +547,53 @@ def check_integration_status(input_data: dict) -> dict:
                 "message": result.get("message", ""),
             }
 
-        # Otherwise check general integration status
-        from craftos_integrations import (
-            get_integration_info_sync as get_integration_info,
+        # multi-account providers: connection state + accounts come from the
+        # multi-account IntegrationSystem (never the credential
+        # files). Status text uses the shared plan-§6 line format; the
+        # structured accounts array carries {identity, alias, isPrimary,
+        # listen}.
+        from app.data.action.integrations._helpers import (
+            account_lines,
+            accounts_payload,
+            display_name_for,
+            system_for,
         )
 
-        info = get_integration_info(integration_id)
-        if not info:
-            # List the valid ids so the agent can self-correct instead of
-            # repeating an invalid guess.
-            try:
-                from craftos_integrations import list_all
-
-                valid = ", ".join(sorted(list_all()))
-            except Exception:
-                valid = ""
-            message = f"Unknown integration: '{integration_id}'."
-            if valid:
-                message += f" Valid integrations: {valid}."
+        system = system_for(integration_id)
+        if system is not None:
+            infos = system.list_accounts(integration_id)
+            accounts = accounts_payload(infos, integration_id)
+            name = display_name_for(system, integration_id)
+            if accounts:
+                lines = "\n".join(account_lines(infos))
+                message = (
+                    f"{name} is connected with {len(accounts)} account(s):\n{lines}"
+                )
+            else:
+                message = f"{name} is not connected."
             return {
-                "status": "error",
-                "connected": False,
-                "accounts": [],
+                "status": "success",
+                "connected": bool(accounts),
+                "accounts": accounts,
                 "message": message,
             }
 
+        # Unknown id — list the valid ones so the agent can self-correct
+        # instead of repeating an invalid guess.
+        try:
+            from craftos_integrations import list_all
+
+            valid = ", ".join(sorted(list_all()))
+        except Exception:
+            valid = ""
+        message = f"Unknown integration: '{integration_id}'."
+        if valid:
+            message += f" Valid integrations: {valid}."
         return {
-            "status": "success",
-            "connected": info["connected"],
-            "accounts": info.get("accounts", []),
-            "message": (
-                f"{info['name']} is connected with {len(info.get('accounts', []))} account(s)."
-                if info["connected"]
-                else f"{info['name']} is not connected."
-            ),
+            "status": "error",
+            "connected": False,
+            "accounts": [],
+            "message": message,
         }
     except Exception as e:
         return {
@@ -582,7 +642,6 @@ def check_integration_status(input_data: dict) -> dict:
     },
 )
 def disconnect_integration(input_data: dict) -> dict:
-    import asyncio
 
     if input_data.get("simulated_mode"):
         return {"status": "success", "message": "Simulated mode"}
@@ -597,19 +656,146 @@ def disconnect_integration(input_data: dict) -> dict:
         return {"status": "error", "message": "integration_id is required."}
 
     try:
-        from craftos_integrations import disconnect as _disconnect
+        # multi-account providers: remove accounts through the multi-account
+        # IntegrationSystem (with account_id: just that account; without:
+        # all of them).
+        from app.data.action.integrations._helpers import system_disconnect, system_for
 
-        loop = asyncio.new_event_loop()
-        try:
-            success, message = loop.run_until_complete(
-                _disconnect(integration_id, account_id)
-            )
-        finally:
-            loop.close()
+        system = system_for(integration_id)
+        if system is not None:
+            success, message = system_disconnect(system, integration_id, account_id)
+            return {
+                "status": "success" if success else "error",
+                "message": message,
+            }
 
         return {
-            "status": "success" if success else "error",
-            "message": message,
+            "status": "error",
+            "message": f"Unknown integration: {integration_id}",
         }
     except Exception as e:
         return {"status": "error", "message": f"Disconnect failed: {str(e)}"}
+
+
+@action(
+    name="manage_integration_account",
+    description=(
+        "Manage a connected integration account: set it as the primary "
+        "(default) account, give it a nickname/alias, or turn inbound "
+        "listening on/off for it. Use when the user says things like 'make "
+        "my work Gmail the default', 'call this account job-search', or "
+        "'stop listening on my second Slack'."
+    ),
+    default=True,
+    action_sets=["core"],
+    parallelizable=False,
+    input_schema={
+        "integration_id": {
+            "type": "string",
+            "description": "The integration the account belongs to.",
+            "example": "gmail",
+        },
+        "account": {
+            "type": "string",
+            "description": (
+                "Which account: an identity (email/id), the user's alias for "
+                "it, or any unique fragment of either."
+            ),
+            "example": "work",
+        },
+        "operation": {
+            "type": "string",
+            "description": "One of: set_primary | set_alias | set_listening",
+            "example": "set_primary",
+        },
+        "value": {
+            "type": "string",
+            "description": (
+                "For set_alias: the new alias (empty clears it). For "
+                "set_listening: 'true' or 'false'. Ignored for set_primary."
+            ),
+            "example": "",
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "message": {"type": "string", "description": "Human-readable result."},
+        "accounts": {
+            "type": "array",
+            "description": "The integration's accounts after the change.",
+        },
+    },
+    test_payload={
+        "integration_id": "gmail",
+        "account": "work",
+        "operation": "set_primary",
+        "simulated_mode": True,
+    },
+)
+def manage_integration_account(input_data: dict) -> dict:
+    if input_data.get("simulated_mode"):
+        return {"status": "success", "message": "Simulated mode"}
+
+    from app.data.action.integrations._helpers import (
+        accounts_payload,
+        normalize_integration_id,
+        system_for,
+    )
+
+    integration_id = normalize_integration_id(
+        (input_data.get("integration_id") or "").strip().lower()
+    )
+    account = (input_data.get("account") or "").strip() or None
+    operation = (input_data.get("operation") or "").strip().lower()
+    value = (input_data.get("value") or "").strip()
+
+    if not integration_id:
+        return {"status": "error", "message": "integration_id is required."}
+    if operation not in ("set_primary", "set_alias", "set_listening"):
+        return {
+            "status": "error",
+            "message": (
+                f"Unknown operation {operation!r}. Use set_primary, "
+                f"set_alias, or set_listening."
+            ),
+        }
+
+    system = system_for(integration_id)
+    if system is None:
+        return {
+            "status": "error",
+            "message": f"Unknown integration: {integration_id}",
+        }
+
+    try:
+        if operation == "set_primary":
+            identity = system.set_primary(integration_id, account)
+            message = f"'{identity}' is now the primary {integration_id} account."
+        elif operation == "set_alias":
+            identity = system.set_alias(integration_id, account, value or None)
+            message = (
+                f"Alias for '{identity}' set to '{value}'."
+                if value
+                else f"Alias for '{identity}' cleared."
+            )
+        else:  # set_listening
+            if value.lower() not in ("true", "false"):
+                return {
+                    "status": "error",
+                    "message": "set_listening needs value 'true' or 'false'.",
+                }
+            on = value.lower() == "true"
+            identity = system.set_listening(integration_id, account, on)
+            message = (
+                f"Listening {'enabled' if on else 'disabled'} for "
+                f"'{identity}' on {integration_id}."
+            )
+        return {
+            "status": "success",
+            "message": message,
+            "accounts": accounts_payload(system.list_accounts(integration_id)),
+        }
+    except Exception as e:
+        # AccountResolutionError messages already enumerate the valid
+        # accounts, so the model can self-correct on a bad hint.
+        return {"status": "error", "message": str(e)}

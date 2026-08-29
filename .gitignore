@@ -60,3 +60,5 @@ agent_bundle/
 **/.craftbot/
 app/data/.file_index/
 .playwright-mcp
+# Sidecar Node runtime (install.py downloads it when the system Node is too old for Living UI)
+runtime/

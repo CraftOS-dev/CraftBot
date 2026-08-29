@@ -28,6 +28,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple, TYPE_CHECKING
 
+from app import node_runtime
+from app.living_ui import marketplace_source
+
 try:
     from loguru import logger
 except ImportError:
@@ -60,8 +63,14 @@ class LivingUIProject:
     # The project's dedicated agent session (persisted — every Living UI
     # project owns one standalone session for its builds, fixes and chat).
     session_id: Optional[str] = None
-    auto_launch: bool = False  # Auto-launch on CraftBot startup
+    auto_launch: bool = True  # Auto-launch on CraftBot startup
     log_cleanup: bool = True  # Clean logs on restart
+    # Backups of live pb_data (spec docs/plans/living-ui-backups-plan.md).
+    # Default ON (D1): the user who never opens settings is the one who
+    # needs a backup. No-ops until a live DB exists; external apps N/A.
+    backups_enabled: bool = True
+    backup_interval: str = "daily"  # hourly | 6h | daily | weekly
+    backup_keep: int = 7  # scheduled-pool retention (1-30)
     style_pack: str = ""  # wizard-chosen default style pack (host may override)
     # Display icon: "lucide:<name>" (picker) or "file:<relpath>" (uploaded,
     # doubles as the app's favicon).
@@ -77,8 +86,15 @@ class LivingUIProject:
     # manifest's craftbotVersion records the ORIGINAL creator's version).
     craftbot_version: Optional[str] = None
     bridge_token: str = ""  # Ephemeral token for integration bridge (NOT serialized)
+    # External apps only: the hidden loopback port the foreign app itself
+    # binds; the A2App proxy holds `port` in front of it (NOT serialized —
+    # reallocated at every launch).
+    internal_port: Optional[int] = None
     tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
     tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
+    # Open file object the tunnel process writes into (NOT serialized). Held
+    # so it can be closed when the tunnel stops — see start_tunnel.
+    tunnel_log: Optional[Any] = None
     process: Optional[subprocess.Popen] = None  # Frontend process
 
     def to_dict(self) -> Dict[str, Any]:
@@ -100,6 +116,9 @@ class LivingUIProject:
             "sessionId": self.session_id,
             "autoLaunch": self.auto_launch,
             "logCleanup": self.log_cleanup,
+            "backupsEnabled": self.backups_enabled,
+            "backupInterval": self.backup_interval,
+            "backupKeep": self.backup_keep,
             "stylePack": self.style_pack,
             "icon": self.icon,
             "uiTheme": self.ui_theme,
@@ -136,6 +155,12 @@ class LivingUIManager:
         self._watchdog_task: Optional[asyncio.Task] = None
         self._watchdog_running: bool = False
 
+        # A2App adapters for EXTERNAL apps: one in-process reverse proxy per
+        # running external project (spec docs/design/
+        # external-app-a2app-adapter.md). The proxy holds the project PORT,
+        # so every kill-by-port on a project port must stop the proxy first.
+        self._external_proxies: Dict[str, Any] = {}
+
         # Ensure workspace directory exists
         self.living_ui_dir = self.workspace_root / "living_ui"
         self.living_ui_dir.mkdir(parents=True, exist_ok=True)
@@ -147,11 +172,36 @@ class LivingUIManager:
 
         self.runner = LivingUIRunner(Path(PROJECT_ROOT) / "living-ui")
 
-        # Staging copies of delivered apps (modify-era data safety). Composed
-        # like runner: the supervisor never reaches back into the manager.
-        from app.living_ui.staging import StagingSupervisor
+        # Unified dev/live lifecycle: every code change (first build or
+        # modify) develops and verifies in a DEV environment (code copy +
+        # fresh schema-only DB on a hidden port); a clean verify PROMOTES it
+        # to live. Composed like runner: the lifecycle never reaches back
+        # into the manager beyond the two callables injected here.
+        from app.living_ui.lifecycle import AppLifecycle
 
-        self.staging = StagingSupervisor(self.living_ui_dir, self.runner)
+        self.lifecycle = AppLifecycle(
+            self.living_ui_dir,
+            self.runner,
+            self._run_launch_pipeline,
+            self.launch_and_verify,
+        )
+
+        # Backups of live pb_data (spec docs/plans/living-ui-backups-plan.md).
+        # Composed like the lifecycle: the service never reaches back. The
+        # watchdog drives the schedule; ONE lock serializes captures; the
+        # in-flight set keeps the scheduler out of promotes/restores (and
+        # vice versa).
+        from app.living_ui.lifecycle import BackupService
+
+        self.backups = BackupService(self.living_ui_dir)
+        self._backup_lock = asyncio.Lock()
+        self._live_ops: set = set()  # project ids mid-promote/mid-restore
+        self._backups_inflight: set = set()  # ids with a capture task queued/running
+        # Pre-promote backup (lifecycle plan deferred issue #1): snapshot the
+        # live pb_data right before every promote boot over existing data.
+        # Sync hook by contract; a raising capture ABORTS the promote — never
+        # deploy over data we just failed to protect.
+        self.lifecycle.promoter.add_before_live_boot_hook(self._pre_promote_backup)
 
         # Load existing projects
         self._load_projects()
@@ -240,6 +290,11 @@ class LivingUIManager:
     WATCHDOG_INTERVAL = 30  # seconds between checks
     WATCHDOG_RETRY_DELAYS = [5, 15, 30]  # seconds to wait between restart attempts
 
+    # Max projects auto-launched at once on startup. Each launch spawns a
+    # PocketBase boot + a headless verify browser, so this caps the boot
+    # storm's peak load while still overlapping the waits.
+    AUTO_LAUNCH_CONCURRENCY = 3
+
     def start_watchdog(self) -> None:
         """Start the background watchdog that monitors running projects."""
         if self._watchdog_running:
@@ -284,6 +339,17 @@ class LivingUIManager:
                 await asyncio.sleep(self.WATCHDOG_INTERVAL)
 
                 for project_id, project in list(self.projects.items()):
+                    # Backups are due-checked for EVERY project, before the
+                    # running gate — a stopped app with a live DB still backs
+                    # up (via the stopped capture path).
+                    try:
+                        self._maybe_schedule_backup(project)
+                    except Exception as e:
+                        logger.warning(
+                            f"[LIVING_UI:BACKUP] schedule check failed for "
+                            f"{project_id}: {e}"
+                        )
+
                     if project.status != "running":
                         # Clear retry count if project is no longer running
                         retry_counts.pop(project_id, None)
@@ -298,6 +364,16 @@ class LivingUIManager:
                             project.port
                         ):
                             frontend_dead = True
+                    # External apps: the in-process proxy keeps the PROJECT
+                    # port alive even when the app behind it dies, so the
+                    # app's own (internal) port is the honest liveness probe.
+                    if (
+                        not frontend_dead
+                        and getattr(project, "project_type", "native") == "external"
+                        and project.internal_port
+                        and not self._is_port_in_use(project.internal_port)
+                    ):
+                        frontend_dead = True
 
                     if not frontend_dead:
                         # Everything healthy, reset retry counter
@@ -343,11 +419,7 @@ class LivingUIManager:
                         if not project.bridge_token:
                             project.bridge_token = secrets.token_urlsafe(32)
                         if getattr(project, "project_type", "native") == "external":
-                            _res = await self._run_external_pipeline(
-                                Path(project.path),
-                                project.port,
-                                project.bridge_token,
-                            )
+                            _res = await self._run_external_pipeline(project)
                             restart_ok = _res.get("status") == "success"
                             if restart_ok:
                                 project.process = _res.pop("process")
@@ -376,12 +448,143 @@ class LivingUIManager:
                                 "[LIVING_UI:WATCHDOG] Restart succeeded but "
                                 "state could not be persisted"
                             )
+                        # The iframe was pointing at a dead port until now;
+                        # tell open tabs to repoint at the revived process.
+                        await self._broadcast_ready(project)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"[LIVING_UI:WATCHDOG] Unexpected error: {e}")
                 await asyncio.sleep(self.WATCHDOG_INTERVAL)
+
+    # ========================================================================
+    # Backups (spec docs/plans/living-ui-backups-plan.md)
+    # ========================================================================
+
+    _BACKUP_INTERVALS = {
+        "hourly": 3600,
+        "6h": 6 * 3600,
+        "daily": 86400,
+        "weekly": 7 * 86400,
+    }
+
+    def _maybe_schedule_backup(self, project) -> None:
+        """Watchdog tick: start a due scheduled backup as a background task.
+        Sync and cheap — one sidecar read past the structural gates."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+
+        if (
+            not project.backups_enabled
+            or getattr(project, "project_type", "native") == "external"
+            or project.id in self._live_ops
+            or project.id in self._backups_inflight
+            or not live_db_exists(project.path)
+        ):
+            return
+        state = get_factory_host().backup_state(project.id)
+        interval = self._BACKUP_INTERVALS.get(project.backup_interval, 86400)
+        # Absent last_at -> due now: first-enable AND catch-up after a
+        # restart/overdue sleep both fall out of the same rule.
+        if state["last_at"] is not None and time.time() - state["last_at"] < interval:
+            return
+        self._backups_inflight.add(project.id)
+        asyncio.create_task(self._run_scheduled_backup(project))
+
+    async def _run_scheduled_backup(self, project) -> None:
+        """One scheduled capture + prune + sidecar record. Failure never
+        touches the app (FR10): log, record, retry at the next due tick."""
+        from app.factory.host_craftbot import get_factory_host
+
+        host = get_factory_host()
+        try:
+            async with self._backup_lock:  # serialize captures globally (NFR)
+                if project.id in self._live_ops:
+                    return  # promote/restore began while queued — next tick
+                entry = await self._capture_auto(project, "scheduled")
+            self.backups.store.prune(project.id, "scheduled", project.backup_keep)
+            host.record_backup_ok(project.id, entry.ts)
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:BACKUP] scheduled backup failed for {project.id}: {e}"
+            )
+            try:
+                host.record_backup_error(project.id, str(e))
+            except Exception:
+                pass
+        finally:
+            self._backups_inflight.discard(project.id)
+
+    async def _capture_auto(self, project, trigger: str):
+        """Running app → PB's atomic backup API; stopped → snapshot path
+        (off-loop — sqlite backup + zip can take seconds)."""
+        if project.status == "running" and project.port:
+            return await self.backups.capture_running(project, trigger)
+        return await asyncio.to_thread(self.backups.capture_stopped, project, trigger)
+
+    async def backup_now(self, project_id: str) -> dict:
+        """User-driven manual backup (FR8). Manual-pool: never auto-pruned."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+
+        project = self.projects.get(project_id)
+        if not project:
+            return {"status": "error", "errors": [f"Unknown project: {project_id}"]}
+        if getattr(project, "project_type", "native") == "external":
+            return {"status": "error", "errors": ["External apps have no pb_data."]}
+        if not live_db_exists(project.path):
+            return {
+                "status": "error",
+                "errors": ["No live database yet — nothing to back up."],
+            }
+        if project_id in self._live_ops:
+            return {
+                "status": "error",
+                "errors": ["A promote/restore is in flight — retry shortly."],
+            }
+        host = get_factory_host()
+        try:
+            async with self._backup_lock:
+                entry = await self._capture_auto(project, "manual")
+            host.record_backup_ok(project_id, entry.ts)
+            return {
+                "status": "success",
+                "filename": entry.filename,
+                "size": entry.size,
+            }
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:BACKUP] manual backup failed for {project_id}: {e}"
+            )
+            try:
+                host.record_backup_error(project_id, str(e))
+            except Exception:
+                pass
+            return {"status": "error", "errors": [str(e)]}
+
+    def _pre_promote_backup(self, project) -> None:
+        """before_live_boot hook (lifecycle deferred issue #1): snapshot live
+        pb_data right before the promote boot. First deliveries (no live DB)
+        and externals (no pb/) no-op. RAISES on failure — the promoter
+        aborts, by contract: never deploy over data we failed to protect."""
+        from app.factory.host_craftbot import get_factory_host
+        from app.living_ui.lifecycle import live_db_exists
+        from app.living_ui.lifecycle.backups import PRE_PROMOTE_KEEP
+
+        if getattr(project, "project_type", "native") == "external":
+            return
+        if not live_db_exists(project.path):
+            return
+        entry = self.backups.capture_stopped(project, "pre_promote")
+        self.backups.store.prune(project.id, "pre_promote", PRE_PROMOTE_KEEP)
+        try:
+            # A fresh capture is a fresh capture: reset the scheduled clock
+            # so promote-heavy days don't also stack near-identical
+            # scheduled archives minutes later.
+            get_factory_host().record_backup_ok(project.id, entry.ts)
+        except Exception:
+            pass
 
     async def _escalate_crash(self, project_id: str, crash_targets: List[str]) -> None:
         """
@@ -548,8 +751,11 @@ UI in {project.path}/frontend/src/app/."""
                             features=project_data.get("features", []),
                             theme=project_data.get("theme", "system"),
                             session_id=project_data.get("sessionId"),
-                            auto_launch=project_data.get("autoLaunch", False),
+                            auto_launch=project_data.get("autoLaunch", True),
                             log_cleanup=project_data.get("logCleanup", True),
+                            backups_enabled=project_data.get("backupsEnabled", True),
+                            backup_interval=project_data.get("backupInterval", "daily"),
+                            backup_keep=project_data.get("backupKeep", 7),
                             style_pack=project_data.get("stylePack", ""),
                             icon=project_data.get("icon"),
                             ui_theme=project_data.get("uiTheme"),
@@ -576,6 +782,9 @@ UI in {project.path}/frontend/src/app/."""
                                     f"[LIVING_UI] Tunnel expired for '{project.name}', clearing"
                                 )
                                 project.tunnel_url = None
+                                # The app must stop trusting an origin that no
+                                # longer reaches it.
+                                self._publish_tunnel_origin(project, None)
                         # Reset status to stopped for all loaded projects
                         project.status = (
                             "stopped" if project.status == "running" else project.status
@@ -803,10 +1012,10 @@ UI in {project.path}/frontend/src/app/."""
         install → validation gate → serve → health → hook-load scan → smoke.
 
         Registry-free on purpose: `_launch_native` runs it on the real project
-        and adds status/persistence around it; `launch_staging` runs the SAME
-        pipeline on a staging copy — one definition means fix missions get
-        identical evidence quality (boot-log excerpts, hook-load failures)
-        in both eras.
+        and adds status/persistence around it; the lifecycle's `open_dev`
+        runs the SAME pipeline on a dev copy — one definition means fix
+        missions get identical evidence quality (boot-log excerpts,
+        hook-load failures) in both environments.
 
         Returns {"status": "success", "process": Popen} — caller owns the
         process — or {"status": "error", "step": ..., "errors": [...]}.
@@ -933,16 +1142,20 @@ UI in {project.path}/frontend/src/app/."""
         except Exception:
             return {}
 
-    async def _run_external_pipeline(
-        self, project_dir: Path, port: int, bridge_token: str
-    ) -> dict:
-        """Launch an EXTERNAL app via its craftbot.json pipeline verbs —
-        the first real consumer of the M3/M4 four-verb contract
-        (EXTERNAL-APPS-PLAN Phase A). Reduced gate per WORKFLOWS I-R2:
-        install/build (when declared) + start + health. No kit, no lui gate,
-        no PocketBase anything. Same result envelope as the native pipeline.
+    async def _run_external_pipeline(self, project: "LivingUIProject") -> dict:
+        """Launch an EXTERNAL app via its craftbot.json pipeline verbs, then
+        put the A2App adapter proxy in FRONT of it (spec
+        docs/design/external-app-a2app-adapter.md): the app binds a hidden
+        internal loopback port, the proxy binds the project port and serves
+        identity/describe/_ops/ops plus transparent passthrough — so an
+        adopted app presents the same agent-drivable surface as a native
+        one. Reduced gate per WORKFLOWS I-R2: install/build (when declared)
+        + start + health + adapter self-check. No kit, no lui gate, no
+        PocketBase anything. Same result envelope as the native pipeline.
         """
-        project_dir = Path(project_dir)
+        project_dir = Path(project.path)
+        port = project.port
+        bridge_token = project.bridge_token
 
         def _fail(step: str, errors: list) -> dict:
             return {"status": "error", "step": step, "errors": errors}
@@ -961,7 +1174,59 @@ UI in {project.path}/frontend/src/app/."""
                 ],
             )
 
-        self._kill_process_on_port(port)
+        # The previous launch's proxy holds the project port IN-PROCESS:
+        # stop it before any kill-by-port, or the "stale listener" we kill
+        # is CraftBot itself.
+        old_proxy = self._external_proxies.pop(project.id, None)
+        if old_proxy is not None:
+            try:
+                await old_proxy.stop()
+            except Exception:
+                pass
+        if self._is_port_in_use(port):
+            own_pid = str(os.getpid())
+            holder = self._get_pids_on_ports({port}).get(port)
+            if holder is None or str(holder) != own_pid:
+                self._kill_process_on_port(port)
+
+        # The app itself binds a fresh hidden internal port each launch.
+        if project.internal_port:
+            if self._is_port_in_use(project.internal_port):
+                self._kill_process_on_port(project.internal_port)
+            self._release_port(project.internal_port)
+            project.internal_port = None
+        try:
+            internal_port = self._allocate_port()
+        except RuntimeError as e:
+            return _fail("adopt", [str(e)])
+        project.internal_port = internal_port
+
+        # Adapter credentials + manifest, self-healing at every launch
+        # (native parity: the agent token is created at launch; a stub
+        # operations.json keeps identity/describe/_ops well-formed until the
+        # adoption mission maps real verbs).
+        token_file = project_dir / ".agent-token"
+        try:
+            if (
+                not token_file.exists()
+                or not token_file.read_text(encoding="utf-8").strip()
+            ):
+                token_file.write_text(secrets.token_urlsafe(32), encoding="utf-8")
+                try:
+                    os.chmod(token_file, 0o600)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] agent token mint failed: {e}")
+        ops_file = project_dir / "operations.json"
+        if not ops_file.exists():
+            try:
+                ops_file.write_text(
+                    '{\n  "opsVersion": 1,\n  "operations": []\n}\n',
+                    encoding="utf-8",
+                )
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] operations.json stub failed: {e}")
 
         # app.log is append-mode across launches (same idiom as
         # pocketbase.log): remember where THIS boot starts so failures quote
@@ -989,27 +1254,37 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 return ""
 
-        bridge_env = {}
+        # Belt to the .git containment boundary (see _import_external_tree):
+        # HUSKY=0 makes husky's installer a no-op, SKIP_SIMPLE_GIT_HOOKS
+        # skips simple-git-hooks execution — a foreign app's install must
+        # never touch git hooks anywhere.
+        bridge_env = {"HUSKY": "0", "SKIP_SIMPLE_GIT_HOOKS": "1"}
         if bridge_token:
             bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
-            bridge_env = {
-                "CRAFTBOT_BRIDGE_URL": f"http://localhost:{bridge_port}",
-                "CRAFTBOT_BRIDGE_TOKEN": bridge_token,
-            }
+            bridge_env.update(
+                {
+                    "CRAFTBOT_BRIDGE_URL": f"http://localhost:{bridge_port}",
+                    "CRAFTBOT_BRIDGE_TOKEN": bridge_token,
+                }
+            )
 
         # install / build: declared-only, logged, hard-timeboxed.
         for step in ("install", "build"):
             cmd = str(pipeline.get(step) or "").strip()
             if not cmd:
                 continue
-            cmd = self._resolve_python_in_command(cmd.replace("{{PORT}}", str(port)))
+            cmd = self._resolve_python_in_command(
+                cmd.replace("{{PORT}}", str(internal_port))
+            )
             try:
                 with open(log_path, "a", encoding="utf-8") as lh:
                     lh.write(f"\n[{step}] {cmd}\n")
                     proc = await asyncio.create_subprocess_shell(
                         cmd,
                         cwd=str(project_dir),
-                        env={**os.environ, **bridge_env},
+                        # bare npm/node in pipeline commands resolve to the
+                        # single runtime (see app/node_runtime.py)
+                        env=node_runtime.child_env(bridge_env),
                         stdout=lh,
                         stderr=lh,
                     )
@@ -1028,37 +1303,129 @@ UI in {project.path}/frontend/src/app/."""
                     [f"{step} exited with {code}", "app.log:\n" + _log_since_boot()],
                 )
 
-        start_cmd = start_cmd.replace("{{PORT}}", str(port))
+        start_cmd = start_cmd.replace("{{PORT}}", str(internal_port))
         try:
             process = self._start_process(
                 cwd=project_dir,
                 command=start_cmd,
                 log_file=log_path,
-                port=port,
+                port=internal_port,
                 extra_env=bridge_env,
             )
         except Exception as e:
             return _fail("start", [str(e)])
 
+        # Health is checked against the app's OWN port first — a proxy that
+        # answers in front of a dead app must never read as healthy.
         healthy = await self._check_health_with_strategy(
-            pipeline.get("health"), port, process, timeout=45
+            pipeline.get("health"), internal_port, process, timeout=45
         )
         if not healthy:
             self._terminate_process(process)
             errors = [
-                f"App not healthy on :{port} (health config: "
-                f"{pipeline.get('health')!r})"
+                f"App not healthy on internal port :{internal_port} "
+                f"(health config: {pipeline.get('health')!r})"
             ]
             boot_log = _log_since_boot()
             if boot_log:
                 errors.append("app.log (this boot):\n" + boot_log)
             return _fail("health", errors)
 
+        # A2App adapter in front of the healthy app: bind the project port,
+        # then structurally self-check the surface (the identity probe is
+        # the only reliable check — a status code never is).
+        import importlib
+        import sys as _sys
+
+        if "app.living_ui.a2app_proxy" in _sys.modules:
+            importlib.reload(_sys.modules["app.living_ui.a2app_proxy"])
+        from app.living_ui.a2app_proxy import ExternalA2AppProxy
+
+        proxy = ExternalA2AppProxy(
+            project_dir,
+            port,
+            internal_port,
+            project.id,
+            project.name,
+            getattr(project, "app_runtime", None),
+        )
+        try:
+            await proxy.start()
+        except Exception as e:
+            self._terminate_process(process)
+            return _fail(
+                "adapter",
+                [f"A2App adapter failed to bind :{port}: {e}"],
+            )
+        self._external_proxies[project.id] = proxy
+        if not await self._a2app_self_check(port):
+            self._external_proxies.pop(project.id, None)
+            try:
+                await proxy.stop()
+            except Exception:
+                pass
+            self._terminate_process(process)
+            return _fail(
+                "adapter",
+                [
+                    f"GET http://127.0.0.1:{port}/api/_a2app did not answer "
+                    "as an A2App surface after launch."
+                ],
+            )
+
         return {"status": "success", "process": process}
+
+    async def _a2app_self_check(self, port: int, timeout: float = 8.0) -> bool:
+        """Probe GET /api/_a2app on the project port until it identifies as
+        an A2App surface (or the timeout passes).
+
+        Probes with urllib in an executor thread — deliberately zero asyncio
+        machinery. The 2026-08-24 chili3d incident: nest_asyncio (Python
+        3.14) left asyncio.current_task() returning None process-wide, which
+        broke `asyncio.timeout` and with it every aiohttp CLIENT request —
+        the original aiohttp probe failed silently for its whole window
+        while the proxy it was probing was healthy. The root cause is now
+        healed by the current_task compat-shim in
+        agent_core/core/impl/action/manager.py (which the proxy's own
+        upstream client also depends on); the sync probe stays as
+        defense-in-depth, and it LOGS its last failure instead of
+        swallowing it — this failure mode was invisible for hours.
+        """
+        import urllib.request
+        import json as _json
+
+        last_error: List[str] = [""]
+
+        def _sync_check() -> bool:
+            try:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/_a2app", method="GET"
+                )
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    if resp.status == 200:
+                        payload = _json.loads(resp.read().decode("utf-8"))
+                        if payload.get("a2app") is True:
+                            return True
+                    last_error[0] = f"HTTP {resp.status}, not an a2app payload"
+            except Exception as e:
+                last_error[0] = f"{type(e).__name__}: {e}"
+            return False
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            result = await asyncio.get_event_loop().run_in_executor(None, _sync_check)
+            if result:
+                return True
+            await asyncio.sleep(0.5)
+        logger.warning(
+            f"[LIVING_UI:A2APP] self-check on :{port} failed for {timeout}s; "
+            f"last error: {last_error[0] or 'none recorded'}"
+        )
+        return False
 
     async def _launch_native(self, project: LivingUIProject) -> dict:
         """Native launch of the REAL project: the shared pipeline plus registry
-        state (status, url, persistence) and the pristine-baseline hook.
+        state (status, url, persistence).
 
         One PocketBase process serves both the API and the built frontend
         (living-ui spec D5); errors come back machine-readable so the
@@ -1079,9 +1446,7 @@ UI in {project.path}/frontend/src/app/."""
             project.bridge_token = secrets.token_urlsafe(32)
 
         if getattr(project, "project_type", "native") == "external":
-            result = await self._run_external_pipeline(
-                project_path, project.port, project.bridge_token
-            )
+            result = await self._run_external_pipeline(project)
         else:
             result = await self._run_launch_pipeline(
                 project_path, project.port, project.bridge_token
@@ -1100,28 +1465,23 @@ UI in {project.path}/frontend/src/app/."""
         project.error = None
         self._save_projects()
 
-        # Pristine-baseline snapshot: taken ONCE, at the first successful
-        # launch of a never-delivered app — before the agent or verifier has
-        # created any test records. finalize_first_delivery() restores it
-        # right before the delivery announce so the user's first sight of the
-        # app is junk-free. Best-effort by design: a failed snapshot must
-        # never block a launch (worst case the app delivers with test data,
-        # which is today's behavior).
-        try:
-            from app.factory.host_craftbot import get_factory_host
-            from app.living_ui.pb_data_io import snapshot_pb_data
+        # Tell already-connected browser clients this app is live. Every launch
+        # routes through here, so this is the ONE place that covers the paths
+        # that don't broadcast themselves — startup auto-launch and restore.
+        # Without it those flip a project to running silently and an open page
+        # keeps spinning until a manual refresh re-fetches the list. The action
+        # path (manual UI launch) also emits its own living_ui_launch reply;
+        # both markReady/markRunning are idempotent, so the overlap is benign.
+        await self._broadcast_ready(project)
 
-            baseline = project_path / ".snapshots" / "baseline"
-            if (
-                getattr(project, "project_type", "native") != "external"
-                and not baseline.exists()
-                and not get_factory_host().is_delivered(project.id)
-            ):
-                snapshot_pb_data(
-                    project_path / "pb" / "pb_data", baseline, self.living_ui_dir
-                )
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] baseline snapshot skipped: {e}")
+        # Scoped walk-verify baseline: whatever the REAL project dir serves
+        # here IS the live app, so it is what the next verify's diff is
+        # taken against. Covers every path that never promotes (marketplace
+        # install, import, startup auto-launch, restart) - without it a
+        # marketplace app's first modify was a NO BASELINE full walk. Skipped
+        # while a dev env exists: the real dir then holds unverified edits.
+        if getattr(project, "project_type", "native") != "external":
+            await self._record_verify_baseline(project)
 
         logger.info(f"[LIVING_UI] {project.name} running at {project.url}")
         return {
@@ -1131,231 +1491,253 @@ UI in {project.path}/frontend/src/app/."""
             "port": project.port,
         }
 
-    async def finalize_first_delivery(self, project_id: str) -> dict:
-        """Restore the pristine pb_data baseline and relaunch, so the app the
-        user is about to be handed contains no agent/verifier test records.
-
-        Called from walk_verify's clean branch, on a never-delivered app,
-        AFTER the verifier passed against the live (junk-filled) DB and
-        BEFORE the delivery announce. Migration files written during the
-        build re-apply on the restored DB at boot (they are absent from its
-        _migrations table), so the delivered schema is current — the gate
-        proves the full migration chain replays cleanly on every validate.
-
-        A missing baseline (legacy project, snapshot failure at first launch)
-        is NOT an error: we skip the restore and deliver as today, never
-        guess-wipe. Returns {"status": "success"} or an error dict in the
-        _launch_native envelope.
-        """
-        project = self.projects.get(project_id)
-        if not project:
-            return {
-                "status": "error",
-                "step": "finalize",
-                "errors": [f"Unknown project: {project_id}"],
-            }
-        project_path = Path(project.path)
-        baseline = project_path / ".snapshots" / "baseline"
-        if not (baseline / "data.db").exists():
-            logger.info(
-                f"[LIVING_UI] no baseline for {project_id} — delivering without restore"
-            )
-            return {"status": "success", "restored": False}
-
-        from app.living_ui.pb_data_io import restore_pb_data
-
-        # Stop the server before touching pb_data (a live writer during the
-        # restore corrupts both sides). Don't flip status mid-sequence — the
-        # watchdog restarts anything still marked "running" with a dead port,
-        # and a half-finalized app must not be relaunched under our feet.
-        project.status = "stopped"
-        if project.process:
-            self._terminate_process(project.process)
-            project.process = None
-        if project.port and self._is_port_in_use(project.port):
-            self._kill_process_on_port(project.port)
-
-        try:
-            restore_pb_data(
-                baseline, project_path / "pb" / "pb_data", self.living_ui_dir
-            )
-        except Exception as e:
-            # pb_data may now be gone/partial — a plain start would boot an
-            # empty DB. Fall through to the full pipeline, which re-applies
-            # migrations and re-verifies before anyone is told "ready".
-            logger.error(f"[LIVING_UI] baseline restore failed: {e}")
-            return await self._launch_native(project)
-
-        try:
-            project.process = await self.runner.start(
-                project_path, project.port, bridge_token=project.bridge_token
-            )
-            if not await self.runner.wait_healthy(project.port):
-                raise RuntimeError(f"/api/health not responding on :{project.port}")
-        except Exception as e:
-            logger.warning(
-                f"[LIVING_UI] slim relaunch after restore failed ({e}) — "
-                "falling back to the full pipeline"
-            )
-            return await self._launch_native(project)
-
-        project.status = "running"
-        project.url = f"http://127.0.0.1:{project.port}"
-        project.backend_url = project.url
-        project.error = None
-        self._save_projects()
-        # The user's tab may still render the verifier's test records from
-        # before the restore (realtime keeps old rows painted through a
-        # server restart) — tell the frontend to refetch so the first thing
-        # the user sees is the pristine state.
-        try:
-            from app.living_ui.broadcast import dispatch_living_ui_data_changed
-
-            dispatch_living_ui_data_changed(project_id)
-        except Exception:
-            pass
-        # Trigger consent: a supervised build that delivered is first-party —
-        # approve its declared triggers (mirror of finalize_modify's grant).
+    async def _record_verify_baseline(self, project: LivingUIProject) -> None:
+        """Best-effort, off the event loop; never fails a launch."""
         try:
             from app.factory.host_craftbot import get_factory_host
 
-            get_factory_host().set_triggers_approved(project_id)
+            if get_factory_host().get_staging_record(project.id):
+                return
+            from app.living_ui.verify_scope import ensure_baseline, verify_store_dir
+
+            written = await asyncio.to_thread(
+                ensure_baseline, project.path, verify_store_dir(project)
+            )
+            if written:
+                logger.info(f"[LIVING_UI] verify baseline recorded for {project.id}")
         except Exception as e:
-            logger.warning(f"[LIVING_UI] trigger approval on delivery failed: {e}")
-        logger.info(f"[LIVING_UI] {project_id} finalized for first delivery")
-        return {"status": "success", "restored": True}
+            logger.debug(f"[LIVING_UI] verify baseline skipped for {project.id}: {e}")
 
-    async def launch_staging(self, project_id: str) -> dict:
-        """Gate + boot the STAGING copy of a delivered app (creating or
-        refreshing it first). The real app is not rebuilt, restarted or
-        written to — it keeps serving the old working code while the change
-        is developed and verified in the copy.
+    async def _broadcast_ready(self, project: LivingUIProject) -> None:
+        """Push a living_ui_ready event so open browser tabs clear the launch
+        spinner and pick up the URL. Fail-silent: a broadcast problem must
+        never fail an otherwise-successful launch."""
+        try:
+            from app.living_ui.broadcast import broadcast_living_ui_ready
 
-        Same result envelope as _launch_native, plus url/port of the staging
-        instance on success.
+            await broadcast_living_ui_ready(project.id, project.url, project.port)
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] ready broadcast skipped for {project.id}: {e}")
+
+    async def open_dev(self, project_id: str) -> dict:
+        """Boot the DEV environment for a code change (first build or
+        modify): the project's current code on a hidden port with a fresh
+        schema-only DB. See lifecycle.AppLifecycle.open_dev."""
+        project = self.projects.get(project_id)
+        if not project:
+            return {
+                "status": "error",
+                "step": "dev",
+                "errors": [f"Unknown project: {project_id}"],
+            }
+        return await self.lifecycle.open_dev(project)
+
+    async def promote(self, project_id: str) -> dict:
+        """Deploy verified code to the live environment and destroy the dev
+        copy. See lifecycle.Promoter.promote."""
+        project = self.projects.get(project_id)
+        if not project:
+            return {
+                "status": "error",
+                "step": "promote",
+                "errors": [f"Unknown project: {project_id}"],
+            }
+        # Visible to the backup scheduler: no scheduled capture may start
+        # mid-promote (the pre-promote hook is the sanctioned one).
+        self._live_ops.add(project_id)
+        try:
+            return await self.lifecycle.promote(project)
+        finally:
+            self._live_ops.discard(project_id)
+
+    async def restore_backup(
+        self,
+        project_id: str,
+        filename: str,
+        source_project_id: Optional[str] = None,
+    ) -> dict:
+        """User-initiated restore of a pb_data backup (FR9) — the SECOND
+        sanctioned live-write path (the first is migration replay during
+        promote; see lifecycle/__init__). Made reversible rather than
+        friction-guarded: the current live state is captured first, so a
+        wrong restore is undone by restoring THAT archive.
+
+        `source_project_id` lets the archive come from ANOTHER project's
+        backup dir — the leftover backups of a deleted app, restored into a
+        (usually rebuilt) live one. The safety story is unchanged: the
+        target's state is captured first, and the relaunch is the honest
+        probe of whether the foreign data fits the app.
+
+        stop → pre-restore capture (abort if it fails: never destroy state
+        we failed to save) → replace pb_data → full-pipeline relaunch
+        (migrations newer than the archive re-apply at boot) → refetch
+        broadcast. Never agent-invocable — settings surface only.
         """
-        from app.factory.host_craftbot import get_factory_host
-        from app.living_ui.staging import StagingInstance
+        from app.living_ui.pb_data_io import restore_pb_data
 
         project = self.projects.get(project_id)
         if not project:
             return {
                 "status": "error",
-                "step": "staging",
+                "step": "restore",
                 "errors": [f"Unknown project: {project_id}"],
             }
         if getattr(project, "project_type", "native") == "external":
-            # Staging is pb/-shaped; an external app has no clonable DB or
-            # gate. Changes to externals run live (EXTERNAL-APPS-PLAN v1).
             return {
                 "status": "error",
-                "step": "staging",
-                "errors": [
-                    "External apps have no staging mode — relaunch live via "
-                    "living_ui_notify_ready (changes apply directly)."
-                ],
+                "step": "restore",
+                "errors": ["External apps have no pb_data backups."],
             }
-
-        host = get_factory_host()
-        record = host.get_staging_record(project_id)
+        source_id = source_project_id or project_id
         try:
-            if (
-                record
-                and Path(record.get("dir", "")).joinpath("manifest.json").exists()
-            ):
-                instance = StagingInstance.from_record(project_id, record)
-                self.staging.sync_code(project, instance.dir)
-            else:
-                instance = await self.staging.create_copy(project)
-        except Exception as e:
-            # Never fall back to gating/serving the real project dir — that
-            # is exactly the live-UI blanking this mode exists to prevent.
+            available = self.backups.store.list_backups(source_id)
+        except ValueError as e:
+            return {"status": "error", "step": "restore", "errors": [str(e)]}
+        entry = next((e for e in available if e.filename == filename), None)
+        if entry is None:
             return {
                 "status": "error",
-                "step": "staging",
-                "errors": [f"Could not prepare the staging copy: {e}"],
+                "step": "restore",
+                "errors": [f"No such backup: {filename}"],
+            }
+        if project_id in self._live_ops:
+            return {
+                "status": "error",
+                "step": "restore",
+                "errors": ["Another promote/restore is in flight — retry shortly."],
             }
 
-        # Reuse (never overwrite) the project's bridge token: the live app's
-        # running process carries it in its env, and validate_bridge_token
-        # checks the current in-memory value — re-minting would cut the live
-        # app off from the bridge mid-modify.
-        if not project.bridge_token:
-            project.bridge_token = secrets.token_urlsafe(32)
-
-        # Record BEFORE booting: a pipeline failure must still leave the
-        # record in place so living_ui_http redirects there and the next
-        # notify_ready reuses the copy instead of re-cloning.
-        host.set_staging_record(project_id, instance.to_record())
-
-        result = await self._run_launch_pipeline(
-            instance.dir, instance.port, project.bridge_token
-        )
-        if result["status"] != "success":
-            return result
-
-        self.staging.adopt_process(instance, result.pop("process"))
-        host.set_staging_record(project_id, instance.to_record())
-
-        # A modify is now demonstrably in progress (staging is up) — re-arm
-        # the factory machine so the modify gets the same supervision as a
-        # build: fix missions on defects, caps, machine announcements
-        # (LIFECYCLE-PLAN Phase 2). Deterministic here, never agent-driven;
-        # no-ops when a modify/fix arc is already in flight.
+        self._live_ops.add(project_id)
         try:
-            host.begin_modify(project_id)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI:STAGING] begin_modify failed: {e}")
+            was_running = project.status == "running"
+            await self.stop_project(project_id)
 
-        logger.info(f"[LIVING_UI:STAGING] {project_id} staging up at {instance.url}")
-        return {
-            "status": "success",
-            "url": instance.url,
-            "backend_url": instance.url,
-            "port": instance.port,
-            "staging": True,
-        }
+            # FR9 2a — the abort-on-failure safety net. Its own pool: each
+            # restore's undo point, pruned to a constant like pre_promote.
+            try:
+                from app.living_ui.lifecycle.backups import PRE_RESTORE_KEEP
 
-    async def finalize_modify(self, project_id: str) -> dict:
-        """The flip, after a clean staging verify: relaunch the REAL project
-        (the gate rebuilds its pb_public; new migration files apply to the
-        real pb_data at boot — user data stays in place), then destroy the
-        staging copy and every test record with it.
+                pre = await asyncio.to_thread(
+                    self.backups.capture_stopped, project, "pre_restore"
+                )
+                self.backups.store.prune(project_id, "pre_restore", PRE_RESTORE_KEEP)
+                try:
+                    from app.factory.host_craftbot import get_factory_host
 
-        On failure the staging copy and its record are KEPT — the real app
-        is the casualty being repaired, and the next fix iteration needs the
-        copy.
-        """
-        from app.factory.host_craftbot import get_factory_host
+                    get_factory_host().record_backup_ok(project_id, pre.ts)
+                except Exception:
+                    pass
+            except Exception as e:
+                result = await self.launch_and_verify(project_id) if was_running else {}
+                return {
+                    "status": "error",
+                    "step": "pre_restore_backup",
+                    "errors": [
+                        f"Could not back up the CURRENT state ({e}) — restore "
+                        "aborted, nothing was changed."
+                        + (
+                            ""
+                            if result.get("status") in ("success", None)
+                            else " Relaunch of the untouched app also failed."
+                        )
+                    ],
+                }
 
-        result = await self.launch_and_verify(project_id)
-        if result["status"] != "success":
-            return result
+            restore_error = None
+            try:
+                snapshot = await asyncio.to_thread(self.backups.prepare_restore, entry)
+                await asyncio.to_thread(
+                    restore_pb_data,
+                    snapshot,
+                    Path(project.path) / "pb" / "pb_data",
+                    self.living_ui_dir,
+                )
+            except Exception as e:
+                restore_error = str(e)
+            finally:
+                self.backups.cleanup_restore(entry)
 
-        host = get_factory_host()
-        try:
-            self.staging.destroy(project_id, host.get_staging_record(project_id))
+            async def _rollback() -> Optional[str]:
+                """Put the pre-restore capture back and reboot. None on
+                success, error text on failure."""
+                try:
+                    snap = await asyncio.to_thread(self.backups.prepare_restore, pre)
+                    try:
+                        await asyncio.to_thread(
+                            restore_pb_data,
+                            snap,
+                            Path(project.path) / "pb" / "pb_data",
+                            self.living_ui_dir,
+                        )
+                    finally:
+                        self.backups.cleanup_restore(pre)
+                    rb = await self.launch_and_verify(project_id)
+                    if rb.get("status") != "success":
+                        return "; ".join(rb.get("errors", ["relaunch failed"])[:3])
+                    return None
+                except Exception as e:
+                    return str(e)
+
+            # Relaunch through the full pipeline either way: on success the
+            # restored DB boots (newer migrations re-apply); on failure
+            # pb_data may be partial and the gate/boot is the honest probe —
+            # the deliberate policy for archives of ANOTHER (deleted) app or
+            # of an app whose schema has since moved on: try it if it can
+            # work, and when it can't, fail CLEAN by rolling the app back to
+            # the state captured moments ago.
+            result = await self.launch_and_verify(project_id)
+            if restore_error is not None or result.get("status") != "success":
+                failure = (
+                    f"Restore failed: {restore_error}"
+                    if restore_error is not None
+                    else "The app failed to relaunch on the restored data "
+                    "(likely an incompatible backup)"
+                )
+                rollback_error = await _rollback()
+                if rollback_error is None:
+                    return {
+                        "status": "error",
+                        "step": "restore",
+                        "errors": [
+                            f"{failure}. The app was rolled back to its "
+                            "pre-restore state — nothing was lost.",
+                            *result.get("errors", [])[:5],
+                        ],
+                    }
+                return {
+                    "status": "error",
+                    "step": "relaunch",
+                    "errors": [
+                        f"{failure}. Automatic rollback also failed "
+                        f"({rollback_error}) — the pre-restore state is "
+                        f"kept as {pre.filename}; restore it to recover.",
+                        *result.get("errors", [])[:5],
+                    ],
+                }
+
+            # Open tabs still paint pre-restore rows through the restart.
+            try:
+                from app.living_ui.broadcast import dispatch_living_ui_data_changed
+
+                dispatch_living_ui_data_changed(project_id)
+            except Exception:
+                pass
+            logger.info(
+                f"[LIVING_UI:BACKUP] {project_id} restored from {filename}"
+                + (
+                    f" (backup of deleted app {source_id})"
+                    if source_id != project_id
+                    else ""
+                )
+            )
+            return {
+                "status": "success",
+                "restored": filename,
+                "pre_restore_backup": pre.filename,
+                "url": result.get("url"),
+            }
         finally:
-            host.clear_staging_record(project_id)
-        # Trigger consent (spec TRIGGERS-PLAN): a supervised modify that
-        # delivered is first-party work the user asked for in chat — approve
-        # its declared triggers. This is also how apps built BEFORE the
-        # consent feature get approved (observed live 2026-08-06: a kanban
-        # board gained a user-requested trigger via modify and every fire
-        # was then consent-blocked, silently).
-        try:
-            host.set_triggers_approved(project_id)
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] trigger approval on flip failed: {e}")
-        # A tab still showing the pre-flip app must refetch (same stale-view
-        # hazard as finalize_first_delivery's baseline restore).
-        try:
-            from app.living_ui.broadcast import dispatch_living_ui_data_changed
-
-            dispatch_living_ui_data_changed(project_id)
-        except Exception:
-            pass
-        return result
+            self._live_ops.discard(project_id)
 
     async def launch_and_verify(self, project_id: str) -> dict:
         """
@@ -1546,10 +1928,9 @@ UI in {project.path}/frontend/src/app/."""
         )
         log_handle.flush()
 
-        # Build env with integration bridge vars if project provided
-        env = os.environ.copy()
-        if extra_env:
-            env.update(extra_env)
+        # Build env with integration bridge vars if project provided; the
+        # resolved Node runtime leads PATH (see app/node_runtime.py).
+        env = node_runtime.child_env(extra_env)
         if project and project.bridge_token:
             bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
             env["CRAFTBOT_BRIDGE_URL"] = f"http://localhost:{bridge_port}"
@@ -1728,15 +2109,19 @@ UI in {project.path}/frontend/src/app/."""
         if killed_count > 0:
             logger.info(f"[LIVING_UI] Killed {killed_count} orphan process(es)")
 
-        # 2. Clean up orphan project folders
-        orphan_count = self._cleanup_orphan_folders()
+        # 2. Log orphan project folders (do NOT delete — deleting them at boot
+        # has destroyed real user projects; logging is the safe behavior).
+        orphan_count = self._log_orphan_folders()
         if orphan_count > 0:
-            logger.info(f"[LIVING_UI] Removed {orphan_count} orphan folder(s)")
+            logger.info(
+                f"[LIVING_UI] Found {orphan_count} orphan folder(s) (left in place)"
+            )
 
-        # 2b. Reap staging copies. None is legitimately alive at boot (their
-        # modify missions died with the previous process), but their
-        # PocketBase instances outlive us — kill by recorded pid, delete the
-        # copies, clear the records so nothing redirects to a dead port.
+        # 2b. Reap dev environments. None is legitimately alive at boot
+        # (their build/modify missions died with the previous process), but
+        # their PocketBase instances outlive us — kill by recorded pid,
+        # delete the copies, clear the records so nothing redirects to a
+        # dead port.
         try:
             from app.factory.host_craftbot import get_factory_host
 
@@ -1746,13 +2131,13 @@ UI in {project.path}/frontend/src/app/."""
                 record = host.get_staging_record(pid_)
                 if record:
                     records[pid_] = record
-            reaped = self.staging.reap_all(records)
+            reaped = self.lifecycle.reap_dev(records)
             for pid_ in records:
                 host.clear_staging_record(pid_)
             if reaped:
-                logger.info(f"[LIVING_UI] Reaped {reaped} staging leftover(s)")
+                logger.info(f"[LIVING_UI] Reaped {reaped} dev-env leftover(s)")
         except Exception as e:
-            logger.warning(f"[LIVING_UI] staging reap failed: {e}")
+            logger.warning(f"[LIVING_UI] dev-env reap failed: {e}")
 
         # 3. Reset all project statuses to 'stopped' and clear process references
         for project in self.projects.values():
@@ -1765,12 +2150,16 @@ UI in {project.path}/frontend/src/app/."""
 
         logger.info("[LIVING_UI] Startup cleanup complete")
 
-    def _cleanup_orphan_folders(self) -> int:
+    def _log_orphan_folders(self) -> int:
         """
-        Delete project folders that are not tracked in the registry.
+        Log project folders that are not tracked in the registry.
+
+        Orphan folders are deliberately NOT deleted: deleting them at boot has
+        destroyed real user projects. We only surface them so they can be
+        recovered or removed manually.
 
         Returns:
-            Number of orphan folders deleted
+            Number of orphan folders found
         """
         if not self.living_ui_dir.exists():
             return 0
@@ -1778,25 +2167,22 @@ UI in {project.path}/frontend/src/app/."""
         tracked_paths = {Path(p.path) for p in self.projects.values()}
         orphan_count = 0
 
-        # _staging is workspace infrastructure, not an orphan project: the
-        # wizard stages reference files under it (with its own age-based
-        # sweeper) and StagingSupervisor keeps modify-era app copies there
-        # (reaped deliberately — kill recorded pid, then delete — by
-        # reap_orphans(), not by this blind rmtree).
-        skip_names = {"_staging"}
+        # _staging and _backups are workspace infrastructure, not orphan
+        # projects: the wizard stages reference files under _staging (with
+        # its own age-based sweeper) and DevProvisioner keeps dev-env app
+        # copies there. _backups holds pb_data archives that must OUTLIVE
+        # their project. Skip both so they never show up as orphans.
+        skip_names = {"_staging", "_backups"}
 
         for folder in self.living_ui_dir.iterdir():
             if folder.name in skip_names:
                 continue
             if folder.is_dir() and folder not in tracked_paths:
-                try:
-                    shutil.rmtree(folder)
-                    logger.info(f"[LIVING_UI] Deleted orphan folder: {folder.name}")
-                    orphan_count += 1
-                except Exception as e:
-                    logger.warning(
-                        f"[LIVING_UI] Failed to delete orphan folder {folder}: {e}"
-                    )
+                logger.warning(
+                    f"[LIVING_UI] Orphan folder (not tracked in registry, left "
+                    f"in place): {folder.name}"
+                )
+                orphan_count += 1
 
         return orphan_count
 
@@ -1880,9 +2266,10 @@ UI in {project.path}/frontend/src/app/."""
     def _register_acquired(self, project: LivingUIProject, *, delivered: bool) -> None:
         """Every entry point (scaffold / marketplace / import) lands here
         after its starting state is on disk (LIFECYCLE-PLAN Phase 3):
-        registry + persistence + session, and — for sources that arrive as
-        finished apps — the delivered flag that keys every later data-safety
-        mode (staging verifies, no baseline restore)."""
+        registry + persistence + session. `delivered` means the app ARRIVED
+        finished (marketplace/import): its delivery timestamp is stamped and
+        trigger consent stays fail-closed. Data safety no longer keys on it
+        — that's structural (lifecycle.live_db_exists)."""
         # Provenance: which CraftBot acquired this project (the manifest's
         # craftbotVersion separately records the original creator's version).
         if not project.craftbot_version:
@@ -1904,10 +2291,27 @@ UI in {project.path}/frontend/src/app/."""
             try:
                 from app.factory.host_craftbot import get_factory_host
 
-                get_factory_host().mark_delivered(project.id)
+                get_factory_host().stamp_delivered(project.id)
             except Exception as e:
                 logger.warning(
-                    f"[LIVING_UI] mark_delivered failed for {project.id}: {e}"
+                    f"[LIVING_UI] stamp_delivered failed for {project.id}: {e}"
+                )
+            # Scoped walk-verify: an app that arrived finished is a VERIFIED
+            # state (walked upstream). Record its code as the baseline and
+            # say so in the verify history, so the first local modify diffs
+            # against the shipped code instead of walking everything.
+            try:
+                from app.living_ui.verify_scope import (
+                    record_delivered,
+                    verify_store_dir,
+                )
+
+                record_delivered(
+                    project.path, verify_store_dir(project), source="marketplace/import"
+                )
+            except Exception as e:
+                logger.debug(
+                    f"[LIVING_UI] delivered baseline skipped for {project.id}: {e}"
                 )
         else:
             # Trigger-plane consent (spec TRIGGERS-PLAN): apps BUILT here are
@@ -2039,6 +2443,25 @@ UI in {project.path}/frontend/src/app/."""
         )
         (dest / "logs").mkdir(exist_ok=True)
 
+        # CONTAINMENT: a foreign app's `npm install` may run git-hook
+        # installers (simple-git-hooks, husky) that walk UP to the nearest
+        # .git and write hooks into it. Without a boundary here that nearest
+        # repo is CRAFTBOT'S OWN — chili3d's install wrote `npx lint-staged`
+        # into our pre-commit and blocked every commit (observed live
+        # 2026-08-24). A minimal valid .git dir makes the project itself the
+        # nearest repo, so hook writers land harmlessly inside this
+        # (gitignored) workspace copy. Both tools locate the repo by walking
+        # up for a .git entry; git itself accepts this layout as a repo.
+        git_boundary = dest / ".git"
+        try:
+            (git_boundary / "objects").mkdir(parents=True, exist_ok=True)
+            (git_boundary / "refs").mkdir(exist_ok=True)
+            (git_boundary / "HEAD").write_text(
+                "ref: refs/heads/main\n", encoding="utf-8"
+            )
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] git containment boundary failed: {e}")
+
         # CraftBot's config lives in craftbot.json — NEVER manifest.json,
         # which a foreign app may legitimately own (Chrome extensions, PWAs).
         # Same four pipeline verbs as native manifests (REQUIREMENTS M3/M4);
@@ -2067,6 +2490,18 @@ UI in {project.path}/frontend/src/app/."""
         (dest / "craftbot.json").write_text(
             json.dumps(config, indent=2) + "\n", encoding="utf-8"
         )
+
+        # A2App surface stub (spec docs/design/external-app-a2app-adapter.md):
+        # the adoption mission maps the app's real verbs into this file; an
+        # empty list keeps identity/describe/_ops well-formed until then. A
+        # foreign repo could legitimately own an operations.json of its own —
+        # only write the stub when none exists.
+        ops_file = dest / "operations.json"
+        if not ops_file.exists():
+            ops_file.write_text(
+                '{\n  "opsVersion": 1,\n  "operations": []\n}\n',
+                encoding="utf-8",
+            )
 
         # The adoption SPEC is deterministic and small: the deliverable of an
         # import is the MANIFEST, so verification covers launchability — not
@@ -2121,21 +2556,46 @@ UI in {project.path}/frontend/src/app/."""
                 f"This is a foreign app that must RUN AS-IS in its own runtime "
                 f"(detected: {project.app_runtime or 'unknown'}). Do NOT "
                 f"rebuild it and do NOT edit its code except config needed to "
-                f"bind the assigned port. Your deliverable is the RUN CONFIG, "
-                f"not the app's features — reference/requirements.md already "
-                f"defines the verification scope (launches + main screen "
-                f"renders); do not rewrite it.\n"
+                f"bind the assigned port. Your deliverables are the RUN CONFIG "
+                f"and the A2APP OPERATIONS MAP, not the app's features — "
+                f"reference/requirements.md already defines the verification "
+                f"scope (launches + main screen renders); do not rewrite it.\n"
                 f"1. Understand the app: how it installs, builds, starts and "
                 f"health-checks.\n"
                 f"2. Write the pipeline verbs into {project.path}/craftbot.json "
                 f'("install", "build", "start", "health") — use {{{{PORT}}}} '
-                f"where the port belongs; the app MUST bind "
-                f"127.0.0.1:{project.port}.\n"
-                f"3. Note what the app is in {project.path}/LIVING_UI.md (one "
+                f"where the port belongs. At launch the system substitutes a "
+                f"hidden internal port and serves the A2App adapter on "
+                f"127.0.0.1:{project.port} in front of the app.\n"
+                f"3. Map the app's controllable surface into "
+                f"{project.path}/operations.json (CraftBot's file — a stub "
+                f"exists) so agents can DRIVE the app over A2App. Probe in "
+                f"order: an OpenAPI/Swagger spec shipped in the repo, else "
+                f"route definitions in the code, else the README. Declare the "
+                f"app's PUBLIC verbs with typed params; each op:\n"
+                f'  {{"name": "todos.create", "description": "...", '
+                f'"params": {{"title": {{"type": "string", "required": true}}}}, '
+                f'"executor": {{"type": "http", "method": "POST", '
+                f'"path": "/api/ops/todos/create", '
+                f'"upstream": {{"method": "POST", "path": "/api/todos", '
+                f'"body": {{"title": "{{{{title}}}}"}}}}}}}}\n'
+                f"(executor.path is always /api/ops/<name with dots as "
+                f"slashes>; upstream is the app's OWN endpoint; body template "
+                f"optional when param names already match.) Mark anything "
+                f'that deletes or overwrites data "destructive": true. If the '
+                f"app has NO server API (static site, pure client-side SPA), "
+                f"leave operations empty and say so in LIVING_UI.md — never "
+                f"invent verbs.\n"
+                f"4. Note what the app is in {project.path}/LIVING_UI.md (one "
                 f"short section — the user's reference, not a spec).\n"
-                f'4. living_ui_notify_ready(project_id="{project.id}") — fix '
-                f"any returned errors (evidence lands in logs/app.log) — then "
-                f'living_ui_walk_verify(project_id="{project.id}").\n'
+                f'5. living_ui_notify_ready(project_id="{project.id}") — fix '
+                f"any returned errors (evidence lands in logs/app.log).\n"
+                f'6. living_ui_ops_verify(project_id="{project.id}") — invokes '
+                f"every non-destructive op FOR REAL through the adapter. Fix "
+                f"executor.upstream mappings (or remove ops that cannot work) "
+                f"and re-run until it passes: a mapping that does not work "
+                f"must not ship.\n"
+                f'7. living_ui_walk_verify(project_id="{project.id}").\n'
                 f"The system announces the result — do not send status "
                 f"messages."
             )
@@ -2434,8 +2894,8 @@ UI in {project.path}/frontend/src/app/."""
         # Runtime junk never imports; node_modules is skipped because a
         # foreign machine's install may not run here — the launch pipeline's
         # install step rebuilds it from package.json. .factory/.snapshots are
-        # the DONOR's lifecycle state (machine history, delivered flag,
-        # baseline) — a fresh identity must start a fresh lifecycle.
+        # the DONOR's lifecycle state (machine history, delivery stamp,
+        # legacy baseline) — a fresh identity must start a fresh lifecycle.
         shutil.copytree(
             src,
             dest,
@@ -2446,6 +2906,7 @@ UI in {project.path}/frontend/src/app/."""
 
         # Never trust shipped credentials or runtime state.
         (dest / ".superuser").unlink(missing_ok=True)
+        (dest / ".tunnel-origin").unlink(missing_ok=True)
 
         # Rewrite identity + port (pipeline start command embeds the port).
         old_port = manifest.get("port")
@@ -2503,8 +2964,9 @@ UI in {project.path}/frontend/src/app/."""
             status="stopped",
             port=port,
         )
-        # Delivered on arrival: an imported app may carry real data — later
-        # gates/verifies run in staging mode, never a baseline restore.
+        # Delivered on arrival: an imported app may carry real data. Its
+        # first boot creates/keeps its live pb_data, so later code changes
+        # run as modify arcs (dev env + promote) structurally.
         self._register_acquired(project, delivered=True)
 
         logger.info(f"[LIVING_UI] Imported project: {display} ({project_id})")
@@ -2642,11 +3104,11 @@ UI in {project.path}/frontend/src/app/."""
         preserved_hold: Optional[Path] = None
         try:
             # Download the repo as a zip
-            # GitHub API: /{owner}/{repo}/zipball/main
+            # GitHub API: /{owner}/{repo}/zipball/{ref}
             parts = repo_url.rstrip("/").split("/")
             owner = parts[-2]
             repo = parts[-1]
-            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+            zip_url = marketplace_source.zip_url(owner, repo)
             logger.info(f"[LIVING_UI:MARKETPLACE] Downloading {app_id} from {zip_url}")
 
             import ssl
@@ -2663,15 +3125,19 @@ UI in {project.path}/frontend/src/app/."""
                 root_prefix = None
                 app_prefix = None
 
+                # Match on path SEGMENTS, never substrings. GitHub names the
+                # zip root "{repo}-{ref with / as -}", so a ref named after the
+                # app it carries ("feature/invoice-tracker") produces a root
+                # folder ENDING in the app id. A substring search then resolves
+                # the prefix to the repo root and extracts the whole
+                # marketplace, leaving no manifest.json where one is expected.
                 for name in zf.namelist():
+                    parts = name.split("/")
                     if root_prefix is None:
-                        root_prefix = name.split("/")[0] + "/"
-                    # Look for the app folder: root/{app_id}/
-                    if f"/{app_id}/" in name:
-                        if app_prefix is None:
-                            # Find the prefix up to and including the app folder
-                            idx = name.index(f"{app_id}/")
-                            app_prefix = name[: idx + len(app_id) + 1]
+                        root_prefix = parts[0] + "/"
+                    # The app folder is exactly root/{app_id}/
+                    if len(parts) > 2 and parts[1] == app_id:
+                        app_prefix = f"{root_prefix}{app_id}/"
                         break
 
                 if not app_prefix:
@@ -2720,14 +3186,40 @@ UI in {project.path}/frontend/src/app/."""
             # projects (root manifest.json, livingUIVersion 2, PocketBase
             # backend). Legacy V1 apps (config/manifest.json, FastAPI
             # backend) are rejected until re-published in the current format.
+            # Say WHICH check failed. A missing manifest is usually an
+            # extraction/layout fault on our side, not a stale publish, and
+            # reporting both as "legacy V1" sends people to fix the wrong repo.
             mf = project_path / "manifest.json"
             is_v2 = False
-            if mf.exists():
+            reason = ""
+            if not mf.exists():
+                if (project_path / "config" / "manifest.json").exists():
+                    # config/manifest.json + FastAPI backend == the real V1.
+                    reason = (
+                        f"'{app_id}' is in the legacy V1 format and needs to "
+                        "be re-published in the current format in the "
+                        "marketplace"
+                    )
+                else:
+                    reason = (
+                        f"no manifest.json at the root of '{app_id}' after "
+                        f"extraction (looked in {project_path.name})"
+                    )
+            else:
                 try:
-                    is_v2 = json.loads(mf.read_text()).get("livingUIVersion") == 2
-                except Exception:
-                    is_v2 = False
+                    version = json.loads(mf.read_text()).get("livingUIVersion")
+                    is_v2 = version == 2
+                    if not is_v2:
+                        reason = (
+                            f"'{app_id}' declares livingUIVersion "
+                            f"{version!r}; this platform runs 2 (legacy V1 "
+                            "apps must be re-published in the current format "
+                            "in the marketplace)"
+                        )
+                except Exception as e:
+                    reason = f"manifest.json for '{app_id}' is unreadable: {e}"
             if not is_v2:
+                logger.error(f"[LIVING_UI:MARKETPLACE] Compatibility gate: {reason}")
                 shutil.rmtree(project_path, ignore_errors=True)
                 if preserved_hold is not None:
                     # Adoption: give the scaffold its requirements/factory
@@ -2742,10 +3234,8 @@ UI in {project.path}/frontend/src/app/."""
                 return {
                     "status": "error",
                     "error": (
-                        f"Marketplace app '{app_id}' is in the legacy V1 "
-                        "format and cannot run on this platform. It "
-                        "needs to be re-published in the current format in the "
-                        "marketplace."
+                        f"Marketplace app '{app_id}' cannot run on this "
+                        f"platform: {reason}."
                     ),
                 }
 
@@ -2835,9 +3325,9 @@ UI in {project.path}/frontend/src/app/."""
                 project.auto_launch = existing.auto_launch
 
             # Delivered on arrival (may ship with real data, never
-            # walk-verified): marked BEFORE the launch so the success path
-            # doesn't snapshot their pb_data as a "pristine" baseline and
-            # later verifies run in staging mode.
+            # walk-verified). The launch below creates its live pb_data, so
+            # later code changes run as modify arcs (dev env + promote)
+            # structurally.
             self._register_acquired(project, delivered=True)
 
             logger.info(
@@ -2972,6 +3462,26 @@ UI in {project.path}/frontend/src/app/."""
 
             if status:
                 self.update_project_status(project_id, status)
+                if status == "creating":
+                    # The registry flip alone is invisible to an open
+                    # browser: the frontend only moves a tab to "creating"
+                    # (and shows the construction dock) on a
+                    # living_ui_status broadcast. Without this, an import's
+                    # adoption run left the tab on "Stopped" while the
+                    # agent worked (observed live 2026-08-24, chili3d).
+                    try:
+                        from app.living_ui.broadcast import (
+                            broadcast_living_ui_progress,
+                        )
+
+                        await broadcast_living_ui_progress(
+                            project_id,
+                            "initializing",
+                            5,
+                            "Run started — preparing the app...",
+                        )
+                    except Exception:
+                        pass
 
             from app.triggers import TriggerSource, TriggerSpec
 
@@ -3397,6 +3907,25 @@ UI in {project.path}/frontend/src/app/."""
             logger.error(f"[LIVING_UI] Project not found: {project_id}")
             return False
 
+        # External teardown FIRST: the in-process A2App proxy holds the
+        # project port — a kill-by-port on that listener would be killing
+        # CraftBot itself. Stop the proxy, then free the app's hidden
+        # internal port.
+        proxy = self._external_proxies.pop(project_id, None)
+        if proxy is not None:
+            try:
+                await proxy.stop()
+            except Exception:
+                pass
+        if (
+            getattr(project, "project_type", "native") == "external"
+            and project.internal_port
+        ):
+            if self._is_port_in_use(project.internal_port):
+                self._kill_process_on_port(project.internal_port)
+            self._release_port(project.internal_port)
+            project.internal_port = None
+
         # Stop the app process
         if project.process:
             self._terminate_process(project.process)
@@ -3414,12 +3943,17 @@ UI in {project.path}/frontend/src/app/."""
         logger.info(f"[LIVING_UI] Stopped project: {project_id}")
         return True
 
-    async def delete_project(self, project_id: str) -> bool:
+    async def delete_project(
+        self, project_id: str, delete_backups: bool = False
+    ) -> bool:
         """
         Delete a Living UI project.
 
         Args:
             project_id: Project ID to delete
+            delete_backups: Also remove its pb_data backup archives.
+                Default KEEP (D5): backups exist precisely to outlive
+                mistakes, and deleting the app may be one.
 
         Returns:
             True if deletion was successful
@@ -3429,12 +3963,42 @@ UI in {project.path}/frontend/src/app/."""
             logger.error(f"[LIVING_UI] Project not found: {project_id}")
             return False
 
+        if delete_backups:
+            try:
+                self.backups.store.delete_project_backups(project_id)
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI:BACKUP] backup cleanup failed for {project_id}: {e}"
+                )
+
         # Stop tunnel if active
         await self.stop_tunnel(project_id)
 
         # Stop if running
         if project.status == "running":
             await self.stop_project(project_id)
+
+        # Final safety net: capture the live data one last time before the
+        # files go away — the same courtesy for a singular delete and for
+        # reset-all, which funnels through here. Best-effort by design:
+        # deletion is the user's explicit intent and must stay possible even
+        # when a capture cannot succeed (corrupt DB, full disk).
+        if not delete_backups:
+            try:
+                from app.living_ui.lifecycle import live_db_exists
+
+                if getattr(
+                    project, "project_type", "native"
+                ) != "external" and live_db_exists(project.path):
+                    async with self._backup_lock:
+                        await asyncio.to_thread(
+                            self.backups.capture_stopped, project, "pre_delete"
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI:BACKUP] pre-delete backup failed for "
+                    f"{project_id}: {e} — deleting without a final backup"
+                )
 
         # Release ports
         if project.port:
@@ -3524,7 +4088,7 @@ UI in {project.path}/frontend/src/app/."""
             "logs",
             ".venv",
             "venv",
-            ".snapshots",  # pristine pb_data baseline — local delivery state
+            ".snapshots",  # legacy baseline dirs (pre-unified-lifecycle) — local state
         }
         skip_suffixes = {".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3"}
         skip_names = {
@@ -3535,6 +4099,9 @@ UI in {project.path}/frontend/src/app/."""
             "credentials.json",
             "token.json",
             ".jwt_secret",
+            # Host-local, tunnel-lifetime state: an exported app must not
+            # arrive somewhere else already trusting a foreign origin.
+            ".tunnel-origin",
         }
 
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -3580,17 +4147,31 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 return None
 
+    @staticmethod
+    def _serving_port(project: LivingUIProject) -> Optional[int]:
+        """The port the app ACTUALLY listens on.
+
+        `port` — never `backend_port`. Under the unified lifecycle the app is
+        one PocketBase process serving API and frontend together, launched as
+        `runner.start(project_dir, project.port)`; for an external app the
+        A2App proxy holds `project.port` in front of the foreign process.
+        `backend_port` is a survivor of the old vite+backend split: it is still
+        allocated and persisted, but NOTHING binds it. Sharing preferred it and
+        so pointed cloudflared at a port that answered every connection with
+        "connection refused" — the app was up on :3100 the whole time.
+        """
+        return project.port or project.backend_port
+
     def get_lan_url(self, project_id: str) -> Optional[str]:
         """Get the LAN-accessible URL for a running project.
 
-        Uses the backend port since the backend also serves the frontend
-        static files — single port for everything.
+        One port for everything: the app serves its API and its frontend
+        static files from the same listener.
         """
         project = self.projects.get(project_id)
         if not project or project.status != "running":
             return None
-        # Prefer backend port (serves both API + frontend static files)
-        port = project.backend_port or project.port
+        port = self._serving_port(project)
         if not port:
             return None
         ip = self.get_lan_ip()
@@ -3713,7 +4294,7 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 pass
 
-        port = project.backend_port or project.port
+        port = self._serving_port(project)
         if not port:
             return None
 
@@ -3722,30 +4303,58 @@ UI in {project.path}/frontend/src/app/."""
             logger.error("[LIVING_UI] cloudflared binary not found")
             return None
 
+        # cloudflared writes to stderr for the WHOLE life of the tunnel, not
+        # just at startup. Piping that into this process and then not draining
+        # it — which is what "find the URL, return from the reader thread"
+        # did — fills the OS pipe buffer (4 KB by default on Windows) and
+        # cloudflared then BLOCKS forever on its next write. The tunnel stops
+        # proxying while the process still looks perfectly alive, so remote
+        # visitors hang until their client times out, and every byte that would
+        # explain why is stuck unread in that buffer. A file sink has no such
+        # backpressure, and doubles as the log this had no way to produce.
+        log_handle, log_path, log_offset = self._open_tunnel_log(project, port)
+        if log_handle is None:
+            logger.error("[LIVING_UI] No writable location for the cloudflared log")
+            return None
+
+        # 127.0.0.1, NOT localhost: PocketBase binds --http=127.0.0.1:<port>
+        # (runner.start) and the external-app proxy binds the same, so neither
+        # ever listens on ::1. cloudflared resolves 'localhost' to ::1 first on
+        # Windows and got "connectex: No connection could be made" on every
+        # single request — the tunnel came up healthy, announced its URL, and
+        # then refused every visitor.
+        origin_url = f"http://127.0.0.1:{port}"
         logger.info(
-            f"[LIVING_UI] Starting cloudflared: {cloudflared} tunnel --url http://localhost:{port}"
+            f"[LIVING_UI] Starting cloudflared: {cloudflared} tunnel "
+            f"--url {origin_url} (log: {log_path})"
         )
         proc = subprocess.Popen(
-            [cloudflared, "tunnel", "--url", f"http://localhost:{port}"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            [cloudflared, "tunnel", "--url", origin_url],
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW
             if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
             else 0,
         )
         logger.info(f"[LIVING_UI] cloudflared started, PID={proc.pid}, parsing URL...")
-        url = await self._parse_cloudflare_url(proc)
+        url = await self._parse_cloudflare_url(proc, log_path, log_offset)
         logger.info(f"[LIVING_UI] cloudflared URL parse result: {url}")
 
         if url:
             project.tunnel_process = proc
+            project.tunnel_log = log_handle
             project.tunnel_url = url
+            self._publish_tunnel_origin(project, url)
             self._save_projects()
             logger.info(f"[LIVING_UI] Tunnel started for {project.name}: {url}")
             return url
         else:
             self._terminate_process(proc)
-            logger.error("[LIVING_UI] Failed to get tunnel URL")
+            self._close_tunnel_log(log_handle)
+            logger.error(
+                f"[LIVING_UI] Failed to get tunnel URL; cloudflared's own "
+                f"output is in {log_path}"
+            )
             return None
 
     async def stop_tunnel(self, project_id: str) -> None:
@@ -3756,67 +4365,190 @@ UI in {project.path}/frontend/src/app/."""
         if project.tunnel_process:
             self._terminate_process(project.tunnel_process)
             project.tunnel_process = None
+        self._close_tunnel_log(project.tunnel_log)
+        project.tunnel_log = None
         project.tunnel_url = None
+        self._publish_tunnel_origin(project, None)
         self._save_projects()
         logger.info(f"[LIVING_UI] Tunnel stopped for {project.name}")
 
-    async def _parse_cloudflare_url(
-        self, proc: subprocess.Popen, timeout: int = 30
-    ) -> Optional[str]:
-        """Parse the public URL from cloudflared output."""
-        import re
-        import threading
+    @staticmethod
+    def _tunnel_log_path(project: LivingUIProject) -> Path:
+        return Path(project.path) / "logs" / "cloudflared.log"
 
-        url_result = [None]
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+    def _open_tunnel_log(
+        self, project: LivingUIProject, port: int
+    ) -> Tuple[Optional[Any], Path, int]:
+        """Open cloudflared's output sink. Returns (handle, path, offset).
 
-        def _read_stream(stream):
+        The sink is not optional — it is both the tunnel's only log and the
+        only place the public URL is announced — so an unwritable project
+        directory falls back to the temp dir rather than failing the share.
+        """
+        candidates = [
+            self._tunnel_log_path(project),
+            Path(tempfile.gettempdir()) / f"cloudflared-{project.id}.log",
+        ]
+        for path in candidates:
             try:
-                for line_bytes in stream:
-                    text = line_bytes.decode("utf-8", errors="replace")
-                    match = pattern.search(text)
-                    if match:
-                        url_result[0] = match.group(0)
-                        return
-            except Exception:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # Append across restarts, but never grow without bound: this
+                # file collects everything cloudflared logs while sharing.
+                too_big = path.exists() and path.stat().st_size > 2_000_000
+                handle = open(
+                    path,
+                    "w" if too_big else "a",
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                handle.write(
+                    f"\n=== cloudflared start "
+                    f"{datetime.now().isoformat(timespec='seconds')} "
+                    f"port={port} ===\n"
+                )
+                handle.flush()
+                return handle, path, path.stat().st_size
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] Tunnel log unusable at {path}: {e}")
+        return None, candidates[-1], 0
+
+    @staticmethod
+    def _close_tunnel_log(handle: Optional[Any]) -> None:
+        if handle is None:
+            return
+        try:
+            handle.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _tunnel_origin_file(project: LivingUIProject) -> Path:
+        return Path(project.path) / ".tunnel-origin"
+
+    def _publish_tunnel_origin(
+        self, project: LivingUIProject, url: Optional[str]
+    ) -> None:
+        """Tell the app which public origin to trust, or that there is none.
+
+        The app's origin guard (pb/pb_hooks/_system.pb.js) allows loopback
+        origins only — right for a loopback app, fatal for a shared one:
+        browsers send `Origin` on same-origin writes too, so through a tunnel
+        the app LOADED (GET carries no Origin) and then 403'd every save. The
+        guard reads this file per request, so the grant appears and disappears
+        with the tunnel, with no app restart in between.
+        """
+        path = self._tunnel_origin_file(project)
+        try:
+            if url:
+                origin = url.rstrip("/")
+                path.write_text(origin + "\n", encoding="utf-8")
+                logger.info(f"[LIVING_UI] Shared origin published: {origin}")
+            elif path.exists():
+                path.unlink()
+                logger.info(f"[LIVING_UI] Shared origin revoked for {project.name}")
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] Could not update {path.name}: {e}")
+
+    async def _parse_cloudflare_url(
+        self,
+        proc: subprocess.Popen,
+        log_path: Path,
+        start_offset: int = 0,
+        timeout: int = 30,
+    ) -> Optional[str]:
+        """Wait for cloudflared to announce its public URL in its log file.
+
+        Tails the file rather than reading the process pipes — see the note in
+        start_tunnel about the pipe-buffer deadlock that cost us the tunnel.
+        """
+        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+        deadline = time.time() + timeout
+        offset = start_offset
+        seen = ""
+
+        while True:
+            # Sample liveness BEFORE reading, so a process that dies between
+            # the two still gets its final bytes examined.
+            exited = proc.poll() is not None
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+                    fh.seek(offset)
+                    seen += fh.read()
+                    offset = fh.tell()
+            except FileNotFoundError:
                 pass
 
-        # Read both stdout and stderr in parallel threads
-        t1 = threading.Thread(target=_read_stream, args=(proc.stdout,), daemon=True)
-        t2 = threading.Thread(target=_read_stream, args=(proc.stderr,), daemon=True)
-        t1.start()
-        t2.start()
+            match = pattern.search(seen)
+            if match:
+                logger.info(f"[LIVING_UI] Parsed cloudflare URL: {match.group(0)}")
+                return match.group(0)
 
-        # Wait for either thread to find the URL
-        deadline = time.time() + timeout
-        while time.time() < deadline and url_result[0] is None:
-            if proc.poll() is not None and url_result[0] is None:
-                break
-            await asyncio.sleep(0.5)
+            # cloudflared boxes the URL inside an ASCII banner, so it can land
+            # split across two reads: keep a tail long enough to re-match.
+            if len(seen) > 8192:
+                seen = seen[-1024:]
 
-        if url_result[0]:
-            logger.info(f"[LIVING_UI] Parsed cloudflare URL: {url_result[0]}")
-        else:
-            logger.error("[LIVING_UI] Failed to parse cloudflare URL within timeout")
-
-        return url_result[0]
+            if exited:
+                logger.error(
+                    f"[LIVING_UI] cloudflared exited (code {proc.returncode}) "
+                    f"before announcing a URL; see {log_path}"
+                )
+                return None
+            if time.time() >= deadline:
+                logger.error(
+                    f"[LIVING_UI] Failed to parse cloudflare URL within "
+                    f"{timeout}s; see {log_path}"
+                )
+                return None
+            await asyncio.sleep(0.3)
 
     async def auto_launch_projects(self, project_ids: List[str] = None) -> None:
         """Auto-launch projects on startup.
 
         If project_ids provided, launches those. Otherwise launches all
         projects with auto_launch=True.
+
+        Launches run concurrently under AUTO_LAUNCH_CONCURRENCY: a sequential
+        loop stacked every project's PocketBase boot + headless verify
+        back-to-back, and one launch raising aborted every project after it.
+        Bounded concurrency overlaps the waits while capping peak load, and
+        each launch is isolated so one failure never stops the rest.
         """
         if project_ids is None:
             # Launch all projects with auto_launch enabled
             project_ids = [p.id for p in self.projects.values() if p.auto_launch]
 
-        for project_id in project_ids:
+        targets = [
+            pid
+            for pid in project_ids
+            if self.projects.get(pid) and self.projects[pid].status != "error"
+        ]
+        if not targets:
+            return
+
+        sem = asyncio.Semaphore(self.AUTO_LAUNCH_CONCURRENCY)
+
+        async def _launch_one(project_id: str) -> None:
             project = self.projects.get(project_id)
-            if project and project.status != "error":
+            if not project:
+                return
+            async with sem:
                 logger.info(
                     f"[LIVING_UI] Auto-launching: {project.name} ({project_id})"
                 )
                 project.status = "launching"
                 self._save_projects()
-                await self.launch_project(project_id)
+                try:
+                    await self.launch_project(project_id)
+                except Exception as e:
+                    # launch_project normally returns an error dict, but an
+                    # unexpected raise must not abort the other launches.
+                    logger.warning(
+                        f"[LIVING_UI] Auto-launch crashed for {project.name} "
+                        f"({project_id}): {e}"
+                    )
+                    project.status = "error"
+                    project.error = str(e)[:500]
+                    self._save_projects()
+
+        await asyncio.gather(*(_launch_one(pid) for pid in targets))

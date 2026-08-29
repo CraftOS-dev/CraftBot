@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="256"/>
+    <img src="assets/README_cover.png" alt="CraftBot" width="1280"/>
 </div>
 
 Most agent harnesses stop at chat and tool calls. CraftBot goes further than that. It builds, evolves, and operates its own SaaS tools, then uses that tool layer to communicate and automate with you.
@@ -32,20 +32,9 @@ Beyond that, CraftBot has all the core capabilities of a general-purpose agent h
 [![SPONSORED BY E2B FOR STARTUPS](https://img.shields.io/badge/SPONSORED%20BY-E2B%20FOR%20STARTUPS-ff8800?style=for-the-badge)](https://e2b.dev/startups)
 </div>
 
-<p align="center" style="display: inline-block">
-<a href="https://www.producthunt.com/products/craftbot?embed=true&amp;utm_source=badge-top-post-badge&amp;utm_medium=badge&amp;utm_campaign=badge-craftbot" target="_blank" rel="noopener noreferrer" style="display: inline-block">
-	<img alt="CraftBot - Self-hosted proactive AI assistant that lives locally | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1110300&amp;theme=dark&amp;period=daily&amp;t=1776679679509">
-</a>
-<a href="https://theresanaiforthat.com/ai/craftbot/?ref=featured&v=10277523" target="_blank" rel="nofollow"><img width="265" src="https://media.theresanaiforthat.com/featured-on-taaft.png?width=600"></a>
-</p>
-
 <p align="center">
   <a href="README.ja.md">日本語</a> | <a href="README.cn.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
 </p>
-
-<div align="center">
-    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
-</div>
 
 ## ✨ Highlighted Features
 
@@ -56,9 +45,9 @@ Aside from being an AI agent that can create and operate its own SaaS tools, Cra
 - **Living UI.** Build, import, or evolve custom apps that live inside CraftBot. The agent stays aware of the UI's state and can read, write, and act on its data directly.
 - **Multi-tasking and session routing.** Still using `/new` command? CraftBot knows when to start a new session and when to resume a task, keeping conversation and context unified.
 - **Self-hosted and BYOK.** Flexible LLM provider system supporting OpenAI, Google Gemini, Anthropic Claude, OpenRoute, and more. Or host your own model with 0 tokens spent using Ollama.
-- **Memory System.** Local knowledge base built from your interaction with CraftBot via RAG + Agent File System + distillation. CraftBot dreams and consolidates events that happened throughout the day at midnight.
+- **Memory System.** A second brain built from your interactions with CraftBot. Hybrid approach: RAG + knowledge graph + Agent File System. CraftBot dreams and consolidates events that happened throughout the day at midnight.
 - **Proactive Agent.** Learn your preferences, habits, and life goals. Then, perform planning and initiate tasks (with approval, of course) to help you improve in life.
-- **External Tools Integration.** Connect to your apps like Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram and more (more to come!) with OAuth support or your own key.
+- **External Tools Integration.** Connect to your apps like Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram and more (more to come!) with OAuth support or your own key. You can connect multiple accounts to each integration.
 - **Skills and MCP.** 150+ MCP and 170+ Skills ready. Quick installation of new Skills and MCPs. Create/improve Skills from completed tasks with one click.
 - **Browser interface and CLI support.** Use CraftBot the way it fits: through a simple browser UI for everyday interaction, or via the CLI for scripting and headless environments.
 
@@ -155,22 +144,6 @@ Build, customize, and evolve your own Living UI, and rely less on subscription t
 - **🐦 Luolinglo** — Not Duolingo, but you can learn new languages, create flashcards, and practice with CraftBot.
 
 **[Browse and contribute to the Living UI marketplace →](https://craftos.net/marketplace)**
-
----
-
-## 📋 Command Reference
-
-### craftbot.py — Automatic Setup (Recommended)
-
-| Command | Description |
-|---------|-------------|
-| `python craftbot.py install` | Install dependencies, register auto-start on login, start CraftBot, open browser, and close the terminal automatically |
-| `python craftbot.py start` | Start CraftBot in the background — auto-restarts if already running (terminal closes automatically) |
-| `python craftbot.py stop` | Stop CraftBot |
-| `python craftbot.py restart` | Stop and start CraftBot |
-| `python craftbot.py status` | Check if CraftBot is running and if auto-start is enabled |
-| `python craftbot.py logs` | Show recent log output (`-n 100` for more lines) |
-| `python craftbot.py uninstall` | Stop CraftBot, remove auto-start registration, uninstall pip packages, and purge pip cache |
 
 ---
 

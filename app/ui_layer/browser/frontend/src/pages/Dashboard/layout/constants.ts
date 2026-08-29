@@ -8,9 +8,10 @@ export const STORAGE_KEY_ACTIVE_ID = 'craftbot.dashboard.activeLayoutId'
  * Stored layouts under any other version are discarded on read and the
  * dashboard reseeds from the default; there is no migration code. Bumped
  * for grid-unit changes AND for changes to the shipped default (v4 hid
- * Recent Activity by default).
+ * Recent Activity by default; v5 introduced the hero default with the 2x2
+ * CraftBot intro).
  */
-export const STORAGE_VERSION = 4
+export const STORAGE_VERSION = 5
 
 /**
  * One grid cell IS one original dashboard card.

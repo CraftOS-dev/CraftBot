@@ -136,3 +136,41 @@ class TestLegacyMigration:
         assert [m.message_id for m in got] == ["new1"]
         # options/option_selected columns were added by migration too
         assert storage.update_option_selected("new1", "yes") is True
+
+
+class TestDetails:
+    def test_details_round_trip(self, tmp_path):
+        """`details` (expandable payload on the "📩 Incoming …" stub)
+        survives insert → read and serializes on to_dict (PR #419)."""
+        storage = make_storage(tmp_path)
+        stored = StoredChatMessage(
+            message_id="d1",
+            sender="System",
+            content="📩 Incoming Telegram message from Ada",
+            style="system",
+            timestamp=1.0,
+            details="hello from telegram\n[Attachment: photo, file_id=big]",
+        )
+        storage.insert_message(stored)
+
+        got = storage.get_recent_messages()[0]
+        assert got.details == stored.details
+        assert got.to_dict()["details"] == stored.details
+
+    def test_details_absent_by_default(self, tmp_path):
+        storage = make_storage(tmp_path)
+        storage.insert_message(msg("p1", "main", ts=1.0))
+        got = storage.get_recent_messages()[0]
+        assert got.details is None
+        assert "details" not in got.to_dict()
+
+    def test_migrated_db_gains_details_column(self, tmp_path):
+        db_path = str(tmp_path / "chat.db")
+        TestLegacyMigration._create_legacy_db(TestLegacyMigration(), db_path)
+        storage = ChatStorage(db_path=db_path)  # triggers migration
+
+        stored = msg("d2", "main", ts=3.0)
+        stored.details = "body"
+        storage.insert_message(stored)
+        got = storage.get_recent_messages(session_id="main")
+        assert got[-1].details == "body"

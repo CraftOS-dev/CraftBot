@@ -12,6 +12,10 @@ interface OnboardingState {
   error: string | null
   loading: boolean
   needsHardOnboarding: boolean
+  // Set when hard onboarding finishes: the wizard plays its outro animation
+  // (message -> fade -> mascot to centre -> launch) and only then swaps to the
+  // main app. Holds the agent's name for the farewell line.
+  finishing: { agentName: string } | null
 }
 
 const initialState: OnboardingState = {
@@ -19,6 +23,7 @@ const initialState: OnboardingState = {
   error: null,
   loading: false,
   needsHardOnboarding: false,
+  finishing: null,
 }
 
 const onboardingSlice = createSlice({
@@ -40,11 +45,19 @@ const onboardingSlice = createSlice({
     setNeedsHardOnboarding(state, action: PayloadAction<boolean>) {
       state.needsHardOnboarding = action.payload
     },
+    // Begin the finishing outro. Keeps needsHardOnboarding true so the wizard
+    // stays mounted (and its mascot on screen) until markComplete runs.
+    startFinishing(state, action: PayloadAction<{ agentName: string }>) {
+      state.finishing = action.payload
+      state.loading = false
+      state.error = null
+    },
     markComplete(state) {
       state.step = null
       state.loading = false
       state.error = null
       state.needsHardOnboarding = false
+      state.finishing = null
     },
   },
 })
@@ -54,6 +67,7 @@ export const {
   setError,
   setLoading,
   setNeedsHardOnboarding,
+  startFinishing,
   markComplete,
 } = onboardingSlice.actions
 
@@ -108,5 +122,7 @@ register('onboarding_back', (data, dispatch) => {
 
 register('onboarding_complete', (data, dispatch) => {
   const r = data as OnboardingCompleteResponse
-  if (r.success) dispatch(markComplete())
+  // Don't swap to the main app yet - hand off to the wizard's outro animation,
+  // which calls markComplete when it finishes.
+  if (r.success) dispatch(startFinishing({ agentName: r.agentName || 'CraftBot' }))
 })

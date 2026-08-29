@@ -6,10 +6,21 @@ import { register } from '../socket/messageRegistry'
 // timestamp-ascending order. Optimistic ("pending") messages use
 // `pending:<clientId>` as their messageId until the server echo arrives —
 // then `addOrReconcile` swaps the temp entry for the real one in place.
+//
+// `historyStatus` tracks the session's initial history load (chat_history
+// round trip with no beforeTimestamp). The init payload only carries an
+// in-memory snapshot, so every bucket starts 'unfetched' and the Chat view
+// requests the session's real first page on mount. It is distinct from
+// `loadingOlder`, which is scroll-up pagination only — the initial load
+// must not render the "Loading older messages" row. `hasMore` is only
+// ever set from a chat_history response.
+export type HistoryStatus = 'unfetched' | 'loading' | 'fetched'
+
 interface SessionMessages {
   items: ChatMessage[]
   hasMore: boolean
   loadingOlder: boolean
+  historyStatus: HistoryStatus
 }
 
 interface MessagesState {
@@ -23,7 +34,7 @@ const initialState: MessagesState = {
 function bucketFor(state: MessagesState, sessionId: string): SessionMessages {
   let bucket = state.bySession[sessionId]
   if (!bucket) {
-    bucket = { items: [], hasMore: false, loadingOlder: false }
+    bucket = { items: [], hasMore: false, loadingOlder: false, historyStatus: 'unfetched' }
     state.bySession[sessionId] = bucket
   }
   return bucket
@@ -49,6 +60,9 @@ const messagesSlice = createSlice({
   initialState,
   reducers: {
     setInitial(state, action: PayloadAction<{ messages: ChatMessage[] }>) {
+      // Replaces everything: init carries only the backend's in-memory
+      // snapshot, so every bucket restarts unfetched and the per-session
+      // chat_history fetch re-establishes the real page + hasMore.
       state.bySession = {}
       for (const msg of action.payload.messages) {
         if (!msg.sessionId) continue
@@ -56,8 +70,6 @@ const messagesSlice = createSlice({
       }
       for (const bucket of Object.values(state.bySession)) {
         sortBucket(bucket)
-        // Heuristic: a full first page implies more history exists.
-        bucket.hasMore = bucket.items.length >= 50
       }
     },
     addOrReconcile(state, action: PayloadAction<ChatMessage>) {
@@ -114,6 +126,11 @@ const messagesSlice = createSlice({
       }
       bucket.hasMore = action.payload.hasMore
       bucket.loadingOlder = false
+      bucket.historyStatus = 'fetched'
+    },
+    // The initial (no-beforeTimestamp) history request is in flight.
+    historyRequested(state, action: PayloadAction<{ sessionId: string }>) {
+      bucketFor(state, action.payload.sessionId).historyStatus = 'loading'
     },
     clearSession(state, action: PayloadAction<{ sessionId: string | null }>) {
       const { sessionId } = action.payload
@@ -149,6 +166,7 @@ export const {
   addOptimistic,
   transferSession,
   prependMany,
+  historyRequested,
   clearSession,
   dropSession,
   setLoadingOlder,
@@ -191,4 +209,13 @@ register('session_cleared', (data, dispatch) => {
 register('session_deleted', (data, dispatch) => {
   const d = data as { sessionId?: string } | undefined
   if (d?.sessionId) dispatch(dropSession({ sessionId: d.sessionId }))
+})
+
+// A pinned question was answered/dismissed (possibly on another client):
+// recording the selection un-pins it and locks the bubble's chips.
+register('question_answered', (data, dispatch) => {
+  const d = data as { sessionId?: string; messageId?: string; value?: string } | undefined
+  if (d?.sessionId && d.messageId && d.value) {
+    dispatch(markOptionSelected({ sessionId: d.sessionId, messageId: d.messageId, value: d.value }))
+  }
 })

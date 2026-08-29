@@ -5,6 +5,7 @@ export interface ProviderInfo {
   id: string
   name: string
   requires_api_key: boolean
+  default_base_url?: string | null
   api_key_env?: string
   base_url_env?: string
   llm_model: string | null
@@ -22,6 +23,10 @@ export interface ProviderInfo {
   supports_subscription_oauth?: boolean
   subscription_label?: string | null
   subscription_models?: string[]
+  // UX generalization (docs/PROVIDER_SETTINGS_UX_FIX.md)
+  has_model_discovery?: boolean   // live GET /v1/models dropdown available
+  local_kind?: string | null      // "lmstudio" → native list-all + load UI
+  openrouter_proxy?: boolean       // geo-restricted → show OpenRouter hint
 }
 
 // One entry per provider that supports subscription OAuth. The backend

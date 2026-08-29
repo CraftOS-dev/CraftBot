@@ -15,49 +15,51 @@ except ImportError:  # pragma: no cover — boto3 is an optional extra
     boto3 = None  # type: ignore[assignment]
 
 from agent_core.core.models.types import InterfaceType
-from agent_core.core.models.model_registry import MODEL_REGISTRY
 from agent_core.core.models.provider_config import PROVIDER_CONFIG
+from agent_core.core.models.registry import (
+    error_display_map as _error_display_map,
+    get_registry,
+)
 from agent_core.core.llm.google_gemini_client import GeminiClient
 
 logger = logging.getLogger(__name__)
 
-# Providers that should route through OpenRouter when OR is configured,
-# because their direct APIs are geo-restricted for most international users.
-_OPENROUTER_PROXIED = {"moonshot", "minimax"}
+# Derived from provider profiles (Phase 1, docs/PROVIDER_LAYER_CATCHUP.md).
+# OpenRouter proxy routing exists because some direct APIs are geo-restricted
+# for most international users; the per-provider data lives on the profiles.
+_OPENROUTER_PROXIED = {key for key, p in PROVIDER_CONFIG.items() if p.openrouter_proxy}
 
 # OpenRouter namespace per provider (for auto-slugging unknown model IDs).
 _OR_NAMESPACE = {
-    "moonshot": "moonshotai",
-    "minimax": "minimax",
+    key: p.openrouter_namespace
+    for key, p in PROVIDER_CONFIG.items()
+    if p.openrouter_namespace
 }
 
 # Explicit model-ID → OpenRouter slug overrides.
 _OR_MODEL_MAP: dict = {
-    "moonshot": {
-        "kimi-k2.5": "moonshotai/kimi-k2.5",
-        "moonshot-v1-8k": "moonshotai/moonshot-v1-8k",
-        "moonshot-v1-32k": "moonshotai/moonshot-v1-32k",
-        "moonshot-v1-128k": "moonshotai/moonshot-v1-128k",
-        "moonshot-v1-8k-vision-preview": "moonshotai/moonshot-v1-8k-vision-preview",
-    },
-    "minimax": {
-        "MiniMax-Text-01": "minimax/minimax-01",
-        "MiniMax-VL-01": "minimax/minimax-01",
-        "abab6.5s-chat": "minimax/abab6.5s-chat",
-    },
+    key: dict(p.openrouter_slug_map)
+    for key, p in PROVIDER_CONFIG.items()
+    if p.openrouter_slug_map
 }
 
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
+_PROVIDER_DISPLAY = _error_display_map()
 
-_PROVIDER_DISPLAY = {
-    "openai": "OpenAI",
-    "deepseek": "DeepSeek",
-    "grok": "Grok",
-    "moonshot": "Moonshot",
-    "minimax": "MiniMax",
-    "openrouter": "OpenRouter",
-}
+
+def _pool_resolver(provider: str, api_key: str):
+    """Per-request key resolver when a credential pool is configured
+    (Phase 5, FR-7). Returns None when the provider has a single key, so
+    client construction stays bit-identical to the pre-pool behavior."""
+    try:
+        from agent_core.core.models import credentials as _credentials
+
+        if _credentials.has_pool(provider):
+            return _credentials.make_resolver(provider, api_key)
+    except Exception:
+        pass
+    return None
 
 
 def _create_openai_client(
@@ -67,6 +69,7 @@ def _create_openai_client(
     base_url: Optional[str] = None,
     default_headers: Optional[dict] = None,
     oauth_provider: Optional[str] = None,
+    resolve_key=None,
 ):
     """Create an OpenAI SDK client for OpenAI-compatible providers.
 
@@ -95,6 +98,22 @@ def _create_openai_client(
         kwargs["base_url"] = base_url
     if default_headers:
         kwargs["default_headers"] = default_headers
+
+    if oauth_provider is None and resolve_key is not None:
+        # Credential pool: re-resolve the key per request (same SDK property
+        # mechanism as subscription OAuth below), so a cooldown-driven
+        # rotation needs no client rebuild.
+        class _PooledOpenAI(OpenAI):
+            @property
+            def auth_headers(self) -> dict:
+                try:
+                    self.api_key = resolve_key() or self.api_key
+                except Exception:
+                    pass
+                return {"Authorization": f"Bearer {self.api_key}"}
+
+        return _PooledOpenAI(**kwargs)
+
     if oauth_provider is None:
         return OpenAI(**kwargs)
 
@@ -102,7 +121,7 @@ def _create_openai_client(
         @property
         def auth_headers(self) -> dict:
             try:
-                from craftos_integrations.integrations.llm_oauth.tokens import (
+                from craftos_integrations.llm_oauth.tokens import (
                     get_bearer,
                 )
 
@@ -136,7 +155,7 @@ def _create_openai_client(
     return _SubscriptionOpenAI(**kwargs)
 
 
-def _create_anthropic_client(*, api_key: str):
+def _create_anthropic_client(*, api_key: str, resolve_key=None):
     try:
         from anthropic import Anthropic
     except ImportError as exc:
@@ -145,7 +164,19 @@ def _create_anthropic_client(*, api_key: str):
             "Install it with the Python that launches CraftBot: "
             "`python -m pip install 'anthropic>=0.97.0'`."
         ) from exc
-    return Anthropic(api_key=api_key)
+    if resolve_key is None:
+        return Anthropic(api_key=api_key)
+
+    class _PooledAnthropic(Anthropic):
+        @property
+        def auth_headers(self) -> dict:
+            try:
+                self.api_key = resolve_key() or self.api_key
+            except Exception:
+                pass
+            return {"X-Api-Key": self.api_key}
+
+    return _PooledAnthropic(api_key=api_key)
 
 
 def _to_openrouter_slug(provider: str, model: str) -> str:
@@ -179,7 +210,7 @@ def _get_oauth_bearer(provider: str):
     user sees "reconnect" rather than a silent fallback to the API key.
     """
     try:
-        from craftos_integrations.integrations.llm_oauth.tokens import get_bearer
+        from craftos_integrations.llm_oauth.tokens import get_bearer
 
         return get_bearer(provider)
     except RuntimeError:
@@ -235,22 +266,22 @@ class ModelFactory:
         Returns:
             Dictionary with provider context including client instances
         """
-        # OpenAI-compatible providers that use OpenAI client with a custom base_url
+        # Registry lookup covers built-ins AND settings.json custom
+        # providers (Phase 3). OpenAI-compatible providers are every
+        # chat_completions-wire profile except openai itself, which keeps
+        # its own arm for ChatGPT-subscription handling.
+        registry = get_registry()
         _OPENAI_COMPAT = {
-            "minimax",
-            "deepseek",
-            "moonshot",
-            "grok",
-            "openrouter",
-            "glm",
-            "fugu",
+            key
+            for key, p in registry.items()
+            if p.wire == "chat_completions" and key != "openai"
         }
 
-        if provider not in PROVIDER_CONFIG:
+        if provider not in registry:
             raise ValueError(f"Unsupported provider: {provider}")
 
-        cfg = PROVIDER_CONFIG[provider]
-        model = model_override or MODEL_REGISTRY[provider].get(interface)
+        cfg = registry[provider]
+        model = model_override or cfg.default_models.get(interface)
         if model is None:
             if deferred:
                 return {
@@ -264,8 +295,17 @@ class ModelFactory:
                     "bedrock_client": None,
                     "initialized": False,
                 }
+            # Local/custom chat_completions servers legitimately have no
+            # default model (they serve whatever the user loaded) — the
+            # provider supports the interface, we just need a model name.
+            if cfg.wire == "chat_completions":
+                raise ValueError(
+                    f"No model configured for '{provider}'. Pick or type the "
+                    f"model in Settings (this server does not advertise a "
+                    f"default model)."
+                )
             supported = ", ".join(
-                p for p, caps in MODEL_REGISTRY.items() if caps.get(interface)
+                p for p, prof in registry.items() if prof.default_models.get(interface)
             )
             raise ValueError(
                 f"Provider '{provider}' does not support {interface.value}. "
@@ -310,7 +350,7 @@ class ModelFactory:
                 # colocated with the flow that authenticates against it.
                 # See ``llm_oauth.chatgpt.CODEX_ACCEPTED_MODELS`` for the
                 # source-of-truth list and the reasoning behind the fallback.
-                from craftos_integrations.integrations.llm_oauth.chatgpt import (
+                from craftos_integrations.llm_oauth.chatgpt import (
                     CODEX_ACCEPTED_MODELS,
                     effective_model_for_subscription,
                 )
@@ -360,6 +400,7 @@ class ModelFactory:
                 "client": _create_openai_client(
                     provider=provider,
                     api_key=api_key,
+                    resolve_key=_pool_resolver(provider, api_key),
                 ),
                 "gemini_client": None,
                 "remote_url": None,
@@ -406,7 +447,10 @@ class ModelFactory:
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
-                "anthropic_client": _create_anthropic_client(api_key=api_key),
+                "anthropic_client": _create_anthropic_client(
+                    api_key=api_key,
+                    resolve_key=_pool_resolver(provider, api_key),
+                ),
                 "bedrock_client": None,
                 "initialized": True,
             }
@@ -506,16 +550,22 @@ class ModelFactory:
                     }
 
             if not api_key:
-                if deferred:
+                if not cfg.requires_api_key:
+                    # Local OpenAI-compatible servers (LM Studio, vLLM,
+                    # llama.cpp) need no key, but the OpenAI SDK requires a
+                    # non-empty string.
+                    api_key = "local"
+                elif deferred:
                     return empty_context
-                from app.errors import CatalogError, make_error
+                else:
+                    from app.errors import CatalogError, make_error
 
-                raise CatalogError(
-                    make_error(
-                        "CONFIG_NO_API_KEY",
-                        provider=_PROVIDER_DISPLAY.get(provider, provider),
+                    raise CatalogError(
+                        make_error(
+                            "CONFIG_NO_API_KEY",
+                            provider=_PROVIDER_DISPLAY.get(provider, provider),
+                        )
                     )
-                )
 
             return {
                 "provider": provider,
@@ -524,6 +574,8 @@ class ModelFactory:
                     provider=provider,
                     api_key=api_key,
                     base_url=resolved_base_url,
+                    default_headers=dict(cfg.default_headers) or None,
+                    resolve_key=_pool_resolver(provider, api_key),
                 ),
                 "gemini_client": None,
                 "remote_url": None,

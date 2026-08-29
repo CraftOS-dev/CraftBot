@@ -3,8 +3,9 @@
 Prompt profiler (issue #322, P2).
 
 Aggregates the captured `llm_calls` table per (prompt_name, provider, model) and
-reports the cost/efficiency picture for each named prompt on real traffic:
-latency (p50/p95), token volume, cache hit-ratio, $ cost, and $ saved by caching.
+reports the efficiency picture for each named prompt on real traffic: latency
+(p50/p95), token volume, and cache hit-ratio. No pricing (we keep no per-model
+price table); rank prompts by token volume as the cost proxy.
 
 The data comes from the capture substrate (P1) — see
 docs/design/prompt-optimization.md. This is a read-only view; it never writes to
@@ -33,8 +34,6 @@ from typing import Any, Dict, List, Optional
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-
-from app.usage.pricing import estimate_cost  # noqa: E402
 
 
 def _default_db_path() -> str:
@@ -110,7 +109,6 @@ def aggregate(rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for (prompt_name, provider, model), g in groups.items():
         lat = sorted(g["latencies"])
-        cost = estimate_cost(model, g["input"], g["output"], g["cached"])
         calls = g["calls"]
         out.append(
             {
@@ -124,12 +122,12 @@ def aggregate(rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
                 "avg_input_tokens": round(g["input"] / calls),
                 "avg_output_tokens": round(g["output"] / calls),
                 "cache_hit_ratio": (g["cached"] / g["input"]) if g["input"] else 0.0,
-                "total_cost_usd": round(cost["total_cost"], 4),
-                "cost_per_call_usd": round(cost["total_cost"] / calls, 6),
-                "saved_usd": round(cost["saved"], 4),
+                "total_input_tokens": g["input"],
+                "total_output_tokens": g["output"],
             }
         )
-    out.sort(key=lambda d: d["total_cost_usd"], reverse=True)
+    # No price table, so rank by total input tokens (the cost proxy).
+    out.sort(key=lambda d: d["total_input_tokens"], reverse=True)
     return out
 
 
@@ -143,16 +141,14 @@ def _fmt_table(agg: List[Dict[str, Any]]) -> str:
         ("avg_input_tokens", "AVG_IN", "r"),
         ("avg_output_tokens", "AVG_OUT", "r"),
         ("cache_hit_ratio", "CACHE%", "r"),
-        ("total_cost_usd", "$ TOTAL", "r"),
-        ("saved_usd", "$ SAVED", "r"),
+        ("total_input_tokens", "TOT_IN", "r"),
+        ("total_output_tokens", "TOT_OUT", "r"),
     ]
 
     def cell(row: Dict[str, Any], key: str) -> str:
         v = row[key]
         if key == "cache_hit_ratio":
             return f"{v * 100:.0f}%"
-        if key in ("total_cost_usd", "saved_usd"):
-            return f"{v:.4f}"
         return str(v)
 
     widths = {
@@ -182,8 +178,8 @@ def _totals(agg: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "groups": len(agg),
         "calls": sum(r["calls"] for r in agg),
-        "total_cost_usd": round(sum(r["total_cost_usd"] for r in agg), 4),
-        "saved_usd": round(sum(r["saved_usd"] for r in agg), 4),
+        "total_input_tokens": sum(r["total_input_tokens"] for r in agg),
+        "total_output_tokens": sum(r["total_output_tokens"] for r in agg),
     }
 
 
@@ -197,8 +193,8 @@ def _markdown(agg: List[Dict[str, Any]], totals: Dict[str, Any]) -> str:
         "avg_input_tokens",
         "avg_output_tokens",
         "cache_hit_ratio",
-        "total_cost_usd",
-        "saved_usd",
+        "total_input_tokens",
+        "total_output_tokens",
     ]
     head = "| " + " | ".join(cols) + " |"
     sep = "| " + " | ".join("---" for _ in cols) + " |"
@@ -214,8 +210,8 @@ def _markdown(agg: List[Dict[str, Any]], totals: Dict[str, Any]) -> str:
         body.append("| " + " | ".join(cells) + " |")
     summary = (
         f"\n**Totals:** {totals['calls']} calls across {totals['groups']} "
-        f"prompt/model groups — ${totals['total_cost_usd']:.4f} spent, "
-        f"${totals['saved_usd']:.4f} saved by caching.\n"
+        f"prompt/model groups, {totals['total_input_tokens']} input / "
+        f"{totals['total_output_tokens']} output tokens.\n"
     )
     return "# Prompt profile\n\n" + "\n".join([head, sep, *body]) + "\n" + summary
 
@@ -226,7 +222,7 @@ def main() -> int:
     except (AttributeError, ValueError):
         pass
 
-    ap = argparse.ArgumentParser(description="Profile prompt cost/cache/latency.")
+    ap = argparse.ArgumentParser(description="Profile prompt cache/latency/tokens.")
     ap.add_argument("--db", help="Path to llm_calls.db (default: app data dir).")
     ap.add_argument("--since", help="Only calls newer than e.g. 24h, 7d, 90m.")
     ap.add_argument("--json", metavar="PATH", help="Write the report as JSON.")
@@ -252,8 +248,8 @@ def main() -> int:
     print("-" * 40)
     print(
         f"{totals['calls']} calls / {totals['groups']} groups   "
-        f"${totals['total_cost_usd']:.4f} spent   "
-        f"${totals['saved_usd']:.4f} saved by caching"
+        f"{totals['total_input_tokens']} in / "
+        f"{totals['total_output_tokens']} out tokens"
     )
 
     if args.json:

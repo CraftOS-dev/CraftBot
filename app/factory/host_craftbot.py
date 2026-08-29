@@ -104,23 +104,20 @@ class FactoryHost:
         except Exception as e:
             logger.debug(f"[FACTORY] sidecar write failed: {e}")
 
-    # ── delivery lifecycle (sidecar-backed; see plans/quizzical-greeting) ──
-    # "delivered" picks the data-safety mode for every later gate/verify:
-    # not delivered → the DB is disposable (verify live, restore the pristine
-    # baseline before announcing); delivered → real user data, everything runs
-    # in a staging copy. machine.terminal is NOT a substitute predicate:
-    # STUCK is terminal too, and marketplace/ZIP installs never get a machine.
-    def is_delivered(self, project_id: str) -> bool:
-        return bool(self._sidecar_read(project_id).get("delivered"))
-
-    def mark_delivered(self, project_id: str) -> None:
+    # ── delivery bookkeeping (sidecar-backed) ──────────────────────────────
+    # delivered_at is a COSMETIC timestamp (requirements-staleness warning,
+    # announce wording) — never a control input. The retired "delivered"
+    # flag used to pick the data-safety mode and went stale on real apps
+    # (2026-08-19: a two-week-in-use CRM read as never-delivered and its
+    # live DB was wiped by the first-delivery baseline restore). Every
+    # lifecycle predicate is now structural: lifecycle.live_db_exists().
+    def stamp_delivered(self, project_id: str) -> None:
         side = self._sidecar_read(project_id)
-        if side.get("delivered"):
+        if side.get("delivered_at"):
             return
-        side["delivered"] = True
         side["delivered_at"] = time.time()
         self._sidecar_write(project_id, side)
-        logger.info(f"[FACTORY] {project_id} marked delivered")
+        logger.info(f"[FACTORY] {project_id} delivery stamped")
 
     # ── trigger-plane consent (spec TRIGGERS-PLAN) ─────────────────────────
     # An app that can fire the agent can drive a session holding the user's
@@ -246,9 +243,38 @@ class FactoryHost:
         except (TypeError, ValueError):
             return None
 
+    # ── backup bookkeeping (sidecar-backed; spec living-ui-backups-plan) ───
+    # last_at drives the scheduler's due check (absent -> due now, which is
+    # also the catch-up-after-restart path); last_error is surfaced on the
+    # settings card and cleared by the next success.
+    def record_backup_ok(self, project_id: str, ts: float) -> None:
+        side = self._sidecar_read(project_id)
+        side["backup"] = {"last_at": float(ts)}
+        self._sidecar_write(project_id, side)
+
+    def record_backup_error(self, project_id: str, message: str) -> None:
+        side = self._sidecar_read(project_id)
+        state = side.get("backup")
+        state = dict(state) if isinstance(state, dict) else {}
+        state["last_error"] = str(message)[:500]
+        side["backup"] = state
+        self._sidecar_write(project_id, side)
+
+    def backup_state(self, project_id: str) -> Dict[str, Any]:
+        """{"last_at": float|None, "last_error": str|None} — always both keys."""
+        state = self._sidecar_read(project_id).get("backup")
+        state = state if isinstance(state, dict) else {}
+        try:
+            last_at = (
+                float(state["last_at"]) if state.get("last_at") is not None else None
+            )
+        except (TypeError, ValueError):
+            last_at = None
+        return {"last_at": last_at, "last_error": state.get("last_error") or None}
+
     def begin_modify(self, project_id: str) -> None:
-        """A modify of a delivered app is starting (called from
-        launch_staging success — deterministic, never agent-dependent):
+        """A modify of an app with a live database is starting (called from
+        open_dev success — deterministic, never agent-dependent):
         re-arm the machine into MODIFYING so the whole supervision apparatus
         (fix missions, caps, stuck reports, announcements) applies to the
         modify exactly as it did to the build (LIFECYCLE-PLAN Phase 2).
@@ -257,7 +283,7 @@ class FactoryHost:
         VIRGIN (no history — machine_for mints BUILDING for marketplace/
         imported apps that never had an arc). A non-terminal machine WITH
         history means a modify/fix arc is already in flight — a fix
-        mission's notify_ready re-enters launch_staging — so no-op.
+        mission's notify_ready re-enters open_dev — so no-op.
         """
         machine = self.machine_for(project_id)
         if machine is None:
@@ -277,9 +303,10 @@ class FactoryHost:
             f"(generation {machine.generation})"
         )
 
-    # The staging record is the single source of truth for "a staging copy of
-    # this app exists": actions redirect to it, the reaper kills from it, and
-    # clearing it is what ends staging mode.
+    # The staging record is the single source of truth for "a dev environment
+    # of this app exists": actions redirect to it, the reaper kills from it,
+    # and clearing it is what ends dev mode. (Key name "staging" is
+    # historical — kept so records from older versions stay readable.)
     def get_staging_record(self, project_id: str) -> Optional[Dict[str, Any]]:
         record = self._sidecar_read(project_id).get("staging")
         return record if isinstance(record, dict) else None
@@ -329,9 +356,26 @@ class FactoryHost:
         url: str = "",
         verified: Optional[List[str]] = None,
         caveat: str = "",
+        scope_note: str = "",
     ) -> Optional[Decision]:
         """Feed the walk_verify verdict; act on the machine's Decision.
-        Returns the Decision so the action can shape its agent-facing text."""
+        Returns the Decision so the action can shape its agent-facing text.
+        `scope_note` is the verifier's scope in one clause ('' = full walk)
+        for the ready announcement."""
+        # Fix-mission input for the NEXT verify: the features observed broken
+        # (must-include), cleared on any clean verdict.
+        try:
+            side = self._sidecar_read(project_id)
+            if kind == "defects":
+                side["last_defects"] = self._defect_feature_names(defects or [])
+                self._sidecar_write(project_id, side)
+            elif (
+                kind in ("pass", "incomplete", "blocked")
+                and side.pop("last_defects", None) is not None
+            ):
+                self._sidecar_write(project_id, side)
+        except Exception as e:
+            logger.debug(f"[FACTORY] last_defects bookkeeping failed: {e}")
         machine = self.machine_for(project_id)
         if machine is None:
             return None
@@ -379,6 +423,7 @@ class FactoryHost:
                     caveat,
                     modify=bool(generations)
                     and generations[-1].get("final_state") == DONE,
+                    scope_note=scope_note,
                 )
             return decision
 
@@ -516,6 +561,15 @@ class FactoryHost:
             if books
             else ""
         )
+        # The RUNNING instance is the dev environment when one is up —
+        # repro commands and logs must target it, not the (possibly not even
+        # running) live project dir.
+        _dev_rec = self.get_staging_record(project.id)
+        run_dir = (
+            str(_dev_rec.get("dir"))
+            if _dev_rec and _dev_rec.get("dir")
+            else str(project.path)
+        )
         return f"""FIX MISSION {n} for Living UI '{project.name}' ({project.id}).
 
 The independent verifier drove the app in a real browser. Each DEFECT below
@@ -526,12 +580,14 @@ carries its evidence and a repro. Your ONLY goal: make these features work.
 {books_text}
 
 === HOW TO WORK (concrete) ===
-1. Reproduce first: use the repro commands / exercise the failing op:
-   {cli} run {project.path} <op-name>
-2. Read the evidence before theorizing: {project.path}/logs/pocketbase.log
+1. Reproduce first: use the repro commands / exercise the failing op
+   against the RUNNING dev instance:
+   {cli} run {run_dir} <op-name>
+2. Read the evidence before theorizing: {run_dir}/logs/pocketbase.log
    (every causal claim must quote a log line; if you can't quote it, gather
    more evidence — "unknown, investigating" is valid, a guess is not).
-3. Fix in {project.path} (hooks/migrations/frontend per the ownership rules).
+3. Fix in {project.path} (hooks/migrations/frontend per the ownership rules)
+   — living_ui_notify_ready syncs your edits into the dev instance.
 4. Relaunch: living_ui_notify_ready(project_id="{project.id}")
 5. Verify: living_ui_walk_verify(project_id="{project.id}")
 The system tracks attempts and reports status to the user — do NOT send
@@ -565,16 +621,20 @@ status messages; when verification passes the user is informed automatically."""
         mission_id = f"{mission_kind}-{int(time.time())}"
 
         # Modify-era missions (a reopened machine) get the modify skill —
-        # staging semantics and the never-touch-pb_data rules live there;
+        # dev-env semantics and the never-touch-pb_data rules live there;
         # build-era missions keep the full creator workflow. A machine
-        # re-armed from a stuck BUILD (never delivered — no user data to
-        # protect) is still build-era despite generation > 0; a stuck
-        # MODIFY of a delivered app keeps the modify skill.
+        # re-armed from a stuck BUILD (no live database yet — no user data
+        # to protect) is still build-era despite generation > 0; a stuck
+        # MODIFY of an app with live data keeps the modify skill.
         gens = machine.generations()
+        try:
+            from app.living_ui.lifecycle import has_live_env
+
+            _has_live = has_live_env(project, self)
+        except Exception:
+            _has_live = False
         resumed_stuck_build = (
-            bool(gens)
-            and gens[-1].get("final_state") == STUCK
-            and not self.is_delivered(project.id)
+            bool(gens) and gens[-1].get("final_state") == STUCK and not _has_live
         )
         workflow_skill = (
             "living-ui-modify"
@@ -770,6 +830,27 @@ status messages; when verification passes the user is informed automatically."""
         except Exception as e:
             logger.debug(f"[FACTORY] chat emit failed: {e}")
 
+    @staticmethod
+    def _defect_feature_names(defects: List[str]) -> List[str]:
+        """'- <feature> — FAIL — …' lines → feature names (fix-mission scope)."""
+        import re as _re
+
+        names: List[str] = []
+        for line in defects:
+            m = _re.match(
+                r"^-?\s*(.{1,160}?)\s*(?:—|–|:|-)\s*FAIL\b", str(line).strip()
+            )
+            name = (m.group(1) if m else str(line)).strip(" -")
+            if name and name not in names:
+                names.append(name[:160])
+        return names[:20]
+
+    def get_last_defects(self, project_id: str) -> List[str]:
+        """Features the last walk observed broken (empty outside a fix arc)."""
+        side = self._sidecar_read(project_id)
+        val = side.get("last_defects")
+        return [str(x) for x in val] if isinstance(val, list) else []
+
     def _announce_ready(
         self,
         project_id: str,
@@ -777,6 +858,7 @@ status messages; when verification passes the user is informed automatically."""
         verified: List[str],
         caveat: str,
         modify: bool = False,
+        scope_note: str = "",
     ) -> None:
         n = len(verified)
         lead = (
@@ -784,7 +866,10 @@ status messages; when verification passes the user is informed automatically."""
             if modify
             else f"✅ The app is ready at {url}"
         )
-        text = lead + (f" — {n} feature(s) verified in a real browser." if n else ".")
+        scoped = f" ({scope_note})" if scope_note else ""
+        text = lead + (
+            f" — {n} feature(s) verified in a real browser{scoped}." if n else "."
+        )
         if caveat:
             text += f"\n⚠️ {caveat}"
         self._emit_chat(project_id, text)

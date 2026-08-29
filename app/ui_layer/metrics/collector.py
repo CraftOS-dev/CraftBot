@@ -33,13 +33,6 @@ if TYPE_CHECKING:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Pricing Data (USD per 1M tokens)
-# ─────────────────────────────────────────────────────────────────────
-# Single source of truth lives in app.usage.pricing (cached-aware, current
-# models, longest-match resolution). Re-exported here for existing callers.
-from app.usage.pricing import MODEL_PRICING, get_model_pricing  # noqa: E402,F401
-
-
 # ─────────────────────────────────────────────────────────────────────
 # Data Classes
 # ─────────────────────────────────────────────────────────────────────
@@ -579,15 +572,8 @@ class MetricsCollector:
         cached_tokens: int = 0,
         task_id: Optional[str] = None,
     ) -> None:
-        """Record an LLM call for cost tracking."""
-        pricing = get_model_pricing(model)
-
-        # Calculate cost (per million tokens)
-        input_cost = (input_tokens / 1_000_000) * pricing["input"]
-        output_cost = (output_tokens / 1_000_000) * pricing["output"]
-        # Cached tokens are typically free or heavily discounted
-        total_cost = input_cost + output_cost
-
+        """Record an LLM call. Tokens only — we keep no per-model price table,
+        so no USD cost is derived (cost_usd stays 0)."""
         record = LLMCallRecord(
             timestamp=time.time(),
             provider=provider,
@@ -595,7 +581,7 @@ class MetricsCollector:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cached_tokens=cached_tokens,
-            cost_usd=total_cost,
+            cost_usd=0.0,
             task_id=task_id,
         )
 
@@ -913,9 +899,14 @@ class MetricsCollector:
     def _get_integration_metrics(self) -> IntegrationMetrics:
         """Get integration metrics."""
         try:
-            from craftos_integrations import list_integrations_sync
+            # v2-merged list: connected state comes from the IntegrationSystem's
+            # AccountSets (the status path reads credential files that
+            # v2 connects never write, so its counts were wrong).
+            from app.data.action.integrations._helpers import (
+                list_integrations_merged,
+            )
 
-            integrations_data = list_integrations_sync()
+            integrations_data = list_integrations_merged()
             integrations = []
             connected = 0
 

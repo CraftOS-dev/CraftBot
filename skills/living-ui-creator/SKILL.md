@@ -260,10 +260,13 @@ only where agent judgment adds value — plain code handles plain events.
 ## Finish: launch, then verify
 
 1. `living_ui_notify_ready(project_id="<PROJECT_ID>")` — runs the gate
-   (**types → build → migrations-on-fresh-db → ops → ownership**), starts the
-   app and health-checks it. On errors: read ALL of them, fix ALL of them,
-   call it again. Success = app RUNNING but NOT yet verified. Never start
-   servers manually.
+   (**types → build → migrations-on-fresh-db → ops → ownership**), then
+   starts your code in the DEV environment (a copy on a hidden port with a
+   fresh post-migration DB) and health-checks it. Its message gives you the
+   dev URL and dev dir — test and read logs THERE; keep editing in the real
+   project dir (each notify_ready syncs your edits in). On errors: read ALL
+   of them, fix ALL of them, call it again. Success = app RUNNING (in dev)
+   but NOT yet verified. Never start servers manually.
 2. **REALITY CHECK — look at what actually exists, not at what you wrote.**
    Success messages lie by omission; stored state does not. While the app
    runs:
@@ -289,14 +292,15 @@ only where agent judgment adds value — plain code handles plain events.
    completes the build.** Failing features come back as a report: fix them,
    then repeat step 1 and step 3.
 
-Test data is fine during the build: at delivery the platform resets the
-app's data to its pristine post-migration state, so records you or the
-verifier created never reach the user. Data your migrations SEED survives
-(they re-run on the clean DB) — put anything the user must see on first
-open in a migration, never insert it by hand. Externally-fetched data is
-reset too: an app that syncs from an API must self-populate on an empty
-DB (fetch at boot or when the collection is empty — never rely on a sync
-that happened during the build).
+Test data is fine during the build: you are working in the DEV environment,
+whose database is disposable — at delivery the platform boots the LIVE app
+with a fresh database built purely from your migrations, so records you or
+the verifier created never reach the user. Data your migrations SEED
+survives (they run on the fresh live DB) — put anything the user must see
+on first open in a migration, never insert it by hand. Externally-fetched
+data does not carry over either: an app that syncs from an API must
+self-populate on an empty DB (fetch at boot or when the collection is
+empty — never rely on a sync that happened during the build).
 
 **HONESTY RULE:** the app is ready ONLY when `living_ui_walk_verify` returns
 `status: success`. If you cannot make it pass, tell the user the build
@@ -308,11 +312,13 @@ the app fetched it from the real source.
 
 - Full platform reference (bridge, jobs, kit API):
   `living-ui/docs/agent-guide.md` (repo-level, read on demand).
-- Frontend runtime errors: `{project_path}/logs/frontend_console.log`
-  (console.error/warn + uncaught errors are auto-relayed).
-- Server: `{project_path}/logs/pocketbase.log`.
-- Data inspection: the PB REST API on the project's port
-  (`GET /api/collections/<name>/records`).
+- The RUNNING instance is the dev copy — its logs live in the dev dir that
+  `living_ui_notify_ready` reported, not in the project dir:
+  `{dev_dir}/logs/frontend_console.log` (console.error/warn + uncaught
+  errors are auto-relayed) and `{dev_dir}/logs/pocketbase.log`.
+- Data inspection: the PB REST API on the dev port notify_ready returned
+  (`GET /api/collections/<name>/records`). `GET /api/_a2app` answers
+  `env: "dev"` if you need to confirm which instance a port is.
 
 ## FORBIDDEN
 

@@ -3604,14 +3604,11 @@ async def get_github_workflow_run_logs_url(input_data: dict) -> dict:
 )
 def set_github_watch_tag(input_data: dict) -> dict:
     try:
-        from craftos_integrations import get_client
+        from app.data.action.integrations._helpers import get_client_or_error
 
-        client = get_client("github")
-        if not client or not client.has_credentials():
-            return {
-                "status": "error",
-                "message": "No GitHub credential. Use /github login first.",
-            }
+        client, err = get_client_or_error("github")
+        if err:
+            return err
         tag = input_data.get("tag", "").strip()
         client.set_watch_tag(tag)
         if tag:
@@ -3643,15 +3640,12 @@ def set_github_watch_tag(input_data: dict) -> dict:
 )
 def set_github_watch_repos(input_data: dict) -> dict:
     try:
-        from craftos_integrations import get_client
+        from app.data.action.integrations._helpers import get_client_or_error
         from app.utils.text import csv_list
 
-        client = get_client("github")
-        if not client or not client.has_credentials():
-            return {
-                "status": "error",
-                "message": "No GitHub credential. Use /github login first.",
-            }
+        client, err = get_client_or_error("github")
+        if err:
+            return err
         repos = csv_list(input_data.get("repos", ""))
         client.set_watch_repos(repos)
         if repos:

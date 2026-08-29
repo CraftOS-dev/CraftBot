@@ -5,3 +5,5 @@ export const selectOnboardingError = (state: RootState) => state.onboarding.erro
 export const selectOnboardingLoading = (state: RootState) => state.onboarding.loading
 export const selectNeedsHardOnboarding = (state: RootState) =>
   state.onboarding.needsHardOnboarding
+export const selectOnboardingFinishing = (state: RootState) =>
+  state.onboarding.finishing

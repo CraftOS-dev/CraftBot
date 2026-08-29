@@ -115,6 +115,12 @@
   border-radius: var(--radius-lg);
   background: var(--bg-tertiary);
   width: 100%;
+  /* Never exceed the wrapper's clamped width. Without this the bubble grows
+     to the content's max-content size (e.g. a wide, non-wrapping code block),
+     so the wrapper's max-width clamp is bypassed and the bubble overflows the
+     panel. Capping here keeps wide <pre>/<table> content inside the bubble so
+     their own overflow-x scrolls instead. */
+  max-width: 100%;
   opacity: 1;
   transition: opacity 150ms ease;
 }
@@ -159,6 +165,51 @@
   background: var(--bg-secondary);
   color: var(--text-secondary);
   font-size: var(--text-sm);
+}
+
+/* Expandable details (e.g. the raw body of an incoming integration
+   message behind the "📩 Incoming …" system stub). Toggle mirrors the
+   activity chunk-header disclosure. */
+.messageDetails {
+  margin-top: var(--space-1);
+}
+
+.detailsToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-1) 2px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.detailsToggle:hover {
+  color: var(--text-primary);
+}
+
+.detailsChevron {
+  transition: transform var(--transition-fast);
+}
+
+.detailsChevronOpen {
+  transform: rotate(90deg);
+}
+
+.detailsBody {
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  border-left: 2px solid var(--border-primary);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .message.error {
@@ -633,6 +684,10 @@
   flex-direction: column;
   gap: var(--space-2);
   min-width: 0;
+  /* Cross-axis clamp: this flex item is not stretched (the wrapper aligns it),
+     so without a max-width it sizes to its content's max-content width and
+     overflows the wrapper. 100% resolves against the wrapper's clamped width. */
+  max-width: 100%;
 }
 
 /* Action buttons (copy) outside the bubble - positioned in the
