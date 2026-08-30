@@ -83,13 +83,13 @@
 }
 
 .collapsed .label,
-.collapsed .livingUITabLabel,
+.collapsed .agentAppTabLabel,
 .collapsed .groupEmpty {
   display: none;
 }
 
 .collapsed .navItem,
-.collapsed .livingUITab,
+.collapsed .agentAppTab,
 .collapsed .sessionRowButton,
 .collapsed .groupToggle {
   justify-content: center;
@@ -124,7 +124,7 @@
   min-height: 0;
 }
 
-/* Scrollable content (left nav + divider + living UI tabs + add button) */
+/* Scrollable content (left nav + divider + agent app tabs + add button) */
 .scrollContent {
   display: flex;
   flex-direction: column;
@@ -164,7 +164,7 @@
   background: var(--border-primary);
 }
 
-/* Inner divider that scrolls with the content (between left nav and living UI) */
+/* Inner divider that scrolls with the content (between left nav and agent app) */
 .innerDivider {
   flex-shrink: 0;
   height: 1px;
@@ -252,8 +252,8 @@
   white-space: nowrap;
 }
 
-/* Living UI inline tab */
-.livingUITab {
+/* Agent App inline tab */
+.agentAppTab {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -272,28 +272,28 @@
   text-align: left;
 }
 
-.livingUITab:hover {
+.agentAppTab:hover {
   color: var(--text-primary);
   background: var(--bg-tertiary);
 }
 
-.livingUITabActive {
+.agentAppTabActive {
   color: var(--text-primary);
   background: var(--bg-selected);
   font-weight: var(--font-semibold);
 }
 
-.livingUITabActive:hover {
+.agentAppTabActive:hover {
   background: var(--bg-selected-hover);
 }
 
-.livingUITabIcon {
+.agentAppTabIcon {
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
 
-.livingUITabLabel {
+.agentAppTabLabel {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -316,7 +316,7 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   Session rows (Main + chat sessions) and nav groups (Chats / Living UI)
+   Session rows (Main + chat sessions) and nav groups (Chats / Agent App)
    ───────────────────────────────────────────────────────────────────── */
 
 .sessionRow {
@@ -332,8 +332,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  /* Right padding matches .livingUITab so the status dot sits flush right
-     like the Living UI rows. On hover the row widens it to clear the
+  /* Right padding matches .agentAppTab so the status dot sits flush right
+     like the Agent App rows. On hover the row widens it to clear the
      absolutely-positioned "…" button (see .sessionRow:hover below), which
      visually pushes the dot left as the button fades in. */
   padding: var(--space-2) var(--space-3);
@@ -622,7 +622,7 @@
   user-select: none;
 }
 
-/* Children list of a collapsible group (Living UI items / Chats items).
+/* Children list of a collapsible group (Agent App items / Chats items).
    Long lists are capped at a preview count with a "Show more" row —
    no internal scrolling. */
 .groupChildren {

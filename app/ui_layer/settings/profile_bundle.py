@@ -3,7 +3,7 @@
 A profile bundle is a zip-with-extension (`.craftbot`) containing the parts of
 the agent that define its identity and capabilities — personality MD files, the
 enabled skills (with their source folders), the MCP server configs, and the
-Living UI app source. It deliberately does NOT include the user's API keys,
+Agent App app source. It deliberately does NOT include the user's API keys,
 OAuth secrets, memory, conversation history, or personal data files.
 
 Bundles are designed for one-click sharing: a recipient picks the bundle in
@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
-    from app.living_ui.manager import LivingUIManager
+    from app.agent_app.manager import AgentAppManager
 
 from app.config import (
     AGENT_FILE_SYSTEM_PATH,
@@ -43,13 +43,13 @@ BUNDLE_FORMAT_VERSION = "1.0"
 # Agent identity MD files that travel in the bundle.
 # USER.md, MEMORY.md, EVENT*.md, CONVERSATION_HISTORY.md, TASK_HISTORY.md are
 # user-personal or runtime state and are intentionally excluded.
-PROFILE_MD_FILES = ("SOUL.md", "AGENT.md", "PROACTIVE.md", "GLOBAL_LIVING_UI.md")
+PROFILE_MD_FILES = ("SOUL.md", "AGENT.md", "PROACTIVE.md", "GLOBAL_AGENT_APP.md")
 
 # Substrings in MCP env-var NAMES that indicate a secret value. The names are
 # kept (so the importer knows what to fill in) but the VALUES are stripped.
 SECRET_ENV_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASS", "CREDENTIAL")
 
-# Files/directories to skip when copying skill folders or Living UI projects.
+# Files/directories to skip when copying skill folders or Agent App projects.
 SKIP_DIR_NAMES = {
     "node_modules",
     "dist",
@@ -68,8 +68,8 @@ SKIP_FILE_SUFFIXES = (".db", ".sqlite", ".sqlite3", ".db-journal", ".pyc")
 SKILLS_CONFIG_PATH = APP_CONFIG_PATH / "skills_config.json"
 MCP_CONFIG_PATH = APP_CONFIG_PATH / "mcp_config.json"
 SKILLS_DIR = PROJECT_ROOT / "skills"
-LIVING_UI_PROJECTS_FILE = AGENT_WORKSPACE_ROOT / "living_ui_projects.json"
-LIVING_UI_DIR = AGENT_WORKSPACE_ROOT / "living_ui"
+AGENT_APP_PROJECTS_FILE = AGENT_WORKSPACE_ROOT / "agent_app_projects.json"
+AGENT_APP_DIR = AGENT_WORKSPACE_ROOT / "agent_app"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -209,9 +209,9 @@ def _load_json(path: Path, default: Any) -> Any:
         return default
 
 
-def _load_living_ui_projects(path: Path) -> List[Dict[str, Any]]:
-    """Read a Living UI registry, tolerating both the {"projects":[...]} envelope
-    used by the LivingUIManager and a bare list (hand-written)."""
+def _load_agent_app_projects(path: Path) -> List[Dict[str, Any]]:
+    """Read a Agent App registry, tolerating both the {"projects":[...]} envelope
+    used by the AgentAppManager and a bare list (hand-written)."""
     data = _load_json(path, {"projects": []})
     if isinstance(data, dict):
         return data.get("projects", []) or []
@@ -247,14 +247,14 @@ def _gather_export_contents() -> Dict[str, Any]:
 
     md_present = [f for f in PROFILE_MD_FILES if (AGENT_FILE_SYSTEM_PATH / f).is_file()]
 
-    living_ui_projects = _load_living_ui_projects(LIVING_UI_PROJECTS_FILE)
+    agent_app_projects = _load_agent_app_projects(AGENT_APP_PROJECTS_FILE)
 
     return {
         "agent_name": _agent_name(),
         "md_files": md_present,
         "skills": enabled_skills,
         "mcp_servers": [s.get("name", "") for s in mcp_servers],
-        "living_ui_apps": [p.get("name", p.get("id", "")) for p in living_ui_projects],
+        "agent_app_apps": [p.get("name", p.get("id", "")) for p in agent_app_projects],
     }
 
 
@@ -273,7 +273,7 @@ def _build_readme(manifest: Dict[str, Any]) -> str:
     c = manifest["contents"]
     skills = "\n".join(f"- {s}" for s in c.get("skills", [])) or "_(none)_"
     mcps = "\n".join(f"- {s}" for s in c.get("mcp_servers", [])) or "_(none)_"
-    apps = "\n".join(f"- {s}" for s in c.get("living_ui_apps", [])) or "_(none)_"
+    apps = "\n".join(f"- {s}" for s in c.get("agent_app_apps", [])) or "_(none)_"
     mds = ", ".join(c.get("md_files", [])) or "_(none)_"
     return (
         f"# {manifest['name']} — CraftBot agent profile\n\n"
@@ -284,7 +284,7 @@ def _build_readme(manifest: Dict[str, Any]) -> str:
         f"## Personality\n{mds}\n\n"
         f"## Skills\n{skills}\n\n"
         f"## MCP servers\n{mcps}\n\n"
-        f"## Living UI apps\n{apps}\n\n"
+        f"## Agent App apps\n{apps}\n\n"
         "API keys, OAuth secrets, personal memory, and conversation history\n"
         "are **not** included in this bundle.\n"
     )
@@ -337,15 +337,15 @@ def _write_mcp_dir(staging: Path) -> None:
     )
 
 
-def _write_living_ui_dir(staging: Path) -> None:
-    """Copy Living UI project source folders + the registry file."""
-    living_dir = staging / "living_ui"
+def _write_agent_app_dir(staging: Path) -> None:
+    """Copy Agent App project source folders + the registry file."""
+    living_dir = staging / "agent_app"
     living_dir.mkdir()
-    projects = _load_living_ui_projects(LIVING_UI_PROJECTS_FILE)
-    # Match the envelope the LivingUIManager uses on disk
+    projects = _load_agent_app_projects(AGENT_APP_PROJECTS_FILE)
+    # Match the envelope the AgentAppManager uses on disk
     # ({"projects": [...]}). Writing a flat list would make the manager's
     # _load_projects() fail silently — and its next startup cleanup pass
-    # would then delete every Living UI folder as "orphaned".
+    # would then delete every Agent App folder as "orphaned".
     (living_dir / "projects.json").write_text(
         json.dumps({"projects": projects}, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -379,7 +379,7 @@ def export_profile(description: str = "") -> Dict[str, Any]:
     """Build the bundle and return path + filename + summary for download.
 
     Caller is responsible for serving the file and (after the response is sent)
-    deleting the temp file. Mirrors the Living UI export flow.
+    deleting the temp file. Mirrors the Agent App export flow.
     """
     contents = _gather_export_contents()
     manifest = _build_manifest(contents, description=description)
@@ -390,7 +390,7 @@ def export_profile(description: str = "") -> Dict[str, Any]:
         _write_profile_dir(staging, contents["md_files"])
         _write_skills_dir(staging, contents["skills"])
         _write_mcp_dir(staging)
-        _write_living_ui_dir(staging)
+        _write_agent_app_dir(staging)
         out_path = _zip_staging(staging, contents["agent_name"])
 
         return {
@@ -400,7 +400,7 @@ def export_profile(description: str = "") -> Dict[str, Any]:
             "summary": {
                 "skills": len(contents["skills"]),
                 "mcp_servers": len(contents["mcp_servers"]),
-                "living_ui_apps": len(contents["living_ui_apps"]),
+                "agent_app_apps": len(contents["agent_app_apps"]),
                 "md_files": len(contents["md_files"]),
             },
         }
@@ -521,8 +521,8 @@ class ImportSummary:
     # {name, reason}. These never enter mcp_config.json.
     mcp_invalid: List[Dict[str, str]]
     md_applied: List[str]
-    living_ui_added: List[str]
-    living_ui_renamed: List[str]
+    agent_app_added: List[str]
+    agent_app_renamed: List[str]
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -623,7 +623,7 @@ def _apply_skills(
       are CraftBot-essential. Build.py force-includes them in every bundle.
       The importer force-enables them in skills_config.json in every mode,
       so a profile import can never strip the agent of its core ability to
-      spawn memory-processing / heartbeat / planner / Living-UI workflows.
+      spawn memory-processing / heartbeat / planner / Agent-App workflows.
 
     Buckets:
       ``added`` — folder copied from bundle, SKILL.md validates, name enabled.
@@ -832,7 +832,7 @@ def _apply_mcp(
     return added, skipped, needs_env, invalid
 
 
-def _plan_and_copy_living_ui_imports(
+def _plan_and_copy_agent_app_imports(
     src_living_dir: Path,
     bundle_projects: List[Dict[str, Any]],
     target_living_dir: Path,
@@ -887,29 +887,29 @@ def _plan_and_copy_living_ui_imports(
     return new_records, added, renamed
 
 
-def _register_living_ui_via_manager(
+def _register_agent_app_via_manager(
     records: List[Dict[str, Any]],
-    manager: "LivingUIManager",
+    manager: "AgentAppManager",
 ) -> None:
     """Insert imported projects into the live manager and persist via its own
     save path so they survive subsequent in-memory-driven flushes.
 
-    Without this, ``_apply_living_ui`` would write the registry file directly
-    but the still-running ``LivingUIManager`` would hold a stale in-memory
+    Without this, ``_apply_agent_app`` would write the registry file directly
+    but the still-running ``AgentAppManager`` would hold a stale in-memory
     state; any later ``_save_projects()`` (status update, watchdog tick, port
     change, etc.) would flush that stale state back and silently erase every
     imported entry.
     """
     # Local import keeps the module's top-level surface light + dodges any
-    # circular-import risk between the settings and living_ui packages.
-    from app.living_ui.manager import LivingUIProject
+    # circular-import risk between the settings and agent_app packages.
+    from app.agent_app.manager import AgentAppProject
 
     for record in records:
         try:
             created_at_ms = record.get("createdAt")
             if not isinstance(created_at_ms, (int, float)):
                 created_at_ms = datetime.now().timestamp() * 1000
-            project_obj = LivingUIProject(
+            project_obj = AgentAppProject(
                 id=record["id"],
                 name=record["name"],
                 description=record.get("description", ""),
@@ -940,30 +940,30 @@ def _register_living_ui_via_manager(
         manager._save_projects()
     except Exception:
         logger.exception(
-            "[PROFILE_BUNDLE] Failed to persist imported Living UI projects"
+            "[PROFILE_BUNDLE] Failed to persist imported Agent App projects"
         )
 
 
-def _register_living_ui_via_file(records: List[Dict[str, Any]]) -> None:
+def _register_agent_app_via_file(records: List[Dict[str, Any]]) -> None:
     """Fallback persistence — append records to the on-disk registry file.
 
-    Race-prone when an agent is running (see _register_living_ui_via_manager
+    Race-prone when an agent is running (see _register_agent_app_via_manager
     for why), so reserved for inspection / non-running callers.
     """
-    current_records = _load_living_ui_projects(LIVING_UI_PROJECTS_FILE)
+    current_records = _load_agent_app_projects(AGENT_APP_PROJECTS_FILE)
     current_records.extend(records)
-    LIVING_UI_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LIVING_UI_PROJECTS_FILE.write_text(
+    AGENT_APP_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AGENT_APP_PROJECTS_FILE.write_text(
         json.dumps({"projects": current_records}, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
 
 
-def _wipe_living_ui_state(
-    manager: Optional["LivingUIManager"],
+def _wipe_agent_app_state(
+    manager: Optional["AgentAppManager"],
     target_living_dir: Path,
 ) -> None:
-    """Delete every existing Living UI folder + clear the registry.
+    """Delete every existing Agent App folder + clear the registry.
 
     Used by overwrite mode so the bundle's projects are the only ones present.
     When a manager is provided, both its in-memory state and the registry file
@@ -980,11 +980,11 @@ def _wipe_living_ui_state(
             manager._save_projects()
         except Exception:
             logger.exception(
-                "[PROFILE_BUNDLE] Failed to persist cleared Living UI state"
+                "[PROFILE_BUNDLE] Failed to persist cleared Agent App state"
             )
     else:
-        LIVING_UI_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        LIVING_UI_PROJECTS_FILE.write_text(
+        AGENT_APP_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        AGENT_APP_PROJECTS_FILE.write_text(
             json.dumps({"projects": []}, indent=2), encoding="utf-8"
         )
     if target_living_dir.exists():
@@ -998,29 +998,29 @@ def _wipe_living_ui_state(
                     )
 
 
-def _apply_living_ui(
+def _apply_agent_app(
     src_living_dir: Path,
     mode: str,
-    manager: Optional["LivingUIManager"] = None,
+    manager: Optional["AgentAppManager"] = None,
 ) -> Tuple[List[str], List[str]]:
-    """Copy Living UI projects into the workspace and register them.
+    """Copy Agent App projects into the workspace and register them.
 
     ``replace`` — renames on folder/id conflict so existing user data is never
     destroyed; new projects added alongside.
-    ``overwrite`` — every existing Living UI project (folders + registry) is
+    ``overwrite`` — every existing Agent App project (folders + registry) is
     deleted first, then the bundle's projects are installed under their
     original ids/folder names.
 
     When ``manager`` is provided, persistence goes through the live
-    ``LivingUIManager`` (required from a running agent); otherwise it falls
+    ``AgentAppManager`` (required from a running agent); otherwise it falls
     back to a direct file write.
     """
-    bundle_projects = _load_living_ui_projects(src_living_dir / "projects.json")
-    target_living_dir = manager.living_ui_dir if manager is not None else LIVING_UI_DIR
+    bundle_projects = _load_agent_app_projects(src_living_dir / "projects.json")
+    target_living_dir = manager.agent_app_dir if manager is not None else AGENT_APP_DIR
     target_living_dir.mkdir(parents=True, exist_ok=True)
 
     if mode == "overwrite":
-        _wipe_living_ui_state(manager, target_living_dir)
+        _wipe_agent_app_state(manager, target_living_dir)
         # Empty starting set, so no conflict-rename happens.
         current_ids: set = set()
         current_folders: set = set()
@@ -1030,7 +1030,7 @@ def _apply_living_ui(
             Path(p.path).name for p in manager.projects.values() if p.path
         }
     else:
-        current = _load_living_ui_projects(LIVING_UI_PROJECTS_FILE)
+        current = _load_agent_app_projects(AGENT_APP_PROJECTS_FILE)
         current_ids = {p.get("id") for p in current}
         current_folders = {
             Path(p.get("path", "")).name for p in current if p.get("path")
@@ -1038,10 +1038,10 @@ def _apply_living_ui(
 
     if not bundle_projects:
         # In overwrite mode the empty state was already persisted in
-        # _wipe_living_ui_state(); nothing more to do.
+        # _wipe_agent_app_state(); nothing more to do.
         return [], []
 
-    new_records, added, renamed = _plan_and_copy_living_ui_imports(
+    new_records, added, renamed = _plan_and_copy_agent_app_imports(
         src_living_dir,
         bundle_projects,
         target_living_dir,
@@ -1053,9 +1053,9 @@ def _apply_living_ui(
         return added, renamed
 
     if manager is not None:
-        _register_living_ui_via_manager(new_records, manager)
+        _register_agent_app_via_manager(new_records, manager)
     else:
-        _register_living_ui_via_file(new_records)
+        _register_agent_app_via_file(new_records)
 
     return added, renamed
 
@@ -1066,7 +1066,7 @@ VALID_IMPORT_MODES = ("replace", "overwrite")
 def import_profile(
     bundle_path: str,
     mode: str = "replace",
-    living_ui_manager: Optional["LivingUIManager"] = None,
+    agent_app_manager: Optional["AgentAppManager"] = None,
 ) -> Dict[str, Any]:
     """Apply a bundle to the current agent.
 
@@ -1074,16 +1074,16 @@ def import_profile(
         bundle_path: filesystem path to the .craftbot file (already uploaded)
         mode:
             ``"replace"`` (default) — additive; bundle wins on name/id conflict
-            for skills, MCP servers, and personality files; Living UI apps are
+            for skills, MCP servers, and personality files; Agent App apps are
             always copied alongside under a rename. Surfaced in the UI as
             "Merge and Replace".
 
             ``"overwrite"`` — strict adoption; wipes the local skills folder,
-            MCP config, and Living UI state, then installs the bundle's
+            MCP config, and Agent App state, then installs the bundle's
             content as the entire agent identity. Destructive; the recipient's
             agent ends up = the bundle's.
-        living_ui_manager: live LivingUIManager from the adapter. Required for
-            Living UI projects to survive — see _apply_living_ui() for why.
+        agent_app_manager: live AgentAppManager from the adapter. Required for
+            Agent App projects to survive — see _apply_agent_app() for why.
 
     Returns:
         Dict with success flag and ImportSummary contents. The agent will need
@@ -1128,8 +1128,8 @@ def import_profile(
         mcp_added, mcp_skipped, mcp_needs_env, mcp_invalid = _apply_mcp(
             work_dir / "mcp", mode
         )
-        living_added, living_renamed = _apply_living_ui(
-            work_dir / "living_ui", mode, manager=living_ui_manager
+        living_added, living_renamed = _apply_agent_app(
+            work_dir / "agent_app", mode, manager=agent_app_manager
         )
 
         # NOTE: agent_name is intentionally NOT applied — per product decision,
@@ -1146,8 +1146,8 @@ def import_profile(
             mcp_needs_env=mcp_needs_env,
             mcp_invalid=mcp_invalid,
             md_applied=md_applied,
-            living_ui_added=living_added,
-            living_ui_renamed=living_renamed,
+            agent_app_added=living_added,
+            agent_app_renamed=living_renamed,
         )
         return {
             "success": True,

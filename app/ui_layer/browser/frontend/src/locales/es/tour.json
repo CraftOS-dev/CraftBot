@@ -13,21 +13,21 @@
       "title": "Tu chat Principal",
       "description": "El Principal es el chat de origen del agente: no se puede eliminar ni renombrar, y todo lo que ocurre por su cuenta (como las tareas programadas o las actualizaciones de las apps conectadas) llega aquí."
     },
-    "living-ui": {
-      "title": "Apps de Living UI",
+    "agent-app": {
+      "title": "Apps de Agent App",
       "description": "Pide a CraftBot que te cree una app real (un rastreador, un CRM, un panel) y aparece aquí, creada y en ejecución. Hay tres formas de añadir una:"
     },
     "living-ui-marketplace": {
       "title": "Marketplace",
       "description": "Instala una app lista para usar del marketplace comunitario con un solo clic."
     },
-    "living-ui-custom": {
+    "agent-app-custom": {
       "title": "Crear personalizada",
       "description": "Describe lo que quieres y el agente lo crea: configura unos pocos aspectos básicos, responde a una breve entrevista y luego escribe la especificación y crea la app."
     },
-    "living-ui-import": {
+    "agent-app-import": {
       "title": "Importar",
-      "description": "Trae una Living UI existente desde un ZIP, una carpeta o una URL de git."
+      "description": "Trae una Agent App existente desde un ZIP, una carpeta o una URL de git."
     },
     "dashboard": {
       "title": "Panel de CraftBot",

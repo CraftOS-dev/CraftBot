@@ -21,7 +21,7 @@ dependencies:
   # install transitively bumped it — keep this pin, verify before raising:
   #   conda run -n craftbot python -c "import ssl; ssl.create_default_context()"
   - openssl=3.6.2
-  # Living UI builds: the lui CLI is TypeScript run by Node's native type
+  # Agent App builds: the lui CLI is TypeScript run by Node's native type
   # stripping — needs Node >= 24 (older majors ERR_UNKNOWN_FILE_EXTENSION).
   - nodejs>=24
   - beautifulsoup4=4.14.3

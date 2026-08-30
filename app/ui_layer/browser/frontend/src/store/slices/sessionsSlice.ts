@@ -2,7 +2,7 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { SessionInfo } from '../../types'
 import { register } from '../socket/messageRegistry'
 
-// Chat sessions (main / chat / living_ui). The list is server-owned: the
+// Chat sessions (main / chat / agent_app). The list is server-owned: the
 // backend pushes the full list on init/session_list and incremental
 // created/updated/deleted events afterwards.
 interface SessionsState {

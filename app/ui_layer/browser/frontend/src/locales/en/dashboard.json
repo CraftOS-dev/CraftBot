@@ -80,9 +80,9 @@
       "title": "Mascot",
       "description": "The CraftBot mascot that reacts to agent activity."
     },
-    "livingUi": {
-      "title": "Living UI",
-      "description": "Installed and running Living UIs."
+    "agentApp": {
+      "title": "Agent App",
+      "description": "Installed and running Agent Apps."
     },
     "recentActivity": {
       "title": "Recent Activity",
@@ -116,8 +116,8 @@
           "item3": "Reach it from any device",
           "cta": "Start free"
         },
-        "livingui": {
-          "categoryLabel": "Living UI",
+        "agentapp": {
+          "categoryLabel": "Agent App",
           "title": "An agent that builds and operates its own software",
           "subtitle": "Ask for an app and the agent designs, codes, tests, and launches it inside its own interface.",
           "desc": "Ask for an app. The agent designs, codes, tests, and launches it.",
@@ -125,7 +125,7 @@
           "item1": "CRM",
           "item2": "Habit tracker",
           "item3": "Community marketplace",
-          "cta": "Browse the Living UI marketplace"
+          "cta": "Browse the Agent App marketplace"
         },
         "bundles": {
           "categoryLabel": "Agent Bundles",
@@ -148,7 +148,7 @@
           "item0Tag": "GitHub",
           "item1Label": "Join the CraftBot community",
           "item1Tag": "Discord",
-          "item2Label": "Community-built Living UIs",
+          "item2Label": "Community-built Agent Apps",
           "item2Tag": "Market",
           "cta": "Star on GitHub"
         }
@@ -166,11 +166,11 @@
       "invocations": "Invocations",
       "topSkills": "Top Skills"
     },
-    "livingUi": {
+    "agentApp": {
       "installed": "Installed",
       "running": "Running",
       "projects": "Projects",
-      "empty": "No Living UIs installed"
+      "empty": "No Agent Apps installed"
     },
     "modelInfo": {
       "provider": "Provider",

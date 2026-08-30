@@ -20,7 +20,7 @@
     "items": {
       "sessions": {
         "label": "Obrolan",
-        "description": "Hapus obrolan tambahan, bersihkan Utama, dan bersihkan riwayat obrolan Living UI. Aplikasi tetap dipertahankan."
+        "description": "Hapus obrolan tambahan, bersihkan Utama, dan bersihkan riwayat obrolan Agent App. Aplikasi tetap dipertahankan."
       },
       "memory": {
         "label": "Memori",
@@ -34,8 +34,8 @@
         "label": "Berkas ruang kerja",
         "description": "Berkas yang dibuat agen di ruang kerjanya."
       },
-      "livingui": {
-        "label": "Aplikasi LivingUI",
+      "agentapp": {
+        "label": "Aplikasi AgentApp",
         "description": "Menghapus setiap aplikasi yang telah dibangun agen. Cadangan terakhir dari data setiap aplikasi disimpan dan dipertahankan."
       }
     }
@@ -49,14 +49,14 @@
     "personalityFiles": "Berkas kepribadian",
     "skills": "Keahlian",
     "mcpServers": "Server MCP",
-    "livingUiApps": "Aplikasi Living UI",
+    "agentAppApps": "Aplikasi Agent App",
     "alreadyInstalledLocally": "Sudah terinstal secara lokal",
     "needsEnv": "Setelah impor, isi kunci API untuk: <1>{{names}}</1>",
     "modeTitle": "Bagaimana saya harus menerapkannya?",
     "mergeReplaceName": "Gabungkan dan Ganti (disarankan)",
-    "mergeReplaceHint": "Menambahkan keahlian, MCP, dan aplikasi baru. Menimpa berkas kepribadian dan konfigurasi MCP/keahlian saat terjadi konflik nama. Aplikasi Living UI dengan nama yang sama diimpor berdampingan (tidak pernah dihapus).",
+    "mergeReplaceHint": "Menambahkan keahlian, MCP, dan aplikasi baru. Menimpa berkas kepribadian dan konfigurasi MCP/keahlian saat terjadi konflik nama. Aplikasi Agent App dengan nama yang sama diimpor berdampingan (tidak pernah dihapus).",
     "overwriteName": "Timpa",
-    "overwriteHint": "<0>Destruktif.</0> Menghapus <1>semua</1> keahlian, server MCP, dan aplikasi Living UI yang ada, lalu hanya menginstal apa yang ada di bundel ini. Agen Anda menjadi salinan bundel. Tidak dapat dibatalkan.",
+    "overwriteHint": "<0>Destruktif.</0> Menghapus <1>semua</1> keahlian, server MCP, dan aplikasi Agent App yang ada, lalu hanya menginstal apa yang ada di bundel ini. Agen Anda menjadi salinan bundel. Tidak dapat dibatalkan.",
     "applying": "Menerapkan…",
     "overwriteButton": "Timpa Agen",
     "applyButton": "Terapkan Profil"
@@ -72,7 +72,7 @@
     "skillEnabled": "Keahlian sudah aktif",
     "suggestedSkill": "Keahlian yang disarankan",
     "suggestedMcp": "Server MCP yang disarankan",
-    "suggestedApp": "Aplikasi Living UI yang disarankan",
+    "suggestedApp": "Aplikasi Agent App yang disarankan",
     "about": "Tentang",
     "whatItWillDo": "Apa yang akan dilakukan CraftBot",
     "promptPreview": "Pratinjau prompt",
@@ -122,7 +122,7 @@
       "multiUser": "Multi-pengguna (dengan akun)"
     },
     "interviewFailed": "Gagal menyiapkan wawancara",
-    "createFailed": "Gagal membuat Living UI",
+    "createFailed": "Gagal membuat Agent App",
     "nameRequired": "Nama wajib diisi",
     "nameTooLong": "Nama harus 50 karakter atau kurang",
     "descRequired": "Deskripsi wajib diisi",
@@ -144,7 +144,7 @@
     "uploadFavicon": "Unggah favicon (png, svg, ico…)",
     "namePlaceholder": "mis., Dasbor Berita Dunia",
     "descLabel": "Apa yang harus dilakukan UI ini?",
-    "descPlaceholder": "Jelaskan apa yang Anda ingin ditampilkan dan dilakukan Living UI. Spesifiklah tentang data, alur kerja, dan apa pun yang harus benar…",
+    "descPlaceholder": "Jelaskan apa yang Anda ingin ditampilkan dan dilakukan Agent App. Spesifiklah tentang data, alur kerja, dan apa pun yang harus benar…",
     "wordCount": "{{words}} / {{max}} kata",
     "referenceFiles": "Berkas referensi (opsional)",
     "dropReference": "Letakkan sketsa desain, tangkapan layar, atau dokumen — atau klik untuk menelusuri",
@@ -152,8 +152,8 @@
     "themeLabel": "Tema",
     "accessLabel": "Akses"
   },
-  "createLivingUi": {
-    "addTitle": "Tambah Living UI",
+  "createAgentApp": {
+    "addTitle": "Tambah Agent App",
     "setupQuestions": "{{name}} — pertanyaan penyiapan",
     "tabMarketplace": "Pasar",
     "tabCustom": "Buat Kustom",
@@ -176,10 +176,10 @@
     "configureSubtitle": "Sesuaikan sebelum menginstal",
     "importUrlLabel": "URL GitHub atau Path Lokal",
     "importUrlPlaceholder": "https://github.com/user/repo atau /path/to/local/app",
-    "importHint": "Ekspor Living UI: ZIP, folder proyek, atau URL git. Aplikasi lain dibangun ulang — minta agen untuk mengonversinya.",
+    "importHint": "Ekspor Agent App: ZIP, folder proyek, atau URL git. Aplikasi lain dibangun ulang — minta agen untuk mengonversinya.",
     "or": "atau",
     "dropZipLabel": "Letakkan berkas ZIP di sini atau klik untuk menelusuri",
-    "dropZipSub": "Impor Living UI yang sebelumnya diekspor",
+    "dropZipSub": "Impor Agent App yang sebelumnya diekspor",
     "importButton": "Impor Aplikasi",
     "externalAppName": "Aplikasi Eksternal"
   }

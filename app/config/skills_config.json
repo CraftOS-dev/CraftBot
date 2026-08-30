@@ -7,9 +7,9 @@
     "playwright-mcp",
     "pptx",
     "xlsx",
-    "living-ui-creator",
-    "living-ui-manager",
-    "living-ui-modify",
+    "agent-app-creator",
+    "agent-app-manager",
+    "agent-app-modify",
     "craftbot-skill-creator",
     "craftbot-skill-improve"
   ],

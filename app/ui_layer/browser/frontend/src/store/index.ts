@@ -6,7 +6,7 @@ import sessionsReducer from './slices/sessionsSlice'
 import dashboardReducer from './slices/dashboardSlice'
 import onboardingReducer from './slices/onboardingSlice'
 import localLlmReducer from './slices/localLlmSlice'
-import livingUiReducer from './slices/livingUiSlice'
+import agentAppReducer from './slices/agentAppSlice'
 import agentReducer from './slices/agentSlice'
 import workspaceReducer from './slices/workspaceSlice'
 import mcpSettingsReducer from './slices/mcpSettingsSlice'
@@ -14,7 +14,7 @@ import memorySettingsReducer from './slices/memorySettingsSlice'
 import skillsSettingsReducer from './slices/skillsSettingsSlice'
 import commandsSettingsReducer from './slices/commandsSettingsSlice'
 import proactiveSettingsReducer from './slices/proactiveSettingsSlice'
-import livingUiSettingsReducer from './slices/livingUiSettingsSlice'
+import agentAppSettingsReducer from './slices/agentAppSettingsSlice'
 import generalSettingsReducer from './slices/generalSettingsSlice'
 import modelSettingsReducer from './slices/modelSettingsSlice'
 import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
@@ -30,7 +30,7 @@ export const store = configureStore({
     dashboard: dashboardReducer,
     onboarding: onboardingReducer,
     localLlm: localLlmReducer,
-    livingUi: livingUiReducer,
+    agentApp: agentAppReducer,
     agent: agentReducer,
     workspace: workspaceReducer,
     mcpSettings: mcpSettingsReducer,
@@ -38,7 +38,7 @@ export const store = configureStore({
     skillsSettings: skillsSettingsReducer,
     commandsSettings: commandsSettingsReducer,
     proactiveSettings: proactiveSettingsReducer,
-    livingUiSettings: livingUiSettingsReducer,
+    agentAppSettings: agentAppSettingsReducer,
     generalSettings: generalSettingsReducer,
     modelSettings: modelSettingsReducer,
     integrationsSettings: integrationsSettingsReducer,

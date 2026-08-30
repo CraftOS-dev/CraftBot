@@ -18,7 +18,7 @@ export type SettingsCategory =
   | 'mcps'
   | 'skills'
   | 'integrations'
-  | 'living_ui'
+  | 'agent_app'
 
 export interface SettingsCategoryItem {
   id: SettingsCategory
@@ -112,7 +112,7 @@ export const categories: SettingsCategoryItem[] = [
     icon: React.createElement(Globe, { size: 18 }),
   },
   {
-    id: 'living_ui',
+    id: 'agent_app',
     icon: React.createElement(Box, { size: 18 }),
   },
 ]

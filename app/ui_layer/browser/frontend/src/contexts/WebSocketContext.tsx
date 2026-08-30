@@ -5,11 +5,11 @@ import type {
   FilteredDashboardMetrics, MetricsTimePeriod, OnboardingStep,
   LocalLLMState,
   SkillMeta,
-  // Living UI types
-  LivingUIProject, LivingUICreateRequest, LivingUIStatusUpdate, LivingUIStateUpdate,
+  // Agent App types
+  AgentAppProject, AgentAppCreateRequest, AgentAppStatusUpdate, AgentAppStateUpdate,
 } from '../types'
 import { QUESTION_DISMISSED } from '../types'
-import { scheduleRefreshIframe } from '../pages/LivingUI/iframePool'
+import { scheduleRefreshIframe } from '../pages/AgentApp/iframePool'
 import i18n from '../i18n/config'
 import { getSocketClient } from '../store/socket/socketInstance'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
@@ -49,18 +49,18 @@ import {
 } from '../store/slices/localLlmSlice'
 import { selectLocalLlm } from '../store/selectors/localLlm'
 import {
-  setActiveId as livingUiSetActiveId,
-  markLaunching as livingUiMarkLaunching,
-  markStopping as livingUiMarkStopping,
-  type LivingUITodo,
-} from '../store/slices/livingUiSlice'
+  setActiveId as agentAppSetActiveId,
+  markLaunching as agentAppMarkLaunching,
+  markStopping as agentAppMarkStopping,
+  type AgentAppTodo,
+} from '../store/slices/agentAppSlice'
 import {
-  selectLivingUiProjects,
-  selectLivingUiCreating,
-  selectLivingUiTodos,
-  selectActiveLivingUiId,
-  selectLivingUiStates,
-} from '../store/selectors/livingUi'
+  selectAgentAppProjects,
+  selectAgentAppCreating,
+  selectAgentAppTodos,
+  selectActiveAgentAppId,
+  selectAgentAppStates,
+} from '../store/selectors/agentApp'
 import {
   selectAgentName,
   selectAgentProfilePictureUrl,
@@ -120,7 +120,7 @@ const persistLastSeenBySession = (map: Record<string, string>) => {
 }
 
 // Local-only React state. Slice-backed fields (messages, activity, sessions,
-// living UI, ...) live in redux and are injected into the context value by
+// agent app, ...) live in redux and are injected into the context value by
 // the provider via useAppSelector.
 interface WebSocketState {
   connected: boolean
@@ -151,12 +151,12 @@ interface WebSocketContextType extends WebSocketState {
   needsHardOnboarding: boolean
   // Slice-backed (localLlmSlice).
   localLLM: LocalLLMState
-  // Slice-backed (livingUiSlice).
-  livingUIProjects: LivingUIProject[]
-  livingUICreating: LivingUIStatusUpdate | null
-  livingUITodos: Record<string, LivingUITodo[]>
-  activeLivingUIId: string | null
-  livingUIStates: Record<string, LivingUIStateUpdate['state']>
+  // Slice-backed (agentAppSlice).
+  agentAppProjects: AgentAppProject[]
+  agentAppCreating: AgentAppStatusUpdate | null
+  agentAppTodos: Record<string, AgentAppTodo[]>
+  activeAgentAppId: string | null
+  agentAppStates: Record<string, AgentAppStateUpdate['state']>
   // Slice-backed (agentSlice).
   agentName: string
   agentProfilePictureUrl: string
@@ -210,14 +210,14 @@ interface WebSocketContextType extends WebSocketState {
   // Agent profile picture
   uploadAgentProfilePicture: (name: string, mimeType: string, contentBase64: string) => void
   removeAgentProfilePicture: () => void
-  // Living UI methods
-  createLivingUI: (data: LivingUICreateRequest) => void
-  requestLivingUIList: () => void
-  launchLivingUI: (projectId: string) => void
-  stopLivingUI: (projectId: string) => void
-  deleteLivingUI: (projectId: string) => void
-  setActiveLivingUI: (projectId: string | null) => void
-  updateLivingUITheme: (
+  // Agent App methods
+  createAgentApp: (data: AgentAppCreateRequest) => void
+  requestAgentAppList: () => void
+  launchAgentApp: (projectId: string) => void
+  stopAgentApp: (projectId: string) => void
+  deleteAgentApp: (projectId: string) => void
+  setActiveAgentApp: (projectId: string | null) => void
+  updateAgentAppTheme: (
     projectId: string,
     theme: {
       themeId: string
@@ -256,11 +256,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const onboardingLoading = useAppSelector(selectOnboardingLoading)
   const needsHardOnboarding = useAppSelector(selectNeedsHardOnboarding)
   const localLLM = useAppSelector(selectLocalLlm)
-  const livingUIProjects = useAppSelector(selectLivingUiProjects)
-  const livingUICreating = useAppSelector(selectLivingUiCreating)
-  const livingUITodos = useAppSelector(selectLivingUiTodos)
-  const activeLivingUIId = useAppSelector(selectActiveLivingUiId)
-  const livingUIStates = useAppSelector(selectLivingUiStates)
+  const agentAppProjects = useAppSelector(selectAgentAppProjects)
+  const agentAppCreating = useAppSelector(selectAgentAppCreating)
+  const agentAppTodos = useAppSelector(selectAgentAppTodos)
+  const activeAgentAppId = useAppSelector(selectActiveAgentAppId)
+  const agentAppStates = useAppSelector(selectAgentAppStates)
   const agentName = useAppSelector(selectAgentName)
   const agentProfilePictureUrl = useAppSelector(selectAgentProfilePictureUrl)
   const agentProfilePictureHasCustom = useAppSelector(selectAgentProfilePictureHasCustom)
@@ -298,7 +298,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       // Almost all message handling lives in slices via the registry.
       // The two cases below are the residue: one needs the iframe pool
       // (a non-state side effect), the other needs react-router's navigate.
-      case 'living_ui_data_changed': {
+      case 'agent_app_data_changed': {
         const { projectId } = msg.data as { projectId: string }
         if (projectId) scheduleRefreshIframe(projectId)
         break
@@ -358,8 +358,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubOpen = client.onOpen(() => {
       setState(prev => ({ ...prev, connected: true }))
-      // Backend expects an initial Living UI list request on every connect.
-      client.sendString(JSON.stringify({ type: 'living_ui_list' }))
+      // Backend expects an initial Agent App list request on every connect.
+      client.sendString(JSON.stringify({ type: 'agent_app_list' }))
     })
     const unsubClose = client.onClose(() => {
       setState(prev => ({ ...prev, connected: false }))
@@ -377,7 +377,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     // boots earlier than React mounting), sync the initial state now.
     if (client.isConnected) {
       setState(prev => ({ ...prev, connected: true }))
-      client.sendString(JSON.stringify({ type: 'living_ui_list' }))
+      client.sendString(JSON.stringify({ type: 'agent_app_list' }))
     }
 
     return () => {
@@ -680,62 +680,62 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [dispatch])
 
-  // Living UI methods
-  const createLivingUI = useCallback((data: LivingUICreateRequest) => {
+  // Agent App methods
+  const createAgentApp = useCallback((data: AgentAppCreateRequest) => {
     if (client.isConnected) {
       client.sendString(JSON.stringify({
-        type: 'living_ui_create',
+        type: 'agent_app_create',
         ...data,
       }))
     }
   }, [])
 
-  const requestLivingUIList = useCallback(() => {
+  const requestAgentAppList = useCallback(() => {
     if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'living_ui_list' }))
+      client.sendString(JSON.stringify({ type: 'agent_app_list' }))
     }
   }, [])
 
-  const launchLivingUI = useCallback((projectId: string) => {
+  const launchAgentApp = useCallback((projectId: string) => {
     if (client.isConnected) {
       // Optimistically flip to 'launching' so the button shows a spinner and
       // the content swaps to the launching screen immediately — launch can
       // take many seconds (install/build/start). The backend response
-      // (living_ui_launch) resolves it to running or error.
-      dispatch(livingUiMarkLaunching({ projectId }))
+      // (agent_app_launch) resolves it to running or error.
+      dispatch(agentAppMarkLaunching({ projectId }))
       client.sendString(JSON.stringify({
-        type: 'living_ui_launch',
+        type: 'agent_app_launch',
         projectId,
       }))
     }
   }, [dispatch])
 
-  const stopLivingUI = useCallback((projectId: string) => {
+  const stopAgentApp = useCallback((projectId: string) => {
     if (client.isConnected) {
       // Optimistically flip to 'stopping' for immediate feedback; the backend
-      // response (living_ui_stop) resolves it to stopped (or reverts on error).
-      dispatch(livingUiMarkStopping({ projectId }))
+      // response (agent_app_stop) resolves it to stopped (or reverts on error).
+      dispatch(agentAppMarkStopping({ projectId }))
       client.sendString(JSON.stringify({
-        type: 'living_ui_stop',
+        type: 'agent_app_stop',
         projectId,
       }))
     }
   }, [dispatch])
 
-  const deleteLivingUI = useCallback((projectId: string) => {
+  const deleteAgentApp = useCallback((projectId: string) => {
     if (client.isConnected) {
       client.sendString(JSON.stringify({
-        type: 'living_ui_delete',
+        type: 'agent_app_delete',
         projectId,
       }))
     }
   }, [])
 
-  const setActiveLivingUI = useCallback((projectId: string | null) => {
-    dispatch(livingUiSetActiveId(projectId))
+  const setActiveAgentApp = useCallback((projectId: string | null) => {
+    dispatch(agentAppSetActiveId(projectId))
   }, [dispatch])
 
-  const updateLivingUITheme = useCallback((
+  const updateAgentAppTheme = useCallback((
     projectId: string,
     theme: {
       themeId: string
@@ -744,7 +744,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   ) => {
     if (client.isConnected) {
       client.sendString(JSON.stringify({
-        type: 'living_ui_theme_update',
+        type: 'agent_app_theme_update',
         projectId,
         theme,
       }))
@@ -766,11 +766,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         onboardingLoading,
         needsHardOnboarding,
         localLLM,
-        livingUIProjects,
-        livingUICreating,
-        livingUITodos,
-        activeLivingUIId,
-        livingUIStates,
+        agentAppProjects,
+        agentAppCreating,
+        agentAppTodos,
+        activeAgentAppId,
+        agentAppStates,
         agentName,
         agentProfilePictureUrl,
         agentProfilePictureHasCustom,
@@ -808,14 +808,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         sendQuestionAnswer,
         uploadAgentProfilePicture,
         removeAgentProfilePicture,
-        // Living UI methods
-        createLivingUI,
-        requestLivingUIList,
-        launchLivingUI,
-        stopLivingUI,
-        deleteLivingUI,
-        setActiveLivingUI,
-        updateLivingUITheme,
+        // Agent App methods
+        createAgentApp,
+        requestAgentAppList,
+        launchAgentApp,
+        stopAgentApp,
+        deleteAgentApp,
+        setActiveAgentApp,
+        updateAgentAppTheme,
       }}
     >
       {children}

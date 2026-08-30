@@ -1,7 +1,7 @@
 """The ONE Node.js runtime every CraftBot component uses.
 
 CraftBot spawns Node from several places — the browser frontend dev server,
-the WhatsApp bridge, Living UI's lui CLI, npm installs, and Living UI app
+the WhatsApp bridge, Agent App's lui CLI, npm installs, and Agent App app
 pipeline steps. They must all agree on a single binary: deployments run
 multiple Nodes side by side (a VPC pins its default to 20.x for other
 services while local apps use 24.x), and the lui CLI needs >= 24 (it is
@@ -20,7 +20,7 @@ Resolution order (cached per process):
 The system default Node is NEVER upgraded, replaced, or shadowed outside
 CraftBot's own subprocesses. When nothing >= MIN resolves, resolve() returns
 None and callers fall back to plain PATH lookup — the frontend and bridge
-run fine on Node 20; only Living UI hard-requires the resolved runtime
+run fine on Node 20; only Agent App hard-requires the resolved runtime
 (runner.ensure_available raises the actionable message).
 
 Stdlib-only on purpose: install.py and run.py import this before any

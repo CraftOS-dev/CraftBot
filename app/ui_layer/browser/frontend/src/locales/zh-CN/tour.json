@@ -13,21 +13,21 @@
       "title": "你的主对话",
       "description": "主对话是智能体的主场对话：它无法被删除或重命名，任何自动发生的事情（例如计划任务或已连接应用的更新）都会汇集到这里。"
     },
-    "living-ui": {
-      "title": "Living UI 应用",
+    "agent-app": {
+      "title": "Agent App 应用",
       "description": "让 CraftBot 为你构建一个真正的应用（追踪器、CRM、仪表盘），它就会构建并运行在此处。有三种添加方式："
     },
     "living-ui-marketplace": {
       "title": "市场",
       "description": "一键从社区市场安装现成的应用。"
     },
-    "living-ui-custom": {
+    "agent-app-custom": {
       "title": "自定义创建",
       "description": "描述你想要的内容，智能体便会构建它：配置几项基础设置，回答一个简短的访谈，然后它会编写规格并构建应用。"
     },
-    "living-ui-import": {
+    "agent-app-import": {
       "title": "导入",
-      "description": "从 ZIP、文件夹或 git URL 引入现有的 Living UI。"
+      "description": "从 ZIP、文件夹或 git URL 引入现有的 Agent App。"
     },
     "dashboard": {
       "title": "CraftBot 仪表盘",

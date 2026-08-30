@@ -19,7 +19,7 @@ export const RESET_ITEMS: ResetItem[] = [
   { id: 'memory' },
   { id: 'triggers' },
   { id: 'workspace', destructive: true },
-  { id: 'livingui', destructive: true },
+  { id: 'agentapp', destructive: true },
 ]
 
 /** Default selection: everything except the destructive items. */
@@ -53,9 +53,9 @@ export function ResetModal({ isOpen, onConfirm, onCancel }: ResetModalProps) {
       label: t('components:resetModal.items.workspace.label'),
       description: t('components:resetModal.items.workspace.description'),
     },
-    livingui: {
-      label: t('components:resetModal.items.livingui.label'),
-      description: t('components:resetModal.items.livingui.description'),
+    agentapp: {
+      label: t('components:resetModal.items.agentapp.label'),
+      description: t('components:resetModal.items.agentapp.description'),
     },
   }
 

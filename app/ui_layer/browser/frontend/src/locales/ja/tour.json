@@ -13,21 +13,21 @@
       "title": "メインチャット",
       "description": "メインはエージェントのホームチャットです。削除や名前の変更はできず、スケジュールされたタスクや連携アプリからの更新など、自動的に発生することはすべてここに届きます。"
     },
-    "living-ui": {
-      "title": "Living UI アプリ",
+    "agent-app": {
+      "title": "Agent App アプリ",
       "description": "CraftBot に本物のアプリ（トラッカー、CRM、ダッシュボードなど）を作るよう依頼すると、構築・実行された状態でここに表示されます。追加する方法は 3 つあります:"
     },
     "living-ui-marketplace": {
       "title": "マーケットプレイス",
       "description": "コミュニティマーケットプレイスから既製のアプリをワンクリックでインストールできます。"
     },
-    "living-ui-custom": {
+    "agent-app-custom": {
       "title": "カスタム作成",
       "description": "欲しいものを説明すると、エージェントが構築します。いくつかの基本設定を行い、短いインタビューに答えると、仕様を書いてアプリを構築します。"
     },
-    "living-ui-import": {
+    "agent-app-import": {
       "title": "インポート",
-      "description": "既存の Living UI を ZIP、フォルダー、または git URL から取り込みます。"
+      "description": "既存の Agent App を ZIP、フォルダー、または git URL から取り込みます。"
     },
     "dashboard": {
       "title": "CraftBot ダッシュボード",

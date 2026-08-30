@@ -49,7 +49,7 @@
     },
     "reset": {
       "title": "에이전트 초기화",
-      "description": "에이전트의 선택한 부분을 초기화합니다. Living UI 앱을 삭제하지 않고 채팅을 지울 수 있습니다. 저장된 설정과 자격 증명은 보존됩니다.",
+      "description": "에이전트의 선택한 부분을 초기화합니다. Agent App 앱을 삭제하지 않고 채팅을 지울 수 있습니다. 저장된 설정과 자격 증명은 보존됩니다.",
       "button": "에이전트 초기화",
       "resetting": "초기화 중...",
       "success": "에이전트가 성공적으로 초기화되었습니다",
@@ -57,7 +57,7 @@
     },
     "profile": {
       "title": "에이전트 프로필",
-      "description": "에이전트의 성격, 스킬, MCP 서버, Living UI 앱을 하나의 <0>.craftbot</0> 파일로 공유하세요. API 키, 개인 메모리, 대화 기록은 절대 포함되지 않습니다.",
+      "description": "에이전트의 성격, 스킬, MCP 서버, Agent App 앱을 하나의 <0>.craftbot</0> 파일로 공유하세요. API 키, 개인 메모리, 대화 기록은 절대 포함되지 않습니다.",
       "export": "프로필 내보내기",
       "import": "프로필 가져오기",
       "exported": "프로필이 내보내졌습니다",
@@ -69,8 +69,8 @@
       "skillCount_other": "스킬 {{count}}개",
       "mcpCount_one": "MCP 서버 {{count}}개",
       "mcpCount_other": "MCP 서버 {{count}}개",
-      "livingUiCount_one": "Living UI 앱 {{count}}개",
-      "livingUiCount_other": "Living UI 앱 {{count}}개",
+      "agentAppCount_one": "Agent App 앱 {{count}}개",
+      "agentAppCount_other": "Agent App 앱 {{count}}개",
       "profileWord": "프로필",
       "importedOverwrite": "에이전트를 {{what}}(으)로 덮어썼습니다.",
       "importedMerge": "{{what}}을(를) 가져왔습니다."
@@ -97,7 +97,7 @@
     "mcps": "MCP",
     "skills": "스킬",
     "integrations": "연동",
-    "living_ui": "Living UI"
+    "agent_app": "Agent App"
   },
   "model": {
     "title": "모델 구성",
@@ -600,13 +600,13 @@
       "takesTime": "최대 30초 정도 걸릴 수 있습니다."
     }
   },
-  "livingUi": {
-    "title": "Living UI",
-    "subtitle": "Living UI 프로젝트를 관리하고 공유합니다",
+  "agentApp": {
+    "title": "Agent App",
+    "subtitle": "Agent App 프로젝트를 관리하고 공유합니다",
     "projectsTitle": "프로젝트",
-    "projectsDesc": "Living UI 프로젝트를 관리하고, 실행하고, 공유하세요. 메인 채팅에서 새로 만들 수 있습니다.",
+    "projectsDesc": "Agent App 프로젝트를 관리하고, 실행하고, 공유하세요. 메인 채팅에서 새로 만들 수 있습니다.",
     "loadingProjects": "프로젝트 불러오는 중...",
-    "noProjects": "아직 Living UI 프로젝트가 없습니다. 메인 채팅에서 하나 만드세요.",
+    "noProjects": "아직 Agent App 프로젝트가 없습니다. 메인 채팅에서 하나 만드세요.",
     "leftoverTitle": "남은 백업",
     "leftoverDesc": "삭제된 앱의 백업 아카이브입니다. 앱이 삭제될 때 유지되며, 데이터가 더 이상 필요 없으면 여기서 제거하세요.",
     "status": {
@@ -647,7 +647,7 @@
     },
     "restoringInto": "\"{{name}}\"(으)로 복원하는 중… 잠깐 걸릴 수 있습니다.",
     "restoring": "복원하는 중… 잠깐 걸릴 수 있습니다.",
-    "deleteConfirmTitle": "Living UI 삭제",
+    "deleteConfirmTitle": "Agent App 삭제",
     "deleteConfirmMessage": "\"{{name}}\"을(를) 삭제하시겠습니까? 모든 프로젝트 파일이 제거됩니다. 앱에 라이브 데이터가 있으면 최종 백업이 먼저 저장되어 유지됩니다 — 남은 백업은 나중에 아래에서 제거할 수 있습니다.",
     "leftoverDeleteTitle": "남은 백업 삭제",
     "leftoverDeleteMessage": "삭제된 앱 \"{{name}}\"의 모든 백업 아카이브를 영구적으로 삭제하시겠습니까? 이것이 해당 데이터의 유일하게 남은 사본입니다.",

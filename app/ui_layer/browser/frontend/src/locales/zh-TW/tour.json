@@ -13,21 +13,21 @@
       "title": "你的主要對話",
       "description": "「主要」是代理的主場對話：無法刪除或重新命名，任何自動發生的事情（例如排程任務或已連接應用程式的更新）都會出現在這裡。"
     },
-    "living-ui": {
-      "title": "Living UI 應用程式",
+    "agent-app": {
+      "title": "Agent App 應用程式",
       "description": "請 CraftBot 為你打造真正的應用程式（追蹤器、CRM、儀表板），它就會在這裡建置並執行。新增的方式有三種："
     },
     "living-ui-marketplace": {
       "title": "市集",
       "description": "只要點按一下，即可從社群市集安裝現成的應用程式。"
     },
-    "living-ui-custom": {
+    "agent-app-custom": {
       "title": "自訂建立",
       "description": "描述你想要的內容，代理就會為你打造：設定一些基本項目、回答簡短訪談，接著它會撰寫規格並建置應用程式。"
     },
-    "living-ui-import": {
+    "agent-app-import": {
       "title": "匯入",
-      "description": "從 ZIP、資料夾或 git 網址匯入現有的 Living UI。"
+      "description": "從 ZIP、資料夾或 git 網址匯入現有的 Agent App。"
     },
     "dashboard": {
       "title": "CraftBot 儀表板",

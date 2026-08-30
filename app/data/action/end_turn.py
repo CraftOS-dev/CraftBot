@@ -32,16 +32,16 @@ def end_turn(input_data: dict) -> dict:
     simulated_mode = input_data.get("simulated_mode", False)
 
     if not simulated_mode:
-        # STRUCTURAL GUARD: a Living UI build must never be silently
+        # STRUCTURAL GUARD: a Agent App build must never be silently
         # abandoned mid-creation. Ending the run leaves the session asleep
         # forever (nothing re-wakes it), stranding the user on the creation
         # screen. Refuse and keep the run alive.
         session_id = input_data.get("_session_id")
         if session_id:
             try:
-                from app.living_ui import get_living_ui_manager
+                from app.agent_app import get_agent_app_manager
 
-                manager = get_living_ui_manager()
+                manager = get_agent_app_manager()
                 project = (
                     manager.get_project_by_session_id(session_id) if manager else None
                 )
@@ -49,12 +49,12 @@ def end_turn(input_data: dict) -> dict:
                     return {
                         "status": "error",
                         "message": (
-                            "REFUSED: this Living UI build is not finished — ending "
+                            "REFUSED: this Agent App build is not finished — ending "
                             "the run now would strand it forever (nothing wakes the "
                             "session again). Valid ways to stop working: (1) keep "
                             "building the remaining features, (2) ask the user a "
                             "question via send_message with wait_for_user_reply=true, "
-                            "or (3) finish with living_ui_notify_ready(project_id="
+                            "or (3) finish with agent_app_notify_ready(project_id="
                             f"'{project.id}') and report the result. There is no "
                             "'continue in a later turn' — this run IS the build."
                         ),

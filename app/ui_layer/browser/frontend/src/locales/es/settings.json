@@ -49,7 +49,7 @@
     },
     "reset": {
       "title": "Restablecer agente",
-      "description": "Restablece las partes seleccionadas del agente. Se pueden borrar los chats sin eliminar las apps de Living UI. Los ajustes y las credenciales guardados se conservan.",
+      "description": "Restablece las partes seleccionadas del agente. Se pueden borrar los chats sin eliminar las apps de Agent App. Los ajustes y las credenciales guardados se conservan.",
       "button": "Restablecer agente",
       "resetting": "Restableciendo...",
       "success": "Agente restablecido correctamente",
@@ -57,7 +57,7 @@
     },
     "profile": {
       "title": "Perfil del agente",
-      "description": "Comparte la personalidad, las habilidades, los servidores MCP y las apps de Living UI de tu agente en un único archivo <0>.craftbot</0>. Las claves de API, la memoria personal y el historial de conversaciones nunca se incluyen.",
+      "description": "Comparte la personalidad, las habilidades, los servidores MCP y las apps de Agent App de tu agente en un único archivo <0>.craftbot</0>. Las claves de API, la memoria personal y el historial de conversaciones nunca se incluyen.",
       "export": "Exportar perfil",
       "import": "Importar perfil",
       "exported": "Perfil exportado",
@@ -69,8 +69,8 @@
       "skillCount_other": "{{count}} habilidades",
       "mcpCount_one": "{{count}} servidor MCP",
       "mcpCount_other": "{{count}} servidores MCP",
-      "livingUiCount_one": "{{count}} app de Living UI",
-      "livingUiCount_other": "{{count}} apps de Living UI",
+      "agentAppCount_one": "{{count}} app de Agent App",
+      "agentAppCount_other": "{{count}} apps de Agent App",
       "profileWord": "perfil",
       "importedOverwrite": "Se sobrescribió el agente con {{what}}.",
       "importedMerge": "Se importó {{what}}."
@@ -97,7 +97,7 @@
     "mcps": "MCP",
     "skills": "Habilidades",
     "integrations": "Integraciones",
-    "living_ui": "Living UI"
+    "agent_app": "Agent App"
   },
   "model": {
     "title": "Configuración del modelo",
@@ -600,13 +600,13 @@
       "takesTime": "Esto puede tardar hasta 30 segundos."
     }
   },
-  "livingUi": {
-    "title": "Living UI",
-    "subtitle": "Gestiona y comparte tus proyectos de Living UI",
+  "agentApp": {
+    "title": "Agent App",
+    "subtitle": "Gestiona y comparte tus proyectos de Agent App",
     "projectsTitle": "Proyectos",
-    "projectsDesc": "Gestiona, inicia y comparte tus proyectos de Living UI. Crea nuevos desde el chat principal.",
+    "projectsDesc": "Gestiona, inicia y comparte tus proyectos de Agent App. Crea nuevos desde el chat principal.",
     "loadingProjects": "Cargando proyectos...",
-    "noProjects": "Aún no hay proyectos de Living UI. Crea uno desde el chat principal.",
+    "noProjects": "Aún no hay proyectos de Agent App. Crea uno desde el chat principal.",
     "leftoverTitle": "Copias de seguridad sobrantes",
     "leftoverDesc": "Archivos de copia de seguridad de apps eliminadas. Se conservan cuando se elimina una app; quítalos aquí cuando ya no necesites los datos.",
     "status": {
@@ -647,7 +647,7 @@
     },
     "restoringInto": "Restaurando en \"{{name}}\"… esto puede tardar un minuto.",
     "restoring": "Restaurando… esto puede tardar un minuto.",
-    "deleteConfirmTitle": "Eliminar Living UI",
+    "deleteConfirmTitle": "Eliminar Agent App",
     "deleteConfirmMessage": "¿Seguro que quieres eliminar \"{{name}}\"? Esto eliminará todos los archivos del proyecto. Si la app tiene datos en vivo, primero se guarda una copia de seguridad final que SE CONSERVA; las copias de seguridad sobrantes se pueden quitar más abajo después.",
     "leftoverDeleteTitle": "Eliminar copias de seguridad sobrantes",
     "leftoverDeleteMessage": "¿Eliminar permanentemente todos los archivos de copia de seguridad de la app eliminada \"{{name}}\"? Son la única copia restante de sus datos.",

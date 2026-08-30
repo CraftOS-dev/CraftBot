@@ -45,19 +45,19 @@ function buildCards(t: (key: string) => string): IntroCard[] {
       icon: Cloud
     },
     {
-      id: 'livingui',
+      id: 'agentapp',
       variant: 'chips',
-      categoryLabel: t(`${base}.livingui.categoryLabel`),
-      title: t(`${base}.livingui.title`),
-      subtitle: t(`${base}.livingui.subtitle`),
-      desc: t(`${base}.livingui.desc`),
+      categoryLabel: t(`${base}.agentapp.categoryLabel`),
+      title: t(`${base}.agentapp.title`),
+      subtitle: t(`${base}.agentapp.subtitle`),
+      desc: t(`${base}.agentapp.desc`),
       items: [
-        { label: t(`${base}.livingui.item0`) },
-        { label: t(`${base}.livingui.item1`) },
-        { label: t(`${base}.livingui.item2`) },
-        { label: t(`${base}.livingui.item3`) }
+        { label: t(`${base}.agentapp.item0`) },
+        { label: t(`${base}.agentapp.item1`) },
+        { label: t(`${base}.agentapp.item2`) },
+        { label: t(`${base}.agentapp.item3`) }
       ],
-      cta: { label: t(`${base}.livingui.cta`), href: 'https://craftos.net/marketplace' },
+      cta: { label: t(`${base}.agentapp.cta`), href: 'https://craftos.net/marketplace' },
       icon: Box
     },
     {

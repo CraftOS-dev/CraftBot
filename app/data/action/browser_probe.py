@@ -1,4 +1,4 @@
-"""Headless-browser probe of a running Living UI (walk-verify's hands)."""
+"""Headless-browser probe of a running Agent App (walk-verify's hands)."""
 
 from agent_core import action
 
@@ -6,7 +6,7 @@ from agent_core import action
 @action(
     name="browser_probe",
     description=(
-        "Drive a RUNNING Living UI in a headless browser (invisible — no "
+        "Drive a RUNNING Agent App in a headless browser (invisible — no "
         "window). Executes a scripted sequence of steps and returns per-step "
         "results, page text, screenshot file paths, and console errors. Use "
         "this to verify UI flows a user would perform: navigate, click "
@@ -14,7 +14,7 @@ from agent_core import action
     ),
     default=False,
     mode="CLI",
-    action_sets=["living_ui"],
+    action_sets=["agent_app"],
     parallelizable=False,
     input_schema={
         "url": {
@@ -77,7 +77,7 @@ async def browser_probe(input_data: dict) -> dict:
     from app.config import PROJECT_ROOT
     from app import node_runtime
 
-    cli = Path(PROJECT_ROOT) / "living-ui" / "tools" / "src" / "cli.ts"
+    cli = Path(PROJECT_ROOT) / "agent-app" / "tools" / "src" / "cli.ts"
     out_dir = str(Path(input_data.get("project_path") or "/tmp") / "logs" / "verify")
     proc = await asyncio.create_subprocess_exec(
         # the resolved >= 24 runtime — the CLI is TypeScript, bare PATH

@@ -13,21 +13,21 @@
       "title": "Your Main chat",
       "description": "Main is the agent's home chat: it can't be deleted or renamed, and anything that happens on its own (like scheduled tasks or updates from connected apps) arrives here."
     },
-    "living-ui": {
-      "title": "Living UI apps",
+    "agent-app": {
+      "title": "Agent App apps",
       "description": "Ask CraftBot to build you a real app (a tracker, a CRM, a dashboard) and it appears here, built and running. There are three ways to add one:"
     },
     "living-ui-marketplace": {
       "title": "Marketplace",
       "description": "Install a ready-made app from the community marketplace with a single click."
     },
-    "living-ui-custom": {
+    "agent-app-custom": {
       "title": "Create Custom",
       "description": "Describe what you want and the agent builds it: configure a few basics, answer a short interview, then it writes the spec and builds the app."
     },
-    "living-ui-import": {
+    "agent-app-import": {
       "title": "Import",
-      "description": "Bring in an existing Living UI from a ZIP, a folder, or a git URL."
+      "description": "Bring in an existing Agent App from a ZIP, a folder, or a git URL."
     },
     "dashboard": {
       "title": "CraftBot Dashboard",

@@ -42,7 +42,7 @@ Além de ser um agente de IA capaz de criar e operar suas próprias ferramentas 
 
 - **Perfis de agente** Mais de 40 perfis de agente (agente CEO, agente financeiro, agente líder de marketing, engenheiro DevOps, agente produtor de vídeo e mais 37) prontos para trabalhar por você. Encontre os papéis desejados em **[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** e importe-os com um clique.
 - **Catálogo de playbooks** Não sabe como automatizar com agente de IA? O CraftBot tem 120 playbooks prontos para uso (em 19 categorias). Abra o seletor de playbooks pela barra superior, escolha um playbook e ele começa a executar a tarefa por você.
-- **Living UI.** Construa, importe ou evolua aplicações personalizadas que vivem dentro do CraftBot. O agente conhece o estado atual da UI o tempo todo e pode ler, escrever e agir sobre seus dados diretamente.
+- **Agent App.** Construa, importe ou evolua aplicações personalizadas que vivem dentro do CraftBot. O agente conhece o estado atual da UI o tempo todo e pode ler, escrever e agir sobre seus dados diretamente.
 - **Multitarefa e roteamento de sessões.** Ainda digitando `/new` manualmente? O CraftBot decide quando abrir uma nova sessão e quando retomar uma tarefa, mantendo conversa e contexto unificados.
 - **Self-hosted e BYOK.** Sistema flexível de provedores de LLM com suporte a OpenAI, Google Gemini, Anthropic Claude, OpenRouter e mais. Ou hospede seu próprio modelo gastando 0 tokens com o Ollama.
 - **Sistema de memória.** Um segundo cérebro construído a partir das suas interações com o CraftBot. Abordagem híbrida: RAG + grafo de conhecimento + sistema de arquivos do agente. À meia-noite, o CraftBot "sonha" e consolida os eventos do dia.
@@ -85,65 +85,65 @@ python craftbot.py uninstall  # Para o serviço, remove o autoinício e desinsta
 
 ---
 
-## 🌱 Living UI
+## 🌱 Agent App
 
-**Living UI é um sistema/app/dashboard que evolui com suas necessidades.**
+**Agent App é um sistema/app/dashboard que evolui com suas necessidades.**
 
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/agent_app_banner.gif" alt="CraftBot Banner" width="1280"/>
 </div>
 
 - Precisa de um quadro kanban com um copiloto de IA embutido? 
 - Um CRM sob medida, exatamente no formato do seu fluxo de trabalho? 
 - Um dashboard corporativo que o CraftBot consegue ler e operar por você? 
 
-Coloque-o no ar como uma Living UI que roda junto ao CraftBot e cresce conforme suas necessidades mudam.
+Coloque-o no ar como uma Agent App que roda junto ao CraftBot e cresce conforme suas necessidades mudam.
 
-### Três jeitos de criar uma Living UI
+### Três jeitos de criar uma Agent App
 
 1. **Construir do zero.** Descreva em linguagem natural o que você quer. O CraftBot
    monta o modelo de dados, a API de back-end e a UI em React, e itera com
    você por um processo de design estruturado.
 
 <div align="center">
-    <img src="assets/living-ui-custom-build.png" alt="Building a Living UI from scratch" width="448"/>
+    <img src="assets/agent-app-custom-build.png" alt="Building a Agent App from scratch" width="448"/>
 </div>
 
-2. **Instalar pelo marketplace.** Explore as Living UIs criadas pela comunidade em [living-ui-marketplace](https://github.com/CraftOS-dev/living-ui-marketplace).
+2. **Instalar pelo marketplace.** Explore as Agent Apps criadas pela comunidade em [living-ui-marketplace](https://github.com/CraftOS-dev/living-ui-marketplace).
 
 <div align="center">
-    <img src="assets/living-ui-marketplace.png" alt="Living UI marketplace" width="448"/>
+    <img src="assets/living-ui-marketplace.png" alt="Agent App marketplace" width="448"/>
 </div>
 
 3. **Importar um projeto existente.** Aponte o CraftBot para um projeto em Go, Node.js, Python,
-   Rust, ou um código-fonte estático ou repositório do GitHub. Ele detecta o runtime, configura health checks e empacota tudo como uma Living UI.
+   Rust, ou um código-fonte estático ou repositório do GitHub. Ele detecta o runtime, configura health checks e empacota tudo como uma Agent App.
 
 <div align="center">
-    <img src="assets/living-ui-import.png" alt="Importing an existing project as a Living UI" width="448"/>
+    <img src="assets/agent-app-import.png" alt="Importing an existing project as a Agent App" width="448"/>
 </div>
 
 ### Continua evoluindo com o CraftBot dentro do loop
 
-Uma Living UI nunca está "pronta". Peça ao agente para adicionar funcionalidades,
+Uma Agent App nunca está "pronta". Peça ao agente para adicionar funcionalidades,
 redesenhar uma tela ou conectar a novos dados conforme suas necessidades crescem.
 
-O CraftBot está embutido em toda Living UI e **conhece o estado dela**:
+O CraftBot está embutido em toda Agent App e **conhece o estado dela**:
 ele consegue ler o DOM atual e os valores dos formulários, consultar os dados da
 app via API REST e disparar ações em seu nome.
 
 ### Mantém as ferramentas SaaS abertas e vivas
 
-Construa, personalize e evolua sua própria Living UI, e dependa menos de ferramentas por assinatura que nunca foram feitas para encaixar perfeitamente nas suas necessidades.
+Construa, personalize e evolua sua própria Agent App, e dependa menos de ferramentas por assinatura que nunca foram feitas para encaixar perfeitamente nas suas necessidades.
 
 ---
  
-# Três Living UIs para experimentar em 5 minutos
+# Três Agent Apps para experimentar em 5 minutos
  
 - **📋 Quadro Kanban**: toda tarefa, follow-up e CTA em um único lugar. O CraftBot pode operá-lo e fazer o trabalho de PM por você.
 - **📊 Habit Tracker**: crie e acompanhe seus hábitos. Calendário de atividades no estilo do GitHub para acompanhar seus hábitos como um(a) dev.
 - **🐦 Luolinglo**: não é o Duolingo, mas você pode aprender novos idiomas, criar flashcards e praticar com o CraftBot.
 
-**[Explore e contribua com o marketplace de Living UI →](https://craftos.net/marketplace)**
+**[Explore e contribua com o marketplace de Agent App →](https://craftos.net/marketplace)**
 
 ---
 

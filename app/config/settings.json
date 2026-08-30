@@ -2,7 +2,8 @@
   "version": "1.4.2",
   "general": {
     "agent_name": "CraftBot",
-    "os_language": "en"
+    "os_language": "en",
+    "ui_language": "ja"
   },
   "proactive": {
     "enabled": true
@@ -11,7 +12,8 @@
     "enabled": true,
     "max_items": 200,
     "prune_target": 135,
-    "item_word_limit": 150
+    "item_word_limit": 150,
+    "processing_threshold": 23
   },
   "context": {
     "summarize_at_tokens": 100000,
@@ -89,7 +91,7 @@
     "grok": "subscription",
     "openai": "subscription"
   },
-  "living_ui": {
+  "agent_app": {
     "marketplace_ref": ""
   }
 }

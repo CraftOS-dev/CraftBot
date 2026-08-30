@@ -23,7 +23,7 @@ set API key             → ## Models
 delegate web research    → ## Sub-Agents
 lock the deliverable spec→ ## Runs  (set_requirement)
 generate document       → ## Documents
-build Living UI         → ## Living UI
+build Agent App         → ## Agent App
 schedule / defer work   → ## Runs (schedule_task), ## Proactive
 edit config file        → ## Configs
 handle an error         → ## Errors
@@ -41,7 +41,7 @@ look up a term          → ## Glossary
 
 ## Runtime
 
-You run inside `AgentBase.react(trigger)` at [app/agent_base.py](app/agent_base.py). The unit of work is a **session** (main, chat, or living_ui). A **run** is one wake of a session: it starts on a run-start trigger and continues turn by turn until the only action(s) you select are terminal — a final `send_message` (without `continue_work`) or `end_turn`. There is no routing, no task lifecycle, and no modes: every turn runs the same select → prepare → execute → finalize pipeline.
+You run inside `AgentBase.react(trigger)` at [app/agent_base.py](app/agent_base.py). The unit of work is a **session** (main, chat, or agent_app). A **run** is one wake of a session: it starts on a run-start trigger and continues turn by turn until the only action(s) you select are terminal — a final `send_message` (without `continue_work`) or `end_turn`. There is no routing, no task lifecycle, and no modes: every turn runs the same select → prepare → execute → finalize pipeline.
 
 ### Sessions
 
@@ -73,7 +73,7 @@ MEMORY                        memory-processing workflow
 PROACTIVE_HEARTBEAT /
 PROACTIVE_PLANNER             proactive workflows
 ONBOARDING / SKILL_WORKFLOW /
-LIVING_UI_*                   other workflow sources
+AGENT_APP_*                   other workflow sources
 RESTART_NOTICE                app restarted; react() returns early
 ```
 
@@ -178,7 +178,7 @@ The input needs a short answer or 1-3 actions:
 2. Final send_message with the result       ← this ends the run
 ```
 
-The input needs no reply at all (emoji-only ack, third-party noise): `end_turn` — ends the run silently. Guard: `end_turn` refuses to fire while a Living UI project is still `creating`.
+The input needs no reply at all (emoji-only ack, third-party noise): `end_turn` — ends the run silently. Guard: `end_turn` refuses to fire while a Agent App project is still `creating`.
 
 Do not refuse computer-based requests by claiming a limitation without checking — expand your action surface (below) and verify first. The same applies to information requests — see `## Use What You Have`.
 
@@ -312,8 +312,8 @@ docs, CRM, chat, repo, ...)                      list_available_integrations. If
                                                  the user to do it themselves, refuse, or web-search
                                                  around it.
 
-sounds like something an app of yours already    Living UI. living_ui_list_projects; on a match,
-does                                             living_ui_usage + the lui CLI/ops to read its data
+sounds like something an app of yours already    Agent App. agent_app_list_projects; on a match,
+does                                             agent_app_usage + the lui CLI/ops to read its data
                                                  or perform the operation instead of redoing the
                                                  work by hand.
 ```
@@ -330,11 +330,11 @@ On any turn you can delegate a self-contained chunk of work to a sub-agent with 
 
 ```
 Online research (search the web, fetch pages, gather facts)  → spawn_subagent("research_agent", ...)
-Living UI browser verification                               → walk_verify (usually via living_ui_walk_verify)
+Agent App browser verification                               → walk_verify (usually via agent_app_walk_verify)
 Local work (read files, grep the repo, memory_search)        → do it yourself, don't delegate
 ```
 
-Registered types today: `research_agent` (gathers source-cited facts and returns a brief — it does not interpret or make decisions) and `walk_verify` (drives a running Living UI app in a headless browser). The `agent_type` enum is built dynamically from the registry; if a type is rejected, it isn't registered — do the work yourself or ask the user. Sub-agents run with iteration and wall-clock caps and end themselves via their own `sub_task_end` action.
+Registered types today: `research_agent` (gathers source-cited facts and returns a brief — it does not interpret or make decisions) and `walk_verify` (drives a running Agent App app in a headless browser). The `agent_type` enum is built dynamically from the registry; if a type is rejected, it isn't registered — do the work yourself or ask the user. Sub-agents run with iteration and wall-clock caps and end themselves via their own `sub_task_end` action.
 
 ### How to write a good `query`
 
@@ -840,7 +840,7 @@ agent_file_system/
 ├── EVENT.md                  Full event log                      DO NOT EDIT
 ├── EVENT_UNPROCESSED.md      Memory-pipeline staging buffer      DO NOT EDIT
 ├── PROACTIVE.md              Recurring tasks + Goals/Plan/Status
-├── GLOBAL_LIVING_UI.md       Global Living UI design rules
+├── GLOBAL_AGENT_APP.md       Global Agent App design rules
 ├── MISSION_INDEX_TEMPLATE.md Template for mission INDEX.md files
 └── workspace/                Sandbox for task outputs (see ## Workspace)
 ```
@@ -924,10 +924,10 @@ To review past dialogue or past run outcomes, grep EVENT.md (the complete histor
 - Format: YAML blocks between `<!-- PROACTIVE_TASKS_START -->` and `<!-- PROACTIVE_TASKS_END -->` markers, followed by a Goals / Plan / Status section.
 - Authority: PROACTIVE.md is the source of truth for the Decision Rubric, Permission Tiers, and recurring-task YAML schema. Do NOT duplicate that content elsewhere.
 
-### GLOBAL_LIVING_UI.md
-- Purpose: global design rules applied to every Living UI project.
+### GLOBAL_AGENT_APP.md
+- Purpose: global design rules applied to every Agent App project.
 - Write access: user (primarily). You only when the user supplies a new universal rule with confirmation.
-- Read pattern: before creating any Living UI project. See `## Living UI`.
+- Read pattern: before creating any Agent App project. See `## Agent App`.
 - Sections: Design Preferences (colors, theme, font, border radius, spacing), Always Enforced rules, Optional rules, Custom rules.
 
 ### MISSION_INDEX_TEMPLATE.md
@@ -936,14 +936,14 @@ To review past dialogue or past run outcomes, grep EVENT.md (the complete histor
 - Read pattern: when starting a mission, copy this template into the mission directory and fill it in.
 - Fields: Goal, Status, Key Findings, What's Been Tried, Next Steps, Resources & References, Constraints & Notes.
 
-### Living UI projects (workspace/living_ui/)
+### Agent App projects (workspace/agent_app/)
 
-Living UI projects live at `agent_file_system/workspace/living_ui/<project_name>_<hash>/`. Every project is a React frontend + a single PocketBase backend process. Standard layout:
+Agent App projects live at `agent_file_system/workspace/agent_app/<project_name>_<hash>/`. Every project is a React frontend + a single PocketBase backend process. Standard layout:
 
 ```
-workspace/living_ui/<name>_<hash>/
-├── manifest.json            Identity, ports, capabilities (livingUIVersion 2). Root, not config/.
-├── LIVING_UI.md             Per-project plan/index + file-ownership map
+workspace/agent_app/<name>_<hash>/
+├── manifest.json            Identity, ports, capabilities (agentAppVersion 2). Root, not config/.
+├── AGENT_APP.md             Per-project plan/index + file-ownership map
 ├── operations.json          Declared ops (discoverable at GET /api/_ops)
 ├── reference/
 │   └── requirements.md      BINDING spec. walk_verify checks the app against this file.
@@ -962,7 +962,7 @@ workspace/living_ui/<name>_<hash>/
 - `logs/pocketbase.log` (server-side) and `logs/frontend_console.log` (browser console): first place to grep when a project misbehaves.
 - Imported non-V2 apps register as **external** apps: they carry `craftbot.json` (install/build/start/health verbs, `{{PORT}}`) instead of `manifest.json` and log to `logs/app.log`.
 
-The fresh-project scaffold lives at [living-ui/blueprint/](living-ui/blueprint/). For lifecycle, see `## Living UI`.
+The fresh-project scaffold lives at [agent-app/blueprint/](agent-app/blueprint/). For lifecycle, see `## Agent App`.
 
 ### Files outside agent_file_system/
 
@@ -1001,8 +1001,8 @@ agent_file_system/workspace/
 │   └── <mission_name>/       Multi-run initiative. Persists indefinitely.
 │       ├── INDEX.md          Required (template at MISSION_INDEX_TEMPLATE.md)
 │       └── <mission files>
-└── living_ui/
-    └── <name>_<hash>/        Living UI projects. See ## File System.
+└── agent_app/
+    └── <name>_<hash>/        Agent App projects. See ## File System.
 ```
 
 ### Where to put a file
@@ -1012,7 +1012,7 @@ Type of file                                      → Destination
 final document the user should keep               → workspace/<filename>
 draft, sketch, intermediate state, scratch        → workspace/sessions/{session_id}/<filename>
 mission deliverable (multi-run initiative)        → workspace/missions/<mission_name>/<filename>
-Living UI project file                            → workspace/living_ui/<name>_<hash>/...
+Agent App project file                            → workspace/agent_app/<name>_<hash>/...
 ```
 
 ### Lifecycle rules
@@ -1020,7 +1020,7 @@ Living UI project file                            → workspace/living_ui/<name>
 - `workspace/` (root): never auto-cleaned. Anything you save here persists until the user deletes it.
 - `workspace/sessions/{session_id}/`: created automatically when a session is created. Removed only when the session is deleted — NOT cleaned between runs, so scratch from earlier runs of the same session is still there.
 - `workspace/missions/<name>/`: never auto-cleaned. The mission's `INDEX.md` is what future-you reads to restore context.
-- `workspace/living_ui/<name>_<hash>/`: managed via the `living_ui` actions. Do not rename or delete by hand. See `## Living UI`.
+- `workspace/agent_app/<name>_<hash>/`: managed via the `agent_app` actions. Do not rename or delete by hand. See `## Agent App`.
 
 ### Path discipline
 
@@ -1184,28 +1184,28 @@ DO NOT silently change FORMAT.md. The user owns their style guide.
 
 ---
 
-## Living UI
+## Agent App
 
-"Living UI" = generated web apps served from CraftBot. Every project is a React frontend (vendored kit, shadcn-conventional components) plus one PocketBase backend process. Lifecycle is driven through the `living_ui` action set ([app/data/action/living_ui_actions.py](app/data/action/living_ui_actions.py)). The fresh-project scaffold lives at [living-ui/blueprint/](living-ui/blueprint/). File layout: see `## File System` "Living UI projects".
+"Agent App" = generated web apps served from CraftBot. Every project is a React frontend (vendored kit, shadcn-conventional components) plus one PocketBase backend process. Lifecycle is driven through the `agent_app` action set ([app/data/action/agent_app_actions.py](app/data/action/agent_app_actions.py)). The fresh-project scaffold lives at [agent-app/blueprint/](agent-app/blueprint/). File layout: see `## File System` "Agent App projects".
 
-### Action surface (`living_ui` set)
+### Action surface (`agent_app` set)
 
 ```
-living_ui_scaffold(name, description, ...)  Create a project: copies the blueprint, allocates ports,
+agent_app_scaffold(name, description, ...)  Create a project: copies the blueprint, allocates ports,
                                             runs the requirements interview, then dispatches the build
                                             to the project's own dedicated session (lui_<id>). After
                                             scaffold, do NOT write project files or call notify_ready
                                             yourself — the build session owns that.
-living_ui_list_projects()                   {id, name, description, status, url, path, delivered}.
+agent_app_list_projects()                   {id, name, description, status, url, path, delivered}.
                                             Resolve "the app" to an id here, never by filesystem search.
-living_ui_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
+agent_app_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
                                             build, migrations, ops manifest) → boot the DEV environment
                                             (your code on a hidden port with a FRESH schema-only DB —
                                             migrations replay; live data is never cloned). The live app
                                             (if any) keeps running untouched. Gate failures come back
                                             in test_errors. Circuit breaker: identical error ×3 warns,
                                             ×6 stops.
-living_ui_walk_verify(project_id, scope?)   Headless-browser sub-agent drives the DEV instance
+agent_app_walk_verify(project_id, scope?)   Headless-browser sub-agent drives the DEV instance
                                             feature-by-feature against reference/requirements.md.
                                             scope="auto" (default): the verifier decides which features
                                             the change can reach (it is handed the diff since the last
@@ -1218,42 +1218,42 @@ living_ui_walk_verify(project_id, scope?)   Headless-browser sub-agent drives th
                                             the code to the live app (first build → live DB created
                                             fresh from migrations; update → new migrations apply to the
                                             real data) and destroys the dev copy. 35-minute ceiling.
-living_ui_restart(project_id)               Stop + full launch pipeline.
-living_ui_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
-living_ui_usage(project_id)                 Returns the project's operating manual: path, live data
+agent_app_restart(project_id)               Stop + full launch pipeline.
+agent_app_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
+agent_app_usage(project_id)                 Returns the project's operating manual: path, live data
                                             schema, exact lui CLI commands. Call this FIRST when
                                             working on an existing project.
-living_ui_http(project_id, method, path)    FALLBACK HTTP access — prefer the lui CLI. PocketBase
+agent_app_http(project_id, method, path)    FALLBACK HTTP access — prefer the lui CLI. PocketBase
                                             admin endpoints (/api/collections) are superuser-only;
                                             use /api/collections/<name>/records.
-living_ui_marketplace_list() /
-living_ui_marketplace_install(app_id, ...)  Install pre-built marketplace apps. As-is installs skip
+agent_app_marketplace_list() /
+agent_app_marketplace_install(app_id, ...)  Install pre-built marketplace apps. As-is installs skip
                                             walk_verify. Marketplace source branch: settings.json
-                                            living_ui.marketplace_ref (default "" = main; env
+                                            agent_app.marketplace_ref (default "" = main; env
                                             CRAFTBOT_MARKETPLACE_REF overrides one run). Only touch
                                             it to test a non-main marketplace branch.
-living_ui_import_zip(zip_path) /
-living_ui_import(source)                    Import a Living UI project from ZIP / local folder / git URL.
-                                            Non-Living-UI sources register as external apps: craftbot.json
+agent_app_import_zip(zip_path) /
+agent_app_import(source)                    Import a Agent App project from ZIP / local folder / git URL.
+                                            Non-Agent-App sources register as external apps: craftbot.json
                                             (install/build/start/health verbs) + an operations.json that
                                             maps declared ops onto the app's own endpoints via an A2App
                                             adapter on the assigned port. lui ops / lui run (and raw HTTP
                                             with the project's .agent-token) work against them; lui data
                                             does not. If the app has no server API, leave operations
                                             empty — never invent verbs or map direct DB writes.
-living_ui_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operations.json against the
+agent_app_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operations.json against the
                                             RUNNING app — invokes every non-destructive op FOR REAL
                                             through the adapter (destructive ops are shape-checked).
                                             Run during adoption after notify_ready and after every
                                             operations.json edit; the import isn't done until it passes.
-living_ui_approve_triggers(project_id)      Record the USER'S consent for an app's declared agent
+agent_app_approve_triggers(project_id)      Record the USER'S consent for an app's declared agent
                                             triggers (triggers.json — requests the app may fire at you).
                                             Call ONLY after the user explicitly agreed in chat. Apps
                                             built here are pre-approved; marketplace/imported apps'
                                             fires are refused until approved.
-living_ui_convert(source, ...)              Rebuild a foreign app as a Living UI: fresh scaffold, original kept
+agent_app_convert(source, ...)              Rebuild a foreign app as a Agent App: fresh scaffold, original kept
                                             in reference/source/, requirements synthesized,
-                                            supervised build dispatched. Non-Living-UI sources register as external apps (craftbot.json).
+                                            supervised build dispatched. Non-Agent-App sources register as external apps (craftbot.json).
 ```
 
 ### Data and ops: the lui CLI
@@ -1261,13 +1261,13 @@ living_ui_convert(source, ...)              Rebuild a foreign app as a Living UI
 Read/write a project's live data with the lui CLI via `run_shell` (absolute paths required):
 
 ```
-node <craftbot_root>/living-ui/tools/src/cli.ts data <project_path> schema
-node <craftbot_root>/living-ui/tools/src/cli.ts data <project_path> <collection> list|create|update|delete ...
-node <craftbot_root>/living-ui/tools/src/cli.ts run  <project_path> <op-name> --param value
-node <craftbot_root>/living-ui/tools/src/cli.ts ops  <project_path>
+node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> schema
+node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> <collection> list|create|update|delete ...
+node <craftbot_root>/agent-app/tools/src/cli.ts run  <project_path> <op-name> --param value
+node <craftbot_root>/agent-app/tools/src/cli.ts ops  <project_path>
 ```
 
-`living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
+`agent_app_usage(project_id)` returns the exact commands for a given project. Use `agent_app_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
 
 ### Build / delivery lifecycle (one flow for builds and modifies)
 
@@ -1283,28 +1283,28 @@ write code in the project dir → notify_ready (validation gate + boot of the
 - The factory host owns retries, fix-mission dispatch, and the "ready" announcement. Do not author success status messages for a build yourself.
 - Any modify must append a dated bullet to the `## Changes` section of `reference/requirements.md` — walk_verify checks the app against that file, so a stale spec means a wrong verdict.
 - **Live data lives at `<project>/pb/pb_data/data.db`, and its PRESENCE is what decides first-build vs update** (there is no "delivered" flag anymore). NEVER hand-delete or reset `pb/pb_data/` — that turns the next promote into a "first build" and the live DB is recreated empty.
-- **Backups**: every native app's live data is auto-backed-up to `workspace/living_ui/_backups/<project_id>/` (scheduled daily + a pre-update backup taken right before every deploy onto existing live data — if that backup fails, the deploy is ABORTED; fix the backup error, don't bypass). Backups survive app deletion. Restore is a user-only operation from the UI; you cannot trigger it.
+- **Backups**: every native app's live data is auto-backed-up to `workspace/agent_app/_backups/<project_id>/` (scheduled daily + a pre-update backup taken right before every deploy onto existing live data — if that backup fails, the deploy is ABORTED; fix the backup error, don't bypass). Backups survive app deletion. Restore is a user-only operation from the UI; you cannot trigger it.
 
 ### Skills
 
 ```
-living-ui-creator     start a new project (wizard, requirements, scaffold)
-living-ui-modify      change an existing project (features, layout, fixes)
-living-ui-manager     list, inspect, restart projects
-living-ui-importer    marketplace install + import from ZIP / folder / git
+agent-app-creator     start a new project (wizard, requirements, scaffold)
+agent-app-modify      change an existing project (features, layout, fixes)
+agent-app-manager     list, inspect, restart projects
+agent-app-importer    marketplace install + import from ZIP / folder / git
 ```
 
-Prefer these via slash (`/living-ui-creator`) or LLM selection — they encode the right action sequence.
+Prefer these via slash (`/agent-app-creator`) or LLM selection — they encode the right action sequence.
 
 ### Design rules
 
-Before creating any project, read `GLOBAL_LIVING_UI.md` (colors, theme behavior, always-enforced component/UX rules, optional rules, user custom rules). Apply global rules first; override only on explicit user instruction, and record project-specific overrides in the project's own `LIVING_UI.md`. Edit GLOBAL_LIVING_UI.md only when the user gives a new universal rule — confirm scope first, same pattern as FORMAT.md.
+Before creating any project, read `GLOBAL_AGENT_APP.md` (colors, theme behavior, always-enforced component/UX rules, optional rules, user custom rules). Apply global rules first; override only on explicit user instruction, and record project-specific overrides in the project's own `AGENT_APP.md`. Edit GLOBAL_AGENT_APP.md only when the user gives a new universal rule — confirm scope first, same pattern as FORMAT.md.
 
 ### Editing an existing project
 
 ```
-1. living_ui_usage(project_id) — get the operating manual.
-2. Read the project's LIVING_UI.md (plan/index + file-ownership map) and reference/requirements.md.
+1. agent_app_usage(project_id) — get the operating manual.
+2. Read the project's AGENT_APP.md (plan/index + file-ownership map) and reference/requirements.md.
 3. Respect ownership: frontend/src/app/, pb/pb_hooks/ops.pb.js, pb/pb_migrations/ are editable;
    frontend/src/kit/ and _-prefixed pb_hooks are system-managed — never edit.
 4. Append the change to requirements.md "## Changes", then notify_ready → walk_verify.
@@ -1314,13 +1314,13 @@ When a project misbehaves: grep `logs/pocketbase.log` (server side) and `logs/fr
 
 ### Pitfalls
 
-- Hand-writing a scaffold instead of `living_ui_scaffold`. Manual scaffolds miss the kit, ports, and registration.
+- Hand-writing a scaffold instead of `agent_app_scaffold`. Manual scaffolds miss the kit, ports, and registration.
 - Editing `frontend/src/kit/` or system-managed pb_hooks. They are re-vendored and your edits are lost.
 - Skipping the `reference/requirements.md` update on modify. walk_verify then verifies against a stale spec.
 - Renaming a project directory by hand. `manifest.json` (project root) is the source of truth for identity and ports.
 - Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the lui CLI.
-- Using `living_ui_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the lui CLI.
-- Putting project-specific design changes in GLOBAL_LIVING_UI.md instead of the project's LIVING_UI.md.
+- Using `agent_app_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the lui CLI.
+- Putting project-specific design changes in GLOBAL_AGENT_APP.md instead of the project's AGENT_APP.md.
 
 ---
 
@@ -1420,11 +1420,11 @@ proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggl
                          remove_scheduled_task, recurring_add, recurring_read,
                          recurring_update_task, recurring_remove
 
-living_ui                living_ui_scaffold, living_ui_list_projects, living_ui_notify_ready,
-                         living_ui_walk_verify, living_ui_restart, living_ui_report_progress,
-                         living_ui_http, living_ui_usage, living_ui_marketplace_list,
-                         living_ui_marketplace_install, living_ui_import_zip, living_ui_import,
-                         living_ui_convert, living_ui_ops_verify, living_ui_approve_triggers,
+agent_app                agent_app_scaffold, agent_app_list_projects, agent_app_notify_ready,
+                         agent_app_walk_verify, agent_app_restart, agent_app_report_progress,
+                         agent_app_http, agent_app_usage, agent_app_marketplace_list,
+                         agent_app_marketplace_install, agent_app_import_zip, agent_app_import,
+                         agent_app_convert, agent_app_ops_verify, agent_app_approve_triggers,
                          browser_probe
 
 per-integration sets     Discord, Slack, Telegram (bot/user), Notion, LinkedIn, Jira, GitHub,
@@ -1498,7 +1498,7 @@ Any set name not in `DEFAULT_SET_DESCRIPTIONS` is presented to the LLM as `Custo
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
 content_creation      generate_image, generate_video
-living_ui             the full Living UI surface (see ## Living UI) + browser_probe
+agent_app             the full Agent App surface (see ## Agent App) + browser_probe
 
 per-integration sets (loaded only when the user has the integration connected):
 umbrella set = <name> (15-25 high-value actions), plus fine-grained
@@ -1536,7 +1536,7 @@ After loading, the new actions ARE in your prompt the next turn. You do not need
 ```
 Document generation               document_processing
 Image / video generation          content_creation (or image / video)
-Living UI work                    living_ui
+Agent App work                    agent_app
 Recurring / proactive setup       proactive
 Per-platform integration          <integration_name>  (e.g. slack), or a
                                   fine-grained <name>_<resource> set for narrow work
@@ -2543,9 +2543,9 @@ predict-stock-next-week      stock prediction workflow
 docx, pptx, xlsx, pdf        document generation per file format
 file-format                  format normalization
 playwright-mcp               browser automation steering
-living-ui-creator,
-living-ui-modify,
-living-ui-manager            Living UI project lifecycle
+agent-app-creator,
+agent-app-modify,
+agent-app-manager            Agent App project lifecycle
 compile-report-advance       multi-source report compilation
 ```
 
@@ -4069,7 +4069,7 @@ Operational manual (this file)         AGENT.md                                 
 User preferences                       USER.md                                       ## Self-Edit
 Personality / tone                     SOUL.md                                       ## Self-Edit
 Document formatting standards          FORMAT.md                                     ## Documents
-Living UI global design                GLOBAL_LIVING_UI.md                           ## Living UI
+Agent App global design                GLOBAL_AGENT_APP.md                           ## Agent App
 Hot-reload behavior                    config files (auto-applies)                   ## Configs
 ```
 
@@ -4172,7 +4172,7 @@ Switch model / set API key               →  ## Models "Switching provider or m
 Add a recurring task                     →  ## Proactive "Setting up a proactive task — chat-driven flow"
 Schedule a one-shot                       →  ## Proactive "One-time / immediate proactive tasks"
 Edit FORMAT.md                            →  ## Documents
-Edit GLOBAL_LIVING_UI.md                  →  ## Living UI
+Edit GLOBAL_AGENT_APP.md                  →  ## Agent App
 Edit AGENT.md / USER.md / SOUL.md         →  ## Self-Edit
 Adjust memory settings                    →  ## Memory "Settings that affect memory" + ## Configs
 Adjust scheduler entries                  →  ## Configs (## scheduler_config.json schema)
@@ -4387,7 +4387,7 @@ Personality / tone / behavior style                     SOUL.md           explic
 Document / file generation standards                    FORMAT.md         confirm scope (global vs
   (colors, fonts, layouts per file type)                                   per-doctype)
 
-Living UI design rules                                  GLOBAL_LIVING_UI  ask if non-trivial
+Agent App design rules                                  GLOBAL_AGENT_APP  ask if non-trivial
   (palette, components, responsive rules)               .md
 
 Per-mission state, multi-task continuity                workspace/        no consent needed
@@ -4525,13 +4525,13 @@ If you can't pick one cleanly, the change isn't well-scoped yet. Ask the user be
 - Don't put operational rules here. Operational rules go in AGENT.md. SOUL.md is voice and behavior style only.
 - If the user says "stop doing X" repeatedly and X feels personality-driven, ASK before editing SOUL.md. They might just want a one-task fix, not a permanent voice change.
 
-### FORMAT.md and GLOBAL_LIVING_UI.md
+### FORMAT.md and GLOBAL_AGENT_APP.md
 
-These are not strictly "self" files (they're for output design, not agent behavior), but the agent edits them under similar discipline. See `## Documents` and `## Living UI` for the per-file procedures.
+These are not strictly "self" files (they're for output design, not agent behavior), but the agent edits them under similar discipline. See `## Documents` and `## Agent App` for the per-file procedures.
 
 Quick rules:
 - FORMAT.md: edit when the user gives a durable formatting preference. Confirm scope (global vs file-type-specific) before writing.
-- GLOBAL_LIVING_UI.md: edit when the user supplies a new universal UI rule. For project-specific overrides, edit the per-project `LIVING_UI.md` instead.
+- GLOBAL_AGENT_APP.md: edit when the user supplies a new universal UI rule. For project-specific overrides, edit the per-project `AGENT_APP.md` instead.
 
 ### AGENT.md ↔ template sync
 
@@ -4650,18 +4650,18 @@ EVENT.md                  complete chronological event log (do not edit)        
 EVENT_UNPROCESSED.md      memory pipeline staging buffer (do not edit)                     ## File System / ## Memory
 event pipeline            flow from event -> EVENT_UNPROCESSED -> MEMORY.md                ## Memory
 FORMAT.md                 document/design standards file                                   ## Documents
-GLOBAL_LIVING_UI.md       global Living UI design rules                                    ## Living UI
+GLOBAL_AGENT_APP.md       global Agent App design rules                                    ## Agent App
 heartbeat                 scheduler entry firing every 30 min to run due proactive tasks   ## Proactive
 heartbeat-processor       skill that executes due tasks during a heartbeat                 ## Proactive
 hot-reload                config-watcher debounced 0.5s reload of /app/config/             ## Configs
 INDEX_TARGET_FILES        the six files indexed by memory_search (+ user extras)           ## Memory
 integration               external-service connection (Slack, GitHub, Jira, ...)           ## Integrations
 INTEGRATION.md            per-integration reference doc; ## Essentials auto-injected       ## Integrations
-LIVING_UI.md              per-project doc inside a Living UI project                       ## Living UI / ## File System
-Living UI                 generated React + PocketBase apps served from CraftBot           ## Living UI
+AGENT_APP.md              per-project doc inside a Agent App project                       ## Agent App / ## File System
+Agent App                 generated React + PocketBase apps served from CraftBot           ## Agent App
 LLM                       large language model used for text generation                    ## Models
 LLMConsecutiveFailureError  circuit-breaker on repeated LLM failures                       ## Errors / ## Models
-lui CLI                   node CLI for Living UI data/ops (living-ui/tools)             ## Living UI
+lui CLI                   node CLI for Agent App data/ops (agent-app/tools)             ## Agent App
 manage_integration_account  account admin action: set_primary / set_alias / set_listening  ## Integrations
 MCP                       Model Context Protocol; external tool servers                    ## MCP
 mcp_<server_name>         action set name registered when an MCP server connects           ## MCP / ## Action Sets
@@ -4685,7 +4685,7 @@ reinitialize_llm          internal call that rebuilds LLMInterface after a model
 run                       one wake of a session; ends on final send_message or end_turn    ## Runtime / ## Runs
 schedule_task             action to add immediate / one-shot / recurring scheduled task    ## Proactive
 scheduler_config.json     cron schedules for system + user one-shot tasks                  ## Configs / ## Proactive
-session                   work lane (main / chat / living_ui) with its own event stream,
+session                   work lane (main / chat / agent_app) with its own event stream,
                           trigger queue, and workspace dir                                 ## Runtime
 set_requirement           action recording the deliverable contract for a run              ## Runs
 SKILL.md                  skill definition file with YAML frontmatter + body               ## Skills
@@ -4698,7 +4698,7 @@ trigger aggregation       all due triggers for a session fold into one turn     
 update_todos              action maintaining the run's todo plan                           ## Runs
 USER.md                   user profile file (preferences, identity, goals)                  ## Self-Edit / ## File System
 VLM                       vision-language model used for image actions                      ## Models
-walk_verify               sub-agent that drives a Living UI app in a headless browser      ## Living UI / ## Sub-Agents
+walk_verify               sub-agent that drives a Agent App app in a headless browser      ## Agent App / ## Sub-Agents
 workspace/                per-agent sandbox under agent_file_system/                        ## Workspace
 ```
 

@@ -4,7 +4,7 @@ from agent_core import action
 _INPUT_SCHEMA = {
     "name": {
         "type": "string",
-        "example": "Living UI",
+        "example": "Agent App",
         "description": "The entity to look up (a person, project, tool, or concept). Case-insensitive.",
     },
 }
@@ -25,14 +25,14 @@ _OUTPUT_SCHEMA = {
         "type": "object",
         "description": "Entity overview: name, mention_count, items (facts about it), related_entities, and files that mention it.",
         "example": {
-            "entity": "Living UI",
+            "entity": "Agent App",
             "mention_count": 4,
             "items": [
                 {
                     "item_id": "m1a2b3c4d5e6",
                     "timestamp": "2026-08-11 03:00:00",
                     "category": "project",
-                    "content": "Living UI projects are managed from the sidebar",
+                    "content": "Agent App projects are managed from the sidebar",
                     "superseded": False,
                 }
             ],
@@ -77,7 +77,7 @@ def memory_entity(input_data: dict) -> dict:
                         "superseded": False,
                     }
                 ],
-                "related_entities": [{"name": "Living UI", "shared_items": 1}],
+                "related_entities": [{"name": "Agent App", "shared_items": 1}],
                 "files": ["AGENT.md"],
             },
         }

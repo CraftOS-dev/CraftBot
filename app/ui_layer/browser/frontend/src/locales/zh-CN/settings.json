@@ -49,7 +49,7 @@
     },
     "reset": {
       "title": "重置智能体",
-      "description": "重置智能体的选定部分。可在不删除 Living UI 应用的情况下清空对话。已保存的设置和凭据将予以保留。",
+      "description": "重置智能体的选定部分。可在不删除 Agent App 应用的情况下清空对话。已保存的设置和凭据将予以保留。",
       "button": "重置智能体",
       "resetting": "重置中…",
       "success": "智能体已成功重置",
@@ -57,7 +57,7 @@
     },
     "profile": {
       "title": "智能体配置档案",
-      "description": "将智能体的个性、技能、MCP 服务器和 Living UI 应用作为单个 <0>.craftbot</0> 文件分享。API 密钥、个人记忆和对话历史绝不会包含在内。",
+      "description": "将智能体的个性、技能、MCP 服务器和 Agent App 应用作为单个 <0>.craftbot</0> 文件分享。API 密钥、个人记忆和对话历史绝不会包含在内。",
       "export": "导出配置档案",
       "import": "导入配置档案",
       "exported": "配置档案已导出",
@@ -69,8 +69,8 @@
       "skillCount_other": "{{count}} 个技能",
       "mcpCount_one": "{{count}} 个 MCP 服务器",
       "mcpCount_other": "{{count}} 个 MCP 服务器",
-      "livingUiCount_one": "{{count}} 个 Living UI 应用",
-      "livingUiCount_other": "{{count}} 个 Living UI 应用",
+      "agentAppCount_one": "{{count}} 个 Agent App 应用",
+      "agentAppCount_other": "{{count}} 个 Agent App 应用",
       "profileWord": "配置档案",
       "importedOverwrite": "已用 {{what}}覆盖智能体。",
       "importedMerge": "已导入 {{what}}。"
@@ -97,7 +97,7 @@
     "mcps": "MCP",
     "skills": "技能",
     "integrations": "集成",
-    "living_ui": "Living UI"
+    "agent_app": "Agent App"
   },
   "model": {
     "title": "模型配置",
@@ -600,13 +600,13 @@
       "takesTime": "这可能需要最多 30 秒。"
     }
   },
-  "livingUi": {
-    "title": "Living UI",
-    "subtitle": "管理和分享你的 Living UI 项目",
+  "agentApp": {
+    "title": "Agent App",
+    "subtitle": "管理和分享你的 Agent App 项目",
     "projectsTitle": "项目",
-    "projectsDesc": "管理、启动和分享你的 Living UI 项目。在主对话中创建新项目。",
+    "projectsDesc": "管理、启动和分享你的 Agent App 项目。在主对话中创建新项目。",
     "loadingProjects": "正在加载项目…",
-    "noProjects": "尚无 Living UI 项目。请在主对话中创建一个。",
+    "noProjects": "尚无 Agent App 项目。请在主对话中创建一个。",
     "leftoverTitle": "遗留备份",
     "leftoverDesc": "已删除应用的备份存档。删除应用时会保留它们；当你不再需要这些数据时可在此处移除。",
     "status": {
@@ -647,7 +647,7 @@
     },
     "restoringInto": "正在恢复到“{{name}}”…这可能需要一分钟。",
     "restoring": "恢复中…这可能需要一分钟。",
-    "deleteConfirmTitle": "删除 Living UI",
+    "deleteConfirmTitle": "删除 Agent App",
     "deleteConfirmMessage": "确定要删除“{{name}}”吗？这将移除所有项目文件。如果该应用有任何实时数据，会先保存并保留一份最终备份——之后可在下方移除遗留备份。",
     "leftoverDeleteTitle": "删除遗留备份",
     "leftoverDeleteMessage": "永久删除已删除应用“{{name}}”的所有备份存档吗？它们是其数据仅存的副本。",

@@ -36,38 +36,38 @@ export const coreTour: TourDefinition = {
       },
     },
     {
-      id: 'living-ui',
-      anchor: 'nav-living-ui',
-      env: ['ensureSidebarVisible', 'closeLivingUIModal'],
+      id: 'agent-app',
+      anchor: 'nav-agent-app',
+      env: ['ensureSidebarVisible', 'closeAgentAppModal'],
       popover: {
         side: 'right',
         align: 'start',
       },
     },
-    // Open the "Add Living UI" modal and walk its three creation methods, one
+    // Open the "Add Agent App" modal and walk its three creation methods, one
     // per tab. The modal is closed again by the Dashboard step below.
     {
       id: 'living-ui-marketplace',
-      env: ['openLivingUIModal', { id: 'openLivingUITab', arg: 'marketplace' }],
-      anchor: 'livingui-tab-marketplace',
+      env: ['openAgentAppModal', { id: 'openAgentAppTab', arg: 'marketplace' }],
+      anchor: 'agentapp-tab-marketplace',
       popover: {
         side: 'bottom',
         align: 'start',
       },
     },
     {
-      id: 'living-ui-custom',
-      env: ['openLivingUIModal', { id: 'openLivingUITab', arg: 'custom' }],
-      anchor: 'livingui-tab-custom',
+      id: 'agent-app-custom',
+      env: ['openAgentAppModal', { id: 'openAgentAppTab', arg: 'custom' }],
+      anchor: 'agentapp-tab-custom',
       popover: {
         side: 'bottom',
         align: 'center',
       },
     },
     {
-      id: 'living-ui-import',
-      env: ['openLivingUIModal', { id: 'openLivingUITab', arg: 'import' }],
-      anchor: 'livingui-tab-import',
+      id: 'agent-app-import',
+      env: ['openAgentAppModal', { id: 'openAgentAppTab', arg: 'import' }],
+      anchor: 'agentapp-tab-import',
       popover: {
         side: 'bottom',
         align: 'end',
@@ -80,7 +80,7 @@ export const coreTour: TourDefinition = {
       id: 'dashboard',
       route: '/dashboard',
       anchor: 'nav-dashboard',
-      env: ['closeLivingUIModal', 'ensureSidebarVisible'],
+      env: ['closeAgentAppModal', 'ensureSidebarVisible'],
       popover: {
         side: 'right',
         align: 'start',

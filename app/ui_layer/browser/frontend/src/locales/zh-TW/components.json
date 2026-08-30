@@ -20,7 +20,7 @@
     "items": {
       "sessions": {
         "label": "對話",
-        "description": "刪除額外的對話、清除「主要」，並清除 Living UI 對話記錄。應用程式會保留。"
+        "description": "刪除額外的對話、清除「主要」，並清除 Agent App 對話記錄。應用程式會保留。"
       },
       "memory": {
         "label": "記憶",
@@ -34,8 +34,8 @@
         "label": "工作區檔案",
         "description": "代理在其工作區中建立的檔案。"
       },
-      "livingui": {
-        "label": "LivingUI 應用程式",
+      "agentapp": {
+        "label": "AgentApp 應用程式",
         "description": "刪除代理建置的所有應用程式。每個應用程式的資料都會先儲存一份最終備份並保留。"
       }
     }
@@ -49,14 +49,14 @@
     "personalityFiles": "個性檔案",
     "skills": "技能",
     "mcpServers": "MCP 伺服器",
-    "livingUiApps": "Living UI 應用程式",
+    "agentAppApps": "Agent App 應用程式",
     "alreadyInstalledLocally": "已在本機安裝",
     "needsEnv": "匯入後，請為以下項目填入 API 金鑰：<1>{{names}}</1>",
     "modeTitle": "我該如何套用這項設定？",
     "mergeReplaceName": "合併並取代（建議）",
-    "mergeReplaceHint": "新增技能、MCP 與應用程式。名稱衝突時會覆寫個性檔案與 MCP／技能設定。名稱相符的 Living UI 應用程式會一併匯入（絕不會刪除）。",
+    "mergeReplaceHint": "新增技能、MCP 與應用程式。名稱衝突時會覆寫個性檔案與 MCP／技能設定。名稱相符的 Agent App 應用程式會一併匯入（絕不會刪除）。",
     "overwriteName": "覆寫",
-    "overwriteHint": "<0>具破壞性。</0>清除<1>所有</1>現有的技能、MCP 伺服器與 Living UI 應用程式，然後只安裝此套件中的內容。你的代理會變成此套件的複本。此操作無法復原。",
+    "overwriteHint": "<0>具破壞性。</0>清除<1>所有</1>現有的技能、MCP 伺服器與 Agent App 應用程式，然後只安裝此套件中的內容。你的代理會變成此套件的複本。此操作無法復原。",
     "applying": "套用中…",
     "overwriteButton": "覆寫代理",
     "applyButton": "套用設定檔"
@@ -72,7 +72,7 @@
     "skillEnabled": "技能已啟用",
     "suggestedSkill": "建議的技能",
     "suggestedMcp": "建議的 MCP 伺服器",
-    "suggestedApp": "建議的 Living UI 應用程式",
+    "suggestedApp": "建議的 Agent App 應用程式",
     "about": "關於",
     "whatItWillDo": "CraftBot 將會執行的操作",
     "promptPreview": "提示預覽",
@@ -122,7 +122,7 @@
       "multiUser": "多使用者（帳號）"
     },
     "interviewFailed": "準備訪談失敗",
-    "createFailed": "建立 Living UI 失敗",
+    "createFailed": "建立 Agent App 失敗",
     "nameRequired": "必須填寫名稱",
     "nameTooLong": "名稱不得超過 50 個字元",
     "descRequired": "必須填寫描述",
@@ -144,7 +144,7 @@
     "uploadFavicon": "上傳 favicon（png、svg、ico…）",
     "namePlaceholder": "例如：世界新聞儀表板",
     "descLabel": "這個 UI 應該做什麼？",
-    "descPlaceholder": "描述你希望這個 Living UI 顯示與執行的內容。請具體說明資料、工作流程，以及任何必須正確處理的事項…",
+    "descPlaceholder": "描述你希望這個 Agent App 顯示與執行的內容。請具體說明資料、工作流程，以及任何必須正確處理的事項…",
     "wordCount": "{{words}} / {{max}} 字",
     "referenceFiles": "參考檔案（選填）",
     "dropReference": "拖放設計草圖、螢幕截圖或文件 — 或點按以瀏覽",
@@ -152,8 +152,8 @@
     "themeLabel": "主題",
     "accessLabel": "存取權限"
   },
-  "createLivingUi": {
-    "addTitle": "新增 Living UI",
+  "createAgentApp": {
+    "addTitle": "新增 Agent App",
     "setupQuestions": "{{name}} — 設定問題",
     "tabMarketplace": "市集",
     "tabCustom": "自訂建立",
@@ -176,10 +176,10 @@
     "configureSubtitle": "安裝前先自訂",
     "importUrlLabel": "GitHub 網址或本機路徑",
     "importUrlPlaceholder": "https://github.com/user/repo 或 /path/to/local/app",
-    "importHint": "Living UI 匯出檔：ZIP、專案資料夾或 git 網址。其他應用程式需重新建置 — 請代理協助轉換。",
+    "importHint": "Agent App 匯出檔：ZIP、專案資料夾或 git 網址。其他應用程式需重新建置 — 請代理協助轉換。",
     "or": "或",
     "dropZipLabel": "將 ZIP 檔拖放到這裡，或點按以瀏覽",
-    "dropZipSub": "匯入先前匯出的 Living UI",
+    "dropZipSub": "匯入先前匯出的 Agent App",
     "importButton": "匯入應用程式",
     "externalAppName": "外部應用程式"
   }

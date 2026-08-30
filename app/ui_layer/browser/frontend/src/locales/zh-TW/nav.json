@@ -8,16 +8,16 @@
     "settings": "設定"
   },
   "groups": {
-    "livingUi": "Living UI",
-    "chats": "對話"
+    "agentApp": "Agent App",
+    "chats": "對話與任務"
   },
   "sidebar": {
     "expand": "展開側邊欄",
     "collapse": "收合側邊欄",
     "websiteLabel": "CraftBot 網站",
-    "addLivingUi": "新增 Living UI",
+    "addAgentApp": "新增 Agent App",
     "newChat": "新對話",
-    "noLivingUiApps": "尚無 Living UI 應用程式",
+    "noAgentAppApps": "尚無 Agent App 應用程式",
     "showMoreCount": "顯示更多（{{count}}）"
   },
   "dots": {
@@ -93,7 +93,7 @@
       "failedToStart": "無法啟動 Ollama",
       "modelDownloadFailed": "模型下載失敗"
     },
-    "livingUiSettings": {
+    "agentAppSettings": {
       "backupRestored": "備份已還原。應用程式已重新啟動。",
       "restoreFailed": "還原失敗。"
     },

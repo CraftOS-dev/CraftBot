@@ -17,7 +17,7 @@ import { ModelSettings } from './ModelSettings'
 import { MCPSettings } from './MCPSettings'
 import { SkillsSettings } from './SkillsSettings'
 import { IntegrationsSettings } from './IntegrationsSettings'
-import { LivingUISettings } from './LivingUISettings'
+import { AgentAppSettings } from './AgentAppSettings'
 
 export function SettingsPage() {
   const { t } = useTranslation(['settings', 'common'])
@@ -47,8 +47,8 @@ export function SettingsPage() {
         return <SkillsSettings />
       case 'integrations':
         return <IntegrationsSettings />
-      case 'living_ui':
-        return <LivingUISettings />
+      case 'agent_app':
+        return <AgentAppSettings />
       default:
         return null
     }

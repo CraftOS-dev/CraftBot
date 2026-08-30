@@ -49,7 +49,7 @@
     },
     "reset": {
       "title": "エージェントをリセット",
-      "description": "エージェントの選択した部分をリセットします。Living UI アプリを削除せずにチャットを消去できます。保存された設定と認証情報は保持されます。",
+      "description": "エージェントの選択した部分をリセットします。Agent App アプリを削除せずにチャットを消去できます。保存された設定と認証情報は保持されます。",
       "button": "エージェントをリセット",
       "resetting": "リセット中...",
       "success": "エージェントを正常にリセットしました",
@@ -57,7 +57,7 @@
     },
     "profile": {
       "title": "エージェントプロフィール",
-      "description": "エージェントの性格、スキル、MCP サーバー、Living UI アプリを 1 つの <0>.craftbot</0> ファイルとして共有できます。API キー、個人メモリー、会話履歴は含まれません。",
+      "description": "エージェントの性格、スキル、MCP サーバー、Agent App アプリを 1 つの <0>.craftbot</0> ファイルとして共有できます。API キー、個人メモリー、会話履歴は含まれません。",
       "export": "プロフィールをエクスポート",
       "import": "プロフィールをインポート",
       "exported": "プロフィールをエクスポートしました",
@@ -69,8 +69,8 @@
       "skillCount_other": "スキル {{count}} 件",
       "mcpCount_one": "MCP サーバー {{count}} 台",
       "mcpCount_other": "MCP サーバー {{count}} 台",
-      "livingUiCount_one": "Living UI アプリ {{count}} 個",
-      "livingUiCount_other": "Living UI アプリ {{count}} 個",
+      "agentAppCount_one": "Agent App アプリ {{count}} 個",
+      "agentAppCount_other": "Agent App アプリ {{count}} 個",
       "profileWord": "プロフィール",
       "importedOverwrite": "エージェントを {{what}} で上書きしました。",
       "importedMerge": "{{what}} をインポートしました。"
@@ -97,7 +97,7 @@
     "mcps": "MCP",
     "skills": "スキル",
     "integrations": "連携",
-    "living_ui": "Living UI"
+    "agent_app": "Agent App"
   },
   "model": {
     "title": "モデル設定",
@@ -600,13 +600,13 @@
       "takesTime": "最大 30 秒かかることがあります。"
     }
   },
-  "livingUi": {
-    "title": "Living UI",
-    "subtitle": "Living UI プロジェクトを管理・共有します",
+  "agentApp": {
+    "title": "Agent App",
+    "subtitle": "Agent App プロジェクトを管理・共有します",
     "projectsTitle": "プロジェクト",
-    "projectsDesc": "Living UI プロジェクトを管理、起動、共有します。新しいものはメインチャットから作成できます。",
+    "projectsDesc": "Agent App プロジェクトを管理、起動、共有します。新しいものはメインチャットから作成できます。",
     "loadingProjects": "プロジェクトを読み込み中...",
-    "noProjects": "Living UI プロジェクトはまだありません。メインチャットから作成してください。",
+    "noProjects": "Agent App プロジェクトはまだありません。メインチャットから作成してください。",
     "leftoverTitle": "残ったバックアップ",
     "leftoverDesc": "削除されたアプリのバックアップアーカイブです。アプリが削除されると保持されます。データが不要になったらここで削除してください。",
     "status": {
@@ -647,7 +647,7 @@
     },
     "restoringInto": "「{{name}}」に復元中… 1 分ほどかかることがあります。",
     "restoring": "復元中… 1 分ほどかかることがあります。",
-    "deleteConfirmTitle": "Living UI を削除",
+    "deleteConfirmTitle": "Agent App を削除",
     "deleteConfirmMessage": "「{{name}}」を削除してもよろしいですか？すべてのプロジェクトファイルが削除されます。アプリにライブデータがある場合は、まず最終バックアップが保存され保持されます。残ったバックアップは後で下部から削除できます。",
     "leftoverDeleteTitle": "残ったバックアップを削除",
     "leftoverDeleteMessage": "削除されたアプリ「{{name}}」のすべてのバックアップアーカイブを完全に削除しますか？これらはデータの唯一残っているコピーです。",

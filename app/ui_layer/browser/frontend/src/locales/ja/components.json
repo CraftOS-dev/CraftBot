@@ -20,7 +20,7 @@
     "items": {
       "sessions": {
         "label": "チャット",
-        "description": "追加のチャットを削除し、メインをクリアし、Living UI のチャット履歴をクリアします。アプリは保持されます。"
+        "description": "追加のチャットを削除し、メインをクリアし、Agent App のチャット履歴をクリアします。アプリは保持されます。"
       },
       "memory": {
         "label": "メモリー",
@@ -34,8 +34,8 @@
         "label": "ワークスペースのファイル",
         "description": "エージェントがワークスペースで作成したファイル。"
       },
-      "livingui": {
-        "label": "LivingUI アプリ",
+      "agentapp": {
+        "label": "AgentApp アプリ",
         "description": "エージェントが構築したすべてのアプリを削除します。各アプリのデータの最終バックアップが保存され、保持されます。"
       }
     }
@@ -49,14 +49,14 @@
     "personalityFiles": "性格ファイル",
     "skills": "スキル",
     "mcpServers": "MCP サーバー",
-    "livingUiApps": "Living UI アプリ",
+    "agentAppApps": "Agent App アプリ",
     "alreadyInstalledLocally": "既にローカルにインストール済み",
     "needsEnv": "インポート後、次の API キーを入力してください: <1>{{names}}</1>",
     "modeTitle": "どのように適用しますか？",
     "mergeReplaceName": "マージして置換（推奨）",
-    "mergeReplaceHint": "新しいスキル、MCP、アプリを追加します。名前が競合した場合は性格ファイルと MCP/スキルの設定を上書きします。名前が一致する Living UI アプリは併存してインポートされます（削除されることはありません）。",
+    "mergeReplaceHint": "新しいスキル、MCP、アプリを追加します。名前が競合した場合は性格ファイルと MCP/スキルの設定を上書きします。名前が一致する Agent App アプリは併存してインポートされます（削除されることはありません）。",
     "overwriteName": "上書き",
-    "overwriteHint": "<0>破壊的な操作です。</0><1>すべての</1>既存のスキル、MCP サーバー、Living UI アプリを消去し、このバンドルに含まれるものだけをインストールします。エージェントはバンドルのコピーになります。元に戻せません。",
+    "overwriteHint": "<0>破壊的な操作です。</0><1>すべての</1>既存のスキル、MCP サーバー、Agent App アプリを消去し、このバンドルに含まれるものだけをインストールします。エージェントはバンドルのコピーになります。元に戻せません。",
     "applying": "適用中…",
     "overwriteButton": "エージェントを上書き",
     "applyButton": "プロフィールを適用"
@@ -72,7 +72,7 @@
     "skillEnabled": "スキルは既に有効です",
     "suggestedSkill": "おすすめのスキル",
     "suggestedMcp": "おすすめの MCP サーバー",
-    "suggestedApp": "おすすめの Living UI アプリ",
+    "suggestedApp": "おすすめの Agent App アプリ",
     "about": "概要",
     "whatItWillDo": "CraftBot が行うこと",
     "promptPreview": "プロンプトのプレビュー",
@@ -122,7 +122,7 @@
       "multiUser": "マルチユーザー（アカウント）"
     },
     "interviewFailed": "インタビューの準備に失敗しました",
-    "createFailed": "Living UI の作成に失敗しました",
+    "createFailed": "Agent App の作成に失敗しました",
     "nameRequired": "名前は必須です",
     "nameTooLong": "名前は 50 文字以内にしてください",
     "descRequired": "説明は必須です",
@@ -144,7 +144,7 @@
     "uploadFavicon": "ファビコンをアップロード (png, svg, ico…)",
     "namePlaceholder": "例: 世界のニュースダッシュボード",
     "descLabel": "この UI は何をするものですか？",
-    "descPlaceholder": "Living UI に表示・実行させたい内容を説明してください。データ、ワークフロー、正確さが求められる点について具体的に記述してください…",
+    "descPlaceholder": "Agent App に表示・実行させたい内容を説明してください。データ、ワークフロー、正確さが求められる点について具体的に記述してください…",
     "wordCount": "{{words}} / {{max}} 語",
     "referenceFiles": "参照ファイル（任意）",
     "dropReference": "デザインのスケッチ、スクリーンショット、ドキュメントをドロップ — またはクリックして選択",
@@ -152,8 +152,8 @@
     "themeLabel": "テーマ",
     "accessLabel": "アクセス"
   },
-  "createLivingUi": {
-    "addTitle": "Living UI を追加",
+  "createAgentApp": {
+    "addTitle": "Agent App を追加",
     "setupQuestions": "{{name}} — セットアップの質問",
     "tabMarketplace": "マーケットプレイス",
     "tabCustom": "カスタム作成",
@@ -176,10 +176,10 @@
     "configureSubtitle": "インストール前にカスタマイズ",
     "importUrlLabel": "GitHub URL またはローカルパス",
     "importUrlPlaceholder": "https://github.com/user/repo または /path/to/local/app",
-    "importHint": "Living UI のエクスポート: ZIP、プロジェクトフォルダー、または git URL。その他のアプリは再構築されます。エージェントに変換を依頼してください。",
+    "importHint": "Agent App のエクスポート: ZIP、プロジェクトフォルダー、または git URL。その他のアプリは再構築されます。エージェントに変換を依頼してください。",
     "or": "または",
     "dropZipLabel": "ここに ZIP ファイルをドロップするかクリックして選択",
-    "dropZipSub": "以前エクスポートした Living UI をインポート",
+    "dropZipSub": "以前エクスポートした Agent App をインポート",
     "importButton": "アプリをインポート",
     "externalAppName": "外部アプリ"
   }

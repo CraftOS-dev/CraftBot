@@ -13,21 +13,21 @@
       "title": "Obrolan Utama Anda",
       "description": "Utama adalah obrolan asal agen: tidak bisa dihapus atau diganti namanya, dan apa pun yang terjadi dengan sendirinya (seperti tugas terjadwal atau pembaruan dari aplikasi yang tersambung) akan muncul di sini."
     },
-    "living-ui": {
-      "title": "Aplikasi Living UI",
+    "agent-app": {
+      "title": "Aplikasi Agent App",
       "description": "Minta CraftBot membangun aplikasi sungguhan untuk Anda (pelacak, CRM, dasbor) dan aplikasi itu muncul di sini, sudah dibangun dan berjalan. Ada tiga cara untuk menambahkannya:"
     },
     "living-ui-marketplace": {
       "title": "Pasar",
       "description": "Instal aplikasi siap pakai dari pasar komunitas hanya dengan satu klik."
     },
-    "living-ui-custom": {
+    "agent-app-custom": {
       "title": "Buat Kustom",
       "description": "Jelaskan apa yang Anda inginkan dan agen akan membangunnya: konfigurasikan beberapa hal dasar, jawab wawancara singkat, lalu agen menulis spesifikasi dan membangun aplikasinya."
     },
-    "living-ui-import": {
+    "agent-app-import": {
       "title": "Impor",
-      "description": "Bawa masuk Living UI yang sudah ada dari ZIP, folder, atau URL git."
+      "description": "Bawa masuk Agent App yang sudah ada dari ZIP, folder, atau URL git."
     },
     "dashboard": {
       "title": "Dasbor CraftBot",

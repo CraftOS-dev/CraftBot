@@ -10,7 +10,7 @@ import { WIDGET_REGISTRY } from '../widgets/registry'
  * A hero composition: the CraftBot intro widget sits 2x2 at the top-left, with
  * the stat cards (Token Usage / System Resources / Usage Patterns over Task
  * Statistics / Skills / Model Information) filling the columns beside it, and
- * a bottom row of MCP Servers, Integrations, and Living UI next to a 2-wide
+ * a bottom row of MCP Servers, Integrations, and Agent App next to a 2-wide
  * Mascot scene. Narrower breakpoints keep the hero on top and reflow the 1x1
  * cards in pairs.
  *
@@ -35,7 +35,7 @@ const DEFAULT_PLACEMENT: Record<Breakpoint, Placement[]> = {
     { id: 'modelInfo', x: 4, y: 1, w: 1, h: 1 },
     { id: 'mcpServers', x: 0, y: 2, w: 1, h: 1 },
     { id: 'integrations', x: 1, y: 2, w: 1, h: 1 },
-    { id: 'livingUi', x: 2, y: 2, w: 1, h: 1 },
+    { id: 'agentApp', x: 2, y: 2, w: 1, h: 1 },
     { id: 'mascot', x: 3, y: 2, w: 2, h: 1 },
   ],
   md: [
@@ -48,7 +48,7 @@ const DEFAULT_PLACEMENT: Record<Breakpoint, Placement[]> = {
     { id: 'modelInfo', x: 1, y: 2, w: 1, h: 1 },
     { id: 'mcpServers', x: 2, y: 2, w: 1, h: 1 },
     { id: 'integrations', x: 3, y: 2, w: 1, h: 1 },
-    { id: 'livingUi', x: 0, y: 3, w: 1, h: 1 },
+    { id: 'agentApp', x: 0, y: 3, w: 1, h: 1 },
     { id: 'mascot', x: 1, y: 3, w: 2, h: 1 },
   ],
   sm: [
@@ -61,7 +61,7 @@ const DEFAULT_PLACEMENT: Record<Breakpoint, Placement[]> = {
     { id: 'modelInfo', x: 1, y: 4, w: 1, h: 1 },
     { id: 'mcpServers', x: 0, y: 5, w: 1, h: 1 },
     { id: 'integrations', x: 1, y: 5, w: 1, h: 1 },
-    { id: 'livingUi', x: 0, y: 6, w: 2, h: 1 },
+    { id: 'agentApp', x: 0, y: 6, w: 2, h: 1 },
     { id: 'mascot', x: 0, y: 7, w: 2, h: 1 },
   ],
 }

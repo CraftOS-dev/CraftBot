@@ -8,16 +8,16 @@
     "settings": "Pengaturan"
   },
   "groups": {
-    "livingUi": "Living UI",
-    "chats": "Obrolan"
+    "agentApp": "Agent App",
+    "chats": "Obrolan & Tugas"
   },
   "sidebar": {
     "expand": "Perluas bilah sisi",
     "collapse": "Ciutkan bilah sisi",
     "websiteLabel": "Situs web CraftBot",
-    "addLivingUi": "Tambah Living UI",
+    "addAgentApp": "Tambah Agent App",
     "newChat": "Obrolan baru",
-    "noLivingUiApps": "Belum ada aplikasi Living UI",
+    "noAgentAppApps": "Belum ada aplikasi Agent App",
     "showMoreCount": "Tampilkan lebih banyak ({{count}})"
   },
   "dots": {
@@ -93,7 +93,7 @@
       "failedToStart": "Gagal memulai Ollama",
       "modelDownloadFailed": "Gagal mengunduh model"
     },
-    "livingUiSettings": {
+    "agentAppSettings": {
       "backupRestored": "Cadangan dipulihkan. Aplikasi telah diluncurkan ulang.",
       "restoreFailed": "Pemulihan gagal."
     },

@@ -8,16 +8,16 @@
     "settings": "Ajustes"
   },
   "groups": {
-    "livingUi": "Living UI",
-    "chats": "Chats"
+    "agentApp": "Agent App",
+    "chats": "Chat y tareas"
   },
   "sidebar": {
     "expand": "Expandir barra lateral",
     "collapse": "Contraer barra lateral",
     "websiteLabel": "Sitio web de CraftBot",
-    "addLivingUi": "Añadir Living UI",
+    "addAgentApp": "Añadir Agent App",
     "newChat": "Nuevo chat",
-    "noLivingUiApps": "No hay apps de Living UI",
+    "noAgentAppApps": "No hay apps de Agent App",
     "showMoreCount": "Mostrar más ({{count}})"
   },
   "dots": {
@@ -93,7 +93,7 @@
       "failedToStart": "Error al iniciar Ollama",
       "modelDownloadFailed": "Error al descargar el modelo"
     },
-    "livingUiSettings": {
+    "agentAppSettings": {
       "backupRestored": "Copia de seguridad restaurada. La app se ha vuelto a abrir.",
       "restoreFailed": "Error al restaurar."
     },

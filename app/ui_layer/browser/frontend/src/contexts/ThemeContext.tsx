@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
-import { broadcastThemeToIframes } from '../pages/LivingUI/iframePool'
+import { broadcastThemeToIframes } from '../pages/AgentApp/iframePool'
 
 type Theme = 'dark' | 'light'
 

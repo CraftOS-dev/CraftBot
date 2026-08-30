@@ -5,13 +5,13 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
-import { LIVING_UI_ICONS } from './LivingUIIcon'
-import { PRESET_THEMES, ThemeMiniPreview } from '../../pages/LivingUI/themeCatalog'
+import { AGENT_APP_ICONS } from './AgentAppIcon'
+import { PRESET_THEMES, ThemeMiniPreview } from '../../pages/AgentApp/themeCatalog'
 import { formatNumber } from '../../i18n/format'
 import styles from './CreateCustomWizard.module.css'
 
 /**
- * Create Custom wizard — three steps inside the Add Living UI modal:
+ * Create Custom wizard — three steps inside the Add Agent App modal:
  *
  *   1. CONFIGURE  name/description, layout silhouette, theme, icon,
  *                 access mode, reference attachments
@@ -20,8 +20,8 @@ import styles from './CreateCustomWizard.module.css'
  *   3. CREATING   requirements synthesis + project creation + build run;
  *                 on success the caller navigates to the new project
  *
- * The backend does the thinking (living_ui_wizard_interview /
- * living_ui_wizard_finalize); this component owns only the flow state.
+ * The backend does the thinking (agent_app_wizard_interview /
+ * agent_app_wizard_finalize); this component owns only the flow state.
  */
 
 interface CreateCustomWizardProps {
@@ -29,7 +29,7 @@ interface CreateCustomWizardProps {
   onMessage: (type: string, handler: (data: any) => void) => () => void
   onClose: () => void
   onCreated?: (projectId: string) => void
-  /** Chat-path entry (living_ui_wizard_open broadcast): the scaffold action
+  /** Chat-path entry (agent_app_wizard_open broadcast): the scaffold action
    *  generated round-1 questions without creating anything — open at the
    *  interview step with config pre-seeded. Finalize then creates the
    *  project exactly as the modal path does (Chat → Interview → Finalize →
@@ -38,7 +38,7 @@ interface CreateCustomWizardProps {
     wizardId: string
     config: Record<string, any>
     questions: InterviewQuestion[]
-    /** Session that ran living_ui_scaffold — round-tripped to finalize so
+    /** Session that ran agent_app_scaffold — round-tripped to finalize so
      *  the backend can tell that agent which project was created. */
     originSessionId?: string
   }
@@ -155,7 +155,7 @@ function newWizardId(): string {
 // ── component ───────────────────────────────────────────────────────────────
 
 export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initial }: CreateCustomWizardProps) {
-  const { t } = useTranslation(['components', 'common', 'livingui'])
+  const { t } = useTranslation(['components', 'common', 'agentapp'])
 
   // Explicit (type-checked) key literals for the configure-step vocabulary.
   const layoutLabels: Record<string, string> = {
@@ -217,7 +217,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
   useEffect(() => {
     const wid = wizardIdRef.current
     const cleanups = [
-      onMessage('living_ui_wizard_interview', (data: any) => {
+      onMessage('agent_app_wizard_interview', (data: any) => {
         if (data?.wizardId !== wid) return
         setInterviewLoading(false)
         if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
@@ -228,7 +228,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
           setInterviewError(data.error || t('components:createCustomWizard.interviewFailed'))
         }
       }),
-      onMessage('living_ui_wizard_finalize', (data: any) => {
+      onMessage('agent_app_wizard_finalize', (data: any) => {
         if (data?.wizardId !== wid) return
         if (data.success && Array.isArray(data.followupQuestions) && data.followupQuestions.length > 0) {
           // Second interview round (user chose "install & adapt"): the
@@ -312,7 +312,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
         const form = new FormData()
         form.append('file', file)
         const params = new URLSearchParams({ wizardId: wid, kind })
-        const resp = await fetch(`/api/living-ui/stage?${params}`, {
+        const resp = await fetch(`/api/agent-app/stage?${params}`, {
           method: 'POST',
           body: form,
         })
@@ -338,7 +338,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
     setStep('interview')
     setInterviewLoading(true)
     setInterviewError(null)
-    send('living_ui_wizard_interview', {
+    send('agent_app_wizard_interview', {
       wizardId: wizardIdRef.current,
       config: buildConfig(),
     })
@@ -356,7 +356,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
         question: q.question,
         answer: (finalAnswers[q.id] || []).join(', '),
       }))
-    send('living_ui_wizard_finalize', {
+    send('agent_app_wizard_finalize', {
       wizardId: wizardIdRef.current,
       config: buildConfig(),
       answers: answerList,
@@ -554,7 +554,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
                   <img src={iconPreview} alt={t('components:createCustomWizard.iconAlt')} className={styles.iconPreview} />
                 ) : iconChoice ? (
                   (() => {
-                    const Cmp = LIVING_UI_ICONS[iconChoice.slice(7)]
+                    const Cmp = AGENT_APP_ICONS[iconChoice.slice(7)]
                     return Cmp ? <Cmp size={16} /> : <Box size={16} />
                   })()
                 ) : (
@@ -572,7 +572,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
                     <Upload size={13} /> {t('components:createCustomWizard.uploadFavicon')}
                   </button>
                   <div className={styles.iconGrid}>
-                    {Object.entries(LIVING_UI_ICONS).map(([iconName, Cmp]) => {
+                    {Object.entries(AGENT_APP_ICONS).map(([iconName, Cmp]) => {
                       const value = `lucide:${iconName}`
                       return (
                         <button

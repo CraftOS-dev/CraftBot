@@ -124,9 +124,9 @@ from app.ui_layer.components.types import (
 from app.ui_layer.events import UIEvent, UIEventType
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
-from app.living_ui import (
-    LivingUIManager,
-    set_living_ui_manager,
+from app.agent_app import (
+    AgentAppManager,
+    set_agent_app_manager,
     register_broadcast_callbacks,
     make_todo_broadcast_hook,
 )
@@ -769,56 +769,56 @@ class BrowserAdapter(InterfaceAdapter):
         # Staged bundle bytes keyed by short-lived token (inspect → import flow)
         self._staged_bundles: Dict[str, bytes] = {}
 
-        # Living UI manager
-        self._living_ui_manager = LivingUIManager(workspace_root=AGENT_WORKSPACE_ROOT)
+        # Agent App manager
+        self._agent_app_manager = AgentAppManager(workspace_root=AGENT_WORKSPACE_ROOT)
         # Wizard: reference-image VLM notes cached between interview and
         # finalize (keyed by wizardId) so images are described only once.
         self._wizard_image_notes: Dict[str, List[str]] = {}
         # Bind session manager and trigger service for project sessions
         agent = self._controller.agent
-        self._living_ui_manager.bind_session_manager(
+        self._agent_app_manager.bind_session_manager(
             agent.session_manager, agent.trigger_service
         )
 
         # Clean up orphan processes and folders from previous sessions
-        self._living_ui_manager.cleanup_on_startup()
+        self._agent_app_manager.cleanup_on_startup()
 
-        # Start watchdog to monitor running Living UI processes
-        self._living_ui_manager.start_watchdog()
+        # Start watchdog to monitor running Agent App processes
+        self._agent_app_manager.start_watchdog()
 
         # Auto-launch projects that have auto_launch enabled
-        asyncio.create_task(self._living_ui_manager.auto_launch_projects())
+        asyncio.create_task(self._agent_app_manager.auto_launch_projects())
 
-        # Register global accessor and callbacks for Living UI actions
-        set_living_ui_manager(self._living_ui_manager)
+        # Register global accessor and callbacks for Agent App actions
+        set_agent_app_manager(self._agent_app_manager)
         register_broadcast_callbacks(
-            broadcast_ready=self.broadcast_living_ui_ready,
-            broadcast_progress=self.broadcast_living_ui_progress,
-            broadcast_todos=self.broadcast_living_ui_todos,
-            broadcast_data_changed=self.broadcast_living_ui_data_changed,
-            broadcast_created=self.broadcast_living_ui_created,
-            broadcast_build_event=self.broadcast_living_ui_build_event,
-            broadcast_wizard_open=self.broadcast_living_ui_wizard_open,
+            broadcast_ready=self.broadcast_agent_app_ready,
+            broadcast_progress=self.broadcast_agent_app_progress,
+            broadcast_todos=self.broadcast_agent_app_todos,
+            broadcast_data_changed=self.broadcast_agent_app_data_changed,
+            broadcast_created=self.broadcast_agent_app_created,
+            broadcast_build_event=self.broadcast_agent_app_build_event,
+            broadcast_wizard_open=self.broadcast_agent_app_wizard_open,
         )
 
-        # Subscribe the Living UI module to SessionManager todo updates so
+        # Subscribe the Agent App module to SessionManager todo updates so
         # that the agent's build breakdown streams to the browser automatically.
         agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
 
         # READ-ONLY build observer: derive construction-dock build events from
         # the actions the agent already performs (write_file / stream_edit /
-        # living_ui_scaffold / living_ui_notify_ready). These hooks are
+        # agent_app_scaffold / agent_app_notify_ready). These hooks are
         # single-callback and currently unset; the executor wraps them in
         # try/except and the observer swallows all exceptions, so this can
         # never affect a build. It reads inputs/outputs only, mutates nothing.
         try:
-            from app.living_ui import construction_events
+            from app.agent_app import construction_events
 
             on_start, on_end = construction_events.make_action_hooks()
             agent.action_manager._on_action_start = on_start
             agent.action_manager._on_action_end = on_end
         except Exception as e:
-            logger.warning(f"[LIVING_UI] build-event observer not attached: {e}")
+            logger.warning(f"[AGENT_APP] build-event observer not attached: {e}")
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -950,16 +950,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "/api/agent-profile-picture", self._agent_profile_picture_handler
         )
 
-        # Living UI export/import routes
+        # Agent App export/import routes
         self._app.router.add_get(
-            "/api/living-ui/{project_id}/export", self._living_ui_export_handler
+            "/api/agent-app/{project_id}/export", self._agent_app_export_handler
         )
         self._app.router.add_post(
-            "/api/living-ui/import", self._living_ui_import_handler
+            "/api/agent-app/import", self._agent_app_import_handler
         )
-        self._app.router.add_post("/api/living-ui/stage", self._living_ui_stage_handler)
+        self._app.router.add_post("/api/agent-app/stage", self._agent_app_stage_handler)
         self._app.router.add_get(
-            "/api/living-ui/icon/{project_id}", self._living_ui_icon_handler
+            "/api/agent-app/icon/{project_id}", self._agent_app_icon_handler
         )
 
         # Workspace and chat HTTP upload routes
@@ -975,10 +975,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
         self._app.router.add_post("/api/profile/import", self._profile_import_handler)
 
-        # Integration bridge routes (Living UI → external APIs)
-        from app.living_ui.integration_bridge import IntegrationBridge
+        # Integration bridge routes (Agent App → external APIs)
+        from app.agent_app.integration_bridge import IntegrationBridge
 
-        self._integration_bridge = IntegrationBridge(self._living_ui_manager)
+        self._integration_bridge = IntegrationBridge(self._agent_app_manager)
         self._integration_bridge.register_routes(self._app)
 
         # Serve Vite-built frontend (production)
@@ -1050,9 +1050,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
     async def _on_stop(self) -> None:
         """Stop the browser interface."""
-        # Stop all running Living UI projects
-        if self._living_ui_manager:
-            await self._living_ui_manager.stop_all_projects()
+        # Stop all running Agent App projects
+        if self._agent_app_manager:
+            await self._agent_app_manager.stop_all_projects()
 
         # Close integration bridge HTTP client
         if hasattr(self, "_integration_bridge"):
@@ -1152,7 +1152,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": self._get_skill_meta(),
                 }
             )
-            # Push the Living UI list on connect instead of relying on the
+            # Push the Agent App list on connect instead of relying on the
             # client to request it. The frontend's request is sent from an
             # onOpen handler registered after React mounts; when the socket
             # opens before that (middleware connects during store bootstrap),
@@ -1160,11 +1160,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # until the next reconnect.
             await ws.send_json(
                 {
-                    "type": "living_ui_list",
+                    "type": "agent_app_list",
                     "data": {
                         "success": True,
                         "projects": [
-                            p.to_dict() for p in self._living_ui_manager.list_projects()
+                            p.to_dict() for p in self._agent_app_manager.list_projects()
                         ],
                     },
                 }
@@ -1773,42 +1773,42 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             values = data.get("values") or {}
             await self._handle_integration_update_config(integration_id, values)
 
-        # Living UI settings handlers
-        elif msg_type == "living_ui_settings_get":
-            await self._handle_living_ui_settings_get()
+        # Agent App settings handlers
+        elif msg_type == "agent_app_settings_get":
+            await self._handle_agent_app_settings_get()
 
-        elif msg_type == "living_ui_project_setting_update":
+        elif msg_type == "agent_app_project_setting_update":
             project_id = data.get("projectId", "")
             setting = data.get("setting", "")
             value = data.get("value")
-            await self._handle_living_ui_project_setting_update(
+            await self._handle_agent_app_project_setting_update(
                 project_id, setting, value
             )
 
-        elif msg_type == "living_ui_backups_list":
-            await self._handle_living_ui_backups_list(data.get("projectId", ""))
+        elif msg_type == "agent_app_backups_list":
+            await self._handle_agent_app_backups_list(data.get("projectId", ""))
 
-        elif msg_type == "living_ui_backup_now":
-            await self._handle_living_ui_backup_now(data.get("projectId", ""))
+        elif msg_type == "agent_app_backup_now":
+            await self._handle_agent_app_backup_now(data.get("projectId", ""))
 
-        elif msg_type == "living_ui_backup_restore":
-            await self._handle_living_ui_backup_restore(
+        elif msg_type == "agent_app_backup_restore":
+            await self._handle_agent_app_backup_restore(
                 data.get("projectId", ""),
                 data.get("filename", ""),
                 data.get("sourceProjectId") or None,
             )
 
-        elif msg_type == "living_ui_backup_delete":
-            await self._handle_living_ui_backup_delete(
+        elif msg_type == "agent_app_backup_delete":
+            await self._handle_agent_app_backup_delete(
                 data.get("projectId", ""),
                 data.get("filename", ""),
                 orphan=bool(data.get("orphan", False)),
             )
 
-        elif msg_type == "living_ui_marketplace_list":
+        elif msg_type == "agent_app_marketplace_list":
             await self._handle_marketplace_list()
 
-        elif msg_type == "living_ui_marketplace_install":
+        elif msg_type == "agent_app_marketplace_install":
             app_id = data.get("appId", "")
             app_name = data.get("appName", "")
             app_description = data.get("appDescription", "")
@@ -1820,10 +1820,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 )
             )
 
-        elif msg_type == "living_ui_import":
+        elif msg_type == "agent_app_import":
             source = data.get("source", "")
             name = data.get("name", "External App")
-            asyncio.create_task(self._handle_living_ui_import(source, name))
+            asyncio.create_task(self._handle_agent_app_import(source, name))
 
         # Playbook catalogue handlers
         elif msg_type == "playbook_list":
@@ -1888,51 +1888,51 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             model = data.get("model", "")
             base_url = data.get("baseUrl")
             await self._handle_local_llm_pull_model(model, base_url)
-        # Living UI handlers
-        elif msg_type == "living_ui_create":
-            await self._handle_living_ui_create(data)
+        # Agent App handlers
+        elif msg_type == "agent_app_create":
+            await self._handle_agent_app_create(data)
 
-        elif msg_type == "living_ui_wizard_interview":
-            await self._handle_living_ui_wizard_interview(data)
+        elif msg_type == "agent_app_wizard_interview":
+            await self._handle_agent_app_wizard_interview(data)
 
-        elif msg_type == "living_ui_wizard_finalize":
-            await self._handle_living_ui_wizard_finalize(data)
+        elif msg_type == "agent_app_wizard_finalize":
+            await self._handle_agent_app_wizard_finalize(data)
 
-        elif msg_type == "living_ui_theme_update":
-            await self._handle_living_ui_theme_update(data)
+        elif msg_type == "agent_app_theme_update":
+            await self._handle_agent_app_theme_update(data)
 
-        elif msg_type == "living_ui_list":
-            await self._handle_living_ui_list()
+        elif msg_type == "agent_app_list":
+            await self._handle_agent_app_list()
 
-        elif msg_type == "living_ui_launch":
+        elif msg_type == "agent_app_launch":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_launch(project_id)
+            await self._handle_agent_app_launch(project_id)
 
-        elif msg_type == "living_ui_stop":
+        elif msg_type == "agent_app_stop":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_stop(project_id)
+            await self._handle_agent_app_stop(project_id)
 
-        elif msg_type == "living_ui_delete":
+        elif msg_type == "agent_app_delete":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_delete(
+            await self._handle_agent_app_delete(
                 project_id, delete_backups=bool(data.get("deleteBackups", False))
             )
 
-        elif msg_type == "living_ui_state_update":
-            await self._handle_living_ui_state_update(data)
+        elif msg_type == "agent_app_state_update":
+            await self._handle_agent_app_state_update(data)
 
-        elif msg_type == "living_ui_tunnel_start":
+        elif msg_type == "agent_app_tunnel_start":
             project_id = data.get("projectId", "")
             provider = data.get("provider", "cloudflared")
-            await self._handle_living_ui_tunnel_start(project_id, provider)
+            await self._handle_agent_app_tunnel_start(project_id, provider)
 
-        elif msg_type == "living_ui_tunnel_stop":
+        elif msg_type == "agent_app_tunnel_stop":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_tunnel_stop(project_id)
+            await self._handle_agent_app_tunnel_stop(project_id)
 
-        elif msg_type == "living_ui_sharing_info":
+        elif msg_type == "agent_app_sharing_info":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_sharing_info(project_id)
+            await self._handle_agent_app_sharing_info(project_id)
 
         # Update operations
         elif msg_type == "check_update":
@@ -2663,28 +2663,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     # -------------------------------------------------------------------------
-    # Living UI Handlers
+    # Agent App Handlers
     # -------------------------------------------------------------------------
 
-    async def _handle_living_ui_wizard_interview(self, data: Dict[str, Any]) -> None:
+    async def _handle_agent_app_wizard_interview(self, data: Dict[str, Any]) -> None:
         """Wizard step 2: generate interview questions from the Step-1
         configuration via a direct LLM call (no project/session exists yet)."""
-        from app.living_ui import wizard
+        from app.agent_app import wizard
 
         wizard_id = str(data.get("wizardId", ""))
         try:
             config = data.get("config") or {}
-            living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
-            wizard.sweep_stale_staging(living_ui_dir)
+            agent_app_dir = Path(self._agent_app_manager.agent_app_dir)
+            wizard.sweep_stale_staging(agent_app_dir)
 
             # Reference images are described once and reused at finalize.
-            image_notes = await wizard.describe_staged_images(living_ui_dir, wizard_id)
+            image_notes = await wizard.describe_staged_images(agent_app_dir, wizard_id)
             self._wizard_image_notes[wizard_id] = image_notes
 
             questions = await wizard.generate_interview(config, image_notes)
             await self._broadcast(
                 {
-                    "type": "living_ui_wizard_interview",
+                    "type": "agent_app_wizard_interview",
                     "data": {
                         "success": True,
                         "wizardId": wizard_id,
@@ -2693,10 +2693,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI:WIZARD] interview failed: {e}")
+            logger.error(f"[AGENT_APP:WIZARD] interview failed: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_wizard_interview",
+                    "type": "agent_app_wizard_interview",
                     "data": {
                         "success": False,
                         "wizardId": wizard_id,
@@ -2705,11 +2705,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_wizard_finalize(self, data: Dict[str, Any]) -> None:
+    async def _handle_agent_app_wizard_finalize(self, data: Dict[str, Any]) -> None:
         """Wizard step 3: synthesize the requirements document, create the
         project, move staged attachments in, queue the build run in the
         project's session, and hand the frontend its projectId to navigate to."""
-        from app.living_ui import wizard
+        from app.agent_app import wizard
 
         wizard_id = str(data.get("wizardId", ""))
         try:
@@ -2718,13 +2718,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             name = str(config.get("name", "")).strip()
             description = str(config.get("description", "")).strip()
             if not name or not description:
-                raise ValueError(tui("livingui_name_desc_required"))
+                raise ValueError(tui("agentapp_name_desc_required"))
 
-            living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
+            agent_app_dir = Path(self._agent_app_manager.agent_app_dir)
             image_notes = self._wizard_image_notes.pop(wizard_id, None)
             if image_notes is None:
                 image_notes = await wizard.describe_staged_images(
-                    living_ui_dir, wizard_id
+                    agent_app_dir, wizard_id
                 )
 
             # SECOND INTERVIEW ROUND (one, at most): with a marketplace
@@ -2749,7 +2749,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             config, image_notes, include_marketplace=False
                         )
                 except Exception as e:
-                    logger.warning(f"[LIVING_UI:WIZARD] round 2 skipped: {e}")
+                    logger.warning(f"[AGENT_APP:WIZARD] round 2 skipped: {e}")
                     followups = []
                 if followups:
                     # Re-id: a model reusing "q1" would collide with the
@@ -2760,7 +2760,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     self._wizard_image_notes[wizard_id] = image_notes
                     await self._broadcast(
                         {
-                            "type": "living_ui_wizard_finalize",
+                            "type": "agent_app_wizard_finalize",
                             "data": {
                                 "success": True,
                                 "wizardId": wizard_id,
@@ -2778,7 +2778,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # stylePack is derived by the frontend from the theme catalog
             # (style-bearing theme id, or "" for pinned color themes).
             style_pack = str(config.get("stylePack") or "")
-            project = await self._living_ui_manager.create_project(
+            project = await self._agent_app_manager.create_project(
                 name=name,
                 description=description,
                 auth_mode=auth_mode,
@@ -2788,26 +2788,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Staged files: uploaded icon → app favicon, references →
             # <project>/reference/. An uploaded icon wins over a lucide pick.
             moved = wizard.move_staging_into_project(
-                living_ui_dir, wizard_id, Path(project.path)
+                agent_app_dir, wizard_id, Path(project.path)
             )
             if moved["icon"]:
                 project.icon = moved["icon"]
                 # Favicon injection edited the system-owned index.html —
                 # re-canonize hashes so the validation gate stays green.
                 try:
-                    await self._living_ui_manager.runner.kit_sync(Path(project.path))
+                    await self._agent_app_manager.runner.kit_sync(Path(project.path))
                 except Exception as e:
-                    logger.warning(f"[LIVING_UI:WIZARD] re-canon failed: {e}")
+                    logger.warning(f"[AGENT_APP:WIZARD] re-canon failed: {e}")
             elif str(config.get("icon", "")).startswith("lucide:"):
                 project.icon = str(config.get("icon"))
 
             # The wizard's theme pick becomes the project's default display
-            # theme — the Living UI page adopts it (absent a local override)
-            # and pushes it to the app via the livingui-theme protocol.
+            # theme — the Agent App page adopts it (absent a local override)
+            # and pushes it to the app via the agentapp-theme protocol.
             ui_theme = str(config.get("uiTheme") or "").strip()
             if ui_theme:
                 project.ui_theme = {"themeId": ui_theme}
-            self._living_ui_manager._save_projects()
+            self._agent_app_manager._save_projects()
 
             # The build's binding specification (walk-verify reads it too).
             reference_dir = Path(project.path) / "reference"
@@ -2817,16 +2817,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # Create the project's session BEFORE broadcasting so the project
-            # snapshot carries sessionId — the Living UI page keys its chat
+            # snapshot carries sessionId — the Agent App page keys its chat
             # panel on project.sessionId, and nothing back-fills it later.
             # (start_development_run reuses this session; ensure is idempotent.)
-            self._living_ui_manager.ensure_project_session(project)
+            self._agent_app_manager.ensure_project_session(project)
 
             # Same broadcast the plain create path uses — the store's
-            # living_ui_create handler adds the project tab.
+            # agent_app_create handler adds the project tab.
             await self._broadcast(
                 {
-                    "type": "living_ui_create",
+                    "type": "agent_app_create",
                     "data": {
                         "success": True,
                         "projectId": project.id,
@@ -2837,37 +2837,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # Post the "what you asked for" summary as the first bubble in the
-            # PROJECT'S session (never main) — it heads the Living UI chat the
+            # PROJECT'S session (never main) — it heads the Agent App chat the
             # user is auto-switched into, so the build has a visible cause.
             try:
                 await self._display_chat_message(
                     "System",
-                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    f"**Agent App: {name}**\n\n{description}\n\n"
                     "Building your app now — follow the progress here.",
                     "system",
                     session_id=project.session_id,
                 )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+                logger.debug(f"[AGENT_APP] create chat message failed: {e}")
 
             await self._broadcast(
                 {
-                    "type": "living_ui_status",
+                    "type": "agent_app_status",
                     "data": {
                         "projectId": project.id,
                         "phase": "initializing",
                         "progress": 10,
-                        "message": tui("livingui_project_created"),
+                        "message": tui("agentapp_project_created"),
                     },
                 }
             )
 
             # Queue the build run in the project's dedicated session.
-            session_id = await self._living_ui_manager.start_development_run(project.id)
+            session_id = await self._agent_app_manager.start_development_run(project.id)
             if not session_id:
-                raise RuntimeError(tui("livingui_dev_run_failed"))
+                raise RuntimeError(tui("agentapp_dev_run_failed"))
 
-            # CHAT-PATH tail: tell the session that ran living_ui_scaffold
+            # CHAT-PATH tail: tell the session that ran agent_app_scaffold
             # which project resulted. Without this the origin agent's last
             # knowledge is "no project created yet" — observed live
             # 2026-08-05: asked to "add data to it", it searched the
@@ -2881,16 +2881,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                     get_factory_host().set_origin_session(project.id, origin_session)
                 except Exception as e:
-                    logger.debug(f"[LIVING_UI:WIZARD] origin persist failed: {e}")
+                    logger.debug(f"[AGENT_APP:WIZARD] origin persist failed: {e}")
                 try:
                     from app.triggers import TriggerSource, TriggerSpec
 
-                    await self._living_ui_manager._trigger_service.emit(
+                    await self._agent_app_manager._trigger_service.emit(
                         TriggerSpec(
-                            source=TriggerSource.LIVING_UI_CREATED,
+                            source=TriggerSource.AGENT_APP_CREATED,
                             description=(
                                 f"FYI: the setup questions were answered — "
-                                f"Living UI '{project.name}' (project_id "
+                                f"Agent App '{project.name}' (project_id "
                                 f"{project.id}) has been created and its "
                                 "build is running in its own session. No "
                                 "action and no message needed: acknowledge "
@@ -2906,12 +2906,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     )
                 except Exception as e:
                     logger.debug(
-                        f"[LIVING_UI:WIZARD] origin-session notify failed: {e}"
+                        f"[AGENT_APP:WIZARD] origin-session notify failed: {e}"
                     )
 
             await self._broadcast(
                 {
-                    "type": "living_ui_wizard_finalize",
+                    "type": "agent_app_wizard_finalize",
                     "data": {
                         "success": True,
                         "wizardId": wizard_id,
@@ -2920,10 +2920,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI:WIZARD] finalize failed: {e}")
+            logger.error(f"[AGENT_APP:WIZARD] finalize failed: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_wizard_finalize",
+                    "type": "agent_app_wizard_finalize",
                     "data": {
                         "success": False,
                         "wizardId": wizard_id,
@@ -2932,19 +2932,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_theme_update(self, data: Dict[str, Any]) -> None:
+    async def _handle_agent_app_theme_update(self, data: Dict[str, Any]) -> None:
         """Persist a project's display theme so it follows the user across
         browsers ({"projectId", "theme": {"themeId", "customColors"}})."""
         try:
             project_id = str(data.get("projectId", ""))
             theme = data.get("theme")
             if project_id:
-                self._living_ui_manager.set_project_ui_theme(project_id, theme)
+                self._agent_app_manager.set_project_ui_theme(project_id, theme)
         except Exception as e:
-            logger.debug(f"[LIVING_UI] theme update failed: {e}")
+            logger.debug(f"[AGENT_APP] theme update failed: {e}")
 
-    async def _handle_living_ui_create(self, data: Dict[str, Any]) -> None:
-        """Create a new Living UI project."""
+    async def _handle_agent_app_create(self, data: Dict[str, Any]) -> None:
+        """Create a new Agent App project."""
         try:
             name = data.get("name", "")
             description = data.get("description", "")
@@ -2955,10 +2955,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not name or not description:
                 await self._broadcast(
                     {
-                        "type": "living_ui_error",
+                        "type": "agent_app_error",
                         "data": {
                             "projectId": "",
-                            "error": tui("livingui_name_desc_required"),
+                            "error": tui("agentapp_name_desc_required"),
                         },
                     }
                 )
@@ -2986,7 +2986,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if extras:
                 description = description + "\n\n" + "\n".join(extras)
 
-            project = await self._living_ui_manager.create_project(
+            project = await self._agent_app_manager.create_project(
                 name=name,
                 description=description,
                 features=features,
@@ -3003,20 +3003,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 for f in ref_files[:10]:
                     src = Path(f)
                     staging_root = (
-                        Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                        Path(self._agent_app_manager.agent_app_dir) / "_staging"
                     )
                     if src.exists() and staging_root in src.parents:
                         shutil.move(str(src), str(ref_dir / src.name))
 
             # Create the session BEFORE broadcasting so the project snapshot
-            # carries sessionId (the Living UI page's chat panel keys on it;
+            # carries sessionId (the Agent App page's chat panel keys on it;
             # nothing back-fills it later). start_development_run reuses it.
-            self._living_ui_manager.ensure_project_session(project)
+            self._agent_app_manager.ensure_project_session(project)
 
             # Broadcast project created
             await self._broadcast(
                 {
-                    "type": "living_ui_create",
+                    "type": "agent_app_create",
                     "data": {
                         "success": True,
                         "projectId": project.id,
@@ -3027,60 +3027,60 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # Post the "what you asked for" summary as the first bubble in the
-            # PROJECT'S session (never main) — it heads the Living UI chat the
+            # PROJECT'S session (never main) — it heads the Agent App chat the
             # user is auto-switched into, so the build has a visible cause.
             try:
                 await self._display_chat_message(
                     "System",
-                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    f"**Agent App: {name}**\n\n{description}\n\n"
                     "Building your app now — follow the progress here.",
                     "system",
                     session_id=project.session_id,
                 )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+                logger.debug(f"[AGENT_APP] create chat message failed: {e}")
 
             # Broadcast initial status update
             await self._broadcast(
                 {
-                    "type": "living_ui_status",
+                    "type": "agent_app_status",
                     "data": {
                         "projectId": project.id,
                         "phase": "initializing",
                         "progress": 10,
-                        "message": tui("livingui_project_created"),
+                        "message": tui("agentapp_project_created"),
                     },
                 }
             )
 
             # Queue the build run in the project's dedicated session.
             # The manager handles: session creation, status update, trigger firing.
-            session_id = await self._living_ui_manager.start_development_run(project.id)
+            session_id = await self._agent_app_manager.start_development_run(project.id)
 
             if session_id:
                 logger.info(
-                    f"[LIVING_UI] Queued build run in session {session_id} "
+                    f"[AGENT_APP] Queued build run in session {session_id} "
                     f"for project {project.id}"
                 )
             else:
                 logger.error(
-                    f"[LIVING_UI] Failed to start development run for project {project.id}"
+                    f"[AGENT_APP] Failed to start development run for project {project.id}"
                 )
                 await self._broadcast(
                     {
-                        "type": "living_ui_error",
+                        "type": "agent_app_error",
                         "data": {
                             "projectId": project.id,
-                            "error": tui("livingui_dev_run_failed"),
+                            "error": tui("agentapp_dev_run_failed"),
                         },
                     }
                 )
 
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error creating project: {e}")
+            logger.error(f"[AGENT_APP] Error creating project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {
                         "projectId": "",
                         "error": str(e),
@@ -3088,13 +3088,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_list(self) -> None:
-        """Get list of all Living UI projects."""
+    async def _handle_agent_app_list(self) -> None:
+        """Get list of all Agent App projects."""
         try:
-            projects = self._living_ui_manager.list_projects()
+            projects = self._agent_app_manager.list_projects()
             await self._broadcast(
                 {
-                    "type": "living_ui_list",
+                    "type": "agent_app_list",
                     "data": {
                         "success": True,
                         "projects": [p.to_dict() for p in projects],
@@ -3104,7 +3104,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Replay buffered build events for any in-progress build so a
             # reconnecting client repopulates the construction dock feed.
             try:
-                from app.living_ui import construction_events
+                from app.agent_app import construction_events
 
                 for p in projects:
                     if getattr(p, "status", None) not in ("creating", "error"):
@@ -3113,17 +3113,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     if events:
                         await self._broadcast(
                             {
-                                "type": "living_ui_build_events_replay",
+                                "type": "agent_app_build_events_replay",
                                 "data": {"projectId": p.id, "events": events},
                             }
                         )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] build-event replay skipped: {e}")
+                logger.debug(f"[AGENT_APP] build-event replay skipped: {e}")
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error listing projects: {e}")
+            logger.error(f"[AGENT_APP] Error listing projects: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_list",
+                    "type": "agent_app_list",
                     "data": {
                         "success": False,
                         "error": str(e),
@@ -3131,16 +3131,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_launch(self, project_id: str) -> None:
-        """Launch a Living UI project."""
+    async def _handle_agent_app_launch(self, project_id: str) -> None:
+        """Launch a Agent App project."""
         try:
-            success = await self._living_ui_manager.launch_project(project_id)
-            project = self._living_ui_manager.get_project(project_id)
+            success = await self._agent_app_manager.launch_project(project_id)
+            project = self._agent_app_manager.get_project(project_id)
 
             if success and project:
                 await self._broadcast(
                     {
-                        "type": "living_ui_launch",
+                        "type": "agent_app_launch",
                         "data": {
                             "success": True,
                             "projectId": project_id,
@@ -3152,7 +3152,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             else:
                 await self._broadcast(
                     {
-                        "type": "living_ui_launch",
+                        "type": "agent_app_launch",
                         "data": {
                             "success": False,
                             "projectId": project_id,
@@ -3161,10 +3161,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     }
                 )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error launching project: {e}")
+            logger.error(f"[AGENT_APP] Error launching project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_launch",
+                    "type": "agent_app_launch",
                     "data": {
                         "success": False,
                         "projectId": project_id,
@@ -3173,13 +3173,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_stop(self, project_id: str) -> None:
-        """Stop a running Living UI project."""
+    async def _handle_agent_app_stop(self, project_id: str) -> None:
+        """Stop a running Agent App project."""
         try:
-            success = await self._living_ui_manager.stop_project(project_id)
+            success = await self._agent_app_manager.stop_project(project_id)
             await self._broadcast(
                 {
-                    "type": "living_ui_stop",
+                    "type": "agent_app_stop",
                     "data": {
                         "success": success,
                         "projectId": project_id,
@@ -3187,10 +3187,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error stopping project: {e}")
+            logger.error(f"[AGENT_APP] Error stopping project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_stop",
+                    "type": "agent_app_stop",
                     "data": {
                         "success": False,
                         "projectId": project_id,
@@ -3199,26 +3199,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_delete(
+    async def _handle_agent_app_delete(
         self, project_id: str, delete_backups: bool = False
     ) -> None:
-        """Delete a Living UI project (and its dedicated session)."""
+        """Delete a Agent App project (and its dedicated session)."""
         try:
-            project = self._living_ui_manager.get_project(project_id)
+            project = self._agent_app_manager.get_project(project_id)
             session_id = project.session_id if project else None
 
-            success = await self._living_ui_manager.delete_project(
+            success = await self._agent_app_manager.delete_project(
                 project_id, delete_backups=delete_backups
             )
             try:
-                from app.living_ui import construction_events
+                from app.agent_app import construction_events
 
                 construction_events.clear_buffer(project_id)
             except Exception:
                 pass
             await self._broadcast(
                 {
-                    "type": "living_ui_delete",
+                    "type": "agent_app_delete",
                     "data": {
                         "success": success,
                         "projectId": project_id,
@@ -3235,10 +3235,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     }
                 )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error deleting project: {e}")
+            logger.error(f"[AGENT_APP] Error deleting project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_delete",
+                    "type": "agent_app_delete",
                     "data": {
                         "success": False,
                         "projectId": project_id,
@@ -3247,14 +3247,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _living_ui_export_handler(self, request: "web.Request") -> "web.Response":
-        """HTTP handler: download a Living UI project as a ZIP file."""
+    async def _agent_app_export_handler(self, request: "web.Request") -> "web.Response":
+        """HTTP handler: download a Agent App project as a ZIP file."""
         from aiohttp import web
 
         project_id = request.match_info["project_id"]
         try:
-            zip_path = self._living_ui_manager.export_project_zip(project_id)
-            project = self._living_ui_manager.get_project(project_id)
+            zip_path = self._agent_app_manager.export_project_zip(project_id)
+            project = self._agent_app_manager.get_project(project_id)
             filename = (
                 f"{project.name.replace(' ', '_')}.zip"
                 if project
@@ -3278,40 +3278,40 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             return error_json_response(
                 ErrorInfo(
                     category=ErrorCategory.NOT_FOUND,
-                    code="LIVING_UI_EXPORT_NOT_FOUND",
+                    code="AGENT_APP_EXPORT_NOT_FOUND",
                     title="Export not found",
                     message=redact(str(e)),
                 ),
                 status=404,
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Export error: {e}")
+            logger.error(f"[AGENT_APP] Export error: {e}")
             from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
             from app.errors.web import error_json_response
 
             return error_json_response(
                 ErrorInfo(
                     category=ErrorCategory.INTERNAL,
-                    code="LIVING_UI_EXPORT_FAILED",
+                    code="AGENT_APP_EXPORT_FAILED",
                     title="Export failed",
                     message=redact(str(e)),
                 ),
                 status=500,
             )
 
-    async def _living_ui_stage_handler(self, request: "web.Request") -> "web.Response":
-        """Stage a reference file (sketch/screenshot/doc) for a NEW Living UI.
+    async def _agent_app_stage_handler(self, request: "web.Request") -> "web.Response":
+        """Stage a reference file (sketch/screenshot/doc) for a NEW Agent App.
 
-        Saves under living_ui/_staging/refs/ and returns {"path": ...}. The
+        Saves under agent_app/_staging/refs/ and returns {"path": ...}. The
         create flow moves staged files into the project's reference/ dir.
 
         Wizard mode: with ?wizardId=<id> (and optional &kind=icon) the file
-        stages under living_ui/_staging/wizard/<id>/ instead; icons are
+        stages under agent_app/_staging/wizard/<id>/ instead; icons are
         normalized to icon.<ext> so finalize can find them.
         """
         from aiohttp import web
 
-        from app.living_ui import wizard
+        from app.agent_app import wizard
 
         wizard_id = request.query.get("wizardId", "")
         kind = request.query.get("kind", "reference")
@@ -3323,13 +3323,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     filename = Path(part.filename or "reference.bin").name
                     if wizard_id:
                         staging = wizard.staging_dir(
-                            Path(self._living_ui_manager.living_ui_dir), wizard_id
+                            Path(self._agent_app_manager.agent_app_dir), wizard_id
                         )
                         if kind == "icon":
                             filename = f"icon{Path(filename).suffix.lower() or '.png'}"
                     else:
                         staging = (
-                            Path(self._living_ui_manager.living_ui_dir)
+                            Path(self._agent_app_manager.agent_app_dir)
                             / "_staging"
                             / "refs"
                         )
@@ -3361,13 +3361,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _living_ui_icon_handler(
+    async def _agent_app_icon_handler(
         self, request: "web.Request"
     ) -> "web.StreamResponse":
         """Serve a project's uploaded icon (project.icon == "file:<relpath>")."""
         from aiohttp import web
 
-        project = self._living_ui_manager.get_project(
+        project = self._agent_app_manager.get_project(
             request.match_info.get("project_id", "")
         )
         if project and (project.icon or "").startswith("file:"):
@@ -3379,10 +3379,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return web.FileResponse(icon_path)
         return web.json_response({"error": "no icon"}, status=404)
 
-    async def _living_ui_import_handler(self, request: "web.Request") -> "web.Response":
+    async def _agent_app_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
 
-        The frontend then sends a living_ui_import WebSocket message with
+        The frontend then sends a agent_app_import WebSocket message with
         the path so the agent handles extraction via the importer skill.
         """
         from aiohttp import web
@@ -3400,7 +3400,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 elif part.name == "file":
                     # Save uploaded file to a staging location
                     staging_dir = (
-                        Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                        Path(self._agent_app_manager.agent_app_dir) / "_staging"
                     )
                     staging_dir.mkdir(parents=True, exist_ok=True)
                     tmp = tempfile.NamedTemporaryFile(
@@ -3419,7 +3419,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             if not zip_path:
                 return web.json_response(
-                    {"error": tui("livingui_no_zip")}, status=400
+                    {"error": tui("agentapp_no_zip")}, status=400
                 )
 
             return web.json_response(
@@ -3430,7 +3430,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Upload staging error: {e}")
+            logger.error(f"[AGENT_APP] Upload staging error: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def _workspace_upload_handler(self, request: "web.Request") -> "web.Response":
@@ -3627,7 +3627,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             bundle_path = await self._stage_uploaded_bundle(request)
             if not bundle_path:
                 return web.json_response(
-                    {"error": tui("livingui_no_bundle")}, status=400
+                    {"error": tui("agentapp_no_bundle")}, status=400
                 )
             result = inspect_bundle(bundle_path)
             # Read bytes into memory and delete the temp file immediately so a
@@ -3680,13 +3680,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 tmp.write(bundle_bytes)
                 tmp_path = tmp.name
 
-            # Pass the live LivingUIManager so imported projects land in its
+            # Pass the live AgentAppManager so imported projects land in its
             # in-memory state. Without this, the manager's stale state will
             # overwrite our file on the next status update / watchdog tick.
             result = import_profile(
                 tmp_path,
                 mode=mode,
-                living_ui_manager=self._living_ui_manager,
+                agent_app_manager=self._agent_app_manager,
             )
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
@@ -3701,8 +3701,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         return web.json_response(result)
 
-    async def _handle_living_ui_state_update(self, data: Dict[str, Any]) -> None:
-        """Handle state update from a Living UI for agent awareness."""
+    async def _handle_agent_app_state_update(self, data: Dict[str, Any]) -> None:
+        """Handle state update from a Agent App for agent awareness."""
         try:
             project_id = data.get("projectId", "")
             state = data.get("state", {})
@@ -3710,13 +3710,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Store the state for agent context
             from app.state import STATE
 
-            if hasattr(STATE, "update_living_ui_state"):
-                STATE.update_living_ui_state(project_id, state)
+            if hasattr(STATE, "update_agent_app_state"):
+                STATE.update_agent_app_state(project_id, state)
 
             # Also forward to any listening clients (for debugging/monitoring)
             await self._broadcast(
                 {
-                    "type": "living_ui_state_update",
+                    "type": "agent_app_state_update",
                     "data": {
                         "projectId": project_id,
                         "state": state,
@@ -3724,15 +3724,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error handling state update: {e}")
+            logger.error(f"[AGENT_APP] Error handling state update: {e}")
 
-    async def _handle_living_ui_sharing_info(self, project_id: str) -> None:
+    async def _handle_agent_app_sharing_info(self, project_id: str) -> None:
         """Return sharing info (LAN URL, tunnel URL)."""
-        lan_url = self._living_ui_manager.get_lan_url(project_id)
-        project = self._living_ui_manager.get_project(project_id)
+        lan_url = self._agent_app_manager.get_lan_url(project_id)
+        project = self._agent_app_manager.get_project(project_id)
         await self._broadcast(
             {
-                "type": "living_ui_sharing_info",
+                "type": "agent_app_sharing_info",
                 "data": {
                     "projectId": project_id,
                     "lanUrl": lan_url,
@@ -3741,18 +3741,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def _handle_living_ui_tunnel_start(
+    async def _handle_agent_app_tunnel_start(
         self, project_id: str, provider: str
     ) -> None:
-        """Start a tunnel for a Living UI project."""
+        """Start a tunnel for a Agent App project."""
         logger.info(
-            f"[LIVING_UI] Tunnel start requested: project={project_id}, provider={provider}"
+            f"[AGENT_APP] Tunnel start requested: project={project_id}, provider={provider}"
         )
         try:
-            url = await self._living_ui_manager.start_tunnel(project_id, provider)
+            url = await self._agent_app_manager.start_tunnel(project_id, provider)
             await self._broadcast(
                 {
-                    "type": "living_ui_tunnel_status",
+                    "type": "agent_app_tunnel_status",
                     "data": {
                         "projectId": project_id,
                         "tunnelUrl": url,
@@ -3762,10 +3762,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Tunnel start error: {e}", exc_info=True)
+            logger.error(f"[AGENT_APP] Tunnel start error: {e}", exc_info=True)
             await self._broadcast(
                 {
-                    "type": "living_ui_tunnel_status",
+                    "type": "agent_app_tunnel_status",
                     "data": {
                         "projectId": project_id,
                         "tunnelUrl": None,
@@ -3775,12 +3775,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_tunnel_stop(self, project_id: str) -> None:
-        """Stop a tunnel for a Living UI project."""
-        await self._living_ui_manager.stop_tunnel(project_id)
+    async def _handle_agent_app_tunnel_stop(self, project_id: str) -> None:
+        """Stop a tunnel for a Agent App project."""
+        await self._agent_app_manager.stop_tunnel(project_id)
         await self._broadcast(
             {
-                "type": "living_ui_tunnel_status",
+                "type": "agent_app_tunnel_status",
                 "data": {
                     "projectId": project_id,
                     "tunnelUrl": None,
@@ -3789,28 +3789,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_ready(
+    async def broadcast_agent_app_ready(
         self, project_id: str, url: str, port: int
     ) -> bool:
         """
-        Broadcast that a Living UI is ready (called from agent action).
+        Broadcast that a Agent App is ready (called from agent action).
 
-        This method launches the Living UI server via the manager and notifies
+        This method launches the Agent App server via the manager and notifies
         the browser. The agent should NOT start the server itself - just build
         and call this action.
 
         Returns:
             True if project was found and launched successfully, False otherwise
         """
-        project = self._living_ui_manager.get_project(project_id)
+        project = self._agent_app_manager.get_project(project_id)
         if not project:
             logger.error(
-                f"[LIVING_UI] Project not found for ready notification: {project_id}"
+                f"[AGENT_APP] Project not found for ready notification: {project_id}"
             )
             # Broadcast error to browser so it can display the error state
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {
                         "projectId": project_id,
                         "error": f"Project '{project_id}' not found. Check that the project_id matches the one from the build instruction.",
@@ -3830,22 +3830,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if (
             project.status == "running"
             and project.port
-            and self._living_ui_manager._is_port_in_use(project.port)
+            and self._agent_app_manager._is_port_in_use(project.port)
         ):
             success = True
         else:
             # Update project status to "ready" (build complete, about to launch)
-            self._living_ui_manager.update_project_status(project_id, "ready")
+            self._agent_app_manager.update_project_status(project_id, "ready")
 
             # Launch the project server via manager (centralizes process management)
-            success = await self._living_ui_manager.launch_project(project_id)
+            success = await self._agent_app_manager.launch_project(project_id)
 
         if success:
             # Get updated project info with URL
-            project = self._living_ui_manager.get_project(project_id)
+            project = self._agent_app_manager.get_project(project_id)
             await self._broadcast(
                 {
-                    "type": "living_ui_ready",
+                    "type": "agent_app_ready",
                     "data": {
                         "projectId": project_id,
                         "url": project.url if project else url,
@@ -3854,11 +3854,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-            logger.info(f"[LIVING_UI] Project {project_id} launched and ready")
+            logger.info(f"[AGENT_APP] Project {project_id} launched and ready")
             # Build finished — drop the buffered construction-dock feed so a
             # later rebuild of the same project starts from a clean slate.
             try:
-                from app.living_ui import construction_events
+                from app.agent_app import construction_events
 
                 construction_events.clear_buffer(project_id)
             except Exception:
@@ -3868,30 +3868,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Launch failed
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {
                         "projectId": project_id,
-                        "error": tui("livingui_launch_failed"),
+                        "error": tui("agentapp_launch_failed"),
                     },
                 }
             )
-            logger.error(f"[LIVING_UI] Failed to launch project {project_id}")
+            logger.error(f"[AGENT_APP] Failed to launch project {project_id}")
             return False
 
-    async def broadcast_living_ui_wizard_open(self, payload: Dict[str, Any]) -> None:
+    async def broadcast_agent_app_wizard_open(self, payload: Dict[str, Any]) -> None:
         """Open the Create Custom wizard at the interview step (chat-path
-        requirements phase: living_ui_scaffold has questions for the user)."""
-        await self._broadcast({"type": "living_ui_wizard_open", "data": payload})
+        requirements phase: agent_app_scaffold has questions for the user)."""
+        await self._broadcast({"type": "agent_app_wizard_open", "data": payload})
 
-    async def broadcast_living_ui_created(self, project: Dict[str, Any]) -> None:
-        """Broadcast that a Living UI project was created (called from agent action).
+    async def broadcast_agent_app_created(self, project: Dict[str, Any]) -> None:
+        """Broadcast that a Agent App project was created (called from agent action).
 
-        Mirrors the modal create flow's broadcast so a chat-created Living UI is
+        Mirrors the modal create flow's broadcast so a chat-created Agent App is
         registered in the browser's project list and shows its build progress.
         """
         await self._broadcast(
             {
-                "type": "living_ui_create",
+                "type": "agent_app_create",
                 "data": {
                     "success": True,
                     "projectId": project.get("id", ""),
@@ -3900,13 +3900,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_progress(
+    async def broadcast_agent_app_progress(
         self, project_id: str, phase: str, progress: int, message: str
     ) -> None:
-        """Broadcast Living UI creation progress (called from agent action)."""
+        """Broadcast Agent App creation progress (called from agent action)."""
         await self._broadcast(
             {
-                "type": "living_ui_status",
+                "type": "agent_app_status",
                 "data": {
                     "projectId": project_id,
                     "phase": phase,
@@ -3916,19 +3916,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_todos(
+    async def broadcast_agent_app_todos(
         self,
         project_id: str,
         todos: list,
     ) -> None:
-        """Broadcast the agent's current todo list for a Living UI build.
+        """Broadcast the agent's current todo list for a Agent App build.
 
         Fired from the SessionManager's post-update-todos hook whenever the
-        agent updates its todos during a Living UI build run.
+        agent updates its todos during a Agent App build run.
         """
         await self._broadcast(
             {
-                "type": "living_ui_todos",
+                "type": "agent_app_todos",
                 "data": {
                     "projectId": project_id,
                     "todos": todos,
@@ -3936,14 +3936,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_build_event(
+    async def broadcast_agent_app_build_event(
         self, project_id: str, event: dict
     ) -> None:
         """Broadcast one construction-dock build event (from the read-only
         observer in construction_events). Fire-and-forget UI observation."""
         await self._broadcast(
             {
-                "type": "living_ui_build_event",
+                "type": "agent_app_build_event",
                 "data": {
                     "projectId": project_id,
                     "event": event,
@@ -3951,12 +3951,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_data_changed(self, project_id: str) -> None:
-        """Tell the browser that a Living UI's backend data was just modified
+    async def broadcast_agent_app_data_changed(self, project_id: str) -> None:
+        """Tell the browser that a Agent App's backend data was just modified
         by the agent, so it should refresh the iframe to display new state."""
         await self._broadcast(
             {
-                "type": "living_ui_data_changed",
+                "type": "agent_app_data_changed",
                 "data": {"projectId": project_id},
             }
         )
@@ -4056,7 +4056,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "title": session.title,
             "createdAt": session.created_at,
             "lastActiveAt": session.last_active_at,
-            "livingUiProjectId": session.living_ui_project_id,
+            "agentAppProjectId": session.agent_app_project_id,
         }
 
     async def _handle_session_delete(self, data: Dict[str, Any]) -> None:
@@ -4395,14 +4395,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     }
                 )
 
-            # If LivingUI apps were deleted, push refreshed (now-empty) lists so
-            # the frontend reflects the deletion. Both the main LivingUI page
-            # (living_ui_list) and the Settings > LivingUI page
-            # (living_ui_settings_get) cache their own project lists and won't
+            # If AgentApp apps were deleted, push refreshed (now-empty) lists so
+            # the frontend reflects the deletion. Both the main AgentApp page
+            # (agent_app_list) and the Settings > AgentApp page
+            # (agent_app_settings_get) cache their own project lists and won't
             # refetch on their own, so we must push to both.
-            if components is not None and "livingui" in components:
-                await self._handle_living_ui_list()
-                await self._handle_living_ui_settings_get()
+            if components is not None and "agentapp" in components:
+                await self._handle_agent_app_list()
+                await self._handle_agent_app_settings_get()
 
             await self._broadcast(
                 {
@@ -7733,38 +7733,38 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     # ==========================
-    # Living UI Settings Handlers
+    # Agent App Settings Handlers
     # ==========================
 
-    async def _handle_living_ui_settings_get(self) -> None:
-        """Get all Living UI projects with their settings."""
-        from app.ui_layer.settings.living_ui_settings import get_living_ui_projects
+    async def _handle_agent_app_settings_get(self) -> None:
+        """Get all Agent App projects with their settings."""
+        from app.ui_layer.settings.agent_app_settings import get_agent_app_projects
 
-        result = get_living_ui_projects()
-        await self._broadcast({"type": "living_ui_settings_get", "data": result})
+        result = get_agent_app_projects()
+        await self._broadcast({"type": "agent_app_settings_get", "data": result})
 
-    async def _handle_living_ui_project_setting_update(
+    async def _handle_agent_app_project_setting_update(
         self, project_id: str, setting: str, value
     ) -> None:
         """Update a per-project setting."""
-        from app.ui_layer.settings.living_ui_settings import update_project_setting
+        from app.ui_layer.settings.agent_app_settings import update_project_setting
 
         result = update_project_setting(project_id, setting, value)
         await self._broadcast(
-            {"type": "living_ui_project_setting_update", "data": result}
+            {"type": "agent_app_project_setting_update", "data": result}
         )
 
-    # Backups (spec docs/plans/living-ui-backups-plan.md Phase 4). Thin
+    # Backups (spec docs/plans/agent-app-backups-plan.md Phase 4). Thin
     # handlers: all policy lives in the manager/BackupStore. Restore and
     # backup-now run as background tasks (stop+relaunch can take a minute)
     # so the WS loop stays responsive; results broadcast with *_result types.
 
-    async def _handle_living_ui_backups_list(self, project_id: str) -> None:
-        from app.living_ui import get_living_ui_manager
+    async def _handle_agent_app_backups_list(self, project_id: str) -> None:
+        from app.agent_app import get_agent_app_manager
 
         payload = {"projectId": project_id, "backups": [], "totalSize": 0}
         try:
-            manager = get_living_ui_manager()
+            manager = get_agent_app_manager()
             entries = manager.backups.store.list_backups(project_id)
             payload["backups"] = [
                 {
@@ -7778,59 +7778,59 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             payload["totalSize"] = sum(e.size for e in entries)
         except Exception as e:
             payload["error"] = str(e)
-        await self._broadcast({"type": "living_ui_backups_list", "data": payload})
+        await self._broadcast({"type": "agent_app_backups_list", "data": payload})
 
-    async def _handle_living_ui_backup_now(self, project_id: str) -> None:
-        from app.living_ui import get_living_ui_manager
+    async def _handle_agent_app_backup_now(self, project_id: str) -> None:
+        from app.agent_app import get_agent_app_manager
 
         async def _run() -> None:
             try:
-                result = await get_living_ui_manager().backup_now(project_id)
+                result = await get_agent_app_manager().backup_now(project_id)
             except Exception as e:
                 result = {"status": "error", "errors": [str(e)]}
             await self._broadcast(
                 {
-                    "type": "living_ui_backup_now_result",
+                    "type": "agent_app_backup_now_result",
                     "data": {"projectId": project_id, **result},
                 }
             )
-            await self._handle_living_ui_backups_list(project_id)
+            await self._handle_agent_app_backups_list(project_id)
 
         asyncio.create_task(_run())
 
-    async def _handle_living_ui_backup_restore(
+    async def _handle_agent_app_backup_restore(
         self, project_id: str, filename: str, source_project_id: str | None = None
     ) -> None:
         """source_project_id: restore an archive from ANOTHER project's
         backup dir (a deleted app's leftovers) into project_id."""
-        from app.living_ui import get_living_ui_manager
+        from app.agent_app import get_agent_app_manager
 
         async def _run() -> None:
             try:
-                result = await get_living_ui_manager().restore_backup(
+                result = await get_agent_app_manager().restore_backup(
                     project_id, filename, source_project_id=source_project_id
                 )
             except Exception as e:
                 result = {"status": "error", "errors": [str(e)]}
             await self._broadcast(
                 {
-                    "type": "living_ui_backup_restore_result",
+                    "type": "agent_app_backup_restore_result",
                     "data": {"projectId": project_id, "filename": filename, **result},
                 }
             )
-            await self._handle_living_ui_backups_list(project_id)
+            await self._handle_agent_app_backups_list(project_id)
 
         asyncio.create_task(_run())
 
-    async def _handle_living_ui_backup_delete(
+    async def _handle_agent_app_backup_delete(
         self, project_id: str, filename: str, orphan: bool = False
     ) -> None:
-        from app.living_ui import get_living_ui_manager
+        from app.agent_app import get_agent_app_manager
 
         data = {"projectId": project_id, "filename": filename, "success": True}
         orphan_reaped = False
         try:
-            manager = get_living_ui_manager()
+            manager = get_agent_app_manager()
             if orphan:
                 # Whole-dir cleanup of a deleted project's leftovers (D5) —
                 # refuse if the id is (again) a registered project.
@@ -7849,11 +7849,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     orphan_reaped = True
         except Exception as e:
             data = {**data, "success": False, "error": str(e)}
-        await self._broadcast({"type": "living_ui_backup_delete", "data": data})
+        await self._broadcast({"type": "agent_app_backup_delete", "data": data})
         if not orphan:
-            await self._handle_living_ui_backups_list(project_id)
+            await self._handle_agent_app_backups_list(project_id)
         if orphan or orphan_reaped:
-            await self._handle_living_ui_settings_get()
+            await self._handle_agent_app_settings_get()
 
     # =====================
     # Playbook Handlers
@@ -7925,7 +7925,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         import json as _json
         import re as _re
 
-        from app.living_ui import marketplace_source
+        from app.agent_app import marketplace_source
 
         CATALOGUE_URL = marketplace_source.catalogue_url()
 
@@ -7955,14 +7955,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     app["preview"] = marketplace_source.thumbnail_url(app["folder"])
             await self._broadcast(
                 {
-                    "type": "living_ui_marketplace_list",
+                    "type": "agent_app_marketplace_list",
                     "data": {"success": True, "apps": apps},
                 }
             )
         except Exception as e:
             await self._broadcast(
                 {
-                    "type": "living_ui_marketplace_list",
+                    "type": "agent_app_marketplace_list",
                     "data": {"success": False, "error": str(e), "apps": []},
                 }
             )
@@ -7978,10 +7978,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if not app_id or not app_name:
             await self._broadcast(
                 {
-                    "type": "living_ui_marketplace_install",
+                    "type": "agent_app_marketplace_install",
                     "data": {
                         "success": False,
-                        "error": tui("livingui_app_id_name_required"),
+                        "error": tui("agentapp_app_id_name_required"),
                         "appId": app_id,
                     },
                 }
@@ -7992,24 +7992,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # underway (the install itself is synchronous and can take a while).
         # install_from_marketplace adopts this id so the same tab becomes the
         # running app.
-        placeholder = self._living_ui_manager.create_placeholder_project(
+        placeholder = self._agent_app_manager.create_placeholder_project(
             app_name, app_description
         )
         project_id = placeholder.id
-        await self.broadcast_living_ui_created(placeholder.to_dict())
+        await self.broadcast_agent_app_created(placeholder.to_dict())
         await self._broadcast(
             {
-                "type": "living_ui_status",
+                "type": "agent_app_status",
                 "data": {
                     "projectId": project_id,
                     "phase": "initializing",
                     "progress": 10,
-                    "message": tui("livingui_installing_marketplace"),
+                    "message": tui("agentapp_installing_marketplace"),
                 },
             }
         )
 
-        result = await self._living_ui_manager.install_from_marketplace(
+        result = await self._agent_app_manager.install_from_marketplace(
             app_id=app_id,
             app_name=app_name,
             app_description=app_description,
@@ -8022,7 +8022,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # it to running so the iframe loads.
             await self._broadcast(
                 {
-                    "type": "living_ui_ready",
+                    "type": "agent_app_ready",
                     "data": {
                         "projectId": project_id,
                         "url": result.get("url"),
@@ -8038,17 +8038,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             try:
                 await self._display_chat_message(
                     "System",
-                    f"**Living UI: {app_name}**\n\n{body}"
+                    f"**Agent App: {app_name}**\n\n{body}"
                     "Installed from the marketplace — open it in the new tab.",
                     "system",
                 )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] marketplace chat message failed: {e}")
+                logger.debug(f"[AGENT_APP] marketplace chat message failed: {e}")
         else:
             # Install failed — surface the error on the spawned tab.
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {
                         "projectId": project_id,
                         "error": result.get("error", "Marketplace install failed"),
@@ -8058,32 +8058,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         await self._broadcast(
             {
-                "type": "living_ui_marketplace_install",
+                "type": "agent_app_marketplace_install",
                 "data": {**result, "projectId": project_id, "appId": app_id},
             }
         )
 
-    async def _handle_living_ui_import(self, source: str, name: str) -> None:
-        """Import a Living UI from a ZIP, a local folder path, or a git URL
+    async def _handle_agent_app_import(self, source: str, name: str) -> None:
+        """Import a Agent App from a ZIP, a local folder path, or a git URL
         (one door — LIFECYCLE-PLAN Phase 4). After registering, a
         launch-and-verify run is queued in the project's session so the
         import finishes as a running, verified app without further clicks."""
         if not source:
             return
-        # Every outcome is LOGGED and answered with living_ui_import_result:
+        # Every outcome is LOGGED and answered with agent_app_import_result:
         # the first live test failed with no server log line and no UI
         # feedback at all (2026-08-05 — "I paste the path and nothing
         # happens"), because failures only broadcast a generic error the
         # already-closed modal never saw.
-        logger.info(f"[LIVING_UI] import requested: {source!r} (name={name!r})")
+        logger.info(f"[AGENT_APP] import requested: {source!r} (name={name!r})")
         try:
-            project = await self._living_ui_manager.import_project_source(
+            project = await self._agent_app_manager.import_project_source(
                 source, name or None
             )
-            await self.broadcast_living_ui_created(project.to_dict())
+            await self.broadcast_agent_app_created(project.to_dict())
             await self._broadcast(
                 {
-                    "type": "living_ui_import_result",
+                    "type": "agent_app_import_result",
                     "data": {"success": True, "projectId": project.id},
                 }
             )
@@ -8091,12 +8091,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 from app.triggers import TriggerSource
 
                 is_ext = getattr(project, "project_type", "native") == "external"
-                await self._living_ui_manager.start_development_run(
+                await self._agent_app_manager.start_development_run(
                     project.id,
-                    brief=self._living_ui_manager.post_import_brief(project),
-                    trigger_source=TriggerSource.LIVING_UI_IMPORT,
+                    brief=self._agent_app_manager.post_import_brief(project),
+                    trigger_source=TriggerSource.AGENT_APP_IMPORT,
                     workflow_skill=(
-                        "living-ui-importer" if is_ext else "living-ui-modify"
+                        "agent-app-importer" if is_ext else "agent-app-modify"
                     ),
                     # External adoption is a build-like run: "creating" shows
                     # the construction dock while the agent writes the
@@ -8105,18 +8105,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     status=("creating" if is_ext else None),
                 )
             except Exception as e:
-                logger.warning(f"[LIVING_UI] import verify dispatch failed: {e}")
+                logger.warning(f"[AGENT_APP] import verify dispatch failed: {e}")
         except Exception as e:
-            logger.error(f"[LIVING_UI] import failed for {source!r}: {e}")
+            logger.error(f"[AGENT_APP] import failed for {source!r}: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_import_result",
+                    "type": "agent_app_import_result",
                     "data": {"success": False, "error": f"Import failed: {e}"},
                 }
             )
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {"projectId": "", "error": f"Import failed: {e}"},
                 }
             )

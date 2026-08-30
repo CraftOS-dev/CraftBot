@@ -1,0 +1,76 @@
+{
+  "page": {
+    "notFoundTitle": "未找到 Agent App",
+    "notFoundBody": "你查找的 Agent App 项目不存在或已被删除。",
+    "goToChat": "前往对话",
+    "fullscreen": "全屏",
+    "exitFullscreen": "退出全屏（Esc）",
+    "stop": "停止",
+    "launch": "启动",
+    "launching": "启动中…",
+    "stopping": "停止中…",
+    "theme": "主题",
+    "showChat": "显示对话",
+    "hideChat": "隐藏对话",
+    "launchingTitle": "正在启动 Agent App…",
+    "launchingHint": "正在安装依赖、运行测试、启动服务器",
+    "stoppingTitle": "正在停止 Agent App…",
+    "errorTitle": "创建 Agent App 时出错",
+    "deleteProject": "删除项目",
+    "stoppedTitle": "Agent App 未运行",
+    "chatPlaceholder": "询问关于此 Agent App 的问题…",
+    "deleteModalTitle": "删除 Agent App",
+    "deleteModalMessage": "确定要删除“{{name}}”吗？此操作无法撤销。",
+    "status": {
+      "creating": "创建中",
+      "launching": "启动中",
+      "ready": "就绪",
+      "running": "运行中",
+      "stopping": "停止中",
+      "stopped": "已停止",
+      "error": "错误"
+    }
+  },
+  "construction": {
+    "creating": "正在创建 {{name}}",
+    "launching": "正在启动 {{name}}",
+    "finalChecks": "最终检查…",
+    "preparingWorkspace": "正在准备你的工作区…",
+    "componentCount_one": "{{count}} 个组件",
+    "componentCount_other": "{{count}} 个组件",
+    "collectionCount_one": "{{count}} 个集合",
+    "collectionCount_other": "{{count}} 个集合",
+    "routeCount_one": "{{count}} 条路由",
+    "routeCount_other": "{{count}} 条路由"
+  },
+  "themeModal": {
+    "title": "选择主题",
+    "custom": "自定义",
+    "colorBackground": "背景",
+    "colorSurface": "表面",
+    "colorText": "文字",
+    "colorAccent": "强调色",
+    "caption": "主题会适配浅色/深色模式 · 自定义则保持固定"
+  },
+  "themes": {
+    "craftbot": { "label": "CraftBot", "description": "基础款" },
+    "modern": { "label": "现代", "description": "轻盈靛蓝" },
+    "normal": { "label": "普通", "description": "清爽蓝" },
+    "ocean": { "label": "海洋", "description": "深海" },
+    "forest": { "label": "森林", "description": "苔藓绿" },
+    "pastel": { "label": "柔彩", "description": "柔和淡紫" },
+    "glass": { "label": "玻璃", "description": "极光玻璃" },
+    "classic": { "label": "经典", "description": "扁平紧凑" },
+    "velvet": { "label": "天鹅绒", "description": "绒感粉" },
+    "ink": { "label": "墨迹", "description": "俏皮单色" },
+    "acid": { "label": "酸性", "description": "灰米与青柠" },
+    "blueprint": { "label": "蓝图", "description": "网格数据表" },
+    "brutalist": { "label": "粗野", "description": "硬朗色块" },
+    "drafting": { "label": "制图", "description": "单线草图" },
+    "clay": { "label": "黏土", "description": "柔和挤塑" },
+    "atelier": { "label": "工作室", "description": "极简工作室" }
+  },
+  "iframe": {
+    "title": "Agent App {{id}}"
+  }
+}

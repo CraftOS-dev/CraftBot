@@ -18,7 +18,7 @@ export interface ProfileBundleManifest {
     md_files?: string[]
     skills?: string[]
     mcp_servers?: string[]
-    living_ui_apps?: string[]
+    agent_app_apps?: string[]
   }
 }
 
@@ -106,7 +106,7 @@ export function ImportProfileModal({
   const contents = manifest?.contents ?? {}
   const skills = contents.skills ?? []
   const mcps = contents.mcp_servers ?? []
-  const apps = contents.living_ui_apps ?? []
+  const apps = contents.agent_app_apps ?? []
   const mds = contents.md_files ?? []
 
   const title = manifest
@@ -172,7 +172,7 @@ export function ImportProfileModal({
             />
             <SectionRow
               icon={<Layout size={14} />}
-              label={t('components:importProfileModal.livingUiApps')}
+              label={t('components:importProfileModal.agentAppApps')}
               items={apps}
             />
 

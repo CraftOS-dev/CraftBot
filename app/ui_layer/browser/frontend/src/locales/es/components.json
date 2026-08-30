@@ -20,7 +20,7 @@
     "items": {
       "sessions": {
         "label": "Chats",
-        "description": "Elimina los chats adicionales, borra el Principal y borra el historial del chat de Living UI. Las apps se conservan."
+        "description": "Elimina los chats adicionales, borra el Principal y borra el historial del chat de Agent App. Las apps se conservan."
       },
       "memory": {
         "label": "Memoria",
@@ -34,8 +34,8 @@
         "label": "Archivos del espacio de trabajo",
         "description": "Archivos que el agente creó en su espacio de trabajo."
       },
-      "livingui": {
-        "label": "Apps de LivingUI",
+      "agentapp": {
+        "label": "Apps de AgentApp",
         "description": "Elimina todas las apps que el agente ha creado. Se guarda y se conserva una copia de seguridad final de los datos de cada app."
       }
     }
@@ -49,14 +49,14 @@
     "personalityFiles": "Archivos de personalidad",
     "skills": "Habilidades",
     "mcpServers": "Servidores MCP",
-    "livingUiApps": "Apps de Living UI",
+    "agentAppApps": "Apps de Agent App",
     "alreadyInstalledLocally": "Ya instaladas localmente",
     "needsEnv": "Tras la importación, rellena las claves de API para: <1>{{names}}</1>",
     "modeTitle": "¿Cómo debería aplicar esto?",
     "mergeReplaceName": "Combinar y reemplazar (recomendado)",
-    "mergeReplaceHint": "Añade nuevas habilidades, MCP y apps. Sobrescribe los archivos de personalidad y la configuración de MCP/habilidades en caso de conflicto de nombres. Las apps de Living UI con nombres coincidentes se importan junto a las existentes (nunca se destruyen).",
+    "mergeReplaceHint": "Añade nuevas habilidades, MCP y apps. Sobrescribe los archivos de personalidad y la configuración de MCP/habilidades en caso de conflicto de nombres. Las apps de Agent App con nombres coincidentes se importan junto a las existentes (nunca se destruyen).",
     "overwriteName": "Sobrescribir",
-    "overwriteHint": "<0>Destructivo.</0> Borra <1>todas</1> las habilidades, servidores MCP y apps de Living UI existentes, y luego instala solo lo que hay en este paquete. Tu agente se convierte en una copia del paquete. No se puede deshacer.",
+    "overwriteHint": "<0>Destructivo.</0> Borra <1>todas</1> las habilidades, servidores MCP y apps de Agent App existentes, y luego instala solo lo que hay en este paquete. Tu agente se convierte en una copia del paquete. No se puede deshacer.",
     "applying": "Aplicando…",
     "overwriteButton": "Sobrescribir agente",
     "applyButton": "Aplicar perfil"
@@ -72,7 +72,7 @@
     "skillEnabled": "Habilidad ya activada",
     "suggestedSkill": "Habilidad sugerida",
     "suggestedMcp": "Servidor MCP sugerido",
-    "suggestedApp": "App de Living UI sugerida",
+    "suggestedApp": "App de Agent App sugerida",
     "about": "Acerca de",
     "whatItWillDo": "Lo que hará CraftBot",
     "promptPreview": "Vista previa del prompt",
@@ -122,7 +122,7 @@
       "multiUser": "Multiusuario (cuentas)"
     },
     "interviewFailed": "Error al preparar la entrevista",
-    "createFailed": "Error al crear la Living UI",
+    "createFailed": "Error al crear la Agent App",
     "nameRequired": "El nombre es obligatorio",
     "nameTooLong": "El nombre debe tener 50 caracteres o menos",
     "descRequired": "La descripción es obligatoria",
@@ -144,7 +144,7 @@
     "uploadFavicon": "Subir favicon (png, svg, ico…)",
     "namePlaceholder": "p. ej., Panel de noticias del mundo",
     "descLabel": "¿Qué debería hacer esta UI?",
-    "descPlaceholder": "Describe lo que quieres que la Living UI muestre y haga. Sé específico sobre los datos, los flujos de trabajo y todo lo que deba acertar…",
+    "descPlaceholder": "Describe lo que quieres que la Agent App muestre y haga. Sé específico sobre los datos, los flujos de trabajo y todo lo que deba acertar…",
     "wordCount": "{{words}} / {{max}} palabras",
     "referenceFiles": "Archivos de referencia (opcional)",
     "dropReference": "Suelta bocetos de diseño, capturas de pantalla o documentos, o haz clic para explorar",
@@ -152,8 +152,8 @@
     "themeLabel": "Tema",
     "accessLabel": "Acceso"
   },
-  "createLivingUi": {
-    "addTitle": "Añadir Living UI",
+  "createAgentApp": {
+    "addTitle": "Añadir Agent App",
     "setupQuestions": "{{name}} — preguntas de configuración",
     "tabMarketplace": "Marketplace",
     "tabCustom": "Crear personalizada",
@@ -176,10 +176,10 @@
     "configureSubtitle": "Personaliza antes de instalar",
     "importUrlLabel": "URL de GitHub o ruta local",
     "importUrlPlaceholder": "https://github.com/usuario/repo o /ruta/a/la/app/local",
-    "importHint": "Exportaciones de Living UI: ZIP, carpeta de proyecto o URL de git. Las demás apps se recrean; pídele al agente que las convierta.",
+    "importHint": "Exportaciones de Agent App: ZIP, carpeta de proyecto o URL de git. Las demás apps se recrean; pídele al agente que las convierta.",
     "or": "o",
     "dropZipLabel": "Suelta un archivo ZIP aquí o haz clic para explorar",
-    "dropZipSub": "Importa una Living UI exportada previamente",
+    "dropZipSub": "Importa una Agent App exportada previamente",
     "importButton": "Importar app",
     "externalAppName": "App externa"
   }

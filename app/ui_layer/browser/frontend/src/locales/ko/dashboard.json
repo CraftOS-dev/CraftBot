@@ -80,9 +80,9 @@
       "title": "마스코트",
       "description": "에이전트 활동에 반응하는 CraftBot 마스코트."
     },
-    "livingUi": {
-      "title": "Living UI",
-      "description": "설치 및 실행 중인 Living UI."
+    "agentApp": {
+      "title": "Agent App",
+      "description": "설치 및 실행 중인 Agent App."
     },
     "recentActivity": {
       "title": "최근 활동",
@@ -116,8 +116,8 @@
           "item3": "어떤 기기에서든 접속",
           "cta": "무료로 시작"
         },
-        "livingui": {
-          "categoryLabel": "Living UI",
+        "agentapp": {
+          "categoryLabel": "Agent App",
           "title": "자체 소프트웨어를 직접 만들고 운영하는 에이전트",
           "subtitle": "앱을 요청하면 에이전트가 직접 설계하고, 코딩하고, 테스트하고, 자체 인터페이스 안에서 실행합니다.",
           "desc": "앱을 요청하세요. 에이전트가 설계하고, 코딩하고, 테스트하고, 실행합니다.",
@@ -125,7 +125,7 @@
           "item1": "CRM",
           "item2": "습관 추적기",
           "item3": "커뮤니티 마켓플레이스",
-          "cta": "Living UI 마켓플레이스 둘러보기"
+          "cta": "Agent App 마켓플레이스 둘러보기"
         },
         "bundles": {
           "categoryLabel": "에이전트 번들",
@@ -148,7 +148,7 @@
           "item0Tag": "GitHub",
           "item1Label": "CraftBot 커뮤니티에 참여하기",
           "item1Tag": "Discord",
-          "item2Label": "커뮤니티가 만든 Living UI",
+          "item2Label": "커뮤니티가 만든 Agent App",
           "item2Tag": "마켓",
           "cta": "GitHub에서 별 누르기"
         }
@@ -166,11 +166,11 @@
       "invocations": "호출 수",
       "topSkills": "상위 스킬"
     },
-    "livingUi": {
+    "agentApp": {
       "installed": "설치됨",
       "running": "실행 중",
       "projects": "프로젝트",
-      "empty": "설치된 Living UI가 없습니다"
+      "empty": "설치된 Agent App가 없습니다"
     },
     "modelInfo": {
       "provider": "공급자",

@@ -461,8 +461,8 @@ class ContextEngine:
             # updated a turn or two into a session, and this block sits in the
             # cacheable prefix (ahead of the event stream), so a mutating title
             # would break the KV-cache prefix every time it changed.
-            if getattr(session, "living_ui_project_id", None):
-                lines.append(f"Living UI Project: {session.living_ui_project_id}")
+            if getattr(session, "agent_app_project_id", None):
+                lines.append(f"Agent App Project: {session.agent_app_project_id}")
             lines.append(f"Loaded Action Sets: {['core'] + list(session.action_sets)}")
             if session.selected_skills:
                 lines.append(f"Loaded Skills: {list(session.selected_skills)}")

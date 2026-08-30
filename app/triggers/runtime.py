@@ -6,7 +6,7 @@ SessionRuntimeManager — one trigger queue + one serial agent loop per session.
 
 Every session is a standalone agent lane: its triggers are processed strictly
 in order by its own consumer loop, while different sessions run their turns
-concurrently (bounded by a global turn semaphore so a Living UI build can't
+concurrently (bounded by a global turn semaphore so a Agent App build can't
 starve the main chat, and N sessions can't stampede the LLM provider).
 
 Durability stays in TriggerService/TriggerStore: the runtime claims a row

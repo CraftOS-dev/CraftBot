@@ -1,6 +1,6 @@
 // Widget icons mirror the Settings page's category icons (Settings/types.ts)
 // where a matching category exists — Cpu for Model, Plug for MCPs, Package
-// for Skills, Globe for Integrations, Box for Living UI — and every icon is
+// for Skills, Globe for Integrations, Box for Agent App — and every icon is
 // used by exactly one widget, so no two headers ever read as the same thing.
 import {
   Activity,
@@ -27,7 +27,7 @@ import { SkillsWidget } from './SkillsWidget'
 import { IntegrationsWidget } from './IntegrationsWidget'
 import { ModelInfoWidget } from './ModelInfoWidget'
 import { MascotWidget } from './MascotWidget'
-import { LivingUIWidget } from './LivingUIWidget'
+import { AgentAppWidget } from './AgentAppWidget'
 import { RecentActivityWidget } from './RecentActivityWidget'
 
 // One entry per widget type. Adding or removing a widget is this file plus
@@ -143,12 +143,12 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     bleed: true,
     singleton: true,
   },
-  livingUi: {
-    id: 'livingUi',
-    titleKey: 'dashboard:registry.livingUi.title',
+  agentApp: {
+    id: 'agentApp',
+    titleKey: 'dashboard:registry.agentApp.title',
     icon: Box,
-    descriptionKey: 'dashboard:registry.livingUi.description',
-    component: LivingUIWidget,
+    descriptionKey: 'dashboard:registry.agentApp.description',
+    component: AgentAppWidget,
     sizing: { default: { w: 1, h: 1 }, max: { w: 2, h: 2 } },
     singleton: true,
   },

@@ -21,7 +21,7 @@ store/
 3. **One slice = one domain.** Resist sharing files. If two slices need to coordinate, use a thunk.
 4. **Every slice gets selectors.** Create `selectors/<name>.ts` the same day you create the slice — even if it's three one-liners. Components depend on the selector layer for memoization stability and so we can refactor slice shape later.
 5. **Normalize collections.** Use `createEntityAdapter` for any list of entities with IDs (messages, sessions, projects, files). Don't store as plain arrays.
-6. **Cache aggressively, invalidate on push.** Static-during-session data (skill meta, model providers, living-ui list) is fetched once and reused. Server push events trigger invalidations.
+6. **Cache aggressively, invalidate on push.** Static-during-session data (skill meta, model providers, agent-app list) is fetched once and reused. Server push events trigger invalidations.
 
 ## Adding a new slice
 

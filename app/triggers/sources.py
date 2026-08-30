@@ -33,18 +33,18 @@ class TriggerSource(str, Enum):
     PROACTIVE_PLANNER = "proactive_planner"
     ONBOARDING = "onboarding"
     SKILL_WORKFLOW = "skill_workflow"
-    # Living UI (land in the project's session)
-    LIVING_UI_DEV = "living_ui_dev"
-    LIVING_UI_CRASH_FIX = "living_ui_crash_fix"
-    LIVING_UI_IMPORT = "living_ui_import"
-    # Lands in the ORIGIN session (the chat that ran living_ui_scaffold):
+    # Agent App (land in the project's session)
+    AGENT_APP_DEV = "agent_app_dev"
+    AGENT_APP_CRASH_FIX = "agent_app_crash_fix"
+    AGENT_APP_IMPORT = "agent_app_import"
+    # Lands in the ORIGIN session (the chat that ran agent_app_scaffold):
     # tells that agent the wizard finalized and which project resulted, so
     # later references ("add data to it") resolve without asking the user.
-    LIVING_UI_CREATED = "living_ui_created"
-    # A Living UI app fired a declared trigger at the agent (spec
+    AGENT_APP_CREATED = "agent_app_created"
+    # An Agent App app fired a declared trigger at the agent (spec
     # TRIGGERS-PLAN): a validated agent_requests row exists and the bridge's
     # capability/consent/era gates all passed. Lands in the project's session.
-    LIVING_UI_APP_REQUEST = "living_ui_app_request"
+    AGENT_APP_APP_REQUEST = "agent_app_app_request"
     # Catch-all for producers not yet migrated to TriggerService.
     LEGACY = "legacy"
 

@@ -10,7 +10,7 @@ import type components from '../locales/en/components.json'
 import type chat from '../locales/en/chat.json'
 import type dashboard from '../locales/en/dashboard.json'
 import type workspace from '../locales/en/workspace.json'
-import type livingui from '../locales/en/livingui.json'
+import type agentapp from '../locales/en/agentapp.json'
 import type onboarding from '../locales/en/onboarding.json'
 import type activity from '../locales/en/activity.json'
 import type errors from '../locales/en/errors.json'
@@ -28,7 +28,7 @@ declare module 'i18next' {
       chat: typeof chat
       dashboard: typeof dashboard
       workspace: typeof workspace
-      livingui: typeof livingui
+      agentapp: typeof agentapp
       onboarding: typeof onboarding
       activity: typeof activity
       errors: typeof errors

@@ -116,7 +116,7 @@ class SessionManager(_SessionManager):
     """SessionManager configured for CraftBot.
 
     Per-session event streams, SessionStorage persistence, and todo-update
-    hooks for UI observers (Living UI creation progress, browser todos).
+    hooks for UI observers (Agent App creation progress, browser todos).
     """
 
     def __init__(

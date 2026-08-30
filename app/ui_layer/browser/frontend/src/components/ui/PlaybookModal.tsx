@@ -31,7 +31,7 @@ interface PlaybookWorksBestWith {
   agent_profile?: string
   skills?: string[]
   mcp_servers?: string[]
-  living_ui_apps?: string[]
+  agent_app_apps?: string[]
 }
 
 interface Playbook {
@@ -176,7 +176,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
             </div>
           </div>
 
-          {(wbw.agent_profile || (wbw.skills && wbw.skills.length) || (wbw.mcp_servers && wbw.mcp_servers.length) || (wbw.living_ui_apps && wbw.living_ui_apps.length)) && (
+          {(wbw.agent_profile || (wbw.skills && wbw.skills.length) || (wbw.mcp_servers && wbw.mcp_servers.length) || (wbw.agent_app_apps && wbw.agent_app_apps.length)) && (
             <div className={styles.section}>
               <div className={styles.sectionLabel}>
                 {t('components:playbookModal.worksBestWith')}
@@ -214,7 +214,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                     {mcp}
                   </span>
                 ))}
-                {(wbw.living_ui_apps || []).map(app => (
+                {(wbw.agent_app_apps || []).map(app => (
                   <span key={`app-${app}`} className={styles.chip} title={t('components:playbookModal.suggestedApp')}>
                     <Layout size={12} />
                     {app}

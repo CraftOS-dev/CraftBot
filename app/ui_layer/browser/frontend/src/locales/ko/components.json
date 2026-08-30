@@ -20,7 +20,7 @@
     "items": {
       "sessions": {
         "label": "채팅",
-        "description": "추가 채팅을 삭제하고, 메인을 비우고, Living UI 채팅 기록을 지웁니다. 앱은 유지됩니다."
+        "description": "추가 채팅을 삭제하고, 메인을 비우고, Agent App 채팅 기록을 지웁니다. 앱은 유지됩니다."
       },
       "memory": {
         "label": "메모리",
@@ -34,8 +34,8 @@
         "label": "작업 공간 파일",
         "description": "에이전트가 작업 공간에 생성한 파일."
       },
-      "livingui": {
-        "label": "LivingUI 앱",
+      "agentapp": {
+        "label": "AgentApp 앱",
         "description": "에이전트가 빌드한 모든 앱을 삭제합니다. 각 앱 데이터의 최종 백업이 저장되어 유지됩니다."
       }
     }
@@ -49,14 +49,14 @@
     "personalityFiles": "성격 파일",
     "skills": "스킬",
     "mcpServers": "MCP 서버",
-    "livingUiApps": "Living UI 앱",
+    "agentAppApps": "Agent App 앱",
     "alreadyInstalledLocally": "이미 로컬에 설치됨",
     "needsEnv": "가져온 후 다음 항목의 API 키를 입력하세요: <1>{{names}}</1>",
     "modeTitle": "어떻게 적용할까요?",
     "mergeReplaceName": "병합 및 교체 (권장)",
-    "mergeReplaceHint": "새 스킬, MCP, 앱을 추가합니다. 이름이 충돌하면 성격 파일과 MCP/스킬 구성을 덮어씁니다. 이름이 일치하는 Living UI 앱은 나란히 가져오며(절대 삭제되지 않음).",
+    "mergeReplaceHint": "새 스킬, MCP, 앱을 추가합니다. 이름이 충돌하면 성격 파일과 MCP/스킬 구성을 덮어씁니다. 이름이 일치하는 Agent App 앱은 나란히 가져오며(절대 삭제되지 않음).",
     "overwriteName": "덮어쓰기",
-    "overwriteHint": "<0>파괴적입니다.</0> 기존의 <1>모든</1> 스킬, MCP 서버, Living UI 앱을 지우고 이 번들에 있는 것만 설치합니다. 에이전트가 번들의 복제본이 됩니다. 되돌릴 수 없습니다.",
+    "overwriteHint": "<0>파괴적입니다.</0> 기존의 <1>모든</1> 스킬, MCP 서버, Agent App 앱을 지우고 이 번들에 있는 것만 설치합니다. 에이전트가 번들의 복제본이 됩니다. 되돌릴 수 없습니다.",
     "applying": "적용 중…",
     "overwriteButton": "에이전트 덮어쓰기",
     "applyButton": "프로필 적용"
@@ -72,7 +72,7 @@
     "skillEnabled": "이미 사용 중인 스킬",
     "suggestedSkill": "추천 스킬",
     "suggestedMcp": "추천 MCP 서버",
-    "suggestedApp": "추천 Living UI 앱",
+    "suggestedApp": "추천 Agent App 앱",
     "about": "소개",
     "whatItWillDo": "CraftBot이 할 일",
     "promptPreview": "프롬프트 미리 보기",
@@ -122,7 +122,7 @@
       "multiUser": "다중 사용자 (계정)"
     },
     "interviewFailed": "인터뷰를 준비하지 못했습니다",
-    "createFailed": "Living UI를 만들지 못했습니다",
+    "createFailed": "Agent App를 만들지 못했습니다",
     "nameRequired": "이름은 필수입니다",
     "nameTooLong": "이름은 50자 이하여야 합니다",
     "descRequired": "설명은 필수입니다",
@@ -144,7 +144,7 @@
     "uploadFavicon": "파비콘 업로드 (png, svg, ico…)",
     "namePlaceholder": "예: 세계 뉴스 대시보드",
     "descLabel": "이 UI가 무엇을 해야 하나요?",
-    "descPlaceholder": "Living UI가 표시하고 수행할 내용을 설명하세요. 데이터, 워크플로, 그리고 반드시 정확해야 하는 부분을 구체적으로 적어 주세요…",
+    "descPlaceholder": "Agent App가 표시하고 수행할 내용을 설명하세요. 데이터, 워크플로, 그리고 반드시 정확해야 하는 부분을 구체적으로 적어 주세요…",
     "wordCount": "{{words}} / {{max}} 단어",
     "referenceFiles": "참고 파일 (선택 사항)",
     "dropReference": "디자인 스케치, 스크린샷, 문서를 놓거나 클릭하여 찾아보세요",
@@ -152,8 +152,8 @@
     "themeLabel": "테마",
     "accessLabel": "접근"
   },
-  "createLivingUi": {
-    "addTitle": "Living UI 추가",
+  "createAgentApp": {
+    "addTitle": "Agent App 추가",
     "setupQuestions": "{{name}} — 설정 질문",
     "tabMarketplace": "마켓플레이스",
     "tabCustom": "사용자 지정 만들기",
@@ -176,10 +176,10 @@
     "configureSubtitle": "설치 전에 사용자 지정",
     "importUrlLabel": "GitHub URL 또는 로컬 경로",
     "importUrlPlaceholder": "https://github.com/user/repo 또는 /path/to/local/app",
-    "importHint": "Living UI 내보내기: ZIP, 프로젝트 폴더, 또는 git URL. 다른 앱은 다시 빌드됩니다 — 에이전트에게 변환을 요청하세요.",
+    "importHint": "Agent App 내보내기: ZIP, 프로젝트 폴더, 또는 git URL. 다른 앱은 다시 빌드됩니다 — 에이전트에게 변환을 요청하세요.",
     "or": "또는",
     "dropZipLabel": "여기에 ZIP 파일을 놓거나 클릭하여 찾아보세요",
-    "dropZipSub": "이전에 내보낸 Living UI 가져오기",
+    "dropZipSub": "이전에 내보낸 Agent App 가져오기",
     "importButton": "앱 가져오기",
     "externalAppName": "외부 앱"
   }

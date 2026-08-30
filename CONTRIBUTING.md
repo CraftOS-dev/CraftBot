@@ -150,7 +150,7 @@ python -m compileall -q app agent_core agents decorators skills
 ### About `.ruff.toml`
 
 The repo ships a [`.ruff.toml`](.ruff.toml) that:
-- **Excludes** `app/data/living_ui_template/` — that directory contains Jinja templates with `{{placeholders}}`, not valid Python.
+- **Excludes** `app/data/agent_app_template/` — that directory contains Jinja templates with `{{placeholders}}`, not valid Python.
 - **Ignores E402 per-file** for a small set of files (logging setup, asyncio shims, registry init) where import ordering is deliberate.
 
 **Do not** add new entries casually. If you hit E402 in a new file, prefer moving the import; only add the file to the ignore list if the ordering is genuinely load-bearing, and explain why in your commit.

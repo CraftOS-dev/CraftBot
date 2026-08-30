@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 import app.factory.host_craftbot as host_mod
-import app.living_ui as living_ui_mod
+import app.agent_app as agent_app_mod
 from app.factory.host_craftbot import FactoryHost
 
 host_mod._REDISPATCH_MIN_INTERVAL_S = 0  # test: no thrash-guard waits
@@ -51,7 +51,7 @@ class _Manager:
 
 
 def make_host(tmp) -> FactoryHost:
-    living_ui_mod.get_living_ui_manager = lambda: _Manager(tmp)  # monkeypatch
+    agent_app_mod.get_agent_app_manager = lambda: _Manager(tmp)  # monkeypatch
     host = FactoryHost()
     host._emit_chat = lambda pid, text: CHAT.append(text)  # capture announcements
     return host

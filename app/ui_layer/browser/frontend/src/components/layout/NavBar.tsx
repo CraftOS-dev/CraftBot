@@ -27,9 +27,9 @@ import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import { useSkillCreator } from '../../hooks'
-import { CreateLivingUIModal } from '../ui/CreateLivingUIModal'
+import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
-import { LivingUIIcon } from '../ui/LivingUIIcon'
+import { AgentAppIcon } from '../ui/AgentAppIcon'
 import type { SessionInfo } from '../../types'
 import { useAppSelector } from '../../store/hooks'
 import { selectMainSession, selectChatSessions } from '../../store/selectors/sessions'
@@ -102,14 +102,14 @@ interface SessionMenuState {
 // absence of the key means expanded (the default).
 const GROUP_COLLAPSED_KEY_PREFIX = 'sidebarGroupCollapsed.'
 
-// How many Living UI items show before the "Show more" row takes over.
+// How many Agent App items show before the "Show more" row takes over.
 const GROUP_PREVIEW_COUNT = 5
 
 // Chats never truncate behind a "Show more" — the full list is always
 // reachable. Rows mount in pages of this size as the sidebar scrolls.
 const CHAT_PAGE_SIZE = 30
 
-type SidebarGroup = 'livingui' | 'chats'
+type SidebarGroup = 'agentapp' | 'chats'
 
 const loadGroupExpanded = (group: SidebarGroup): boolean => {
   try {
@@ -147,7 +147,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     [t],
   )
   const {
-    livingUIProjects,
+    agentAppProjects,
     deleteSession,
     renameSession,
     clearSession,
@@ -163,10 +163,10 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const runStateBySession = useAppSelector(state => state.agent.runStateBySession)
 
   const [chatsExpanded, setChatsExpanded] = useState(() => loadGroupExpanded('chats'))
-  const [livingUIExpanded, setLivingUIExpanded] = useState(() => loadGroupExpanded('livingui'))
-  // Living UI "Show more" state: only the first GROUP_PREVIEW_COUNT items
+  const [agentAppExpanded, setAgentAppExpanded] = useState(() => loadGroupExpanded('agentapp'))
+  // Agent App "Show more" state: only the first GROUP_PREVIEW_COUNT items
   // render until expanded. Not persisted — collapses back to 5 on reload.
-  const [showAllLivingUI, setShowAllLivingUI] = useState(false)
+  const [showAllAgentApp, setShowAllAgentApp] = useState(false)
   // Chats scroll pagination: how many chat rows are currently mounted.
   // Grows by CHAT_PAGE_SIZE whenever the sidebar scrolls near its bottom.
   const [chatVisibleCount, setChatVisibleCount] = useState(CHAT_PAGE_SIZE)
@@ -178,13 +178,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // Collapsed-sidebar flyout (ChatGPT-style): each group collapses to one
   // icon button whose click opens a popover listing the group's items.
   const [flyout, setFlyout] = useState<
-    { kind: 'livingui' | 'chats'; top: number; left: number } | null
+    { kind: 'agentapp' | 'chats'; top: number; left: number } | null
   >(null)
 
   const FLYOUT_MAX_HEIGHT = 420
 
   const openFlyout = (
-    kind: 'livingui' | 'chats',
+    kind: 'agentapp' | 'chats',
     e: React.MouseEvent<HTMLButtonElement>,
   ) => {
     if (flyout?.kind === kind) {
@@ -223,8 +223,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   }, [chatsExpanded])
 
   useEffect(() => {
-    persistGroupExpanded('livingui', livingUIExpanded)
-  }, [livingUIExpanded])
+    persistGroupExpanded('agentapp', agentAppExpanded)
+  }, [agentAppExpanded])
   const [menu, setMenu] = useState<SessionMenuState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -252,9 +252,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return location.pathname.startsWith(path)
   }
 
-  // The Living UI project currently open (from the route).
-  const activeLivingUIId = location.pathname.startsWith('/living-ui/')
-    ? location.pathname.slice('/living-ui/'.length)
+  // The Agent App project currently open (from the route).
+  const activeAgentAppId = location.pathname.startsWith('/agent-app/')
+    ? location.pathname.slice('/agent-app/'.length)
     : null
 
   // When the open project sorts past the collapsed fold (e.g. a freshly
@@ -262,10 +262,10 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // is visible in its natural position. Only fires on navigation / list change,
   // so a manual "Show less" afterwards is respected.
   useEffect(() => {
-    if (!activeLivingUIId) return
-    const idx = livingUIProjects.findIndex(p => p.id === activeLivingUIId)
-    if (idx >= GROUP_PREVIEW_COUNT) setShowAllLivingUI(true)
-  }, [activeLivingUIId, livingUIProjects])
+    if (!activeAgentAppId) return
+    const idx = agentAppProjects.findIndex(p => p.id === activeAgentAppId)
+    if (idx >= GROUP_PREVIEW_COUNT) setShowAllAgentApp(true)
+  }, [activeAgentAppId, agentAppProjects])
 
   const sessionPath = (sessionId: string) =>
     sessionId === 'main' ? '/' : `/session/${sessionId}`
@@ -282,7 +282,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   }
 
   // Per-session status dot precedence: an in-flight run (orange, pulsing)
-  // outranks an unread message (green, steady). Living UI rows pass their
+  // outranks an unread message (green, steady). Agent App rows pass their
   // backing chat session id; a row with neither state shows no dot.
   type SessionDotKind = 'busy' | 'unread' | null
   const sessionDotKind = (sessionId: string | null | undefined): SessionDotKind => {
@@ -319,8 +319,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // Auto-switch: the wizard/marketplace hand back the new projectId — open
   // its tab so the user lands on the live build view immediately.
   const handleProjectCreated = (projectId: string) => {
-    setLivingUIExpanded(true)
-    navigate(`/living-ui/${projectId}`)
+    setAgentAppExpanded(true)
+    navigate(`/agent-app/${projectId}`)
   }
 
   // Lazy session creation: "New Chat" only opens the draft view at
@@ -339,10 +339,10 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // before it highlights it.
   useTourEnvAction('ensureChatsExpanded', () => setChatsExpanded(true))
 
-  // Let the tour open and close the "Add Living UI" modal while it walks the
+  // Let the tour open and close the "Add Agent App" modal while it walks the
   // creation methods.
-  useTourEnvAction('openLivingUIModal', () => setShowCreateModal(true))
-  useTourEnvAction('closeLivingUIModal', () => setShowCreateModal(false))
+  useTourEnvAction('openAgentAppModal', () => setShowCreateModal(true))
+  useTourEnvAction('closeAgentAppModal', () => setShowCreateModal(false))
 
   // Close any open context menu when clicking anywhere else.
   useEffect(() => {
@@ -410,7 +410,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
 
   useLayoutEffect(() => {
     updateOverflow()
-  }, [livingUIProjects.length, chatSessions.length, chatsExpanded, livingUIExpanded, chatVisibleCount])
+  }, [agentAppProjects.length, chatSessions.length, chatsExpanded, agentAppExpanded, chatVisibleCount])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -627,15 +627,15 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               <>
                 {/* Collapsed: each group is one icon button opening a flyout */}
                 <button
-                  className={`${styles.navItem} ${flyout?.kind === 'livingui' ? styles.active : ''}`}
-                  onClick={e => openFlyout('livingui', e)}
+                  className={`${styles.navItem} ${flyout?.kind === 'agentapp' ? styles.active : ''}`}
+                  onClick={e => openFlyout('agentapp', e)}
                   onMouseDown={e => e.stopPropagation()}
-                  title={t('nav:groups.livingUi')}
+                  title={t('nav:groups.agentApp')}
                   aria-haspopup="menu"
-                  aria-expanded={flyout?.kind === 'livingui'}
+                  aria-expanded={flyout?.kind === 'agentapp'}
                 >
                   <span className={styles.icon}><Box size={16} /></span>
-                  {renderCollapsedDot(livingUIProjects.map(p => p.sessionId))}
+                  {renderCollapsedDot(agentAppProjects.map(p => p.sessionId))}
                 </button>
                 <button
                   className={`${styles.navItem} ${flyout?.kind === 'chats' ? styles.active : ''}`}
@@ -651,66 +651,66 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               </>
             ) : (
               <>
-            {/* Living UI group */}
-            <div className={styles.groupRow} {...tourAnchorProps('nav-living-ui')}>
+            {/* Agent App group */}
+            <div className={styles.groupRow} {...tourAnchorProps('nav-agent-app')}>
               <button
                 className={styles.groupToggle}
-                onClick={() => setLivingUIExpanded(v => !v)}
-                aria-expanded={livingUIExpanded}
+                onClick={() => setAgentAppExpanded(v => !v)}
+                aria-expanded={agentAppExpanded}
               >
                 <ChevronRight
                   size={14}
-                  className={`${styles.groupChevron} ${livingUIExpanded ? styles.groupChevronOpen : ''}`}
+                  className={`${styles.groupChevron} ${agentAppExpanded ? styles.groupChevronOpen : ''}`}
                 />
                 <span className={styles.icon}><Box size={16} /></span>
-                <span className={styles.label}>{t('nav:groups.livingUi')}</span>
+                <span className={styles.label}>{t('nav:groups.agentApp')}</span>
               </button>
               <button
                 className={styles.groupAddButton}
                 onClick={() => setShowCreateModal(true)}
-                aria-label={t('nav:sidebar.addLivingUi')}
-                title={t('nav:sidebar.addLivingUi')}
+                aria-label={t('nav:sidebar.addAgentApp')}
+                title={t('nav:sidebar.addAgentApp')}
               >
                 <Plus size={14} />
               </button>
             </div>
-            {livingUIExpanded && (
+            {agentAppExpanded && (
               <div className={styles.groupChildren}>
-                {(showAllLivingUI
-                  ? livingUIProjects
-                  : livingUIProjects.slice(0, GROUP_PREVIEW_COUNT)
+                {(showAllAgentApp
+                  ? agentAppProjects
+                  : agentAppProjects.slice(0, GROUP_PREVIEW_COUNT)
                 ).map(project => {
-                  const path = `/living-ui/${project.id}`
+                  const path = `/agent-app/${project.id}`
                   const active = isActive(path)
                   return (
                     <button
                       key={project.id}
-                      className={`${styles.livingUITab} ${active ? styles.livingUITabActive : ''}`}
+                      className={`${styles.agentAppTab} ${active ? styles.agentAppTabActive : ''}`}
                       onClick={() => navigate(path)}
                       title={project.name}
                     >
-                      <span className={styles.livingUITabIcon}>
+                      <span className={styles.agentAppTabIcon}>
                         {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
                           ? <Loader2 size={13} className={styles.spinner} />
-                          : <LivingUIIcon icon={project.icon} projectId={project.id} size={13} />}
+                          : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
                       </span>
-                      <span className={styles.livingUITabLabel}>{project.name}</span>
+                      <span className={styles.agentAppTabLabel}>{project.name}</span>
                       {renderSessionDot(project.sessionId)}
                     </button>
                   )
                 })}
-                {livingUIProjects.length > GROUP_PREVIEW_COUNT && (
+                {agentAppProjects.length > GROUP_PREVIEW_COUNT && (
                   <button
                     className={styles.showMoreRow}
-                    onClick={() => setShowAllLivingUI(v => !v)}
+                    onClick={() => setShowAllAgentApp(v => !v)}
                   >
-                    {showAllLivingUI
+                    {showAllAgentApp
                       ? t('common:actions.showLess')
-                      : t('nav:sidebar.showMoreCount', { count: livingUIProjects.length - GROUP_PREVIEW_COUNT })}
+                      : t('nav:sidebar.showMoreCount', { count: agentAppProjects.length - GROUP_PREVIEW_COUNT })}
                   </button>
                 )}
-                {livingUIProjects.length === 0 && (
-                  <div className={styles.groupEmpty}>{t('nav:sidebar.noLivingUiApps')}</div>
+                {agentAppProjects.length === 0 && (
+                  <div className={styles.groupEmpty}>{t('nav:sidebar.noAgentAppApps')}</div>
                 )}
               </div>
             )}
@@ -788,13 +788,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
           role="menu"
         >
           <div className={styles.flyoutHeader}>
-            {flyout.kind === 'livingui' ? t('nav:groups.livingUi') : t('nav:groups.chats')}
+            {flyout.kind === 'agentapp' ? t('nav:groups.agentApp') : t('nav:groups.chats')}
           </div>
           <div className={styles.flyoutList}>
-            {flyout.kind === 'livingui' ? (
+            {flyout.kind === 'agentapp' ? (
               <>
-                {livingUIProjects.map(project => {
-                  const path = `/living-ui/${project.id}`
+                {agentAppProjects.map(project => {
+                  const path = `/agent-app/${project.id}`
                   return (
                     <button
                       key={project.id}
@@ -808,15 +808,15 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       <span className={styles.flyoutItemIcon}>
                         {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
                           ? <Loader2 size={13} className={styles.spinner} />
-                          : <LivingUIIcon icon={project.icon} projectId={project.id} size={13} />}
+                          : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
                       </span>
                       <span className={styles.flyoutItemLabel}>{project.name}</span>
                       {renderSessionDot(project.sessionId)}
                     </button>
                   )
                 })}
-                {livingUIProjects.length === 0 && (
-                  <div className={styles.flyoutEmpty}>{t('nav:sidebar.noLivingUiApps')}</div>
+                {agentAppProjects.length === 0 && (
+                  <div className={styles.flyoutEmpty}>{t('nav:sidebar.noAgentAppApps')}</div>
                 )}
               </>
             ) : (
@@ -849,7 +849,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         document.body,
       )}
 
-      <CreateLivingUIModal
+      <CreateAgentAppModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onInstalled={handleProjectCreated}

@@ -49,7 +49,7 @@ const CATEGORY_OPTIONS = [
 ]
 
 
-// Sidebar width bounds (resizable like the Living UI chat panel).
+// Sidebar width bounds (resizable like the Agent App chat panel).
 const PANEL_MIN_WIDTH = 280
 const PANEL_MAX_WIDTH = 600
 
@@ -188,7 +188,7 @@ export function MemoryPage() {
   const [showEntityLinks, setShowEntityLinks] = useState(true)
   const [showFileLinks, setShowFileLinks] = useState(true)
 
-  // Sidebar resize (same pointer-drag pattern as the Living UI chat panel).
+  // Sidebar resize (same pointer-drag pattern as the Agent App chat panel).
   const pageRef = useRef<HTMLDivElement>(null)
   const [panelWidth, setPanelWidth] = useState(340)
   const [isResizing, setIsResizing] = useState(false)

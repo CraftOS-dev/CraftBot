@@ -49,7 +49,7 @@
     },
     "reset": {
       "title": "Atur Ulang Agen",
-      "description": "Atur ulang bagian tertentu dari agen. Obrolan dapat dihapus tanpa menghapus aplikasi Living UI. Pengaturan dan kredensial yang tersimpan tetap dipertahankan.",
+      "description": "Atur ulang bagian tertentu dari agen. Obrolan dapat dihapus tanpa menghapus aplikasi Agent App. Pengaturan dan kredensial yang tersimpan tetap dipertahankan.",
       "button": "Atur Ulang Agen",
       "resetting": "Mengatur ulang...",
       "success": "Agen berhasil diatur ulang",
@@ -57,7 +57,7 @@
     },
     "profile": {
       "title": "Profil Agen",
-      "description": "Bagikan kepribadian, keahlian, server MCP, dan aplikasi Living UI agen Anda sebagai satu berkas <0>.craftbot</0>. Kunci API, memori pribadi, dan riwayat percakapan tidak pernah disertakan.",
+      "description": "Bagikan kepribadian, keahlian, server MCP, dan aplikasi Agent App agen Anda sebagai satu berkas <0>.craftbot</0>. Kunci API, memori pribadi, dan riwayat percakapan tidak pernah disertakan.",
       "export": "Ekspor Profil",
       "import": "Impor Profil",
       "exported": "Profil diekspor",
@@ -69,8 +69,8 @@
       "skillCount_other": "{{count}} keahlian",
       "mcpCount_one": "{{count}} server MCP",
       "mcpCount_other": "{{count}} server MCP",
-      "livingUiCount_one": "{{count}} aplikasi Living UI",
-      "livingUiCount_other": "{{count}} aplikasi Living UI",
+      "agentAppCount_one": "{{count}} aplikasi Agent App",
+      "agentAppCount_other": "{{count}} aplikasi Agent App",
       "profileWord": "profil",
       "importedOverwrite": "Menimpa agen dengan {{what}}.",
       "importedMerge": "Mengimpor {{what}}."
@@ -97,7 +97,7 @@
     "mcps": "MCP",
     "skills": "Keahlian",
     "integrations": "Integrasi",
-    "living_ui": "Living UI"
+    "agent_app": "Agent App"
   },
   "model": {
     "title": "Konfigurasi Model",
@@ -600,13 +600,13 @@
       "takesTime": "Ini bisa memakan waktu hingga 30 detik."
     }
   },
-  "livingUi": {
-    "title": "Living UI",
-    "subtitle": "Kelola dan bagikan proyek Living UI Anda",
+  "agentApp": {
+    "title": "Agent App",
+    "subtitle": "Kelola dan bagikan proyek Agent App Anda",
     "projectsTitle": "Proyek",
-    "projectsDesc": "Kelola, luncurkan, dan bagikan proyek Living UI Anda. Buat yang baru dari obrolan utama.",
+    "projectsDesc": "Kelola, luncurkan, dan bagikan proyek Agent App Anda. Buat yang baru dari obrolan utama.",
     "loadingProjects": "Memuat proyek...",
-    "noProjects": "Belum ada proyek Living UI. Buat satu dari obrolan utama.",
+    "noProjects": "Belum ada proyek Agent App. Buat satu dari obrolan utama.",
     "leftoverTitle": "Cadangan tersisa",
     "leftoverDesc": "Arsip cadangan dari aplikasi yang dihapus. Arsip ini disimpan saat aplikasi dihapus; hapus di sini ketika Anda tidak lagi memerlukan datanya.",
     "status": {
@@ -647,7 +647,7 @@
     },
     "restoringInto": "Memulihkan ke \"{{name}}\"… ini bisa memakan waktu sebentar.",
     "restoring": "Memulihkan… ini bisa memakan waktu sebentar.",
-    "deleteConfirmTitle": "Hapus Living UI",
+    "deleteConfirmTitle": "Hapus Agent App",
     "deleteConfirmMessage": "Apakah Anda yakin ingin menghapus \"{{name}}\"? Ini akan menghapus semua berkas proyek. Jika aplikasi memiliki data langsung, cadangan terakhir disimpan terlebih dahulu dan DIPERTAHANKAN — cadangan tersisa dapat dihapus di bawah setelahnya.",
     "leftoverDeleteTitle": "Hapus cadangan tersisa",
     "leftoverDeleteMessage": "Hapus permanen semua arsip cadangan dari aplikasi yang dihapus \"{{name}}\"? Arsip tersebut adalah satu-satunya salinan datanya yang tersisa.",

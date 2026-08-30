@@ -80,9 +80,9 @@
       "title": "Mascota",
       "description": "La mascota de CraftBot que reacciona a la actividad del agente."
     },
-    "livingUi": {
-      "title": "Living UI",
-      "description": "Living UIs instaladas y en ejecución."
+    "agentApp": {
+      "title": "Agent App",
+      "description": "Agent Apps instaladas y en ejecución."
     },
     "recentActivity": {
       "title": "Actividad reciente",
@@ -116,8 +116,8 @@
           "item3": "Accede desde cualquier dispositivo",
           "cta": "Empezar gratis"
         },
-        "livingui": {
-          "categoryLabel": "Living UI",
+        "agentapp": {
+          "categoryLabel": "Agent App",
           "title": "Un agente que crea y opera su propio software",
           "subtitle": "Pide una app y el agente la diseña, la programa, la prueba y la inicia dentro de su propia interfaz.",
           "desc": "Pide una app. El agente la diseña, la programa, la prueba y la inicia.",
@@ -125,7 +125,7 @@
           "item1": "CRM",
           "item2": "Seguimiento de hábitos",
           "item3": "Marketplace comunitario",
-          "cta": "Explorar el marketplace de Living UI"
+          "cta": "Explorar el marketplace de Agent App"
         },
         "bundles": {
           "categoryLabel": "Paquetes de agentes",
@@ -148,7 +148,7 @@
           "item0Tag": "GitHub",
           "item1Label": "Únete a la comunidad de CraftBot",
           "item1Tag": "Discord",
-          "item2Label": "Living UIs creadas por la comunidad",
+          "item2Label": "Agent Apps creadas por la comunidad",
           "item2Tag": "Market",
           "cta": "Dar una estrella en GitHub"
         }
@@ -166,11 +166,11 @@
       "invocations": "Invocaciones",
       "topSkills": "Habilidades principales"
     },
-    "livingUi": {
+    "agentApp": {
       "installed": "Instaladas",
       "running": "En ejecución",
       "projects": "Proyectos",
-      "empty": "No hay Living UIs instaladas"
+      "empty": "No hay Agent Apps instaladas"
     },
     "modelInfo": {
       "provider": "Proveedor",

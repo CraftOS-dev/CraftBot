@@ -54,11 +54,11 @@ agent_file_system/TASK_HISTORY.md
 **/onboarding_config.json
 **/config.json
 !build_template.py
-docs/LIVING_UI_DEVELOPER_GUIDE.md
+docs/AGENT_APP_DEVELOPER_GUIDE.md
 agent_file_system/ACTIONS.md
 agent_bundle/
 **/.craftbot/
 app/data/.file_index/
 .playwright-mcp
-# Sidecar Node runtime (install.py downloads it when the system Node is too old for Living UI)
+# Sidecar Node runtime (install.py downloads it when the system Node is too old for Agent App)
 runtime/

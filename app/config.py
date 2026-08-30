@@ -492,13 +492,13 @@ def is_prewarm_all_drives_enabled() -> bool:
 
 
 def get_marketplace_ref() -> Optional[str]:
-    """Branch the Living UI marketplace is read from, or None for the default.
+    """Branch the Agent App marketplace is read from, or None for the default.
 
-    Set living_ui.marketplace_ref in settings.json to test a marketplace
+    Set agent_app.marketplace_ref in settings.json to test a marketplace
     branch; CRAFTBOT_MARKETPLACE_REF overrides it for one-off runs.
     """
     settings = get_settings()
-    ref = settings.get("living_ui", {}).get("marketplace_ref")
+    ref = settings.get("agent_app", {}).get("marketplace_ref")
     return ref.strip() if isinstance(ref, str) and ref.strip() else None
 
 

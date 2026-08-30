@@ -1013,7 +1013,7 @@ def ensure_nodejs() -> bool:
     download the sidecar. Resolution and the never-touch-the-system-Node
     contract live in app/node_runtime.py. On False the install continues
     with whatever PATH npm exists (frontend and bridge tolerate Node 20),
-    but Living UI stays off until fixed."""
+    but Agent App stays off until fixed."""
     rt = node_runtime.resolve(refresh=True)
     if rt is not None:
         source = {
@@ -1046,7 +1046,7 @@ def ensure_nodejs() -> bool:
             return True
 
     print(f"\n⚠ Could not set up Node.js >= {MIN_NODE_MAJOR}.")
-    print("  Browser frontend, WhatsApp bridge and Living UI apps need it. Options:")
+    print("  Browser frontend, WhatsApp bridge and Agent App apps need it. Options:")
     print(f"    - nvm install {MIN_NODE_MAJOR}   (auto-discovered, default unchanged)")
     print(f"    - set CRAFTBOT_NODE to a Node >= {MIN_NODE_MAJOR} binary")
     print(f"    - install Node {MIN_NODE_MAJOR} LTS from https://nodejs.org/")
@@ -1322,7 +1322,7 @@ def install_browser_frontend(npm_cmd: Optional[list]):
         print("\n⚠ Warning: npm not found in PATH")
         print("   Browser interface requires Node.js and npm.")
         print("\n   📥 Install Node.js from: https://nodejs.org/")
-        print(f"      (v{MIN_NODE_MAJOR}+ — Living UI apps need it)")
+        print(f"      (v{MIN_NODE_MAJOR}+ — Agent App apps need it)")
         print("\n   After installation:")
         print("   1. Restart your terminal")
         print("   2. Run: python install.py")

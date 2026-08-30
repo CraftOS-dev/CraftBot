@@ -1,0 +1,26 @@
+{
+  "name": "@agentapp/kit",
+  "private": true,
+  "version": "0.5.0",
+  "type": "module",
+  "description": "Agent App kit source of truth \u2014 vendored into projects at scaffold time",
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "peerDependencies": {
+    "pocketbase": "^0.26.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@radix-ui/react-dialog": "^1.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "pocketbase": "^0.26.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.5.0"
+  }
+}

@@ -20,7 +20,7 @@
     "items": {
       "sessions": {
         "label": "Chats",
-        "description": "Delete extra chats, clear Main, and clear Living UI chat history. Apps are kept."
+        "description": "Delete extra chats, clear Main, and clear Agent App chat history. Apps are kept."
       },
       "memory": {
         "label": "Memory",
@@ -34,8 +34,8 @@
         "label": "Workspace files",
         "description": "Files the agent created in its workspace."
       },
-      "livingui": {
-        "label": "LivingUI apps",
+      "agentapp": {
+        "label": "AgentApp apps",
         "description": "Deletes every app the agent has built. A final backup of each app's data is saved and kept."
       }
     }
@@ -49,14 +49,14 @@
     "personalityFiles": "Personality files",
     "skills": "Skills",
     "mcpServers": "MCP servers",
-    "livingUiApps": "Living UI apps",
+    "agentAppApps": "Agent App apps",
     "alreadyInstalledLocally": "Already installed locally",
     "needsEnv": "After import, fill in API keys for: <1>{{names}}</1>",
     "modeTitle": "How should I apply this?",
     "mergeReplaceName": "Merge and Replace (recommended)",
-    "mergeReplaceHint": "Adds new skills, MCPs, and apps. Overwrites personality files and MCP/skill config on name conflict. Living UI apps with matching names are imported alongside (never destroyed).",
+    "mergeReplaceHint": "Adds new skills, MCPs, and apps. Overwrites personality files and MCP/skill config on name conflict. Agent App apps with matching names are imported alongside (never destroyed).",
     "overwriteName": "Overwrite",
-    "overwriteHint": "<0>Destructive.</0> Wipes <1>all</1> existing skills, MCP servers, and Living UI apps, then installs only what's in this bundle. Your agent becomes a copy of the bundle. Cannot be undone.",
+    "overwriteHint": "<0>Destructive.</0> Wipes <1>all</1> existing skills, MCP servers, and Agent App apps, then installs only what's in this bundle. Your agent becomes a copy of the bundle. Cannot be undone.",
     "applying": "Applying…",
     "overwriteButton": "Overwrite Agent",
     "applyButton": "Apply Profile"
@@ -72,7 +72,7 @@
     "skillEnabled": "Skill already enabled",
     "suggestedSkill": "Suggested skill",
     "suggestedMcp": "Suggested MCP server",
-    "suggestedApp": "Suggested Living UI app",
+    "suggestedApp": "Suggested Agent App app",
     "about": "About",
     "whatItWillDo": "What CraftBot will do",
     "promptPreview": "Prompt preview",
@@ -122,7 +122,7 @@
       "multiUser": "Multi-user (accounts)"
     },
     "interviewFailed": "Failed to prepare the interview",
-    "createFailed": "Failed to create the Living UI",
+    "createFailed": "Failed to create the Agent App",
     "nameRequired": "Name is required",
     "nameTooLong": "Name must be 50 characters or less",
     "descRequired": "Description is required",
@@ -144,7 +144,7 @@
     "uploadFavicon": "Upload favicon (png, svg, ico…)",
     "namePlaceholder": "e.g., World News Dashboard",
     "descLabel": "What should this UI do?",
-    "descPlaceholder": "Describe what you want the Living UI to display and do. Be specific about the data, workflows, and anything it must get right…",
+    "descPlaceholder": "Describe what you want the Agent App to display and do. Be specific about the data, workflows, and anything it must get right…",
     "wordCount": "{{words}} / {{max}} words",
     "referenceFiles": "Reference files (optional)",
     "dropReference": "Drop design sketches, screenshots, or documents — or click to browse",
@@ -152,8 +152,8 @@
     "themeLabel": "Theme",
     "accessLabel": "Access"
   },
-  "createLivingUi": {
-    "addTitle": "Add Living UI",
+  "createAgentApp": {
+    "addTitle": "Add Agent App",
     "setupQuestions": "{{name}} — setup questions",
     "tabMarketplace": "Marketplace",
     "tabCustom": "Create Custom",
@@ -176,10 +176,10 @@
     "configureSubtitle": "Customize before installing",
     "importUrlLabel": "GitHub URL or Local Path",
     "importUrlPlaceholder": "https://github.com/user/repo or /path/to/local/app",
-    "importHint": "Living UI exports: ZIP, project folder, or git URL. Other apps are rebuilt — ask the agent to convert them.",
+    "importHint": "Agent App exports: ZIP, project folder, or git URL. Other apps are rebuilt — ask the agent to convert them.",
     "or": "or",
     "dropZipLabel": "Drop a ZIP file here or click to browse",
-    "dropZipSub": "Import a previously exported Living UI",
+    "dropZipSub": "Import a previously exported Agent App",
     "importButton": "Import App",
     "externalAppName": "External App"
   }

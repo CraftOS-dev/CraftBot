@@ -80,9 +80,9 @@
       "title": "吉祥物",
       "description": "会对智能体活动做出反应的 CraftBot 吉祥物。"
     },
-    "livingUi": {
-      "title": "Living UI",
-      "description": "已安装和运行中的 Living UI。"
+    "agentApp": {
+      "title": "Agent App",
+      "description": "已安装和运行中的 Agent App。"
     },
     "recentActivity": {
       "title": "近期活动",
@@ -116,8 +116,8 @@
           "item3": "从任何设备访问",
           "cta": "免费开始"
         },
-        "livingui": {
-          "categoryLabel": "Living UI",
+        "agentapp": {
+          "categoryLabel": "Agent App",
           "title": "一个能构建并运营自有软件的智能体",
           "subtitle": "只需提出应用需求，智能体便会在自己的界面内设计、编码、测试并启动它。",
           "desc": "提出应用需求。智能体负责设计、编码、测试并启动。",
@@ -125,7 +125,7 @@
           "item1": "CRM",
           "item2": "习惯追踪器",
           "item3": "社区市场",
-          "cta": "浏览 Living UI 市场"
+          "cta": "浏览 Agent App 市场"
         },
         "bundles": {
           "categoryLabel": "智能体套装",
@@ -148,7 +148,7 @@
           "item0Tag": "GitHub",
           "item1Label": "加入 CraftBot 社区",
           "item1Tag": "Discord",
-          "item2Label": "社区构建的 Living UI",
+          "item2Label": "社区构建的 Agent App",
           "item2Tag": "市场",
           "cta": "在 GitHub 上加星"
         }
@@ -166,11 +166,11 @@
       "invocations": "调用次数",
       "topSkills": "常用技能"
     },
-    "livingUi": {
+    "agentApp": {
       "installed": "已安装",
       "running": "运行中",
       "projects": "项目",
-      "empty": "未安装任何 Living UI"
+      "empty": "未安装任何 Agent App"
     },
     "modelInfo": {
       "provider": "供应商",

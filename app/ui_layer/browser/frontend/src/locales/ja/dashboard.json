@@ -80,9 +80,9 @@
       "title": "マスコット",
       "description": "エージェントの活動に反応する CraftBot マスコット。"
     },
-    "livingUi": {
-      "title": "Living UI",
-      "description": "インストール済みおよび実行中の Living UI。"
+    "agentApp": {
+      "title": "Agent App",
+      "description": "インストール済みおよび実行中の Agent App。"
     },
     "recentActivity": {
       "title": "最近のアクティビティ",
@@ -116,8 +116,8 @@
           "item3": "どのデバイスからでもアクセス",
           "cta": "無料で始める"
         },
-        "livingui": {
-          "categoryLabel": "Living UI",
+        "agentapp": {
+          "categoryLabel": "Agent App",
           "title": "自身のソフトウェアを構築・運用するエージェント",
           "subtitle": "アプリを依頼すると、エージェントが自身のインターフェース内で設計、コーディング、テスト、起動します。",
           "desc": "アプリを依頼するだけ。エージェントが設計、コーディング、テスト、起動します。",
@@ -125,7 +125,7 @@
           "item1": "CRM",
           "item2": "習慣トラッカー",
           "item3": "コミュニティマーケットプレイス",
-          "cta": "Living UI マーケットプレイスを見る"
+          "cta": "Agent App マーケットプレイスを見る"
         },
         "bundles": {
           "categoryLabel": "エージェントバンドル",
@@ -148,7 +148,7 @@
           "item0Tag": "GitHub",
           "item1Label": "CraftBot コミュニティに参加",
           "item1Tag": "Discord",
-          "item2Label": "コミュニティが構築した Living UI",
+          "item2Label": "コミュニティが構築した Agent App",
           "item2Tag": "マーケット",
           "cta": "GitHub でスターを付ける"
         }
@@ -166,11 +166,11 @@
       "invocations": "呼び出し回数",
       "topSkills": "上位スキル"
     },
-    "livingUi": {
+    "agentApp": {
       "installed": "インストール済み",
       "running": "実行中",
       "projects": "プロジェクト",
-      "empty": "インストール済みの Living UI がありません"
+      "empty": "インストール済みの Agent App がありません"
     },
     "modelInfo": {
       "provider": "プロバイダー",

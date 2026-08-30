@@ -8,16 +8,16 @@
     "settings": "설정"
   },
   "groups": {
-    "livingUi": "Living UI",
-    "chats": "채팅"
+    "agentApp": "Agent App",
+    "chats": "채팅 및 작업"
   },
   "sidebar": {
     "expand": "사이드바 펼치기",
     "collapse": "사이드바 접기",
     "websiteLabel": "CraftBot 웹사이트",
-    "addLivingUi": "Living UI 추가",
+    "addAgentApp": "Agent App 추가",
     "newChat": "새 채팅",
-    "noLivingUiApps": "Living UI 앱 없음",
+    "noAgentAppApps": "Agent App 앱 없음",
     "showMoreCount": "더 보기 ({{count}})"
   },
   "dots": {
@@ -93,7 +93,7 @@
       "failedToStart": "Ollama를 시작하지 못했습니다",
       "modelDownloadFailed": "모델 다운로드 실패"
     },
-    "livingUiSettings": {
+    "agentAppSettings": {
       "backupRestored": "백업이 복원되었습니다. 앱이 다시 시작되었습니다.",
       "restoreFailed": "복원 실패."
     },

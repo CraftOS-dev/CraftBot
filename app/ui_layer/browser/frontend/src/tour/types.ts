@@ -12,9 +12,9 @@ export type TourEnvActionId =
   | 'openNewChat'
   | 'ensureChatsExpanded'
   | 'openSettingsTab'
-  | 'openLivingUIModal'
-  | 'closeLivingUIModal'
-  | 'openLivingUITab'
+  | 'openAgentAppModal'
+  | 'closeAgentAppModal'
+  | 'openAgentAppTab'
 
 // A step's environment entry: an action id on its own, or that id paired with a
 // string argument (e.g. which Settings tab to open).

@@ -1,0 +1,76 @@
+{
+  "page": {
+    "notFoundTitle": "Agent App Tidak Ditemukan",
+    "notFoundBody": "Proyek Agent App yang Anda cari tidak ada atau telah dihapus.",
+    "goToChat": "Buka Obrolan",
+    "fullscreen": "Layar penuh",
+    "exitFullscreen": "Keluar dari Layar Penuh (Esc)",
+    "stop": "Hentikan",
+    "launch": "Luncurkan",
+    "launching": "Meluncurkan…",
+    "stopping": "Menghentikan…",
+    "theme": "Tema",
+    "showChat": "Tampilkan Obrolan",
+    "hideChat": "Sembunyikan Obrolan",
+    "launchingTitle": "Meluncurkan Agent App…",
+    "launchingHint": "Menginstal dependensi, menjalankan pengujian, memulai server",
+    "stoppingTitle": "Menghentikan Agent App…",
+    "errorTitle": "Terjadi kesalahan saat membuat Agent App",
+    "deleteProject": "Hapus Proyek",
+    "stoppedTitle": "Agent App tidak berjalan",
+    "chatPlaceholder": "Tanya tentang Agent App ini…",
+    "deleteModalTitle": "Hapus Agent App",
+    "deleteModalMessage": "Apakah Anda yakin ingin menghapus \"{{name}}\"? Tindakan ini tidak dapat dibatalkan.",
+    "status": {
+      "creating": "membuat",
+      "launching": "meluncurkan",
+      "ready": "siap",
+      "running": "berjalan",
+      "stopping": "menghentikan",
+      "stopped": "berhenti",
+      "error": "kesalahan"
+    }
+  },
+  "construction": {
+    "creating": "Membuat {{name}}",
+    "launching": "Meluncurkan {{name}}",
+    "finalChecks": "Pemeriksaan akhir…",
+    "preparingWorkspace": "Menyiapkan ruang kerja Anda…",
+    "componentCount_one": "{{count}} komponen",
+    "componentCount_other": "{{count}} komponen",
+    "collectionCount_one": "{{count}} koleksi",
+    "collectionCount_other": "{{count}} koleksi",
+    "routeCount_one": "{{count}} rute",
+    "routeCount_other": "{{count}} rute"
+  },
+  "themeModal": {
+    "title": "Pilih Tema",
+    "custom": "Kustom",
+    "colorBackground": "Latar Belakang",
+    "colorSurface": "Permukaan",
+    "colorText": "Teks",
+    "colorAccent": "Aksen",
+    "caption": "Tema menyesuaikan dengan mode terang/gelap · Kustom tetap tidak berubah"
+  },
+  "themes": {
+    "craftbot": { "label": "CraftBot", "description": "Dasar" },
+    "modern": { "label": "Modern", "description": "Indigo lapang" },
+    "normal": { "label": "Normal", "description": "Biru bersih" },
+    "ocean": { "label": "Ocean", "description": "Laut dalam" },
+    "forest": { "label": "Forest", "description": "Hijau lumut" },
+    "pastel": { "label": "Pastel", "description": "Ungu lembut" },
+    "glass": { "label": "Glass", "description": "Kaca aurora" },
+    "classic": { "label": "Classic", "description": "Datar & padat" },
+    "velvet": { "label": "Velvet", "description": "Merah muda mewah" },
+    "ink": { "label": "Ink", "description": "Monokrom ceria" },
+    "acid": { "label": "Acid", "description": "Abu-abu & limau" },
+    "blueprint": { "label": "Blueprint", "description": "Lembar data berkisi" },
+    "brutalist": { "label": "Brutalist", "description": "Blok tegas" },
+    "drafting": { "label": "Drafting", "description": "Sketsa garis tunggal" },
+    "clay": { "label": "Clay", "description": "Timbul lembut" },
+    "atelier": { "label": "Atelier", "description": "Studio minimalis" }
+  },
+  "iframe": {
+    "title": "Agent App {{id}}"
+  }
+}

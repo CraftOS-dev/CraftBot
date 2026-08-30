@@ -70,9 +70,9 @@ class FactoryHost:
 
     # ── machine access ─────────────────────────────────────────────────────
     def _project(self, project_id: str):
-        from app.living_ui import get_living_ui_manager
+        from app.agent_app import get_agent_app_manager
 
-        mgr = get_living_ui_manager()
+        mgr = get_agent_app_manager()
         return mgr.get_project(project_id) if mgr else None
 
     def machine_for(self, project_id: str) -> Optional[Machine]:
@@ -202,10 +202,10 @@ class FactoryHost:
         if not origin:
             return
         try:
-            from app.living_ui import get_living_ui_manager
+            from app.agent_app import get_agent_app_manager
             from app.triggers import TriggerSource, TriggerSpec
 
-            mgr = get_living_ui_manager()
+            mgr = get_agent_app_manager()
             if mgr is None or not getattr(mgr, "_trigger_service", None):
                 return
             import asyncio
@@ -213,7 +213,7 @@ class FactoryHost:
             async def _emit() -> None:
                 await mgr._trigger_service.emit(
                     TriggerSpec(
-                        source=TriggerSource.LIVING_UI_CREATED,
+                        source=TriggerSource.AGENT_APP_CREATED,
                         description=(
                             f"{text} Relay this to the user in ONE short "
                             "sentence (include the URL if one is present), "
@@ -243,7 +243,7 @@ class FactoryHost:
         except (TypeError, ValueError):
             return None
 
-    # ── backup bookkeeping (sidecar-backed; spec living-ui-backups-plan) ───
+    # ── backup bookkeeping (sidecar-backed; spec agent-app-backups-plan) ───
     # last_at drives the scheduler's due check (absent -> due now, which is
     # also the catch-up-after-restart path); last_error is surfaced on the
     # settings card and cleared by the next success.
@@ -447,7 +447,7 @@ class FactoryHost:
         from app.factory.appfactory.distill import distill
 
         project = self._project(project_id)
-        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/living-ui/tools/src/cli.ts"
+        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/agent-app/tools/src/cli.ts"
         cards = distill(
             walk_report=walk_report or "\n".join(defects or []),
             server_log=server_log,
@@ -550,7 +550,7 @@ class FactoryHost:
                 "do something DIFFERENT: reread the evidence below, reproduce with the "
                 "exact command, and check the server log after reproducing.\n"
             )
-        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/living-ui/tools/src/cli.ts"
+        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/agent-app/tools/src/cli.ts"
         cards_text = "\n\n".join(c.render() for c in cards)[:6000]
         books = self._select_cookbooks(cards_text)
         books_text = (
@@ -570,7 +570,7 @@ class FactoryHost:
             if _dev_rec and _dev_rec.get("dir")
             else str(project.path)
         )
-        return f"""FIX MISSION {n} for Living UI '{project.name}' ({project.id}).
+        return f"""FIX MISSION {n} for Agent App '{project.name}' ({project.id}).
 
 The independent verifier drove the app in a real browser. Each DEFECT below
 carries its evidence and a repro. Your ONLY goal: make these features work.
@@ -587,9 +587,9 @@ carries its evidence and a repro. Your ONLY goal: make these features work.
    (every causal claim must quote a log line; if you can't quote it, gather
    more evidence — "unknown, investigating" is valid, a guess is not).
 3. Fix in {project.path} (hooks/migrations/frontend per the ownership rules)
-   — living_ui_notify_ready syncs your edits into the dev instance.
-4. Relaunch: living_ui_notify_ready(project_id="{project.id}")
-5. Verify: living_ui_walk_verify(project_id="{project.id}")
+   — agent_app_notify_ready syncs your edits into the dev instance.
+4. Relaunch: agent_app_notify_ready(project_id="{project.id}")
+5. Verify: agent_app_walk_verify(project_id="{project.id}")
 The system tracks attempts and reports status to the user — do NOT send
 status messages; when verification passes the user is informed automatically."""
 
@@ -608,9 +608,9 @@ status messages; when verification passes the user is informed automatically."""
     def _emit_mission(
         self, project, brief: str, mission_kind: str, machine: Machine
     ) -> None:
-        from app.living_ui import get_living_ui_manager
+        from app.agent_app import get_agent_app_manager
 
-        mgr = get_living_ui_manager()
+        mgr = get_agent_app_manager()
         if mgr is None or not getattr(mgr, "_trigger_service", None):
             logger.error("[FACTORY] cannot dispatch mission — trigger service unbound")
             return
@@ -628,7 +628,7 @@ status messages; when verification passes the user is informed automatically."""
         # MODIFY of an app with live data keeps the modify skill.
         gens = machine.generations()
         try:
-            from app.living_ui.lifecycle import has_live_env
+            from app.agent_app.lifecycle import has_live_env
 
             _has_live = has_live_env(project, self)
         except Exception:
@@ -637,9 +637,9 @@ status messages; when verification passes the user is informed automatically."""
             bool(gens) and gens[-1].get("final_state") == STUCK and not _has_live
         )
         workflow_skill = (
-            "living-ui-modify"
+            "agent-app-modify"
             if machine.generation > 0 and not resumed_stuck_build
-            else "living-ui-creator"
+            else "agent-app-creator"
         )
 
         async def _emit() -> None:
@@ -647,7 +647,7 @@ status messages; when verification passes the user is informed automatically."""
 
             await mgr._trigger_service.emit(
                 TriggerSpec(
-                    source=TriggerSource.LIVING_UI_CRASH_FIX,  # existing fix-run source
+                    source=TriggerSource.AGENT_APP_CRASH_FIX,  # existing fix-run source
                     description=brief,
                     priority=30,
                     session_id=session.id,
@@ -788,11 +788,11 @@ status messages; when verification passes the user is informed automatically."""
             side = self._sidecar_read(project_id)
             _verb = "MODIFY of" if machine.generation > 0 else "BUILD for"
             brief = side.get("last_brief") or (
-                f"CONTINUE {_verb} Living UI '{project.name}' ({project.id}).\n"
+                f"CONTINUE {_verb} Agent App '{project.name}' ({project.id}).\n"
                 f"The previous run ended before the change was verified. Continue from "
                 f"the current state of {project.path}: finish the work, then\n"
-                f'living_ui_notify_ready(project_id="{project.id}") and\n'
-                f'living_ui_walk_verify(project_id="{project.id}").\n'
+                f'agent_app_notify_ready(project_id="{project.id}") and\n'
+                f'agent_app_walk_verify(project_id="{project.id}").\n'
                 f"The system reports status to the user automatically — do not send "
                 f"status messages."
             )
@@ -813,10 +813,10 @@ status messages; when verification passes the user is informed automatically."""
     def _emit_chat(self, project_id: str, text: str) -> None:
         try:
             from app.internal_action_interface import InternalActionInterface as I
-            from app.living_ui import get_living_ui_manager
+            from app.agent_app import get_agent_app_manager
             from agent_core.core.event_stream.event import EventType
 
-            mgr = get_living_ui_manager()
+            mgr = get_agent_app_manager()
             project = mgr.get_project(project_id) if mgr else None
             session = mgr.ensure_project_session(project) if (mgr and project) else None
             if I.event_stream_manager and session:
@@ -875,23 +875,23 @@ status messages; when verification passes the user is informed automatically."""
         self._emit_chat(project_id, text)
         self._notify_origin(
             project_id,
-            f"FYI: the Living UI build for project {project_id} is COMPLETE. {text}",
+            f"FYI: the Agent App build for project {project_id} is COMPLETE. {text}",
         )
 
     def _announce_stuck(self, project_id: str, machine: Machine) -> None:
         self._emit_chat(project_id, "❌ " + machine.stuck_report())
         self._notify_origin(
             project_id,
-            f"FYI: the Living UI build for project {project_id} is STUCK "
+            f"FYI: the Agent App build for project {project_id} is STUCK "
             "(could not be completed automatically; the user has the full "
             "report in the project tab).",
         )
         try:
             import asyncio
 
-            from app.living_ui.broadcast import broadcast_living_ui_progress
+            from app.agent_app.broadcast import broadcast_agent_app_progress
 
-            coroutine = broadcast_living_ui_progress(
+            coroutine = broadcast_agent_app_progress(
                 project_id, "error", 100, "Build stuck — see the report in chat"
             )
             try:

@@ -385,7 +385,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         cred = self._load()
         sender = from_email or cred.email
         # No recipient = the account owner. Callers reaching "the user" (a
-        # Living UI's daily digest, an agent self-notification) should never
+        # Agent App's daily digest, an agent self-notification) should never
         # need to know or store the user's address — identity is CraftBot's.
         recipient = to or cred.email
         raw = self._encode_email(recipient, sender, subject, body, attachments)

@@ -5,7 +5,7 @@ A coding agent that both writes AND signs off can convince itself a compiling
 shell is "done". This agent is the independent CI: it drives the RUNNING app
 in a real browser against the requirements and returns a per-feature verdict.
 It is READ-ONLY — it never edits code; failures go back to the build session
-to fix. Spawned by ``living_ui_notify_ready`` after launch; the launch is not
+to fix. Spawned by ``agent_app_notify_ready`` after launch; the launch is not
 "ready" until this passes. (Contract ported from PR #388.)
 
 SCOPE (docs/design/scoped-walk-verify.md rev 2): the verifier decides which
@@ -54,7 +54,7 @@ BROWSER RULES (violating these blinds you):
 - If the mcp_playwright browser tools are unavailable in this environment
   (the runner tells you an action is "not installed"), fall back to
   browser_probe (scripted steps: goto/click/type/read/screenshot with CSS
-  selectors) plus living_ui_http for API checks.
+  selectors) plus agent_app_http for API checks.
 
 YOUR WALK:
 1. SCOPE — read the requirements and the CHANGED SINCE LAST PROMOTE block,
@@ -272,7 +272,7 @@ def _guard_scope(sub, result: str):
     verifier's judgment and is never second-guessed here."""
     import re as _re
 
-    from app.living_ui.verify_scope import feature_verdicts, parse_scope
+    from app.agent_app.verify_scope import feature_verdicts, parse_scope
 
     query = str(getattr(sub, "query", "") or "")
     scope = parse_scope(result)
@@ -365,7 +365,7 @@ def _early_end_guard(sub, parameters):
         return rejection
 
     # Genuine tooling blockage may conclude whenever it occurs.
-    from app.living_ui.walk_verify import _reads_as_blocked
+    from app.agent_app.walk_verify import _reads_as_blocked
 
     if _reads_as_blocked(result):
         return None
@@ -379,7 +379,7 @@ def _early_end_guard(sub, parameters):
 
     # FULL walks keep the premature-conclusion floor.
     try:
-        from app.living_ui.verify_scope import parse_scope
+        from app.agent_app.verify_scope import parse_scope
 
         mode = (parse_scope(result) or {}).get("mode", "FULL")
     except Exception:
@@ -413,7 +413,7 @@ def _early_end_guard(sub, parameters):
 register_subagent(
     name="walk_verify",
     description=(
-        "Independently drives a RUNNING Living UI in a real browser against "
+        "Independently drives a RUNNING Agent App in a real browser against "
         "its requirements; returns per-feature PASS/FAIL verdicts with evidence"
     ),
     system_prompt=SYSTEM_PROMPT,
@@ -433,7 +433,7 @@ register_subagent(
         "mcp_playwright-mcp_browser_take_screenshot",
         # Fallback browser + API when MCP is unavailable.
         "browser_probe",
-        "living_ui_http",
+        "agent_app_http",
         # Coverage boundary marker (scoped verify Phase 2).
         "walk_mark_feature",
         # Read the requirements + inspect (never edit).

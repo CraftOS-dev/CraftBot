@@ -9,16 +9,16 @@ import { ScreenPage } from './pages/Screen'
 import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
-import { LivingUIPage } from './pages/LivingUI'
+import { AgentAppPage } from './pages/AgentApp'
 import { useWebSocket } from './contexts/WebSocketContext'
 import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
 
-// Forces LivingUIPage to remount per-project so useState initializers
+// Forces AgentAppPage to remount per-project so useState initializers
 // (theme, custom colors) always start fresh - not carried over from a previous project.
-function LivingUIPageRoute() {
+function AgentAppPageRoute() {
   const { projectId } = useParams<{ projectId: string }>()
-  return <LivingUIPage key={projectId} />
+  return <AgentAppPage key={projectId} />
 }
 
 // Per-session chat route. Deliberately NO key: /session/new ->
@@ -80,7 +80,7 @@ function App() {
         `}</style>
 
         {/* Loading indicator: the mascot jumping in place (same character +
-            jump beats as the Living UI build view). */}
+            jump beats as the Agent App build view). */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <LoadingMascot size={64} />
           <p style={{ margin: 0, color: '#8a8a8a', fontSize: '14px' }}>
@@ -109,7 +109,7 @@ function App() {
         <Route path="/screen" element={<ScreenPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
+        <Route path="/agent-app/:projectId" element={<AgentAppPageRoute />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

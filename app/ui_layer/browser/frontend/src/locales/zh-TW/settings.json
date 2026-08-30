@@ -49,7 +49,7 @@
     },
     "reset": {
       "title": "重設代理",
-      "description": "重設代理的選定部分。你可以清除對話而不刪除 Living UI 應用程式。已儲存的設定與憑證會保留。",
+      "description": "重設代理的選定部分。你可以清除對話而不刪除 Agent App 應用程式。已儲存的設定與憑證會保留。",
       "button": "重設代理",
       "resetting": "重設中…",
       "success": "代理已成功重設",
@@ -57,7 +57,7 @@
     },
     "profile": {
       "title": "代理設定檔",
-      "description": "將你代理的個性、技能、MCP 伺服器與 Living UI 應用程式以單一 <0>.craftbot</0> 檔案分享。API 金鑰、個人記憶與對話記錄絕不會包含在內。",
+      "description": "將你代理的個性、技能、MCP 伺服器與 Agent App 應用程式以單一 <0>.craftbot</0> 檔案分享。API 金鑰、個人記憶與對話記錄絕不會包含在內。",
       "export": "匯出設定檔",
       "import": "匯入設定檔",
       "exported": "設定檔已匯出",
@@ -69,8 +69,8 @@
       "skillCount_other": "{{count}} 個技能",
       "mcpCount_one": "{{count}} 個 MCP 伺服器",
       "mcpCount_other": "{{count}} 個 MCP 伺服器",
-      "livingUiCount_one": "{{count}} 個 Living UI 應用程式",
-      "livingUiCount_other": "{{count}} 個 Living UI 應用程式",
+      "agentAppCount_one": "{{count}} 個 Agent App 應用程式",
+      "agentAppCount_other": "{{count}} 個 Agent App 應用程式",
       "profileWord": "設定檔",
       "importedOverwrite": "已使用 {{what}} 覆寫代理。",
       "importedMerge": "已匯入 {{what}}。"
@@ -97,7 +97,7 @@
     "mcps": "MCP",
     "skills": "技能",
     "integrations": "整合",
-    "living_ui": "Living UI"
+    "agent_app": "Agent App"
   },
   "model": {
     "title": "模型設定",
@@ -600,13 +600,13 @@
       "takesTime": "這可能需要最多 30 秒。"
     }
   },
-  "livingUi": {
-    "title": "Living UI",
-    "subtitle": "管理並分享你的 Living UI 專案",
+  "agentApp": {
+    "title": "Agent App",
+    "subtitle": "管理並分享你的 Agent App 專案",
     "projectsTitle": "專案",
-    "projectsDesc": "管理、啟動並分享你的 Living UI 專案。可從主要對話建立新專案。",
+    "projectsDesc": "管理、啟動並分享你的 Agent App 專案。可從主要對話建立新專案。",
     "loadingProjects": "正在載入專案…",
-    "noProjects": "尚無 Living UI 專案。從主要對話建立一個。",
+    "noProjects": "尚無 Agent App 專案。從主要對話建立一個。",
     "leftoverTitle": "殘留的備份",
     "leftoverDesc": "已刪除應用程式的備份封存檔。應用程式刪除時會保留這些備份；當你不再需要這些資料時，可在此移除。",
     "status": {
@@ -647,7 +647,7 @@
     },
     "restoringInto": "正在還原至「{{name}}」…這可能要花一分鐘。",
     "restoring": "還原中…這可能要花一分鐘。",
-    "deleteConfirmTitle": "刪除 Living UI",
+    "deleteConfirmTitle": "刪除 Agent App",
     "deleteConfirmMessage": "確定要刪除「{{name}}」嗎？這會移除所有專案檔案。若應用程式有任何即時資料，系統會先儲存一份最終備份並「保留」 — 之後可在下方移除殘留的備份。",
     "leftoverDeleteTitle": "刪除殘留的備份",
     "leftoverDeleteMessage": "要永久刪除已刪除應用程式「{{name}}」的所有備份封存檔嗎？它們是其資料唯一僅存的副本。",

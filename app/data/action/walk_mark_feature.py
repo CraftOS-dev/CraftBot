@@ -32,7 +32,7 @@ from agent_core import action
         "project_id": {
             "type": "string",
             "example": "abc12345",
-            "description": "The Living UI project ID (from the query).",
+            "description": "The Agent App project ID (from the query).",
         },
         "feature": {
             "type": "string",
@@ -55,7 +55,7 @@ from agent_core import action
 )
 async def walk_mark_feature(input_data: dict) -> dict:
     # EVERYTHING LOCAL: handlers run from registry-extracted source (see the
-    # note in living_ui_actions.living_ui_walk_verify) — no module globals.
+    # note in agent_app_actions.agent_app_walk_verify) — no module globals.
     project_id = str(input_data.get("project_id") or "").strip()
     feature = str(input_data.get("feature") or "").strip()[:200]
     if input_data.get("simulated_mode"):
@@ -66,9 +66,9 @@ async def walk_mark_feature(input_data: dict) -> dict:
         import json as _json
         import urllib.request as _url
 
-        from app.living_ui import get_living_ui_manager
+        from app.agent_app import get_agent_app_manager
 
-        manager = get_living_ui_manager()
+        manager = get_agent_app_manager()
         project = manager.get_project(project_id) if manager else None
         if project is None:
             return {"status": "error", "message": f"Unknown project: {project_id}"}

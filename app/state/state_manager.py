@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class StateManager:
     """Manages per-session runtime state.
 
-    Every persistent session (main / chat / living_ui) owns a StateSession
+    Every persistent session (main / chat / agent_app) owns a StateSession
     bag with its run counters and pointers; this manager refreshes those
     bags per turn and offers session-scoped message recording.
     """

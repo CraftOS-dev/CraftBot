@@ -6,7 +6,7 @@ a CLI child without `creationflags=CREATE_NO_WINDOW`, Windows allocates a
 fresh console for that child — visible as a brief terminal flash.
 
 Patching every subprocess call site individually doesn't scale (the agent has
-spawns spread across MCP servers, action executor/registry, Living UI manager,
+spawns spread across MCP servers, action executor/registry, Agent App manager,
 scheduler, GUI handler, npm bridge, etc.). Instead we patch the choke points
 once here, before any user code runs:
 

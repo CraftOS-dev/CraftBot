@@ -49,7 +49,7 @@ export const QUESTION_DISMISSED = '__dismissed__'
 // Session Types
 // ─────────────────────────────────────────────────────────────────────
 
-export type SessionType = 'main' | 'chat' | 'living_ui'
+export type SessionType = 'main' | 'chat' | 'agent_app'
 
 export interface SessionInfo {
   id: string
@@ -57,7 +57,7 @@ export interface SessionInfo {
   title: string
   createdAt: string
   lastActiveAt: string
-  livingUiProjectId?: string | null
+  agentAppProjectId?: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -185,19 +185,19 @@ export type WSMessageType =
   // Agent profile picture
   | 'agent_profile_picture_upload'
   | 'agent_profile_picture_remove'
-  // Living UI operations
-  | 'living_ui_create'
-  | 'living_ui_status'
-  | 'living_ui_ready'
-  | 'living_ui_list'
-  | 'living_ui_launch'
-  | 'living_ui_stop'
-  | 'living_ui_delete'
-  | 'living_ui_state_update'
-  | 'living_ui_data_changed'
-  | 'living_ui_build_event'
-  | 'living_ui_build_events_replay'
-  | 'living_ui_error'
+  // Agent App operations
+  | 'agent_app_create'
+  | 'agent_app_status'
+  | 'agent_app_ready'
+  | 'agent_app_list'
+  | 'agent_app_launch'
+  | 'agent_app_stop'
+  | 'agent_app_delete'
+  | 'agent_app_state_update'
+  | 'agent_app_data_changed'
+  | 'agent_app_build_event'
+  | 'agent_app_build_events_replay'
+  | 'agent_app_error'
   | 'prompt_enhanced'
 
 export interface WSMessage {
@@ -605,7 +605,7 @@ export interface OpenFolderResponse {
 // Navigation
 // ─────────────────────────────────────────────────────────────────────
 
-export type NavTab = 'chat' | 'dashboard' | 'screen' | 'workspace' | 'settings' | 'living-ui'
+export type NavTab = 'chat' | 'dashboard' | 'screen' | 'workspace' | 'settings' | 'agent-app'
 
 // ─────────────────────────────────────────────────────────────────────
 // Onboarding Types
@@ -737,20 +737,20 @@ export interface OnboardingCompleteResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Living UI Types
+// Agent App Types
 // ─────────────────────────────────────────────────────────────────────
 
 // 'launching'/'stopping' are optimistic transient states set on the client the
 // moment the user clicks launch/stop, so the UI reacts immediately (the backend
 // only reports the terminal 'running'/'stopped'/'error').
-export type LivingUIStatus = 'creating' | 'launching' | 'ready' | 'running' | 'stopping' | 'stopped' | 'error'
-export type LivingUICreationPhase = 'initializing' | 'scaffolding' | 'coding' | 'testing' | 'building' | 'launching'
+export type AgentAppStatus = 'creating' | 'launching' | 'ready' | 'running' | 'stopping' | 'stopped' | 'error'
+export type AgentAppCreationPhase = 'initializing' | 'scaffolding' | 'coding' | 'testing' | 'building' | 'launching'
 
-export interface LivingUIProject {
+export interface AgentAppProject {
   id: string
   name: string
   description: string
-  status: LivingUIStatus
+  status: AgentAppStatus
   path: string
   /** Chat session backing this project's chat panel. */
   sessionId?: string
@@ -764,7 +764,7 @@ export interface LivingUIProject {
   stylePack?: string
   /** Server-persisted display theme; adopted when no local override exists. */
   uiTheme?: { themeId?: string; customColors?: Record<string, string> } | null
-  /** 'native' (a Living UI) | 'external' (foreign app running as-is). */
+  /** 'native' (a Agent App) | 'external' (foreign app running as-is). */
   projectType?: 'native' | 'external'
   /** External apps only: detected runtime (node/python/static/go/rust). */
   appRuntime?: string | null
@@ -772,7 +772,7 @@ export interface LivingUIProject {
   craftbotVersion?: string | null
 }
 
-export interface LivingUICreateRequest {
+export interface AgentAppCreateRequest {
   name: string
   description: string
   features?: string[]  // Optional, defaults to empty array
@@ -785,9 +785,9 @@ export interface LivingUICreateRequest {
 }
 
 // One derived "the app is being built" event, produced read-only by the
-// backend construction observer (app/living_ui/construction_events.py) and
+// backend construction observer (app/agent_app/construction_events.py) and
 // rendered in the construction dock's feed + CodePeek.
-export interface LivingUIBuildEvent {
+export interface AgentAppBuildEvent {
   id: string
   ts: number
   kind: 'file_write' | 'file_edit' | 'test_run' | 'scaffold' | 'read' | 'search' | 'run' | 'verify' | 'todo'
@@ -808,18 +808,18 @@ export interface LivingUIBuildEvent {
   snapshot?: { collections: number; components: number; routes: number }
 }
 
-export interface LivingUIStatusUpdate {
+export interface AgentAppStatusUpdate {
   projectId: string
-  phase: LivingUICreationPhase
+  phase: AgentAppCreationPhase
   progress: number  // 0-100
   message: string
   logs?: string[]
 }
 
-export interface LivingUIStateUpdate {
+export interface AgentAppStateUpdate {
   projectId: string
   state: {
-    componentTree: LivingUIComponentState[]
+    componentTree: AgentAppComponentState[]
     visibleText: string[]
     inputValues: Record<string, string>
     currentView: string
@@ -828,27 +828,27 @@ export interface LivingUIStateUpdate {
   }
 }
 
-export interface LivingUIComponentState {
+export interface AgentAppComponentState {
   name: string
   props: Record<string, unknown>
-  children?: LivingUIComponentState[]
+  children?: AgentAppComponentState[]
 }
 
-// Response types for Living UI operations
-export interface LivingUICreateResponse {
+// Response types for Agent App operations
+export interface AgentAppCreateResponse {
   success: boolean
   projectId?: string
-  project?: LivingUIProject
+  project?: AgentAppProject
   error?: string
 }
 
-export interface LivingUIListResponse {
+export interface AgentAppListResponse {
   success: boolean
-  projects?: LivingUIProject[]
+  projects?: AgentAppProject[]
   error?: string
 }
 
-export interface LivingUILaunchResponse {
+export interface AgentAppLaunchResponse {
   success: boolean
   projectId?: string
   url?: string
@@ -856,13 +856,13 @@ export interface LivingUILaunchResponse {
   error?: string
 }
 
-export interface LivingUIStopResponse {
+export interface AgentAppStopResponse {
   success: boolean
   projectId?: string
   error?: string
 }
 
-export interface LivingUIDeleteResponse {
+export interface AgentAppDeleteResponse {
   success: boolean
   projectId?: string
   error?: string

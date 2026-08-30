@@ -49,7 +49,7 @@
     },
     "reset": {
       "title": "Reset Agent",
-      "description": "Reset selected parts of the agent. Chats can be wiped without deleting Living UI apps. Saved settings and credentials are preserved.",
+      "description": "Reset selected parts of the agent. Chats can be wiped without deleting Agent App apps. Saved settings and credentials are preserved.",
       "button": "Reset Agent",
       "resetting": "Resetting...",
       "success": "Agent reset successfully",
@@ -57,7 +57,7 @@
     },
     "profile": {
       "title": "Agent Profile",
-      "description": "Share your agent's personality, skills, MCP servers, and Living UI apps as a single <0>.craftbot</0> file. API keys, personal memory, and conversation history are never included.",
+      "description": "Share your agent's personality, skills, MCP servers, and Agent App apps as a single <0>.craftbot</0> file. API keys, personal memory, and conversation history are never included.",
       "export": "Export Profile",
       "import": "Import Profile",
       "exported": "Profile exported",
@@ -69,8 +69,8 @@
       "skillCount_other": "{{count}} skills",
       "mcpCount_one": "{{count}} MCP server",
       "mcpCount_other": "{{count}} MCP servers",
-      "livingUiCount_one": "{{count}} Living UI app",
-      "livingUiCount_other": "{{count}} Living UI apps",
+      "agentAppCount_one": "{{count}} Agent App app",
+      "agentAppCount_other": "{{count}} Agent App apps",
       "profileWord": "profile",
       "importedOverwrite": "Overwrote agent with {{what}}.",
       "importedMerge": "Imported {{what}}."
@@ -97,7 +97,7 @@
     "mcps": "MCPs",
     "skills": "Skills",
     "integrations": "Integrations",
-    "living_ui": "Living UI"
+    "agent_app": "Agent App"
   },
   "model": {
     "title": "Model Configuration",
@@ -600,13 +600,13 @@
       "takesTime": "This can take up to 30 seconds."
     }
   },
-  "livingUi": {
-    "title": "Living UI",
-    "subtitle": "Manage and share your Living UI projects",
+  "agentApp": {
+    "title": "Agent App",
+    "subtitle": "Manage and share your Agent App projects",
     "projectsTitle": "Projects",
-    "projectsDesc": "Manage, launch, and share your Living UI projects. Create new ones from the main chat.",
+    "projectsDesc": "Manage, launch, and share your Agent App projects. Create new ones from the main chat.",
     "loadingProjects": "Loading projects...",
-    "noProjects": "No Living UI projects yet. Create one from the main chat.",
+    "noProjects": "No Agent App projects yet. Create one from the main chat.",
     "leftoverTitle": "Leftover backups",
     "leftoverDesc": "Backup archives of deleted apps. They are kept when an app is deleted; remove them here when you no longer need the data.",
     "status": {
@@ -647,7 +647,7 @@
     },
     "restoringInto": "Restoring into \"{{name}}\"… this can take a minute.",
     "restoring": "Restoring… this can take a minute.",
-    "deleteConfirmTitle": "Delete Living UI",
+    "deleteConfirmTitle": "Delete Agent App",
     "deleteConfirmMessage": "Are you sure you want to delete \"{{name}}\"? This will remove all project files. If the app has any live data, a final backup is saved first and KEPT — leftover backups can be removed below afterwards.",
     "leftoverDeleteTitle": "Delete leftover backups",
     "leftoverDeleteMessage": "Permanently delete all backup archives of the deleted app \"{{name}}\"? They are the only remaining copy of its data.",

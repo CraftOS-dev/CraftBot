@@ -31,7 +31,7 @@ class SessionStorage:
     """
     SQLite-based storage for persistent sessions.
 
-    Persists every session (main / chat / living_ui) and its event stream so
+    Persists every session (main / chat / agent_app) and its event stream so
     they can be restored after an agent restart.
     """
 

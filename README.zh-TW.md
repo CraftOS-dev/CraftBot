@@ -42,7 +42,7 @@
 
 - **Agent 設定檔** 40+ Agent 設定檔(CEO Agent、財務 Agent、行銷負責人 Agent、DevOps 工程師、影片製作人 Agent 等共 37 種)隨時準備為你工作。從 **[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** 找到想要的角色,一鍵匯入。
 - **Playbook 目錄** 不知道如何用 AI Agent 自動化?CraftBot 內建 120 個 Playbook(涵蓋 19 個分類)隨時可用。從頂部列開啟 Playbook 選擇器,挑一個 Playbook,它就會開始替你執行任務。
-- **Living UI.** 在 CraftBot 內建立、匯入或演進自訂應用程式。Agent 隨時掌握 UI 的狀態,並能直接讀取、寫入並操作其中的資料。
+- **Agent App.** 在 CraftBot 內建立、匯入或演進自訂應用程式。Agent 隨時掌握 UI 的狀態,並能直接讀取、寫入並操作其中的資料。
 - **多工與工作階段路由.** 還在手動輸入 `/new` 指令嗎?CraftBot 能自己判斷何時該開啟新會話、何時要繼續舊任務,讓對話與上下文保持一致。
 - **自架與 BYOK.** 彈性的 LLM 供應商系統,支援 OpenAI、Google Gemini、Anthropic Claude、OpenRouter 等。也可以用 Ollama 自架模型,完全不耗 Token。
 - **記憶系統.** 從你與 CraftBot 的互動中建立的第二大腦。混合方案:RAG + 知識圖譜 + Agent 檔案系統。CraftBot 會在午夜「做夢」,整合一整天發生的事件。
@@ -85,65 +85,65 @@ python craftbot.py uninstall  # 停止執行、移除自動啟動並解除安裝
 
 ---
 
-## 🌱 Living UI
+## 🌱 Agent App
 
-**Living UI 是會隨著你的需求一起演進的系統/應用/儀表板。**
+**Agent App 是會隨著你的需求一起演進的系統/應用/儀表板。**
 
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/agent_app_banner.gif" alt="CraftBot Banner" width="1280"/>
 </div>
 
 - 想要一塊內建 AI 協作夥伴的 Kanban 看板?
 - 一套完全貼合你工作流程的客製化 CRM?
 - 一個 CraftBot 可以代替你讀取並操作的公司儀表板?
 
-將它作為 Living UI 啟動:它會與 CraftBot 並行運作,並隨著你的需求變化而成長。
+將它作為 Agent App 啟動:它會與 CraftBot 並行運作,並隨著你的需求變化而成長。
 
-### 建立 Living UI 的三種方式
+### 建立 Agent App 的三種方式
 
 1. **從零開始建立.** 用自然語言描述你想要的東西,CraftBot
    會幫你搭好資料模型、後端 API 與 React 前端,
    並透過一套結構化的設計流程與你不斷迭代。
 
 <div align="center">
-    <img src="assets/living-ui-custom-build.png" alt="Building a Living UI from scratch" width="448"/>
+    <img src="assets/agent-app-custom-build.png" alt="Building a Agent App from scratch" width="448"/>
 </div>
 
-2. **從市集安裝.** 在 [living-ui-marketplace](https://github.com/CraftOS-dev/living-ui-marketplace) 瀏覽社群打造的 Living UI。
+2. **從市集安裝.** 在 [living-ui-marketplace](https://github.com/CraftOS-dev/living-ui-marketplace) 瀏覽社群打造的 Agent App。
 
 <div align="center">
-    <img src="assets/living-ui-marketplace.png" alt="Living UI marketplace" width="448"/>
+    <img src="assets/living-ui-marketplace.png" alt="Agent App marketplace" width="448"/>
 </div>
 
 3. **匯入既有專案.** 把 Go、Node.js、Python、Rust,
-   或是靜態原始碼或 GitHub 儲存庫交給 CraftBot,它會自動偵測執行環境、設定健康檢查,並包裝成一個 Living UI。
+   或是靜態原始碼或 GitHub 儲存庫交給 CraftBot,它會自動偵測執行環境、設定健康檢查,並包裝成一個 Agent App。
 
 <div align="center">
-    <img src="assets/living-ui-import.png" alt="Importing an existing project as a Living UI" width="448"/>
+    <img src="assets/agent-app-import.png" alt="Importing an existing project as a Agent App" width="448"/>
 </div>
 
 ### 讓 CraftBot 始終參與其中,持續演進
 
-Living UI 永遠沒有「完成」這回事。需求一變,
+Agent App 永遠沒有「完成」這回事。需求一變,
 就讓 Agent 為它加上新功能、重新設計頁面或接上新的資料源。
 
-CraftBot 嵌入在每一個 Living UI 中,並且**對其狀態保持感知**:
+CraftBot 嵌入在每一個 Agent App 中,並且**對其狀態保持感知**:
 它可以讀取目前的 DOM 與表單值、透過 REST API 查詢應用資料,
 並代你觸發操作。
 
 ### 讓 SaaS 工具保持開放且不停演進
 
-打造、自訂並不斷演進屬於你自己的 Living UI,降低對那些根本沒為你量身打造的訂閱工具的依賴。
+打造、自訂並不斷演進屬於你自己的 Agent App,降低對那些根本沒為你量身打造的訂閱工具的依賴。
 
 ---
  
-# 三個 5 分鐘內就能試玩的 Living UI
+# 三個 5 分鐘內就能試玩的 Agent App
  
 - **📋 Kanban 看板**:把任務、後續追蹤與待辦集中到一個地方,CraftBot 可以接手操作,替你完成 PM 工作。
 - **📊 習慣追蹤器**:培養並追蹤自己的習慣,用類 GitHub 風格的活動日曆像寫程式一樣維護你的習慣。
 - **🐦 Luolinglo**:不是 Duolingo,但你可以學新語言、做單字卡片,並和 CraftBot 一起練習。
 
-**[瀏覽 Living UI 市集並貢獻你的作品 →](https://craftos.net/marketplace)**
+**[瀏覽 Agent App 市集並貢獻你的作品 →](https://craftos.net/marketplace)**
 
 ---
 

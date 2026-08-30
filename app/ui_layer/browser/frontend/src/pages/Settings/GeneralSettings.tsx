@@ -651,10 +651,10 @@ export function GeneralSettings() {
       if (summary.mcp_added?.length) {
         parts.push(t('settings:general.profile.mcpCount', { count: summary.mcp_added.length }))
       }
-      const livingUiCount =
-        (summary.living_ui_added?.length || 0) + (summary.living_ui_renamed?.length || 0)
-      if (livingUiCount) {
-        parts.push(t('settings:general.profile.livingUiCount', { count: livingUiCount }))
+      const agentAppCount =
+        (summary.agent_app_added?.length || 0) + (summary.agent_app_renamed?.length || 0)
+      if (agentAppCount) {
+        parts.push(t('settings:general.profile.agentAppCount', { count: agentAppCount }))
       }
       const what = parts.length > 0 ? formatList(parts) : t('settings:general.profile.profileWord')
 

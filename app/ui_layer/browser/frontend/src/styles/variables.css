@@ -5,7 +5,7 @@
  *   - Hierarchy is conveyed by subtle background steps and border weight,
  *     not by chromatic accent.
  *   - Brand orange (#FF4F18) is reserved for a tiny set of elements:
- *       • the "+ Add Living UI" CTA pill in the NavBar
+ *       • the "+ Add Agent App" CTA pill in the NavBar
  *       • the .primary Button variant (used for Save/Continue/Confirm CTAs)
  *       • the splash-screen dots and brand logotype
  *     Every other "active / selected / focused / highlight" state uses

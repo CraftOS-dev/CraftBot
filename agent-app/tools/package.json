@@ -1,0 +1,17 @@
+{
+  "name": "@agentapp/tools",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Agent App workspace CLI — create, dev, validate, pb, kit-sync, pack",
+  "bin": {
+    "lui": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "playwright": "^1.61.1"
+  }
+}
