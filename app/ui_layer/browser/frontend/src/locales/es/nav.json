@@ -1,7 +1,7 @@
 {
   "items": {
     "main": "Principal",
-    "newChat": "Nuevo chat",
+    "newChat": "Nueva tarea",
     "dashboard": "Panel",
     "memory": "Memoria",
     "workspace": "Espacio de trabajo",
@@ -16,7 +16,7 @@
     "collapse": "Contraer barra lateral",
     "websiteLabel": "Sitio web de CraftBot",
     "addAgentApp": "Añadir Agent App",
-    "newChat": "Nuevo chat",
+    "newChat": "Nueva tarea",
     "noAgentAppApps": "No hay apps de Agent App",
     "showMoreCount": "Mostrar más ({{count}})"
   },

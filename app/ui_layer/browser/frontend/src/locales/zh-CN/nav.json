@@ -1,7 +1,7 @@
 {
   "items": {
     "main": "主对话",
-    "newChat": "新建对话",
+    "newChat": "新建任务",
     "dashboard": "仪表盘",
     "memory": "记忆",
     "workspace": "工作区",
@@ -16,7 +16,7 @@
     "collapse": "收起侧边栏",
     "websiteLabel": "CraftBot 网站",
     "addAgentApp": "添加 Agent App",
-    "newChat": "新建对话",
+    "newChat": "新建任务",
     "noAgentAppApps": "暂无 Agent App 应用",
     "showMoreCount": "显示更多（{{count}}）"
   },

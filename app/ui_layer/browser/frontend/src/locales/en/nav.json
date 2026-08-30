@@ -1,7 +1,7 @@
 {
   "items": {
     "main": "Main",
-    "newChat": "New Chat",
+    "newChat": "New Task",
     "dashboard": "Dashboard",
     "memory": "Memory",
     "workspace": "Workspace",
@@ -16,7 +16,7 @@
     "collapse": "Collapse sidebar",
     "websiteLabel": "CraftBot website",
     "addAgentApp": "Add Agent App",
-    "newChat": "New chat",
+    "newChat": "New task",
     "noAgentAppApps": "No Agent App apps",
     "showMoreCount": "Show more ({{count}})"
   },

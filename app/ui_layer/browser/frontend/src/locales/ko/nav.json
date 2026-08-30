@@ -1,7 +1,7 @@
 {
   "items": {
     "main": "메인",
-    "newChat": "새 채팅",
+    "newChat": "새 작업",
     "dashboard": "대시보드",
     "memory": "메모리",
     "workspace": "작업 공간",
@@ -16,7 +16,7 @@
     "collapse": "사이드바 접기",
     "websiteLabel": "CraftBot 웹사이트",
     "addAgentApp": "Agent App 추가",
-    "newChat": "새 채팅",
+    "newChat": "새 작업",
     "noAgentAppApps": "Agent App 앱 없음",
     "showMoreCount": "더 보기 ({{count}})"
   },

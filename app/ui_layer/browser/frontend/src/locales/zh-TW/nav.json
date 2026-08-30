@@ -1,7 +1,7 @@
 {
   "items": {
     "main": "主要",
-    "newChat": "新對話",
+    "newChat": "新任務",
     "dashboard": "儀表板",
     "memory": "記憶",
     "workspace": "工作區",
@@ -16,7 +16,7 @@
     "collapse": "收合側邊欄",
     "websiteLabel": "CraftBot 網站",
     "addAgentApp": "新增 Agent App",
-    "newChat": "新對話",
+    "newChat": "新任務",
     "noAgentAppApps": "尚無 Agent App 應用程式",
     "showMoreCount": "顯示更多（{{count}}）"
   },

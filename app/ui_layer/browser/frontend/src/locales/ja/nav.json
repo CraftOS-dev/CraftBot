@@ -1,7 +1,7 @@
 {
   "items": {
     "main": "メイン",
-    "newChat": "新規チャット",
+    "newChat": "新規タスク",
     "dashboard": "ダッシュボード",
     "memory": "メモリー",
     "workspace": "ワークスペース",
@@ -16,7 +16,7 @@
     "collapse": "サイドバーを折りたたむ",
     "websiteLabel": "CraftBot ウェブサイト",
     "addAgentApp": "Agent App を追加",
-    "newChat": "新規チャット",
+    "newChat": "新規タスク",
     "noAgentAppApps": "Agent App アプリがありません",
     "showMoreCount": "もっと見る ({{count}})"
   },

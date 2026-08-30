@@ -1,7 +1,7 @@
 {
   "items": {
     "main": "Utama",
-    "newChat": "Obrolan Baru",
+    "newChat": "Tugas Baru",
     "dashboard": "Dasbor",
     "memory": "Memori",
     "workspace": "Ruang Kerja",
@@ -16,7 +16,7 @@
     "collapse": "Ciutkan bilah sisi",
     "websiteLabel": "Situs web CraftBot",
     "addAgentApp": "Tambah Agent App",
-    "newChat": "Obrolan baru",
+    "newChat": "Tugas baru",
     "noAgentAppApps": "Belum ada aplikasi Agent App",
     "showMoreCount": "Tampilkan lebih banyak ({{count}})"
   },
