@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Sparkles, Download, Loader2, Package, Store, FolderInput, Upload, Check, Search } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { CreateCustomWizard } from './CreateCustomWizard'
@@ -40,6 +41,7 @@ interface MarketplaceApp {
 }
 
 export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivingUIModalProps) {
+  const { t } = useTranslation(['components', 'common'])
   const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import'>('marketplace')
 
   // Import tab state
@@ -117,9 +119,9 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
         send('living_ui_import', { source: result.path, name: result.name || zipName })
         return
       }
-      setImportError(result.error || 'Upload failed')
+      setImportError(result.error || t('components:createLivingUi.uploadFailed'))
     } catch (err) {
-      setImportError('Upload failed: ' + (err instanceof Error ? err.message : err))
+      setImportError(t('components:createLivingUi.uploadFailedDetail', { message: err instanceof Error ? err.message : String(err) }))
     }
     setImporting(false)
   }
@@ -158,7 +160,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
           setApps(appsWithThumbnails)
           setMarketplaceError(null)
         } else {
-          setMarketplaceError(data.error || 'Failed to load marketplace')
+          setMarketplaceError(data.error || t('components:createLivingUi.marketplaceFailed'))
         }
       }),
       onMessage('living_ui_import_result', (data: any) => {
@@ -171,7 +173,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
           }
           onCloseRef.current()
         } else {
-          setImportError(data.error || 'Import failed')
+          setImportError(data.error || t('components:createLivingUi.importFailed'))
         }
       }),
       onMessage('living_ui_marketplace_install', (data: any) => {
@@ -215,7 +217,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
             installTimeoutsRef.current.clear()
             setInstallingIds(new Set())
           }
-          setMarketplaceError(data.error || 'Installation failed')
+          setMarketplaceError(data.error || t('components:createLivingUi.installFailed'))
         }
       }),
     ]
@@ -285,7 +287,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
     // Stuck-install timeout: clear installing state after 3 minutes
     const timeout = setTimeout(() => {
       setInstallingIds(prev => { const n = new Set(prev); n.delete(appKey); return n })
-      setMarketplaceError(`Installation of "${app.name}" timed out. Please try again.`)
+      setMarketplaceError(t('components:createLivingUi.installTimeout', { name: app.name }))
       installTimeoutsRef.current.delete(appKey)
     }, 3 * 60 * 1000)
     installTimeoutsRef.current.set(appKey, timeout)
@@ -315,7 +317,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
         title={
           <>
             <Sparkles size={20} className={styles.headerIcon} />
-            {String(chatWizard.config?.name || 'Living UI')} — setup questions
+            {t('components:createLivingUi.setupQuestions', { name: String(chatWizard.config?.name || 'Living UI') })}
           </>
         }
       >
@@ -338,9 +340,9 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
   if (!isOpen) return <></> // mounted but invisible — keeps onMessage listeners alive
 
   const tabsConfig = [
-    { id: 'marketplace' as const, label: 'Marketplace', icon: <Store size={14} /> },
-    { id: 'custom' as const, label: 'Create Custom', icon: <Sparkles size={14} /> },
-    { id: 'import' as const, label: 'Import', icon: <FolderInput size={14} /> },
+    { id: 'marketplace' as const, label: t('components:createLivingUi.tabMarketplace'), icon: <Store size={14} /> },
+    { id: 'custom' as const, label: t('components:createLivingUi.tabCustom'), icon: <Sparkles size={14} /> },
+    { id: 'import' as const, label: t('components:createLivingUi.tabImport'), icon: <FolderInput size={14} /> },
   ]
 
   return (
@@ -353,7 +355,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
       title={
         <>
           <Sparkles size={20} className={styles.headerIcon} />
-          Add Living UI
+          {t('components:createLivingUi.addTitle')}
         </>
       }
     >
@@ -379,19 +381,19 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                 <Search size={14} className={styles.searchIcon} />
                 <input
                   className={styles.searchInput}
-                  placeholder="Search apps..."
+                  placeholder={t('components:createLivingUi.searchPlaceholder')}
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
               </div>
               {allTags.length > 0 && (
                 <div className={styles.tagsRow}>
-                  <span className={styles.tagsLabel}>Tags:</span>
+                  <span className={styles.tagsLabel}>{t('components:createLivingUi.tagsLabel')}</span>
                   <button
                     className={`${styles.tagChip} ${selectedTags.size === 0 ? styles.tagChipActive : ''}`}
                     onClick={() => setSelectedTags(new Set())}
                   >
-                    All
+                    {t('components:createLivingUi.filterAll')}
                   </button>
                   {visibleTags.map(tag => (
                     <button
@@ -407,7 +409,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                       className={styles.tagChip}
                       onClick={() => setTagsExpanded(v => !v)}
                     >
-                      {tagsExpanded ? 'Show less' : `+${hiddenTagCount} more`}
+                      {tagsExpanded ? t('common:actions.showLess') : t('components:createLivingUi.moreCount', { count: hiddenTagCount })}
                     </button>
                   )}
                 </div>
@@ -422,17 +424,17 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
               ) : marketplaceError ? (
                 <div className={styles.stateCenter}>
                   <p className={styles.stateText}>{marketplaceError}</p>
-                  <Button size="sm" variant="secondary" onClick={fetchMarketplace}>Retry</Button>
+                  <Button size="sm" variant="secondary" onClick={fetchMarketplace}>{t('common:actions.retry')}</Button>
                 </div>
               ) : apps.length === 0 ? (
                 <div className={styles.stateCenter}>
                   <Package size={32} className={styles.stateIcon} />
-                  <p className={styles.stateText}>No apps available yet.</p>
+                  <p className={styles.stateText}>{t('components:createLivingUi.emptyNone')}</p>
                 </div>
               ) : filteredApps.length === 0 ? (
                 <div className={styles.stateCenter}>
                   <Search size={32} className={styles.stateIcon} />
-                  <p className={styles.stateText}>No apps match your filters.</p>
+                  <p className={styles.stateText}>{t('components:createLivingUi.emptyFiltered')}</p>
                 </div>
               ) : (
                 <div className={styles.appsGrid}>
@@ -473,7 +475,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                           {installedCount > 0 && !installing ? (
                             <span className={styles.installedBadge}>
                               <Check size={10} />
-                              {installedCount === 1 ? 'Installed' : `Installed ×${installedCount}`}
+                              {t('components:createLivingUi.installedBadge', { count: installedCount })}
                             </span>
                           ) : <span />}
                           <Button
@@ -483,7 +485,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                             onClick={() => !installing && handleAddClick(app)}
                             disabled={installing}
                           >
-                            {installing ? 'Installing...' : 'Add'}
+                            {installing ? t('common:status.installing') : t('common:actions.add')}
                           </Button>
                         </div>
                       </div>
@@ -500,8 +502,8 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
           <div className={styles.configBody}>
             <div className={styles.configCard}>
               <div className={styles.configHeader}>
-                <h4>Configure: {configuringApp.name}</h4>
-                <p>Customize before installing</p>
+                <h4>{t('components:createLivingUi.configureApp', { name: configuringApp.name })}</h4>
+                <p>{t('components:createLivingUi.configureSubtitle')}</p>
               </div>
               {configuringApp.customizable?.map(field => (
                 <div key={field.key} className={styles.formGroup} style={{ marginBottom: 'var(--space-3)' }}>
@@ -516,9 +518,9 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                 </div>
               ))}
               <div className={styles.configActions}>
-                <Button variant="secondary" onClick={() => setConfiguringApp(null)}>Back</Button>
+                <Button variant="secondary" onClick={() => setConfiguringApp(null)}>{t('common:actions.back')}</Button>
                 <Button variant="primary" icon={<Download size={14} />} onClick={() => doInstall(configuringApp, customValues)}>
-                  Install
+                  {t('common:actions.install')}
                 </Button>
               </div>
             </div>
@@ -542,18 +544,17 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
               <div className={styles.centeredForm}>
                 <div className={styles.formGroup}>
                   <label className={styles.label}>
-                    GitHub URL or Local Path
+                    {t('components:createLivingUi.importUrlLabel')}
                   </label>
                   <input
                     type="text"
                     className={styles.input}
-                    placeholder="https://github.com/user/repo or /path/to/local/app"
+                    placeholder={t('components:createLivingUi.importUrlPlaceholder')}
                     value={importSource}
                     onChange={e => setImportSource(e.target.value)}
                   />
                   <span className={styles.hint}>
-                    Living UI exports: ZIP, project folder, or git URL. Other
-                    apps are rebuilt — ask the agent to convert them.
+                    {t('components:createLivingUi.importHint')}
                   </span>
                   {importError && (
                     <span className={styles.hint} style={{ color: 'var(--color-error, #e5484d)' }}>
@@ -563,7 +564,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                 </div>
 
                 <div className={styles.orDivider}>
-                  <span>or</span>
+                  <span>{t('components:createLivingUi.or')}</span>
                 </div>
 
                 <div
@@ -590,16 +591,16 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                   {importing ? (
                     <>
                       <Loader2 size={24} className={styles.spinner} />
-                      <p className={styles.dropZoneSub}>Importing...</p>
+                      <p className={styles.dropZoneSub}>{t('common:status.importing')}</p>
                     </>
                   ) : (
                     <>
                       <Upload size={24} className={styles.dropZoneIcon} />
                       <p className={styles.dropZoneLabel}>
-                        Drop a ZIP file here or click to browse
+                        {t('components:createLivingUi.dropZipLabel')}
                       </p>
                       <p className={styles.dropZoneSub}>
-                        Import a previously exported Living UI
+                        {t('components:createLivingUi.dropZipSub')}
                       </p>
                     </>
                   )}
@@ -609,7 +610,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
 
             <div className={styles.modalFooter}>
               <Button variant="secondary" type="button" onClick={onClose}>
-                Cancel
+                {t('common:actions.cancel')}
               </Button>
               <Button
                 variant="primary"
@@ -623,11 +624,11 @@ export function CreateLivingUIModal({ isOpen, onClose, onInstalled }: CreateLivi
                   setImportError(null)
                   send('living_ui_import', {
                     source: importSource.trim(),
-                    name: importSource.trim().split('/').pop()?.replace('.git', '') || 'External App',
+                    name: importSource.trim().split('/').pop()?.replace('.git', '') || t('components:createLivingUi.externalAppName'),
                   })
                 }}
               >
-                {importing ? 'Importing...' : 'Import App'}
+                {importing ? t('common:status.importing') : t('components:createLivingUi.importButton')}
               </Button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -33,6 +34,17 @@ import styles from './LivingUIPage.module.css'
 // Stable empty array so the dock's memoized selectors don't churn per render.
 const EMPTY_EVENTS: LivingUIBuildEvent[] = []
 
+// Maps each backend status enum to its (type-checked) i18n key for the status pill.
+const STATUS_LABEL_KEY = {
+  creating: 'livingui:page.status.creating',
+  launching: 'livingui:page.status.launching',
+  ready: 'livingui:page.status.ready',
+  running: 'livingui:page.status.running',
+  stopping: 'livingui:page.status.stopping',
+  stopped: 'livingui:page.status.stopped',
+  error: 'livingui:page.status.error',
+} as const
+
 function loadLivingUITheme(projectId: string): LivingUIThemeId {
   try {
     const stored = localStorage.getItem(`livingui-theme-${projectId}`)
@@ -61,6 +73,7 @@ function saveLivingUICustomColors(projectId: string, colors: LivingUICustomColor
 }
 
 export function LivingUIPage() {
+  const { t } = useTranslation(['livingui', 'common'])
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const {
@@ -302,10 +315,10 @@ export function LivingUIPage() {
     return (
       <div className={styles.notFound}>
         <AlertCircle size={48} />
-        <h2>Living UI Not Found</h2>
-        <p>The Living UI project you're looking for doesn't exist or has been deleted.</p>
+        <h2>{t('livingui:page.notFoundTitle')}</h2>
+        <p>{t('livingui:page.notFoundBody')}</p>
         <Button variant="primary" onClick={() => navigate('/')}>
-          Go to Chat
+          {t('livingui:page.goToChat')}
         </Button>
       </div>
     )
@@ -319,10 +332,10 @@ export function LivingUIPage() {
           <Box size={14} className={styles.projectIcon} />
           <h1 className={styles.projectName}>{project.name}</h1>
           <span className={`${styles.status} ${styles[project.status]}`}>
-            {project.status}
+            {t(STATUS_LABEL_KEY[project.status])}
           </span>
           {isFullscreen && (
-            <span className={styles.fullscreenBadge}>Fullscreen</span>
+            <span className={styles.fullscreenBadge}>{t('livingui:page.fullscreen')}</span>
           )}
         </div>
 
@@ -332,13 +345,13 @@ export function LivingUIPage() {
               <IconButton
                 size="sm"
                 icon={<RefreshCw size={14} />}
-                tooltip="Refresh"
+                tooltip={t('common:actions.refresh')}
                 onClick={handleRefresh}
               />
               <IconButton
                 size="sm"
                 icon={<Square size={14} />}
-                tooltip="Stop"
+                tooltip={t('livingui:page.stop')}
                 onClick={handleStop}
               />
             </>
@@ -347,27 +360,27 @@ export function LivingUIPage() {
               size="sm"
               disabled
               icon={<Loader2 size={14} className={styles.spinner} />}
-              tooltip={project.status === 'launching' ? 'Launching…' : 'Stopping…'}
+              tooltip={project.status === 'launching' ? t('livingui:page.launching') : t('livingui:page.stopping')}
             />
           ) : project.status === 'ready' || project.status === 'stopped' ? (
             <IconButton
               size="sm"
               icon={<Play size={14} />}
-              tooltip="Launch"
+              tooltip={t('livingui:page.launch')}
               onClick={handleLaunch}
             />
           ) : null}
           <IconButton
             size="sm"
             icon={<Palette size={14} />}
-            tooltip="Theme"
+            tooltip={t('livingui:page.theme')}
             onClick={() => setShowThemeModal(true)}
           />
           {project.sessionId && (
             <IconButton
               size="sm"
               icon={<MessageSquare size={14} />}
-              tooltip={showChat ? 'Hide Chat' : 'Show Chat'}
+              tooltip={showChat ? t('livingui:page.hideChat') : t('livingui:page.showChat')}
               onClick={() => setShowChat(prev => !prev)}
             />
           )}
@@ -375,14 +388,14 @@ export function LivingUIPage() {
             size="sm"
             active={isFullscreen}
             icon={isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            tooltip={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Fullscreen'}
+            tooltip={isFullscreen ? t('livingui:page.exitFullscreen') : t('livingui:page.fullscreen')}
             onClick={toggleFullscreen}
           />
           {project.status !== 'running' && (
             <IconButton
               size="sm"
               icon={<Trash2 size={14} />}
-              tooltip="Delete"
+              tooltip={t('common:actions.delete')}
               variant="ghost"
               onClick={() => setShowDeleteModal(true)}
             />
@@ -406,29 +419,29 @@ export function LivingUIPage() {
           ) : project.status === 'launching' ? (
             <div className={styles.loading}>
               <CraftBotMascot state="launching" size={96} />
-              <p>Launching Living UI...</p>
-              <p className={styles.hint}>Installing dependencies, running tests, starting servers</p>
+              <p>{t('livingui:page.launchingTitle')}</p>
+              <p className={styles.hint}>{t('livingui:page.launchingHint')}</p>
             </div>
           ) : project.status === 'stopping' ? (
             <div className={styles.loading}>
               <Loader2 size={48} className={styles.spinner} />
-              <p>Stopping Living UI...</p>
+              <p>{t('livingui:page.stoppingTitle')}</p>
             </div>
           ) : project.status === 'error' ? (
             <div className={styles.error}>
               <AlertCircle size={32} />
-              <p>Error creating Living UI</p>
-              <p className={styles.errorMessage}>{project.error || 'Unknown error'}</p>
+              <p>{t('livingui:page.errorTitle')}</p>
+              <p className={styles.errorMessage}>{project.error || t('common:status.unknownError')}</p>
               <Button variant="secondary" onClick={() => setShowDeleteModal(true)}>
-                Delete Project
+                {t('livingui:page.deleteProject')}
               </Button>
             </div>
           ) : (
             <div className={styles.stopped}>
               <CraftBotMascot state="stopped" size={96} />
-              <p>Living UI is not running</p>
+              <p>{t('livingui:page.stoppedTitle')}</p>
               <Button variant="primary" onClick={handleLaunch}>
-                <Play size={16} /> Launch
+                <Play size={16} /> {t('livingui:page.launch')}
               </Button>
             </div>
           )}
@@ -456,7 +469,7 @@ export function LivingUIPage() {
           >
             <Chat
               sessionId={project.sessionId}
-              placeholder="Ask about this Living UI..."
+              placeholder={t('livingui:page.chatPlaceholder')}
             />
           </div>
         )}
@@ -478,9 +491,9 @@ export function LivingUIPage() {
       {/* Delete Confirmation Modal */}
       <ConfirmModal
         isOpen={showDeleteModal}
-        title="Delete Living UI"
-        message={`Are you sure you want to delete "${project.name}"? This action cannot be undone.`}
-        confirmText="Delete"
+        title={t('livingui:page.deleteModalTitle')}
+        message={t('livingui:page.deleteModalMessage', { name: project.name })}
+        confirmText={t('common:actions.delete')}
         variant="danger"
         onConfirm={handleDelete}
         onCancel={() => setShowDeleteModal(false)}

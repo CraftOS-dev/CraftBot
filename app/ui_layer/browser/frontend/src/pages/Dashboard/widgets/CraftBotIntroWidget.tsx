@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Cloud, Users, Github, Box, ChevronRight, ArrowLeft, ExternalLink, Compass } from 'lucide-react'
 import { CraftBotMascot, useMascotState, getPose } from '@mascot'
 import type { MascotState } from '@mascot'
@@ -19,88 +20,97 @@ interface IntroCard {
   icon: typeof Cloud
 }
 
-/* Copy comes from craftbot.live and the CraftBot docs. Keep in sync. */
-const CARDS: IntroCard[] = [
-  {
-    id: 'cloud',
-    variant: 'vision',
-    categoryLabel: 'CraftBot Live',
-    title: 'CraftBot Live',
-    subtitle: 'Your personal CraftBot, always online',
-    desc: 'Your personal CraftBot, always online',
-    items: [
-      { label: 'No SSH' },
-      { label: 'No Docker' },
-      { label: 'Runs while you sleep' },
-      { label: 'Reach it from any device' }
-    ],
-    cta: { label: 'Start free', href: 'https://craftbot.live' },
-    icon: Cloud
-  },
-  {
-    id: 'livingui',
-    variant: 'chips',
-    categoryLabel: 'Living UI',
-    title: 'An agent that builds and operates its own software',
-    subtitle: 'Ask for an app and the agent designs, codes, tests, and launches it inside its own interface.',
-    desc: 'Ask for an app. The agent designs, codes, tests, and launches it.',
-    items: [
-      { label: 'Kanban board' },
-      { label: 'CRM' },
-      { label: 'Habit tracker' },
-      { label: 'Community marketplace' }
-    ],
-    cta: { label: 'Browse the Living UI marketplace', href: 'https://craftos.net/marketplace' },
-    icon: Box
-  },
-  {
-    id: 'bundles',
-    variant: 'chips',
-    categoryLabel: 'Agent Bundles',
-    title: '40+ prebuilt agent personas',
-    subtitle: 'Import CEO, finance, and DevOps agents with one click. 120 ready-made playbooks cover common automations.',
-    desc: 'CEO, finance, DevOps, and 40+ other personas. One click to import.',
-    items: [
-      { label: 'CEO agent' },
-      { label: 'Finance agent' },
-      { label: 'DevOps engineer' },
-      { label: '120 playbooks' },
-      { label: 'One-click import' }
-    ],
-    cta: { label: 'Get agent bundles', href: 'https://github.com/CraftOS-dev/craftbot-agent-bundles' },
-    icon: Users
-  },
-  {
-    id: 'community',
-    variant: 'articles',
-    categoryLabel: 'Open Source',
-    title: 'One agent. Every kind of work.',
-    subtitle: 'MIT-licensed and free to self-host. Active development, weekly improvements.',
-    desc: 'MIT-licensed, self-hostable, built in the open.',
-    items: [
-      {
-        label: 'CraftOS-dev/CraftBot',
-        tag: 'GitHub',
-        href: 'https://github.com/CraftOS-dev/CraftBot'
-      },
-      {
-        label: 'Join the CraftBot community',
-        tag: 'Discord',
-        href: 'https://discord.gg/ZN9YHc37HG'
-      },
-      {
-        label: 'Community-built Living UIs',
-        tag: 'Market',
-        href: 'https://craftos.net/marketplace'
-      }
-    ],
-    cta: { label: 'Star on GitHub', href: 'https://github.com/CraftOS-dev/CraftBot' },
-    icon: Github
-  }
-]
+/* Copy comes from craftbot.live and the CraftBot docs. Keep in sync. The
+   translatable strings live in dashboard:widgets.craftBotIntro.cards.*; hrefs,
+   ids, variants, and icons are non-translatable structure. */
+// Keys are built from a constant base prefix, so they are resolved dynamically
+// (validated by catalog presence) rather than as compile-time literals.
+function buildCards(t: (key: string) => string): IntroCard[] {
+  const base = 'dashboard:widgets.craftBotIntro.cards'
+  return [
+    {
+      id: 'cloud',
+      variant: 'vision',
+      categoryLabel: t(`${base}.cloud.categoryLabel`),
+      title: t(`${base}.cloud.title`),
+      subtitle: t(`${base}.cloud.subtitle`),
+      desc: t(`${base}.cloud.desc`),
+      items: [
+        { label: t(`${base}.cloud.item0`) },
+        { label: t(`${base}.cloud.item1`) },
+        { label: t(`${base}.cloud.item2`) },
+        { label: t(`${base}.cloud.item3`) }
+      ],
+      cta: { label: t(`${base}.cloud.cta`), href: 'https://craftbot.live' },
+      icon: Cloud
+    },
+    {
+      id: 'livingui',
+      variant: 'chips',
+      categoryLabel: t(`${base}.livingui.categoryLabel`),
+      title: t(`${base}.livingui.title`),
+      subtitle: t(`${base}.livingui.subtitle`),
+      desc: t(`${base}.livingui.desc`),
+      items: [
+        { label: t(`${base}.livingui.item0`) },
+        { label: t(`${base}.livingui.item1`) },
+        { label: t(`${base}.livingui.item2`) },
+        { label: t(`${base}.livingui.item3`) }
+      ],
+      cta: { label: t(`${base}.livingui.cta`), href: 'https://craftos.net/marketplace' },
+      icon: Box
+    },
+    {
+      id: 'bundles',
+      variant: 'chips',
+      categoryLabel: t(`${base}.bundles.categoryLabel`),
+      title: t(`${base}.bundles.title`),
+      subtitle: t(`${base}.bundles.subtitle`),
+      desc: t(`${base}.bundles.desc`),
+      items: [
+        { label: t(`${base}.bundles.item0`) },
+        { label: t(`${base}.bundles.item1`) },
+        { label: t(`${base}.bundles.item2`) },
+        { label: t(`${base}.bundles.item3`) },
+        { label: t(`${base}.bundles.item4`) }
+      ],
+      cta: { label: t(`${base}.bundles.cta`), href: 'https://github.com/CraftOS-dev/craftbot-agent-bundles' },
+      icon: Users
+    },
+    {
+      id: 'community',
+      variant: 'articles',
+      categoryLabel: t(`${base}.community.categoryLabel`),
+      title: t(`${base}.community.title`),
+      subtitle: t(`${base}.community.subtitle`),
+      desc: t(`${base}.community.desc`),
+      items: [
+        {
+          label: t(`${base}.community.item0Label`),
+          tag: t(`${base}.community.item0Tag`),
+          href: 'https://github.com/CraftOS-dev/CraftBot'
+        },
+        {
+          label: t(`${base}.community.item1Label`),
+          tag: t(`${base}.community.item1Tag`),
+          href: 'https://discord.gg/ZN9YHc37HG'
+        },
+        {
+          label: t(`${base}.community.item2Label`),
+          tag: t(`${base}.community.item2Tag`),
+          href: 'https://craftos.net/marketplace'
+        }
+      ],
+      cta: { label: t(`${base}.community.cta`), href: 'https://github.com/CraftOS-dev/CraftBot' },
+      icon: Github
+    }
+  ]
+}
 
 export function CraftBotIntroWidget() {
+  const { t } = useTranslation(['dashboard', 'common'])
   const { startTour } = useTour()
+  const cards = buildCards(t as unknown as (key: string) => string)
   const mascotState = useMascotState()
   // This widget's mascot never sleeps: any state whose pose renders the
   // sleeping silhouette shows the awake 'resting' pose here instead. Scoped to
@@ -145,7 +155,7 @@ export function CraftBotIntroWidget() {
 
     const interval = setInterval(() => {
       setCurrentBannerIndex((prev) => {
-        const nextIdx = (prev + 1) % CARDS.length
+        const nextIdx = (prev + 1) % cards.length
         scrollToIndex(nextIdx)
         return nextIdx
       })
@@ -201,10 +211,10 @@ export function CraftBotIntroWidget() {
           <button
             className={styles.backButton}
             onClick={() => setShowDetails(false)}
-            aria-label="Back to welcome view"
+            aria-label={t('dashboard:widgets.craftBotIntro.backAria')}
           >
             <ArrowLeft size={12} />
-            <span>Back</span>
+            <span>{t('common:actions.back')}</span>
           </button>
         </div>
 
@@ -215,7 +225,7 @@ export function CraftBotIntroWidget() {
             className={styles.bannerScrollContainer}
             onScroll={handleScroll}
           >
-            {CARDS.map((card) => {
+            {cards.map((card) => {
               const Icon = card.icon
               const showItems = isEnlarged || isFourBlocks
 
@@ -290,12 +300,12 @@ export function CraftBotIntroWidget() {
         {/* Footer Row: Indicator Dots + craftbot.live Link */}
         <div className={styles.heroFooterRow}>
           <div className={styles.heroDotsGroup}>
-            {CARDS.map((card, idx) => (
+            {cards.map((card, idx) => (
               <button
                 key={card.id}
                 className={`${styles.heroDot} ${idx === currentBannerIndex ? styles.activeHeroDot : ''}`}
                 onClick={() => scrollToIndex(idx)}
-                aria-label={`Go to slide ${idx + 1}`}
+                aria-label={t('dashboard:widgets.craftBotIntro.goToSlide', { number: idx + 1 })}
               />
             ))}
           </div>
@@ -321,7 +331,7 @@ export function CraftBotIntroWidget() {
         onClick={handleMascotClick}
         role="button"
         tabIndex={0}
-        title="Click CraftBot!"
+        title={t('dashboard:widgets.craftBotIntro.clickMascot')}
       >
         <CraftBotMascot
           state={awakeMascotState}
@@ -333,9 +343,9 @@ export function CraftBotIntroWidget() {
       </div>
 
       <div className={styles.compactSimpleContent}>
-        <h4 className={styles.compactSimpleTitle}>Welcome to CraftBot</h4>
+        <h4 className={styles.compactSimpleTitle}>{t('dashboard:widgets.craftBotIntro.welcomeTitle')}</h4>
         <p className={styles.compactSimpleSubtitle}>
-          One agent. Every kind of work.
+          {t('dashboard:widgets.craftBotIntro.welcomeSubtitle')}
         </p>
       </div>
 
@@ -347,7 +357,7 @@ export function CraftBotIntroWidget() {
         className={styles.compactLearnMoreBtn}
         onClick={() => setShowDetails(true)}
       >
-        Learn More
+        {t('common:actions.learnMore')}
       </Button>
 
       {/* Replay the first-run walkthrough. Hidden at the smallest widget size
@@ -360,7 +370,7 @@ export function CraftBotIntroWidget() {
           onClick={() => startTour('core', { restart: true })}
           style={{ marginTop: 'var(--space-2)' }}
         >
-          Take a tour
+          {t('dashboard:widgets.craftBotIntro.takeTour')}
         </Button>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import i18n from '../../../i18n/config'
 import { STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS, STORAGE_VERSION } from './constants'
 import { createDefaultLayout } from './defaultLayout'
 import { boundsFor, normalizeLayouts, seedItem } from './normalizeLayouts'
@@ -166,7 +167,7 @@ export function useDashboardLayouts() {
     const newLayout: NamedLayout = {
       ...seed,
       id: makeLayoutId(),
-      name: name.trim() || 'Untitled',
+      name: name.trim() || i18n.t('dashboard:layout.untitledName'),
       createdAt: now,
       updatedAt: now,
     }

@@ -88,6 +88,36 @@ def t(key: str, **kwargs: str) -> str:
     return template.format_map(kwargs)
 
 
+# ── Browser-UI message catalog ────────────────────────────────────────────────
+# User-facing strings the backend emits to the browser interface (validation
+# errors, success toasts, update/progress text). These are localized in the
+# user's chosen *UI* language (settings.json general.ui_language), which is
+# distinct from os_language. Files: app/i18n/ui_messages.<ui_lang>.json.
+
+_ui_catalog_cache: dict[str, dict[str, str]] = {}
+
+
+def _load_ui_catalog(lang: str) -> dict[str, str]:
+    if lang not in _ui_catalog_cache:
+        path = _I18N_DIR / f"ui_messages.{lang}.json"
+        _ui_catalog_cache[lang] = (
+            json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        )
+    return _ui_catalog_cache[lang]
+
+
+def tui(key: str, **kwargs: str) -> str:
+    """Render a browser-UI message *key* in the user's UI language.
+
+    Resolves in order: UI locale → "en" → key itself (never raises).
+    """
+    from app.config import get_ui_language
+
+    lang = get_ui_language()
+    template = _load_ui_catalog(lang).get(key) or _load_ui_catalog("en").get(key, key)
+    return template.format_map(kwargs)
+
+
 # ── Public classifier ─────────────────────────────────────────────────────────
 
 

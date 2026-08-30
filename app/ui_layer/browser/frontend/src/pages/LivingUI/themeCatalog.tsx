@@ -35,30 +35,35 @@ export const DEFAULT_CUSTOM_COLORS: LivingUICustomColors = {
 
 export interface ThemeDef {
   id: LivingUIStyleId
+  /** English fallback label; user-facing rendering uses `labelKey` via i18n. */
   label: string
-  /** Short descriptor shown under the label. */
+  /** English fallback descriptor; user-facing rendering uses `descriptionKey`. */
   hint?: string
+  /** i18n key for the label (rendered with t() at the consumer). */
+  labelKey: `livingui:themes.${LivingUIStyleId}.label`
+  /** i18n key for the short descriptor shown under the label. */
+  descriptionKey: `livingui:themes.${LivingUIStyleId}.description`
   /** Tile preview colors [bg, surface, text, accent] (dark-mode leaning). */
   swatches: [string, string, string, string]
 }
 
 export const PRESET_THEMES: ThemeDef[] = [
-  { id: 'craftbot',  label: 'CraftBot',  hint: 'The baseline',    swatches: ['#191919', '#202020', '#E6E6E4', '#FF4F18'] },
-  { id: 'modern',    label: 'Modern',    hint: 'Airy indigo',     swatches: ['#12141D', '#1A1D2A', '#ECEEF8', '#7C8AFF'] },
-  { id: 'normal',    label: 'Normal',    hint: 'Clean blue',      swatches: ['#131316', '#1D1D22', '#F2F2F5', '#3B82F6'] },
-  { id: 'ocean',     label: 'Ocean',     hint: 'Deep sea',        swatches: ['#0B1B26', '#102635', '#F8FAFC', '#38BDF8'] },
-  { id: 'forest',    label: 'Forest',    hint: 'Mossy green',     swatches: ['#0E1A12', '#14261A', '#F3F6F4', '#4ADE80'] },
-  { id: 'pastel',    label: 'Pastel',    hint: 'Soft lilac',      swatches: ['#1A1420', '#251C2E', '#F3E8FF', '#C084FC'] },
-  { id: 'glass',     label: 'Glass',     hint: 'Aurora glass',    swatches: ['#10131C', '#1E2436', '#F5F7FE', '#818CF8'] },
-  { id: 'classic',   label: 'Classic',   hint: 'Flat & dense',    swatches: ['#1C1A14', '#26231B', '#F1EDE2', '#D4A017'] },
-  { id: 'velvet',    label: 'Velvet',    hint: 'Plush pink',      swatches: ['#1C1018', '#281826', '#F8F2F6', '#EC4899'] },
-  { id: 'ink',       label: 'Ink',       hint: 'Mono playful',    swatches: ['#F3F3F1', '#FFFFFF', '#111111', '#111111'] },
-  { id: 'acid',      label: 'Acid',      hint: 'Greige & lime',   swatches: ['#131A0C', '#1B2513', '#FAFFF2', '#A3E635'] },
-  { id: 'blueprint', label: 'Blueprint', hint: 'Grid datasheet',  swatches: ['#0B1526', '#102039', '#EEF4FB', '#60A5FA'] },
-  { id: 'brutalist', label: 'Brutalist', hint: 'Hard blocks',     swatches: ['#FFFFFF', '#FFFFFF', '#0A0A0A', '#7C3AED'] },
-  { id: 'drafting',  label: 'Drafting',  hint: 'Monoline sketch', swatches: ['#E9EDE4', '#E9EDE4', '#2E3528', '#3A4232'] },
-  { id: 'clay',      label: 'Clay',      hint: 'Soft extruded',   swatches: ['#E4E6EC', '#E4E6EC', '#3A3F4C', '#5B7CFA'] },
-  { id: 'atelier',   label: 'Atelier',   hint: 'Studio minimal',  swatches: ['#EDEFF2', '#F8F9FB', '#1C1E22', '#17181B'] },
+  { id: 'craftbot',  label: 'CraftBot',  hint: 'The baseline',    labelKey: 'livingui:themes.craftbot.label',  descriptionKey: 'livingui:themes.craftbot.description',  swatches: ['#191919', '#202020', '#E6E6E4', '#FF4F18'] },
+  { id: 'modern',    label: 'Modern',    hint: 'Airy indigo',     labelKey: 'livingui:themes.modern.label',    descriptionKey: 'livingui:themes.modern.description',    swatches: ['#12141D', '#1A1D2A', '#ECEEF8', '#7C8AFF'] },
+  { id: 'normal',    label: 'Normal',    hint: 'Clean blue',      labelKey: 'livingui:themes.normal.label',    descriptionKey: 'livingui:themes.normal.description',    swatches: ['#131316', '#1D1D22', '#F2F2F5', '#3B82F6'] },
+  { id: 'ocean',     label: 'Ocean',     hint: 'Deep sea',        labelKey: 'livingui:themes.ocean.label',     descriptionKey: 'livingui:themes.ocean.description',     swatches: ['#0B1B26', '#102635', '#F8FAFC', '#38BDF8'] },
+  { id: 'forest',    label: 'Forest',    hint: 'Mossy green',     labelKey: 'livingui:themes.forest.label',    descriptionKey: 'livingui:themes.forest.description',    swatches: ['#0E1A12', '#14261A', '#F3F6F4', '#4ADE80'] },
+  { id: 'pastel',    label: 'Pastel',    hint: 'Soft lilac',      labelKey: 'livingui:themes.pastel.label',    descriptionKey: 'livingui:themes.pastel.description',    swatches: ['#1A1420', '#251C2E', '#F3E8FF', '#C084FC'] },
+  { id: 'glass',     label: 'Glass',     hint: 'Aurora glass',    labelKey: 'livingui:themes.glass.label',     descriptionKey: 'livingui:themes.glass.description',     swatches: ['#10131C', '#1E2436', '#F5F7FE', '#818CF8'] },
+  { id: 'classic',   label: 'Classic',   hint: 'Flat & dense',    labelKey: 'livingui:themes.classic.label',   descriptionKey: 'livingui:themes.classic.description',   swatches: ['#1C1A14', '#26231B', '#F1EDE2', '#D4A017'] },
+  { id: 'velvet',    label: 'Velvet',    hint: 'Plush pink',      labelKey: 'livingui:themes.velvet.label',    descriptionKey: 'livingui:themes.velvet.description',    swatches: ['#1C1018', '#281826', '#F8F2F6', '#EC4899'] },
+  { id: 'ink',       label: 'Ink',       hint: 'Mono playful',    labelKey: 'livingui:themes.ink.label',       descriptionKey: 'livingui:themes.ink.description',       swatches: ['#F3F3F1', '#FFFFFF', '#111111', '#111111'] },
+  { id: 'acid',      label: 'Acid',      hint: 'Greige & lime',   labelKey: 'livingui:themes.acid.label',      descriptionKey: 'livingui:themes.acid.description',      swatches: ['#131A0C', '#1B2513', '#FAFFF2', '#A3E635'] },
+  { id: 'blueprint', label: 'Blueprint', hint: 'Grid datasheet',  labelKey: 'livingui:themes.blueprint.label', descriptionKey: 'livingui:themes.blueprint.description', swatches: ['#0B1526', '#102039', '#EEF4FB', '#60A5FA'] },
+  { id: 'brutalist', label: 'Brutalist', hint: 'Hard blocks',     labelKey: 'livingui:themes.brutalist.label', descriptionKey: 'livingui:themes.brutalist.description', swatches: ['#FFFFFF', '#FFFFFF', '#0A0A0A', '#7C3AED'] },
+  { id: 'drafting',  label: 'Drafting',  hint: 'Monoline sketch', labelKey: 'livingui:themes.drafting.label',  descriptionKey: 'livingui:themes.drafting.description',  swatches: ['#E9EDE4', '#E9EDE4', '#2E3528', '#3A4232'] },
+  { id: 'clay',      label: 'Clay',      hint: 'Soft extruded',   labelKey: 'livingui:themes.clay.label',      descriptionKey: 'livingui:themes.clay.description',      swatches: ['#E4E6EC', '#E4E6EC', '#3A3F4C', '#5B7CFA'] },
+  { id: 'atelier',   label: 'Atelier',   hint: 'Studio minimal',  labelKey: 'livingui:themes.atelier.label',   descriptionKey: 'livingui:themes.atelier.description',   swatches: ['#EDEFF2', '#F8F9FB', '#1C1E22', '#17181B'] },
 ]
 
 /**

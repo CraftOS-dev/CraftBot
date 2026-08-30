@@ -11,8 +11,11 @@ import {
   Archive,
   RotateCcw,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button, ConfirmModal } from '../../components/ui'
 import { useConfirmModal } from '../../hooks'
+import i18n from '../../i18n/config'
+import { formatNumber, formatDateTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -28,6 +31,7 @@ import {
 } from '../../store/selectors/livingUiSettings'
 
 export function LivingUISettings() {
+  const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
@@ -93,9 +97,9 @@ export function LivingUISettings() {
 
   const handleDelete = (project: LivingUIProject) => {
     confirm({
-      title: 'Delete Living UI',
-      message: `Are you sure you want to delete "${project.name}"? This will remove all project files. If the app has any live data, a final backup is saved first and KEPT — leftover backups can be removed below afterwards.`,
-      confirmText: 'Delete',
+      title: t('settings:livingUi.deleteConfirmTitle'),
+      message: t('settings:livingUi.deleteConfirmMessage', { name: project.name }),
+      confirmText: t('common:actions.delete'),
       variant: 'danger',
     }, () => {
       setActionInProgress(project.id)
@@ -106,9 +110,9 @@ export function LivingUISettings() {
   const backupOrphans = useAppSelector(s => s.livingUiSettings.backupOrphans)
   const handleDeleteOrphanBackups = (orphan: { id: string; name: string }) => {
     confirm({
-      title: 'Delete leftover backups',
-      message: `Permanently delete all backup archives of the deleted app "${orphan.name}"? They are the only remaining copy of its data.`,
-      confirmText: 'Delete backups',
+      title: t('settings:livingUi.leftoverDeleteTitle'),
+      message: t('settings:livingUi.leftoverDeleteMessage', { name: orphan.name }),
+      confirmText: t('settings:livingUi.deleteBackupsButton'),
       variant: 'danger',
     }, () => {
       send('living_ui_backup_delete', { projectId: orphan.id, filename: '', orphan: true })
@@ -119,25 +123,25 @@ export function LivingUISettings() {
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
-        <h3>Living UI</h3>
-        <p>Manage and share your Living UI projects</p>
+        <h3>{t('settings:livingUi.title')}</h3>
+        <p>{t('settings:livingUi.subtitle')}</p>
       </div>
 
       {/* ── Projects ──────────────────────────────────────── */}
       <div className={styles.subsection}>
-        <h4 className={styles.subsectionTitle}>Projects</h4>
+        <h4 className={styles.subsectionTitle}>{t('settings:livingUi.projectsTitle')}</h4>
         <p className={styles.subsectionDesc}>
-          Manage, launch, and share your Living UI projects. Create new ones from the main chat.
+          {t('settings:livingUi.projectsDesc')}
         </p>
 
         {loading ? (
           <div className={styles.loadingState}>
             <Loader2 size={20} className={styles.spinning} />
-            <span>Loading projects...</span>
+            <span>{t('settings:livingUi.loadingProjects')}</span>
           </div>
         ) : projects.length === 0 ? (
           <div className={styles.emptyState}>
-            <p>No Living UI projects yet. Create one from the main chat.</p>
+            <p>{t('settings:livingUi.noProjects')}</p>
           </div>
         ) : (
           <div className={styles.scheduleList}>
@@ -177,9 +181,9 @@ export function LivingUISettings() {
       {/* ── Leftover backups of deleted apps (kept on delete — removable here) ── */}
       {backupOrphans.length > 0 && (
         <div className={styles.subsection}>
-          <h4 className={styles.subsectionTitle}>Leftover backups</h4>
+          <h4 className={styles.subsectionTitle}>{t('settings:livingUi.leftoverTitle')}</h4>
           <p className={styles.subsectionDesc}>
-            Backup archives of deleted apps. They are kept when an app is deleted; remove them here when you no longer need the data.
+            {t('settings:livingUi.leftoverDesc')}
           </p>
           <div className={styles.scheduleList}>
             {backupOrphans.map(orphan => (
@@ -219,16 +223,16 @@ interface ProjectCardProps {
 function getStatusText(status: string): string {
   switch (status) {
     case 'running':
-      return 'Running'
+      return i18n.t('settings:livingUi.status.running')
     case 'creating':
-      return 'Creating…'
+      return i18n.t('settings:livingUi.status.creating')
     case 'launching':
-      return 'Launching…'
+      return i18n.t('settings:livingUi.status.launching')
     case 'error':
-      return 'Error'
+      return i18n.t('settings:livingUi.status.error')
     default:
       // created, stopped, ready
-      return 'Not running'
+      return i18n.t('settings:livingUi.status.notRunning')
   }
 }
 
@@ -262,6 +266,7 @@ function ProjectCard({
   send,
   onMessage,
 }: ProjectCardProps) {
+  const { t } = useTranslation(['settings', 'common'])
   const canLaunch = ['created', 'stopped', 'ready', 'error'].includes(project.status)
   const isRunning = project.status === 'running'
 
@@ -286,14 +291,14 @@ function ProjectCard({
   }> = [
     {
       key: 'autoLaunch',
-      label: 'Auto-launch on startup',
-      desc: 'Launch automatically when CraftBot starts',
+      label: t('settings:livingUi.autoLaunchLabel'),
+      desc: t('settings:livingUi.autoLaunchDesc'),
       value: project.autoLaunch,
     },
     {
       key: 'logCleanup',
-      label: 'Clean logs on restart',
-      desc: 'Delete old log files when launching',
+      label: t('settings:livingUi.logCleanupLabel'),
+      desc: t('settings:livingUi.logCleanupDesc'),
       value: project.logCleanup,
     },
   ]
@@ -412,7 +417,7 @@ function ProjectCard({
               onClick={onStop}
               disabled={actionInProgress}
             >
-              Stop
+              {t('settings:livingUi.stop')}
             </Button>
           ) : canLaunch ? (
             <Button
@@ -422,7 +427,7 @@ function ProjectCard({
               onClick={onLaunch}
               disabled={actionInProgress}
             >
-              Launch
+              {t('settings:livingUi.launch')}
             </Button>
           ) : null}
           <Button
@@ -430,7 +435,7 @@ function ProjectCard({
             variant="ghost"
             icon={<Download size={14} />}
             onClick={handleExport}
-            title="Export project"
+            title={t('settings:livingUi.exportProject')}
           />
           <Button
             size="sm"
@@ -438,7 +443,7 @@ function ProjectCard({
             icon={<Trash2 size={14} />}
             onClick={onDelete}
             disabled={actionInProgress}
-            title="Delete project"
+            title={t('settings:livingUi.deleteProject')}
           />
         </div>
       </div>
@@ -458,16 +463,16 @@ function ProjectCard({
           alignItems: 'center',
         }}
       >
-        <span style={infoLabelStyle}>Frontend port</span>
+        <span style={infoLabelStyle}>{t('settings:livingUi.frontendPort')}</span>
         <span style={infoValueStyle}>{project.port != null ? project.port : '—'}</span>
 
-        <span style={infoLabelStyle}>Backend port</span>
+        <span style={infoLabelStyle}>{t('settings:livingUi.backendPort')}</span>
         <span style={infoValueStyle}>{project.backendPort != null ? project.backendPort : '—'}</span>
 
-        <span style={infoLabelStyle}>Project ID</span>
+        <span style={infoLabelStyle}>{t('settings:livingUi.projectId')}</span>
         <span style={infoValueStyle}>{project.id}</span>
 
-        <span style={infoLabelStyle}>Path</span>
+        <span style={infoLabelStyle}>{t('settings:livingUi.path')}</span>
         <div
           style={{
             display: 'flex',
@@ -493,7 +498,7 @@ function ProjectCard({
             variant="ghost"
             icon={<Copy size={12} />}
             onClick={handleCopyPath}
-            title="Copy path"
+            title={t('settings:livingUi.copyPath')}
           />
         </div>
       </div>
@@ -506,7 +511,7 @@ function ProjectCard({
         }}
       >
         <div style={{ ...sectionLabelStyle, marginBottom: 'var(--space-2)' }}>
-          Preferences
+          {t('settings:livingUi.preferences')}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {settings.map((s, i) => (
@@ -545,7 +550,7 @@ function ProjectCard({
           }}
         >
           <div style={{ ...sectionLabelStyle, marginBottom: 'var(--space-2)' }}>
-            Backups
+            {t('settings:livingUi.backups')}
           </div>
           <BackupsSection
             project={project}
@@ -564,7 +569,7 @@ function ProjectCard({
           }}
         >
           <div style={{ ...sectionLabelStyle, marginBottom: 'var(--space-2)' }}>
-            Share
+            {t('settings:livingUi.share')}
           </div>
           <ShareSection projectId={project.id} port={project.port} send={send} onMessage={onMessage} />
         </div>
@@ -578,19 +583,19 @@ function ProjectCard({
 
 // ── Backups Section ────────────────────────────────────────────
 
-const INTERVAL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'hourly', label: 'Every hour' },
-  { value: '6h', label: 'Every 6 hours' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-]
+const INTERVAL_VALUES = ['hourly', '6h', 'daily', 'weekly'] as const
 
-const TRIGGER_LABELS: Record<string, string> = {
-  scheduled: 'scheduled',
-  pre_promote: 'pre-update',
-  manual: 'manual',
-  pre_delete: 'before delete',
-  pre_restore: 'before restore',
+// Localized label for a backup trigger. i18n instance used directly since this
+// is called from module-scope helpers; components re-render on language change.
+function triggerLabel(trigger: string): string {
+  switch (trigger) {
+    case 'scheduled': return i18n.t('settings:livingUi.trigger.scheduled')
+    case 'pre_promote': return i18n.t('settings:livingUi.trigger.pre_promote')
+    case 'manual': return i18n.t('settings:livingUi.trigger.manual')
+    case 'pre_delete': return i18n.t('settings:livingUi.trigger.pre_delete')
+    case 'pre_restore': return i18n.t('settings:livingUi.trigger.pre_restore')
+    default: return trigger
+  }
 }
 
 /** Inline "restoring… / restored / failed" line under an archive list. */
@@ -603,6 +608,7 @@ function RestoreStatusLine({
   targetName?: string
   result?: { ok: boolean; message: string }
 }) {
+  const { t } = useTranslation(['settings', 'common'])
   if (busy)
     return (
       <span
@@ -616,8 +622,9 @@ function RestoreStatusLine({
         }}
       >
         <Loader2 size={12} className={styles.spinning} />
-        Restoring{targetName ? ` into "${targetName}"` : ''}… this can take a
-        minute.
+        {targetName
+          ? t('settings:livingUi.restoringInto', { name: targetName })
+          : t('settings:livingUi.restoring')}
       </span>
     )
   if (result)
@@ -642,7 +649,7 @@ function fmtSize(bytes: number): string {
 }
 
 function fmtWhen(msEpoch: number): string {
-  return new Date(msEpoch).toLocaleString()
+  return formatDateTime(new Date(msEpoch))
 }
 
 // ── Leftover (orphan) backups row ──────────────────────────────
@@ -658,6 +665,7 @@ interface OrphanBackupsRowProps {
 }
 
 function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackupsRowProps) {
+  const { t } = useTranslation(['settings', 'common'])
   const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
   const [expanded, setExpanded] = useState(false)
@@ -685,9 +693,9 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
   const handleRestore = (filename: string, ts: number) => {
     if (!target) return
     confirm({
-      title: 'Restore into app',
-      message: `Restore the backup from ${fmtWhen(ts)} of the deleted app "${orphan.name}" into "${target.name}"? The current data of "${target.name}" will be replaced — a backup of that state is saved first, and if the restored data doesn't fit the app it is rolled back automatically.`,
-      confirmText: 'Restore',
+      title: t('settings:livingUi.restoreIntoTitle'),
+      message: t('settings:livingUi.restoreIntoMessage', { date: fmtWhen(ts), name: orphan.name, target: target.name }),
+      confirmText: t('common:actions.restore'),
       variant: 'danger',
     }, () => {
       dispatch(setBackupBusy({ projectId: target.id, busy: true }))
@@ -701,9 +709,9 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
 
   const handleDeleteEntry = (filename: string, ts: number) => {
     confirm({
-      title: 'Delete backup',
-      message: `Permanently delete the backup from ${fmtWhen(ts)} of the deleted app "${orphan.name}"?`,
-      confirmText: 'Delete',
+      title: t('settings:livingUi.deleteBackupTitle'),
+      message: t('settings:livingUi.orphanDeleteBackupMessage', { date: fmtWhen(ts), name: orphan.name }),
+      confirmText: t('common:actions.delete'),
       variant: 'danger',
     }, () => {
       send('living_ui_backup_delete', { projectId: orphan.id, filename })
@@ -766,7 +774,7 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
             e.stopPropagation()
             onDeleteAll(orphan)
           }}
-          title="Delete these backups"
+          title={t('settings:livingUi.deleteBackupsButton')}
         />
       </div>
 
@@ -792,7 +800,7 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
                 color: 'var(--text-muted)',
               }}
             >
-              Restore into
+              {t('settings:livingUi.restoreInto')}
               <select
                 value={target?.id || ''}
                 onChange={e => setTargetId(e.target.value)}
@@ -820,12 +828,12 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
           />
           {backups === undefined && (
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', padding: 'var(--space-2) 0' }}>
-              Loading…
+              {t('settings:livingUi.loadingEllipsis')}
             </span>
           )}
           {backups !== undefined && backups.length === 0 && (
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', padding: 'var(--space-2) 0' }}>
-              No archives.
+              {t('settings:livingUi.noArchives')}
             </span>
           )}
           {(backups || []).map(b => (
@@ -851,7 +859,7 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
               >
                 {fmtWhen(b.ts)}
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {' '}· {TRIGGER_LABELS[b.trigger] || b.trigger} · {fmtSize(b.size)}
+                  {' '}· {triggerLabel(b.trigger)} · {fmtSize(b.size)}
                 </span>
               </span>
               <Button
@@ -862,8 +870,8 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
                 disabled={busy || !target}
                 title={
                   target
-                    ? `Restore this backup into "${target.name}"`
-                    : 'No app to restore into'
+                    ? t('settings:livingUi.restoreBackupInto', { name: target.name })
+                    : t('settings:livingUi.noAppToRestore')
                 }
               />
               <Button
@@ -872,7 +880,7 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
                 icon={<Trash2 size={13} />}
                 onClick={() => handleDeleteEntry(b.filename, b.ts)}
                 disabled={busy}
-                title="Delete this backup"
+                title={t('settings:livingUi.deleteThisBackup')}
               />
             </div>
           ))}
@@ -890,6 +898,7 @@ interface BackupsSectionProps {
 }
 
 function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps) {
+  const { t } = useTranslation(['settings', 'common'])
   const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
   const backups = useAppSelector(
@@ -925,9 +934,9 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
     // first and aborts if that fails — hence a plain consequence modal,
     // not a typed confirmation.
     confirm({
-      title: 'Restore backup',
-      message: `Restore "${project.name}" to its state from ${fmtWhen(ts)}? Data created after that point will be removed — a backup of the current state is taken first, so this can be undone.`,
-      confirmText: 'Restore',
+      title: t('settings:livingUi.restoreBackupTitle'),
+      message: t('settings:livingUi.restoreBackupMessage', { name: project.name, date: fmtWhen(ts) }),
+      confirmText: t('common:actions.restore'),
       variant: 'danger',
     }, () => {
       setRestoring(true)
@@ -938,9 +947,9 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
 
   const handleDeleteEntry = (filename: string, ts: number) => {
     confirm({
-      title: 'Delete backup',
-      message: `Permanently delete the backup from ${fmtWhen(ts)}?`,
-      confirmText: 'Delete',
+      title: t('settings:livingUi.deleteBackupTitle'),
+      message: t('settings:livingUi.deleteBackupMessage', { date: fmtWhen(ts) }),
+      confirmText: t('common:actions.delete'),
       variant: 'danger',
     }, () => {
       send('living_ui_backup_delete', { projectId: project.id, filename })
@@ -960,9 +969,9 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
       {/* Enable toggle */}
       <div style={rowStyle}>
         <div className={styles.toggleInfo}>
-          <span className={styles.toggleLabel}>Scheduled backups</span>
+          <span className={styles.toggleLabel}>{t('settings:livingUi.scheduledBackups')}</span>
           <span className={styles.toggleDesc}>
-            Back up this app's data and files automatically
+            {t('settings:livingUi.scheduledBackupsDesc')}
           </span>
         </div>
         <input
@@ -977,7 +986,7 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
         <>
           <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
             <div className={styles.toggleInfo}>
-              <span className={styles.toggleLabel}>Frequency</span>
+              <span className={styles.toggleLabel}>{t('settings:livingUi.frequency')}</span>
             </div>
             <select
               value={project.backupInterval}
@@ -991,17 +1000,17 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
                 fontSize: 'var(--text-sm)',
               }}
             >
-              {INTERVAL_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+              {INTERVAL_VALUES.map(v => (
+                <option key={v} value={v}>{t(`settings:livingUi.interval.${v}`)}</option>
               ))}
             </select>
           </div>
 
           <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
             <div className={styles.toggleInfo}>
-              <span className={styles.toggleLabel}>Backups to keep</span>
+              <span className={styles.toggleLabel}>{t('settings:livingUi.backupsToKeep')}</span>
               <span className={styles.toggleDesc}>
-                Oldest scheduled backups are removed beyond this count
+                {t('settings:livingUi.backupsToKeepDesc')}
               </span>
             </div>
             <input
@@ -1032,10 +1041,10 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
       <div style={{ ...rowStyle, borderTop: '1px solid var(--border-primary)' }}>
         <span style={{ fontSize: 'var(--text-xs)', color: status.lastError ? 'var(--color-error)' : 'var(--text-muted)' }}>
           {status.lastError
-            ? `Last backup failed: ${status.lastError}`
+            ? t('settings:livingUi.lastBackupFailed', { error: status.lastError })
             : status.lastAt
-              ? `Last backup ${fmtWhen(status.lastAt * 1000)} · ${status.count || 0} kept · ${fmtSize(status.totalSize || 0)}`
-              : 'No backups yet'}
+              ? t('settings:livingUi.lastBackupSummary', { when: fmtWhen(status.lastAt * 1000), value: formatNumber(status.count || 0), size: fmtSize(status.totalSize || 0) })
+              : t('settings:livingUi.noBackupsYet')}
         </span>
         <Button
           size="sm"
@@ -1044,7 +1053,7 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
           onClick={handleBackupNow}
           disabled={busy}
         >
-          Back up now
+          {t('settings:livingUi.backupNow')}
         </Button>
       </div>
 
@@ -1082,7 +1091,7 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
               >
                 {fmtWhen(b.ts)}
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {' '}· {TRIGGER_LABELS[b.trigger] || b.trigger} · {fmtSize(b.size)}
+                  {' '}· {triggerLabel(b.trigger)} · {fmtSize(b.size)}
                 </span>
               </span>
               <Button
@@ -1091,7 +1100,7 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
                 icon={<RotateCcw size={13} />}
                 onClick={() => handleRestore(b.filename, b.ts)}
                 disabled={busy}
-                title="Restore this backup"
+                title={t('settings:livingUi.restoreThisBackup')}
               />
               <Button
                 size="sm"
@@ -1099,7 +1108,7 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
                 icon={<Trash2 size={13} />}
                 onClick={() => handleDeleteEntry(b.filename, b.ts)}
                 disabled={busy}
-                title="Delete this backup"
+                title={t('settings:livingUi.deleteThisBackup')}
               />
             </div>
           ))}
@@ -1122,6 +1131,7 @@ interface ShareSectionProps {
 }
 
 function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
+  const { t } = useTranslation(['settings', 'common'])
   const [lanUrl, setLanUrl] = useState<string | null>(null)
   const [tunnelUrl, setTunnelUrl] = useState<string | null>(null)
   const [tunnelLoading, setTunnelLoading] = useState(false)
@@ -1172,7 +1182,7 @@ function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
       {/* LAN URL */}
       {lanUrl && (
         <div className={styles.modelRow}>
-          <span className={styles.modelLabel}>LAN</span>
+          <span className={styles.modelLabel}>{t('settings:livingUi.lan')}</span>
           <code
             className={styles.modelValue}
             style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -1191,7 +1201,7 @@ function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
       {/* Tunnel URL */}
       {tunnelUrl ? (
         <div className={styles.modelRow}>
-          <span className={styles.modelLabel}>Public</span>
+          <span className={styles.modelLabel}>{t('settings:livingUi.public')}</span>
           <code
             className={styles.modelValue}
             style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -1213,9 +1223,9 @@ function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
         </div>
       ) : (
         <div className={styles.modelRow}>
-          <span className={styles.modelLabel}>Public</span>
+          <span className={styles.modelLabel}>{t('settings:livingUi.public')}</span>
           <span style={{ flex: 1, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Not shared
+            {t('settings:livingUi.notShared')}
           </span>
           <Button
             size="sm"
@@ -1224,7 +1234,7 @@ function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
             disabled={tunnelLoading}
             icon={tunnelLoading ? <Loader2 size={14} className={styles.spinning} /> : undefined}
           >
-            {tunnelLoading ? 'Starting...' : 'Create Tunnel'}
+            {tunnelLoading ? t('settings:livingUi.starting') : t('settings:livingUi.createTunnel')}
           </Button>
         </div>
       )}

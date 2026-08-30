@@ -6,6 +6,8 @@
  * iframe over its placeholder div via ResizeObserver.
  */
 
+import i18n from '../../i18n/config'
+
 const MAX_POOL_SIZE = 5
 
 const pool = new Map<string, HTMLIFrameElement>()
@@ -44,7 +46,7 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
     iframe.src = src
     iframe.style.cssText =
       'position:fixed;border:none;visibility:hidden;pointer-events:none;z-index:10;'
-    iframe.title = `Living UI ${id}`
+    iframe.title = i18n.t('livingui:iframe.title', { id })
     getContainer().appendChild(iframe)
     pool.set(id, iframe)
   }

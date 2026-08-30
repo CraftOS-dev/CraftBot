@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import styles from './SettingsPage.module.css'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import { SettingsCategory, categories } from './types'
@@ -19,6 +20,7 @@ import { IntegrationsSettings } from './IntegrationsSettings'
 import { LivingUISettings } from './LivingUISettings'
 
 export function SettingsPage() {
+  const { t } = useTranslation(['settings', 'common'])
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>('general')
 
   // Let the guided tour open a specific tab so its panel is shown, not just its
@@ -68,7 +70,7 @@ export function SettingsPage() {
                 {...(tourAnchor ? tourAnchorProps(tourAnchor) : {})}
               >
                 <span className={styles.categoryIcon}>{cat.icon}</span>
-                <span className={styles.categoryLabel}>{cat.label}</span>
+                <span className={styles.categoryLabel}>{t(`settings:nav.${cat.id}`)}</span>
               </button>
             )
           })}

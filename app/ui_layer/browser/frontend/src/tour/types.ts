@@ -32,9 +32,13 @@ export interface TourStep {
   route?: string
   /** Environment actions to run before highlighting. Must be idempotent. */
   env?: TourEnvAction[]
-  popover: {
-    title: string
-    description: string
+  /**
+   * Popover placement only. The title/description copy is looked up from the
+   * `tour` namespace by step id (`tour:steps.<id>.title` / `.description`), so
+   * it stays translatable. Omit for a centered modal step with default
+   * placement (welcome / done).
+   */
+  popover?: {
     side?: Side
     align?: Alignment
   }

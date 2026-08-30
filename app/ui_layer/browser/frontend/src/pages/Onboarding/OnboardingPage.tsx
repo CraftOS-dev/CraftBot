@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { Button } from '../../components/ui'
+import { useTranslation, Trans } from 'react-i18next'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { getSocketClient } from '../../store/socket/socketInstance'
@@ -27,14 +28,6 @@ import { markComplete } from '../../store/slices/onboardingSlice'
 import type { OnboardingStepOption, OnboardingFormField } from '../../types'
 import { OnboardingMascot, type OutroPhase } from './OnboardingMascot'
 import styles from './OnboardingPage.module.css'
-
-// The agent's single-line prompt per step - first person, one short question,
-// so each step reads as the agent asking rather than a form label.
-const STEP_PROMPTS: Record<string, string> = {
-  provider: 'Which AI should power me?',
-  user_profile: 'So what should I call you?',
-  agent_name: 'And what would you like to call me?',
-}
 
 // Clean, sentence-friendly display names for the chosen provider - used to
 // personalise the API-key step's prompt. (The api_key prompt is built
@@ -61,6 +54,7 @@ interface OllamaSetupProps {
 }
 
 function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
+  const { t } = useTranslation(['onboarding', 'common'])
   const { localLLM, checkLocalLLM, testLocalLLMConnection, installLocalLLM, startLocalLLM, pullOllamaModel } = useWebSocket()
   const [url, setUrl] = useState(defaultUrl)
   const [selectedModel, setSelectedModel] = useState('llama3.2:3b')
@@ -96,7 +90,7 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaChecking}>
           <div className={styles.spinner} />
-          <span>Checking if Ollama is running…</span>
+          <span>{t('onboarding:ollama.checking')}</span>
         </div>
       </div>
     )
@@ -108,13 +102,13 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaStatusRow}>
           <WifiOff size={18} className={styles.iconError} />
-          <span className={styles.ollamaStatusLabel}>Ollama is not installed</span>
+          <span className={styles.ollamaStatusLabel}>{t('onboarding:ollama.notInstalledStatus')}</span>
         </div>
         <p className={styles.ollamaHint}>
-          Ollama lets you run AI models locally, no cloud needed. We'll install it automatically for you.
+          {t('onboarding:ollama.notInstalledHint')}
         </p>
         <Button variant="primary" onClick={installLocalLLM} icon={<Download size={16} />}>
-          Install Ollama
+          {t('onboarding:ollama.install')}
         </Button>
       </div>
     )
@@ -127,14 +121,14 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaStatusRow}>
           <div className={styles.spinnerSmall} />
-          <span className={styles.ollamaStatusLabel}>Installing Ollama…</span>
+          <span className={styles.ollamaStatusLabel}>{t('onboarding:ollama.installing')}</span>
           <span className={styles.installPct}>{pct}%</span>
         </div>
         <div className={styles.installProgressBar}>
           <div className={styles.installProgressFill} style={{ width: `${pct}%` }} />
         </div>
         <div className={styles.installLog}>
-          {installProgress.length === 0 && <span className={styles.installLogLine}>Starting…</span>}
+          {installProgress.length === 0 && <span className={styles.installLogLine}>{t('onboarding:ollama.installStarting')}</span>}
           {installProgress.map((line, i) => (
             <span key={i} className={styles.installLogLine}>{line}</span>
           ))}
@@ -149,11 +143,11 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaStatusRow}>
           <WifiOff size={18} className={styles.iconWarning} />
-          <span className={styles.ollamaStatusLabel}>Ollama is installed but not running</span>
+          <span className={styles.ollamaStatusLabel}>{t('onboarding:ollama.notRunningStatus')}</span>
         </div>
-        <p className={styles.ollamaHint}>Click below to start the Ollama server.</p>
+        <p className={styles.ollamaHint}>{t('onboarding:ollama.notRunningHint')}</p>
         <Button variant="primary" onClick={startLocalLLM} icon={<Play size={16} />}>
-          Start Ollama
+          {t('onboarding:ollama.start')}
         </Button>
       </div>
     )
@@ -165,7 +159,7 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaStatusRow}>
           <div className={styles.spinnerSmall} />
-          <span className={styles.ollamaStatusLabel}>Starting Ollama…</span>
+          <span className={styles.ollamaStatusLabel}>{t('onboarding:ollama.starting')}</span>
         </div>
       </div>
     )
@@ -177,11 +171,11 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaStatusRow}>
           <AlertCircle size={18} className={styles.iconError} />
-          <span className={styles.ollamaStatusLabel}>Something went wrong</span>
+          <span className={styles.ollamaStatusLabel}>{t('common:status.somethingWentWrong')}</span>
         </div>
         {error && <p className={styles.ollamaHint}>{error}</p>}
         <Button variant="secondary" onClick={checkLocalLLM} icon={<RefreshCw size={16} />}>
-          Retry
+          {t('common:actions.retry')}
         </Button>
       </div>
     )
@@ -198,13 +192,13 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaStatusRow}>
           <Wifi size={18} className={styles.iconMuted} />
-          <span className={styles.ollamaStatusLabel}>Ollama is running (no models yet)</span>
+          <span className={styles.ollamaStatusLabel}>{t('onboarding:ollama.runningNoModels')}</span>
         </div>
-        <p className={styles.ollamaHint}>Select a model to download so you can start chatting:</p>
+        <p className={styles.ollamaHint}>{t('onboarding:ollama.selectModelHint')}</p>
         <input
           className={styles.modelSearchInput}
           type="text"
-          placeholder="Find model..."
+          placeholder={t('onboarding:ollama.findModel')}
           value={modelSearch}
           onChange={e => setModelSearch(e.target.value)}
         />
@@ -220,15 +214,15 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
               />
               <span className={styles.modelOptionName}>{m.label}</span>
               <span className={styles.modelOptionSize}>{m.size}</span>
-              {m.recommended && <span className={styles.modelOptionBadge}>Recommended</span>}
+              {m.recommended && <span className={styles.modelOptionBadge}>{t('onboarding:ollama.recommended')}</span>}
             </label>
           ))}
           {filteredModels.length === 0 && (
-            <p className={styles.ollamaHint}>No models match "{modelSearch}"</p>
+            <p className={styles.ollamaHint}>{t('onboarding:ollama.noModelMatch', { query: modelSearch })}</p>
           )}
         </div>
         <Button variant="primary" onClick={() => pullOllamaModel(selectedModel)} disabled={!selectedModel} icon={<Download size={16} />}>
-          Download {selectedModel || 'Model'}
+          {t('onboarding:ollama.download', { model: selectedModel || t('onboarding:ollama.modelFallback') })}
         </Button>
       </div>
     )
@@ -242,12 +236,12 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
       if (n >= 1048576) return `${(n / 1048576).toFixed(0)} MB`
       return `${(n / 1024).toFixed(0)} KB`
     }
-    const latestStatus = localLLM.pullProgress[localLLM.pullProgress.length - 1] ?? 'Starting download…'
+    const latestStatus = localLLM.pullProgress[localLLM.pullProgress.length - 1] ?? t('onboarding:ollama.downloadStarting')
     return (
       <div className={styles.ollamaBox}>
         <div className={styles.ollamaStatusRow}>
           <div className={styles.spinnerSmall} />
-          <span className={styles.ollamaStatusLabel}>Downloading {selectedModel}…</span>
+          <span className={styles.ollamaStatusLabel}>{t('onboarding:ollama.downloading', { model: selectedModel })}</span>
         </div>
         {bytes && bytes.total > 0 ? (
           <>
@@ -279,7 +273,7 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
           ? <Wifi size={18} className={styles.iconSuccess} />
           : <Wifi size={18} className={styles.iconMuted} />}
         <span className={styles.ollamaStatusLabel}>
-          {connected ? 'Connected to Ollama' : 'Ollama is running'}
+          {connected ? t('onboarding:ollama.connected') : t('onboarding:ollama.running')}
         </span>
       </div>
 
@@ -289,7 +283,7 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
 
       {!connected && (
         <>
-          <label className={styles.ollamaLabel}>Ollama server URL</label>
+          <label className={styles.ollamaLabel}>{t('onboarding:ollama.serverUrl')}</label>
           <div className={styles.ollamaInputRow}>
             <input
               className={styles.ollamaInput}
@@ -305,7 +299,7 @@ function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
               disabled={!url || isWorking}
               icon={<Wifi size={15} />}
             >
-              Test
+              {t('onboarding:ollama.test')}
             </Button>
           </div>
           {testResult && !testResult.success && (
@@ -463,6 +457,7 @@ function ProviderWheel({ options, value, onChange }: ProviderWheelProps) {
 // ── Main onboarding page ──────────────────────────────────────────────────────
 
 export function OnboardingPage() {
+  const { t } = useTranslation(['onboarding', 'common'])
   const {
     connected,
     onboardingStep,
@@ -696,7 +691,7 @@ export function OnboardingPage() {
           <div className={styles.loading}>
             <div className={styles.spinner} />
             <div className={styles.loadingText}>
-              {!connected ? 'Connecting...' : 'Loading...'}
+              {!connected ? t('common:status.connecting') : t('common:status.loading')}
             </div>
           </div>
         </div>
@@ -737,7 +732,7 @@ export function OnboardingPage() {
                     aria-label={field.label}
                     value={formValues[field.name] ?? ''}
                     onChange={e => setFormValues(prev => ({ ...prev, [field.name]: e.target.value }))}
-                    placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+                    placeholder={field.placeholder || t('onboarding:form.enterField', { field: field.label.toLowerCase() })}
                     maxLength={20}
                     autoFocus
                     onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
@@ -777,15 +772,19 @@ export function OnboardingPage() {
             className={`${styles.textInput} ${onboardingError ? styles.error : ''}`}
             value={textValue}
             onChange={e => setTextValue(e.target.value)}
-            placeholder={isViaOR ? 'Enter your OpenRouter API key' : `Enter your ${providerDisplay} API key`}
+            placeholder={isViaOR ? t('onboarding:proxied.orKey') : t('onboarding:proxied.directKey', { provider: providerDisplay })}
             autoFocus
             onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
           />
-          <div className={styles.inputHint}>Your API key is stored locally.</div>
+          <div className={styles.inputHint}>{t('onboarding:apiKey.storedLocally')}</div>
           {isViaOR && (
             <div style={{ marginTop: 14 }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: 6 }}>
-                Model <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional; leave default or enter any OpenRouter slug)</span>
+                <Trans
+                  ns="onboarding"
+                  i18nKey="proxied.modelLabel"
+                  components={{ 1: <span style={{ fontWeight: 400, opacity: 0.6 }} /> }}
+                />
               </label>
               <input
                 type="text"
@@ -803,7 +802,7 @@ export function OnboardingPage() {
                 onClick={() => { setProxiedVia('direct'); setTextValue('') }}
                 style={{ background: 'none', border: 'none', color: 'var(--text-primary)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
               >
-                ← Use direct {providerDisplay} API instead
+                {t('onboarding:proxied.useDirect', { provider: providerDisplay })}
               </button>
             ) : (
               <button
@@ -811,7 +810,7 @@ export function OnboardingPage() {
                 onClick={() => { setProxiedVia('openrouter'); setTextValue('') }}
                 style={{ background: 'none', border: 'none', color: 'var(--text-primary)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
               >
-                Having connection issues? Use OpenRouter instead →
+                {t('onboarding:proxied.useOpenRouter')}
               </button>
             )}
           </div>
@@ -829,12 +828,12 @@ export function OnboardingPage() {
           className={`${styles.textInput} ${onboardingError ? styles.error : ''}`}
           value={textValue}
           onChange={e => setTextValue(e.target.value)}
-          placeholder={isApiKey ? (isSubConnected ? 'API key (optional)' : 'Enter your API key') : 'Enter a name'}
+          placeholder={isApiKey ? (isSubConnected ? t('onboarding:apiKey.optional') : t('onboarding:apiKey.enter')) : t('onboarding:form.enterName')}
           autoFocus={!supportsSub}
           onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
         />
         {isApiKey && (
-          <div className={styles.inputHint}>Your API key is stored locally.</div>
+          <div className={styles.inputHint}>{t('onboarding:apiKey.storedLocally')}</div>
         )}
       </>
     )
@@ -884,7 +883,7 @@ export function OnboardingPage() {
                 <Check size={16} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Connected</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{t('common:status.connected')}</span>
                 {identityLine && (
                   <span
                     style={{
@@ -910,7 +909,7 @@ export function OnboardingPage() {
               }}
               style={{ flexShrink: 0 }}
             >
-              {isSubPending ? 'Working…' : 'Disconnect'}
+              {isSubPending ? t('onboarding:sub.working') : t('common:actions.disconnect')}
             </Button>
           </div>
         ) : subPasteback?.awaiting ? (
@@ -918,7 +917,7 @@ export function OnboardingPage() {
             <input
               type="text"
               className={styles.textInput}
-              placeholder="Paste the code from the sign-in page"
+              placeholder={t('onboarding:sub.pastePlaceholder')}
               value={pastebackCode}
               onChange={e => setPastebackCode(e.target.value)}
               disabled={isSubPending}
@@ -937,7 +936,7 @@ export function OnboardingPage() {
                   })
                 }}
               >
-                {isSubPending ? 'Submitting…' : 'Submit code'}
+                {isSubPending ? t('onboarding:sub.submitting') : t('onboarding:sub.submitCode')}
               </Button>
               <Button
                 variant="secondary"
@@ -947,11 +946,11 @@ export function OnboardingPage() {
                   setPastebackCode('')
                 }}
               >
-                Cancel
+                {t('common:actions.cancel')}
               </Button>
               {subPasteback?.authUrl && (
                 <a href={subPasteback.authUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.82rem', textDecoration: 'underline' }}>
-                  Reopen sign-in page
+                  {t('onboarding:sub.reopen')}
                 </a>
               )}
             </div>
@@ -966,7 +965,7 @@ export function OnboardingPage() {
             disabled={isSubPending}
             onClick={handleSubscriptionConnect}
           >
-            {isSubPending ? 'Opening browser…' : (onboardingStep.subscription_label || `Sign in with ${apiKeyProvider}`)}
+            {isSubPending ? t('onboarding:sub.openingBrowser') : (onboardingStep.subscription_label || t('onboarding:sub.signInWith', { provider: apiKeyProvider }))}
           </Button>
         )}
 
@@ -979,12 +978,12 @@ export function OnboardingPage() {
               onClick={() => setShowKeyInput(true)}
               style={{ background: 'none', border: 'none', color: 'var(--text-secondary, #999)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
             >
-              Use an API key instead
+              {t('onboarding:sub.useKeyInstead')}
             </button>
           </div>
         ) : (
           <>
-            {dividerRow('or enter an API key')}
+            {dividerRow(t('onboarding:apiKey.orEnterKey'))}
             {keyInputBlock}
           </>
         )}
@@ -1008,48 +1007,59 @@ export function OnboardingPage() {
               >
               {isFinishing ? (
                 <div className={styles.doneMessage}>
-                  You're all set! <strong>{finishing?.agentName}</strong> is ready to work.
+                  <Trans
+                    ns="onboarding"
+                    i18nKey="done.message"
+                    components={{ 1: <strong /> }}
+                    values={{ name: finishing?.agentName }}
+                  />
                 </div>
               ) : (
                 <>
               {onboardingStep.name === 'intro' ? (
                 <div className={styles.introMessage}>
                   <p>
-                    <strong>Nice to meet you, I am CraftBot!</strong><br />
-                    I'm here to help you with work or life.
+                    <Trans
+                      ns="onboarding"
+                      i18nKey="intro.greeting"
+                      components={{ 1: <strong />, 2: <br /> }}
+                    />
                   </p>
                   <p className={styles.introKicker}>
-                    Now, before we begin, there are a few settings we need to configure.
+                    {t('onboarding:intro.kicker')}
                   </p>
                 </div>
               ) : (
                 <h2 className={styles.stepPrompt}>
                   {isOllamaStep ? (() => {
                     switch (localLLM.phase) {
-                      case 'not_installed': return "Ollama isn't installed yet. I'll set it up for us."
-                      case 'installing':    return "Installing Ollama… this'll take a minute."
-                      case 'not_running':   return "Ollama's installed but not running. Start it up?"
-                      case 'starting':      return "Starting up Ollama…"
-                      case 'running':       return "Ollama's running. Let's test the connection."
-                      case 'selecting_model': return "Pick a model for me to download."
-                      case 'pulling_model': return "Downloading your model… this can take a few minutes."
+                      case 'not_installed': return t('onboarding:ollamaPrompt.notInstalled')
+                      case 'installing':    return t('onboarding:ollamaPrompt.installing')
+                      case 'not_running':   return t('onboarding:ollamaPrompt.notRunning')
+                      case 'starting':      return t('onboarding:ollamaPrompt.starting')
+                      case 'running':       return t('onboarding:ollamaPrompt.running')
+                      case 'selecting_model': return t('onboarding:ollamaPrompt.selectingModel')
+                      case 'pulling_model': return t('onboarding:ollamaPrompt.pullingModel')
                       case 'connected': {
                         const n = localLLM.testResult?.models?.length ?? 0
-                        return `Connected. ${n} model${n === 1 ? '' : 's'} ready to go.`
+                        return t('onboarding:ollamaPrompt.connected', { count: n })
                       }
-                      case 'error':         return localLLM.error ?? "Something went wrong. Mind retrying?"
-                      default:              return "Checking on Ollama…"
+                      case 'error':         return localLLM.error ?? t('onboarding:ollamaPrompt.errorFallback')
+                      default:              return t('onboarding:ollamaPrompt.checking')
                     }
                   })() : (() => {
                     const isProxiedApiKey = onboardingStep.name === 'api_key' && onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
-                    if (isProxiedApiKey && proxiedVia === 'openrouter') return "Paste your OpenRouter key and I'll wire it up."
+                    if (isProxiedApiKey && proxiedVia === 'openrouter') return t('onboarding:apiKeyPrompt.openrouter')
                     if (onboardingStep.name === 'api_key') {
-                      const name = PROVIDER_NAMES[apiKeyProvider] ?? 'your provider'
+                      const name = PROVIDER_NAMES[apiKeyProvider] ?? t('onboarding:apiKeyPrompt.providerFallback')
                       return supportsSub
-                        ? `Connect your ${name} account so I can start working. Sign in, or paste an API key.`
-                        : `Paste your ${name} API key so I can connect and start working.`
+                        ? t('onboarding:apiKeyPrompt.withSub', { provider: name })
+                        : t('onboarding:apiKeyPrompt.plain', { provider: name })
                     }
-                    return STEP_PROMPTS[onboardingStep.name] ?? onboardingStep.title
+                    if (onboardingStep.name === 'provider') return t('onboarding:stepPrompt.provider')
+                    if (onboardingStep.name === 'user_profile') return t('onboarding:stepPrompt.userProfile')
+                    if (onboardingStep.name === 'agent_name') return t('onboarding:stepPrompt.agentName')
+                    return onboardingStep.title
                   })()}
                 </h2>
               )}
@@ -1088,12 +1098,12 @@ export function OnboardingPage() {
                       onClick={handleBack}
                       disabled={onboardingLoading}
                       icon={<ChevronLeft size={18} />}
-                      aria-label="Back"
+                      aria-label={t('common:actions.back')}
                     />
                   )}
                   {!onboardingStep.required && (
                     <Button variant="secondary" onClick={handleSkip} disabled={onboardingLoading} icon={<SkipForward size={16} />}>
-                      Skip
+                      {t('common:actions.skip')}
                     </Button>
                   )}
                   <Button
@@ -1105,9 +1115,9 @@ export function OnboardingPage() {
                     iconPosition="right"
                   >
                     {onboardingLoading && onboardingStep?.name === 'api_key'
-                      ? (isOllamaStep ? 'Connecting…' : 'Testing API Key…')
-                      : onboardingStep.name === 'intro' ? 'Get started'
-                      : isLastStep ? 'Finish' : 'Next'}
+                      ? (isOllamaStep ? t('common:status.connecting') : t('onboarding:nav.testingApiKey'))
+                      : onboardingStep.name === 'intro' ? t('onboarding:nav.getStarted')
+                      : isLastStep ? t('onboarding:nav.finish') : t('common:actions.next')}
                   </Button>
                 </div>
               </div>

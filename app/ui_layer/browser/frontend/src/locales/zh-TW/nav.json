@@ -1,0 +1,111 @@
+{
+  "items": {
+    "main": "主要",
+    "newChat": "新對話",
+    "dashboard": "儀表板",
+    "memory": "記憶",
+    "workspace": "工作區",
+    "settings": "設定"
+  },
+  "groups": {
+    "livingUi": "Living UI",
+    "chats": "對話"
+  },
+  "sidebar": {
+    "expand": "展開側邊欄",
+    "collapse": "收合側邊欄",
+    "websiteLabel": "CraftBot 網站",
+    "addLivingUi": "新增 Living UI",
+    "newChat": "新對話",
+    "noLivingUiApps": "尚無 Living UI 應用程式",
+    "showMoreCount": "顯示更多（{{count}}）"
+  },
+  "dots": {
+    "agentWorking": "代理處理中",
+    "newMessages": "新訊息"
+  },
+  "sessionMenu": {
+    "options": "選項",
+    "sessionOptions": "工作階段選項",
+    "clearConversation": "清除對話",
+    "createSkill": "從此工作階段建立技能"
+  },
+  "mainTooltip": {
+    "aria": "關於主要對話",
+    "title": "為什麼「主要」不一樣？",
+    "line1": "「主要」是代理的主場對話，因此無法刪除或重新命名。",
+    "line2": "任何自動發生的事情，例如排程任務和已連接應用程式的更新，都會出現在這裡。",
+    "line3": "所有對話共用同一份記憶：代理在任何對話中學到關於你的事情，在各處都會記得。但每個對話各自保留自己的內容，因此某個對話中的訊息在其他對話看不到。"
+  },
+  "topBar": {
+    "playbooks": "劇本",
+    "switchToLightMode": "切換至淺色模式",
+    "switchToDarkMode": "切換至深色模式"
+  },
+  "layout": {
+    "openMenu": "開啟選單",
+    "closeMenu": "關閉選單"
+  },
+  "app": {
+    "wakingUp": "正在喚醒 CraftBot"
+  },
+  "connection": {
+    "disconnectedReconnecting": "已中斷連線。正在重新連線…",
+    "notConnectedRetry": "尚未連線。請稍候片刻後重試。"
+  },
+  "agentStatus": {
+    "waiting": "代理正在等待你的回覆",
+    "running_one": "代理正在執行 {{names}}",
+    "running_other": "代理正在執行 {{names}}",
+    "thinking": "代理思考中",
+    "working": "代理處理中",
+    "idle": "代理閒置中",
+    "ready": "就緒"
+  },
+  "workspace": {
+    "failedToNavigate": "瀏覽失敗",
+    "failedToRefresh": "重新整理失敗",
+    "failedToListFiles": "列出檔案失敗",
+    "notConnected": "WebSocket 未連線",
+    "operationTimedOut": "操作逾時",
+    "uploadFailedStatus": "上傳失敗（HTTP {{status}}）",
+    "networkErrorUpload": "上傳期間發生網路錯誤",
+    "uploadCancelled": "已取消上傳"
+  },
+  "skillCreator": {
+    "errors": {
+      "invalidMode": "請求模式無效。",
+      "missingSessionId": "尚未選取來源工作階段。",
+      "missingSkillName": "請輸入技能名稱。",
+      "invalidSkillName": "技能名稱格式無效。",
+      "reservedSkillName": "該名稱為保留字。",
+      "sessionNotFound": "來源工作階段已不存在。",
+      "skillAlreadyExists": "已有同名技能存在。",
+      "skillNotFound": "目標技能已不存在。",
+      "workflowBusy": "另一項技能工作流程正在進行中。請稍候再試。",
+      "workflowLockUnavailable": "代理尚未就緒。",
+      "unknown": "未知的錯誤。"
+    }
+  },
+  "slices": {
+    "localLlm": {
+      "installationFailed": "安裝失敗",
+      "failedToStart": "無法啟動 Ollama",
+      "modelDownloadFailed": "模型下載失敗"
+    },
+    "livingUiSettings": {
+      "backupRestored": "備份已還原。應用程式已重新啟動。",
+      "restoreFailed": "還原失敗。"
+    },
+    "modelSettings": {
+      "failedToPrepareSignIn": "無法準備登入",
+      "codeExchangeFailed": "驗證碼交換失敗"
+    },
+    "onboarding": {
+      "failedToGetStep": "無法取得步驟",
+      "failedToSubmit": "送出失敗",
+      "cannotSkip": "無法略過此步驟",
+      "cannotGoBack": "無法返回上一步"
+    }
+  }
+}

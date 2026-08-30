@@ -1,0 +1,231 @@
+{
+  "header": {
+    "agentStatus": "エージェントの状態",
+    "uptime": "稼働時間: {{uptime}}",
+    "renameLayout": "レイアウトの名前を変更",
+    "newLayout": "新しいレイアウト",
+    "resetLayout": "レイアウトをリセット",
+    "deleteLayout": "レイアウトを削除",
+    "addWidget": "ウィジェットを追加",
+    "deleteConfirmTitle": "レイアウトを削除",
+    "deleteConfirmMessage": "「{{name}}」を削除しますか？この操作は元に戻せません。",
+    "resetConfirmTitle": "レイアウトをリセット",
+    "resetConfirmMessage": "「{{name}}」をデフォルトの配置にリセットしますか？デフォルトレイアウトに含まれない、あなたが追加したウィジェットは保持されます。"
+  },
+  "addWidget": {
+    "title": "ウィジェットを追加",
+    "empty": "利用可能なウィジェットはすべてこのレイアウトに追加済みです。"
+  },
+  "layoutModal": {
+    "createTitle": "新しいレイアウト",
+    "renameTitle": "レイアウトの名前を変更",
+    "placeholder": "レイアウト名"
+  },
+  "layout": {
+    "defaultName": "デフォルト",
+    "untitledName": "無題"
+  },
+  "grid": {
+    "emptyState": "このレイアウトにはまだウィジェットがありません。「ウィジェットを追加」をクリックして始めましょう。"
+  },
+  "widgetChrome": {
+    "remove": "{{title}} を削除"
+  },
+  "errorBoundary": {
+    "failed": "このウィジェットの読み込みに失敗しました。"
+  },
+  "duration": {
+    "dhm": "{{days}}日 {{hours}}時間 {{minutes}}分",
+    "hm": "{{hours}}時間 {{minutes}}分",
+    "m": "{{minutes}}分"
+  },
+  "registry": {
+    "craftBotIntro": {
+      "title": "CraftBot へようこそ",
+      "description": "CraftBot の機能、システムの柱、マスコットコンパニオンの紹介。"
+    },
+    "taskStats": {
+      "title": "タスク統計",
+      "description": "完了、失敗、実行中のタスクと成功率。"
+    },
+    "tokenUsage": {
+      "title": "トークン使用量",
+      "description": "入力/出力/キャッシュされたトークンの合計と比率。"
+    },
+    "systemResources": {
+      "title": "システムリソース",
+      "description": "CPU、メモリ、ディスク、スレッドプール、ネットワーク I/O。"
+    },
+    "usagePatterns": {
+      "title": "利用パターン",
+      "description": "時間ごとのリクエスト分布とピーク使用量。"
+    },
+    "mcpServers": {
+      "title": "MCP サーバー",
+      "description": "接続済みサーバー、呼び出し回数、上位ツール。"
+    },
+    "skills": {
+      "title": "スキル",
+      "description": "有効なスキル、呼び出し回数、上位スキル。"
+    },
+    "integrations": {
+      "title": "連携",
+      "description": "接続済みの連携と呼び出し回数。"
+    },
+    "modelInfo": {
+      "title": "モデル情報",
+      "description": "アクティブなプロバイダー、モデル名、モデル ID。"
+    },
+    "mascot": {
+      "title": "マスコット",
+      "description": "エージェントの活動に反応する CraftBot マスコット。"
+    },
+    "livingUi": {
+      "title": "Living UI",
+      "description": "インストール済みおよび実行中の Living UI。"
+    },
+    "recentActivity": {
+      "title": "最近のアクティビティ",
+      "description": "すべてのセッションにわたる最新のアクション（タイミングとトークン付き）。"
+    }
+  },
+  "widgets": {
+    "common": {
+      "noUsage": "まだ使用実績がありません",
+      "viewAllCount": "すべて表示 ({{count}})"
+    },
+    "periodSelector": {
+      "all": "すべて"
+    },
+    "craftBotIntro": {
+      "welcomeTitle": "CraftBot へようこそ",
+      "welcomeSubtitle": "1 つのエージェントで、あらゆる仕事を。",
+      "takeTour": "ツアーを開始",
+      "backAria": "ウェルカム画面に戻る",
+      "clickMascot": "CraftBot をクリック！",
+      "goToSlide": "スライド {{number}} へ移動",
+      "cards": {
+        "cloud": {
+          "categoryLabel": "CraftBot Live",
+          "title": "CraftBot Live",
+          "subtitle": "あなた専用の CraftBot が、いつでもオンライン",
+          "desc": "あなた専用の CraftBot が、いつでもオンライン",
+          "item0": "SSH 不要",
+          "item1": "Docker 不要",
+          "item2": "あなたが眠っている間も稼働",
+          "item3": "どのデバイスからでもアクセス",
+          "cta": "無料で始める"
+        },
+        "livingui": {
+          "categoryLabel": "Living UI",
+          "title": "自身のソフトウェアを構築・運用するエージェント",
+          "subtitle": "アプリを依頼すると、エージェントが自身のインターフェース内で設計、コーディング、テスト、起動します。",
+          "desc": "アプリを依頼するだけ。エージェントが設計、コーディング、テスト、起動します。",
+          "item0": "かんばんボード",
+          "item1": "CRM",
+          "item2": "習慣トラッカー",
+          "item3": "コミュニティマーケットプレイス",
+          "cta": "Living UI マーケットプレイスを見る"
+        },
+        "bundles": {
+          "categoryLabel": "エージェントバンドル",
+          "title": "40 以上の構築済みエージェントペルソナ",
+          "subtitle": "CEO、財務、DevOps のエージェントをワンクリックでインポート。120 の既製プレイブックが一般的な自動化をカバーします。",
+          "desc": "CEO、財務、DevOps など 40 以上のペルソナ。ワンクリックでインポート。",
+          "item0": "CEO エージェント",
+          "item1": "財務エージェント",
+          "item2": "DevOps エンジニア",
+          "item3": "120 のプレイブック",
+          "item4": "ワンクリックインポート",
+          "cta": "エージェントバンドルを入手"
+        },
+        "community": {
+          "categoryLabel": "オープンソース",
+          "title": "1 つのエージェントで、あらゆる仕事を。",
+          "subtitle": "MIT ライセンスで、無料でセルフホスト可能。活発に開発され、毎週改善されています。",
+          "desc": "MIT ライセンス、セルフホスト可能、オープンに開発。",
+          "item0Label": "CraftOS-dev/CraftBot",
+          "item0Tag": "GitHub",
+          "item1Label": "CraftBot コミュニティに参加",
+          "item1Tag": "Discord",
+          "item2Label": "コミュニティが構築した Living UI",
+          "item2Tag": "マーケット",
+          "cta": "GitHub でスターを付ける"
+        }
+      }
+    },
+    "integrations": {
+      "totalCalls": "合計呼び出し回数",
+      "topIntegrations": "上位の連携"
+    },
+    "mcpServers": {
+      "calls": "呼び出し回数",
+      "topTools": "上位ツール"
+    },
+    "skills": {
+      "invocations": "呼び出し回数",
+      "topSkills": "上位スキル"
+    },
+    "livingUi": {
+      "installed": "インストール済み",
+      "running": "実行中",
+      "projects": "プロジェクト",
+      "empty": "インストール済みの Living UI がありません"
+    },
+    "modelInfo": {
+      "provider": "プロバイダー",
+      "model": "モデル",
+      "modelId": "モデル ID",
+      "notConfigured": "未設定",
+      "notAvailable": "該当なし"
+    },
+    "taskStats": {
+      "completed": "完了",
+      "failed": "失敗",
+      "running": "実行中",
+      "success": "成功",
+      "total": "合計 {{total}} 件"
+    },
+    "tokenUsage": {
+      "input": "入力",
+      "output": "出力",
+      "cached": "キャッシュ",
+      "total": "合計 {{total}}"
+    },
+    "usagePatterns": {
+      "requests": "リクエスト",
+      "peakHour": "ピーク時間帯",
+      "peakCount": "ピーク回数",
+      "barTooltip_one": "{{time}}: {{count}} 件のリクエスト",
+      "barTooltip_other": "{{time}}: {{count}} 件のリクエスト",
+      "chart": {
+        "lastHourTitle": "直近 1 時間",
+        "lastHourDesc": "時間帯ごとのリクエスト",
+        "last24Title": "直近 24 時間",
+        "last24Desc": "時間ごとのリクエスト",
+        "last7Title": "直近 7 日間",
+        "last30Title": "直近 30 日間",
+        "allTimeTitle": "全期間",
+        "aggregatedDesc": "時間帯ごとに集計",
+        "defaultTitle": "時間ごとの分布"
+      }
+    },
+    "systemResources": {
+      "cpu": "CPU",
+      "memory": "メモリ",
+      "disk": "ディスク",
+      "threadPool": "スレッドプール",
+      "upload": "アップロード:",
+      "download": "ダウンロード:"
+    },
+    "recentActivity": {
+      "empty": "まだアクティビティがありません",
+      "justNow": "たった今",
+      "minutesAgo": "{{count}} 分前",
+      "hoursAgo": "{{count}} 時間前",
+      "daysAgo": "{{count}} 日前",
+      "tokens_one": "{{formattedCount}} トークン",
+      "tokens_other": "{{formattedCount}} トークン"
+    }
+  }
+}

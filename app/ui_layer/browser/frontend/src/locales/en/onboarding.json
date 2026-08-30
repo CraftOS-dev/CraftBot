@@ -1,0 +1,90 @@
+{
+  "ollama": {
+    "checking": "Checking if Ollama is running…",
+    "notInstalledStatus": "Ollama is not installed",
+    "notInstalledHint": "Ollama lets you run AI models locally, no cloud needed. We'll install it automatically for you.",
+    "install": "Install Ollama",
+    "installing": "Installing Ollama…",
+    "installStarting": "Starting…",
+    "notRunningStatus": "Ollama is installed but not running",
+    "notRunningHint": "Click below to start the Ollama server.",
+    "start": "Start Ollama",
+    "starting": "Starting Ollama…",
+    "runningNoModels": "Ollama is running (no models yet)",
+    "selectModelHint": "Select a model to download so you can start chatting:",
+    "findModel": "Find model...",
+    "recommended": "Recommended",
+    "noModelMatch": "No models match \"{{query}}\"",
+    "download": "Download {{model}}",
+    "modelFallback": "Model",
+    "downloading": "Downloading {{model}}…",
+    "downloadStarting": "Starting download…",
+    "connected": "Connected to Ollama",
+    "running": "Ollama is running",
+    "serverUrl": "Ollama server URL",
+    "test": "Test"
+  },
+  "ollamaPrompt": {
+    "notInstalled": "Ollama isn't installed yet. I'll set it up for us.",
+    "installing": "Installing Ollama… this'll take a minute.",
+    "notRunning": "Ollama's installed but not running. Start it up?",
+    "starting": "Starting up Ollama…",
+    "running": "Ollama's running. Let's test the connection.",
+    "selectingModel": "Pick a model for me to download.",
+    "pullingModel": "Downloading your model… this can take a few minutes.",
+    "connected_one": "Connected. {{count}} model ready to go.",
+    "connected_other": "Connected. {{count}} models ready to go.",
+    "errorFallback": "Something went wrong. Mind retrying?",
+    "checking": "Checking on Ollama…"
+  },
+  "apiKey": {
+    "storedLocally": "Your API key is stored locally.",
+    "optional": "API key (optional)",
+    "enter": "Enter your API key",
+    "orEnterKey": "or enter an API key"
+  },
+  "apiKeyPrompt": {
+    "openrouter": "Paste your OpenRouter key and I'll wire it up.",
+    "withSub": "Connect your {{provider}} account so I can start working. Sign in, or paste an API key.",
+    "plain": "Paste your {{provider}} API key so I can connect and start working.",
+    "providerFallback": "your provider"
+  },
+  "proxied": {
+    "orKey": "Enter your OpenRouter API key",
+    "directKey": "Enter your {{provider}} API key",
+    "modelLabel": "Model <1>(optional; leave default or enter any OpenRouter slug)</1>",
+    "useDirect": "← Use direct {{provider}} API instead",
+    "useOpenRouter": "Having connection issues? Use OpenRouter instead →"
+  },
+  "sub": {
+    "working": "Working…",
+    "pastePlaceholder": "Paste the code from the sign-in page",
+    "submitting": "Submitting…",
+    "submitCode": "Submit code",
+    "reopen": "Reopen sign-in page",
+    "openingBrowser": "Opening browser…",
+    "signInWith": "Sign in with {{provider}}",
+    "useKeyInstead": "Use an API key instead"
+  },
+  "form": {
+    "enterField": "Enter {{field}}",
+    "enterName": "Enter a name"
+  },
+  "stepPrompt": {
+    "provider": "Which AI should power me?",
+    "userProfile": "So what should I call you?",
+    "agentName": "And what would you like to call me?"
+  },
+  "intro": {
+    "greeting": "<1>Nice to meet you, I am CraftBot!</1><2/>I'm here to help you with work or life.",
+    "kicker": "Now, before we begin, there are a few settings we need to configure."
+  },
+  "done": {
+    "message": "You're all set! <1>{{name}}</1> is ready to work."
+  },
+  "nav": {
+    "testingApiKey": "Testing API Key…",
+    "getStarted": "Get started",
+    "finish": "Finish"
+  }
+}

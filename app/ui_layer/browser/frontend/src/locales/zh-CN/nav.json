@@ -1,0 +1,111 @@
+{
+  "items": {
+    "main": "主对话",
+    "newChat": "新建对话",
+    "dashboard": "仪表盘",
+    "memory": "记忆",
+    "workspace": "工作区",
+    "settings": "设置"
+  },
+  "groups": {
+    "livingUi": "Living UI",
+    "chats": "对话"
+  },
+  "sidebar": {
+    "expand": "展开侧边栏",
+    "collapse": "收起侧边栏",
+    "websiteLabel": "CraftBot 网站",
+    "addLivingUi": "添加 Living UI",
+    "newChat": "新建对话",
+    "noLivingUiApps": "暂无 Living UI 应用",
+    "showMoreCount": "显示更多（{{count}}）"
+  },
+  "dots": {
+    "agentWorking": "智能体工作中",
+    "newMessages": "新消息"
+  },
+  "sessionMenu": {
+    "options": "选项",
+    "sessionOptions": "会话选项",
+    "clearConversation": "清空对话",
+    "createSkill": "根据此会话创建技能"
+  },
+  "mainTooltip": {
+    "aria": "关于主对话",
+    "title": "主对话有何不同？",
+    "line1": "主对话是智能体的主场对话，因此无法删除或重命名。",
+    "line2": "任何自动发生的事情，例如计划任务和已连接应用的更新，都会汇集到这里。",
+    "line3": "所有对话共享同一份记忆：智能体在任何对话中了解到的关于你的信息，都会在各处记住。但每个对话保留各自的会话内容，因此某个对话中的消息在其他对话中不可见。"
+  },
+  "topBar": {
+    "playbooks": "剧本",
+    "switchToLightMode": "切换到浅色模式",
+    "switchToDarkMode": "切换到深色模式"
+  },
+  "layout": {
+    "openMenu": "打开菜单",
+    "closeMenu": "关闭菜单"
+  },
+  "app": {
+    "wakingUp": "正在唤醒 CraftBot"
+  },
+  "connection": {
+    "disconnectedReconnecting": "已断开连接。正在重新连接…",
+    "notConnectedRetry": "未连接。请稍候片刻再重试。"
+  },
+  "agentStatus": {
+    "waiting": "智能体正在等待你的回复",
+    "running_one": "智能体正在运行 {{names}}",
+    "running_other": "智能体正在运行 {{names}}",
+    "thinking": "智能体正在思考",
+    "working": "智能体工作中",
+    "idle": "智能体空闲中",
+    "ready": "就绪"
+  },
+  "workspace": {
+    "failedToNavigate": "导航失败",
+    "failedToRefresh": "刷新失败",
+    "failedToListFiles": "列出文件失败",
+    "notConnected": "WebSocket 未连接",
+    "operationTimedOut": "操作超时",
+    "uploadFailedStatus": "上传失败（HTTP {{status}}）",
+    "networkErrorUpload": "上传时发生网络错误",
+    "uploadCancelled": "上传已取消"
+  },
+  "skillCreator": {
+    "errors": {
+      "invalidMode": "请求模式无效。",
+      "missingSessionId": "未选择源会话。",
+      "missingSkillName": "请输入技能名称。",
+      "invalidSkillName": "技能名称格式无效。",
+      "reservedSkillName": "该名称为保留名称。",
+      "sessionNotFound": "源会话已不存在。",
+      "skillAlreadyExists": "同名技能已存在。",
+      "skillNotFound": "目标技能已不存在。",
+      "workflowBusy": "另一个技能工作流正在进行中。请稍后再试。",
+      "workflowLockUnavailable": "智能体尚未就绪。",
+      "unknown": "未知错误。"
+    }
+  },
+  "slices": {
+    "localLlm": {
+      "installationFailed": "安装失败",
+      "failedToStart": "启动 Ollama 失败",
+      "modelDownloadFailed": "模型下载失败"
+    },
+    "livingUiSettings": {
+      "backupRestored": "备份已恢复。应用已重新启动。",
+      "restoreFailed": "恢复失败。"
+    },
+    "modelSettings": {
+      "failedToPrepareSignIn": "准备登录失败",
+      "codeExchangeFailed": "验证码交换失败"
+    },
+    "onboarding": {
+      "failedToGetStep": "获取步骤失败",
+      "failedToSubmit": "提交失败",
+      "cannotSkip": "无法跳过此步骤",
+      "cannotGoBack": "无法返回上一步"
+    }
+  }
+}

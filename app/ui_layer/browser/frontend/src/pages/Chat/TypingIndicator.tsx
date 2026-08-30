@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { StatusIndicator } from '../../components/ui'
 import styles from '../../components/activity/ActivityBlocks.module.css'
 
@@ -6,13 +7,14 @@ import styles from '../../components/activity/ActivityBlocks.module.css'
 // running (running actions already show their own spinner). Reuses the
 // action-row layout so the spinner and text align with action lines.
 export function TypingIndicatorRow() {
+  const { t } = useTranslation(['chat', 'common'])
   return (
-    <div className={styles.actionRow} role="status" aria-label="Agent is working">
+    <div className={styles.actionRow} role="status" aria-label={t('chat:working.aria')}>
       <span className={styles.actionRowStatus}>
         <StatusIndicator status="running" size="sm" />
       </span>
       <span className={styles.workingLabel}>
-        Working
+        {t('chat:working.label')}
         <span className={styles.workingDot}>.</span>
         <span className={styles.workingDot}>.</span>
         <span className={styles.workingDot}>.</span>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSettingsWebSocket } from '../pages/Settings/useSettingsWebSocket'
 import type { SkillCreatorSubmit, SkillCreatorSuccessInfo } from '../components/ui/SkillCreatorModal'
+import i18n from '../i18n/config'
 
 export type SkillCreatorStatus = 'idle' | 'submitting' | 'success' | 'error'
 
@@ -12,22 +13,20 @@ interface SkillCreatorResponse {
   error?: string
 }
 
-const ERROR_MESSAGES: Record<string, string> = {
-  invalid_mode: 'Invalid request mode.',
-  missing_session_id: 'No source session selected.',
-  missing_skill_name: 'Enter a skill name.',
-  invalid_skill_name: 'Skill name format is invalid.',
-  reserved_skill_name: 'That name is reserved.',
-  session_not_found: 'Source session no longer exists.',
-  skill_already_exists: 'A skill with this name already exists.',
-  skill_not_found: 'The target skill no longer exists.',
-  workflow_busy: 'Another skill workflow is in progress. Try again in a moment.',
-  workflow_lock_unavailable: 'Agent is not ready.',
-}
-
 function humanize(error: string | undefined): string {
-  if (!error) return 'Unknown error.'
-  return ERROR_MESSAGES[error] ?? error
+  switch (error) {
+    case 'invalid_mode': return i18n.t('nav:skillCreator.errors.invalidMode')
+    case 'missing_session_id': return i18n.t('nav:skillCreator.errors.missingSessionId')
+    case 'missing_skill_name': return i18n.t('nav:skillCreator.errors.missingSkillName')
+    case 'invalid_skill_name': return i18n.t('nav:skillCreator.errors.invalidSkillName')
+    case 'reserved_skill_name': return i18n.t('nav:skillCreator.errors.reservedSkillName')
+    case 'session_not_found': return i18n.t('nav:skillCreator.errors.sessionNotFound')
+    case 'skill_already_exists': return i18n.t('nav:skillCreator.errors.skillAlreadyExists')
+    case 'skill_not_found': return i18n.t('nav:skillCreator.errors.skillNotFound')
+    case 'workflow_busy': return i18n.t('nav:skillCreator.errors.workflowBusy')
+    case 'workflow_lock_unavailable': return i18n.t('nav:skillCreator.errors.workflowLockUnavailable')
+    default: return error || i18n.t('nav:skillCreator.errors.unknown')
+  }
 }
 
 // Creates (or improves) a skill from a chat session's transcript. Opened

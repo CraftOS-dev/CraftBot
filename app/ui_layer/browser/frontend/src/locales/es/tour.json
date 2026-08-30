@@ -1,0 +1,65 @@
+{
+  "progressText": "{{current}} de {{total}}",
+  "steps": {
+    "welcome": {
+      "title": "Bienvenido a CraftBot",
+      "description": "Aquí tienes un tour rápido de lo esencial. Lleva alrededor de un minuto."
+    },
+    "chat-composer": {
+      "title": "Habla con CraftBot",
+      "description": "Escribe lo que quieras aquí: una pregunta, una tarea, adjunta archivos o un proyecto entero. Comunícate con CraftBot igual que lo harías con una persona por mensajes de texto."
+    },
+    "main-session": {
+      "title": "Tu chat Principal",
+      "description": "El Principal es el chat de origen del agente: no se puede eliminar ni renombrar, y todo lo que ocurre por su cuenta (como las tareas programadas o las actualizaciones de las apps conectadas) llega aquí."
+    },
+    "living-ui": {
+      "title": "Apps de Living UI",
+      "description": "Pide a CraftBot que te cree una app real (un rastreador, un CRM, un panel) y aparece aquí, creada y en ejecución. Hay tres formas de añadir una:"
+    },
+    "living-ui-marketplace": {
+      "title": "Marketplace",
+      "description": "Instala una app lista para usar del marketplace comunitario con un solo clic."
+    },
+    "living-ui-custom": {
+      "title": "Crear personalizada",
+      "description": "Describe lo que quieres y el agente lo crea: configura unos pocos aspectos básicos, responde a una breve entrevista y luego escribe la especificación y crea la app."
+    },
+    "living-ui-import": {
+      "title": "Importar",
+      "description": "Trae una Living UI existente desde un ZIP, una carpeta o una URL de git."
+    },
+    "dashboard": {
+      "title": "Panel de CraftBot",
+      "description": "Una sala de control en vivo para CraftBot, que hace seguimiento del uso, la actividad y el estado del sistema."
+    },
+    "memory": {
+      "title": "Memoria de CraftBot",
+      "description": "Todo lo que CraftBot aprende sobre ti y tu trabajo vive aquí como un grafo navegable de recuerdos, entidades y archivos. Cuanto más uses CraftBot, mejor te recordará."
+    },
+    "workspace": {
+      "title": "Espacio de trabajo de CraftBot",
+      "description": "El sistema de archivos dedicado de CraftBot. Explora los archivos que tu agente lee y escribe, y sube los tuyos."
+    },
+    "settings": {
+      "title": "Ajustes",
+      "description": "Configura tu agente aquí. Algunas áreas que conviene conocer:"
+    },
+    "settings-proactive": {
+      "title": "Proactivo",
+      "description": "Deja que tu agente trabaje por su cuenta: que ejecute tareas programadas y reaccione a eventos sin que se lo pidas."
+    },
+    "settings-skills": {
+      "title": "Habilidades",
+      "description": "Añade capacidades reutilizables para que tu agente sepa cómo llevar a cabo tareas específicas."
+    },
+    "settings-integrations": {
+      "title": "Integraciones",
+      "description": "Conecta apps como Gmail, Calendar y Notion para que tu agente pueda trabajar con todas ellas."
+    },
+    "done": {
+      "title": "Todo listo",
+      "description": "Este es el final del tour. Empieza a dar tareas a CraftBot para que trabaje para ti."
+    }
+  }
+}

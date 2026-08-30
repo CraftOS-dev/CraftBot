@@ -18,9 +18,11 @@ export interface WidgetSizing {
 
 export interface WidgetDefinition {
   id: string
-  title: string
+  /** i18n key for the widget's title (e.g. 'dashboard:registry.tokenUsage.title'). */
+  titleKey: string
   icon: LucideIcon
-  description?: string
+  /** i18n key for the Add-Widget picker description (e.g. 'dashboard:registry.tokenUsage.description'). */
+  descriptionKey?: string
   component: ComponentType
   /** Optional small badge rendered in the title bar (e.g. a live count). */
   headerBadge?: ComponentType

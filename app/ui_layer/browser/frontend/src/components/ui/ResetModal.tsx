@@ -1,48 +1,25 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
 import styles from './ResetModal.module.css'
 
-/** A resettable component. `id` must match AgentBase.RESET_COMPONENTS. */
+/** A resettable component. `id` must match AgentBase.RESET_COMPONENTS.
+ *  Labels/descriptions live in the `components:resetModal.items.*` catalog,
+ *  keyed by `id`. */
 interface ResetItem {
   id: string
-  label: string
-  description: string
   /** Destructive/expensive to rebuild — off by default and visually flagged. */
   destructive?: boolean
 }
 
 export const RESET_ITEMS: ResetItem[] = [
-  {
-    id: 'sessions',
-    label: 'Chats',
-    description:
-      'Delete extra chats, clear Main, and clear Living UI chat history. Apps are kept.',
-  },
-  {
-    id: 'memory',
-    label: 'Memory',
-    description: 'AGENT / MEMORY / PROACTIVE notes and the memory index.',
-  },
-  {
-    id: 'triggers',
-    label: 'Triggers & scheduled tasks',
-    description: 'Automations, schedules, and the activity log.',
-  },
-  {
-    id: 'workspace',
-    label: 'Workspace files',
-    description: 'Files the agent created in its workspace.',
-    destructive: true,
-  },
-  {
-    id: 'livingui',
-    label: 'LivingUI apps',
-    description:
-      'Deletes every app the agent has built. A final backup of each app’s data is saved and kept.',
-    destructive: true,
-  },
+  { id: 'sessions' },
+  { id: 'memory' },
+  { id: 'triggers' },
+  { id: 'workspace', destructive: true },
+  { id: 'livingui', destructive: true },
 ]
 
 /** Default selection: everything except the destructive items. */
@@ -55,7 +32,32 @@ export interface ResetModalProps {
 }
 
 export function ResetModal({ isOpen, onConfirm, onCancel }: ResetModalProps) {
+  const { t } = useTranslation(['components', 'common'])
   const [selected, setSelected] = useState<string[]>(DEFAULT_SELECTED)
+
+  // Explicit (type-checked) key literals per resettable component, keyed by id.
+  const itemText: Record<string, { label: string; description: string }> = {
+    sessions: {
+      label: t('components:resetModal.items.sessions.label'),
+      description: t('components:resetModal.items.sessions.description'),
+    },
+    memory: {
+      label: t('components:resetModal.items.memory.label'),
+      description: t('components:resetModal.items.memory.description'),
+    },
+    triggers: {
+      label: t('components:resetModal.items.triggers.label'),
+      description: t('components:resetModal.items.triggers.description'),
+    },
+    workspace: {
+      label: t('components:resetModal.items.workspace.label'),
+      description: t('components:resetModal.items.workspace.description'),
+    },
+    livingui: {
+      label: t('components:resetModal.items.livingui.label'),
+      description: t('components:resetModal.items.livingui.description'),
+    },
+  }
 
   // Reset the selection to defaults each time the modal is opened.
   useEffect(() => {
@@ -74,11 +76,10 @@ export function ResetModal({ isOpen, onConfirm, onCancel }: ResetModalProps) {
   )
 
   return (
-    <Modal isOpen={isOpen} onClose={onCancel} title="Reset Agent" size="sm">
+    <Modal isOpen={isOpen} onClose={onCancel} title={t('components:resetModal.title')} size="sm">
       <ModalBody className={styles.body}>
         <p className={styles.intro}>
-          Choose what to reset. Anything left unchecked is kept. Settings and
-          credentials are never affected.
+          {t('components:resetModal.intro')}
         </p>
         <div className={styles.list}>
           {RESET_ITEMS.map(item => {
@@ -96,15 +97,15 @@ export function ResetModal({ isOpen, onConfirm, onCancel }: ResetModalProps) {
                 />
                 <span className={styles.itemText}>
                   <span className={styles.itemLabel}>
-                    {item.label}
+                    {itemText[item.id]?.label}
                     {item.destructive && (
                       <span className={styles.destructiveTag}>
-                        <AlertTriangle size={12} /> can’t be undone
+                        <AlertTriangle size={12} /> {t('components:resetModal.cantBeUndone')}
                       </span>
                     )}
                   </span>
                   <span className={styles.itemDescription}>
-                    {item.description}
+                    {itemText[item.id]?.description}
                   </span>
                 </span>
               </label>
@@ -114,14 +115,14 @@ export function ResetModal({ isOpen, onConfirm, onCancel }: ResetModalProps) {
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" onClick={onCancel}>
-          Cancel
+          {t('common:actions.cancel')}
         </Button>
         <Button
           variant={anyDestructive ? 'danger' : 'primary'}
           onClick={() => onConfirm(selected)}
           disabled={!anySelected}
         >
-          Reset selected
+          {t('components:resetModal.confirmButton')}
         </Button>
       </ModalFooter>
     </Modal>

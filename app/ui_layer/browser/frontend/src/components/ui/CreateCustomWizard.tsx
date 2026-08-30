@@ -3,9 +3,11 @@ import {
   ArrowLeft, ArrowRight, Box, ChevronDown, Loader2, Paperclip,
   Sparkles, Upload, X,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { LIVING_UI_ICONS } from './LivingUIIcon'
 import { PRESET_THEMES, ThemeMiniPreview } from '../../pages/LivingUI/themeCatalog'
+import { formatNumber } from '../../i18n/format'
 import styles from './CreateCustomWizard.module.css'
 
 /**
@@ -60,15 +62,16 @@ function countWords(text: string): number {
 
 // ── configure-step vocabulary ───────────────────────────────────────────────
 
-const LAYOUTS: { id: string; label: string }[] = [
-  { id: 'free', label: 'Free — agent decides' },
-  { id: 'sidebar-body', label: 'Sidebar + body' },
-  { id: 'topnav-body', label: 'Top nav + body' },
-  { id: 'hero-cards', label: 'Hero + cards' },
-  { id: 'split-view', label: 'Split view' },
-  { id: 'dashboard', label: 'Dashboard grid' },
-  { id: 'columns-board', label: 'Columns board' },
-  { id: 'one-page', label: 'Single page' },
+// Labels live in the `components:createCustomWizard.layout.*` catalog, keyed here.
+const LAYOUTS: { id: string; labelKey: string }[] = [
+  { id: 'free', labelKey: 'free' },
+  { id: 'sidebar-body', labelKey: 'sidebarBody' },
+  { id: 'topnav-body', labelKey: 'topnavBody' },
+  { id: 'hero-cards', labelKey: 'heroCards' },
+  { id: 'split-view', labelKey: 'splitView' },
+  { id: 'dashboard', labelKey: 'dashboard' },
+  { id: 'columns-board', labelKey: 'columnsBoard' },
+  { id: 'one-page', labelKey: 'onePage' },
 ]
 
 // Miniature layout silhouettes, drawn as SVG rect compositions.
@@ -140,9 +143,9 @@ function LayoutSilhouette({ id }: { id: string }) {
   )
 }
 
-const ACCESS_CHOICES: { value: 'none' | 'multi-user'; label: string }[] = [
-  { value: 'none', label: 'Just me (no login)' },
-  { value: 'multi-user', label: 'Multi-user (accounts)' },
+const ACCESS_CHOICES: { value: 'none' | 'multi-user'; labelKey: 'none' | 'multiUser' }[] = [
+  { value: 'none', labelKey: 'none' },
+  { value: 'multi-user', labelKey: 'multiUser' },
 ]
 
 function newWizardId(): string {
@@ -152,6 +155,24 @@ function newWizardId(): string {
 // ── component ───────────────────────────────────────────────────────────────
 
 export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initial }: CreateCustomWizardProps) {
+  const { t } = useTranslation(['components', 'common', 'livingui'])
+
+  // Explicit (type-checked) key literals for the configure-step vocabulary.
+  const layoutLabels: Record<string, string> = {
+    free: t('components:createCustomWizard.layout.free'),
+    sidebarBody: t('components:createCustomWizard.layout.sidebarBody'),
+    topnavBody: t('components:createCustomWizard.layout.topnavBody'),
+    heroCards: t('components:createCustomWizard.layout.heroCards'),
+    splitView: t('components:createCustomWizard.layout.splitView'),
+    dashboard: t('components:createCustomWizard.layout.dashboard'),
+    columnsBoard: t('components:createCustomWizard.layout.columnsBoard'),
+    onePage: t('components:createCustomWizard.layout.onePage'),
+  }
+  const accessLabels: Record<'none' | 'multiUser', string> = {
+    none: t('components:createCustomWizard.access.none'),
+    multiUser: t('components:createCustomWizard.access.multiUser'),
+  }
+
   const wizardIdRef = useRef(initial?.wizardId || newWizardId())
 
   const [step, setStep] = useState<'configure' | 'interview' | 'creating'>(initial ? 'interview' : 'configure')
@@ -204,7 +225,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
           setQIndex(0)
           setInterviewError(null)
         } else {
-          setInterviewError(data.error || 'Failed to prepare the interview')
+          setInterviewError(data.error || t('components:createCustomWizard.interviewFailed'))
         }
       }),
       onMessage('living_ui_wizard_finalize', (data: any) => {
@@ -221,7 +242,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
           onCreated?.(data.projectId)
           onClose()
         } else {
-          setCreateError(data.error || 'Failed to create the Living UI')
+          setCreateError(data.error || t('components:createCustomWizard.createFailed'))
         }
       }),
     ]
@@ -258,11 +279,11 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
 
   const validate = (): boolean => {
     const next: { name?: string; description?: string } = {}
-    if (!name.trim()) next.name = 'Name is required'
-    else if (name.length > 50) next.name = 'Name must be 50 characters or less'
-    if (!description.trim()) next.description = 'Description is required'
-    else if (description.trim().length < 10) next.description = 'Please provide more detail (at least 10 characters)'
-    else if (wordCount > MAX_WORDS) next.description = `Description exceeds ${MAX_WORDS} word limit`
+    if (!name.trim()) next.name = t('components:createCustomWizard.nameRequired')
+    else if (name.length > 50) next.name = t('components:createCustomWizard.nameTooLong')
+    if (!description.trim()) next.description = t('components:createCustomWizard.descRequired')
+    else if (description.trim().length < 10) next.description = t('components:createCustomWizard.descTooShort')
+    else if (wordCount > MAX_WORDS) next.description = t('components:createCustomWizard.descTooLong', { max: formatNumber(MAX_WORDS) })
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -297,7 +318,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
         })
         const result = await resp.json().catch(() => ({}))
         if (!resp.ok || result.error) {
-          throw new Error(result.error || `Upload failed: ${file.name}`)
+          throw new Error(result.error || t('components:createCustomWizard.uploadFailed', { name: file.name }))
         }
       }
       if (iconFile) await uploadOne(iconFile, 'icon')
@@ -393,18 +414,17 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
             <p className={styles.stateError}>{createError}</p>
             <div className={styles.stateActions}>
               <Button variant="secondary" onClick={() => setStep(questions.length > 0 ? 'interview' : 'configure')}>
-                Back
+                {t('common:actions.back')}
               </Button>
-              <Button variant="primary" onClick={() => finalize(answers)}>Retry</Button>
+              <Button variant="primary" onClick={() => finalize(answers)}>{t('common:actions.retry')}</Button>
             </div>
           </>
         ) : (
           <>
             <Loader2 size={28} className={styles.spinner} />
-            <p className={styles.stateTitle}>Writing the requirements & starting the build…</p>
+            <p className={styles.stateTitle}>{t('components:createCustomWizard.creatingTitle')}</p>
             <p className={styles.stateSub}>
-              Your answers are being turned into a complete specification. You'll be
-              taken to the live build view in a moment.
+              {t('components:createCustomWizard.creatingSub')}
             </p>
           </>
         )}
@@ -418,24 +438,23 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
         {interviewLoading ? (
           <div className={styles.stateScreen}>
             <Loader2 size={28} className={styles.spinner} />
-            <p className={styles.stateTitle}>Preparing your interview…</p>
+            <p className={styles.stateTitle}>{t('components:createCustomWizard.preparingTitle')}</p>
             <p className={styles.stateSub}>
-              The agent is reading your configuration and deciding what it still
-              needs to know.
+              {t('components:createCustomWizard.preparingSub')}
             </p>
           </div>
         ) : interviewError ? (
           <div className={styles.stateScreen}>
             <p className={styles.stateError}>{interviewError}</p>
             <div className={styles.stateActions}>
-              <Button variant="secondary" onClick={() => setStep('configure')}>Back</Button>
+              <Button variant="secondary" onClick={() => setStep('configure')}>{t('common:actions.back')}</Button>
               <Button
                 variant="secondary"
                 onClick={() => finalize({})}
               >
-                Skip interview
+                {t('components:createCustomWizard.skipInterview')}
               </Button>
-              <Button variant="primary" onClick={() => void handleNext()}>Retry</Button>
+              <Button variant="primary" onClick={() => void handleNext()}>{t('common:actions.retry')}</Button>
             </div>
           </div>
         ) : question ? (
@@ -449,17 +468,20 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
                   else setStep('configure')
                 }}
               >
-                <ArrowLeft size={13} /> Back
+                <ArrowLeft size={13} /> {t('common:actions.back')}
               </button>
               <span className={styles.interviewProgress}>
-                Question {qIndex + 1} of {questions.length}
+                {t('components:createCustomWizard.questionProgress', {
+                  current: formatNumber(qIndex + 1),
+                  total: formatNumber(questions.length),
+                })}
               </span>
               <button
                 type="button"
                 className={styles.skipLink}
                 onClick={() => finalize(answers)}
               >
-                Skip remaining
+                {t('components:createCustomWizard.skipRemaining')}
               </button>
             </div>
             <h3 className={styles.questionText}>{question.question}</h3>
@@ -490,8 +512,8 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
               <input
                 className={styles.input}
                 placeholder={question.multiSelect
-                  ? 'Add your own answer (optional)…'
-                  : 'Or type your own answer…'}
+                  ? t('components:createCustomWizard.freeTextMulti')
+                  : t('components:createCustomWizard.freeTextSingle')}
                 value={freeText}
                 onChange={e => setFreeText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && canContinue) handleContinue() }}
@@ -502,7 +524,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
                 onClick={handleContinue}
                 disabled={!canContinue}
               >
-                Continue
+                {t('common:actions.continue')}
               </Button>
             </div>
           </div>
@@ -518,7 +540,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
         <div className={styles.configInner}>
         <div className={styles.formGroup}>
           <label htmlFor="cw-name" className={styles.label}>
-            Project Name <span className={styles.required}>*</span>
+            {t('components:createCustomWizard.projectName')} <span className={styles.required}>*</span>
           </label>
           <div className={styles.nameRow}>
             <div className={styles.iconDropdownWrap}>
@@ -526,10 +548,10 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
                 type="button"
                 className={styles.iconSquare}
                 onClick={() => setIconOpen(v => !v)}
-                title="App icon — click to change or upload a favicon"
+                title={t('components:createCustomWizard.iconTitle')}
               >
                 {iconPreview ? (
-                  <img src={iconPreview} alt="icon" className={styles.iconPreview} />
+                  <img src={iconPreview} alt={t('components:createCustomWizard.iconAlt')} className={styles.iconPreview} />
                 ) : iconChoice ? (
                   (() => {
                     const Cmp = LIVING_UI_ICONS[iconChoice.slice(7)]
@@ -547,7 +569,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
                     className={styles.iconUploadRow}
                     onClick={() => { pickIconFile(); setIconOpen(false) }}
                   >
-                    <Upload size={13} /> Upload favicon (png, svg, ico…)
+                    <Upload size={13} /> {t('components:createCustomWizard.uploadFavicon')}
                   </button>
                   <div className={styles.iconGrid}>
                     {Object.entries(LIVING_UI_ICONS).map(([iconName, Cmp]) => {
@@ -580,7 +602,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
               id="cw-name"
               type="text"
               className={`${styles.input} ${errors.name ? styles.inputError : ''}`}
-              placeholder="e.g., World News Dashboard"
+              placeholder={t('components:createCustomWizard.namePlaceholder')}
               value={name}
               onChange={e => setName(e.target.value)}
               maxLength={50}
@@ -591,26 +613,29 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
 
         <div className={styles.formGroup}>
           <label htmlFor="cw-desc" className={styles.label}>
-            What should this UI do? <span className={styles.required}>*</span>
+            {t('components:createCustomWizard.descLabel')} <span className={styles.required}>*</span>
           </label>
           <textarea
             id="cw-desc"
             className={`${styles.textarea} ${errors.description ? styles.inputError : ''}`}
-            placeholder="Describe what you want the Living UI to display and do. Be specific about the data, workflows, and anything it must get right…"
+            placeholder={t('components:createCustomWizard.descPlaceholder')}
             value={description}
             onChange={e => setDescription(e.target.value)}
             rows={6}
           />
           <div className={styles.fieldFooter}>
             <span className={`${styles.wordCount} ${wordCount > MAX_WORDS ? styles.wordCountError : ''}`}>
-              {wordCount.toLocaleString()} / {MAX_WORDS.toLocaleString()} words
+              {t('components:createCustomWizard.wordCount', {
+                words: formatNumber(wordCount),
+                max: formatNumber(MAX_WORDS),
+              })}
             </span>
           </div>
           {errors.description && <span className={styles.errorText}>{errors.description}</span>}
         </div>
 
         <div className={styles.formGroup}>
-          <label className={styles.label}>Reference files (optional)</label>
+          <label className={styles.label}>{t('components:createCustomWizard.referenceFiles')}</label>
           <div
             className={styles.dropZone}
             onClick={() => {
@@ -631,7 +656,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
             }}
           >
             <Paperclip size={16} className={styles.dropIcon} />
-            <span>Drop design sketches, screenshots, or documents — or click to browse</span>
+            <span>{t('components:createCustomWizard.dropReference')}</span>
           </div>
           {files.length > 0 && (
             <div className={styles.fileList}>
@@ -653,7 +678,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
         </div>
 
         <div className={styles.formGroup}>
-          <label className={styles.label}>Layout</label>
+          <label className={styles.label}>{t('components:createCustomWizard.layoutLabel')}</label>
           <div className={styles.layoutGrid}>
             {LAYOUTS.map(l => (
               <button
@@ -663,32 +688,32 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
                 onClick={() => setLayout(l.id)}
               >
                 <LayoutSilhouette id={l.id} />
-                <span className={styles.layoutLabel}>{l.label}</span>
+                <span className={styles.layoutLabel}>{layoutLabels[l.labelKey]}</span>
               </button>
             ))}
           </div>
         </div>
 
         <div className={styles.formGroup}>
-          <label className={styles.label}>Theme</label>
+          <label className={styles.label}>{t('components:createCustomWizard.themeLabel')}</label>
           <div className={styles.themeGrid}>
-            {PRESET_THEMES.map(t => (
+            {PRESET_THEMES.map(theme => (
               <button
-                key={t.id}
+                key={theme.id}
                 type="button"
-                className={`${styles.themeCard} ${uiTheme === t.id ? styles.themeCardActive : ''}`}
-                onClick={() => setUiTheme(t.id)}
-                title={t.hint || t.label}
+                className={`${styles.themeCard} ${uiTheme === theme.id ? styles.themeCardActive : ''}`}
+                onClick={() => setUiTheme(theme.id)}
+                title={t(theme.descriptionKey)}
               >
-                <ThemeMiniPreview style={t.id} swatches={t.swatches} />
-                <span className={styles.layoutLabel}>{t.label}</span>
+                <ThemeMiniPreview style={theme.id} swatches={theme.swatches} />
+                <span className={styles.layoutLabel}>{t(theme.labelKey)}</span>
               </button>
             ))}
           </div>
         </div>
 
         <div className={styles.formGroup}>
-          <label className={styles.label}>Access</label>
+          <label className={styles.label}>{t('components:createCustomWizard.accessLabel')}</label>
           <div className={styles.accessRow}>
             {ACCESS_CHOICES.map(choice => (
               <button
@@ -697,7 +722,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
                 className={`${styles.chip} ${authMode === choice.value ? styles.chipActive : ''}`}
                 onClick={() => setAuthMode(choice.value)}
               >
-                {choice.label}
+                {accessLabels[choice.labelKey]}
               </button>
             ))}
           </div>
@@ -706,7 +731,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
       </div>
 
       <div className={styles.footer}>
-        <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+        <Button variant="secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</Button>
         <Button
           variant="primary"
           type="button"
@@ -714,7 +739,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
           onClick={() => void handleNext()}
           disabled={uploading}
         >
-          {uploading ? 'Uploading…' : 'Next'}
+          {uploading ? t('common:status.uploading') : t('common:actions.next')}
         </Button>
       </div>
     </div>

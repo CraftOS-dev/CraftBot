@@ -8,6 +8,7 @@ import type {
   LocalLLMPullProgressResponse,
   SuggestedModel,
 } from '../../types'
+import i18n from '../../i18n/config'
 import { register } from '../socket/messageRegistry'
 import { getSocketClient } from '../socket/socketInstance'
 
@@ -65,13 +66,13 @@ const localLlmSlice = createSlice({
         state.installProgress = []
       } else {
         state.phase = 'error'
-        state.error = r.error ?? 'Installation failed'
+        state.error = r.error ?? i18n.t('nav:slices.localLlm.installationFailed')
       }
     },
     applyStart(state, action: PayloadAction<LocalLLMInstallResponse>) {
       const r = action.payload
       state.phase = r.success ? 'running' : 'error'
-      state.error = r.success ? undefined : (r.error ?? 'Failed to start Ollama')
+      state.error = r.success ? undefined : (r.error ?? i18n.t('nav:slices.localLlm.failedToStart'))
       state.testResult = undefined
     },
     setSuggestedModels(state, action: PayloadAction<SuggestedModel[]>) {
@@ -94,7 +95,7 @@ const localLlmSlice = createSlice({
         state.error = undefined
       } else {
         state.phase = 'error'
-        state.error = r.error ?? 'Model download failed'
+        state.error = r.error ?? i18n.t('nav:slices.localLlm.modelDownloadFailed')
       }
     },
     setPhase(state, action: PayloadAction<LocalLLMState['phase']>) {

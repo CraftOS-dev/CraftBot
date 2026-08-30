@@ -1,0 +1,231 @@
+{
+  "header": {
+    "agentStatus": "Estado del agente",
+    "uptime": "Tiempo activo: {{uptime}}",
+    "renameLayout": "Cambiar nombre del diseño",
+    "newLayout": "Nuevo diseño",
+    "resetLayout": "Restablecer diseño",
+    "deleteLayout": "Eliminar diseño",
+    "addWidget": "Añadir widget",
+    "deleteConfirmTitle": "Eliminar diseño",
+    "deleteConfirmMessage": "¿Eliminar \"{{name}}\"? Esto no se puede deshacer.",
+    "resetConfirmTitle": "Restablecer diseño",
+    "resetConfirmMessage": "¿Restablecer \"{{name}}\" a la disposición predeterminada? Los widgets que hayas añadido y que no formen parte del diseño predeterminado se conservan."
+  },
+  "addWidget": {
+    "title": "Añadir widget",
+    "empty": "Todos los widgets disponibles ya están en este diseño."
+  },
+  "layoutModal": {
+    "createTitle": "Nuevo diseño",
+    "renameTitle": "Cambiar nombre del diseño",
+    "placeholder": "Nombre del diseño"
+  },
+  "layout": {
+    "defaultName": "Predeterminado",
+    "untitledName": "Sin título"
+  },
+  "grid": {
+    "emptyState": "Aún no hay widgets en este diseño. Haz clic en \"Añadir widget\" para empezar."
+  },
+  "widgetChrome": {
+    "remove": "Quitar {{title}}"
+  },
+  "errorBoundary": {
+    "failed": "No se pudo cargar este widget."
+  },
+  "duration": {
+    "dhm": "{{days}} d {{hours}} h {{minutes}} min",
+    "hm": "{{hours}} h {{minutes}} min",
+    "m": "{{minutes}} min"
+  },
+  "registry": {
+    "craftBotIntro": {
+      "title": "Bienvenido a CraftBot",
+      "description": "Introducción a las capacidades de CraftBot, los pilares del sistema y la mascota que te acompaña."
+    },
+    "taskStats": {
+      "title": "Estadísticas de tareas",
+      "description": "Tareas completadas, fallidas y en ejecución, y tasa de éxito."
+    },
+    "tokenUsage": {
+      "title": "Uso de tokens",
+      "description": "Totales y proporciones de tokens de entrada, salida y en caché."
+    },
+    "systemResources": {
+      "title": "Recursos del sistema",
+      "description": "CPU, memoria, disco, grupo de subprocesos y E/S de red."
+    },
+    "usagePatterns": {
+      "title": "Patrones de uso",
+      "description": "Distribución de solicitudes por hora y uso máximo."
+    },
+    "mcpServers": {
+      "title": "Servidores MCP",
+      "description": "Servidores conectados, volumen de llamadas y herramientas principales."
+    },
+    "skills": {
+      "title": "Habilidades",
+      "description": "Habilidades activadas, número de invocaciones y habilidades principales."
+    },
+    "integrations": {
+      "title": "Integraciones",
+      "description": "Integraciones conectadas y volumen de llamadas."
+    },
+    "modelInfo": {
+      "title": "Información del modelo",
+      "description": "Proveedor activo, nombre del modelo e ID del modelo."
+    },
+    "mascot": {
+      "title": "Mascota",
+      "description": "La mascota de CraftBot que reacciona a la actividad del agente."
+    },
+    "livingUi": {
+      "title": "Living UI",
+      "description": "Living UIs instaladas y en ejecución."
+    },
+    "recentActivity": {
+      "title": "Actividad reciente",
+      "description": "Las acciones más recientes en todas las sesiones, con tiempos y tokens."
+    }
+  },
+  "widgets": {
+    "common": {
+      "noUsage": "Aún no hay uso",
+      "viewAllCount": "Ver todo ({{count}})"
+    },
+    "periodSelector": {
+      "all": "Todo"
+    },
+    "craftBotIntro": {
+      "welcomeTitle": "Bienvenido a CraftBot",
+      "welcomeSubtitle": "Un agente. Todo tipo de trabajo.",
+      "takeTour": "Hacer un tour",
+      "backAria": "Volver a la vista de bienvenida",
+      "clickMascot": "¡Haz clic en CraftBot!",
+      "goToSlide": "Ir a la diapositiva {{number}}",
+      "cards": {
+        "cloud": {
+          "categoryLabel": "CraftBot Live",
+          "title": "CraftBot Live",
+          "subtitle": "Tu CraftBot personal, siempre en línea",
+          "desc": "Tu CraftBot personal, siempre en línea",
+          "item0": "Sin SSH",
+          "item1": "Sin Docker",
+          "item2": "Funciona mientras duermes",
+          "item3": "Accede desde cualquier dispositivo",
+          "cta": "Empezar gratis"
+        },
+        "livingui": {
+          "categoryLabel": "Living UI",
+          "title": "Un agente que crea y opera su propio software",
+          "subtitle": "Pide una app y el agente la diseña, la programa, la prueba y la inicia dentro de su propia interfaz.",
+          "desc": "Pide una app. El agente la diseña, la programa, la prueba y la inicia.",
+          "item0": "Tablero Kanban",
+          "item1": "CRM",
+          "item2": "Seguimiento de hábitos",
+          "item3": "Marketplace comunitario",
+          "cta": "Explorar el marketplace de Living UI"
+        },
+        "bundles": {
+          "categoryLabel": "Paquetes de agentes",
+          "title": "Más de 40 personas de agente prediseñadas",
+          "subtitle": "Importa agentes de CEO, finanzas y DevOps con un solo clic. 120 guías listas para usar cubren automatizaciones comunes.",
+          "desc": "CEO, finanzas, DevOps y más de 40 personas más. Un clic para importar.",
+          "item0": "Agente de CEO",
+          "item1": "Agente de finanzas",
+          "item2": "Ingeniero de DevOps",
+          "item3": "120 guías",
+          "item4": "Importación con un clic",
+          "cta": "Obtener paquetes de agentes"
+        },
+        "community": {
+          "categoryLabel": "Código abierto",
+          "title": "Un agente. Todo tipo de trabajo.",
+          "subtitle": "Con licencia MIT y gratis para autoalojar. Desarrollo activo, mejoras semanales.",
+          "desc": "Con licencia MIT, autoalojable y desarrollado de forma abierta.",
+          "item0Label": "CraftOS-dev/CraftBot",
+          "item0Tag": "GitHub",
+          "item1Label": "Únete a la comunidad de CraftBot",
+          "item1Tag": "Discord",
+          "item2Label": "Living UIs creadas por la comunidad",
+          "item2Tag": "Market",
+          "cta": "Dar una estrella en GitHub"
+        }
+      }
+    },
+    "integrations": {
+      "totalCalls": "Llamadas totales",
+      "topIntegrations": "Integraciones principales"
+    },
+    "mcpServers": {
+      "calls": "Llamadas",
+      "topTools": "Herramientas principales"
+    },
+    "skills": {
+      "invocations": "Invocaciones",
+      "topSkills": "Habilidades principales"
+    },
+    "livingUi": {
+      "installed": "Instaladas",
+      "running": "En ejecución",
+      "projects": "Proyectos",
+      "empty": "No hay Living UIs instaladas"
+    },
+    "modelInfo": {
+      "provider": "Proveedor",
+      "model": "Modelo",
+      "modelId": "ID del modelo",
+      "notConfigured": "Sin configurar",
+      "notAvailable": "N/D"
+    },
+    "taskStats": {
+      "completed": "Completadas",
+      "failed": "Fallidas",
+      "running": "En ejecución",
+      "success": "Éxito",
+      "total": "{{total}} en total"
+    },
+    "tokenUsage": {
+      "input": "Entrada",
+      "output": "Salida",
+      "cached": "En caché",
+      "total": "{{total}} en total"
+    },
+    "usagePatterns": {
+      "requests": "Solicitudes",
+      "peakHour": "Hora punta",
+      "peakCount": "Recuento máximo",
+      "barTooltip_one": "{{time}}: {{count}} solicitud",
+      "barTooltip_other": "{{time}}: {{count}} solicitudes",
+      "chart": {
+        "lastHourTitle": "Última hora",
+        "lastHourDesc": "Solicitudes por hora del día",
+        "last24Title": "Últimas 24 horas",
+        "last24Desc": "Solicitudes por hora",
+        "last7Title": "Últimos 7 días",
+        "last30Title": "Últimos 30 días",
+        "allTimeTitle": "Todo el tiempo",
+        "aggregatedDesc": "Agregado por hora del día",
+        "defaultTitle": "Distribución por hora"
+      }
+    },
+    "systemResources": {
+      "cpu": "CPU",
+      "memory": "Memoria",
+      "disk": "Disco",
+      "threadPool": "Grupo de subprocesos",
+      "upload": "Subida:",
+      "download": "Descarga:"
+    },
+    "recentActivity": {
+      "empty": "Aún no hay actividad",
+      "justNow": "justo ahora",
+      "minutesAgo": "hace {{count}} min",
+      "hoursAgo": "hace {{count}} h",
+      "daysAgo": "hace {{count}} d",
+      "tokens_one": "{{formattedCount}} token",
+      "tokens_other": "{{formattedCount}} tokens"
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "items": {
+    "main": "Utama",
+    "newChat": "Obrolan Baru",
+    "dashboard": "Dasbor",
+    "memory": "Memori",
+    "workspace": "Ruang Kerja",
+    "settings": "Pengaturan"
+  },
+  "groups": {
+    "livingUi": "Living UI",
+    "chats": "Obrolan"
+  },
+  "sidebar": {
+    "expand": "Perluas bilah sisi",
+    "collapse": "Ciutkan bilah sisi",
+    "websiteLabel": "Situs web CraftBot",
+    "addLivingUi": "Tambah Living UI",
+    "newChat": "Obrolan baru",
+    "noLivingUiApps": "Belum ada aplikasi Living UI",
+    "showMoreCount": "Tampilkan lebih banyak ({{count}})"
+  },
+  "dots": {
+    "agentWorking": "Agen sedang bekerja",
+    "newMessages": "Pesan baru"
+  },
+  "sessionMenu": {
+    "options": "Opsi",
+    "sessionOptions": "Opsi sesi",
+    "clearConversation": "Bersihkan percakapan",
+    "createSkill": "Buat keahlian dari sesi ini"
+  },
+  "mainTooltip": {
+    "aria": "Tentang obrolan Utama",
+    "title": "Mengapa Utama berbeda?",
+    "line1": "Utama adalah obrolan asal agen, jadi tidak bisa dihapus atau diganti namanya.",
+    "line2": "Apa pun yang terjadi dengan sendirinya, seperti tugas terjadwal dan pembaruan dari aplikasi yang tersambung, akan muncul di sini.",
+    "line3": "Semua obrolan berbagi satu memori: apa pun yang dipelajari agen tentang Anda di obrolan mana pun akan diingat di mana saja. Namun setiap obrolan menyimpan percakapannya sendiri, sehingga pesan di satu obrolan tidak terlihat dari obrolan lain."
+  },
+  "topBar": {
+    "playbooks": "Playbook",
+    "switchToLightMode": "Beralih ke mode terang",
+    "switchToDarkMode": "Beralih ke mode gelap"
+  },
+  "layout": {
+    "openMenu": "Buka menu",
+    "closeMenu": "Tutup menu"
+  },
+  "app": {
+    "wakingUp": "Membangunkan CraftBot"
+  },
+  "connection": {
+    "disconnectedReconnecting": "Terputus. Menyambungkan kembali...",
+    "notConnectedRetry": "Tidak tersambung. Mohon tunggu sebentar lalu coba lagi."
+  },
+  "agentStatus": {
+    "waiting": "Agen menunggu balasan Anda",
+    "running_one": "Agen menjalankan {{names}}",
+    "running_other": "Agen menjalankan {{names}}",
+    "thinking": "Agen sedang berpikir",
+    "working": "Agen sedang bekerja",
+    "idle": "Agen sedang diam",
+    "ready": "Siap"
+  },
+  "workspace": {
+    "failedToNavigate": "Gagal menavigasi",
+    "failedToRefresh": "Gagal menyegarkan",
+    "failedToListFiles": "Gagal menampilkan daftar berkas",
+    "notConnected": "WebSocket tidak tersambung",
+    "operationTimedOut": "Operasi kehabisan waktu",
+    "uploadFailedStatus": "Gagal mengunggah (HTTP {{status}})",
+    "networkErrorUpload": "Kesalahan jaringan saat mengunggah",
+    "uploadCancelled": "Unggahan dibatalkan"
+  },
+  "skillCreator": {
+    "errors": {
+      "invalidMode": "Mode permintaan tidak valid.",
+      "missingSessionId": "Tidak ada sesi sumber yang dipilih.",
+      "missingSkillName": "Masukkan nama keahlian.",
+      "invalidSkillName": "Format nama keahlian tidak valid.",
+      "reservedSkillName": "Nama itu sudah dicadangkan.",
+      "sessionNotFound": "Sesi sumber sudah tidak ada.",
+      "skillAlreadyExists": "Keahlian dengan nama ini sudah ada.",
+      "skillNotFound": "Keahlian tujuan sudah tidak ada.",
+      "workflowBusy": "Alur kerja keahlian lain sedang berjalan. Coba lagi sebentar.",
+      "workflowLockUnavailable": "Agen belum siap.",
+      "unknown": "Kesalahan tidak dikenal."
+    }
+  },
+  "slices": {
+    "localLlm": {
+      "installationFailed": "Instalasi gagal",
+      "failedToStart": "Gagal memulai Ollama",
+      "modelDownloadFailed": "Gagal mengunduh model"
+    },
+    "livingUiSettings": {
+      "backupRestored": "Cadangan dipulihkan. Aplikasi telah diluncurkan ulang.",
+      "restoreFailed": "Pemulihan gagal."
+    },
+    "modelSettings": {
+      "failedToPrepareSignIn": "Gagal menyiapkan proses masuk",
+      "codeExchangeFailed": "Pertukaran kode gagal"
+    },
+    "onboarding": {
+      "failedToGetStep": "Gagal mengambil langkah",
+      "failedToSubmit": "Gagal mengirim",
+      "cannotSkip": "Langkah ini tidak dapat dilewati",
+      "cannotGoBack": "Tidak dapat kembali"
+    }
+  }
+}

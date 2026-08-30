@@ -6,6 +6,7 @@ import type {
   OnboardingCompleteResponse,
 } from '../../types'
 import { register } from '../socket/messageRegistry'
+import i18n from '../../i18n/config'
 
 /** A session's run lifecycle as the chat UI sees it. 'stopping' covers the
  *  window between a user force-stop request and the backend confirming the
@@ -30,7 +31,7 @@ const initialState: AgentSliceState = {
   name: 'Agent',
   profilePictureUrl: '/api/agent-profile-picture',
   profilePictureHasCustom: false,
-  status: { state: 'idle', message: 'Connecting...', loading: false },
+  status: { state: 'idle', message: i18n.t('common:status.connecting'), loading: false },
   guiMode: false,
   footageUrl: null,
   skillMeta: {
@@ -113,7 +114,7 @@ register('init', (data, dispatch) => {
     url: d.agentProfilePictureUrl || '/api/agent-profile-picture',
     hasCustom: d.agentProfilePictureHasCustom ?? false,
   }))
-  dispatch(setStatus({ message: d.status || 'Ready', loading: false }))
+  dispatch(setStatus({ message: d.status || i18n.t('nav:agentStatus.ready'), loading: false }))
   dispatch(setStatusState(d.agentState || 'idle'))
   dispatch(setGuiMode(d.guiMode || false))
   dispatch(seedBusySessions((d as { busySessions?: string[] }).busySessions || []))

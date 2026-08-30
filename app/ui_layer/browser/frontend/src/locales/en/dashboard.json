@@ -1,0 +1,231 @@
+{
+  "header": {
+    "agentStatus": "Agent Status",
+    "uptime": "Uptime: {{uptime}}",
+    "renameLayout": "Rename layout",
+    "newLayout": "New layout",
+    "resetLayout": "Reset layout",
+    "deleteLayout": "Delete layout",
+    "addWidget": "Add Widget",
+    "deleteConfirmTitle": "Delete layout",
+    "deleteConfirmMessage": "Delete \"{{name}}\"? This can't be undone.",
+    "resetConfirmTitle": "Reset layout",
+    "resetConfirmMessage": "Reset \"{{name}}\" to the default arrangement? Widgets you've added that aren't part of the default layout are kept."
+  },
+  "addWidget": {
+    "title": "Add Widget",
+    "empty": "All available widgets are already on this layout."
+  },
+  "layoutModal": {
+    "createTitle": "New Layout",
+    "renameTitle": "Rename Layout",
+    "placeholder": "Layout name"
+  },
+  "layout": {
+    "defaultName": "Default",
+    "untitledName": "Untitled"
+  },
+  "grid": {
+    "emptyState": "No widgets on this layout yet. Click \"Add Widget\" to get started."
+  },
+  "widgetChrome": {
+    "remove": "Remove {{title}}"
+  },
+  "errorBoundary": {
+    "failed": "This widget failed to load."
+  },
+  "duration": {
+    "dhm": "{{days}}d {{hours}}h {{minutes}}m",
+    "hm": "{{hours}}h {{minutes}}m",
+    "m": "{{minutes}}m"
+  },
+  "registry": {
+    "craftBotIntro": {
+      "title": "Welcome to CraftBot",
+      "description": "Introduction to CraftBot capabilities, system pillars, and mascot companion."
+    },
+    "taskStats": {
+      "title": "Task Statistics",
+      "description": "Completed, failed, running tasks and success rate."
+    },
+    "tokenUsage": {
+      "title": "Token Usage",
+      "description": "Input/output/cached token totals and ratios."
+    },
+    "systemResources": {
+      "title": "System Resources",
+      "description": "CPU, memory, disk, thread pool and network I/O."
+    },
+    "usagePatterns": {
+      "title": "Usage Patterns",
+      "description": "Hourly request distribution and peak usage."
+    },
+    "mcpServers": {
+      "title": "MCP Servers",
+      "description": "Connected servers, call volume, top tools."
+    },
+    "skills": {
+      "title": "Skills",
+      "description": "Enabled skills, invocation counts, top skills."
+    },
+    "integrations": {
+      "title": "Integrations",
+      "description": "Connected integrations and call volume."
+    },
+    "modelInfo": {
+      "title": "Model Information",
+      "description": "Active provider, model name and model ID."
+    },
+    "mascot": {
+      "title": "Mascot",
+      "description": "The CraftBot mascot that reacts to agent activity."
+    },
+    "livingUi": {
+      "title": "Living UI",
+      "description": "Installed and running Living UIs."
+    },
+    "recentActivity": {
+      "title": "Recent Activity",
+      "description": "Most recent actions across all sessions, with timing and tokens."
+    }
+  },
+  "widgets": {
+    "common": {
+      "noUsage": "No usage yet",
+      "viewAllCount": "View all ({{count}})"
+    },
+    "periodSelector": {
+      "all": "All"
+    },
+    "craftBotIntro": {
+      "welcomeTitle": "Welcome to CraftBot",
+      "welcomeSubtitle": "One agent. Every kind of work.",
+      "takeTour": "Take a tour",
+      "backAria": "Back to welcome view",
+      "clickMascot": "Click CraftBot!",
+      "goToSlide": "Go to slide {{number}}",
+      "cards": {
+        "cloud": {
+          "categoryLabel": "CraftBot Live",
+          "title": "CraftBot Live",
+          "subtitle": "Your personal CraftBot, always online",
+          "desc": "Your personal CraftBot, always online",
+          "item0": "No SSH",
+          "item1": "No Docker",
+          "item2": "Runs while you sleep",
+          "item3": "Reach it from any device",
+          "cta": "Start free"
+        },
+        "livingui": {
+          "categoryLabel": "Living UI",
+          "title": "An agent that builds and operates its own software",
+          "subtitle": "Ask for an app and the agent designs, codes, tests, and launches it inside its own interface.",
+          "desc": "Ask for an app. The agent designs, codes, tests, and launches it.",
+          "item0": "Kanban board",
+          "item1": "CRM",
+          "item2": "Habit tracker",
+          "item3": "Community marketplace",
+          "cta": "Browse the Living UI marketplace"
+        },
+        "bundles": {
+          "categoryLabel": "Agent Bundles",
+          "title": "40+ prebuilt agent personas",
+          "subtitle": "Import CEO, finance, and DevOps agents with one click. 120 ready-made playbooks cover common automations.",
+          "desc": "CEO, finance, DevOps, and 40+ other personas. One click to import.",
+          "item0": "CEO agent",
+          "item1": "Finance agent",
+          "item2": "DevOps engineer",
+          "item3": "120 playbooks",
+          "item4": "One-click import",
+          "cta": "Get agent bundles"
+        },
+        "community": {
+          "categoryLabel": "Open Source",
+          "title": "One agent. Every kind of work.",
+          "subtitle": "MIT-licensed and free to self-host. Active development, weekly improvements.",
+          "desc": "MIT-licensed, self-hostable, built in the open.",
+          "item0Label": "CraftOS-dev/CraftBot",
+          "item0Tag": "GitHub",
+          "item1Label": "Join the CraftBot community",
+          "item1Tag": "Discord",
+          "item2Label": "Community-built Living UIs",
+          "item2Tag": "Market",
+          "cta": "Star on GitHub"
+        }
+      }
+    },
+    "integrations": {
+      "totalCalls": "Total Calls",
+      "topIntegrations": "Top Integrations"
+    },
+    "mcpServers": {
+      "calls": "Calls",
+      "topTools": "Top Tools"
+    },
+    "skills": {
+      "invocations": "Invocations",
+      "topSkills": "Top Skills"
+    },
+    "livingUi": {
+      "installed": "Installed",
+      "running": "Running",
+      "projects": "Projects",
+      "empty": "No Living UIs installed"
+    },
+    "modelInfo": {
+      "provider": "Provider",
+      "model": "Model",
+      "modelId": "Model ID",
+      "notConfigured": "Not configured",
+      "notAvailable": "N/A"
+    },
+    "taskStats": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "running": "Running",
+      "success": "Success",
+      "total": "{{total}} total"
+    },
+    "tokenUsage": {
+      "input": "Input",
+      "output": "Output",
+      "cached": "Cached",
+      "total": "{{total}} total"
+    },
+    "usagePatterns": {
+      "requests": "Requests",
+      "peakHour": "Peak Hour",
+      "peakCount": "Peak Count",
+      "barTooltip_one": "{{time}}: {{count}} request",
+      "barTooltip_other": "{{time}}: {{count}} requests",
+      "chart": {
+        "lastHourTitle": "Last Hour",
+        "lastHourDesc": "Requests by hour of day",
+        "last24Title": "Last 24 Hours",
+        "last24Desc": "Requests by hour",
+        "last7Title": "Last 7 Days",
+        "last30Title": "Last 30 Days",
+        "allTimeTitle": "All Time",
+        "aggregatedDesc": "Aggregated by hour of day",
+        "defaultTitle": "Hourly Distribution"
+      }
+    },
+    "systemResources": {
+      "cpu": "CPU",
+      "memory": "Memory",
+      "disk": "Disk",
+      "threadPool": "Thread Pool",
+      "upload": "Upload:",
+      "download": "Download:"
+    },
+    "recentActivity": {
+      "empty": "No activity yet",
+      "justNow": "just now",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago",
+      "tokens_one": "{{formattedCount}} token",
+      "tokens_other": "{{formattedCount}} tokens"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "progressText": "{{total}} 件中 {{current}} 件目",
+  "steps": {
+    "welcome": {
+      "title": "CraftBot へようこそ",
+      "description": "基本機能の簡単なツアーです。1 分ほどで終わります。"
+    },
+    "chat-composer": {
+      "title": "CraftBot と話す",
+      "description": "ここに何でも入力できます。質問、タスク、ファイルの添付、プロジェクト全体まで。テキストメッセージで人とやり取りするように CraftBot とコミュニケーションしましょう。"
+    },
+    "main-session": {
+      "title": "メインチャット",
+      "description": "メインはエージェントのホームチャットです。削除や名前の変更はできず、スケジュールされたタスクや連携アプリからの更新など、自動的に発生することはすべてここに届きます。"
+    },
+    "living-ui": {
+      "title": "Living UI アプリ",
+      "description": "CraftBot に本物のアプリ（トラッカー、CRM、ダッシュボードなど）を作るよう依頼すると、構築・実行された状態でここに表示されます。追加する方法は 3 つあります:"
+    },
+    "living-ui-marketplace": {
+      "title": "マーケットプレイス",
+      "description": "コミュニティマーケットプレイスから既製のアプリをワンクリックでインストールできます。"
+    },
+    "living-ui-custom": {
+      "title": "カスタム作成",
+      "description": "欲しいものを説明すると、エージェントが構築します。いくつかの基本設定を行い、短いインタビューに答えると、仕様を書いてアプリを構築します。"
+    },
+    "living-ui-import": {
+      "title": "インポート",
+      "description": "既存の Living UI を ZIP、フォルダー、または git URL から取り込みます。"
+    },
+    "dashboard": {
+      "title": "CraftBot ダッシュボード",
+      "description": "CraftBot のライブコントロールルームです。使用状況、アクティビティ、システムの健全性を追跡します。"
+    },
+    "memory": {
+      "title": "CraftBot メモリー",
+      "description": "CraftBot があなたとあなたの仕事について学んだことはすべて、メモリー、エンティティ、ファイルの閲覧可能なグラフとしてここに保存されます。CraftBot を使うほど、あなたのことをよく覚えるようになります。"
+    },
+    "workspace": {
+      "title": "CraftBot ワークスペース",
+      "description": "CraftBot 専用のファイルシステムです。エージェントが読み書きするファイルを閲覧したり、自分のファイルをアップロードしたりできます。"
+    },
+    "settings": {
+      "title": "設定",
+      "description": "ここでエージェントを設定します。知っておくと便利な項目をいくつか紹介します:"
+    },
+    "settings-proactive": {
+      "title": "プロアクティブ",
+      "description": "エージェントを自律的に動かしましょう。スケジュールされたタスクを実行し、依頼されなくてもイベントに反応します。"
+    },
+    "settings-skills": {
+      "title": "スキル",
+      "description": "再利用可能な機能を追加して、エージェントが特定のタスクの実行方法を理解できるようにします。"
+    },
+    "settings-integrations": {
+      "title": "連携",
+      "description": "Gmail、カレンダー、Notion などのアプリを接続して、エージェントがそれらをまたいで作業できるようにします。"
+    },
+    "done": {
+      "title": "準備完了",
+      "description": "これでツアーは終了です。CraftBot にタスクを任せて働いてもらいましょう。"
+    }
+  }
+}

@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { MetricsTimePeriod } from '../../../types'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
+import i18n from '../../../i18n/config'
+import { formatNumber, formatTime } from '../../../i18n/format'
 import styles from './widgets.module.css'
 
 export function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
+  const minutes = Math.floor((seconds % 3600) / 60)
 
   if (days > 0) {
-    return `${days}d ${hours}h ${mins}m`
+    return i18n.t('dashboard:duration.dhm', { days, hours, minutes })
   }
   if (hours > 0) {
-    return `${hours}h ${mins}m`
+    return i18n.t('dashboard:duration.hm', { hours, minutes })
   }
-  return `${mins}m`
+  return i18n.t('dashboard:duration.m', { minutes })
 }
 
 /**
@@ -28,7 +31,7 @@ export function formatUptime(seconds: number): string {
 export function formatTokenCount(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  return n.toLocaleString()
+  return formatNumber(n)
 }
 
 export function formatBytes(mb: number): string {
@@ -39,25 +42,43 @@ export function formatBytes(mb: number): string {
 }
 
 export function formatHour(hour: number): string {
-  const ampm = hour >= 12 ? 'PM' : 'AM'
-  const h = hour % 12 || 12
-  return `${h}:00 ${ampm}`
+  // Locale-aware hour label (e.g. "3 PM", "15時"). The date's day is irrelevant;
+  // only the hour-of-day is formatted.
+  return formatTime(new Date(2000, 0, 1, hour), { hour: 'numeric' })
 }
 
 export function getChartLabels(period: MetricsTimePeriod): { title: string; description: string } {
   switch (period) {
     case '1h':
-      return { title: 'Last Hour', description: 'Requests by hour of day' }
+      return {
+        title: i18n.t('dashboard:widgets.usagePatterns.chart.lastHourTitle'),
+        description: i18n.t('dashboard:widgets.usagePatterns.chart.lastHourDesc'),
+      }
     case '1d':
-      return { title: 'Last 24 Hours', description: 'Requests by hour' }
+      return {
+        title: i18n.t('dashboard:widgets.usagePatterns.chart.last24Title'),
+        description: i18n.t('dashboard:widgets.usagePatterns.chart.last24Desc'),
+      }
     case '1w':
-      return { title: 'Last 7 Days', description: 'Aggregated by hour of day' }
+      return {
+        title: i18n.t('dashboard:widgets.usagePatterns.chart.last7Title'),
+        description: i18n.t('dashboard:widgets.usagePatterns.chart.aggregatedDesc'),
+      }
     case '1m':
-      return { title: 'Last 30 Days', description: 'Aggregated by hour of day' }
+      return {
+        title: i18n.t('dashboard:widgets.usagePatterns.chart.last30Title'),
+        description: i18n.t('dashboard:widgets.usagePatterns.chart.aggregatedDesc'),
+      }
     case 'total':
-      return { title: 'All Time', description: 'Aggregated by hour of day' }
+      return {
+        title: i18n.t('dashboard:widgets.usagePatterns.chart.allTimeTitle'),
+        description: i18n.t('dashboard:widgets.usagePatterns.chart.aggregatedDesc'),
+      }
     default:
-      return { title: 'Hourly Distribution', description: '' }
+      return {
+        title: i18n.t('dashboard:widgets.usagePatterns.chart.defaultTitle'),
+        description: '',
+      }
   }
 }
 
@@ -92,15 +113,16 @@ interface TimePeriodSelectorProps {
 }
 
 const PERIODS: MetricsTimePeriod[] = ['1h', '1d', '1w', '1m', 'total']
-const PERIOD_LABELS: Record<MetricsTimePeriod, string> = {
+// 1H/1D/1W/1M are compact unit codes shared across locales; only "All" is a word.
+const PERIOD_SHORT: Record<Exclude<MetricsTimePeriod, 'total'>, string> = {
   '1h': '1H',
   '1d': '1D',
   '1w': '1W',
   '1m': '1M',
-  'total': 'All',
 }
 
 export function TimePeriodSelector({ selected, onChange }: TimePeriodSelectorProps) {
+  const { t } = useTranslation(['dashboard'])
   return (
     <div className={styles.periodSelector}>
       {PERIODS.map(p => (
@@ -109,7 +131,7 @@ export function TimePeriodSelector({ selected, onChange }: TimePeriodSelectorPro
           className={`${styles.periodButton} ${selected === p ? styles.active : ''}`}
           onClick={() => onChange(p)}
         >
-          {PERIOD_LABELS[p]}
+          {p === 'total' ? t('dashboard:widgets.periodSelector.all') : PERIOD_SHORT[p]}
         </button>
       ))}
     </div>

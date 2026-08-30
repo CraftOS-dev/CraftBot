@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { HelpCircle, X, Send } from 'lucide-react'
 import { MarkdownContent } from '../ui'
 import type { ChatMessage } from '../../types'
@@ -25,6 +26,7 @@ interface QuestionBoxProps {
  * so the free-text draft resets when the queue advances.
  */
 export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: QuestionBoxProps) {
+  const { t } = useTranslation(['chat', 'common'])
   const [text, setText] = useState('')
   // One-shot guard against double-submit between click and the store update
   // that unmounts the box (mirrors the bubble chips' dispatch lock).
@@ -39,19 +41,19 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
   }
 
   return (
-    <div className={styles.box} role="region" aria-label="Question from agent">
+    <div className={styles.box} role="region" aria-label={t('chat:question.aria')}>
       <div className={styles.header}>
         <HelpCircle size={14} className={styles.icon} />
-        <span className={styles.title}>{question.sender} is asking</span>
+        <span className={styles.title}>{t('chat:question.asking', { sender: question.sender })}</span>
         {queueTotal > 1 && (
-          <span className={styles.queueBadge}>1 of {queueTotal}</span>
+          <span className={styles.queueBadge}>{t('chat:question.queuePosition', { total: queueTotal })}</span>
         )}
         <button
           type="button"
           className={styles.dismiss}
           onClick={() => { if (!submitted) { setSubmitted(true); onDismiss() } }}
-          title="Dismiss — the agent will proceed without an answer"
-          aria-label="Dismiss question"
+          title={t('chat:question.dismissHint')}
+          aria-label={t('chat:question.dismissAria')}
         >
           <X size={14} />
         </button>
@@ -73,7 +75,7 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
             >
               {opt.label}
               {i === 0 && (
-                <span className={styles.recommended}> (recommended)</span>
+                <span className={styles.recommended}> {t('chat:question.recommended')}</span>
               )}
             </button>
           ))}
@@ -85,7 +87,7 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
           <input
             type="text"
             className={styles.freeTextInput}
-            placeholder="Or type your own answer..."
+            placeholder={t('chat:question.freeTextPlaceholder')}
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={e => {
@@ -101,8 +103,8 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
             className={styles.freeTextSend}
             onClick={() => submit(text)}
             disabled={submitted || !text.trim()}
-            title="Send answer"
-            aria-label="Send answer"
+            title={t('chat:question.sendAnswer')}
+            aria-label={t('chat:question.sendAnswer')}
           >
             <Send size={14} />
           </button>

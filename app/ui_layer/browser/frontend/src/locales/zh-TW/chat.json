@@ -1,0 +1,82 @@
+{
+  "dateDivider": {
+    "today": "今天",
+    "yesterday": "昨天"
+  },
+  "unread": {
+    "aria": "新訊息",
+    "label": "新"
+  },
+  "history": {
+    "loadingOlder": "正在載入較舊的訊息…"
+  },
+  "working": {
+    "label": "處理中",
+    "aria": "代理處理中"
+  },
+  "composer": {
+    "placeholder": "有什麼我可以為你做的嗎？",
+    "listening": "聆聽中…請開始說話",
+    "attachAndTools": "附件與工具",
+    "attachFiles": "附加檔案",
+    "aiEnhance": "AI 潤飾",
+    "enhancing": "潤飾中…",
+    "voiceInput": "語音輸入",
+    "stopListening": "停止聆聽",
+    "speechLanguage": "語音語言",
+    "send": "傳送",
+    "sendMessage": "傳送訊息",
+    "stop": "停止",
+    "stopping": "停止中…",
+    "stopRun": "停止執行",
+    "stoppingRun": "正在停止執行"
+  },
+  "reply": {
+    "replyingTo": "正在回覆：<1>{{name}}</1>",
+    "cancel": "取消回覆"
+  },
+  "scrollToLatest": "捲動至最新訊息",
+  "dismiss": "關閉",
+  "playbooks": {
+    "all": "所有劇本"
+  },
+  "attachment": {
+    "preview": "點按以預覽",
+    "tooManyFiles": "最多只能有 {{max}} 個檔案。",
+    "tooManyFilesDetailed": "最多只能有 {{max}} 個檔案。你目前有 {{have}} 個檔案。",
+    "totalSizeExceeds": "總大小（{{size}}）已超過 200 MB 上限。",
+    "fileExceedsLimit": "檔案「{{name}}」（{{size}}）已超過 200 MB 上限。",
+    "addWouldExceed": "加入「{{name}}」會超過 200 MB 的總大小上限。",
+    "uploadFailed": "無法上傳「{{name}}」。",
+    "uploadFailedNetwork": "無法上傳「{{name}}」：網路錯誤。",
+    "readFailed": "無法讀取檔案「{{name}}」。"
+  },
+  "toast": {
+    "enhanceTimedOut": "AI 潤飾已逾時。請再試一次。",
+    "reconnecting": "正在重新連線。連線恢復後將傳送你的訊息。"
+  },
+  "voice": {
+    "notSupported": "此瀏覽器不支援語音辨識。",
+    "micDenied": "麥克風存取遭拒。請在瀏覽器設定中允許麥克風權限。"
+  },
+  "question": {
+    "aria": "來自代理的問題",
+    "asking": "{{sender}} 正在詢問",
+    "queuePosition": "第 1 個，共 {{total}} 個",
+    "dismissHint": "關閉。代理將在沒有回答的情況下繼續進行。",
+    "dismissAria": "關閉問題",
+    "recommended": "（建議）",
+    "freeTextPlaceholder": "或輸入你自己的回答…",
+    "sendAnswer": "傳送回答"
+  },
+  "message": {
+    "hideReceived": "隱藏收到的訊息",
+    "showReceived": "顯示收到的訊息",
+    "hideMessage": "隱藏訊息",
+    "showMessage": "顯示訊息",
+    "selectResponse": "請選取一個回應以繼續：",
+    "replyTooltip": "回覆此訊息",
+    "copyTooltip": "複製訊息",
+    "copiedTooltip": "已複製！"
+  }
+}

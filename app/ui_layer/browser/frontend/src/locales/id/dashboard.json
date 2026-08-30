@@ -1,0 +1,231 @@
+{
+  "header": {
+    "agentStatus": "Status Agen",
+    "uptime": "Waktu aktif: {{uptime}}",
+    "renameLayout": "Ganti nama tata letak",
+    "newLayout": "Tata letak baru",
+    "resetLayout": "Atur ulang tata letak",
+    "deleteLayout": "Hapus tata letak",
+    "addWidget": "Tambah Widget",
+    "deleteConfirmTitle": "Hapus tata letak",
+    "deleteConfirmMessage": "Hapus \"{{name}}\"? Tindakan ini tidak dapat dibatalkan.",
+    "resetConfirmTitle": "Atur ulang tata letak",
+    "resetConfirmMessage": "Atur ulang \"{{name}}\" ke susunan default? Widget yang Anda tambahkan yang bukan bagian dari tata letak default akan tetap dipertahankan."
+  },
+  "addWidget": {
+    "title": "Tambah Widget",
+    "empty": "Semua widget yang tersedia sudah ada di tata letak ini."
+  },
+  "layoutModal": {
+    "createTitle": "Tata Letak Baru",
+    "renameTitle": "Ganti Nama Tata Letak",
+    "placeholder": "Nama tata letak"
+  },
+  "layout": {
+    "defaultName": "Default",
+    "untitledName": "Tanpa judul"
+  },
+  "grid": {
+    "emptyState": "Belum ada widget di tata letak ini. Klik \"Tambah Widget\" untuk memulai."
+  },
+  "widgetChrome": {
+    "remove": "Hapus {{title}}"
+  },
+  "errorBoundary": {
+    "failed": "Widget ini gagal dimuat."
+  },
+  "duration": {
+    "dhm": "{{days}}h {{hours}}j {{minutes}}m",
+    "hm": "{{hours}}j {{minutes}}m",
+    "m": "{{minutes}}m"
+  },
+  "registry": {
+    "craftBotIntro": {
+      "title": "Selamat datang di CraftBot",
+      "description": "Pengenalan kemampuan CraftBot, pilar sistem, dan maskot pendamping."
+    },
+    "taskStats": {
+      "title": "Statistik Tugas",
+      "description": "Tugas selesai, gagal, berjalan, dan tingkat keberhasilan."
+    },
+    "tokenUsage": {
+      "title": "Penggunaan Token",
+      "description": "Total dan rasio token input/output/tersimpan cache."
+    },
+    "systemResources": {
+      "title": "Sumber Daya Sistem",
+      "description": "CPU, memori, disk, thread pool, dan I/O jaringan."
+    },
+    "usagePatterns": {
+      "title": "Pola Penggunaan",
+      "description": "Distribusi permintaan per jam dan puncak penggunaan."
+    },
+    "mcpServers": {
+      "title": "Server MCP",
+      "description": "Server yang tersambung, volume panggilan, alat teratas."
+    },
+    "skills": {
+      "title": "Keahlian",
+      "description": "Keahlian yang aktif, jumlah pemanggilan, keahlian teratas."
+    },
+    "integrations": {
+      "title": "Integrasi",
+      "description": "Integrasi yang tersambung dan volume panggilan."
+    },
+    "modelInfo": {
+      "title": "Informasi Model",
+      "description": "Penyedia aktif, nama model, dan ID model."
+    },
+    "mascot": {
+      "title": "Maskot",
+      "description": "Maskot CraftBot yang bereaksi terhadap aktivitas agen."
+    },
+    "livingUi": {
+      "title": "Living UI",
+      "description": "Living UI yang terpasang dan berjalan."
+    },
+    "recentActivity": {
+      "title": "Aktivitas Terbaru",
+      "description": "Tindakan terbaru di semua sesi, lengkap dengan waktu dan token."
+    }
+  },
+  "widgets": {
+    "common": {
+      "noUsage": "Belum ada penggunaan",
+      "viewAllCount": "Lihat semua ({{count}})"
+    },
+    "periodSelector": {
+      "all": "Semua"
+    },
+    "craftBotIntro": {
+      "welcomeTitle": "Selamat datang di CraftBot",
+      "welcomeSubtitle": "Satu agen. Untuk segala jenis pekerjaan.",
+      "takeTour": "Ikuti tur",
+      "backAria": "Kembali ke tampilan sambutan",
+      "clickMascot": "Klik CraftBot!",
+      "goToSlide": "Ke slide {{number}}",
+      "cards": {
+        "cloud": {
+          "categoryLabel": "CraftBot Live",
+          "title": "CraftBot Live",
+          "subtitle": "CraftBot pribadi Anda, selalu daring",
+          "desc": "CraftBot pribadi Anda, selalu daring",
+          "item0": "Tanpa SSH",
+          "item1": "Tanpa Docker",
+          "item2": "Bekerja selagi Anda tidur",
+          "item3": "Akses dari perangkat mana pun",
+          "cta": "Mulai gratis"
+        },
+        "livingui": {
+          "categoryLabel": "Living UI",
+          "title": "Agen yang membangun dan mengoperasikan perangkat lunaknya sendiri",
+          "subtitle": "Minta sebuah aplikasi, dan agen mendesain, mengodekan, menguji, serta meluncurkannya di dalam antarmukanya sendiri.",
+          "desc": "Minta sebuah aplikasi. Agen mendesain, mengodekan, menguji, dan meluncurkannya.",
+          "item0": "Papan Kanban",
+          "item1": "CRM",
+          "item2": "Pelacak kebiasaan",
+          "item3": "Pasar komunitas",
+          "cta": "Jelajahi pasar Living UI"
+        },
+        "bundles": {
+          "categoryLabel": "Bundel Agen",
+          "title": "40+ persona agen siap pakai",
+          "subtitle": "Impor agen CEO, keuangan, dan DevOps dengan satu klik. 120 playbook siap pakai mencakup otomatisasi umum.",
+          "desc": "CEO, keuangan, DevOps, dan 40+ persona lainnya. Satu klik untuk mengimpor.",
+          "item0": "Agen CEO",
+          "item1": "Agen keuangan",
+          "item2": "Insinyur DevOps",
+          "item3": "120 playbook",
+          "item4": "Impor satu klik",
+          "cta": "Dapatkan bundel agen"
+        },
+        "community": {
+          "categoryLabel": "Sumber Terbuka",
+          "title": "Satu agen. Untuk segala jenis pekerjaan.",
+          "subtitle": "Berlisensi MIT dan gratis untuk di-host sendiri. Pengembangan aktif, peningkatan setiap minggu.",
+          "desc": "Berlisensi MIT, dapat di-host sendiri, dibangun secara terbuka.",
+          "item0Label": "CraftOS-dev/CraftBot",
+          "item0Tag": "GitHub",
+          "item1Label": "Gabung komunitas CraftBot",
+          "item1Tag": "Discord",
+          "item2Label": "Living UI buatan komunitas",
+          "item2Tag": "Pasar",
+          "cta": "Beri bintang di GitHub"
+        }
+      }
+    },
+    "integrations": {
+      "totalCalls": "Total Panggilan",
+      "topIntegrations": "Integrasi Teratas"
+    },
+    "mcpServers": {
+      "calls": "Panggilan",
+      "topTools": "Alat Teratas"
+    },
+    "skills": {
+      "invocations": "Pemanggilan",
+      "topSkills": "Keahlian Teratas"
+    },
+    "livingUi": {
+      "installed": "Terpasang",
+      "running": "Berjalan",
+      "projects": "Proyek",
+      "empty": "Belum ada Living UI yang terpasang"
+    },
+    "modelInfo": {
+      "provider": "Penyedia",
+      "model": "Model",
+      "modelId": "ID Model",
+      "notConfigured": "Belum dikonfigurasi",
+      "notAvailable": "T/A"
+    },
+    "taskStats": {
+      "completed": "Selesai",
+      "failed": "Gagal",
+      "running": "Berjalan",
+      "success": "Berhasil",
+      "total": "{{total}} total"
+    },
+    "tokenUsage": {
+      "input": "Input",
+      "output": "Output",
+      "cached": "Tersimpan cache",
+      "total": "{{total}} total"
+    },
+    "usagePatterns": {
+      "requests": "Permintaan",
+      "peakHour": "Jam Puncak",
+      "peakCount": "Jumlah Puncak",
+      "barTooltip_one": "{{time}}: {{count}} permintaan",
+      "barTooltip_other": "{{time}}: {{count}} permintaan",
+      "chart": {
+        "lastHourTitle": "Satu Jam Terakhir",
+        "lastHourDesc": "Permintaan menurut jam dalam sehari",
+        "last24Title": "24 Jam Terakhir",
+        "last24Desc": "Permintaan menurut jam",
+        "last7Title": "7 Hari Terakhir",
+        "last30Title": "30 Hari Terakhir",
+        "allTimeTitle": "Sepanjang Waktu",
+        "aggregatedDesc": "Diagregasi menurut jam dalam sehari",
+        "defaultTitle": "Distribusi Per Jam"
+      }
+    },
+    "systemResources": {
+      "cpu": "CPU",
+      "memory": "Memori",
+      "disk": "Disk",
+      "threadPool": "Thread Pool",
+      "upload": "Unggah:",
+      "download": "Unduh:"
+    },
+    "recentActivity": {
+      "empty": "Belum ada aktivitas",
+      "justNow": "baru saja",
+      "minutesAgo": "{{count}} mnt lalu",
+      "hoursAgo": "{{count}} jam lalu",
+      "daysAgo": "{{count}} hr lalu",
+      "tokens_one": "{{formattedCount}} token",
+      "tokens_other": "{{formattedCount}} token"
+    }
+  }
+}

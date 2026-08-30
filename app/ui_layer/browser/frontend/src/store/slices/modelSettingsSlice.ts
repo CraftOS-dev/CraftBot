@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { register } from '../socket/messageRegistry'
+import i18n from '../../i18n/config'
 
 export interface ProviderInfo {
   id: string
@@ -360,7 +361,7 @@ register('model_subscription_prepare', (data, dispatch) => {
   } else {
     dispatch(setSubscriptionPasteback({
       provider: d.provider,
-      state: { awaiting: false, errorMessage: d.error || 'Failed to prepare sign-in' },
+      state: { awaiting: false, errorMessage: d.error || i18n.t('nav:slices.modelSettings.failedToPrepareSignIn') },
     }))
   }
 })
@@ -385,7 +386,7 @@ register('model_subscription_complete', (data, dispatch) => {
   } else {
     dispatch(setSubscriptionPasteback({
       provider: d.provider,
-      state: { awaiting: true, errorMessage: d.error || d.message || 'Code exchange failed' },
+      state: { awaiting: true, errorMessage: d.error || d.message || i18n.t('nav:slices.modelSettings.codeExchangeFailed') },
     }))
   }
 })

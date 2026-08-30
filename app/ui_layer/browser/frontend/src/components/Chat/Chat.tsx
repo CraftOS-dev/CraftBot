@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
+import i18n from '../../i18n/config'
+import { formatDate } from '../../i18n/format'
 import { Send, Square, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen, Reply } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -144,18 +147,19 @@ const formatDateDivider = (tsMs: number): string => {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
 
-  if (sameDay(date, now)) return 'Today'
+  if (sameDay(date, now)) return i18n.t('chat:dateDivider.today')
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
-  if (sameDay(date, yesterday)) return 'Yesterday'
+  if (sameDay(date, yesterday)) return i18n.t('chat:dateDivider.yesterday')
 
   if (date.getFullYear() === now.getFullYear()) {
-    return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+    return formatDate(date, { weekday: 'long', month: 'long', day: 'numeric' })
   }
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+  return formatDate(date, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
 export function Chat({ sessionId, placeholder }: ChatProps) {
+  const { t } = useTranslation(['chat', 'common'])
   const navigate = useNavigate()
   const {
     connected,
@@ -431,13 +435,13 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     const totalSize = pendingAttachments.reduce((sum, att) => sum + att.size, 0)
     const count = pendingAttachments.length
     if (count > MAX_ATTACHMENT_COUNT) {
-      return { valid: false, error: `Maximum ${MAX_ATTACHMENT_COUNT} files allowed. You have ${count} files.` }
+      return { valid: false, error: t('chat:attachment.tooManyFilesDetailed', { max: MAX_ATTACHMENT_COUNT, have: count }) }
     }
     if (totalSize > MAX_TOTAL_SIZE_BYTES) {
-      return { valid: false, error: `Total size (${formatFileSize(totalSize)}) exceeds 200 MB limit.` }
+      return { valid: false, error: t('chat:attachment.totalSizeExceeds', { size: formatFileSize(totalSize) }) }
     }
     return { valid: true, error: null }
-  }, [pendingAttachments])
+  }, [pendingAttachments, t])
 
   // The live status row renders as one extra virtual row appended after
   // the timeline — but ONLY while the tail chunk is expanded (or no tail
@@ -894,9 +898,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     enhanceTimeoutRef.current = setTimeout(() => {
     enhanceTimeoutRef.current = null
     setEnhancing(false)
-    showToast('error', 'AI enhance timed out — please try again.')
+    showToast('error', t('chat:toast.enhanceTimedOut'))
   }, ENHANCE_TIMEOUT_MS)
-  }, [input, enhancing, enhancePrompt, showToast])
+  }, [input, enhancing, enhancePrompt, showToast, t])
 
   useEffect(() => {
   return () => {
@@ -944,7 +948,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     const SpeechRecognitionAPI = w.SpeechRecognition || w.webkitSpeechRecognition
 
     if (!SpeechRecognitionAPI) {
-      alert('Speech recognition is not supported in this browser.')
+      alert(t('chat:voice.notSupported'))
       return
     }
 
@@ -974,7 +978,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     recognition.onerror = (event: any) => {
       setIsListening(false)
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        alert('Microphone access denied. Please allow microphone permission in your browser settings.')
+        alert(t('chat:voice.micDenied'))
       }
     }
     recognition.onend = () => setIsListening(false)
@@ -983,7 +987,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     recognition.start()
     setIsListening(true)
     inputRef.current?.focus()
-  }, [isListening, micLang, dispatch, sessionId])
+  }, [isListening, micLang, dispatch, sessionId, t])
 
   // Stop mic if component unmounts while listening
   useEffect(() => {
@@ -1024,7 +1028,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
         )
       }
       if (!connected) {
-        showToast('info', 'Reconnecting — your message will send when the connection is restored.')
+        showToast('info', t('chat:toast.reconnecting'))
       }
       // Sending always snaps the view back to the newest content.
       stickToBottomRef.current = true
@@ -1137,14 +1141,14 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       setPendingAttachments(prev => prev.map(a =>
         a === placeholder ? { ...a, uploadStatus: 'error' as const } : a
       ))
-      setAttachmentError(`Failed to upload "${file.name}".`)
+      setAttachmentError(t('chat:attachment.uploadFailed', { name: file.name }))
     }
 
     xhr.onerror = () => {
       setPendingAttachments(prev => prev.map(a =>
         a === placeholder ? { ...a, uploadStatus: 'error' as const } : a
       ))
-      setAttachmentError(`Failed to upload "${file.name}": network error.`)
+      setAttachmentError(t('chat:attachment.uploadFailedNetwork', { name: file.name }))
     }
 
     const name = encodeURIComponent(file.name)
@@ -1158,7 +1162,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
 
     const totalFileCount = pendingAttachments.length + files.length
     if (totalFileCount > MAX_ATTACHMENT_COUNT) {
-      setAttachmentError(`Maximum ${MAX_ATTACHMENT_COUNT} files allowed.`)
+      setAttachmentError(t('chat:attachment.tooManyFiles', { max: MAX_ATTACHMENT_COUNT }))
       return
     }
 
@@ -1167,11 +1171,11 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     // Validate sizes first before doing any I/O
     for (const file of files) {
       if (file.size > MAX_TOTAL_SIZE_BYTES) {
-        setAttachmentError(`File "${file.name}" (${formatFileSize(file.size)}) exceeds the 200 MB limit.`)
+        setAttachmentError(t('chat:attachment.fileExceedsLimit', { name: file.name, size: formatFileSize(file.size) }))
         return
       }
       if (newTotalSize + file.size > MAX_TOTAL_SIZE_BYTES) {
-        setAttachmentError(`Adding "${file.name}" would exceed the 200 MB total size limit.`)
+        setAttachmentError(t('chat:attachment.addWouldExceed', { name: file.name }))
         return
       }
       newTotalSize += file.size
@@ -1191,7 +1195,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
             content,
           }])
         } catch {
-          setAttachmentError(`Failed to read file "${file.name}".`)
+          setAttachmentError(t('chat:attachment.readFailed', { name: file.name }))
           return
         }
       } else {
@@ -1273,7 +1277,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
               in-flow sibling it pushes the whole column down instead. */}
           {loadingOlderMessages && (
             <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
-              <Loader2 size={14} style={{ display: 'inline', animation: 'spin 1s linear infinite' }} /> Loading older messages...
+              <Loader2 size={14} style={{ display: 'inline', animation: 'spin 1s linear infinite' }} /> {t('chat:history.loadingOlder')}
             </div>
           )}
           {rowCount === 0 ? null : (
@@ -1367,9 +1371,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                       </div>
                     )}
                     {showUnreadDivider && (
-                      <div className={styles.unreadDivider} role="separator" aria-label="New messages">
+                      <div className={styles.unreadDivider} role="separator" aria-label={t('chat:unread.aria')}>
                         <span className={styles.unreadDividerLine} />
-                        <span className={styles.unreadDividerLabel}>New</span>
+                        <span className={styles.unreadDividerLabel}>{t('chat:unread.label')}</span>
                         <span className={styles.unreadDividerLine} />
                       </div>
                     )}
@@ -1417,8 +1421,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
             type="button"
             className={styles.scrollToBottomBtn}
             onClick={scrollToBottom}
-            aria-label="Scroll to latest message"
-            title="Scroll to latest message"
+            aria-label={t('chat:scrollToLatest')}
+            title={t('chat:scrollToLatest')}
           >
             <ChevronDown size={18} />
           </button>
@@ -1453,8 +1457,15 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           {replyTarget && (
             <div className={styles.replyBar}>
               <Reply size={14} />
-              <span className={styles.replyText}>Replying to: <em>{replyTarget.displayName}</em></span>
-              <button className={styles.replyCancel} onClick={() => setReplyTarget(null)} title="Cancel reply">
+              <span className={styles.replyText}>
+                <Trans
+                  ns="chat"
+                  i18nKey="reply.replyingTo"
+                  values={{ name: replyTarget.displayName }}
+                  components={{ 1: <em /> }}
+                />
+              </span>
+              <button className={styles.replyCancel} onClick={() => setReplyTarget(null)} title={t('chat:reply.cancel')}>
                 <X size={14} />
               </button>
             </div>
@@ -1464,7 +1475,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
             <div className={styles.attachmentError}>
               <AlertCircle size={14} />
               <span>{attachmentError || attachmentValidation.error}</span>
-              <button className={styles.dismissError} onClick={() => setAttachmentError(null)} title="Dismiss">
+              <button className={styles.dismissError} onClick={() => setAttachmentError(null)} title={t('chat:dismiss')}>
                 <X size={12} />
               </button>
             </div>
@@ -1477,7 +1488,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                   <button
                     className={styles.pendingAttachmentBody}
                     onClick={() => openPreview(att)}
-                    title="Click to preview"
+                    title={t('chat:attachment.preview')}
                   >
                     {att.uploadStatus === 'uploading' ? (
                       <Loader2 size={12} className={styles.uploadingSpinner} />
@@ -1493,7 +1504,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                     <span className={styles.pendingFileName} title={att.name}>{att.name}</span>
                     <span className={styles.pendingFileSize}>({formatFileSize(att.size)})</span>
                   </button>
-                  <button className={styles.removeAttachment} onClick={() => removeAttachment(idx)} title="Remove">
+                  <button className={styles.removeAttachment} onClick={() => removeAttachment(idx)} title={t('common:actions.remove')}>
                     <X size={12} />
                   </button>
                 </div>
@@ -1512,7 +1523,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           <textarea
             ref={inputRef}
             className={styles.input}
-            placeholder={isListening ? 'Listening... speak now' : (placeholder || 'What can I do for you?')}
+            placeholder={isListening ? t('chat:composer.listening') : (placeholder || t('chat:composer.placeholder'))}
             value={input}
             onChange={e => setInput(e.target.value)}
             onFocus={() => setUnreadDismissed(true)}
@@ -1530,8 +1541,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 type="button"
                 className={styles.plusBtn}
                 onClick={() => setPlusOpen(o => !o)}
-                title="Attach and tools"
-                aria-label="Attach and tools"
+                title={t('chat:composer.attachAndTools')}
+                aria-label={t('chat:composer.attachAndTools')}
                 aria-expanded={plusOpen}
                 {...tourAnchorProps('chat-plus')}
               >
@@ -1546,7 +1557,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                     onClick={() => { setPlusOpen(false); handleAttachClick() }}
                   >
                     <Paperclip size={15} />
-                    <span>Attach files</span>
+                    <span>{t('chat:composer.attachFiles')}</span>
                   </button>
                   <button
                     className={styles.plusMenuItem}
@@ -1556,7 +1567,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                     {enhancing
                       ? <Loader2 size={15} className={styles.uploadingSpinner} />
                       : <Sparkles size={15} />}
-                    <span>{enhancing ? 'Enhancing…' : 'AI Enhance'}</span>
+                    <span>{enhancing ? t('chat:composer.enhancing') : t('chat:composer.aiEnhance')}</span>
                   </button>
                 </div>
               )}
@@ -1567,7 +1578,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 <button
                   type="button"
                   className={`${styles.micCombo}${isListening ? ` ${styles.micComboActive}` : ''}`}
-                  title={isListening ? 'Stop listening' : 'Voice input'}
+                  title={isListening ? t('chat:composer.stopListening') : t('chat:composer.voiceInput')}
                   onClick={toggleListening}
                   disabled = {enhancing}
                 >
@@ -1579,7 +1590,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 <button
                   className={`${styles.langBtn}${isListening ? ` ${styles.langBtnActive}` : ''}`}
                   onClick={() => !isListening && setLangOpen(o => !o)}
-                  title="Speech language"
+                  title={t('chat:composer.speechLanguage')}
                   disabled={isListening}
                 >
                   {MIC_LANGUAGES.find(l => l.code === micLang)?.label ?? 'EN'}
@@ -1605,8 +1616,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                   className={`${styles.sendBtn} ${styles.stopBtn}`}
                   onClick={() => stopSession(sessionId)}
                   disabled={stopping}
-                  title={stopping ? 'Stopping…' : 'Stop'}
-                  aria-label={stopping ? 'Stopping run' : 'Stop run'}
+                  title={stopping ? t('chat:composer.stopping') : t('chat:composer.stop')}
+                  aria-label={stopping ? t('chat:composer.stoppingRun') : t('chat:composer.stopRun')}
                 >
                   {stopping
                     ? <Loader2 size={16} className={styles.stopSpinner} />
@@ -1618,8 +1629,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                   className={styles.sendBtn}
                   onClick={handleSend}
                   disabled={(!input.trim() && pendingAttachments.length === 0) || !attachmentValidation.valid || enhancing}
-                  title="Send"
-                  aria-label="Send message"
+                  title={t('chat:composer.send')}
+                  aria-label={t('chat:composer.sendMessage')}
                 >
                   <Send size={16} />
                 </button>
@@ -1651,7 +1662,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
             onClick={() => setPlaybookOpen(true)}
           >
             <BookOpen size={13} />
-            <span>All playbooks</span>
+            <span>{t('chat:playbooks.all')}</span>
           </button>
         </div>
         )}

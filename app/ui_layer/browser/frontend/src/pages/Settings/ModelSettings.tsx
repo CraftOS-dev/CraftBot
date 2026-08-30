@@ -4,6 +4,7 @@ import {
   X,
   Loader2,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button, Badge } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
 import styles from './SettingsPage.module.css'
@@ -62,6 +63,7 @@ interface SuggestedModel {
 }
 
 export function ModelSettings() {
+  const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
   const dispatch = useAppDispatch()
@@ -212,9 +214,9 @@ export function ModelSettings() {
           setNewVideoGenModel('')
           setNewVideoGenApiKey('')
           setVideoGenHasChanges(false)
-          showToast('success', 'Settings saved')
+          showToast('success', t('settings:model.toast.saved'))
         } else {
-          showToast('error', d.error || 'Failed to save')
+          showToast('error', d.error || t('settings:model.toast.saveFailed'))
         }
       }),
       onMessage('model_connection_test', (data: unknown) => {
@@ -321,18 +323,18 @@ export function ModelSettings() {
             vlmModel: pulledModel,
             ...(newBaseUrl ? { baseUrl: newBaseUrl, providerForUrl: 'remote' } : {}),
           })
-          showToast('success', `Model ${pulledModel} downloaded — switching to local model`)
+          showToast('success', t('settings:model.toast.modelDownloaded', { model: pulledModel }))
         } else {
           setPullPhase('idle')
-          showToast('error', d.error || 'Model download failed')
+          showToast('error', d.error || t('settings:model.toast.modelDownloadFailed'))
         }
       }),
       onMessage('slow_mode_set', (data: unknown) => {
         const d = data as { success: boolean; enabled: boolean; error?: string }
         if (d.success) {
-          showToast('success', `Slow mode ${d.enabled ? 'enabled' : 'disabled'}`)
+          showToast('success', d.enabled ? t('settings:model.toast.slowModeEnabled') : t('settings:model.toast.slowModeDisabled'))
         } else {
-          showToast('error', d.error || 'Failed to update slow mode')
+          showToast('error', d.error || t('settings:model.toast.slowModeFailed'))
         }
       }),
       onMessage('local_llm_install_progress', (data: unknown) => {
@@ -349,7 +351,7 @@ export function ModelSettings() {
           send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
         } else {
           setOllamaInstallPhase('error')
-          setOllamaInstallError(d.error || 'Installation failed')
+          setOllamaInstallError(d.error || t('settings:model.toast.installFailed'))
         }
       }),
     ]
@@ -557,20 +559,20 @@ export function ModelSettings() {
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
-        <h3>Model Configuration</h3>
-        <p>Configure AI provider and API key</p>
+        <h3>{t('settings:model.title')}</h3>
+        <p>{t('settings:model.subtitle')}</p>
       </div>
 
       {isLoading ? (
         <div className={styles.loadingState}>
           <Loader2 size={20} className={styles.spinning} />
-          <span>Loading...</span>
+          <span>{t('common:status.loading')}</span>
         </div>
       ) : (
         <div className={styles.settingsForm}>
           {/* Provider Selection */}
           <div className={styles.formGroup}>
-            <label>Provider</label>
+            <label>{t('settings:model.provider')}</label>
             <select value={provider} onChange={(e) => handleProviderChange(e.target.value)}>
               {providers.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -587,13 +589,13 @@ export function ModelSettings() {
                   loading={orCatalog.loading}
                   error={orCatalog.error}
                   onRefresh={orCatalog.refresh}
-                  label="LLM Model"
+                  label={t('settings:model.llmModel')}
                   value={newLlmModel || currentLlmModel || ''}
                   onChange={(v) => { setNewLlmModel(v); setHasChanges(true) }}
                 />
               ) : (
                 <div className={styles.formGroup}>
-                  <label>LLM Model</label>
+                  <label>{t('settings:model.llmModel')}</label>
                   {modelOptions.length > 0 ? (
                     <select
                       value={newLlmModel || currentLlmModel || ''}
@@ -615,8 +617,8 @@ export function ModelSettings() {
                       onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
                       placeholder={
                         modelsLoading
-                          ? 'Loading models...'
-                          : currentLlmModel || 'Enter LLM model name...'
+                          ? t('settings:model.loadingModels')
+                          : currentLlmModel || t('settings:model.enterLlmModel')
                       }
                     />
                   )}
@@ -633,8 +635,8 @@ export function ModelSettings() {
                       {ollamaInstallPhase === 'idle' && (
                         <>
                           <div className={styles.ollamaInstallText}>
-                            <strong>Ollama not detected</strong>
-                            <span>Install Ollama to run AI models locally — no cloud needed.</span>
+                            <strong>{t('settings:model.ollama.notDetected')}</strong>
+                            <span>{t('settings:model.ollama.notDetectedDesc')}</span>
                           </div>
                           <div className={styles.ollamaInstallActions}>
                             <button
@@ -645,7 +647,7 @@ export function ModelSettings() {
                                 send('local_llm_install')
                               }}
                             >
-                              Install Ollama
+                              {t('settings:model.ollama.install')}
                             </button>
                             <button
                               className={styles.retryOllamaBtn}
@@ -655,7 +657,7 @@ export function ModelSettings() {
                                 send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
                               }}
                             >
-                              Retry
+                              {t('common:actions.retry')}
                             </button>
                           </div>
                         </>
@@ -668,7 +670,7 @@ export function ModelSettings() {
                           <div className={styles.ollamaInstallProgress}>
                             <div className={styles.ollamaInstallProgressHeader}>
                               <Loader2 size={14} className={styles.spinning} />
-                              <strong>Installing Ollama…</strong>
+                              <strong>{t('settings:model.ollama.installing')}</strong>
                               <span className={styles.ollamaInstallPct}>{pct}%</span>
                             </div>
                             <div className={styles.ollamaInstallProgressBar}>
@@ -676,7 +678,7 @@ export function ModelSettings() {
                             </div>
                             <div className={styles.ollamaInstallLog}>
                               {ollamaInstallLog.length === 0
-                                ? <span className={styles.ollamaInstallLogLine}>Starting…</span>
+                                ? <span className={styles.ollamaInstallLogLine}>{t('settings:model.ollama.starting')}</span>
                                 : ollamaInstallLog.map((line, i) => (
                                     <span key={i} className={styles.ollamaInstallLogLine}>{line}</span>
                                   ))
@@ -690,7 +692,7 @@ export function ModelSettings() {
                       {ollamaInstallPhase === 'error' && (
                         <>
                           <div className={styles.ollamaInstallText}>
-                            <strong>Installation failed</strong>
+                            <strong>{t('settings:model.ollama.installFailed')}</strong>
                             <span>{ollamaInstallError}</span>
                           </div>
                           <button
@@ -700,7 +702,7 @@ export function ModelSettings() {
                               setOllamaInstallError('')
                             }}
                           >
-                            Back
+                            {t('settings:model.ollama.back')}
                           </button>
                         </>
                       )}
@@ -710,19 +712,19 @@ export function ModelSettings() {
                   {/* Model download — only shown when Ollama is running */}
                   {ollamaAvailable === true && pullPhase === 'idle' && (
                     <button className={styles.downloadModelBtn} onClick={handleDownloadModelClick}>
-                      + Download New Model
+                      {t('settings:model.ollama.downloadNew')}
                     </button>
                   )}
 
                   {pullPhase === 'selecting' && (
                     <div className={styles.pullModelPanel}>
                       <div className={styles.pullPanelHeader}>
-                        <span>Select model to download</span>
+                        <span>{t('settings:model.ollama.selectModel')}</span>
                         <button onClick={() => setPullPhase('idle')}>&#x2715;</button>
                       </div>
                       <input
                         className={styles.pullModelSearch}
-                        placeholder="Search models..."
+                        placeholder={t('settings:model.ollama.searchModels')}
                         value={modelSearch}
                         onChange={e => setModelSearch(e.target.value)}
                       />
@@ -744,7 +746,7 @@ export function ModelSettings() {
                               />
                               <span className={styles.pullModelName}>{m.label}</span>
                               <span className={styles.pullModelSize}>{m.size}</span>
-                              {m.recommended && <span className={styles.pullModelBadge}>Recommended</span>}
+                              {m.recommended && <span className={styles.pullModelBadge}>{t('settings:model.ollama.recommended')}</span>}
                             </label>
                           ))}
                       </div>
@@ -754,7 +756,7 @@ export function ModelSettings() {
                           onClick={handleStartPull}
                           disabled={!selectedPullModel}
                         >
-                          Download
+                          {t('settings:model.ollama.download')}
                         </button>
                       </div>
                     </div>
@@ -762,7 +764,7 @@ export function ModelSettings() {
 
                   {pullPhase === 'pulling' && (
                     <div className={styles.pullProgressPanel}>
-                      <span>Downloading {selectedPullModel}...</span>
+                      <span>{t('settings:model.ollama.downloading', { model: selectedPullModel })}</span>
                       {pullBytes && pullBytes.total > 0 ? (
                         <>
                           <div className={styles.pullProgressBar}>
@@ -778,7 +780,7 @@ export function ModelSettings() {
                           <div className={styles.pullProgressFill} style={{ width: '0%' }} />
                         </div>
                       )}
-                      <p className={styles.pullStatusText}>{pullStatus || 'Starting...'}</p>
+                      <p className={styles.pullStatusText}>{pullStatus || t('settings:model.ollama.startingShort')}</p>
                     </div>
                   )}
                 </div>
@@ -791,14 +793,14 @@ export function ModelSettings() {
                     loading={orCatalog.loading}
                     error={orCatalog.error}
                     onRefresh={orCatalog.refresh}
-                    label="VLM Model"
+                    label={t('settings:model.vlmModel')}
                     requireVision
                     value={newVlmModel || currentVlmModel || ''}
                     onChange={(v) => { setNewVlmModel(v); setHasChanges(true) }}
                   />
                 ) : (
                 <div className={styles.formGroup}>
-                  <label>VLM Model</label>
+                  <label>{t('settings:model.vlmModel')}</label>
                   {(() => {
                     // Ollama filters its list to vision-tagged names; other
                     // providers expose opaque ids, so offer the full
@@ -832,8 +834,8 @@ export function ModelSettings() {
                         onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
                         placeholder={
                           modelsLoading
-                            ? 'Loading models...'
-                            : currentVlmModel || 'Enter VLM model name...'
+                            ? t('settings:model.loadingModels')
+                            : currentVlmModel || t('settings:model.enterVlmModel')
                         }
                       />
                     )
@@ -871,11 +873,11 @@ export function ModelSettings() {
             const subscriptionBlock = supportsSub && (
               <div className={styles.formGroup}>
                 <label>
-                  Subscription
+                  {t('settings:model.subscription.label')}
                   {isSubConnected ? (
-                    <Badge variant="success" style={{ marginLeft: 8 }}>Connected</Badge>
+                    <Badge variant="success" style={{ marginLeft: 8 }}>{t('common:status.connected')}</Badge>
                   ) : pb?.awaiting ? (
-                    <Badge variant="default" style={{ marginLeft: 8 }}>Awaiting code</Badge>
+                    <Badge variant="default" style={{ marginLeft: 8 }}>{t('settings:model.subscription.awaitingCode')}</Badge>
                   ) : null}
                 </label>
 
@@ -895,7 +897,7 @@ export function ModelSettings() {
                           send('model_subscription_disconnect', { provider })
                         }}
                       >
-                        {isSubPending ? <Loader2 size={14} className={styles.spinning} /> : 'Disconnect'}
+                        {isSubPending ? <Loader2 size={14} className={styles.spinning} /> : t('common:actions.disconnect')}
                       </Button>
                     </div>
                   </>
@@ -903,7 +905,7 @@ export function ModelSettings() {
                   <>
                     <input
                       type="text"
-                      placeholder="Paste the code from the sign-in page"
+                      placeholder={t('settings:model.subscription.pastePlaceholder')}
                       value={codeValue}
                       onChange={(e) => setPastebackInput({ ...pastebackInput, [provider]: e.target.value })}
                       disabled={isSubPending}
@@ -921,7 +923,7 @@ export function ModelSettings() {
                           })
                         }}
                       >
-                        {isSubPending ? <Loader2 size={14} className={styles.spinning} /> : 'Submit code'}
+                        {isSubPending ? <Loader2 size={14} className={styles.spinning} /> : t('settings:model.subscription.submitCode')}
                       </Button>
                       <Button
                         variant="secondary"
@@ -931,7 +933,7 @@ export function ModelSettings() {
                           setPastebackInput({ ...pastebackInput, [provider]: '' })
                         }}
                       >
-                        Cancel
+                        {t('common:actions.cancel')}
                       </Button>
                       {pb.authUrl && (
                         <a
@@ -940,7 +942,7 @@ export function ModelSettings() {
                           rel="noreferrer"
                           className={styles.subscriptionInlineLink}
                         >
-                          Reopen sign-in page
+                          {t('settings:model.subscription.reopenSignIn')}
                         </a>
                       )}
                     </div>
@@ -968,13 +970,13 @@ export function ModelSettings() {
                         )
                         showToast(
                           'success',
-                          `Opening browser to sign in with ${currentProvider?.name || provider}…`,
+                          t('settings:model.toast.openingBrowser', { provider: currentProvider?.name || provider }),
                         )
                       }}
                     >
                       {isSubPending
-                        ? <><Loader2 size={14} className={styles.spinning} /> Opening browser…</>
-                        : (currentProvider?.subscription_label || `Sign in with ${currentProvider?.name || provider}`)}
+                        ? <><Loader2 size={14} className={styles.spinning} /> {t('settings:model.subscription.openingBrowser')}</>
+                        : (currentProvider?.subscription_label || t('settings:model.subscription.signInWith', { provider: currentProvider?.name || provider }))}
                     </Button>
                   </div>
                 )}
@@ -991,20 +993,20 @@ export function ModelSettings() {
                 className={styles.subscriptionSecondaryLink}
                 onClick={() => setApiKeyExpandedByUser({ ...apiKeyExpandedByUser, [provider]: true })}
               >
-                Use API key instead
+                {t('settings:model.subscription.useApiKeyInstead')}
               </button>
             )
 
             const apiKeyBlock = requiresKey && (
               <div className={styles.formGroup}>
                 <label>
-                  API Key
+                  {t('settings:model.apiKey.label')}
                   {hasStoredKey ? (
-                    <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                    <Badge variant="success" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.configured')}</Badge>
                   ) : isSubConnected ? (
-                    <Badge variant="default" style={{ marginLeft: 8 }}>Optional</Badge>
+                    <Badge variant="default" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.optional')}</Badge>
                   ) : (
-                    <Badge variant="warning" style={{ marginLeft: 8 }}>Required</Badge>
+                    <Badge variant="warning" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.required')}</Badge>
                   )}
                 </label>
                 {hasStoredKey && (
@@ -1014,13 +1016,13 @@ export function ModelSettings() {
                   type="password"
                   value={newApiKey}
                   onChange={(e) => { setNewApiKey(e.target.value); setHasChanges(true) }}
-                  placeholder={hasStoredKey ? 'Enter new key to replace...' : 'Enter API key...'}
+                  placeholder={hasStoredKey ? t('settings:model.apiKey.replacePlaceholder') : t('settings:model.apiKey.enterPlaceholder')}
                 />
                 {currentProvider?.openrouter_proxy && (
                   <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
                     {apiKeys['openrouter']?.has_key
-                      ? 'OpenRouter is configured and will be used automatically if the direct API is unavailable in your region.'
-                      : 'This provider may be geo-restricted. If the direct API fails, configure OpenRouter as a fallback — it will be used automatically.'}
+                      ? t('settings:model.apiKey.proxyConfigured')
+                      : t('settings:model.apiKey.proxyFallback')}
                   </p>
                 )}
               </div>
@@ -1034,7 +1036,7 @@ export function ModelSettings() {
               <>
                 {subscriptionBlock}
                 {requiresKey && (
-                  <div className={styles.connectFormDivider}>or</div>
+                  <div className={styles.connectFormDivider}>{t('settings:model.or')}</div>
                 )}
                 {apiKeyCollapsedToggle}
                 {(apiKeyExpanded || !isSubConnected) && apiKeyBlock}
@@ -1057,11 +1059,11 @@ export function ModelSettings() {
             <>
               <div className={styles.formGroup}>
                 <label>
-                  AWS Access Key ID
+                  {t('settings:model.bedrock.accessKeyId')}
                   {awsCredentialsStatus?.has_access_key_id ? (
-                    <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                    <Badge variant="success" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.configured')}</Badge>
                   ) : (
-                    <Badge variant="warning" style={{ marginLeft: 8 }}>Optional</Badge>
+                    <Badge variant="warning" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.optional')}</Badge>
                   )}
                 </label>
                 {awsCredentialsStatus?.has_access_key_id && (
@@ -1073,22 +1075,21 @@ export function ModelSettings() {
                   onChange={(e) => { setNewAwsAccessKeyId(e.target.value); setHasChanges(true) }}
                   placeholder={
                     awsCredentialsStatus?.has_access_key_id
-                      ? 'Enter new key ID to replace...'
+                      ? t('settings:model.bedrock.accessKeyIdReplace')
                       : 'AKIA...'
                   }
                   autoComplete="off"
                 />
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
-                  Leave blank to use the boto3 credential chain (env vars, IAM role,
-                  or SSO profile on the host).
+                  {t('settings:model.bedrock.accessKeyIdNote')}
                 </p>
               </div>
 
               <div className={styles.formGroup}>
                 <label>
-                  AWS Secret Access Key
+                  {t('settings:model.bedrock.secretAccessKey')}
                   {awsCredentialsStatus?.has_secret_access_key && (
-                    <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                    <Badge variant="success" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.configured')}</Badge>
                   )}
                 </label>
                 <input
@@ -1097,8 +1098,8 @@ export function ModelSettings() {
                   onChange={(e) => { setNewAwsSecretAccessKey(e.target.value); setHasChanges(true) }}
                   placeholder={
                     awsCredentialsStatus?.has_secret_access_key
-                      ? 'Enter new secret to replace...'
-                      : 'Enter secret access key'
+                      ? t('settings:model.bedrock.secretReplace')
+                      : t('settings:model.bedrock.secretEnter')
                   }
                   autoComplete="off"
                 />
@@ -1106,19 +1107,19 @@ export function ModelSettings() {
 
               <div className={styles.formGroup}>
                 <label>
-                  AWS Session Token <span style={{ color: 'var(--text-muted, #888)' }}>(optional)</span>
+                  {t('settings:model.bedrock.sessionToken')} <span style={{ color: 'var(--text-muted, #888)' }}>{t('settings:model.bedrock.optionalSuffix')}</span>
                 </label>
                 <input
                   type="password"
                   value={newAwsSessionToken}
                   onChange={(e) => { setNewAwsSessionToken(e.target.value); setHasChanges(true) }}
-                  placeholder="Only required for temporary STS credentials"
+                  placeholder={t('settings:model.bedrock.sessionTokenPlaceholder')}
                   autoComplete="off"
                 />
               </div>
 
               <div className={styles.formGroup}>
-                <label>AWS Region</label>
+                <label>{t('settings:model.bedrock.region')}</label>
                 <input
                   type="text"
                   value={newAwsRegion || awsCredentialsStatus?.region || baseUrls['bedrock'] || ''}
@@ -1126,8 +1127,7 @@ export function ModelSettings() {
                   placeholder="us-east-1"
                 />
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
-                  Bedrock model availability and inference profile IDs vary by region —
-                  see the AWS Bedrock model catalog for what's enabled in yours.
+                  {t('settings:model.bedrock.regionNote')}
                 </p>
               </div>
             </>
@@ -1136,12 +1136,12 @@ export function ModelSettings() {
           {/* Base URL — suppressed for bedrock since region lives in the AWS block above */}
           {currentProvider?.base_url_env && provider !== 'bedrock' && (
             <div className={styles.formGroup}>
-              <label>Server URL</label>
+              <label>{t('settings:model.serverUrl')}</label>
               <input
                 type="text"
                 value={newBaseUrl || baseUrls[provider] || ''}
                 onChange={(e) => { setNewBaseUrl(e.target.value); setHasChanges(true) }}
-                placeholder={currentProvider?.default_base_url || 'Enter base URL...'}
+                placeholder={currentProvider?.default_base_url || t('settings:model.enterBaseUrl')}
               />
             </div>
           )}
@@ -1159,17 +1159,17 @@ export function ModelSettings() {
               title={
                 currentProvider?.requires_api_key &&
                 !apiKeys[provider]?.has_key
-                  ? 'API key required for testing'
+                  ? t('settings:model.actions.testRequiresKey')
                   : ''
               }
             >
               {isTesting ? (
                 <>
                   <Loader2 size={14} className={styles.spinning} />
-                  Testing...
+                  {t('settings:model.actions.testing')}
                 </>
               ) : (
-                'Test Connection'
+                t('settings:model.actions.testConnection')
               )}
             </Button>
             <Button
@@ -1180,15 +1180,15 @@ export function ModelSettings() {
               {isSaving ? (
                 <>
                   <Loader2 size={14} className={styles.spinning} />
-                  Saving...
+                  {t('common:status.saving')}
                 </>
               ) : isTesting && testBeforeSave ? (
                 <>
                   <Loader2 size={14} className={styles.spinning} />
-                  Testing Connection...
+                  {t('settings:model.actions.testingConnection')}
                 </>
               ) : (
-                'Save'
+                t('common:actions.save')
               )}
             </Button>
           </div>
@@ -1196,8 +1196,8 @@ export function ModelSettings() {
           {/* Image Generation */}
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-primary)', margin: 'var(--space-4) 0' }} />
           <div className={styles.sectionHeader} style={{ marginBottom: 'var(--space-3)' }}>
-            <h3>Image Generation</h3>
-            <p>Configure the provider used for image generation</p>
+            <h3>{t('settings:model.imageGen.title')}</h3>
+            <p>{t('settings:model.imageGen.subtitle')}</p>
           </div>
           {(() => {
             const imageGenProviders = providers.filter(p => p.has_image_gen)
@@ -1206,7 +1206,7 @@ export function ModelSettings() {
             return (
               <div className={styles.settingsForm} style={{ paddingTop: 0 }}>
                 <div className={styles.formGroup}>
-                  <label>Provider</label>
+                  <label>{t('settings:model.provider')}</label>
                   <select
                     value={effectiveImgProvider}
                     onChange={(e) => {
@@ -1227,11 +1227,11 @@ export function ModelSettings() {
                 {imgProviderInfo?.requires_api_key && (
                   <div className={styles.formGroup}>
                     <label>
-                      API Key
+                      {t('settings:model.apiKey.label')}
                       {apiKeys[effectiveImgProvider]?.has_key ? (
-                        <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                        <Badge variant="success" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.configured')}</Badge>
                       ) : (
-                        <Badge variant="warning" style={{ marginLeft: 8 }}>Required</Badge>
+                        <Badge variant="warning" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.required')}</Badge>
                       )}
                     </label>
                     {apiKeys[effectiveImgProvider]?.has_key && (
@@ -1241,19 +1241,19 @@ export function ModelSettings() {
                       type="password"
                       value={newImageGenApiKey}
                       onChange={(e) => { setNewImageGenApiKey(e.target.value); setImageGenHasChanges(true) }}
-                      placeholder={apiKeys[effectiveImgProvider]?.has_key ? 'Enter new key to replace...' : 'Enter API key...'}
+                      placeholder={apiKeys[effectiveImgProvider]?.has_key ? t('settings:model.apiKey.replacePlaceholder') : t('settings:model.apiKey.enterPlaceholder')}
                     />
                   </div>
                 )}
 
                 {/* Model override */}
                 <div className={styles.formGroup}>
-                  <label>Model</label>
+                  <label>{t('settings:model.modelLabel')}</label>
                   <input
                     type="text"
                     value={newImageGenModel || currentImageGenModel || ''}
                     onChange={(e) => { setNewImageGenModel(e.target.value); setImageGenHasChanges(true) }}
-                    placeholder={imgProviderInfo?.image_gen_model || 'Default model'}
+                    placeholder={imgProviderInfo?.image_gen_model || t('settings:model.imageGen.defaultModel')}
                   />
                 </div>
 
@@ -1266,10 +1266,10 @@ export function ModelSettings() {
                     {isImageGenSaving ? (
                       <>
                         <Loader2 size={14} className={styles.spinning} />
-                        Saving...
+                        {t('common:status.saving')}
                       </>
                     ) : (
-                      'Save'
+                      t('common:actions.save')
                     )}
                   </Button>
                 </div>
@@ -1280,8 +1280,8 @@ export function ModelSettings() {
           {/* Video Generation */}
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-primary)', margin: 'var(--space-4) 0' }} />
           <div className={styles.sectionHeader} style={{ marginBottom: 'var(--space-3)' }}>
-            <h3>Video Generation</h3>
-            <p>Configure the provider used for video generation</p>
+            <h3>{t('settings:model.videoGen.title')}</h3>
+            <p>{t('settings:model.videoGen.subtitle')}</p>
           </div>
           {(() => {
             const videoGenProviders = providers.filter(p => p.has_video_gen)
@@ -1290,7 +1290,7 @@ export function ModelSettings() {
             return (
               <div className={styles.settingsForm} style={{ paddingTop: 0 }}>
                 <div className={styles.formGroup}>
-                  <label>Provider</label>
+                  <label>{t('settings:model.provider')}</label>
                   <select
                     value={effectiveVidProvider}
                     onChange={(e) => {
@@ -1311,11 +1311,11 @@ export function ModelSettings() {
                 {vidProviderInfo?.requires_api_key && (
                   <div className={styles.formGroup}>
                     <label>
-                      API Key
+                      {t('settings:model.apiKey.label')}
                       {apiKeys[effectiveVidProvider]?.has_key ? (
-                        <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                        <Badge variant="success" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.configured')}</Badge>
                       ) : (
-                        <Badge variant="warning" style={{ marginLeft: 8 }}>Required</Badge>
+                        <Badge variant="warning" style={{ marginLeft: 8 }}>{t('settings:model.apiKey.required')}</Badge>
                       )}
                     </label>
                     {apiKeys[effectiveVidProvider]?.has_key && (
@@ -1325,19 +1325,19 @@ export function ModelSettings() {
                       type="password"
                       value={newVideoGenApiKey}
                       onChange={(e) => { setNewVideoGenApiKey(e.target.value); setVideoGenHasChanges(true) }}
-                      placeholder={apiKeys[effectiveVidProvider]?.has_key ? 'Enter new key to replace...' : 'Enter API key...'}
+                      placeholder={apiKeys[effectiveVidProvider]?.has_key ? t('settings:model.apiKey.replacePlaceholder') : t('settings:model.apiKey.enterPlaceholder')}
                     />
                   </div>
                 )}
 
                 {/* Model override */}
                 <div className={styles.formGroup}>
-                  <label>Model</label>
+                  <label>{t('settings:model.modelLabel')}</label>
                   <input
                     type="text"
                     value={newVideoGenModel || currentVideoGenModel || ''}
                     onChange={(e) => { setNewVideoGenModel(e.target.value); setVideoGenHasChanges(true) }}
-                    placeholder={vidProviderInfo?.video_gen_model || 'Default model'}
+                    placeholder={vidProviderInfo?.video_gen_model || t('settings:model.imageGen.defaultModel')}
                   />
                 </div>
 
@@ -1350,10 +1350,10 @@ export function ModelSettings() {
                     {isVideoGenSaving ? (
                       <>
                         <Loader2 size={14} className={styles.spinning} />
-                        Saving...
+                        {t('common:status.saving')}
                       </>
                     ) : (
-                      'Save'
+                      t('common:actions.save')
                     )}
                   </Button>
                 </div>
@@ -1365,10 +1365,9 @@ export function ModelSettings() {
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-primary)', margin: 'var(--space-4) 0' }} />
           <div className={styles.toggleGroup}>
             <div className={styles.toggleInfo}>
-              <span className={styles.toggleLabel}>Slow Mode</span>
+              <span className={styles.toggleLabel}>{t('settings:model.slowMode.label')}</span>
               <span className={styles.toggleDesc}>
-                Limits token usage to stay within API rate limits.
-                Enable this if you experience rate limiting errors from your provider.
+                {t('settings:model.slowMode.desc')}
               </span>
             </div>
             <input
@@ -1394,9 +1393,9 @@ export function ModelSettings() {
             </div>
             <h3 className={styles.testResultTitle}>
               {testResult.success ? (
-                testBeforeSave ? 'Connection and Configuration Successful' : 'Connection Successful'
+                testBeforeSave ? t('settings:model.testResult.successConfig') : t('settings:model.testResult.success')
               ) : (
-                'Connection Failed'
+                t('settings:model.testResult.failed')
               )}
             </h3>
             <p className={styles.testResultMessage}>
@@ -1405,7 +1404,7 @@ export function ModelSettings() {
                   <span style={{ textAlign: 'center', display: 'block' }}>
                     <span>{testResult.message}</span>
                     <span style={{ marginTop: 12, fontWeight: 600, color: '#10b981', display: 'block' }}>
-                      &#x2713; Configuration saved successfully
+                      &#x2713; {t('settings:model.testResult.configSaved')}
                     </span>
                   </span>
                 ) : (
@@ -1432,17 +1431,17 @@ export function ModelSettings() {
                   <span>{testResult.error || testResult.message}</span>
                   {currentProvider?.openrouter_proxy && (
                     <span style={{ marginTop: 12, display: 'block', fontSize: '0.82rem', color: 'var(--text-muted, #888)', lineHeight: 1.5 }}>
-                      This provider may be geo-restricted in your region.
+                      {t('settings:model.testResult.geoNote')}
                       {apiKeys['openrouter']?.has_key
-                        ? ' OpenRouter is already configured and will be used as a fallback automatically.'
-                        : ' Configure OpenRouter in Settings → select "OpenRouter" provider — it will be used as a fallback automatically.'}
+                        ? ` ${t('settings:model.testResult.geoConfigured')}`
+                        : ` ${t('settings:model.testResult.geoNotConfigured')}`}
                     </span>
                   )}
                 </span>
               )}
             </p>
             <Button variant="secondary" onClick={() => { setTestResult(null); setTestBeforeSave(false) }}>
-              Close
+              {t('common:actions.close')}
             </Button>
           </div>
         </div>

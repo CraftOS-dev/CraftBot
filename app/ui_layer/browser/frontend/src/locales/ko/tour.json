@@ -1,0 +1,65 @@
+{
+  "progressText": "{{total}}개 중 {{current}}번째",
+  "steps": {
+    "welcome": {
+      "title": "CraftBot에 오신 것을 환영합니다",
+      "description": "핵심 기능을 빠르게 둘러봅니다. 약 1분 정도 걸립니다."
+    },
+    "chat-composer": {
+      "title": "CraftBot과 대화하기",
+      "description": "질문, 작업, 파일 첨부, 프로젝트 전체 등 무엇이든 여기에 입력하세요. 문자 메시지로 사람과 소통하듯 CraftBot과 소통하세요."
+    },
+    "main-session": {
+      "title": "메인 채팅",
+      "description": "메인은 에이전트의 홈 채팅입니다. 삭제하거나 이름을 바꿀 수 없으며, 예약된 작업이나 연결된 앱의 업데이트처럼 스스로 발생하는 모든 일이 여기로 도착합니다."
+    },
+    "living-ui": {
+      "title": "Living UI 앱",
+      "description": "CraftBot에게 실제 앱(추적기, CRM, 대시보드 등)을 만들어 달라고 요청하면 여기에 만들어져 실행됩니다. 추가하는 방법은 세 가지입니다:"
+    },
+    "living-ui-marketplace": {
+      "title": "마켓플레이스",
+      "description": "커뮤니티 마켓플레이스에서 완성된 앱을 한 번의 클릭으로 설치하세요."
+    },
+    "living-ui-custom": {
+      "title": "사용자 지정 만들기",
+      "description": "원하는 것을 설명하면 에이전트가 만들어 줍니다. 몇 가지 기본 사항을 구성하고 짧은 인터뷰에 답하면, 사양을 작성하고 앱을 빌드합니다."
+    },
+    "living-ui-import": {
+      "title": "가져오기",
+      "description": "ZIP, 폴더, 또는 git URL에서 기존 Living UI를 가져오세요."
+    },
+    "dashboard": {
+      "title": "CraftBot 대시보드",
+      "description": "사용량, 활동, 시스템 상태를 추적하는 CraftBot의 실시간 관제실입니다."
+    },
+    "memory": {
+      "title": "CraftBot 메모리",
+      "description": "CraftBot이 당신과 당신의 작업에 대해 배우는 모든 것이 메모리, 엔티티, 파일로 이루어진 탐색 가능한 그래프로 여기에 저장됩니다. CraftBot을 많이 쓸수록 당신을 더 잘 기억합니다."
+    },
+    "workspace": {
+      "title": "CraftBot 작업 공간",
+      "description": "CraftBot 전용 파일 시스템입니다. 에이전트가 읽고 쓰는 파일을 탐색하고, 직접 파일을 업로드하세요."
+    },
+    "settings": {
+      "title": "설정",
+      "description": "여기서 에이전트를 구성하세요. 알아둘 만한 몇 가지 영역입니다:"
+    },
+    "settings-proactive": {
+      "title": "능동",
+      "description": "에이전트가 스스로 일하게 하세요. 요청 없이도 예약된 작업을 실행하고 이벤트에 반응합니다."
+    },
+    "settings-skills": {
+      "title": "스킬",
+      "description": "재사용 가능한 기능을 추가하여 에이전트가 특정 작업을 수행하는 방법을 알게 하세요."
+    },
+    "settings-integrations": {
+      "title": "연동",
+      "description": "Gmail, 캘린더, Notion 같은 앱을 연결하여 에이전트가 여러 앱에 걸쳐 작업할 수 있게 하세요."
+    },
+    "done": {
+      "title": "모든 준비가 끝났습니다",
+      "description": "여기까지가 둘러보기입니다. 이제 CraftBot에게 작업을 맡겨 보세요."
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from './components/layout'
 import { ChatPage } from './pages/Chat'
@@ -31,6 +32,7 @@ function SessionChatRoute() {
 }
 
 function App() {
+  const { t } = useTranslation(['nav', 'common'])
   const { initReceived, needsHardOnboarding } = useWebSocket()
 
   // Fade the main interface in once, right after the onboarding outro hands off
@@ -82,7 +84,7 @@ function App() {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <LoadingMascot size={64} />
           <p style={{ margin: 0, color: '#8a8a8a', fontSize: '14px' }}>
-            Waking up CraftBot<span className="cb-dots" />
+            {t('nav:app.wakingUp')}<span className="cb-dots" />
           </p>
         </div>
       </div>

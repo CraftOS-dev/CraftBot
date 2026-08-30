@@ -1,0 +1,113 @@
+{
+  "page": {
+    "title": "Memori",
+    "disabled": "Memori dinonaktifkan"
+  },
+  "stats": {
+    "memories_one": "{{formatted}} memori",
+    "memories_other": "{{formatted}} memori",
+    "entities_one": "{{formatted}} entitas",
+    "entities_other": "{{formatted}} entitas",
+    "files_one": "{{formatted}} berkas",
+    "files_other": "{{formatted}} berkas",
+    "entityLinks_one": "{{formatted}} tautan entitas",
+    "entityLinks_other": "{{formatted}} tautan entitas",
+    "fileLinks_one": "{{formatted}} tautan berkas",
+    "fileLinks_other": "{{formatted}} tautan berkas"
+  },
+  "toggle": {
+    "hideMemories": "Sembunyikan memori",
+    "showMemories": "Tampilkan memori",
+    "hideEntities": "Sembunyikan entitas",
+    "showEntities": "Tampilkan entitas",
+    "hideFiles": "Sembunyikan berkas",
+    "showFiles": "Tampilkan berkas",
+    "hideEntityLinks": "Sembunyikan tautan memori→entitas",
+    "showEntityLinks": "Tampilkan tautan memori→entitas",
+    "hideFileLinks": "Sembunyikan tautan memori→berkas",
+    "showFileLinks": "Tampilkan tautan memori→berkas",
+    "showDefaultFiles": "Tampilkan berkas default",
+    "hideDefaultFiles": "Sembunyikan berkas default (AGENT.md, PROACTIVE.md)",
+    "toggleDefaultFiles": "Alihkan berkas default",
+    "fitView": "Paskan tampilan",
+    "refreshGraph": "Segarkan grafik"
+  },
+  "empty": {
+    "title": "Belum ada memori",
+    "body": "Saat Anda mengobrol, CraftBot menyaring hal-hal penting ke dalam memori dan menampilkannya di sini sebagai grafik yang hidup."
+  },
+  "a11y": {
+    "resizePanel": "Ubah ukuran panel"
+  },
+  "kind": {
+    "memory": "Memori",
+    "fileMemory": "Memori berkas",
+    "entity": "Entitas",
+    "file": "Berkas"
+  },
+  "tag": {
+    "superseded": "digantikan"
+  },
+  "detail": {
+    "closeAria": "Tutup detail",
+    "connected": "Tersambung · {{value}}"
+  },
+  "meta": {
+    "mentions_one": "{{formatted}} penyebutan",
+    "mentions_other": "{{formatted}} penyebutan",
+    "sections_one": "{{formatted}} bagian",
+    "sections_other": "{{formatted}} bagian"
+  },
+  "toolbar": {
+    "searchPlaceholder": "Cari memori…"
+  },
+  "list": {
+    "noMatches": "Tidak ada yang cocok.",
+    "sectionFallback": "bagian"
+  },
+  "paneEmpty": "Pilih sebuah simpul dalam grafik untuk melihat detailnya, atau cari memori Anda di atas.",
+  "category": {
+    "fact": "Fakta",
+    "preference": "Preferensi",
+    "event": "Peristiwa",
+    "decision": "Keputusan",
+    "learning": "Pembelajaran",
+    "project": "Proyek",
+    "contact": "Kontak"
+  },
+  "field": {
+    "category": "Kategori",
+    "content": "Konten"
+  },
+  "item": {
+    "addTitle": "Tambah memori",
+    "editTitle": "Edit memori",
+    "deleteTitle": "Hapus memori",
+    "deleteMessage": "Ini menghapus item memori secara permanen. Pertimbangkan untuk menandainya sebagai digantikan agar riwayat tetap tersimpan.",
+    "entitiesHint": "Entitas diidentifikasi dan ditautkan secara otomatis saat pemrosesan memori berikutnya berjalan.",
+    "supersededLabel": "Digantikan (disimpan sebagai riwayat, dikecualikan dari pemanggilan)",
+    "contentPlaceholder": "mis. John lebih suka balasan yang ringkas"
+  },
+  "files": {
+    "title": "Berkas agen",
+    "aboutAria": "Tentang pengindeksan berkas",
+    "indexingTooltip": "<1>Apa itu pengindeksan?</1> Berkas yang diindeks menjadi bagian dari memori CraftBot: kontennya dipecah menjadi beberapa bagian, dibuat dapat dicari, dan ditampilkan dalam grafik sebagai memori berkas.<2/><3/>Setelah pengindeksan, tugas latar belakang membaca setiap berkas dan mengidentifikasi orang, proyek, dan alat yang disebutkan, lalu menautkannya ke grafik pengetahuan yang sama dengan memori percakapan, sehingga pemanggilan memori memanfaatkan keduanya.",
+    "hint": "Centang sebuah berkas untuk mengindeksnya ke dalam memori. Berkas yang terkunci selalu diindeks."
+  },
+  "tree": {
+    "chunks_one": "{{formatted}} potongan",
+    "chunks_other": "{{formatted}} potongan",
+    "sizeKb": "{{size}} KB",
+    "missing": "hilang",
+    "alwaysIndexed": "Selalu diindeks",
+    "indexing": "Mengindeks…",
+    "stopIndexing": "Hentikan pengindeksan {{path}}",
+    "indexFile": "Indeks {{path}}",
+    "indexedRemove": "Terindeks (klik untuk menghapus)",
+    "indexThis": "Indeks berkas ini"
+  },
+  "toast": {
+    "updateFailed": "Gagal memperbarui berkas terindeks",
+    "skipped": "Melewati {{path}}: {{reason}}"
+  }
+}

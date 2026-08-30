@@ -1,0 +1,90 @@
+{
+  "ollama": {
+    "checking": "Memeriksa apakah Ollama berjalan…",
+    "notInstalledStatus": "Ollama belum terinstal",
+    "notInstalledHint": "Ollama memungkinkan Anda menjalankan model AI secara lokal, tanpa perlu cloud. Kami akan menginstalnya secara otomatis untuk Anda.",
+    "install": "Instal Ollama",
+    "installing": "Menginstal Ollama…",
+    "installStarting": "Memulai…",
+    "notRunningStatus": "Ollama terinstal tetapi tidak berjalan",
+    "notRunningHint": "Klik di bawah untuk memulai server Ollama.",
+    "start": "Mulai Ollama",
+    "starting": "Memulai Ollama…",
+    "runningNoModels": "Ollama berjalan (belum ada model)",
+    "selectModelHint": "Pilih model untuk diunduh agar Anda bisa mulai mengobrol:",
+    "findModel": "Cari model...",
+    "recommended": "Disarankan",
+    "noModelMatch": "Tidak ada model yang cocok dengan \"{{query}}\"",
+    "download": "Unduh {{model}}",
+    "modelFallback": "Model",
+    "downloading": "Mengunduh {{model}}…",
+    "downloadStarting": "Memulai unduhan…",
+    "connected": "Tersambung ke Ollama",
+    "running": "Ollama berjalan",
+    "serverUrl": "URL server Ollama",
+    "test": "Uji"
+  },
+  "ollamaPrompt": {
+    "notInstalled": "Ollama belum terinstal. Saya akan menyiapkannya untuk kita.",
+    "installing": "Menginstal Ollama… ini butuh waktu sebentar.",
+    "notRunning": "Ollama terinstal tapi belum berjalan. Mulai sekarang?",
+    "starting": "Memulai Ollama…",
+    "running": "Ollama berjalan. Mari uji koneksinya.",
+    "selectingModel": "Pilih model untuk saya unduh.",
+    "pullingModel": "Mengunduh model Anda… ini bisa memakan beberapa menit.",
+    "connected_one": "Tersambung. {{count}} model siap digunakan.",
+    "connected_other": "Tersambung. {{count}} model siap digunakan.",
+    "errorFallback": "Terjadi kesalahan. Bisa coba lagi?",
+    "checking": "Memeriksa Ollama…"
+  },
+  "apiKey": {
+    "storedLocally": "Kunci API Anda disimpan secara lokal.",
+    "optional": "Kunci API (opsional)",
+    "enter": "Masukkan kunci API Anda",
+    "orEnterKey": "atau masukkan kunci API"
+  },
+  "apiKeyPrompt": {
+    "openrouter": "Tempel kunci OpenRouter Anda dan saya akan menyiapkannya.",
+    "withSub": "Sambungkan akun {{provider}} Anda agar saya bisa mulai bekerja. Masuk, atau tempel kunci API.",
+    "plain": "Tempel kunci API {{provider}} Anda agar saya bisa tersambung dan mulai bekerja.",
+    "providerFallback": "penyedia Anda"
+  },
+  "proxied": {
+    "orKey": "Masukkan kunci API OpenRouter Anda",
+    "directKey": "Masukkan kunci API {{provider}} Anda",
+    "modelLabel": "Model <1>(opsional; biarkan default atau masukkan slug OpenRouter apa pun)</1>",
+    "useDirect": "← Gunakan API {{provider}} langsung",
+    "useOpenRouter": "Ada masalah koneksi? Gunakan OpenRouter sebagai gantinya →"
+  },
+  "sub": {
+    "working": "Bekerja…",
+    "pastePlaceholder": "Tempel kode dari halaman masuk",
+    "submitting": "Mengirim…",
+    "submitCode": "Kirim kode",
+    "reopen": "Buka kembali halaman masuk",
+    "openingBrowser": "Membuka peramban…",
+    "signInWith": "Masuk dengan {{provider}}",
+    "useKeyInstead": "Gunakan kunci API sebagai gantinya"
+  },
+  "form": {
+    "enterField": "Masukkan {{field}}",
+    "enterName": "Masukkan nama"
+  },
+  "stepPrompt": {
+    "provider": "AI mana yang akan menjalankan saya?",
+    "userProfile": "Jadi, saya harus memanggil Anda apa?",
+    "agentName": "Dan Anda ingin memanggil saya apa?"
+  },
+  "intro": {
+    "greeting": "<1>Senang bertemu dengan Anda, saya CraftBot!</1><2/>Saya di sini untuk membantu Anda dalam pekerjaan maupun kehidupan.",
+    "kicker": "Nah, sebelum kita mulai, ada beberapa pengaturan yang perlu kita konfigurasikan."
+  },
+  "done": {
+    "message": "Semua sudah siap! <1>{{name}}</1> siap bekerja."
+  },
+  "nav": {
+    "testingApiKey": "Menguji Kunci API…",
+    "getStarted": "Mulai",
+    "finish": "Selesai"
+  }
+}

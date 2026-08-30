@@ -1,0 +1,82 @@
+{
+  "dateDivider": {
+    "today": "今天",
+    "yesterday": "昨天"
+  },
+  "unread": {
+    "aria": "新消息",
+    "label": "新"
+  },
+  "history": {
+    "loadingOlder": "正在加载更早的消息…"
+  },
+  "working": {
+    "label": "工作中",
+    "aria": "智能体工作中"
+  },
+  "composer": {
+    "placeholder": "有什么我可以帮你的？",
+    "listening": "正在聆听…请说话",
+    "attachAndTools": "附件和工具",
+    "attachFiles": "添加附件",
+    "aiEnhance": "AI 优化",
+    "enhancing": "优化中…",
+    "voiceInput": "语音输入",
+    "stopListening": "停止聆听",
+    "speechLanguage": "语音语言",
+    "send": "发送",
+    "sendMessage": "发送消息",
+    "stop": "停止",
+    "stopping": "停止中…",
+    "stopRun": "停止运行",
+    "stoppingRun": "正在停止运行"
+  },
+  "reply": {
+    "replyingTo": "正在回复：<1>{{name}}</1>",
+    "cancel": "取消回复"
+  },
+  "scrollToLatest": "滚动到最新消息",
+  "dismiss": "关闭",
+  "playbooks": {
+    "all": "所有剧本"
+  },
+  "attachment": {
+    "preview": "点击预览",
+    "tooManyFiles": "最多允许 {{max}} 个文件。",
+    "tooManyFilesDetailed": "最多允许 {{max}} 个文件。你有 {{have}} 个文件。",
+    "totalSizeExceeds": "总大小（{{size}}）超过 200 MB 限制。",
+    "fileExceedsLimit": "文件“{{name}}”（{{size}}）超过 200 MB 限制。",
+    "addWouldExceed": "添加“{{name}}”会超过 200 MB 的总大小限制。",
+    "uploadFailed": "上传“{{name}}”失败。",
+    "uploadFailedNetwork": "上传“{{name}}”失败：网络错误。",
+    "readFailed": "读取文件“{{name}}”失败。"
+  },
+  "toast": {
+    "enhanceTimedOut": "AI 优化超时。请重试。",
+    "reconnecting": "正在重新连接。连接恢复后你的消息将发送。"
+  },
+  "voice": {
+    "notSupported": "此浏览器不支持语音识别。",
+    "micDenied": "麦克风访问被拒绝。请在浏览器设置中允许麦克风权限。"
+  },
+  "question": {
+    "aria": "来自智能体的问题",
+    "asking": "{{sender}} 正在提问",
+    "queuePosition": "第 1 个，共 {{total}} 个",
+    "dismissHint": "关闭。智能体将在没有答案的情况下继续。",
+    "dismissAria": "关闭问题",
+    "recommended": "（推荐）",
+    "freeTextPlaceholder": "或输入你自己的答案…",
+    "sendAnswer": "发送答案"
+  },
+  "message": {
+    "hideReceived": "隐藏收到的消息",
+    "showReceived": "显示收到的消息",
+    "hideMessage": "隐藏消息",
+    "showMessage": "显示消息",
+    "selectResponse": "请选择一个回复以继续：",
+    "replyTooltip": "回复此消息",
+    "copyTooltip": "复制消息",
+    "copiedTooltip": "已复制！"
+  }
+}

@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Server,
   PanelsTopLeft,
@@ -238,6 +239,7 @@ function PoppingChip({
 // ── main view ───────────────────────────────────────────────────────────────
 
 export function ConstructionDock({ project, todos, events, snapshot }: Props) {
+  const { t } = useTranslation(['livingui', 'common'])
   const displayed = usePacedEvents(events)
   const view = useMemo(() => deriveProgress(todos), [todos])
   const isLaunching = project.status !== 'creating'
@@ -262,7 +264,9 @@ export function ConstructionDock({ project, todos, events, snapshot }: Props) {
 
   const activityLabel =
     view.todoLabel ||
-    (isLaunching ? 'Final checks…' : 'Preparing your workspace…')
+    (isLaunching
+      ? t('livingui:construction.finalChecks')
+      : t('livingui:construction.preparingWorkspace'))
 
   const hasSummary =
     summary.collections > 0 ||
@@ -276,10 +280,10 @@ export function ConstructionDock({ project, todos, events, snapshot }: Props) {
           <span className={styles.dockTitle}>
             {isLaunching ? (
               <>
-                <Rocket size={13} /> Launching {project.name}
+                <Rocket size={13} /> {t('livingui:construction.launching', { name: project.name })}
               </>
             ) : (
-              <>Creating {project.name}</>
+              <>{t('livingui:construction.creating', { name: project.name })}</>
             )}
           </span>
         </div>
@@ -297,17 +301,17 @@ export function ConstructionDock({ project, todos, events, snapshot }: Props) {
           <div className={styles.railChips}>
             {summary.components > 0 && (
               <PoppingChip value={summary.components}>
-                <PanelsTopLeft size={11} /> {summary.components} component{summary.components > 1 ? 's' : ''}
+                <PanelsTopLeft size={11} /> {t('livingui:construction.componentCount', { count: summary.components })}
               </PoppingChip>
             )}
             {summary.collections > 0 && (
               <PoppingChip value={summary.collections}>
-                <Server size={11} /> {summary.collections} collection{summary.collections > 1 ? 's' : ''}
+                <Server size={11} /> {t('livingui:construction.collectionCount', { count: summary.collections })}
               </PoppingChip>
             )}
             {summary.routes > 0 && (
               <PoppingChip value={summary.routes}>
-                <Package size={11} /> {summary.routes} route{summary.routes > 1 ? 's' : ''}
+                <Package size={11} /> {t('livingui:construction.routeCount', { count: summary.routes })}
               </PoppingChip>
             )}
           </div>

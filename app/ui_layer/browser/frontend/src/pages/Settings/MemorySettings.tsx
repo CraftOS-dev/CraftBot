@@ -7,9 +7,11 @@ import {
   Loader2,
   RotateCcw,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
+import { formatNumber, formatTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector } from '../../store/hooks'
@@ -19,6 +21,7 @@ import {
 } from '../../store/selectors/memorySettings'
 
 export function MemorySettings() {
+  const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
 
@@ -57,20 +60,20 @@ export function MemorySettings() {
     const cleanups = [
       onMessage('memory_mode_set', (data: unknown) => {
         const d = data as { success: boolean; enabled: boolean; error?: string }
-        if (d.success) showToast('success', `Memory ${d.enabled ? 'enabled' : 'disabled'}`)
-        else showToast('error', d.error || 'Failed to update memory mode')
+        if (d.success) showToast('success', d.enabled ? t('settings:memory.toast.enabled') : t('settings:memory.toast.disabled'))
+        else showToast('error', d.error || t('settings:memory.toast.modeFailed'))
       }),
       onMessage('memory_reset', (data: unknown) => {
         const d = data as { success: boolean; error?: string }
         setIsResetting(false)
-        if (d.success) showToast('success', 'Memory reset to default')
-        else showToast('error', d.error || 'Failed to reset memory')
+        if (d.success) showToast('success', t('settings:memory.toast.resetDone'))
+        else showToast('error', d.error || t('settings:memory.toast.resetFailed'))
       }),
       onMessage('memory_process_trigger', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string }
         setIsProcessing(false)
-        if (d.success) showToast('success', d.message || 'Memory processing started')
-        else showToast('error', d.error || 'Failed to start memory processing')
+        if (d.success) showToast('success', d.message || t('settings:memory.toast.processStarted'))
+        else showToast('error', d.error || t('settings:memory.toast.processFailed'))
       }),
       onMessage('memory_schedule_get', (data: unknown) => {
         const d = data as {
@@ -96,7 +99,7 @@ export function MemorySettings() {
       }),
       onMessage('memory_schedule_set', (data: unknown) => {
         const d = data as { success: boolean; error?: string }
-        if (!d.success) showToast('error', d.error || 'Failed to update schedule')
+        if (!d.success) showToast('error', d.error || t('settings:memory.toast.scheduleFailed'))
       }),
     ]
 
@@ -112,9 +115,9 @@ export function MemorySettings() {
 
   const handleProcessMemory = () => {
     confirm({
-      title: 'Process Memory',
-      message: 'This will process all unprocessed events into long-term memory. Continue?',
-      confirmText: 'Process',
+      title: t('settings:memory.processConfirmTitle'),
+      message: t('settings:memory.processConfirmMessage'),
+      confirmText: t('settings:memory.processConfirmButton'),
       variant: 'default',
     }, () => {
       setIsProcessing(true)
@@ -187,18 +190,21 @@ export function MemorySettings() {
   const gateReached = threshold === 0 ? unprocessed > 0 : unprocessed >= threshold
   const nextRunPhrase = (() => {
     const [h, m] = autoTime.split(':').map(n => parseInt(n, 10) || 0)
-    const suffix = h < 12 ? 'AM' : 'PM'
-    const clock = `${h % 12 || 12}:${String(m).padStart(2, '0')} ${suffix}`
+    const clockDate = new Date()
+    clockDate.setHours(h, m, 0, 0)
+    const clock = formatTime(clockDate)
     const now = new Date()
     const beforeToday = now.getHours() < h || (now.getHours() === h && now.getMinutes() < m)
-    return `${beforeToday ? 'today' : 'tomorrow'} at ${clock}`
+    return beforeToday
+      ? t('settings:memory.nextRunToday', { time: clock })
+      : t('settings:memory.nextRunTomorrow', { time: clock })
   })()
 
   const handleResetMemory = () => {
     confirm({
-      title: 'Reset Memory',
-      message: 'Are you sure you want to reset all memory? This will clear all memory items and unprocessed events. This action cannot be undone.',
-      confirmText: 'Reset',
+      title: t('settings:memory.resetConfirmTitle'),
+      message: t('settings:memory.resetConfirmMessage'),
+      confirmText: t('common:actions.reset'),
       variant: 'danger',
     }, () => {
       setIsResetting(true)
@@ -209,18 +215,17 @@ export function MemorySettings() {
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
-        <h3>Memory Settings</h3>
-        <p>Manage agent memory and event processing</p>
+        <h3>{t('settings:memory.title')}</h3>
+        <p>{t('settings:memory.subtitle')}</p>
       </div>
 
       {/* Master Toggle */}
       <div className={styles.settingsForm}>
         <div className={styles.toggleGroup}>
           <div className={styles.toggleInfo}>
-            <span className={styles.toggleLabel}>Enable Memory</span>
+            <span className={styles.toggleLabel}>{t('settings:memory.enableLabel')}</span>
             <span className={styles.toggleDesc}>
-              When enabled, the agent remembers facts from conversations and uses them in context.
-              When disabled, memory search is skipped and new events are not logged.
+              {t('settings:memory.enableDesc')}
             </span>
           </div>
           <input
@@ -237,23 +242,20 @@ export function MemorySettings() {
       <div className={`${styles.toggleableContent} ${!memoryEnabled ? styles.disabledContent : ''}`}>
         {/* Memory Processing: daily schedule, run condition, manual trigger */}
         <div className={styles.subsection}>
-          <h4 className={styles.subsectionTitle}>Memory Processing</h4>
+          <h4 className={styles.subsectionTitle}>{t('settings:memory.processingTitle')}</h4>
           <p className={styles.subsectionDesc}>
-            Once a day, CraftBot distills recent events into long-term memory.
-            Choose when it runs and how many new events must be waiting; if
-            fewer have accumulated by then, the run is skipped, so quiet days
-            do nothing. You can also process everything waiting right now.
+            {t('settings:memory.processingDesc')}
           </p>
 
           {!hasLoadedSchedule ? (
             <div className={styles.loadingState}>
               <Loader2 size={18} className={styles.spinning} />
-              <span>Loading schedule…</span>
+              <span>{t('settings:memory.loadingSchedule')}</span>
             </div>
           ) : (
             <>
               <div className={`${styles.formGroup} ${styles.inlineRow}`}>
-                <label>Daily time</label>
+                <label>{t('settings:memory.dailyTime')}</label>
                 <input
                   type="time"
                   value={autoTime}
@@ -264,18 +266,18 @@ export function MemorySettings() {
 
               <div className={styles.formGroup}>
                 <div className={styles.gateHeader}>
-                  <label>Minimum events to run</label>
+                  <label>{t('settings:memory.minEvents')}</label>
                   <span className={styles.gateReadout}>
                     {threshold === 0
-                      ? `${unprocessed} unprocessed ${unprocessed === 1 ? 'event' : 'events'} / no minimum`
-                      : `${unprocessed} unprocessed ${unprocessed === 1 ? 'event' : 'events'} / ${threshold} minimum to run`}
+                      ? t('settings:memory.readoutNoMin', { events: t('settings:memory.unprocessedEvents', { count: unprocessed }) })
+                      : t('settings:memory.readoutWithMin', { events: t('settings:memory.unprocessedEvents', { count: unprocessed }), threshold: formatNumber(threshold) })}
                   </span>
                 </div>
                 <div
                   ref={gateBarRef}
                   className={`${styles.gateTrack} ${!memoryEnabled ? styles.gateDisabled : ''}`}
                   role="slider"
-                  aria-label="Minimum events to run"
+                  aria-label={t('settings:memory.minEvents')}
                   aria-valuemin={0}
                   aria-valuemax={thresholdMax}
                   aria-valuenow={threshold}
@@ -297,11 +299,11 @@ export function MemorySettings() {
                 <div className={styles.gateLegend}>
                   <span className={styles.gateLegendItem}>
                     <span className={styles.gateSwatchFill} />
-                    unprocessed events
+                    {t('settings:memory.legendUnprocessed')}
                   </span>
                   <span className={styles.gateLegendItem}>
                     <span className={styles.gateSwatchThumb} />
-                    minimum to run
+                    {t('settings:memory.legendMinimum')}
                   </span>
                 </div>
               </div>
@@ -311,15 +313,14 @@ export function MemorySettings() {
                   <>
                     <CheckCircle2 size={15} />
                     <span>
-                      Enough events have accumulated: memory will be processed{' '}
-                      {nextRunPhrase}.
+                      {t('settings:memory.gateReady', { when: nextRunPhrase })}
                     </span>
                   </>
                 ) : (
                   <span>
                     {threshold === 0
-                      ? 'No events waiting. The next scheduled run will be skipped.'
-                      : `${threshold - unprocessed} more ${threshold - unprocessed === 1 ? 'event' : 'events'} needed. Scheduled runs are skipped until then.`}
+                      ? t('settings:memory.gateNoEvents')
+                      : t('settings:memory.eventsNeeded', { count: threshold - unprocessed })}
                   </span>
                 )}
               </div>
@@ -331,11 +332,10 @@ export function MemorySettings() {
                   disabled={isProcessing || !memoryEnabled}
                   icon={isProcessing ? <Loader2 size={14} className={styles.spinning} /> : <Brain size={14} />}
                 >
-                  {isProcessing ? 'Processing...' : 'Process Memory Now'}
+                  {isProcessing ? t('common:status.processing') : t('settings:memory.processNow')}
                 </Button>
                 <span className={styles.hint}>
-                  Processes all waiting events immediately, ignoring the
-                  schedule and minimum.
+                  {t('settings:memory.processHint')}
                 </span>
               </div>
             </>
@@ -348,11 +348,10 @@ export function MemorySettings() {
       <div className={styles.dangerZone}>
         <div className={styles.dangerHeader}>
           <AlertTriangle size={18} className={styles.dangerIcon} />
-          <h4>Reset Memory</h4>
+          <h4>{t('settings:memory.resetTitle')}</h4>
         </div>
         <p className={styles.dangerDescription}>
-          This will clear all memory items in MEMORY.md and restore it from the default template.
-          All unprocessed events will also be cleared. This action cannot be undone.
+          {t('settings:memory.resetDesc')}
         </p>
         <Button
           variant="danger"
@@ -360,7 +359,7 @@ export function MemorySettings() {
           disabled={isResetting}
           icon={isResetting ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
         >
-          {isResetting ? 'Resetting...' : 'Reset All Memory'}
+          {isResetting ? t('settings:memory.resetting') : t('settings:memory.resetButton')}
         </Button>
       </div>
 

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2, RefreshCw, Eye, Wrench, Database, ExternalLink } from 'lucide-react'
+import { formatNumber } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 
 export interface OpenRouterModel {
@@ -49,6 +51,7 @@ export function useOpenRouterCatalog(
   const [fetchedAt, setFetchedAt] = useState<number | null>(null)
   const requestedRef = useRef(false)
   const prevBaseUrlRef = useRef(baseUrl)
+  const { t } = useTranslation(['settings'])
 
   useEffect(() => {
     const cleanup = onMessage('openrouter_models_get', (data: unknown) => {
@@ -59,11 +62,11 @@ export function useOpenRouterCatalog(
         setError(null)
         if (d.fetched_at) setFetchedAt(d.fetched_at)
       } else {
-        setError(d.error || 'Failed to load models')
+        setError(d.error || t('settings:model.orPicker.loadModelsFailed'))
       }
     })
     return cleanup
-  }, [onMessage])
+  }, [onMessage, t])
 
   // Fetch once after we go enabled+connected. Re-fetch when baseUrl changes.
   useEffect(() => {
@@ -97,6 +100,7 @@ export function useOpenRouterCredits(
   const [credits, setCredits] = useState<OpenRouterCredits | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { t } = useTranslation(['settings'])
 
   useEffect(() => {
     const cleanup = onMessage('openrouter_credits_get', (data: unknown) => {
@@ -121,11 +125,11 @@ export function useOpenRouterCredits(
         setError(null)
       } else {
         setCredits(null)
-        setError(d.error || 'Failed to load credits')
+        setError(d.error || t('settings:model.orPicker.loadCreditsFailed'))
       }
     })
     return cleanup
-  }, [onMessage])
+  }, [onMessage, t])
 
   useEffect(() => {
     if (!isConnected || !hasApiKey) {
@@ -198,13 +202,14 @@ interface CreditsBannerProps {
 }
 
 export function OpenRouterCreditsBanner({ send, onMessage, isConnected, hasApiKey }: CreditsBannerProps) {
+  const { t } = useTranslation(['settings'])
   const { credits, loading, error } = useOpenRouterCredits(send, onMessage, isConnected, hasApiKey)
 
   if (!hasApiKey) {
     return (
       <div className={styles.orCreditsRow}>
         <span className={styles.orCreditsLabel}>
-          Save an API key to see credit balance.
+          {t('settings:model.orPicker.saveKeyForCredits')}
         </span>
         <a
           className={styles.orCreditsLink}
@@ -212,7 +217,7 @@ export function OpenRouterCreditsBanner({ send, onMessage, isConnected, hasApiKe
           target="_blank"
           rel="noreferrer"
         >
-          Get a key <ExternalLink size={12} />
+          {t('settings:model.orPicker.getKey')} <ExternalLink size={12} />
         </a>
       </div>
     )
@@ -222,7 +227,7 @@ export function OpenRouterCreditsBanner({ send, onMessage, isConnected, hasApiKe
     return (
       <div className={styles.orCreditsRow}>
         <span className={styles.orCreditsLabel}>
-          <Loader2 size={12} className={styles.spinning} /> Loading credits…
+          <Loader2 size={12} className={styles.spinning} /> {t('settings:model.orPicker.loadingCredits')}
         </span>
       </div>
     )
@@ -231,7 +236,7 @@ export function OpenRouterCreditsBanner({ send, onMessage, isConnected, hasApiKe
   if (error) {
     return (
       <div className={styles.orCreditsRow}>
-        <span className={styles.orCreditsLabel}>Credits: {error}</span>
+        <span className={styles.orCreditsLabel}>{t('settings:model.orPicker.creditsError', { error })}</span>
       </div>
     )
   }
@@ -239,13 +244,13 @@ export function OpenRouterCreditsBanner({ send, onMessage, isConnected, hasApiKe
   if (!credits) return null
 
   const balanceText = credits.balance != null
-    ? `$${credits.balance.toFixed(2)} remaining`
-    : 'Pay-as-you-go (no preset limit)'
+    ? t('settings:model.orPicker.balanceRemaining', { amount: formatNumber(credits.balance, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })
+    : t('settings:model.orPicker.payAsYouGo')
 
   return (
     <div className={styles.orCreditsRow}>
       <span className={styles.orCreditsLabel}>
-        Credits: <strong>{balanceText}</strong>
+        {t('settings:model.orPicker.creditsLabel')} <strong>{balanceText}</strong>
         {credits.label ? <span className={styles.orCreditsKey}> · {credits.label}</span> : null}
       </span>
       <a
@@ -254,7 +259,7 @@ export function OpenRouterCreditsBanner({ send, onMessage, isConnected, hasApiKe
         target="_blank"
         rel="noreferrer"
       >
-        Top up <ExternalLink size={12} />
+        {t('settings:model.orPicker.topUp')} <ExternalLink size={12} />
       </a>
     </div>
   )
@@ -285,6 +290,7 @@ export function OpenRouterModelPicker({
   requireVision = false,
   label,
 }: PickerProps) {
+  const { t } = useTranslation(['settings', 'common'])
   const [search, setSearch] = useState('')
   const [filterFree, setFilterFree] = useState(false)
   const [filterVision, setFilterVision] = useState(requireVision)
@@ -329,7 +335,7 @@ export function OpenRouterModelPicker({
           <input
             type="text"
             className={styles.searchInput}
-            placeholder={`Search ${models.length || ''} models...`}
+            placeholder={t('settings:model.orPicker.searchModels', { count: models.length })}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -337,7 +343,7 @@ export function OpenRouterModelPicker({
             type="button"
             className={styles.orPickerRefreshBtn}
             onClick={onRefresh}
-            title="Refresh catalog"
+            title={t('settings:model.orPicker.refreshCatalog')}
             disabled={loading}
           >
             {loading ? <Loader2 size={14} className={styles.spinning} /> : <RefreshCw size={14} />}
@@ -351,7 +357,7 @@ export function OpenRouterModelPicker({
             onClick={() => setFilterFree(v => !v)}
             aria-pressed={filterFree}
           >
-            Free only
+            {t('settings:model.orPicker.freeOnly')}
           </button>
           <button
             type="button"
@@ -359,9 +365,9 @@ export function OpenRouterModelPicker({
             onClick={() => !requireVision && setFilterVision(v => !v)}
             aria-pressed={filterVision}
             disabled={requireVision}
-            title={requireVision ? 'Vision required for VLM models' : undefined}
+            title={requireVision ? t('settings:model.orPicker.visionRequired') : undefined}
           >
-            Vision
+            {t('settings:model.orPicker.vision')}
           </button>
           <button
             type="button"
@@ -369,7 +375,7 @@ export function OpenRouterModelPicker({
             onClick={() => setFilterTools(v => !v)}
             aria-pressed={filterTools}
           >
-            Tools
+            {t('settings:model.orPicker.tools')}
           </button>
           <button
             type="button"
@@ -377,14 +383,14 @@ export function OpenRouterModelPicker({
             onClick={() => setFilterCache(v => !v)}
             aria-pressed={filterCache}
           >
-            Caching
+            {t('settings:model.orPicker.caching')}
           </button>
           <select
             className={styles.orPickerUpstream}
             value={upstream}
             onChange={(e) => setUpstream(e.target.value)}
           >
-            <option value="">Any upstream</option>
+            <option value="">{t('settings:model.orPicker.anyUpstream')}</option>
             {upstreams.map(u => (
               <option key={u} value={u}>{u}</option>
             ))}
@@ -394,18 +400,18 @@ export function OpenRouterModelPicker({
         <div className={styles.orPickerList}>
           {loading && models.length === 0 && (
             <div className={styles.orPickerStatus}>
-              <Loader2 size={14} className={styles.spinning} /> Loading catalog…
+              <Loader2 size={14} className={styles.spinning} /> {t('settings:model.orPicker.loadingCatalog')}
             </div>
           )}
           {error && (
             <div className={styles.orPickerError}>
               {error}
-              <button type="button" onClick={onRefresh}>Retry</button>
+              <button type="button" onClick={onRefresh}>{t('common:actions.retry')}</button>
             </div>
           )}
           {!loading && !error && filtered.length === 0 && (
             <div className={styles.orPickerStatus}>
-              No models match your filters.
+              {t('settings:model.orPicker.noModels')}
             </div>
           )}
           {filtered.map(m => {
@@ -427,30 +433,30 @@ export function OpenRouterModelPicker({
                 </div>
                 <div className={styles.orPickerRowRight}>
                   <div className={styles.orPickerRowMeta}>
-                    {ctxStr && <span className={styles.orPickerCtx}>{ctxStr} ctx</span>}
+                    {ctxStr && <span className={styles.orPickerCtx}>{t('settings:model.orPicker.ctx', { ctx: ctxStr })}</span>}
                     {supportsVision(m) && (
-                      <span className={styles.orPickerCap} title="Vision capable">
+                      <span className={styles.orPickerCap} title={t('settings:model.orPicker.visionCapable')}>
                         <Eye size={12} />
                       </span>
                     )}
                     {supportsTools(m) && (
-                      <span className={styles.orPickerCap} title="Tool calling">
+                      <span className={styles.orPickerCap} title={t('settings:model.orPicker.toolCalling')}>
                         <Wrench size={12} />
                       </span>
                     )}
                     {supportsCache(m) && (
-                      <span className={styles.orPickerCap} title="Prompt caching">
+                      <span className={styles.orPickerCap} title={t('settings:model.orPicker.promptCaching')}>
                         <Database size={12} />
                       </span>
                     )}
                   </div>
                   <div className={styles.orPickerRowPrice}>
                     {free ? (
-                      <span className={styles.orPickerFreeBadge}>FREE</span>
+                      <span className={styles.orPickerFreeBadge}>{t('settings:model.orPicker.free')}</span>
                     ) : promptPrice && completionPrice ? (
-                      <span>In {promptPrice} · Out {completionPrice} <span className={styles.orPickerPriceUnit}>/M</span></span>
+                      <span>{t('settings:model.orPicker.price', { prompt: promptPrice, completion: completionPrice })} <span className={styles.orPickerPriceUnit}>{t('settings:model.orPicker.priceUnit')}</span></span>
                     ) : (
-                      <span className={styles.orPickerPriceUnit}>see openrouter.ai</span>
+                      <span className={styles.orPickerPriceUnit}>{t('settings:model.orPicker.seeOpenRouter')}</span>
                     )}
                   </div>
                 </div>
@@ -460,7 +466,7 @@ export function OpenRouterModelPicker({
         </div>
 
         <div className={styles.orPickerSlug}>
-          <label>Or paste a slug:</label>
+          <label>{t('settings:model.orPicker.pasteSlug')}</label>
           <input
             type="text"
             value={value}

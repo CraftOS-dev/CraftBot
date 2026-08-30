@@ -287,6 +287,21 @@
   border-top: 1px solid var(--border-primary);
 }
 
+/* General Settings: the Save row sits directly under the form fields (no
+   divider above it); the divider then separates it from the sections below,
+   so a change never looks applied until Save is clicked. */
+.generalSaveRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.generalDivider {
+  margin-top: var(--space-6);
+  border-top: 1px solid var(--border-primary);
+}
+
 /* Server List */
 .serverList {
   display: flex;

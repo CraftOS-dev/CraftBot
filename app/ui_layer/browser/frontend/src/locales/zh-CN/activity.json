@@ -1,0 +1,165 @@
+{
+  "chunk": {
+    "working": "工作中",
+    "hideSteps": "隐藏步骤",
+    "showSteps": "显示步骤",
+    "actionsExecuted_one": "已执行 {{count}} 个操作",
+    "actionsExecuted_other": "已执行 {{count}} 个操作"
+  },
+  "reasoning": {
+    "thinking": "思考中…"
+  },
+  "count": {
+    "lines_one": "{{formatted}} 行",
+    "lines_other": "{{formatted}} 行",
+    "linesOutput_one": "输出 {{formatted}} 行",
+    "linesOutput_other": "输出 {{formatted}} 行",
+    "items_one": "{{formatted}} 项",
+    "items_other": "{{formatted}} 项",
+    "elements_one": "{{formatted}} 个元素",
+    "elements_other": "{{formatted}} 个元素",
+    "chars_one": "{{formatted}} 个字符",
+    "chars_other": "{{formatted}} 个字符",
+    "characters_one": "{{formatted}} 个字符",
+    "characters_other": "{{formatted}} 个字符",
+    "attachmentsPlus_one": "+ {{formatted}} 个附件",
+    "attachmentsPlus_other": "+ {{formatted}} 个附件"
+  },
+  "action": {
+    "streamEdit": {
+      "editing": "正在编辑文件",
+      "edited": "已编辑文件",
+      "failed": "编辑失败",
+      "cancelled": "编辑已取消"
+    },
+    "readFile": {
+      "reading": "正在读取文件",
+      "read": "已读取文件",
+      "failed": "读取失败",
+      "cancelled": "读取已取消"
+    },
+    "findFiles": {
+      "finding": "正在查找文件",
+      "failed": "查找失败",
+      "cancelled": "查找已取消",
+      "found_one": "找到 {{formatted}} 个文件",
+      "found_other": "找到 {{formatted}} 个文件"
+    },
+    "listFolder": {
+      "listing": "正在列出文件夹",
+      "listed": "已列出文件夹",
+      "failed": "列出失败",
+      "cancelled": "列出已取消"
+    },
+    "convertToPdf": {
+      "creating": "正在创建 PDF",
+      "created": "已创建 PDF",
+      "failed": "PDF 创建失败",
+      "cancelled": "PDF 创建已取消"
+    },
+    "readPdf": {
+      "reading": "正在读取 PDF",
+      "read": "已读取 PDF",
+      "failed": "PDF 读取失败",
+      "cancelled": "PDF 读取已取消"
+    },
+    "convertToMarkdown": {
+      "converting": "正在转换为 Markdown",
+      "converted": "已转换为 Markdown",
+      "failed": "转换失败",
+      "cancelled": "转换已取消"
+    },
+    "runPython": {
+      "running": "正在运行 Python",
+      "ran": "已运行 Python",
+      "failed": "Python 运行失败",
+      "cancelled": "Python 运行已取消"
+    },
+    "runShell": {
+      "running": "正在运行命令",
+      "ran": "已运行命令",
+      "failed": "命令运行失败",
+      "cancelled": "命令已取消"
+    },
+    "webSearch": {
+      "searching": "正在搜索网络",
+      "failed": "搜索失败",
+      "cancelled": "搜索已取消",
+      "found_one": "找到 {{formatted}} 条结果",
+      "found_other": "找到 {{formatted}} 条结果"
+    },
+    "webFetch": {
+      "fetching": "正在获取页面",
+      "failed": "获取失败",
+      "cancelled": "获取已取消",
+      "fetchedTitle": "已获取 {{title}}",
+      "fetchedPage": "已获取页面"
+    },
+    "httpRequest": {
+      "request": "{{method}} 请求",
+      "failed": "{{method}} 失败",
+      "cancelled": "{{method}} 已取消",
+      "response": "{{method}} 响应"
+    },
+    "generateImage": {
+      "generating": "正在生成图像",
+      "failed": "生成失败",
+      "cancelled": "生成已取消",
+      "generated_one": "已生成 {{formatted}} 张图像",
+      "generated_other": "已生成 {{formatted}} 张图像"
+    },
+    "describeImage": {
+      "describing": "正在描述图像",
+      "described": "已描述图像",
+      "failed": "描述失败",
+      "cancelled": "描述已取消"
+    },
+    "performOcr": {
+      "reading": "正在读取图像文字",
+      "extracted": "已提取文字",
+      "failed": "OCR 失败",
+      "cancelled": "OCR 已取消"
+    },
+    "understandVideo": {
+      "analyzing": "正在分析视频",
+      "analyzed": "已分析视频",
+      "failed": "分析失败",
+      "cancelled": "分析已取消"
+    },
+    "grepFiles": {
+      "grepping": "正在检索",
+      "failed": "检索失败",
+      "cancelled": "检索已取消",
+      "foundIn_one": "在 {{formatted}} 个文件中找到",
+      "foundIn_other": "在 {{formatted}} 个文件中找到"
+    },
+    "memorySearch": {
+      "searching": "正在搜索记忆",
+      "failed": "记忆搜索失败",
+      "cancelled": "记忆搜索已取消",
+      "found_one": "找到 {{formatted}} 条记忆",
+      "found_other": "找到 {{formatted}} 条记忆"
+    },
+    "sendMessage": {
+      "sending": "正在发送消息",
+      "sent": "已发送消息",
+      "failed": "发送失败",
+      "cancelled": "发送已取消"
+    },
+    "updateTodos": {
+      "updating": "正在更新待办事项",
+      "updated": "已更新待办事项",
+      "failed": "更新失败",
+      "cancelled": "更新已取消",
+      "progress": "已完成 {{done}}/{{total}}",
+      "progressWithTask": "{{progress}} · {{task}}"
+    }
+  },
+  "generic": {
+    "actionNoun": "操作",
+    "running": "正在运行 {{name}}",
+    "completed": "{{name}} 已完成",
+    "failed": "{{name}} 失败",
+    "cancelled": "{{name}} 已取消"
+  }
+}

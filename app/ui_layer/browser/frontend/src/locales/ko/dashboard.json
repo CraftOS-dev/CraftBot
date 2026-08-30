@@ -1,0 +1,231 @@
+{
+  "header": {
+    "agentStatus": "에이전트 상태",
+    "uptime": "가동 시간: {{uptime}}",
+    "renameLayout": "레이아웃 이름 변경",
+    "newLayout": "새 레이아웃",
+    "resetLayout": "레이아웃 초기화",
+    "deleteLayout": "레이아웃 삭제",
+    "addWidget": "위젯 추가",
+    "deleteConfirmTitle": "레이아웃 삭제",
+    "deleteConfirmMessage": "\"{{name}}\"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.",
+    "resetConfirmTitle": "레이아웃 초기화",
+    "resetConfirmMessage": "\"{{name}}\"을(를) 기본 배열로 초기화하시겠습니까? 기본 레이아웃에 없는, 직접 추가한 위젯은 유지됩니다."
+  },
+  "addWidget": {
+    "title": "위젯 추가",
+    "empty": "사용 가능한 모든 위젯이 이미 이 레이아웃에 있습니다."
+  },
+  "layoutModal": {
+    "createTitle": "새 레이아웃",
+    "renameTitle": "레이아웃 이름 변경",
+    "placeholder": "레이아웃 이름"
+  },
+  "layout": {
+    "defaultName": "기본",
+    "untitledName": "제목 없음"
+  },
+  "grid": {
+    "emptyState": "이 레이아웃에 아직 위젯이 없습니다. \"위젯 추가\"를 클릭하여 시작하세요."
+  },
+  "widgetChrome": {
+    "remove": "{{title}} 제거"
+  },
+  "errorBoundary": {
+    "failed": "이 위젯을 불러오지 못했습니다."
+  },
+  "duration": {
+    "dhm": "{{days}}일 {{hours}}시간 {{minutes}}분",
+    "hm": "{{hours}}시간 {{minutes}}분",
+    "m": "{{minutes}}분"
+  },
+  "registry": {
+    "craftBotIntro": {
+      "title": "CraftBot에 오신 것을 환영합니다",
+      "description": "CraftBot의 기능, 시스템 기둥, 마스코트 동반자 소개."
+    },
+    "taskStats": {
+      "title": "작업 통계",
+      "description": "완료, 실패, 실행 중인 작업 및 성공률."
+    },
+    "tokenUsage": {
+      "title": "토큰 사용량",
+      "description": "입력/출력/캐시된 토큰 합계와 비율."
+    },
+    "systemResources": {
+      "title": "시스템 리소스",
+      "description": "CPU, 메모리, 디스크, 스레드 풀, 네트워크 I/O."
+    },
+    "usagePatterns": {
+      "title": "사용 패턴",
+      "description": "시간대별 요청 분포와 최대 사용량."
+    },
+    "mcpServers": {
+      "title": "MCP 서버",
+      "description": "연결된 서버, 호출량, 상위 도구."
+    },
+    "skills": {
+      "title": "스킬",
+      "description": "사용 중인 스킬, 호출 횟수, 상위 스킬."
+    },
+    "integrations": {
+      "title": "연동",
+      "description": "연결된 연동 및 호출량."
+    },
+    "modelInfo": {
+      "title": "모델 정보",
+      "description": "활성 공급자, 모델 이름, 모델 ID."
+    },
+    "mascot": {
+      "title": "마스코트",
+      "description": "에이전트 활동에 반응하는 CraftBot 마스코트."
+    },
+    "livingUi": {
+      "title": "Living UI",
+      "description": "설치 및 실행 중인 Living UI."
+    },
+    "recentActivity": {
+      "title": "최근 활동",
+      "description": "모든 세션에 걸친 가장 최근 작업과 소요 시간, 토큰."
+    }
+  },
+  "widgets": {
+    "common": {
+      "noUsage": "아직 사용 내역이 없습니다",
+      "viewAllCount": "모두 보기 ({{count}})"
+    },
+    "periodSelector": {
+      "all": "전체"
+    },
+    "craftBotIntro": {
+      "welcomeTitle": "CraftBot에 오신 것을 환영합니다",
+      "welcomeSubtitle": "하나의 에이전트로, 모든 종류의 일을.",
+      "takeTour": "둘러보기",
+      "backAria": "환영 화면으로 돌아가기",
+      "clickMascot": "CraftBot을 클릭하세요!",
+      "goToSlide": "{{number}}번 슬라이드로 이동",
+      "cards": {
+        "cloud": {
+          "categoryLabel": "CraftBot Live",
+          "title": "CraftBot Live",
+          "subtitle": "언제나 온라인 상태인 나만의 CraftBot",
+          "desc": "언제나 온라인 상태인 나만의 CraftBot",
+          "item0": "SSH 불필요",
+          "item1": "Docker 불필요",
+          "item2": "자는 동안에도 작동",
+          "item3": "어떤 기기에서든 접속",
+          "cta": "무료로 시작"
+        },
+        "livingui": {
+          "categoryLabel": "Living UI",
+          "title": "자체 소프트웨어를 직접 만들고 운영하는 에이전트",
+          "subtitle": "앱을 요청하면 에이전트가 직접 설계하고, 코딩하고, 테스트하고, 자체 인터페이스 안에서 실행합니다.",
+          "desc": "앱을 요청하세요. 에이전트가 설계하고, 코딩하고, 테스트하고, 실행합니다.",
+          "item0": "칸반 보드",
+          "item1": "CRM",
+          "item2": "습관 추적기",
+          "item3": "커뮤니티 마켓플레이스",
+          "cta": "Living UI 마켓플레이스 둘러보기"
+        },
+        "bundles": {
+          "categoryLabel": "에이전트 번들",
+          "title": "40개 이상의 사전 제작 에이전트 페르소나",
+          "subtitle": "CEO, 재무, DevOps 에이전트를 한 번의 클릭으로 가져오세요. 120개의 준비된 플레이북이 일반적인 자동화를 다룹니다.",
+          "desc": "CEO, 재무, DevOps 등 40개 이상의 페르소나. 한 번의 클릭으로 가져오기.",
+          "item0": "CEO 에이전트",
+          "item1": "재무 에이전트",
+          "item2": "DevOps 엔지니어",
+          "item3": "플레이북 120개",
+          "item4": "원클릭 가져오기",
+          "cta": "에이전트 번들 받기"
+        },
+        "community": {
+          "categoryLabel": "오픈 소스",
+          "title": "하나의 에이전트로, 모든 종류의 일을.",
+          "subtitle": "MIT 라이선스로 자유롭게 셀프 호스팅할 수 있습니다. 활발한 개발과 매주 개선.",
+          "desc": "MIT 라이선스, 셀프 호스팅 가능, 오픈소스로 개발.",
+          "item0Label": "CraftOS-dev/CraftBot",
+          "item0Tag": "GitHub",
+          "item1Label": "CraftBot 커뮤니티에 참여하기",
+          "item1Tag": "Discord",
+          "item2Label": "커뮤니티가 만든 Living UI",
+          "item2Tag": "마켓",
+          "cta": "GitHub에서 별 누르기"
+        }
+      }
+    },
+    "integrations": {
+      "totalCalls": "총 호출 수",
+      "topIntegrations": "상위 연동"
+    },
+    "mcpServers": {
+      "calls": "호출",
+      "topTools": "상위 도구"
+    },
+    "skills": {
+      "invocations": "호출 수",
+      "topSkills": "상위 스킬"
+    },
+    "livingUi": {
+      "installed": "설치됨",
+      "running": "실행 중",
+      "projects": "프로젝트",
+      "empty": "설치된 Living UI가 없습니다"
+    },
+    "modelInfo": {
+      "provider": "공급자",
+      "model": "모델",
+      "modelId": "모델 ID",
+      "notConfigured": "구성되지 않음",
+      "notAvailable": "해당 없음"
+    },
+    "taskStats": {
+      "completed": "완료",
+      "failed": "실패",
+      "running": "실행 중",
+      "success": "성공",
+      "total": "총 {{total}}개"
+    },
+    "tokenUsage": {
+      "input": "입력",
+      "output": "출력",
+      "cached": "캐시됨",
+      "total": "총 {{total}}개"
+    },
+    "usagePatterns": {
+      "requests": "요청",
+      "peakHour": "최대 시간대",
+      "peakCount": "최대 횟수",
+      "barTooltip_one": "{{time}}: 요청 {{count}}건",
+      "barTooltip_other": "{{time}}: 요청 {{count}}건",
+      "chart": {
+        "lastHourTitle": "최근 1시간",
+        "lastHourDesc": "시간대별 요청",
+        "last24Title": "최근 24시간",
+        "last24Desc": "시간별 요청",
+        "last7Title": "최근 7일",
+        "last30Title": "최근 30일",
+        "allTimeTitle": "전체 기간",
+        "aggregatedDesc": "하루 시간대별 집계",
+        "defaultTitle": "시간대별 분포"
+      }
+    },
+    "systemResources": {
+      "cpu": "CPU",
+      "memory": "메모리",
+      "disk": "디스크",
+      "threadPool": "스레드 풀",
+      "upload": "업로드:",
+      "download": "다운로드:"
+    },
+    "recentActivity": {
+      "empty": "아직 활동이 없습니다",
+      "justNow": "방금 전",
+      "minutesAgo": "{{count}}분 전",
+      "hoursAgo": "{{count}}시간 전",
+      "daysAgo": "{{count}}일 전",
+      "tokens_one": "토큰 {{formattedCount}}개",
+      "tokens_other": "토큰 {{formattedCount}}개"
+    }
+  }
+}

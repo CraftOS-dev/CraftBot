@@ -1,0 +1,65 @@
+{
+  "progressText": "{{current}} dari {{total}}",
+  "steps": {
+    "welcome": {
+      "title": "Selamat datang di CraftBot",
+      "description": "Berikut tur singkat tentang hal-hal penting. Hanya butuh sekitar satu menit."
+    },
+    "chat-composer": {
+      "title": "Berbicara dengan CraftBot",
+      "description": "Ketik apa saja di sini: pertanyaan, tugas, lampirkan berkas, atau seluruh proyek. Berkomunikasilah dengan CraftBot seperti Anda berkomunikasi dengan manusia lewat pesan teks."
+    },
+    "main-session": {
+      "title": "Obrolan Utama Anda",
+      "description": "Utama adalah obrolan asal agen: tidak bisa dihapus atau diganti namanya, dan apa pun yang terjadi dengan sendirinya (seperti tugas terjadwal atau pembaruan dari aplikasi yang tersambung) akan muncul di sini."
+    },
+    "living-ui": {
+      "title": "Aplikasi Living UI",
+      "description": "Minta CraftBot membangun aplikasi sungguhan untuk Anda (pelacak, CRM, dasbor) dan aplikasi itu muncul di sini, sudah dibangun dan berjalan. Ada tiga cara untuk menambahkannya:"
+    },
+    "living-ui-marketplace": {
+      "title": "Pasar",
+      "description": "Instal aplikasi siap pakai dari pasar komunitas hanya dengan satu klik."
+    },
+    "living-ui-custom": {
+      "title": "Buat Kustom",
+      "description": "Jelaskan apa yang Anda inginkan dan agen akan membangunnya: konfigurasikan beberapa hal dasar, jawab wawancara singkat, lalu agen menulis spesifikasi dan membangun aplikasinya."
+    },
+    "living-ui-import": {
+      "title": "Impor",
+      "description": "Bawa masuk Living UI yang sudah ada dari ZIP, folder, atau URL git."
+    },
+    "dashboard": {
+      "title": "Dasbor CraftBot",
+      "description": "Ruang kendali langsung untuk CraftBot, melacak penggunaan, aktivitas, dan kesehatan sistem."
+    },
+    "memory": {
+      "title": "Memori CraftBot",
+      "description": "Semua yang dipelajari CraftBot tentang Anda dan pekerjaan Anda tersimpan di sini sebagai grafik memori, entitas, dan berkas yang dapat dijelajahi. Semakin sering Anda menggunakan CraftBot, semakin baik ia mengingat Anda."
+    },
+    "workspace": {
+      "title": "Ruang kerja CraftBot",
+      "description": "Sistem berkas khusus milik CraftBot. Jelajahi berkas yang dibaca dan ditulis agen Anda, serta unggah berkas Anda sendiri."
+    },
+    "settings": {
+      "title": "Pengaturan",
+      "description": "Konfigurasikan agen Anda di sini. Beberapa area yang perlu diketahui:"
+    },
+    "settings-proactive": {
+      "title": "Proaktif",
+      "description": "Biarkan agen Anda bekerja sendiri: menjalankan tugas terjadwal dan bereaksi terhadap peristiwa tanpa diminta."
+    },
+    "settings-skills": {
+      "title": "Keahlian",
+      "description": "Tambahkan kemampuan yang dapat digunakan kembali sehingga agen Anda tahu cara menjalankan tugas tertentu."
+    },
+    "settings-integrations": {
+      "title": "Integrasi",
+      "description": "Sambungkan aplikasi seperti Gmail, Calendar, dan Notion agar agen Anda dapat bekerja lintas aplikasi tersebut."
+    },
+    "done": {
+      "title": "Semua sudah siap",
+      "description": "Itulah akhir dari tur ini. Mulailah memberikan tugas kepada CraftBot untuk mengerjakannya untuk Anda."
+    }
+  }
+}

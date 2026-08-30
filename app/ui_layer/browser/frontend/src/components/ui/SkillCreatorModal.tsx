@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Loader2 } from 'lucide-react'
+import { useTranslation, Trans } from 'react-i18next'
 import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
 import styles from './SkillCreatorModal.module.css'
@@ -46,6 +47,7 @@ export function SkillCreatorModal({
   onClose,
   onSubmit,
 }: SkillCreatorModalProps) {
+  const { t } = useTranslation(['components', 'common'])
   const submitting = status === 'submitting'
   const isSuccess = status === 'success'
 
@@ -80,10 +82,10 @@ export function SkillCreatorModal({
     const trimmed = skillName.trim()
     if (!trimmed) return null
     if (!NAME_PATTERN.test(trimmed)) {
-      return 'Use lowercase letters, digits, and hyphens. Must start with a letter, 2–64 chars.'
+      return t('components:skillCreatorModal.nameInvalid')
     }
     if (reservedNames.has(trimmed)) {
-      return 'This name is reserved. Pick another.'
+      return t('components:skillCreatorModal.nameReserved')
     }
     return null
   }, [isCreateMode, skillName, reservedNames])
@@ -109,25 +111,27 @@ export function SkillCreatorModal({
   // dismisses the modal manually.
   if (isSuccess && successInfo) {
     const isCreate = successInfo.mode === 'create'
-    const verbing = isCreate ? 'Creating' : 'Improving'
     return (
-      <Modal isOpen={isOpen} onClose={onClose} title="Skill workflow started" size="sm">
+      <Modal isOpen={isOpen} onClose={onClose} title={t('components:skillCreatorModal.successTitle')} size="sm">
         <ModalBody className={styles.body}>
           <div className={styles.successIcon}>
             <Check size={28} />
           </div>
           <p className={styles.successHeadline}>
-            {verbing} <code>{successInfo.skillName}</code>…
+            <Trans
+              ns="components"
+              i18nKey={isCreate ? 'skillCreatorModal.successHeadlineCreate' : 'skillCreatorModal.successHeadlineImprove'}
+              values={{ name: successInfo.skillName }}
+              components={{ 1: <code /> }}
+            />
           </p>
           <p className={styles.intro}>
-            The agent is working on it now. You'll see progress in chat
-            and the new task will appear in the task panel. Feel free to
-            close this dialog.
+            {t('components:skillCreatorModal.successIntro')}
           </p>
         </ModalBody>
         <ModalFooter>
           <Button variant="primary" onClick={onClose}>
-            Close
+            {t('common:actions.close')}
           </Button>
         </ModalFooter>
       </Modal>
@@ -141,14 +145,13 @@ export function SkillCreatorModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Create skill from task"
+      title={t('components:skillCreatorModal.title')}
       size="sm"
       closeDisabled={submitting}
     >
       <ModalBody className={styles.body}>
         <p className={styles.intro}>
-          CraftBot will read this task's record and turn it into a reusable skill.
-          The new (or edited) skill will be invocable on future tasks.
+          {t('components:skillCreatorModal.intro')}
         </p>
 
         {showRadio && (
@@ -157,11 +160,11 @@ export function SkillCreatorModal({
               const key = choiceKey(c)
               const isSel = key === selectedKey
               const label = c.kind === 'create'
-                ? 'Create a new skill'
-                : `Improve "${c.skill}"`
+                ? t('components:skillCreatorModal.createLabel')
+                : t('components:skillCreatorModal.improveLabel', { skill: c.skill })
               const hint = c.kind === 'create'
-                ? 'Distil this task into a brand-new skill.'
-                : 'Refine the existing skill using this task as evidence.'
+                ? t('components:skillCreatorModal.createHint')
+                : t('components:skillCreatorModal.improveHint')
               return (
                 <label
                   key={key}
@@ -188,13 +191,13 @@ export function SkillCreatorModal({
         {isCreateMode && (
           <>
             <label className={styles.fieldLabel} htmlFor="skill-creator-name">
-              New skill name
+              {t('components:skillCreatorModal.nameLabel')}
             </label>
             <input
               id="skill-creator-name"
               type="text"
               className={`${styles.fieldInput} ${validationError ? styles.fieldInputError : ''}`}
-              placeholder="my-new-skill"
+              placeholder={t('components:skillCreatorModal.namePlaceholder')}
               value={skillName}
               onChange={e => setSkillName(e.target.value)}
               disabled={submitting}
@@ -207,7 +210,11 @@ export function SkillCreatorModal({
               <p className={styles.fieldError}>{validationError}</p>
             ) : (
               <p className={styles.fieldHint}>
-                Lowercase letters, digits, and hyphens. Example: <code>weekly-pr-summary</code>.
+                <Trans
+                  ns="components"
+                  i18nKey="skillCreatorModal.nameHint"
+                  components={{ 1: <code /> }}
+                />
               </p>
             )}
           </>
@@ -216,7 +223,7 @@ export function SkillCreatorModal({
         {submitting && (
           <p className={styles.submittingText}>
             <Loader2 size={14} className={styles.spinning} />
-            {' '}Submitting — waiting for the agent to acknowledge…
+            {' '}{t('components:skillCreatorModal.submitting')}
           </p>
         )}
 
@@ -226,7 +233,7 @@ export function SkillCreatorModal({
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" onClick={onClose} disabled={submitting}>
-          Cancel
+          {t('common:actions.cancel')}
         </Button>
         <Button
           variant="primary"
@@ -234,7 +241,7 @@ export function SkillCreatorModal({
           disabled={!canSubmit}
           loading={submitting}
         >
-          {isCreateMode ? 'Create' : 'Improve'}
+          {isCreateMode ? t('common:actions.create') : t('components:skillCreatorModal.improveButton')}
         </Button>
       </ModalFooter>
     </Modal>

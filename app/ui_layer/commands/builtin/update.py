@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import List
 
+from app.i18n import tui
 from app.ui_layer.commands.base import Command, CommandResult
 
 
@@ -47,13 +48,17 @@ dependencies, and restart CraftBot automatically."""
         """Execute the update command."""
         from app.updater import UPDATE_BRANCH, check_for_update
 
-        self.emit_message("Checking for updates...", "system", session_id=session_id)
+        self.emit_message(
+            tui("update_checking"), "system", session_id=session_id
+        )
 
         try:
             status = await check_for_update()
         except Exception as e:
             self.emit_message(
-                f"Failed to check for updates: {e}", "error", session_id=session_id
+                tui("update_check_failed", error=str(e)),
+                "error",
+                session_id=session_id,
             )
             return CommandResult(success=False, message=str(e))
 
@@ -62,14 +67,18 @@ dependencies, and restart CraftBot automatically."""
         if not status.available:
             if status.branch:
                 self.emit_message(
-                    f"On branch '{status.branch}' (v{current}). Updates only apply on "
-                    f"the {UPDATE_BRANCH} branch; switch to it to update.",
+                    tui(
+                        "update_off_branch",
+                        branch=status.branch,
+                        current=current,
+                        update_branch=UPDATE_BRANCH,
+                    ),
                     "system",
                     session_id=session_id,
                 )
             else:
                 self.emit_message(
-                    f"CraftBot is up to date (v{current}).",
+                    tui("update_up_to_date", current=current),
                     "system",
                     session_id=session_id,
                 )
@@ -78,7 +87,7 @@ dependencies, and restart CraftBot automatically."""
         # --check flag: report only, don't install
         if "--check" in args:
             self.emit_message(
-                f"Update available: v{current} → v{latest}",
+                tui("update_available", current=current, latest=latest),
                 "system",
                 session_id=session_id,
             )
@@ -89,7 +98,7 @@ dependencies, and restart CraftBot automatically."""
 
         # Perform the update in the background so the command returns immediately
         self.emit_message(
-            f"Update available: v{current} → v{latest}. Starting update...",
+            tui("update_available_starting", current=current, latest=latest),
             "system",
             session_id=session_id,
         )
@@ -106,4 +115,6 @@ dependencies, and restart CraftBot automatically."""
         try:
             await perform_update(progress_callback=progress)
         except Exception as e:
-            self.emit_message(f"Update failed: {e}", "error", session_id=session_id)
+            self.emit_message(
+                tui("update_failed", error=str(e)), "error", session_id=session_id
+            )

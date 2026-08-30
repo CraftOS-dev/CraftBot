@@ -1,0 +1,111 @@
+{
+  "items": {
+    "main": "Principal",
+    "newChat": "Nuevo chat",
+    "dashboard": "Panel",
+    "memory": "Memoria",
+    "workspace": "Espacio de trabajo",
+    "settings": "Ajustes"
+  },
+  "groups": {
+    "livingUi": "Living UI",
+    "chats": "Chats"
+  },
+  "sidebar": {
+    "expand": "Expandir barra lateral",
+    "collapse": "Contraer barra lateral",
+    "websiteLabel": "Sitio web de CraftBot",
+    "addLivingUi": "Añadir Living UI",
+    "newChat": "Nuevo chat",
+    "noLivingUiApps": "No hay apps de Living UI",
+    "showMoreCount": "Mostrar más ({{count}})"
+  },
+  "dots": {
+    "agentWorking": "El agente está trabajando",
+    "newMessages": "Mensajes nuevos"
+  },
+  "sessionMenu": {
+    "options": "Opciones",
+    "sessionOptions": "Opciones de la sesión",
+    "clearConversation": "Borrar conversación",
+    "createSkill": "Crear habilidad a partir de esta sesión"
+  },
+  "mainTooltip": {
+    "aria": "Acerca del chat Principal",
+    "title": "¿Por qué el Principal es diferente?",
+    "line1": "El Principal es el chat de origen del agente, por lo que no se puede eliminar ni renombrar.",
+    "line2": "Todo lo que ocurre por su cuenta, como las tareas programadas y las actualizaciones de las apps conectadas, llega aquí.",
+    "line3": "Todos los chats comparten una misma memoria: lo que el agente aprende sobre ti en cualquier chat lo recuerda en todas partes. Pero cada chat conserva su propia conversación, así que los mensajes de un chat no se ven desde otro."
+  },
+  "topBar": {
+    "playbooks": "Guías",
+    "switchToLightMode": "Cambiar al modo claro",
+    "switchToDarkMode": "Cambiar al modo oscuro"
+  },
+  "layout": {
+    "openMenu": "Abrir menú",
+    "closeMenu": "Cerrar menú"
+  },
+  "app": {
+    "wakingUp": "Activando CraftBot"
+  },
+  "connection": {
+    "disconnectedReconnecting": "Desconectado. Reconectando...",
+    "notConnectedRetry": "Sin conexión. Espera un momento y reinténtalo."
+  },
+  "agentStatus": {
+    "waiting": "El agente espera tu respuesta",
+    "running_one": "El agente está ejecutando {{names}}",
+    "running_other": "El agente está ejecutando {{names}}",
+    "thinking": "El agente está pensando",
+    "working": "El agente está trabajando",
+    "idle": "El agente está inactivo",
+    "ready": "Listo"
+  },
+  "workspace": {
+    "failedToNavigate": "Error al navegar",
+    "failedToRefresh": "Error al actualizar",
+    "failedToListFiles": "Error al listar los archivos",
+    "notConnected": "WebSocket no conectado",
+    "operationTimedOut": "Se agotó el tiempo de la operación",
+    "uploadFailedStatus": "Error al subir (HTTP {{status}})",
+    "networkErrorUpload": "Error de red durante la subida",
+    "uploadCancelled": "Subida cancelada"
+  },
+  "skillCreator": {
+    "errors": {
+      "invalidMode": "Modo de solicitud no válido.",
+      "missingSessionId": "No se ha seleccionado ninguna sesión de origen.",
+      "missingSkillName": "Introduce un nombre para la habilidad.",
+      "invalidSkillName": "El formato del nombre de la habilidad no es válido.",
+      "reservedSkillName": "Ese nombre está reservado.",
+      "sessionNotFound": "La sesión de origen ya no existe.",
+      "skillAlreadyExists": "Ya existe una habilidad con este nombre.",
+      "skillNotFound": "La habilidad de destino ya no existe.",
+      "workflowBusy": "Hay otro flujo de habilidades en curso. Inténtalo de nuevo en un momento.",
+      "workflowLockUnavailable": "El agente no está listo.",
+      "unknown": "Error desconocido."
+    }
+  },
+  "slices": {
+    "localLlm": {
+      "installationFailed": "Error de instalación",
+      "failedToStart": "Error al iniciar Ollama",
+      "modelDownloadFailed": "Error al descargar el modelo"
+    },
+    "livingUiSettings": {
+      "backupRestored": "Copia de seguridad restaurada. La app se ha vuelto a abrir.",
+      "restoreFailed": "Error al restaurar."
+    },
+    "modelSettings": {
+      "failedToPrepareSignIn": "Error al preparar el inicio de sesión",
+      "codeExchangeFailed": "Error al intercambiar el código"
+    },
+    "onboarding": {
+      "failedToGetStep": "Error al obtener el paso",
+      "failedToSubmit": "Error al enviar",
+      "cannotSkip": "No se puede omitir este paso",
+      "cannotGoBack": "No se puede retroceder"
+    }
+  }
+}

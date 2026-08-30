@@ -10,6 +10,7 @@ import type {
 } from '../types'
 import { QUESTION_DISMISSED } from '../types'
 import { scheduleRefreshIframe } from '../pages/LivingUI/iframePool'
+import i18n from '../i18n/config'
 import { getSocketClient } from '../store/socket/socketInstance'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
 import {
@@ -363,7 +364,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     const unsubClose = client.onClose(() => {
       setState(prev => ({ ...prev, connected: false }))
       // Connection-status surface lives in agentSlice now.
-      dispatch(setStatus({ message: 'Disconnected. Reconnecting...', loading: false }))
+      dispatch(setStatus({ message: i18n.t('nav:connection.disconnectedReconnecting'), loading: false }))
     })
     const unsubMsg = client.onAnyMessage((msg) => handleMessage(msg as WSMessage))
 
@@ -655,7 +656,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       dispatch(localLlmMarkInstalling())
       client.sendString(JSON.stringify({ type: 'local_llm_install' }))
     } else {
-      dispatch(localLlmMarkInstallFailed('Not connected — please wait a moment and retry.'))
+      dispatch(localLlmMarkInstallFailed(i18n.t('nav:connection.notConnectedRetry')))
     }
   }, [dispatch])
 

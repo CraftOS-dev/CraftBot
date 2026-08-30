@@ -40,16 +40,24 @@ if _os.path.isfile(_version_path):
     _datas_extra.append((_version_path, '.'))
 
 # Locale catalogs loaded at runtime by app.i18n via Path(__file__).parent —
-# globbed so dropping in a new errors.<lang>.json needs no spec edit. Fail
-# loudly if none are found: shipping without them degrades every provider
-# error message to its raw catalog key.
+# globbed so dropping in a new errors.<lang>.json / ui_messages.<lang>.json needs
+# no spec edit. Fail loudly if none are found: shipping without them degrades
+# every provider error message (errors.*) or browser-UI message (ui_messages.*)
+# to its raw catalog key.
 _i18n_catalogs = _glob.glob(_root('app', 'i18n', 'errors.*.json'))
 if not _i18n_catalogs:
     raise RuntimeError(
         "No app/i18n/errors.*.json catalogs found — the packaged agent would "
         "show raw error keys instead of messages."
     )
+_ui_message_catalogs = _glob.glob(_root('app', 'i18n', 'ui_messages.*.json'))
+if not _ui_message_catalogs:
+    raise RuntimeError(
+        "No app/i18n/ui_messages.*.json catalogs found — the packaged agent "
+        "would show raw UI-message keys instead of localized text."
+    )
 _datas_extra += [(_f, 'app/i18n') for _f in _i18n_catalogs]
+_datas_extra += [(_f, 'app/i18n') for _f in _ui_message_catalogs]
 
 datas = [
     *_datas_extra,

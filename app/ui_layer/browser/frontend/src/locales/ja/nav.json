@@ -1,0 +1,111 @@
+{
+  "items": {
+    "main": "メイン",
+    "newChat": "新規チャット",
+    "dashboard": "ダッシュボード",
+    "memory": "メモリー",
+    "workspace": "ワークスペース",
+    "settings": "設定"
+  },
+  "groups": {
+    "livingUi": "Living UI",
+    "chats": "チャット"
+  },
+  "sidebar": {
+    "expand": "サイドバーを展開",
+    "collapse": "サイドバーを折りたたむ",
+    "websiteLabel": "CraftBot ウェブサイト",
+    "addLivingUi": "Living UI を追加",
+    "newChat": "新規チャット",
+    "noLivingUiApps": "Living UI アプリがありません",
+    "showMoreCount": "もっと見る ({{count}})"
+  },
+  "dots": {
+    "agentWorking": "エージェントが作業中",
+    "newMessages": "新着メッセージ"
+  },
+  "sessionMenu": {
+    "options": "オプション",
+    "sessionOptions": "セッションのオプション",
+    "clearConversation": "会話をクリア",
+    "createSkill": "このセッションからスキルを作成"
+  },
+  "mainTooltip": {
+    "aria": "メインチャットについて",
+    "title": "メインはなぜ特別なの？",
+    "line1": "メインはエージェントのホームチャットのため、削除や名前の変更はできません。",
+    "line2": "スケジュールされたタスクや連携アプリからの更新など、自動的に発生することはすべてここに届きます。",
+    "line3": "すべてのチャットは1つのメモリーを共有します。エージェントがいずれかのチャットであなたについて学んだことは、どこでも記憶されます。ただし各チャットは独自の会話を保持するため、あるチャットのメッセージは別のチャットからは見えません。"
+  },
+  "topBar": {
+    "playbooks": "プレイブック",
+    "switchToLightMode": "ライトモードに切り替え",
+    "switchToDarkMode": "ダークモードに切り替え"
+  },
+  "layout": {
+    "openMenu": "メニューを開く",
+    "closeMenu": "メニューを閉じる"
+  },
+  "app": {
+    "wakingUp": "CraftBot を起動中"
+  },
+  "connection": {
+    "disconnectedReconnecting": "切断されました。再接続中...",
+    "notConnectedRetry": "接続されていません。少し待ってから再試行してください。"
+  },
+  "agentStatus": {
+    "waiting": "エージェントがあなたの返信を待っています",
+    "running_one": "エージェントが {{names}} を実行中",
+    "running_other": "エージェントが {{names}} を実行中",
+    "thinking": "エージェントが思考中",
+    "working": "エージェントが作業中",
+    "idle": "エージェントは待機中",
+    "ready": "準備完了"
+  },
+  "workspace": {
+    "failedToNavigate": "移動に失敗しました",
+    "failedToRefresh": "更新に失敗しました",
+    "failedToListFiles": "ファイル一覧の取得に失敗しました",
+    "notConnected": "WebSocket が接続されていません",
+    "operationTimedOut": "操作がタイムアウトしました",
+    "uploadFailedStatus": "アップロードに失敗しました (HTTP {{status}})",
+    "networkErrorUpload": "アップロード中にネットワークエラーが発生しました",
+    "uploadCancelled": "アップロードをキャンセルしました"
+  },
+  "skillCreator": {
+    "errors": {
+      "invalidMode": "リクエストモードが無効です。",
+      "missingSessionId": "ソースセッションが選択されていません。",
+      "missingSkillName": "スキル名を入力してください。",
+      "invalidSkillName": "スキル名の形式が無効です。",
+      "reservedSkillName": "その名前は予約されています。",
+      "sessionNotFound": "ソースセッションは既に存在しません。",
+      "skillAlreadyExists": "この名前のスキルは既に存在します。",
+      "skillNotFound": "対象のスキルは既に存在しません。",
+      "workflowBusy": "別のスキルワークフローが進行中です。少し待ってから再試行してください。",
+      "workflowLockUnavailable": "エージェントの準備ができていません。",
+      "unknown": "不明なエラー。"
+    }
+  },
+  "slices": {
+    "localLlm": {
+      "installationFailed": "インストールに失敗しました",
+      "failedToStart": "Ollama の起動に失敗しました",
+      "modelDownloadFailed": "モデルのダウンロードに失敗しました"
+    },
+    "livingUiSettings": {
+      "backupRestored": "バックアップを復元しました。アプリを再起動しました。",
+      "restoreFailed": "復元に失敗しました。"
+    },
+    "modelSettings": {
+      "failedToPrepareSignIn": "サインインの準備に失敗しました",
+      "codeExchangeFailed": "コードの交換に失敗しました"
+    },
+    "onboarding": {
+      "failedToGetStep": "ステップの取得に失敗しました",
+      "failedToSubmit": "送信に失敗しました",
+      "cannotSkip": "このステップはスキップできません",
+      "cannotGoBack": "前に戻ることはできません"
+    }
+  }
+}

@@ -1,8 +1,11 @@
+import { useTranslation } from 'react-i18next'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { formatNumber } from '../../../i18n/format'
 import { TimePeriodSelector, formatHour, getChartLabels, useMetricsPeriod } from './shared'
 import styles from './widgets.module.css'
 
 export function UsagePatternsWidget() {
+  const { t } = useTranslation(['dashboard'])
   const { dashboardMetrics } = useWebSocket()
   const { period, onChange, filteredData } = useMetricsPeriod()
 
@@ -17,16 +20,16 @@ export function UsagePatternsWidget() {
       <TimePeriodSelector selected={period} onChange={onChange} />
       <div className={styles.usageStats}>
         <div className={styles.usageStat}>
-          <span className={styles.usageLabel}>Requests</span>
-          <span className={styles.usageValue}>{usageRequestCount}</span>
+          <span className={styles.usageLabel}>{t('dashboard:widgets.usagePatterns.requests')}</span>
+          <span className={styles.usageValue}>{formatNumber(usageRequestCount)}</span>
         </div>
         <div className={styles.usageStat}>
-          <span className={styles.usageLabel}>Peak Hour</span>
+          <span className={styles.usageLabel}>{t('dashboard:widgets.usagePatterns.peakHour')}</span>
           <span className={styles.usageValue}>{formatHour(peakHour)}</span>
         </div>
         <div className={styles.usageStat}>
-          <span className={styles.usageLabel}>Peak Count</span>
-          <span className={styles.usageValue}>{Math.max(...hourlyDistribution)}</span>
+          <span className={styles.usageLabel}>{t('dashboard:widgets.usagePatterns.peakCount')}</span>
+          <span className={styles.usageValue}>{formatNumber(Math.max(...hourlyDistribution))}</span>
         </div>
       </div>
       <div className={styles.hourlyChart}>
@@ -36,7 +39,7 @@ export function UsagePatternsWidget() {
         </div>
         <div className={styles.chartBars}>
           {hourlyDistribution.map((count, hour) => (
-            <div key={hour} className={styles.chartBarWrapper} title={`${formatHour(hour)}: ${count} requests`}>
+            <div key={hour} className={styles.chartBarWrapper} title={t('dashboard:widgets.usagePatterns.barTooltip', { time: formatHour(hour), count })}>
               <div
                 className={`${styles.chartBar} ${period === '1d' && hour === new Date().getHours() ? styles.currentHour : ''}`}
                 style={{ height: `${(count / maxHourlyRequests) * 100}%` }}
@@ -45,10 +48,10 @@ export function UsagePatternsWidget() {
           ))}
         </div>
         <div className={styles.chartTimeLabels}>
-          <span>12AM</span>
-          <span>6AM</span>
-          <span>12PM</span>
-          <span>6PM</span>
+          <span>{formatHour(0)}</span>
+          <span>{formatHour(6)}</span>
+          <span>{formatHour(12)}</span>
+          <span>{formatHour(18)}</span>
         </div>
       </div>
     </>

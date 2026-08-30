@@ -1,4 +1,5 @@
 import { ChevronRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { StatusIndicator } from '../ui'
 import type { ActionItem } from '../../types'
 import { normalizeActionName, extractTodos } from './actionNames'
@@ -56,6 +57,7 @@ export function ChunkHeaderRow({
   elapsedMs?: number
   onToggle: () => void
 }) {
+  const { t } = useTranslation(['activity', 'common'])
   const chevron = (
     <ChevronRight
       size={13}
@@ -68,7 +70,7 @@ export function ChunkHeaderRow({
       className={styles.chunkHeader}
       onClick={onToggle}
       aria-expanded={expanded}
-      title={expanded ? 'Hide steps' : 'Show steps'}
+      title={expanded ? t('activity:chunk.hideSteps') : t('activity:chunk.showSteps')}
     >
       <span className={styles.actionRowStatus}>
         {working
@@ -78,7 +80,7 @@ export function ChunkHeaderRow({
       {working ? (
         <>
           <span className={styles.workingLabel}>
-            Working
+            {t('activity:chunk.working')}
             <span className={styles.workingDot}>.</span>
             <span className={styles.workingDot}>.</span>
             <span className={styles.workingDot}>.</span>
@@ -91,7 +93,7 @@ export function ChunkHeaderRow({
       ) : (
         <>
           <span className={styles.chunkLabel}>
-            {count} action{count === 1 ? '' : 's'} executed
+            {t('activity:chunk.actionsExecuted', { count })}
           </span>
           {chevron}
         </>
@@ -101,6 +103,7 @@ export function ChunkHeaderRow({
 }
 
 export function ReasoningBlock({ item }: { item: ActionItem }) {
+  const { t } = useTranslation(['activity', 'common'])
   return (
     <div id={`transcript-item-${item.id}`} className={styles.transcriptItem}>
       <div className={styles.gutter}>
@@ -111,7 +114,7 @@ export function ReasoningBlock({ item }: { item: ActionItem }) {
       <div className={styles.reasoningContent}>
         {item.output
           ? item.output
-          : <span className={styles.reasoningPlaceholder}>Thinking…</span>}
+          : <span className={styles.reasoningPlaceholder}>{t('activity:reasoning.thinking')}</span>}
       </div>
     </div>
   )

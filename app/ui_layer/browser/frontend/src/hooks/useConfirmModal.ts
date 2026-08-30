@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import i18n from '../i18n/config'
 
 export interface ConfirmModalState {
   isOpen: boolean
@@ -14,8 +15,8 @@ const initialState: ConfirmModalState = {
   isOpen: false,
   title: '',
   message: '',
-  confirmText: 'Confirm',
-  cancelText: 'Cancel',
+  confirmText: i18n.t('common:actions.confirm'),
+  cancelText: i18n.t('common:actions.cancel'),
   variant: 'default',
   onConfirm: () => {},
 }
@@ -36,8 +37,8 @@ export function useConfirmModal() {
       isOpen: true,
       title: options.title,
       message: options.message,
-      confirmText: options.confirmText || 'Confirm',
-      cancelText: options.cancelText || 'Cancel',
+      confirmText: options.confirmText || i18n.t('common:actions.confirm'),
+      cancelText: options.cancelText || i18n.t('common:actions.cancel'),
       variant: options.variant || 'default',
       onConfirm,
     })

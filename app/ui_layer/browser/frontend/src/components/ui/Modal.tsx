@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom'
 import { X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import styles from './Modal.module.css'
 
 export type ModalSize = 'sm' | 'md' | 'lg' | 'full' | 'auto'
@@ -30,6 +31,7 @@ export function Modal({
   closeDisabled = false,
   contentClassName,
 }: ModalProps) {
+  const { t } = useTranslation('common')
   useEffect(() => {
     if (!isOpen || !closeOnEsc || closeDisabled) return
     const handler = (e: KeyboardEvent) => {
@@ -65,7 +67,7 @@ export function Modal({
                 className={styles.close}
                 onClick={onClose}
                 disabled={closeDisabled}
-                aria-label="Close"
+                aria-label={t('actions.close')}
               >
                 <X size={16} />
               </button>

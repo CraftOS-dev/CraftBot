@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Menu, X } from 'lucide-react'
 import { NavBar } from './NavBar'
 import { useFullscreen } from '../../contexts/FullscreenContext'
@@ -26,6 +27,7 @@ function readCollapsedFromStorage(): boolean {
 }
 
 export function Layout({ children }: LayoutProps) {
+  const { t } = useTranslation(['nav', 'common'])
   const { isFullscreen } = useFullscreen()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -77,7 +79,7 @@ export function Layout({ children }: LayoutProps) {
             type="button"
             className={styles.menuButton}
             onClick={() => setMobileOpen(v => !v)}
-            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+            aria-label={mobileOpen ? t('nav:layout.closeMenu') : t('nav:layout.openMenu')}
             aria-expanded={mobileOpen}
           >
             {mobileOpen ? <X size={16} /> : <Menu size={16} />}

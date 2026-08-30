@@ -542,6 +542,30 @@ def get_os_language() -> str:
     return settings.get("general", {}).get("os_language", "en")
 
 
+def get_ui_language() -> str:
+    """Get the browser UI language from settings.
+
+    This governs the language of the CraftBot web interface chrome and is
+    chosen by the user in Settings. It is intentionally distinct from
+    ``os_language`` (which governs the language the agent converses in). Before
+    the user has picked one, the initial value is derived from ``os_language``;
+    the frontend normalizes the raw code to the nearest supported UI language.
+
+    Returns:
+        Language code (e.g. "en", "ja", "zh-CN") for the interface.
+    """
+    settings = get_settings()
+    general = settings.get("general", {})
+    return general.get("ui_language") or general.get("os_language", "en")
+
+
+def set_ui_language(lang_code: str) -> None:
+    """Persist the browser UI language to settings.json ``general.ui_language``."""
+    settings = get_settings()
+    settings.setdefault("general", {})["ui_language"] = lang_code
+    save_settings(settings)
+
+
 def detect_and_save_os_language() -> str:
     """Detect OS language and save to settings. Called on first launch only.
 

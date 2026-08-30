@@ -1,0 +1,65 @@
+{
+  "progressText": "{{total}} 中的第 {{current}}",
+  "steps": {
+    "welcome": {
+      "title": "欢迎使用 CraftBot",
+      "description": "这里是核心功能的快速导览，大约需要一分钟。"
+    },
+    "chat-composer": {
+      "title": "与 CraftBot 对话",
+      "description": "在这里输入任何内容：一个问题、一项任务，附加文件，或是一整个项目。像发短信给真人一样与 CraftBot 交流。"
+    },
+    "main-session": {
+      "title": "你的主对话",
+      "description": "主对话是智能体的主场对话：它无法被删除或重命名，任何自动发生的事情（例如计划任务或已连接应用的更新）都会汇集到这里。"
+    },
+    "living-ui": {
+      "title": "Living UI 应用",
+      "description": "让 CraftBot 为你构建一个真正的应用（追踪器、CRM、仪表盘），它就会构建并运行在此处。有三种添加方式："
+    },
+    "living-ui-marketplace": {
+      "title": "市场",
+      "description": "一键从社区市场安装现成的应用。"
+    },
+    "living-ui-custom": {
+      "title": "自定义创建",
+      "description": "描述你想要的内容，智能体便会构建它：配置几项基础设置，回答一个简短的访谈，然后它会编写规格并构建应用。"
+    },
+    "living-ui-import": {
+      "title": "导入",
+      "description": "从 ZIP、文件夹或 git URL 引入现有的 Living UI。"
+    },
+    "dashboard": {
+      "title": "CraftBot 仪表盘",
+      "description": "CraftBot 的实时控制中心，跟踪用量、活动和系统健康状况。"
+    },
+    "memory": {
+      "title": "CraftBot 记忆",
+      "description": "CraftBot 了解到的关于你和你工作的一切，都以可浏览的记忆、实体和文件图谱形式存于此处。你使用 CraftBot 越多，它就越了解你。"
+    },
+    "workspace": {
+      "title": "CraftBot 工作区",
+      "description": "CraftBot 的专属文件系统。浏览你的智能体读取和写入的文件，也可上传你自己的文件。"
+    },
+    "settings": {
+      "title": "设置",
+      "description": "在这里配置你的智能体。有几个值得了解的方面："
+    },
+    "settings-proactive": {
+      "title": "主动",
+      "description": "让你的智能体自主工作：运行计划任务并在无需请求的情况下响应事件。"
+    },
+    "settings-skills": {
+      "title": "技能",
+      "description": "添加可复用的能力，让你的智能体知道如何执行特定任务。"
+    },
+    "settings-integrations": {
+      "title": "集成",
+      "description": "连接 Gmail、日历和 Notion 等应用，让你的智能体能够跨应用工作。"
+    },
+    "done": {
+      "title": "一切就绪",
+      "description": "本次导览到此结束。开始向 CraftBot 派发任务，让它为你工作吧。"
+    }
+  }
+}

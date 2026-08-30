@@ -1,9 +1,11 @@
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
 import { formatBytes } from './shared'
 import styles from './widgets.module.css'
 
 export function SystemResourcesWidget() {
+  const { t } = useTranslation(['dashboard'])
   const { dashboardMetrics } = useWebSocket()
 
   const cpuPercent = dashboardMetrics?.system.cpuPercent ?? 0
@@ -25,7 +27,7 @@ export function SystemResourcesWidget() {
       <div className={styles.resourceGrid}>
         <div className={styles.resourceItem}>
           <div className={styles.resourceHeader}>
-            <span>CPU</span>
+            <span>{t('dashboard:widgets.systemResources.cpu')}</span>
             <span className={cpuPercent > 80 ? styles.warning : ''}>{cpuPercent.toFixed(0)}%</span>
           </div>
           <div className={styles.resourceBar}>
@@ -37,7 +39,7 @@ export function SystemResourcesWidget() {
         </div>
         <div className={styles.resourceItem}>
           <div className={styles.resourceHeader}>
-            <span>Memory</span>
+            <span>{t('dashboard:widgets.systemResources.memory')}</span>
             <span className={memoryPercent > 80 ? styles.warning : ''}>
               {formatBytes(memoryUsed)} / {formatBytes(memoryTotal)}
             </span>
@@ -51,7 +53,7 @@ export function SystemResourcesWidget() {
         </div>
         <div className={styles.resourceItem}>
           <div className={styles.resourceHeader}>
-            <span>Disk</span>
+            <span>{t('dashboard:widgets.systemResources.disk')}</span>
             <span className={diskPercent > 80 ? styles.warning : ''}>
               {diskUsed.toFixed(1)} GB / {diskTotal.toFixed(1)} GB
             </span>
@@ -65,7 +67,7 @@ export function SystemResourcesWidget() {
         </div>
         <div className={styles.resourceItem}>
           <div className={styles.resourceHeader}>
-            <span>Thread Pool</span>
+            <span>{t('dashboard:widgets.systemResources.threadPool')}</span>
             <span className={threadPoolUtil > 80 ? styles.warning : ''}>
               {threadPoolActive} / {threadPoolMax} ({threadPoolUtil.toFixed(0)}%)
             </span>
@@ -81,12 +83,12 @@ export function SystemResourcesWidget() {
       <div className={styles.networkRow}>
         <div className={styles.networkStat}>
           <ArrowUpRight size={14} className={styles.uploadIcon} />
-          <span className={styles.networkLabel}>Upload:</span>
+          <span className={styles.networkLabel}>{t('dashboard:widgets.systemResources.upload')}</span>
           <span className={styles.networkValue}>{networkSentRate.toFixed(1)} KB/s</span>
         </div>
         <div className={styles.networkStat}>
           <ArrowDownRight size={14} className={styles.downloadIcon} />
-          <span className={styles.networkLabel}>Download:</span>
+          <span className={styles.networkLabel}>{t('dashboard:widgets.systemResources.download')}</span>
           <span className={styles.networkValue}>{networkRecvRate.toFixed(1)} KB/s</span>
         </div>
       </div>

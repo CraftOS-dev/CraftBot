@@ -10,6 +10,7 @@ import type {
   FileUploadResponse,
 } from '../../types'
 import { register } from '../socket/messageRegistry'
+import i18n from '../../i18n/config'
 
 export const FILE_PAGE_SIZE = 50
 
@@ -101,7 +102,7 @@ const workspaceSlice = createSlice({
       state.total = d.total ?? 0
       state.hasMore = d.hasMore ?? false
       state.offset = (d.offset ?? 0) + incoming.length
-      state.error = d.success ? null : d.error || 'Failed to list files'
+      state.error = d.success ? null : d.error || i18n.t('nav:workspace.failedToListFiles')
       state.loading = false
       state.loadingMore = false
     },

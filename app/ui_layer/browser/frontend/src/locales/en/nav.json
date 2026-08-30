@@ -1,0 +1,111 @@
+{
+  "items": {
+    "main": "Main",
+    "newChat": "New Chat",
+    "dashboard": "Dashboard",
+    "memory": "Memory",
+    "workspace": "Workspace",
+    "settings": "Settings"
+  },
+  "groups": {
+    "livingUi": "Living UI",
+    "chats": "Chats"
+  },
+  "sidebar": {
+    "expand": "Expand sidebar",
+    "collapse": "Collapse sidebar",
+    "websiteLabel": "CraftBot website",
+    "addLivingUi": "Add Living UI",
+    "newChat": "New chat",
+    "noLivingUiApps": "No Living UI apps",
+    "showMoreCount": "Show more ({{count}})"
+  },
+  "dots": {
+    "agentWorking": "Agent working",
+    "newMessages": "New messages"
+  },
+  "sessionMenu": {
+    "options": "Options",
+    "sessionOptions": "Session options",
+    "clearConversation": "Clear conversation",
+    "createSkill": "Create skill from this session"
+  },
+  "mainTooltip": {
+    "aria": "About the Main chat",
+    "title": "Why is Main different?",
+    "line1": "Main is the agent's home chat, so it can't be deleted or renamed.",
+    "line2": "Anything that happens on its own, like scheduled tasks and updates from connected apps, arrives here.",
+    "line3": "All chats share one memory: what the agent learns about you in any chat, it remembers everywhere. But each chat keeps its own conversation, so messages in one chat aren't visible from another."
+  },
+  "topBar": {
+    "playbooks": "Playbooks",
+    "switchToLightMode": "Switch to light mode",
+    "switchToDarkMode": "Switch to dark mode"
+  },
+  "layout": {
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu"
+  },
+  "app": {
+    "wakingUp": "Waking up CraftBot"
+  },
+  "connection": {
+    "disconnectedReconnecting": "Disconnected. Reconnecting...",
+    "notConnectedRetry": "Not connected. Please wait a moment and retry."
+  },
+  "agentStatus": {
+    "waiting": "Agent is waiting for your reply",
+    "running_one": "Agent is running {{names}}",
+    "running_other": "Agent is running {{names}}",
+    "thinking": "Agent is thinking",
+    "working": "Agent is working",
+    "idle": "Agent is idle",
+    "ready": "Ready"
+  },
+  "workspace": {
+    "failedToNavigate": "Failed to navigate",
+    "failedToRefresh": "Failed to refresh",
+    "failedToListFiles": "Failed to list files",
+    "notConnected": "WebSocket not connected",
+    "operationTimedOut": "Operation timed out",
+    "uploadFailedStatus": "Upload failed (HTTP {{status}})",
+    "networkErrorUpload": "Network error during upload",
+    "uploadCancelled": "Upload cancelled"
+  },
+  "skillCreator": {
+    "errors": {
+      "invalidMode": "Invalid request mode.",
+      "missingSessionId": "No source session selected.",
+      "missingSkillName": "Enter a skill name.",
+      "invalidSkillName": "Skill name format is invalid.",
+      "reservedSkillName": "That name is reserved.",
+      "sessionNotFound": "Source session no longer exists.",
+      "skillAlreadyExists": "A skill with this name already exists.",
+      "skillNotFound": "The target skill no longer exists.",
+      "workflowBusy": "Another skill workflow is in progress. Try again in a moment.",
+      "workflowLockUnavailable": "Agent is not ready.",
+      "unknown": "Unknown error."
+    }
+  },
+  "slices": {
+    "localLlm": {
+      "installationFailed": "Installation failed",
+      "failedToStart": "Failed to start Ollama",
+      "modelDownloadFailed": "Model download failed"
+    },
+    "livingUiSettings": {
+      "backupRestored": "Backup restored. The app was relaunched.",
+      "restoreFailed": "Restore failed."
+    },
+    "modelSettings": {
+      "failedToPrepareSignIn": "Failed to prepare sign-in",
+      "codeExchangeFailed": "Code exchange failed"
+    },
+    "onboarding": {
+      "failedToGetStep": "Failed to get step",
+      "failedToSubmit": "Failed to submit",
+      "cannotSkip": "Cannot skip this step",
+      "cannotGoBack": "Cannot go back"
+    }
+  }
+}

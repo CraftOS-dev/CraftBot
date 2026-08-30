@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import type { ActionItem, AgentState, AgentStatus, ChatMessage } from '../types'
 import { normalizeActionName } from '../components/activity/actionNames'
+import i18n from '../i18n/config'
+import { formatList } from '../i18n/format'
 
 interface DerivedStatusOptions {
   /** Activity items (actions + reasoning) to derive status from — a single
@@ -28,7 +30,7 @@ function deriveAgentStatus(
   if (!connected) {
     return {
       state: 'error' as AgentState,
-      message: 'Disconnected',
+      message: i18n.t('common:status.disconnected'),
       loading: false,
     }
   }
@@ -38,7 +40,7 @@ function deriveAgentStatus(
   if (waiting) {
     return {
       state: 'waiting' as AgentState,
-      message: 'Agent is waiting for your reply',
+      message: i18n.t('nav:agentStatus.waiting'),
       loading: false,
     }
   }
@@ -54,9 +56,10 @@ function deriveAgentStatus(
   )
   if (running.length > 0) {
     const names = running.map(a => a.name)
-    const message = names.length === 1
-      ? `Agent is running ${names[0]}`
-      : `Agent is running ${names.join(', ')}`
+    const message = i18n.t('nav:agentStatus.running', {
+      count: names.length,
+      names: formatList(names),
+    })
     return {
       state: 'working' as AgentState,
       message,
@@ -67,7 +70,7 @@ function deriveAgentStatus(
     // A reasoning block is streaming — the agent is thinking.
     return {
       state: 'thinking' as AgentState,
-      message: 'Agent is thinking',
+      message: i18n.t('nav:agentStatus.thinking'),
       loading: true,
     }
   }
@@ -88,7 +91,7 @@ function deriveAgentStatus(
       if (!agentActedSince) {
         return {
           state: 'working' as AgentState,
-          message: 'Agent is working',
+          message: i18n.t('nav:agentStatus.working'),
           loading: true,
         }
       }
@@ -98,7 +101,7 @@ function deriveAgentStatus(
   // Default: Idle state
   return {
     state: 'idle' as AgentState,
-    message: 'Agent is idle',
+    message: i18n.t('nav:agentStatus.idle'),
     loading: false,
   }
 }

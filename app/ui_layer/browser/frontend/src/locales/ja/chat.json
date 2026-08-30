@@ -1,0 +1,82 @@
+{
+  "dateDivider": {
+    "today": "今日",
+    "yesterday": "昨日"
+  },
+  "unread": {
+    "aria": "新着メッセージ",
+    "label": "新着"
+  },
+  "history": {
+    "loadingOlder": "以前のメッセージを読み込み中..."
+  },
+  "working": {
+    "label": "作業中",
+    "aria": "エージェントが作業中"
+  },
+  "composer": {
+    "placeholder": "何かお手伝いできることはありますか？",
+    "listening": "聞き取り中... 今お話しください",
+    "attachAndTools": "添付とツール",
+    "attachFiles": "ファイルを添付",
+    "aiEnhance": "AI で改善",
+    "enhancing": "改善中…",
+    "voiceInput": "音声入力",
+    "stopListening": "聞き取りを停止",
+    "speechLanguage": "音声認識の言語",
+    "send": "送信",
+    "sendMessage": "メッセージを送信",
+    "stop": "停止",
+    "stopping": "停止中…",
+    "stopRun": "実行を停止",
+    "stoppingRun": "実行を停止中"
+  },
+  "reply": {
+    "replyingTo": "返信先: <1>{{name}}</1>",
+    "cancel": "返信をキャンセル"
+  },
+  "scrollToLatest": "最新のメッセージにスクロール",
+  "dismiss": "閉じる",
+  "playbooks": {
+    "all": "すべてのプレイブック"
+  },
+  "attachment": {
+    "preview": "クリックしてプレビュー",
+    "tooManyFiles": "ファイルは最大 {{max}} 件までです。",
+    "tooManyFilesDetailed": "ファイルは最大 {{max}} 件までです。現在 {{have}} 件あります。",
+    "totalSizeExceeds": "合計サイズ ({{size}}) が 200 MB の上限を超えています。",
+    "fileExceedsLimit": "ファイル「{{name}}」({{size}}) が 200 MB の上限を超えています。",
+    "addWouldExceed": "「{{name}}」を追加すると合計サイズが 200 MB の上限を超えます。",
+    "uploadFailed": "「{{name}}」のアップロードに失敗しました。",
+    "uploadFailedNetwork": "「{{name}}」のアップロードに失敗しました: ネットワークエラー。",
+    "readFailed": "ファイル「{{name}}」の読み込みに失敗しました。"
+  },
+  "toast": {
+    "enhanceTimedOut": "AI による改善がタイムアウトしました。もう一度お試しください。",
+    "reconnecting": "再接続中です。接続が回復すると、メッセージが送信されます。"
+  },
+  "voice": {
+    "notSupported": "このブラウザは音声認識に対応していません。",
+    "micDenied": "マイクへのアクセスが拒否されました。ブラウザの設定でマイクの使用を許可してください。"
+  },
+  "question": {
+    "aria": "エージェントからの質問",
+    "asking": "{{sender}} が質問しています",
+    "queuePosition": "{{total}} 件中 1 件目",
+    "dismissHint": "閉じる。エージェントは回答なしで続行します。",
+    "dismissAria": "質問を閉じる",
+    "recommended": "(推奨)",
+    "freeTextPlaceholder": "または自分の回答を入力...",
+    "sendAnswer": "回答を送信"
+  },
+  "message": {
+    "hideReceived": "受信メッセージを非表示",
+    "showReceived": "受信メッセージを表示",
+    "hideMessage": "メッセージを非表示",
+    "showMessage": "メッセージを表示",
+    "selectResponse": "続行するには回答を選択してください:",
+    "replyTooltip": "このメッセージに返信",
+    "copyTooltip": "メッセージをコピー",
+    "copiedTooltip": "コピーしました！"
+  }
+}

@@ -8,8 +8,11 @@ import {
   RotateCcw,
   X,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useConfirmModal } from '../../hooks'
+import i18n from '../../i18n/config'
+import { formatNumber, formatDate, formatTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -26,72 +29,67 @@ import {
   selectProactiveHasLoadedTasks,
 } from '../../store/selectors/proactiveSettings'
 
-// Convert cron expression to human-readable format
+// Convert cron expression to human-readable format. Uses the i18n instance
+// directly (module scope, no hook available); components re-render on language
+// change so the localized string refreshes.
 function formatCronExpression(cron: string): string {
   const parts = cron.split(' ')
   if (parts.length !== 5) return cron
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts
 
-  const formatTime = (h: string, m: string): string => {
-    const hourNum = parseInt(h, 10)
-    const minNum = parseInt(m, 10)
-    const period = hourNum >= 12 ? 'PM' : 'AM'
-    const displayHour = hourNum === 0 ? 12 : hourNum > 12 ? hourNum - 12 : hourNum
-    const displayMin = minNum.toString().padStart(2, '0')
-    return `${displayHour}:${displayMin} ${period}`
+  const clock = (h: string, m: string): string => {
+    const d = new Date()
+    d.setHours(parseInt(h, 10) || 0, parseInt(m, 10) || 0, 0, 0)
+    return formatTime(d)
   }
 
-  const getDaySuffix = (day: number): string => {
-    if (day >= 11 && day <= 13) return 'th'
-    switch (day % 10) {
-      case 1: return 'st'
-      case 2: return 'nd'
-      case 3: return 'rd'
-      default: return 'th'
+  const dayName = (dow: string): string => {
+    const map: Record<string, string> = {
+      '0': i18n.t('settings:proactive.cron.days.sun'),
+      '7': i18n.t('settings:proactive.cron.days.sun'),
+      '1': i18n.t('settings:proactive.cron.days.mon'),
+      '2': i18n.t('settings:proactive.cron.days.tue'),
+      '3': i18n.t('settings:proactive.cron.days.wed'),
+      '4': i18n.t('settings:proactive.cron.days.thu'),
+      '5': i18n.t('settings:proactive.cron.days.fri'),
+      '6': i18n.t('settings:proactive.cron.days.sat'),
     }
-  }
-
-  const dayNames: Record<string, string> = {
-    '0': 'Sunday', '7': 'Sunday',
-    '1': 'Monday', '2': 'Tuesday', '3': 'Wednesday',
-    '4': 'Thursday', '5': 'Friday', '6': 'Saturday'
+    return map[dow] || dow
   }
 
   if (hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
     const minNum = parseInt(minute, 10)
-    if (minNum === 0) return 'Twice every hour'
-    return `Every hour at :${minute.padStart(2, '0')}`
+    if (minNum === 0) return i18n.t('settings:proactive.cron.twiceHourly')
+    return i18n.t('settings:proactive.cron.hourly', { minute: minute.padStart(2, '0') })
   }
 
   if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return `Daily at ${formatTime(hour, minute)}`
+    return i18n.t('settings:proactive.cron.daily', { time: clock(hour, minute) })
   }
 
   if (dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
-    const dayName = dayNames[dayOfWeek] || dayOfWeek
-    return `Weekly on ${dayName} at ${formatTime(hour, minute)}`
+    return i18n.t('settings:proactive.cron.weekly', { day: dayName(dayOfWeek), time: clock(hour, minute) })
   }
 
   if (dayOfMonth !== '*' && month === '*' && dayOfWeek === '*') {
-    const dayNum = parseInt(dayOfMonth, 10)
-    return `Monthly on the ${dayNum}${getDaySuffix(dayNum)} at ${formatTime(hour, minute)}`
+    return i18n.t('settings:proactive.cron.monthly', { day: dayOfMonth, time: clock(hour, minute) })
   }
 
-  return `Cron: ${cron}`
+  return i18n.t('settings:proactive.cron.raw', { cron })
 }
 
 // Types come from the slice now.
 
 // Helper functions for task display
 function getPriorityLabel(value: number): string {
-  if (value <= 35) return 'High'
-  if (value <= 55) return 'Medium'
-  return 'Low'
+  if (value <= 35) return i18n.t('settings:proactive.priority.high')
+  if (value <= 55) return i18n.t('settings:proactive.priority.medium')
+  return i18n.t('settings:proactive.priority.low')
 }
 
 function getNotificationLabel(tier: number): string {
-  return tier >= 1 ? 'Notifies' : 'Silent'
+  return tier >= 1 ? i18n.t('settings:proactive.notify.notifies') : i18n.t('settings:proactive.notify.silent')
 }
 
 // Priority level mappings
@@ -116,6 +114,7 @@ interface TaskFormModalProps {
 }
 
 function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
+  const { t } = useTranslation(['settings', 'common'])
   const [name, setName] = useState(task?.name || '')
   const [frequency, setFrequency] = useState(task?.frequency || 'daily')
   const [instruction, setInstruction] = useState(task?.instruction || '')
@@ -147,7 +146,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h3>{task ? 'Edit Task' : 'Add Proactive Task'}</h3>
+          <h3>{task ? t('settings:proactive.taskForm.editTitle') : t('settings:proactive.taskForm.addTitle')}</h3>
           <button className={styles.modalClose} onClick={onClose}>
             <X size={18} />
           </button>
@@ -155,33 +154,33 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
         <form onSubmit={handleSubmit}>
           <div className={styles.modalBody}>
             <div className={styles.formGroup}>
-              <label>Task Name</label>
+              <label>{t('settings:proactive.taskForm.name')}</label>
               <input
                 type="text"
                 value={name}
                 onChange={e => setName(e.target.value)}
-                placeholder="e.g., Check emails"
+                placeholder={t('settings:proactive.taskForm.namePlaceholder')}
                 required
               />
             </div>
 
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
-                <label>Frequency</label>
+                <label>{t('settings:proactive.taskForm.frequency')}</label>
                 <select value={frequency} onChange={e => setFrequency(e.target.value)}>
-                  <option value="hourly">Hourly</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
+                  <option value="hourly">{t('settings:proactive.frequency.hourly')}</option>
+                  <option value="daily">{t('settings:proactive.frequency.daily')}</option>
+                  <option value="weekly">{t('settings:proactive.frequency.weekly')}</option>
+                  <option value="monthly">{t('settings:proactive.frequency.monthly')}</option>
                 </select>
               </div>
 
               <div className={styles.formGroup}>
-                <label>Priority <span className={styles.labelHint}>(higher runs first)</span></label>
+                <label>{t('settings:proactive.taskForm.priority')} <span className={styles.labelHint}>{t('settings:proactive.taskForm.priorityHint')}</span></label>
                 <select value={priorityLevel} onChange={e => setPriorityLevel(e.target.value as PriorityLevel)}>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
+                  <option value="high">{t('settings:proactive.priority.high')}</option>
+                  <option value="medium">{t('settings:proactive.priority.medium')}</option>
+                  <option value="low">{t('settings:proactive.priority.low')}</option>
                 </select>
               </div>
             </div>
@@ -189,7 +188,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
             <div className={styles.formRow}>
               {frequency !== 'hourly' && (
                 <div className={styles.formGroup}>
-                  <label>Time (HH:MM)</label>
+                  <label>{t('settings:proactive.taskForm.time')}</label>
                   <input
                     type="time"
                     value={time}
@@ -200,16 +199,16 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
 
               {frequency === 'weekly' && (
                 <div className={styles.formGroup}>
-                  <label>Day of Week</label>
+                  <label>{t('settings:proactive.taskForm.dayOfWeek')}</label>
                   <select value={day} onChange={e => setDay(e.target.value)}>
-                    <option value="">Select day</option>
-                    <option value="monday">Monday</option>
-                    <option value="tuesday">Tuesday</option>
-                    <option value="wednesday">Wednesday</option>
-                    <option value="thursday">Thursday</option>
-                    <option value="friday">Friday</option>
-                    <option value="saturday">Saturday</option>
-                    <option value="sunday">Sunday</option>
+                    <option value="">{t('settings:proactive.taskForm.selectDay')}</option>
+                    <option value="monday">{t('settings:proactive.weekdays.monday')}</option>
+                    <option value="tuesday">{t('settings:proactive.weekdays.tuesday')}</option>
+                    <option value="wednesday">{t('settings:proactive.weekdays.wednesday')}</option>
+                    <option value="thursday">{t('settings:proactive.weekdays.thursday')}</option>
+                    <option value="friday">{t('settings:proactive.weekdays.friday')}</option>
+                    <option value="saturday">{t('settings:proactive.weekdays.saturday')}</option>
+                    <option value="sunday">{t('settings:proactive.weekdays.sunday')}</option>
                   </select>
                 </div>
               )}
@@ -217,10 +216,9 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
 
             <div className={styles.toggleGroup}>
               <div className={styles.toggleInfo}>
-                <span className={styles.toggleLabel}>Notify me before running</span>
+                <span className={styles.toggleLabel}>{t('settings:proactive.taskForm.notifyLabel')}</span>
                 <span className={styles.toggleDesc}>
-                  When enabled, the agent will inform you before executing this task.
-                  When disabled, the task runs silently.
+                  {t('settings:proactive.taskForm.notifyDesc')}
                 </span>
               </div>
               <input
@@ -232,23 +230,23 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
             </div>
 
             <div className={styles.formGroup}>
-              <label>Instruction</label>
+              <label>{t('settings:proactive.taskForm.instruction')}</label>
               <textarea
                 value={instruction}
                 onChange={e => setInstruction(e.target.value)}
-                placeholder="Describe what the agent should do..."
+                placeholder={t('settings:proactive.taskForm.instructionPlaceholder')}
                 rows={4}
                 required
               />
               <span className={styles.hint}>
-                Be specific and actionable. The agent will follow these instructions during execution.
+                {t('settings:proactive.taskForm.instructionHint')}
               </span>
             </div>
 
             <div className={styles.toggleGroup}>
               <div className={styles.toggleInfo}>
-                <span className={styles.toggleLabel}>Enabled</span>
-                <span className={styles.toggleDesc}>Task will be executed during heartbeats</span>
+                <span className={styles.toggleLabel}>{t('settings:proactive.taskForm.enabledLabel')}</span>
+                <span className={styles.toggleDesc}>{t('settings:proactive.taskForm.enabledDesc')}</span>
               </div>
               <input
                 type="checkbox"
@@ -261,10 +259,10 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
 
           <div className={styles.modalFooter}>
             <Button variant="secondary" type="button" onClick={onClose}>
-              Cancel
+              {t('common:actions.cancel')}
             </Button>
             <Button variant="primary" type="submit">
-              {task ? 'Save Changes' : 'Add Task'}
+              {task ? t('common:actions.saveChanges') : t('settings:proactive.addTask')}
             </Button>
           </div>
         </form>
@@ -274,6 +272,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
 }
 
 export function ProactiveSettings() {
+  const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
 
@@ -379,9 +378,9 @@ export function ProactiveSettings() {
 
   const handleDeleteTask = (taskId: string) => {
     confirm({
-      title: 'Delete Task',
-      message: 'Are you sure you want to delete this task?',
-      confirmText: 'Delete',
+      title: t('settings:proactive.deleteConfirmTitle'),
+      message: t('settings:proactive.deleteConfirmMessage'),
+      confirmText: t('common:actions.delete'),
       variant: 'danger',
     }, () => {
       send('proactive_task_remove', { taskId })
@@ -390,9 +389,9 @@ export function ProactiveSettings() {
 
   const handleResetTasks = () => {
     confirm({
-      title: 'Reset Tasks',
-      message: 'Are you sure you want to reset all proactive tasks? This will restore the default PROACTIVE.md from template.',
-      confirmText: 'Reset',
+      title: t('settings:proactive.resetConfirmTitle'),
+      message: t('settings:proactive.resetConfirmMessage'),
+      confirmText: t('common:actions.reset'),
       variant: 'danger',
     }, () => {
       setIsResettingTasks(true)
@@ -418,29 +417,29 @@ export function ProactiveSettings() {
   }
 
   const heartbeatSchedules = [
-    { id: 'heartbeat', label: 'Heartbeat', desc: 'Runs every 30 minutes to check and execute all due proactive tasks' },
+    { id: 'heartbeat', label: t('settings:proactive.heartbeat.label'), desc: t('settings:proactive.heartbeat.desc') },
   ]
 
   const plannerSchedules = [
-    { id: 'day-planner', label: 'Daily Planner', desc: 'Plans daily activities and priorities' },
-    { id: 'week-planner', label: 'Weekly Planner', desc: 'Plans weekly goals and tasks' },
-    { id: 'month-planner', label: 'Monthly Planner', desc: 'Plans monthly objectives and reviews' },
+    { id: 'day-planner', label: t('settings:proactive.planners.dayLabel'), desc: t('settings:proactive.planners.dayDesc') },
+    { id: 'week-planner', label: t('settings:proactive.planners.weekLabel'), desc: t('settings:proactive.planners.weekDesc') },
+    { id: 'month-planner', label: t('settings:proactive.planners.monthLabel'), desc: t('settings:proactive.planners.monthDesc') },
   ]
 
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
-        <h3>Proactive Behavior</h3>
-        <p>Configure when the agent acts autonomously and manages scheduled tasks</p>
+        <h3>{t('settings:proactive.title')}</h3>
+        <p>{t('settings:proactive.subtitle')}</p>
       </div>
 
       {/* Master Toggle */}
       <div className={styles.settingsForm}>
         <div className={styles.toggleGroup}>
           <div className={styles.toggleInfo}>
-            <span className={styles.toggleLabel}>Enable Proactive Mode</span>
+            <span className={styles.toggleLabel}>{t('settings:proactive.enableLabel')}</span>
             <span className={styles.toggleDesc}>
-              Allow agent to execute scheduled tasks and proactive behaviors automatically
+              {t('settings:proactive.enableDesc')}
             </span>
           </div>
           <input
@@ -457,9 +456,9 @@ export function ProactiveSettings() {
       <div className={`${styles.toggleableContent} ${!schedulerEnabled ? styles.disabledContent : ''}`}>
         {/* Heartbeat Schedules */}
         <div className={styles.subsection}>
-          <h4 className={styles.subsectionTitle}>Heartbeat Schedules</h4>
+          <h4 className={styles.subsectionTitle}>{t('settings:proactive.heartbeatTitle')}</h4>
           <p className={styles.subsectionDesc}>
-            Heartbeats periodically check and execute proactive tasks based on their frequency
+            {t('settings:proactive.heartbeatDesc')}
           </p>
           <div className={styles.scheduleList}>
             {heartbeatSchedules.map(item => {
@@ -488,9 +487,9 @@ export function ProactiveSettings() {
 
         {/* Planners */}
         <div className={styles.subsection}>
-          <h4 className={styles.subsectionTitle}>Planners</h4>
+          <h4 className={styles.subsectionTitle}>{t('settings:proactive.plannersTitle')}</h4>
           <p className={styles.subsectionDesc}>
-            Planners review recent interactions and plan proactive activities
+            {t('settings:proactive.plannersDesc')}
           </p>
           <div className={styles.scheduleList}>
             {plannerSchedules.map(item => {
@@ -521,13 +520,13 @@ export function ProactiveSettings() {
         <div className={styles.subsection}>
           <div className={styles.subsectionHeader}>
             <div>
-              <h4 className={styles.subsectionTitle}>Proactive Tasks</h4>
+              <h4 className={styles.subsectionTitle}>{t('settings:proactive.tasksTitle')}</h4>
               <p className={styles.subsectionDesc}>
-                Tasks defined in PROACTIVE.md that the agent executes during heartbeats
+                {t('settings:proactive.tasksDesc')}
               </p>
             </div>
             <Button variant="primary" size="sm" onClick={handleAddTask} icon={<Plus size={14} />} disabled={!schedulerEnabled}>
-              Add Task
+              {t('settings:proactive.addTask')}
             </Button>
           </div>
 
@@ -535,14 +534,14 @@ export function ProactiveSettings() {
             <div className={styles.searchContainer}>
               <input
                 type="text"
-                placeholder="Search tasks..."
+                placeholder={t('settings:proactive.searchTasks')}
                 value={taskSearchQuery}
                 onChange={(e) => setTaskSearchQuery(e.target.value)}
                 className={styles.searchInput}
               />
               {taskSearchQuery && (
                 <span className={styles.searchCount}>
-                  {filteredTasks.length} of {tasks.length}
+                  {t('settings:proactive.searchCount', { shown: filteredTasks.length, total: tasks.length })}
                 </span>
               )}
             </div>
@@ -551,13 +550,13 @@ export function ProactiveSettings() {
           {isLoadingTasks ? (
             <div className={styles.loadingState}>
               <Loader2 size={20} className={styles.spinning} />
-              <span>Loading tasks...</span>
+              <span>{t('settings:proactive.loadingTasks')}</span>
             </div>
           ) : tasks.length === 0 ? (
             <div className={styles.emptyState}>
-              <p>No proactive tasks defined yet.</p>
+              <p>{t('settings:proactive.noTasks')}</p>
               <Button variant="secondary" size="sm" onClick={handleAddTask} disabled={!schedulerEnabled}>
-                Create your first task
+                {t('settings:proactive.createFirst')}
               </Button>
             </div>
           ) : (
@@ -569,8 +568,8 @@ export function ProactiveSettings() {
                 return (
                   <div key={frequency} className={styles.taskGroup}>
                     <div className={styles.taskGroupHeader}>
-                      <Badge variant="default">{frequency}</Badge>
-                      <span className={styles.taskCount}>{freqTasks.length} task{freqTasks.length !== 1 ? 's' : ''}</span>
+                      <Badge variant="default">{t(`settings:proactive.frequency.${frequency}`)}</Badge>
+                      <span className={styles.taskCount}>{t('settings:proactive.taskCount', { count: freqTasks.length })}</span>
                     </div>
                     <div className={styles.taskList}>
                       {freqTasks.map(task => (
@@ -580,7 +579,7 @@ export function ProactiveSettings() {
                               <span className={styles.taskName}>{task.name}</span>
                               <div className={styles.taskBadges}>
                                 <Badge variant={task.enabled ? 'success' : 'default'}>
-                                  {task.enabled ? 'Active' : 'Disabled'}
+                                  {task.enabled ? t('settings:proactive.active') : t('settings:proactive.disabled')}
                                 </Badge>
                                 <Badge variant="info">{getPriorityLabel(task.priority)}</Badge>
                                 <Badge variant={task.permissionTier >= 1 ? 'warning' : 'default'}>
@@ -590,11 +589,11 @@ export function ProactiveSettings() {
                             </div>
                             <p className={styles.taskInstruction}>{task.instruction}</p>
                             <div className={styles.taskMeta}>
-                              {task.time && <span>Time: {task.time}</span>}
-                              {task.day && <span>Day: {task.day}</span>}
-                              <span>Runs: {task.runCount}</span>
+                              {task.time && <span>{t('settings:proactive.meta.time', { time: task.time })}</span>}
+                              {task.day && <span>{t('settings:proactive.meta.day', { day: task.day })}</span>}
+                              <span>{t('settings:proactive.meta.runs', { value: formatNumber(task.runCount) })}</span>
                               {task.lastRun && (
-                                <span>Last: {new Date(task.lastRun).toLocaleDateString()}</span>
+                                <span>{t('settings:proactive.meta.last', { date: formatDate(new Date(task.lastRun)) })}</span>
                               )}
                             </div>
                           </div>
@@ -633,11 +632,10 @@ export function ProactiveSettings() {
       <div className={styles.dangerZone}>
         <div className={styles.dangerHeader}>
           <AlertTriangle size={18} className={styles.dangerIcon} />
-          <h4>Reset Proactive Tasks</h4>
+          <h4>{t('settings:proactive.resetTitle')}</h4>
         </div>
         <p className={styles.dangerDescription}>
-          This will remove all proactive tasks and restore PROACTIVE.md from the default template.
-          This action cannot be undone.
+          {t('settings:proactive.resetDesc')}
         </p>
         <Button
           variant="danger"
@@ -645,7 +643,7 @@ export function ProactiveSettings() {
           disabled={isResettingTasks}
           icon={isResettingTasks ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
         >
-          {isResettingTasks ? 'Resetting...' : 'Reset All Tasks'}
+          {isResettingTasks ? t('settings:proactive.resetting') : t('settings:proactive.resetButton')}
         </Button>
       </div>
 

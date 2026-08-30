@@ -1,0 +1,76 @@
+{
+  "page": {
+    "notFoundTitle": "Living UI Not Found",
+    "notFoundBody": "The Living UI project you're looking for doesn't exist or has been deleted.",
+    "goToChat": "Go to Chat",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit Fullscreen (Esc)",
+    "stop": "Stop",
+    "launch": "Launch",
+    "launching": "Launching…",
+    "stopping": "Stopping…",
+    "theme": "Theme",
+    "showChat": "Show Chat",
+    "hideChat": "Hide Chat",
+    "launchingTitle": "Launching Living UI…",
+    "launchingHint": "Installing dependencies, running tests, starting servers",
+    "stoppingTitle": "Stopping Living UI…",
+    "errorTitle": "Error creating Living UI",
+    "deleteProject": "Delete Project",
+    "stoppedTitle": "Living UI is not running",
+    "chatPlaceholder": "Ask about this Living UI…",
+    "deleteModalTitle": "Delete Living UI",
+    "deleteModalMessage": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
+    "status": {
+      "creating": "creating",
+      "launching": "launching",
+      "ready": "ready",
+      "running": "running",
+      "stopping": "stopping",
+      "stopped": "stopped",
+      "error": "error"
+    }
+  },
+  "construction": {
+    "creating": "Creating {{name}}",
+    "launching": "Launching {{name}}",
+    "finalChecks": "Final checks…",
+    "preparingWorkspace": "Preparing your workspace…",
+    "componentCount_one": "{{count}} component",
+    "componentCount_other": "{{count}} components",
+    "collectionCount_one": "{{count}} collection",
+    "collectionCount_other": "{{count}} collections",
+    "routeCount_one": "{{count}} route",
+    "routeCount_other": "{{count}} routes"
+  },
+  "themeModal": {
+    "title": "Choose Theme",
+    "custom": "Custom",
+    "colorBackground": "Background",
+    "colorSurface": "Surface",
+    "colorText": "Text",
+    "colorAccent": "Accent",
+    "caption": "Themes adapt to light/dark mode · Custom stays fixed"
+  },
+  "themes": {
+    "craftbot": { "label": "CraftBot", "description": "The baseline" },
+    "modern": { "label": "Modern", "description": "Airy indigo" },
+    "normal": { "label": "Normal", "description": "Clean blue" },
+    "ocean": { "label": "Ocean", "description": "Deep sea" },
+    "forest": { "label": "Forest", "description": "Mossy green" },
+    "pastel": { "label": "Pastel", "description": "Soft lilac" },
+    "glass": { "label": "Glass", "description": "Aurora glass" },
+    "classic": { "label": "Classic", "description": "Flat & dense" },
+    "velvet": { "label": "Velvet", "description": "Plush pink" },
+    "ink": { "label": "Ink", "description": "Mono playful" },
+    "acid": { "label": "Acid", "description": "Greige & lime" },
+    "blueprint": { "label": "Blueprint", "description": "Grid datasheet" },
+    "brutalist": { "label": "Brutalist", "description": "Hard blocks" },
+    "drafting": { "label": "Drafting", "description": "Monoline sketch" },
+    "clay": { "label": "Clay", "description": "Soft extruded" },
+    "atelier": { "label": "Atelier", "description": "Studio minimal" }
+  },
+  "iframe": {
+    "title": "Living UI {{id}}"
+  }
+}

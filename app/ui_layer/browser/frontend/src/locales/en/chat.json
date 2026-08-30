@@ -1,0 +1,82 @@
+{
+  "dateDivider": {
+    "today": "Today",
+    "yesterday": "Yesterday"
+  },
+  "unread": {
+    "aria": "New messages",
+    "label": "New"
+  },
+  "history": {
+    "loadingOlder": "Loading older messages..."
+  },
+  "working": {
+    "label": "Working",
+    "aria": "Agent is working"
+  },
+  "composer": {
+    "placeholder": "What can I do for you?",
+    "listening": "Listening... speak now",
+    "attachAndTools": "Attach and tools",
+    "attachFiles": "Attach files",
+    "aiEnhance": "AI Enhance",
+    "enhancing": "Enhancing…",
+    "voiceInput": "Voice input",
+    "stopListening": "Stop listening",
+    "speechLanguage": "Speech language",
+    "send": "Send",
+    "sendMessage": "Send message",
+    "stop": "Stop",
+    "stopping": "Stopping…",
+    "stopRun": "Stop run",
+    "stoppingRun": "Stopping run"
+  },
+  "reply": {
+    "replyingTo": "Replying to: <1>{{name}}</1>",
+    "cancel": "Cancel reply"
+  },
+  "scrollToLatest": "Scroll to latest message",
+  "dismiss": "Dismiss",
+  "playbooks": {
+    "all": "All playbooks"
+  },
+  "attachment": {
+    "preview": "Click to preview",
+    "tooManyFiles": "Maximum {{max}} files allowed.",
+    "tooManyFilesDetailed": "Maximum {{max}} files allowed. You have {{have}} files.",
+    "totalSizeExceeds": "Total size ({{size}}) exceeds 200 MB limit.",
+    "fileExceedsLimit": "File \"{{name}}\" ({{size}}) exceeds the 200 MB limit.",
+    "addWouldExceed": "Adding \"{{name}}\" would exceed the 200 MB total size limit.",
+    "uploadFailed": "Failed to upload \"{{name}}\".",
+    "uploadFailedNetwork": "Failed to upload \"{{name}}\": network error.",
+    "readFailed": "Failed to read file \"{{name}}\"."
+  },
+  "toast": {
+    "enhanceTimedOut": "AI enhance timed out. Please try again.",
+    "reconnecting": "Reconnecting. Your message will send when the connection is restored."
+  },
+  "voice": {
+    "notSupported": "Speech recognition is not supported in this browser.",
+    "micDenied": "Microphone access denied. Please allow microphone permission in your browser settings."
+  },
+  "question": {
+    "aria": "Question from agent",
+    "asking": "{{sender}} is asking",
+    "queuePosition": "1 of {{total}}",
+    "dismissHint": "Dismiss. The agent will proceed without an answer.",
+    "dismissAria": "Dismiss question",
+    "recommended": "(recommended)",
+    "freeTextPlaceholder": "Or type your own answer...",
+    "sendAnswer": "Send answer"
+  },
+  "message": {
+    "hideReceived": "Hide received message",
+    "showReceived": "Show received message",
+    "hideMessage": "Hide message",
+    "showMessage": "Show message",
+    "selectResponse": "Please select a response to continue:",
+    "replyTooltip": "Reply to this message",
+    "copyTooltip": "Copy message",
+    "copiedTooltip": "Copied!"
+  }
+}

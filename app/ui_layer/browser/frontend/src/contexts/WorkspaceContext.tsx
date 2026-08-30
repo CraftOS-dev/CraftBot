@@ -14,6 +14,7 @@ import type {
   WSMessage,
 } from '../types'
 import { getSocketClient } from '../store/socket/socketInstance'
+import i18n from '../i18n/config'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
 import {
   startNavigate,
@@ -128,7 +129,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   ): Promise<T> => {
     return new Promise((resolve, reject) => {
       if (!client.isConnected) {
-        reject(new Error('WebSocket not connected'))
+        reject(new Error(i18n.t('nav:workspace.notConnected')))
         return
       }
       pendingOpsRef.current.set(key, {
@@ -139,7 +140,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setTimeout(() => {
         const pending = pendingOpsRef.current.get(key)
         if (pending) {
-          pending.reject(new Error('Operation timed out'))
+          pending.reject(new Error(i18n.t('nav:workspace.operationTimedOut')))
           pendingOpsRef.current.delete(key)
         }
       }, 30000)
@@ -157,7 +158,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         'file_list', { directory, offset: 0, limit: FILE_PAGE_SIZE }, 'file_list',
       )
     } catch (e) {
-      dispatch(setWorkspaceError(e instanceof Error ? e.message : 'Failed to navigate'))
+      dispatch(setWorkspaceError(e instanceof Error ? e.message : i18n.t('nav:workspace.failedToNavigate')))
     }
   }, [dispatch, sendOperation])
 
@@ -170,7 +171,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         'file_list',
       )
     } catch (e) {
-      dispatch(setWorkspaceError(e instanceof Error ? e.message : 'Failed to refresh'))
+      dispatch(setWorkspaceError(e instanceof Error ? e.message : i18n.t('nav:workspace.failedToRefresh')))
     }
   }, [dispatch, sendOperation, currentDirectory, search])
 
@@ -265,14 +266,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           if (xhr.status >= 200 && xhr.status < 300 && data.success) {
             resolve(data)
           } else {
-            reject(new Error((data as { error?: string }).error ?? `Upload failed (HTTP ${xhr.status})`))
+            reject(new Error((data as { error?: string }).error ?? i18n.t('nav:workspace.uploadFailedStatus', { status: xhr.status })))
           }
         } catch {
-          reject(new Error(`Upload failed (HTTP ${xhr.status})`))
+          reject(new Error(i18n.t('nav:workspace.uploadFailedStatus', { status: xhr.status })))
         }
       }
-      xhr.onerror = () => reject(new Error('Network error during upload'))
-      xhr.onabort = () => reject(new Error('Upload cancelled'))
+      xhr.onerror = () => reject(new Error(i18n.t('nav:workspace.networkErrorUpload')))
+      xhr.onabort = () => reject(new Error(i18n.t('nav:workspace.uploadCancelled')))
 
       xhr.open('POST', `/api/workspace/upload?path=${encodeURIComponent(path)}`)
       xhr.send(formData)

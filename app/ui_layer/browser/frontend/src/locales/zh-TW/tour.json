@@ -1,0 +1,65 @@
+{
+  "progressText": "{{current}} / {{total}}",
+  "steps": {
+    "welcome": {
+      "title": "歡迎使用 CraftBot",
+      "description": "以下是重點功能的快速導覽，大約一分鐘就能看完。"
+    },
+    "chat-composer": {
+      "title": "與 CraftBot 對話",
+      "description": "在這裡輸入任何內容：問題、任務、附加檔案，甚至整個專案。你可以像傳文字訊息給真人一樣與 CraftBot 溝通。"
+    },
+    "main-session": {
+      "title": "你的主要對話",
+      "description": "「主要」是代理的主場對話：無法刪除或重新命名，任何自動發生的事情（例如排程任務或已連接應用程式的更新）都會出現在這裡。"
+    },
+    "living-ui": {
+      "title": "Living UI 應用程式",
+      "description": "請 CraftBot 為你打造真正的應用程式（追蹤器、CRM、儀表板），它就會在這裡建置並執行。新增的方式有三種："
+    },
+    "living-ui-marketplace": {
+      "title": "市集",
+      "description": "只要點按一下，即可從社群市集安裝現成的應用程式。"
+    },
+    "living-ui-custom": {
+      "title": "自訂建立",
+      "description": "描述你想要的內容，代理就會為你打造：設定一些基本項目、回答簡短訪談，接著它會撰寫規格並建置應用程式。"
+    },
+    "living-ui-import": {
+      "title": "匯入",
+      "description": "從 ZIP、資料夾或 git 網址匯入現有的 Living UI。"
+    },
+    "dashboard": {
+      "title": "CraftBot 儀表板",
+      "description": "CraftBot 的即時控制中心，追蹤用量、活動與系統健康狀態。"
+    },
+    "memory": {
+      "title": "CraftBot 記憶",
+      "description": "CraftBot 關於你和你工作學到的一切，都以可瀏覽的記憶、實體與檔案圖譜形式呈現在這裡。你愈常使用 CraftBot，它就愈能記住你。"
+    },
+    "workspace": {
+      "title": "CraftBot 工作區",
+      "description": "CraftBot 專屬的檔案系統。瀏覽代理讀取與寫入的檔案，也可上傳你自己的檔案。"
+    },
+    "settings": {
+      "title": "設定",
+      "description": "在這裡設定你的代理。有幾個值得認識的區塊："
+    },
+    "settings-proactive": {
+      "title": "主動",
+      "description": "讓你的代理自行工作：執行排程任務並在無需指示的情況下對事件做出反應。"
+    },
+    "settings-skills": {
+      "title": "技能",
+      "description": "加入可重複使用的能力，讓你的代理知道如何執行特定任務。"
+    },
+    "settings-integrations": {
+      "title": "整合",
+      "description": "連接 Gmail、行事曆和 Notion 等應用程式，讓你的代理能跨這些服務工作。"
+    },
+    "done": {
+      "title": "一切就緒",
+      "description": "本次導覽到此結束。開始交付任務給 CraftBot 為你效勞吧。"
+    }
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "page": {
+    "title": "记忆",
+    "disabled": "记忆已禁用"
+  },
+  "stats": {
+    "memories_one": "{{formatted}} 条记忆",
+    "memories_other": "{{formatted}} 条记忆",
+    "entities_one": "{{formatted}} 个实体",
+    "entities_other": "{{formatted}} 个实体",
+    "files_one": "{{formatted}} 个文件",
+    "files_other": "{{formatted}} 个文件",
+    "entityLinks_one": "{{formatted}} 条实体链接",
+    "entityLinks_other": "{{formatted}} 条实体链接",
+    "fileLinks_one": "{{formatted}} 条文件链接",
+    "fileLinks_other": "{{formatted}} 条文件链接"
+  },
+  "toggle": {
+    "hideMemories": "隐藏记忆",
+    "showMemories": "显示记忆",
+    "hideEntities": "隐藏实体",
+    "showEntities": "显示实体",
+    "hideFiles": "隐藏文件",
+    "showFiles": "显示文件",
+    "hideEntityLinks": "隐藏记忆→实体链接",
+    "showEntityLinks": "显示记忆→实体链接",
+    "hideFileLinks": "隐藏记忆→文件链接",
+    "showFileLinks": "显示记忆→文件链接",
+    "showDefaultFiles": "显示默认文件",
+    "hideDefaultFiles": "隐藏默认文件（AGENT.md、PROACTIVE.md）",
+    "toggleDefaultFiles": "切换默认文件",
+    "fitView": "适应视图",
+    "refreshGraph": "刷新图谱"
+  },
+  "empty": {
+    "title": "尚无记忆",
+    "body": "在你对话的过程中，CraftBot 会将重要内容提炼为记忆，并在此以动态图谱的形式呈现。"
+  },
+  "a11y": {
+    "resizePanel": "调整面板大小"
+  },
+  "kind": {
+    "memory": "记忆",
+    "fileMemory": "文件记忆",
+    "entity": "实体",
+    "file": "文件"
+  },
+  "tag": {
+    "superseded": "已被取代"
+  },
+  "detail": {
+    "closeAria": "关闭详情",
+    "connected": "已连接 · {{value}}"
+  },
+  "meta": {
+    "mentions_one": "{{formatted}} 次提及",
+    "mentions_other": "{{formatted}} 次提及",
+    "sections_one": "{{formatted}} 个章节",
+    "sections_other": "{{formatted}} 个章节"
+  },
+  "toolbar": {
+    "searchPlaceholder": "搜索记忆…"
+  },
+  "list": {
+    "noMatches": "无匹配项。",
+    "sectionFallback": "章节"
+  },
+  "paneEmpty": "在图谱中选择一个节点以查看其详情，或在上方搜索你的记忆。",
+  "category": {
+    "fact": "事实",
+    "preference": "偏好",
+    "event": "事件",
+    "decision": "决策",
+    "learning": "习得",
+    "project": "项目",
+    "contact": "联系人"
+  },
+  "field": {
+    "category": "类别",
+    "content": "内容"
+  },
+  "item": {
+    "addTitle": "添加记忆",
+    "editTitle": "编辑记忆",
+    "deleteTitle": "删除记忆",
+    "deleteMessage": "这将永久移除该记忆条目。可以考虑改为标记为“已被取代”，以保留历史记录。",
+    "entitiesHint": "下次记忆处理运行时，会自动识别并链接实体。",
+    "supersededLabel": "已被取代（保留为历史记录，不参与检索）",
+    "contentPlaceholder": "例如：John 偏好简洁的回复"
+  },
+  "files": {
+    "title": "智能体文件",
+    "aboutAria": "关于文件索引",
+    "indexingTooltip": "<1>什么是索引？</1>被索引的文件会成为 CraftBot 记忆的一部分：其内容会被拆分为章节、变为可搜索，并在图谱中以文件记忆的形式显示。<2/><3/>索引后，一个后台任务会读取每个文件，识别其中提及的人物、项目和工具，并将其链接到与对话记忆相同的知识图谱中，从而让检索能同时借助两者。",
+    "hint": "勾选文件即可将其索引到记忆中。锁定的文件始终会被索引。"
+  },
+  "tree": {
+    "chunks_one": "{{formatted}} 个分块",
+    "chunks_other": "{{formatted}} 个分块",
+    "sizeKb": "{{size}} KB",
+    "missing": "缺失",
+    "alwaysIndexed": "始终索引",
+    "indexing": "索引中…",
+    "stopIndexing": "停止索引 {{path}}",
+    "indexFile": "索引 {{path}}",
+    "indexedRemove": "已索引（点击移除）",
+    "indexThis": "索引此文件"
+  },
+  "toast": {
+    "updateFailed": "更新已索引文件失败",
+    "skipped": "已跳过 {{path}}：{{reason}}"
+  }
+}

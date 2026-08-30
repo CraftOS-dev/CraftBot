@@ -1,0 +1,90 @@
+{
+  "ollama": {
+    "checking": "正在檢查 Ollama 是否在執行中…",
+    "notInstalledStatus": "尚未安裝 Ollama",
+    "notInstalledHint": "Ollama 讓你在本機執行 AI 模型，無需雲端。我們會自動為你安裝。",
+    "install": "安裝 Ollama",
+    "installing": "正在安裝 Ollama…",
+    "installStarting": "啟動中…",
+    "notRunningStatus": "已安裝 Ollama，但未在執行中",
+    "notRunningHint": "點按下方以啟動 Ollama 伺服器。",
+    "start": "啟動 Ollama",
+    "starting": "正在啟動 Ollama…",
+    "runningNoModels": "Ollama 執行中（尚無模型）",
+    "selectModelHint": "選取要下載的模型，即可開始對話：",
+    "findModel": "尋找模型…",
+    "recommended": "建議",
+    "noModelMatch": "沒有符合「{{query}}」的模型",
+    "download": "下載 {{model}}",
+    "modelFallback": "模型",
+    "downloading": "正在下載 {{model}}…",
+    "downloadStarting": "開始下載…",
+    "connected": "已連接 Ollama",
+    "running": "Ollama 執行中",
+    "serverUrl": "Ollama 伺服器網址",
+    "test": "測試"
+  },
+  "ollamaPrompt": {
+    "notInstalled": "Ollama 還沒安裝。我來幫我們設定好。",
+    "installing": "正在安裝 Ollama…這會花一點時間。",
+    "notRunning": "Ollama 已安裝，但還沒啟動。要啟動它嗎？",
+    "starting": "正在啟動 Ollama…",
+    "running": "Ollama 執行中。我們來測試一下連線。",
+    "selectingModel": "挑一個模型讓我下載。",
+    "pullingModel": "正在下載你的模型…這可能要花幾分鐘。",
+    "connected_one": "已連接。{{count}} 個模型準備就緒。",
+    "connected_other": "已連接。{{count}} 個模型準備就緒。",
+    "errorFallback": "發生了問題。可以再試一次嗎？",
+    "checking": "正在檢查 Ollama…"
+  },
+  "apiKey": {
+    "storedLocally": "你的 API 金鑰會儲存在本機。",
+    "optional": "API 金鑰（選填）",
+    "enter": "輸入你的 API 金鑰",
+    "orEnterKey": "或輸入 API 金鑰"
+  },
+  "apiKeyPrompt": {
+    "openrouter": "貼上你的 OpenRouter 金鑰，我來幫你接好。",
+    "withSub": "連接你的 {{provider}} 帳號，我就能開始工作。請登入，或貼上 API 金鑰。",
+    "plain": "貼上你的 {{provider}} API 金鑰，我就能連接並開始工作。",
+    "providerFallback": "你的供應商"
+  },
+  "proxied": {
+    "orKey": "輸入你的 OpenRouter API 金鑰",
+    "directKey": "輸入你的 {{provider}} API 金鑰",
+    "modelLabel": "模型 <1>（選填；保留預設或輸入任何 OpenRouter slug）</1>",
+    "useDirect": "← 改用 {{provider}} 直連 API",
+    "useOpenRouter": "遇到連線問題嗎？改用 OpenRouter →"
+  },
+  "sub": {
+    "working": "處理中…",
+    "pastePlaceholder": "貼上登入頁面上的驗證碼",
+    "submitting": "送出中…",
+    "submitCode": "送出驗證碼",
+    "reopen": "重新開啟登入頁面",
+    "openingBrowser": "正在開啟瀏覽器…",
+    "signInWith": "使用 {{provider}} 登入",
+    "useKeyInstead": "改用 API 金鑰"
+  },
+  "form": {
+    "enterField": "輸入{{field}}",
+    "enterName": "輸入名稱"
+  },
+  "stepPrompt": {
+    "provider": "要用哪個 AI 來驅動我呢？",
+    "userProfile": "那我該怎麼稱呼你呢？",
+    "agentName": "那你想怎麼稱呼我呢？"
+  },
+  "intro": {
+    "greeting": "<1>很高興認識你，我是 CraftBot！</1><2/>我在這裡協助你處理工作或生活。",
+    "kicker": "現在，在我們開始之前，有一些設定需要先完成。"
+  },
+  "done": {
+    "message": "一切就緒！<1>{{name}}</1> 已準備好開始工作。"
+  },
+  "nav": {
+    "testingApiKey": "正在測試 API 金鑰…",
+    "getStarted": "開始使用",
+    "finish": "完成"
+  }
+}

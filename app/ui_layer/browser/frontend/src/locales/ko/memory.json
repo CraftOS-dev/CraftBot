@@ -1,0 +1,113 @@
+{
+  "page": {
+    "title": "메모리",
+    "disabled": "메모리 비활성화됨"
+  },
+  "stats": {
+    "memories_one": "메모리 {{formatted}}개",
+    "memories_other": "메모리 {{formatted}}개",
+    "entities_one": "엔티티 {{formatted}}개",
+    "entities_other": "엔티티 {{formatted}}개",
+    "files_one": "파일 {{formatted}}개",
+    "files_other": "파일 {{formatted}}개",
+    "entityLinks_one": "엔티티 링크 {{formatted}}개",
+    "entityLinks_other": "엔티티 링크 {{formatted}}개",
+    "fileLinks_one": "파일 링크 {{formatted}}개",
+    "fileLinks_other": "파일 링크 {{formatted}}개"
+  },
+  "toggle": {
+    "hideMemories": "메모리 숨기기",
+    "showMemories": "메모리 보기",
+    "hideEntities": "엔티티 숨기기",
+    "showEntities": "엔티티 보기",
+    "hideFiles": "파일 숨기기",
+    "showFiles": "파일 보기",
+    "hideEntityLinks": "메모리→엔티티 링크 숨기기",
+    "showEntityLinks": "메모리→엔티티 링크 보기",
+    "hideFileLinks": "메모리→파일 링크 숨기기",
+    "showFileLinks": "메모리→파일 링크 보기",
+    "showDefaultFiles": "기본 파일 보기",
+    "hideDefaultFiles": "기본 파일 숨기기 (AGENT.md, PROACTIVE.md)",
+    "toggleDefaultFiles": "기본 파일 전환",
+    "fitView": "화면에 맞추기",
+    "refreshGraph": "그래프 새로 고침"
+  },
+  "empty": {
+    "title": "아직 메모리가 없습니다",
+    "body": "대화를 나누면 CraftBot이 중요한 내용을 메모리로 정제하며, 살아있는 그래프로 여기에 나타납니다."
+  },
+  "a11y": {
+    "resizePanel": "패널 크기 조절"
+  },
+  "kind": {
+    "memory": "메모리",
+    "fileMemory": "파일 메모리",
+    "entity": "엔티티",
+    "file": "파일"
+  },
+  "tag": {
+    "superseded": "대체됨"
+  },
+  "detail": {
+    "closeAria": "세부 정보 닫기",
+    "connected": "연결됨 · {{value}}"
+  },
+  "meta": {
+    "mentions_one": "언급 {{formatted}}회",
+    "mentions_other": "언급 {{formatted}}회",
+    "sections_one": "섹션 {{formatted}}개",
+    "sections_other": "섹션 {{formatted}}개"
+  },
+  "toolbar": {
+    "searchPlaceholder": "메모리 검색…"
+  },
+  "list": {
+    "noMatches": "일치하는 항목이 없습니다.",
+    "sectionFallback": "섹션"
+  },
+  "paneEmpty": "세부 정보를 보려면 그래프에서 노드를 선택하거나, 위에서 메모리를 검색하세요.",
+  "category": {
+    "fact": "사실",
+    "preference": "선호",
+    "event": "이벤트",
+    "decision": "결정",
+    "learning": "학습",
+    "project": "프로젝트",
+    "contact": "연락처"
+  },
+  "field": {
+    "category": "카테고리",
+    "content": "내용"
+  },
+  "item": {
+    "addTitle": "메모리 추가",
+    "editTitle": "메모리 편집",
+    "deleteTitle": "메모리 삭제",
+    "deleteMessage": "이 메모리 항목을 영구적으로 제거합니다. 기록을 유지하려면 대신 대체됨으로 표시하는 것을 고려하세요.",
+    "entitiesHint": "엔티티는 다음 메모리 처리가 실행될 때 자동으로 식별되고 연결됩니다.",
+    "supersededLabel": "대체됨 (기록으로 유지, 회상에서 제외)",
+    "contentPlaceholder": "예: John은 간결한 답변을 선호함"
+  },
+  "files": {
+    "title": "에이전트 파일",
+    "aboutAria": "파일 인덱싱 정보",
+    "indexingTooltip": "<1>인덱싱이란?</1> 인덱싱된 파일은 CraftBot 메모리의 일부가 됩니다. 내용이 섹션으로 나뉘어 검색 가능해지고, 그래프에 파일 메모리로 표시됩니다.<2/><3/>인덱싱 후에는 백그라운드 작업이 각 파일을 읽어 언급된 사람, 프로젝트, 도구를 식별하고, 이를 대화 메모리와 같은 지식 그래프에 연결하여 회상 시 양쪽을 모두 활용합니다.",
+    "hint": "메모리에 인덱싱하려면 파일을 선택하세요. 잠긴 파일은 항상 인덱싱됩니다."
+  },
+  "tree": {
+    "chunks_one": "청크 {{formatted}}개",
+    "chunks_other": "청크 {{formatted}}개",
+    "sizeKb": "{{size}} KB",
+    "missing": "없음",
+    "alwaysIndexed": "항상 인덱싱됨",
+    "indexing": "인덱싱 중…",
+    "stopIndexing": "{{path}} 인덱싱 중지",
+    "indexFile": "{{path}} 인덱싱",
+    "indexedRemove": "인덱싱됨 (클릭하여 제거)",
+    "indexThis": "이 파일 인덱싱"
+  },
+  "toast": {
+    "updateFailed": "인덱싱된 파일을 업데이트하지 못했습니다",
+    "skipped": "{{path}} 건너뜀: {{reason}}"
+  }
+}

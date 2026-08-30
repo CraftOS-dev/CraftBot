@@ -1,4 +1,5 @@
 import type { Layout } from 'react-grid-layout'
+import i18n from '../../../i18n/config'
 import { boundsFor, seedItem } from './normalizeLayouts'
 import type { Breakpoint, BreakpointLayouts, NamedLayout } from './types'
 import { WIDGET_REGISTRY } from '../widgets/registry'
@@ -117,7 +118,7 @@ export function buildDefaultLayouts(): BreakpointLayouts {
 export function createDefaultLayout(now: number = Date.now()): NamedLayout {
   return {
     id: 'default',
-    name: 'Default',
+    name: i18n.t('dashboard:layout.defaultName'),
     widgetIds: DEFAULT_WIDGET_IDS(),
     layouts: buildDefaultLayouts(),
     createdAt: now,

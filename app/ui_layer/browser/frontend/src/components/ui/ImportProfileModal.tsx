@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Loader2, AlertTriangle, Package, Wrench, Server, Layout, FileText } from 'lucide-react'
+import { useTranslation, Trans } from 'react-i18next'
 import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
+import { formatDate as formatDateI18n, formatList } from '../../i18n/format'
 import styles from './ImportProfileModal.module.css'
 
 export type ImportMode = 'replace' | 'overwrite'
@@ -39,8 +41,7 @@ export interface ImportProfileModalProps {
 function formatDate(iso?: string): string {
   if (!iso) return ''
   try {
-    const d = new Date(iso)
-    return d.toLocaleDateString(undefined, {
+    return formatDateI18n(new Date(iso), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -61,6 +62,7 @@ function SectionRow({
   items: string[]
   conflicts?: string[]
 }) {
+  const { t } = useTranslation(['components', 'common'])
   if (items.length === 0) return null
   const conflictSet = new Set(conflicts ?? [])
   return (
@@ -75,7 +77,7 @@ function SectionRow({
           <span
             key={name}
             className={`${styles.chip} ${conflictSet.has(name) ? styles.chipConflict : ''}`}
-            title={conflictSet.has(name) ? 'Already installed locally' : undefined}
+            title={conflictSet.has(name) ? t('components:importProfileModal.alreadyInstalledLocally') : undefined}
           >
             {name}
           </span>
@@ -94,6 +96,7 @@ export function ImportProfileModal({
   onCancel,
   onApply,
 }: ImportProfileModalProps) {
+  const { t } = useTranslation(['components', 'common'])
   const [mode, setMode] = useState<ImportMode>('replace')
 
   useEffect(() => {
@@ -106,7 +109,9 @@ export function ImportProfileModal({
   const apps = contents.living_ui_apps ?? []
   const mds = contents.md_files ?? []
 
-  const title = manifest ? `Import "${manifest.name}"` : 'Import agent profile'
+  const title = manifest
+    ? t('components:importProfileModal.titleNamed', { name: manifest.name })
+    : t('components:importProfileModal.titleDefault')
 
   return (
     <Modal
@@ -121,7 +126,7 @@ export function ImportProfileModal({
         {!manifest && !error && (
           <div className={styles.centered}>
             <Loader2 size={20} className={styles.spinning} />
-            <span>Reading bundle…</span>
+            <span>{t('components:importProfileModal.readingBundle')}</span>
           </div>
         )}
 
@@ -136,11 +141,11 @@ export function ImportProfileModal({
           <>
             <div className={styles.meta}>
               {manifest.source_app_version && (
-                <span>Made with CraftBot {manifest.source_app_version}</span>
+                <span>{t('components:importProfileModal.madeWith', { version: manifest.source_app_version })}</span>
               )}
               {manifest.created_at && <span>· {formatDate(manifest.created_at)}</span>}
               {contents.agent_name && (
-                <span>· from agent "{contents.agent_name}"</span>
+                <span>· {t('components:importProfileModal.fromAgent', { name: contents.agent_name })}</span>
               )}
             </div>
 
@@ -150,24 +155,24 @@ export function ImportProfileModal({
 
             <SectionRow
               icon={<FileText size={14} />}
-              label="Personality files"
+              label={t('components:importProfileModal.personalityFiles')}
               items={mds}
             />
             <SectionRow
               icon={<Wrench size={14} />}
-              label="Skills"
+              label={t('components:importProfileModal.skills')}
               items={skills}
               conflicts={preview?.skills_already_installed}
             />
             <SectionRow
               icon={<Server size={14} />}
-              label="MCP servers"
+              label={t('components:importProfileModal.mcpServers')}
               items={mcps}
               conflicts={preview?.mcp_already_installed}
             />
             <SectionRow
               icon={<Layout size={14} />}
-              label="Living UI apps"
+              label={t('components:importProfileModal.livingUiApps')}
               items={apps}
             />
 
@@ -175,16 +180,18 @@ export function ImportProfileModal({
               <div className={styles.notice}>
                 <AlertTriangle size={14} />
                 <div>
-                  After import, fill in API keys for:{' '}
-                  <strong>
-                    {preview.mcp_needs_env.map(m => m.name).join(', ')}
-                  </strong>
+                  <Trans
+                    ns="components"
+                    i18nKey="importProfileModal.needsEnv"
+                    values={{ names: formatList(preview.mcp_needs_env.map(m => m.name)) }}
+                    components={{ 1: <strong /> }}
+                  />
                 </div>
               </div>
             )}
 
             <div className={styles.modeBlock}>
-              <div className={styles.modeTitle}>How should I apply this?</div>
+              <div className={styles.modeTitle}>{t('components:importProfileModal.modeTitle')}</div>
               <label className={styles.modeOption}>
                 <input
                   type="radio"
@@ -195,11 +202,9 @@ export function ImportProfileModal({
                   disabled={isApplying}
                 />
                 <div>
-                  <div className={styles.modeName}>Merge and Replace (recommended)</div>
+                  <div className={styles.modeName}>{t('components:importProfileModal.mergeReplaceName')}</div>
                   <div className={styles.modeHint}>
-                    Adds new skills, MCPs, and apps. Overwrites personality files
-                    and MCP/skill config on name conflict. Living UI apps with
-                    matching names are imported alongside (never destroyed).
+                    {t('components:importProfileModal.mergeReplaceHint')}
                   </div>
                 </div>
               </label>
@@ -213,12 +218,13 @@ export function ImportProfileModal({
                   disabled={isApplying}
                 />
                 <div>
-                  <div className={styles.modeName}>Overwrite</div>
+                  <div className={styles.modeName}>{t('components:importProfileModal.overwriteName')}</div>
                   <div className={styles.modeHint}>
-                    <strong>Destructive.</strong> Wipes <em>all</em> existing
-                    skills, MCP servers, and Living UI apps, then installs only
-                    what's in this bundle. Your agent becomes a copy of the
-                    bundle. Cannot be undone.
+                    <Trans
+                      ns="components"
+                      i18nKey="importProfileModal.overwriteHint"
+                      components={{ 0: <strong />, 1: <em /> }}
+                    />
                   </div>
                 </div>
               </label>
@@ -228,7 +234,7 @@ export function ImportProfileModal({
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" onClick={onCancel} disabled={isApplying}>
-          Cancel
+          {t('common:actions.cancel')}
         </Button>
         <Button
           variant={mode === 'overwrite' ? 'danger' : 'primary'}
@@ -243,10 +249,10 @@ export function ImportProfileModal({
           }
         >
           {isApplying
-            ? 'Applying…'
+            ? t('components:importProfileModal.applying')
             : mode === 'overwrite'
-              ? 'Overwrite Agent'
-              : 'Apply Profile'}
+              ? t('components:importProfileModal.overwriteButton')
+              : t('components:importProfileModal.applyButton')}
         </Button>
       </ModalFooter>
     </Modal>

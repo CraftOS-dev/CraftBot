@@ -268,7 +268,9 @@ async def perform_update(
     if not updater_script.exists():
         raise RuntimeError(f"Updater script not found: {updater_script}")
 
-    await emit(f"Launching updater in a new window (pulling {target_branch})...")
+    from app.i18n import tui
+
+    await emit(tui("update_launching", branch=target_branch))
     await asyncio.sleep(0.5)  # let the UI show the message
 
     if sys.platform == "win32":
@@ -290,7 +292,7 @@ async def perform_update(
             start_new_session=True,
         )
 
-    await emit("Shutting down — the updater will relaunch CraftBot shortly.")
+    await emit(tui("update_shutting_down"))
     await asyncio.sleep(1)
 
     # Exit cleanly. The updater handles everything from here.

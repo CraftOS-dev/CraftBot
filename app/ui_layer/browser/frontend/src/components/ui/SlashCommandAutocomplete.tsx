@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSettingsWebSocket } from '@/pages/Settings/useSettingsWebSocket';
 import { ActivitySquare, Terminal } from 'lucide-react'
 import styles from './SlashCommandAutocomplete.module.css';
@@ -40,6 +41,7 @@ interface SlashCommandProps {
 
 export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandle, SlashCommandProps>(
   function SlashCommandAutocomplete({ input, onSelectItem }, ref) {
+    const { t } = useTranslation(['components', 'common'])
     const [selectedIndex, setSelectedIndex] = useState<number>(0);
     const itemRefs = useRef<(HTMLLIElement | null)[]>([])
 
@@ -120,7 +122,7 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
             <ul className={styles.autocomplete}>
                 {filteredCommands.length > 0 && (
                     <>
-                        <p className={styles.header}><Terminal size={12} />Commands</p>
+                        <p className={styles.header}><Terminal size={12} />{t('components:slashCommand.commands')}</p>
                         {filteredCommands.map((item: string) => {
                             const idx = runningIndex++
                             const isSelected = idx === selectedIndex
@@ -138,7 +140,7 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
                 )}
                 {filteredSkills.length > 0 && (
                     <>
-                        <p className={styles.header}><ActivitySquare size={12} />Skills</p>
+                        <p className={styles.header}><ActivitySquare size={12} />{t('components:slashCommand.skills')}</p>
                         {filteredSkills.map((item: string) => {
                             const idx = runningIndex++
                             const isSelected = idx === selectedIndex

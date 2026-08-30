@@ -1,0 +1,76 @@
+{
+  "page": {
+    "notFoundTitle": "找不到 Living UI",
+    "notFoundBody": "你要找的 Living UI 專案不存在或已遭刪除。",
+    "goToChat": "前往對話",
+    "fullscreen": "全螢幕",
+    "exitFullscreen": "結束全螢幕（Esc）",
+    "stop": "停止",
+    "launch": "啟動",
+    "launching": "啟動中…",
+    "stopping": "停止中…",
+    "theme": "主題",
+    "showChat": "顯示對話",
+    "hideChat": "隱藏對話",
+    "launchingTitle": "正在啟動 Living UI…",
+    "launchingHint": "正在安裝相依套件、執行測試、啟動伺服器",
+    "stoppingTitle": "正在停止 Living UI…",
+    "errorTitle": "建立 Living UI 時發生錯誤",
+    "deleteProject": "刪除專案",
+    "stoppedTitle": "Living UI 未在執行中",
+    "chatPlaceholder": "詢問關於此 Living UI 的事…",
+    "deleteModalTitle": "刪除 Living UI",
+    "deleteModalMessage": "確定要刪除「{{name}}」嗎？此操作無法復原。",
+    "status": {
+      "creating": "建立中",
+      "launching": "啟動中",
+      "ready": "就緒",
+      "running": "執行中",
+      "stopping": "停止中",
+      "stopped": "已停止",
+      "error": "錯誤"
+    }
+  },
+  "construction": {
+    "creating": "正在建立 {{name}}",
+    "launching": "正在啟動 {{name}}",
+    "finalChecks": "最終檢查…",
+    "preparingWorkspace": "正在準備你的工作區…",
+    "componentCount_one": "{{count}} 個元件",
+    "componentCount_other": "{{count}} 個元件",
+    "collectionCount_one": "{{count}} 個集合",
+    "collectionCount_other": "{{count}} 個集合",
+    "routeCount_one": "{{count}} 個路由",
+    "routeCount_other": "{{count}} 個路由"
+  },
+  "themeModal": {
+    "title": "選擇主題",
+    "custom": "自訂",
+    "colorBackground": "背景",
+    "colorSurface": "表面",
+    "colorText": "文字",
+    "colorAccent": "強調色",
+    "caption": "主題會隨淺色／深色模式調整 · 自訂主題則維持固定"
+  },
+  "themes": {
+    "craftbot": { "label": "CraftBot", "description": "基本款" },
+    "modern": { "label": "現代", "description": "輕盈靛藍" },
+    "normal": { "label": "一般", "description": "清爽藍" },
+    "ocean": { "label": "海洋", "description": "深海" },
+    "forest": { "label": "森林", "description": "苔蘚綠" },
+    "pastel": { "label": "粉彩", "description": "柔和丁香紫" },
+    "glass": { "label": "玻璃", "description": "極光玻璃" },
+    "classic": { "label": "經典", "description": "扁平緊湊" },
+    "velvet": { "label": "絲絨", "description": "絨感粉" },
+    "ink": { "label": "墨水", "description": "俏皮單色" },
+    "acid": { "label": "酸性", "description": "灰米與萊姆綠" },
+    "blueprint": { "label": "藍圖", "description": "格線資料表" },
+    "brutalist": { "label": "粗獷", "description": "硬邊色塊" },
+    "drafting": { "label": "製圖", "description": "單線草圖" },
+    "clay": { "label": "黏土", "description": "柔軟擠塑" },
+    "atelier": { "label": "工作室", "description": "極簡工作室" }
+  },
+  "iframe": {
+    "title": "Living UI {{id}}"
+  }
+}

@@ -1,10 +1,13 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Box, CheckCircle } from 'lucide-react'
 import { useAppSelector } from '../../../store/hooks'
 import { selectLivingUiProjects } from '../../../store/selectors/livingUi'
+import { formatNumber } from '../../../i18n/format'
 import styles from './widgets.module.css'
 
 export function LivingUIWidget() {
+  const { t } = useTranslation(['dashboard', 'common'])
   const projects = useAppSelector(selectLivingUiProjects)
   const [showAll, setShowAll] = useState(false)
 
@@ -15,17 +18,17 @@ export function LivingUIWidget() {
       <div className={styles.compactStats}>
         <div className={styles.compactStatItem}>
           <Box size={14} className={styles.primaryIcon} />
-          <span className={styles.compactStatValue}>{projects.length}</span>
-          <span className={styles.compactStatLabel}>Installed</span>
+          <span className={styles.compactStatValue}>{formatNumber(projects.length)}</span>
+          <span className={styles.compactStatLabel}>{t('dashboard:widgets.livingUi.installed')}</span>
         </div>
         <div className={styles.compactStatItem}>
           <CheckCircle size={14} className={styles.successIcon} />
-          <span className={styles.compactStatValue}>{runningCount}</span>
-          <span className={styles.compactStatLabel}>Running</span>
+          <span className={styles.compactStatValue}>{formatNumber(runningCount)}</span>
+          <span className={styles.compactStatLabel}>{t('dashboard:widgets.livingUi.running')}</span>
         </div>
       </div>
       <div className={styles.usageSection}>
-        <div className={styles.usageSectionHeader}>Projects</div>
+        <div className={styles.usageSectionHeader}>{t('dashboard:widgets.livingUi.projects')}</div>
         {projects.length > 0 ? (
           <div className={styles.usageList}>
             {(showAll ? projects : projects.slice(0, 3)).map(p => (
@@ -36,12 +39,12 @@ export function LivingUIWidget() {
             ))}
             {projects.length > 3 && (
               <button className={styles.viewAllButton} onClick={() => setShowAll(!showAll)}>
-                {showAll ? 'Show less' : `View all (${projects.length})`}
+                {showAll ? t('common:actions.showLess') : t('dashboard:widgets.common.viewAllCount', { count: projects.length })}
               </button>
             )}
           </div>
         ) : (
-          <div className={styles.emptyUsage}>No Living UIs installed</div>
+          <div className={styles.emptyUsage}>{t('dashboard:widgets.livingUi.empty')}</div>
         )}
       </div>
     </>

@@ -1,0 +1,111 @@
+{
+  "items": {
+    "main": "메인",
+    "newChat": "새 채팅",
+    "dashboard": "대시보드",
+    "memory": "메모리",
+    "workspace": "작업 공간",
+    "settings": "설정"
+  },
+  "groups": {
+    "livingUi": "Living UI",
+    "chats": "채팅"
+  },
+  "sidebar": {
+    "expand": "사이드바 펼치기",
+    "collapse": "사이드바 접기",
+    "websiteLabel": "CraftBot 웹사이트",
+    "addLivingUi": "Living UI 추가",
+    "newChat": "새 채팅",
+    "noLivingUiApps": "Living UI 앱 없음",
+    "showMoreCount": "더 보기 ({{count}})"
+  },
+  "dots": {
+    "agentWorking": "에이전트 작업 중",
+    "newMessages": "새 메시지"
+  },
+  "sessionMenu": {
+    "options": "옵션",
+    "sessionOptions": "세션 옵션",
+    "clearConversation": "대화 지우기",
+    "createSkill": "이 세션에서 스킬 만들기"
+  },
+  "mainTooltip": {
+    "aria": "메인 채팅 정보",
+    "title": "메인은 왜 다른가요?",
+    "line1": "메인은 에이전트의 홈 채팅이라서 삭제하거나 이름을 바꿀 수 없습니다.",
+    "line2": "예약된 작업이나 연결된 앱의 업데이트처럼 스스로 발생하는 모든 일이 여기로 도착합니다.",
+    "line3": "모든 채팅은 하나의 메모리를 공유합니다. 에이전트가 어떤 채팅에서 당신에 대해 배운 것은 어디서나 기억합니다. 다만 각 채팅은 각자의 대화를 유지하므로, 한 채팅의 메시지는 다른 채팅에서 보이지 않습니다."
+  },
+  "topBar": {
+    "playbooks": "플레이북",
+    "switchToLightMode": "라이트 모드로 전환",
+    "switchToDarkMode": "다크 모드로 전환"
+  },
+  "layout": {
+    "openMenu": "메뉴 열기",
+    "closeMenu": "메뉴 닫기"
+  },
+  "app": {
+    "wakingUp": "CraftBot을 깨우는 중"
+  },
+  "connection": {
+    "disconnectedReconnecting": "연결이 끊어졌습니다. 다시 연결하는 중...",
+    "notConnectedRetry": "연결되지 않았습니다. 잠시 후 다시 시도해 주세요."
+  },
+  "agentStatus": {
+    "waiting": "에이전트가 답변을 기다리고 있습니다",
+    "running_one": "에이전트가 {{names}} 실행 중",
+    "running_other": "에이전트가 {{names}} 실행 중",
+    "thinking": "에이전트가 생각 중",
+    "working": "에이전트가 작업 중",
+    "idle": "에이전트 대기 중",
+    "ready": "준비 완료"
+  },
+  "workspace": {
+    "failedToNavigate": "이동하지 못했습니다",
+    "failedToRefresh": "새로 고치지 못했습니다",
+    "failedToListFiles": "파일 목록을 불러오지 못했습니다",
+    "notConnected": "WebSocket이 연결되지 않았습니다",
+    "operationTimedOut": "작업 시간이 초과되었습니다",
+    "uploadFailedStatus": "업로드 실패 (HTTP {{status}})",
+    "networkErrorUpload": "업로드 중 네트워크 오류",
+    "uploadCancelled": "업로드가 취소되었습니다"
+  },
+  "skillCreator": {
+    "errors": {
+      "invalidMode": "잘못된 요청 모드입니다.",
+      "missingSessionId": "선택된 원본 세션이 없습니다.",
+      "missingSkillName": "스킬 이름을 입력하세요.",
+      "invalidSkillName": "스킬 이름 형식이 올바르지 않습니다.",
+      "reservedSkillName": "예약된 이름입니다.",
+      "sessionNotFound": "원본 세션이 더 이상 존재하지 않습니다.",
+      "skillAlreadyExists": "같은 이름의 스킬이 이미 있습니다.",
+      "skillNotFound": "대상 스킬이 더 이상 존재하지 않습니다.",
+      "workflowBusy": "다른 스킬 워크플로가 진행 중입니다. 잠시 후 다시 시도하세요.",
+      "workflowLockUnavailable": "에이전트가 준비되지 않았습니다.",
+      "unknown": "알 수 없는 오류입니다."
+    }
+  },
+  "slices": {
+    "localLlm": {
+      "installationFailed": "설치 실패",
+      "failedToStart": "Ollama를 시작하지 못했습니다",
+      "modelDownloadFailed": "모델 다운로드 실패"
+    },
+    "livingUiSettings": {
+      "backupRestored": "백업이 복원되었습니다. 앱이 다시 시작되었습니다.",
+      "restoreFailed": "복원 실패."
+    },
+    "modelSettings": {
+      "failedToPrepareSignIn": "로그인 준비에 실패했습니다",
+      "codeExchangeFailed": "코드 교환 실패"
+    },
+    "onboarding": {
+      "failedToGetStep": "단계를 가져오지 못했습니다",
+      "failedToSubmit": "제출하지 못했습니다",
+      "cannotSkip": "이 단계는 건너뛸 수 없습니다",
+      "cannotGoBack": "뒤로 갈 수 없습니다"
+    }
+  }
+}

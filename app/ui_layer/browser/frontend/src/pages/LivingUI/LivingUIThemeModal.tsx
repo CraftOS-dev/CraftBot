@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Check } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Modal, ModalBody } from '../../components/ui/Modal'
 import {
   PRESET_THEMES, ThemeMiniPreview, DEFAULT_CUSTOM_COLORS,
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function LivingUIThemeModal({ isOpen, activeTheme, customColors, onSelect, onClose }: Props) {
+  const { t } = useTranslation(['livingui', 'common'])
   const [localColors, setLocalColors] = useState<LivingUICustomColors>(customColors)
 
   const handleColorChange = (key: keyof LivingUICustomColors, value: string) => {
@@ -37,19 +39,19 @@ export function LivingUIThemeModal({ isOpen, activeTheme, customColors, onSelect
   ]
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Choose Theme" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('livingui:themeModal.title')} size="md">
       <ModalBody>
         <div className={styles.themeGrid}>
-          {PRESET_THEMES.map(({ id, label, hint, swatches }) => (
+          {PRESET_THEMES.map(({ id, labelKey, descriptionKey, swatches }) => (
             <button
               key={id}
               type="button"
               className={`${styles.themeTile} ${activeTheme === id ? styles.themeTileActive : ''}`}
               onClick={() => onSelect(id)}
-              title={hint || label}
+              title={t(descriptionKey) || t(labelKey)}
             >
               <ThemeMiniPreview style={id} swatches={swatches} />
-              <span className={styles.themeLabel}>{label}</span>
+              <span className={styles.themeLabel}>{t(labelKey)}</span>
               {activeTheme === id && (
                 <span className={styles.themeTileCheck}>
                   <Check size={10} />
@@ -65,7 +67,7 @@ export function LivingUIThemeModal({ isOpen, activeTheme, customColors, onSelect
             onClick={() => onSelect('custom', localColors)}
           >
             <ThemeMiniPreview style="craftbot" swatches={customSwatches} />
-            <span className={styles.themeLabel}>Custom</span>
+            <span className={styles.themeLabel}>{t('livingui:themeModal.custom')}</span>
             {activeTheme === 'custom' && (
               <span className={styles.themeTileCheck}>
                 <Check size={10} />
@@ -79,10 +81,10 @@ export function LivingUIThemeModal({ isOpen, activeTheme, customColors, onSelect
           <div className={styles.customColors}>
             {(
               [
-                { key: 'bg',      label: 'Background' },
-                { key: 'surface', label: 'Surface'    },
-                { key: 'text',    label: 'Text'       },
-                { key: 'accent',  label: 'Accent'     },
+                { key: 'bg',      label: t('livingui:themeModal.colorBackground') },
+                { key: 'surface', label: t('livingui:themeModal.colorSurface')    },
+                { key: 'text',    label: t('livingui:themeModal.colorText')       },
+                { key: 'accent',  label: t('livingui:themeModal.colorAccent')     },
               ] as { key: keyof LivingUICustomColors; label: string }[]
             ).map(({ key, label }) => (
               <label key={key} className={styles.colorRow}>
@@ -100,7 +102,7 @@ export function LivingUIThemeModal({ isOpen, activeTheme, customColors, onSelect
         )}
 
         <p className={styles.themeCaption}>
-          Themes adapt to light/dark mode &middot; Custom stays fixed
+          {t('livingui:themeModal.caption')}
         </p>
       </ModalBody>
     </Modal>

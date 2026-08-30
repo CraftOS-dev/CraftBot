@@ -1,0 +1,231 @@
+{
+  "header": {
+    "agentStatus": "智能体状态",
+    "uptime": "运行时长：{{uptime}}",
+    "renameLayout": "重命名布局",
+    "newLayout": "新建布局",
+    "resetLayout": "重置布局",
+    "deleteLayout": "删除布局",
+    "addWidget": "添加小组件",
+    "deleteConfirmTitle": "删除布局",
+    "deleteConfirmMessage": "删除“{{name}}”？此操作无法撤销。",
+    "resetConfirmTitle": "重置布局",
+    "resetConfirmMessage": "将“{{name}}”重置为默认排列吗？你添加的、不属于默认布局的小组件将予以保留。"
+  },
+  "addWidget": {
+    "title": "添加小组件",
+    "empty": "所有可用小组件都已在此布局上。"
+  },
+  "layoutModal": {
+    "createTitle": "新建布局",
+    "renameTitle": "重命名布局",
+    "placeholder": "布局名称"
+  },
+  "layout": {
+    "defaultName": "默认",
+    "untitledName": "未命名"
+  },
+  "grid": {
+    "emptyState": "此布局上还没有小组件。点击“添加小组件”即可开始。"
+  },
+  "widgetChrome": {
+    "remove": "移除 {{title}}"
+  },
+  "errorBoundary": {
+    "failed": "此小组件加载失败。"
+  },
+  "duration": {
+    "dhm": "{{days}} 天 {{hours}} 小时 {{minutes}} 分",
+    "hm": "{{hours}} 小时 {{minutes}} 分",
+    "m": "{{minutes}} 分"
+  },
+  "registry": {
+    "craftBotIntro": {
+      "title": "欢迎使用 CraftBot",
+      "description": "介绍 CraftBot 的能力、系统支柱和吉祥物伙伴。"
+    },
+    "taskStats": {
+      "title": "任务统计",
+      "description": "已完成、失败、运行中的任务及成功率。"
+    },
+    "tokenUsage": {
+      "title": "Token 用量",
+      "description": "输入/输出/缓存的 token 总量和占比。"
+    },
+    "systemResources": {
+      "title": "系统资源",
+      "description": "CPU、内存、磁盘、线程池和网络 I/O。"
+    },
+    "usagePatterns": {
+      "title": "使用模式",
+      "description": "每小时请求分布和使用高峰。"
+    },
+    "mcpServers": {
+      "title": "MCP 服务器",
+      "description": "已连接的服务器、调用量和常用工具。"
+    },
+    "skills": {
+      "title": "技能",
+      "description": "已启用的技能、调用次数和常用技能。"
+    },
+    "integrations": {
+      "title": "集成",
+      "description": "已连接的集成和调用量。"
+    },
+    "modelInfo": {
+      "title": "模型信息",
+      "description": "当前供应商、模型名称和模型 ID。"
+    },
+    "mascot": {
+      "title": "吉祥物",
+      "description": "会对智能体活动做出反应的 CraftBot 吉祥物。"
+    },
+    "livingUi": {
+      "title": "Living UI",
+      "description": "已安装和运行中的 Living UI。"
+    },
+    "recentActivity": {
+      "title": "近期活动",
+      "description": "所有会话中最近的操作，附带耗时和 token。"
+    }
+  },
+  "widgets": {
+    "common": {
+      "noUsage": "暂无使用记录",
+      "viewAllCount": "查看全部（{{count}}）"
+    },
+    "periodSelector": {
+      "all": "全部"
+    },
+    "craftBotIntro": {
+      "welcomeTitle": "欢迎使用 CraftBot",
+      "welcomeSubtitle": "一个智能体，胜任各种工作。",
+      "takeTour": "开始导览",
+      "backAria": "返回欢迎视图",
+      "clickMascot": "点击 CraftBot！",
+      "goToSlide": "转到第 {{number}} 张幻灯片",
+      "cards": {
+        "cloud": {
+          "categoryLabel": "CraftBot Live",
+          "title": "CraftBot Live",
+          "subtitle": "你的专属 CraftBot，始终在线",
+          "desc": "你的专属 CraftBot，始终在线",
+          "item0": "无需 SSH",
+          "item1": "无需 Docker",
+          "item2": "在你睡觉时也能运行",
+          "item3": "从任何设备访问",
+          "cta": "免费开始"
+        },
+        "livingui": {
+          "categoryLabel": "Living UI",
+          "title": "一个能构建并运营自有软件的智能体",
+          "subtitle": "只需提出应用需求，智能体便会在自己的界面内设计、编码、测试并启动它。",
+          "desc": "提出应用需求。智能体负责设计、编码、测试并启动。",
+          "item0": "看板",
+          "item1": "CRM",
+          "item2": "习惯追踪器",
+          "item3": "社区市场",
+          "cta": "浏览 Living UI 市场"
+        },
+        "bundles": {
+          "categoryLabel": "智能体套装",
+          "title": "40+ 个预建智能体角色",
+          "subtitle": "一键导入 CEO、财务和 DevOps 智能体。120 个现成剧本覆盖常见自动化场景。",
+          "desc": "CEO、财务、DevOps 及 40+ 其他角色。一键导入。",
+          "item0": "CEO 智能体",
+          "item1": "财务智能体",
+          "item2": "DevOps 工程师",
+          "item3": "120 个剧本",
+          "item4": "一键导入",
+          "cta": "获取智能体套装"
+        },
+        "community": {
+          "categoryLabel": "开源",
+          "title": "一个智能体，胜任各种工作。",
+          "subtitle": "采用 MIT 许可证，可免费自托管。持续开发，每周改进。",
+          "desc": "MIT 许可、可自托管、公开构建。",
+          "item0Label": "CraftOS-dev/CraftBot",
+          "item0Tag": "GitHub",
+          "item1Label": "加入 CraftBot 社区",
+          "item1Tag": "Discord",
+          "item2Label": "社区构建的 Living UI",
+          "item2Tag": "市场",
+          "cta": "在 GitHub 上加星"
+        }
+      }
+    },
+    "integrations": {
+      "totalCalls": "总调用次数",
+      "topIntegrations": "热门集成"
+    },
+    "mcpServers": {
+      "calls": "调用次数",
+      "topTools": "常用工具"
+    },
+    "skills": {
+      "invocations": "调用次数",
+      "topSkills": "常用技能"
+    },
+    "livingUi": {
+      "installed": "已安装",
+      "running": "运行中",
+      "projects": "项目",
+      "empty": "未安装任何 Living UI"
+    },
+    "modelInfo": {
+      "provider": "供应商",
+      "model": "模型",
+      "modelId": "模型 ID",
+      "notConfigured": "未配置",
+      "notAvailable": "无"
+    },
+    "taskStats": {
+      "completed": "已完成",
+      "failed": "失败",
+      "running": "运行中",
+      "success": "成功",
+      "total": "共 {{total}} 个"
+    },
+    "tokenUsage": {
+      "input": "输入",
+      "output": "输出",
+      "cached": "缓存",
+      "total": "共 {{total}}"
+    },
+    "usagePatterns": {
+      "requests": "请求数",
+      "peakHour": "高峰时段",
+      "peakCount": "高峰数量",
+      "barTooltip_one": "{{time}}：{{count}} 个请求",
+      "barTooltip_other": "{{time}}：{{count}} 个请求",
+      "chart": {
+        "lastHourTitle": "最近一小时",
+        "lastHourDesc": "按一天中的小时统计的请求数",
+        "last24Title": "最近 24 小时",
+        "last24Desc": "按小时统计的请求数",
+        "last7Title": "最近 7 天",
+        "last30Title": "最近 30 天",
+        "allTimeTitle": "全部时间",
+        "aggregatedDesc": "按一天中的小时汇总",
+        "defaultTitle": "每小时分布"
+      }
+    },
+    "systemResources": {
+      "cpu": "CPU",
+      "memory": "内存",
+      "disk": "磁盘",
+      "threadPool": "线程池",
+      "upload": "上传：",
+      "download": "下载："
+    },
+    "recentActivity": {
+      "empty": "暂无活动",
+      "justNow": "刚刚",
+      "minutesAgo": "{{count}} 分钟前",
+      "hoursAgo": "{{count}} 小时前",
+      "daysAgo": "{{count}} 天前",
+      "tokens_one": "{{formattedCount}} 个 token",
+      "tokens_other": "{{formattedCount}} 个 token"
+    }
+  }
+}

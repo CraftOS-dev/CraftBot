@@ -24,6 +24,7 @@ from agent_core.core.impl.memory.tuning import (
 )
 from agent_core.utils.logger import logger
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
+from app.i18n import tui
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
     # General settings
@@ -1992,7 +1993,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "update_progress",
-                    "data": {"message": f"Update failed: {e}"},
+                    "data": {"message": tui("update_failed", error=str(e))},
                 }
             )
 
@@ -2361,7 +2362,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "onboarding_skip",
                         "data": {
                             "success": False,
-                            "error": "This step is required and cannot be skipped",
+                            "error": tui("onboarding_step_required"),
                         },
                     }
                 )
@@ -2450,7 +2451,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "onboarding_back",
                         "data": {
                             "success": False,
-                            "error": "Already at the first step",
+                            "error": tui("onboarding_at_first_step"),
                         },
                     }
                 )
@@ -2617,7 +2618,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "local_llm_pull_model",
-                    "data": {"success": False, "error": "No model specified"},
+                    "data": {"success": False, "error": tui("model_no_model_specified")},
                 }
             )
             return
@@ -2717,7 +2718,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             name = str(config.get("name", "")).strip()
             description = str(config.get("description", "")).strip()
             if not name or not description:
-                raise ValueError("Name and description are required")
+                raise ValueError(tui("livingui_name_desc_required"))
 
             living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
             image_notes = self._wizard_image_notes.pop(wizard_id, None)
@@ -2856,7 +2857,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "projectId": project.id,
                         "phase": "initializing",
                         "progress": 10,
-                        "message": "Project created, starting development...",
+                        "message": tui("livingui_project_created"),
                     },
                 }
             )
@@ -2864,7 +2865,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Queue the build run in the project's dedicated session.
             session_id = await self._living_ui_manager.start_development_run(project.id)
             if not session_id:
-                raise RuntimeError("Failed to start development run")
+                raise RuntimeError(tui("livingui_dev_run_failed"))
 
             # CHAT-PATH tail: tell the session that ran living_ui_scaffold
             # which project resulted. Without this the origin agent's last
@@ -2957,7 +2958,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "living_ui_error",
                         "data": {
                             "projectId": "",
-                            "error": "Name and description are required",
+                            "error": tui("livingui_name_desc_required"),
                         },
                     }
                 )
@@ -3047,7 +3048,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "projectId": project.id,
                         "phase": "initializing",
                         "progress": 10,
-                        "message": "Project created, starting development...",
+                        "message": tui("livingui_project_created"),
                     },
                 }
             )
@@ -3070,7 +3071,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "living_ui_error",
                         "data": {
                             "projectId": project.id,
-                            "error": "Failed to start development run",
+                            "error": tui("livingui_dev_run_failed"),
                         },
                     }
                 )
@@ -3417,7 +3418,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     zip_path = tmp.name
 
             if not zip_path:
-                return web.json_response({"error": "No ZIP file uploaded"}, status=400)
+                return web.json_response(
+                    {"error": tui("livingui_no_zip")}, status=400
+                )
 
             return web.json_response(
                 {
@@ -3624,7 +3627,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             bundle_path = await self._stage_uploaded_bundle(request)
             if not bundle_path:
                 return web.json_response(
-                    {"error": "No bundle file uploaded"}, status=400
+                    {"error": tui("livingui_no_bundle")}, status=400
                 )
             result = inspect_bundle(bundle_path)
             # Read bytes into memory and delete the temp file immediately so a
@@ -3868,7 +3871,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "living_ui_error",
                     "data": {
                         "projectId": project_id,
-                        "error": "Failed to launch Living UI server",
+                        "error": tui("livingui_launch_failed"),
                     },
                 }
             )
@@ -4172,6 +4175,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             settings = {
                 "agentName": result.get("agent_name", "CraftBot"),
                 "theme": "dark",  # Theme is managed client-side
+                "language": result.get("language", "en"),
                 "agentProfilePictureUrl": result.get(
                     "agent_profile_picture_url", "/api/agent-profile-picture"
                 ),
@@ -4207,6 +4211,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             update_data = {}
             if "agentName" in settings:
                 update_data["agent_name"] = settings["agentName"]
+            if "language" in settings:
+                update_data["language"] = settings["language"]
 
             result = update_general_settings(update_data)
 
@@ -5363,7 +5369,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "memory_process_trigger",
                         "data": {
                             "success": False,
-                            "error": "Memory is disabled. Enable memory mode first.",
+                            "error": tui("memory_disabled"),
                         },
                     }
                 )
@@ -5380,7 +5386,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "memory_process_trigger",
                         "data": {
                             "success": False,
-                            "error": "No unprocessed events to process.",
+                            "error": tui("memory_no_unprocessed_events"),
                         },
                     }
                 )
@@ -5403,7 +5409,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "memory_process_trigger",
                     "data": {
                         "success": True,
-                        "message": "Memory processing run queued",
+                        "message": tui("memory_processing_queued"),
                     },
                 }
             )
@@ -5427,7 +5433,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 await self._broadcast(
                     {
                         "type": "memory_schedule_get",
-                        "data": {"success": False, "error": "Schedule not found"},
+                        "data": {"success": False, "error": tui("schedule_not_found")},
                     }
                 )
                 return
@@ -5946,7 +5952,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "model_connection_test",
                     "data": {
                         "success": False,
-                        "message": "Test failed",
+                        "message": tui("model_test_failed"),
                         "provider": provider,
                         "error": str(e),
                     },
@@ -7138,7 +7144,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             system = self._system_for(integration_id)
             if system is None:
-                success, message = False, f"Unknown integration: {integration_id}"
+                success, message = False, tui(
+                    "integration_unknown", integration_id=integration_id
+                )
             else:
                 from app.data.action.integrations._helpers import system_connect_token
 
@@ -7195,7 +7203,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             system = self._system_for(integration_id)
             if system is None:
-                success, message = False, f"Unknown integration: {integration_id}"
+                success, message = False, tui(
+                    "integration_unknown", integration_id=integration_id
+                )
             else:
                 success, message, _accounts = await system.add_account(integration_id)
             await self._broadcast(
@@ -7222,7 +7232,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "integration_connect_result",
                     "data": {
                         "success": False,
-                        "message": "OAuth cancelled",
+                        "message": tui("integration_oauth_cancelled"),
                         "id": integration_id,
                     },
                 }
@@ -7297,7 +7307,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "integration_connect_result",
                     "data": {
                         "success": False,
-                        "message": "Connection cancelled",
+                        "message": tui("integration_connection_cancelled"),
                         "id": integration_id,
                     },
                 }
@@ -7526,7 +7536,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "id": integration_id,
                             "requestId": request_id,
                             "ok": False,
-                            "message": "Add account cancelled",
+                            "message": tui("integration_add_account_cancelled"),
                         },
                         self._current_accounts(integration_id),
                     ),
@@ -7663,7 +7673,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "data": {
                             "id": integration_id,
                             "success": False,
-                            "error": "Unknown integration",
+                            "error": tui("integration_unknown_generic"),
                         },
                     }
                 )
@@ -7873,7 +7883,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "playbook_list",
                     "data": {
                         "success": False,
-                        "error": "Playbook catalogue not found.",
+                        "error": tui("playbook_catalogue_not_found"),
                         "playbooks": [],
                     },
                 }
@@ -7971,7 +7981,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "living_ui_marketplace_install",
                     "data": {
                         "success": False,
-                        "error": "App ID and name are required",
+                        "error": tui("livingui_app_id_name_required"),
                         "appId": app_id,
                     },
                 }
@@ -7994,7 +8004,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "projectId": project_id,
                     "phase": "initializing",
                     "progress": 10,
-                    "message": "Installing from marketplace...",
+                    "message": tui("livingui_installing_marketplace"),
                 },
             }
         )

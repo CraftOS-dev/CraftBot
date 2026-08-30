@@ -1,0 +1,76 @@
+{
+  "page": {
+    "notFoundTitle": "Living UI no encontrada",
+    "notFoundBody": "El proyecto de Living UI que buscas no existe o se ha eliminado.",
+    "goToChat": "Ir al chat",
+    "fullscreen": "Pantalla completa",
+    "exitFullscreen": "Salir de pantalla completa (Esc)",
+    "stop": "Detener",
+    "launch": "Iniciar",
+    "launching": "Iniciando…",
+    "stopping": "Deteniendo…",
+    "theme": "Tema",
+    "showChat": "Mostrar chat",
+    "hideChat": "Ocultar chat",
+    "launchingTitle": "Iniciando Living UI…",
+    "launchingHint": "Instalando dependencias, ejecutando pruebas, iniciando servidores",
+    "stoppingTitle": "Deteniendo Living UI…",
+    "errorTitle": "Error al crear la Living UI",
+    "deleteProject": "Eliminar proyecto",
+    "stoppedTitle": "Living UI no está en ejecución",
+    "chatPlaceholder": "Pregunta sobre esta Living UI…",
+    "deleteModalTitle": "Eliminar Living UI",
+    "deleteModalMessage": "¿Seguro que quieres eliminar \"{{name}}\"? Esta acción no se puede deshacer.",
+    "status": {
+      "creating": "creando",
+      "launching": "iniciando",
+      "ready": "lista",
+      "running": "en ejecución",
+      "stopping": "deteniendo",
+      "stopped": "detenida",
+      "error": "error"
+    }
+  },
+  "construction": {
+    "creating": "Creando {{name}}",
+    "launching": "Iniciando {{name}}",
+    "finalChecks": "Comprobaciones finales…",
+    "preparingWorkspace": "Preparando tu espacio de trabajo…",
+    "componentCount_one": "{{count}} componente",
+    "componentCount_other": "{{count}} componentes",
+    "collectionCount_one": "{{count}} colección",
+    "collectionCount_other": "{{count}} colecciones",
+    "routeCount_one": "{{count}} ruta",
+    "routeCount_other": "{{count}} rutas"
+  },
+  "themeModal": {
+    "title": "Elegir tema",
+    "custom": "Personalizado",
+    "colorBackground": "Fondo",
+    "colorSurface": "Superficie",
+    "colorText": "Texto",
+    "colorAccent": "Acento",
+    "caption": "Los temas se adaptan al modo claro/oscuro · El personalizado se mantiene fijo"
+  },
+  "themes": {
+    "craftbot": { "label": "CraftBot", "description": "La base" },
+    "modern": { "label": "Moderno", "description": "Índigo etéreo" },
+    "normal": { "label": "Normal", "description": "Azul limpio" },
+    "ocean": { "label": "Océano", "description": "Mar profundo" },
+    "forest": { "label": "Bosque", "description": "Verde musgo" },
+    "pastel": { "label": "Pastel", "description": "Lila suave" },
+    "glass": { "label": "Cristal", "description": "Cristal aurora" },
+    "classic": { "label": "Clásico", "description": "Plano y denso" },
+    "velvet": { "label": "Terciopelo", "description": "Rosa mullido" },
+    "ink": { "label": "Tinta", "description": "Mono desenfadado" },
+    "acid": { "label": "Ácido", "description": "Grisáceo y lima" },
+    "blueprint": { "label": "Plano técnico", "description": "Ficha de cuadrícula" },
+    "brutalist": { "label": "Brutalista", "description": "Bloques duros" },
+    "drafting": { "label": "Dibujo técnico", "description": "Boceto monolínea" },
+    "clay": { "label": "Arcilla", "description": "Extrusión suave" },
+    "atelier": { "label": "Atelier", "description": "Estudio minimalista" }
+  },
+  "iframe": {
+    "title": "Living UI {{id}}"
+  }
+}

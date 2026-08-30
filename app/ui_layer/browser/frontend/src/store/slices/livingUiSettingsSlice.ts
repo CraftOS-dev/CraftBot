@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { register } from '../socket/messageRegistry'
+import i18n from '../../i18n/config'
 
 // Project shape used by the Settings > Living UI tab. Distinct from the
 // project shape used by `livingUiSlice` (which drives the main /living-ui
@@ -183,8 +184,8 @@ register('living_ui_backup_restore_result', (data, dispatch) => {
         projectId: d.projectId,
         result:
           d.status === 'success'
-            ? { ok: true, message: 'Backup restored — the app was relaunched.' }
-            : { ok: false, message: d.errors?.[0] || 'Restore failed.' },
+            ? { ok: true, message: i18n.t('nav:slices.livingUiSettings.backupRestored') }
+            : { ok: false, message: d.errors?.[0] || i18n.t('nav:slices.livingUiSettings.restoreFailed') },
       }),
     )
   }

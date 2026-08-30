@@ -7,9 +7,11 @@ import {
   RotateCcw,
   X,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
+import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -36,6 +38,7 @@ interface MCPItem {
 }
 
 export function MCPSettings() {
+  const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
   const dispatch = useAppDispatch()
@@ -71,32 +74,32 @@ export function MCPSettings() {
     const cleanups = [
       onMessage('mcp_enable', (data: unknown) => {
         const d = data as { success: boolean; error?: string }
-        if (!d.success) showToast('error', d.error || 'Failed to enable server')
+        if (!d.success) showToast('error', d.error || t('settings:mcp.toast.enableFailed'))
       }),
       onMessage('mcp_disable', (data: unknown) => {
         const d = data as { success: boolean; error?: string }
-        if (!d.success) showToast('error', d.error || 'Failed to disable server')
+        if (!d.success) showToast('error', d.error || t('settings:mcp.toast.disableFailed'))
       }),
       onMessage('mcp_remove', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string }
         if (d.success) {
-          showToast('success', d.message || 'Server removed')
+          showToast('success', d.message || t('settings:mcp.toast.removed'))
           send('mcp_list')
         } else {
-          showToast('error', d.error || 'Failed to remove server')
+          showToast('error', d.error || t('settings:mcp.toast.removeFailed'))
         }
       }),
       onMessage('mcp_add_json', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string }
         setIsAdding(false)
         if (d.success) {
-          showToast('success', d.message || 'Server added')
+          showToast('success', d.message || t('settings:mcp.toast.added'))
           setShowAddModal(false)
           setCustomJsonConfig('')
           setAddError('')
           send('mcp_list')
         } else {
-          setAddError(d.error || 'Failed to add server')
+          setAddError(d.error || t('settings:mcp.toast.addFailed'))
         }
       }),
       onMessage('mcp_get_env', (data: unknown) => {
@@ -107,11 +110,11 @@ export function MCPSettings() {
         const d = data as { success: boolean; message?: string; error?: string }
         setIsSavingEnv(false)
         if (d.success) {
-          showToast('success', d.message || 'Configuration saved')
+          showToast('success', d.message || t('settings:mcp.toast.configSaved'))
           setConfigServer(null)
           send('mcp_list')
         } else {
-          showToast('error', d.error || 'Failed to update configuration')
+          showToast('error', d.error || t('settings:mcp.toast.configFailed'))
         }
       }),
     ]
@@ -141,7 +144,7 @@ export function MCPSettings() {
       env: s.env,
       needsConfig: s.env && Object.keys(s.env).length > 0 && Object.values(s.env).some(v => !v || v.trim() === '')
     }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => localeCompare(a.name, b.name))
 
   const totalServers = servers.length
   const enabledServers = servers.filter(s => s.enabled).length
@@ -152,7 +155,7 @@ export function MCPSettings() {
     send('mcp_list')
     setTimeout(() => {
       setIsReloading(false)
-      showToast('success', 'MCP servers reloaded')
+      showToast('success', t('settings:mcp.toast.reloaded'))
     }, 500)
   }
 
@@ -167,9 +170,9 @@ export function MCPSettings() {
 
   const handleRemoveServer = (name: string) => {
     confirm({
-      title: 'Remove Server',
-      message: `Remove "${name}" from configured servers?`,
-      confirmText: 'Remove',
+      title: t('settings:mcp.removeConfirmTitle'),
+      message: t('settings:mcp.removeConfirmMessage', { name }),
+      confirmText: t('common:actions.remove'),
       variant: 'danger',
     }, () => {
       send('mcp_remove', { name })
@@ -204,13 +207,13 @@ export function MCPSettings() {
     try {
       const config = JSON.parse(customJsonConfig)
       if (!config.name) {
-        setAddError('Configuration must include a "name" field')
+        setAddError(t('settings:mcp.validation.nameRequired'))
         return
       }
       setIsAdding(true)
       send('mcp_add_json', { name: config.name, config: customJsonConfig })
     } catch {
-      setAddError('Invalid JSON format')
+      setAddError(t('settings:mcp.validation.invalidJson'))
     }
   }
 
@@ -218,12 +221,12 @@ export function MCPSettings() {
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
         <div className={styles.sectionTitleRow}>
-          <h3>MCP Servers</h3>
+          <h3>{t('settings:mcp.title')}</h3>
           <Badge variant={enabledServers > 0 ? 'success' : 'default'}>
-            {enabledServers}/{totalServers}
+            {formatNumber(enabledServers)}/{formatNumber(totalServers)}
           </Badge>
         </div>
-        <p>Manage Model Context Protocol server connections</p>
+        <p>{t('settings:mcp.subtitle')}</p>
       </div>
 
       {/* Toolbar */}
@@ -231,7 +234,7 @@ export function MCPSettings() {
         <div className={styles.mcpSearch}>
           <input
             type="text"
-            placeholder="Search servers..."
+            placeholder={t('settings:mcp.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className={styles.searchInput}
@@ -244,21 +247,21 @@ export function MCPSettings() {
           disabled={isReloading}
           icon={isReloading ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
         >
-          Reload
+          {t('settings:mcp.reload')}
         </Button>
       </div>
 
       {isLoading ? (
         <div className={styles.loadingState}>
           <Loader2 size={20} className={styles.spinning} />
-          <span>Loading MCP servers...</span>
+          <span>{t('settings:mcp.loading')}</span>
         </div>
       ) : mcpList.length === 0 ? (
         <div className={styles.emptyState}>
           {searchQuery ? (
-            <p>No servers match your search.</p>
+            <p>{t('settings:mcp.noMatch')}</p>
           ) : (
-            <p>No MCP servers configured. Add a custom server to get started.</p>
+            <p>{t('settings:mcp.noneConfigured')}</p>
           )}
         </div>
       ) : (
@@ -272,10 +275,10 @@ export function MCPSettings() {
                 <div className={styles.mcpItemHeader}>
                   <span className={styles.mcpItemName}>{item.name}</span>
                   <Badge variant={item.enabled ? 'success' : 'default'}>
-                    {item.enabled ? 'Enabled' : 'Disabled'}
+                    {item.enabled ? t('common:status.enabled') : t('common:status.disabled')}
                   </Badge>
                   {item.needsConfig && (
-                    <Badge variant="warning">Needs Config</Badge>
+                    <Badge variant="warning">{t('settings:mcp.needsConfig')}</Badge>
                   )}
                 </div>
                 <p className={styles.mcpItemDesc}>{item.description}</p>
@@ -290,7 +293,7 @@ export function MCPSettings() {
                       if (server) handleConfigureServer(server)
                     }}
                     icon={<Edit2 size={14} />}
-                    title="Configure"
+                    title={t('settings:mcp.configure')}
                   />
                 )}
                 <Button
@@ -298,14 +301,14 @@ export function MCPSettings() {
                   size="sm"
                   onClick={() => handleRemoveServer(item.name)}
                   icon={<Trash2 size={14} />}
-                  title="Remove"
+                  title={t('settings:mcp.remove')}
                 />
                 <input
                   type="checkbox"
                   className={styles.toggle}
                   checked={item.enabled}
                   onChange={(e) => handleToggleServer(item.name, e.target.checked)}
-                  title={item.enabled ? 'Disable' : 'Enable'}
+                  title={item.enabled ? t('common:actions.disable') : t('common:actions.enable')}
                 />
               </div>
             </div>
@@ -320,9 +323,9 @@ export function MCPSettings() {
           onClick={() => setShowAddModal(true)}
           icon={<Plus size={14} />}
         >
-          Add Server
+          {t('settings:mcp.addServer')}
         </Button>
-        <span className={styles.hint}>Add a new MCP server with JSON configuration</span>
+        <span className={styles.hint}>{t('settings:mcp.addHint')}</span>
       </div>
 
       {/* Add Custom Server Modal */}
@@ -330,17 +333,17 @@ export function MCPSettings() {
         <div className={styles.modalOverlay} onClick={() => { setShowAddModal(false); setAddError('') }}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3>Add Custom MCP Server</h3>
+              <h3>{t('settings:mcp.add.title')}</h3>
               <button className={styles.modalClose} onClick={() => { setShowAddModal(false); setAddError('') }}>
                 <X size={18} />
               </button>
             </div>
             <div className={styles.modalBody}>
               <p className={styles.hint}>
-                Enter the MCP server configuration in JSON format. This will be added to mcp_config.json.
+                {t('settings:mcp.add.desc')}
               </p>
               <div className={styles.formGroup}>
-                <label>Server Configuration (JSON)</label>
+                <label>{t('settings:mcp.add.label')}</label>
                 <textarea
                   value={customJsonConfig}
                   onChange={(e) => setCustomJsonConfig(e.target.value)}
@@ -362,14 +365,14 @@ export function MCPSettings() {
             </div>
             <div className={styles.modalFooter}>
               <Button variant="secondary" onClick={() => { setShowAddModal(false); setAddError('') }}>
-                Cancel
+                {t('common:actions.cancel')}
               </Button>
               <Button
                 variant="primary"
                 onClick={handleAddCustomServer}
                 disabled={isAdding || !customJsonConfig.trim()}
               >
-                {isAdding ? 'Adding...' : 'Add Server'}
+                {isAdding ? t('settings:mcp.add.adding') : t('settings:mcp.add.submit')}
               </Button>
             </div>
           </div>
@@ -381,17 +384,17 @@ export function MCPSettings() {
         <div className={styles.modalOverlay} onClick={() => setConfigServer(null)}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3>Configure {configServer.name}</h3>
+              <h3>{t('settings:mcp.env.title', { name: configServer.name })}</h3>
               <button className={styles.modalClose} onClick={() => setConfigServer(null)}>
                 <X size={18} />
               </button>
             </div>
             <div className={styles.modalBody}>
               <p className={styles.hint}>
-                Set the required environment variables for this MCP server.
+                {t('settings:mcp.env.desc')}
               </p>
               {Object.keys(configServer.env).length === 0 ? (
-                <p>No environment variables to configure.</p>
+                <p>{t('settings:mcp.env.none')}</p>
               ) : (
                 Object.entries(configServer.env).map(([key]) => (
                   <div key={key} className={styles.formGroup}>
@@ -400,7 +403,7 @@ export function MCPSettings() {
                       type={key.toLowerCase().includes('key') || key.toLowerCase().includes('token') || key.toLowerCase().includes('secret') ? 'password' : 'text'}
                       value={envValues[key] || ''}
                       onChange={(e) => setEnvValues(prev => ({ ...prev, [key]: e.target.value }))}
-                      placeholder={`Enter ${key}...`}
+                      placeholder={t('settings:mcp.env.placeholder', { key })}
                     />
                   </div>
                 ))
@@ -408,14 +411,14 @@ export function MCPSettings() {
             </div>
             <div className={styles.modalFooter}>
               <Button variant="secondary" onClick={() => setConfigServer(null)}>
-                Cancel
+                {t('common:actions.cancel')}
               </Button>
               <Button
                 variant="primary"
                 onClick={handleSaveEnv}
                 disabled={isSavingEnv}
               >
-                {isSavingEnv ? 'Saving...' : 'Save'}
+                {isSavingEnv ? t('common:status.saving') : t('common:actions.save')}
               </Button>
             </div>
           </div>

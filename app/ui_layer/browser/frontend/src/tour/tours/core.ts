@@ -1,9 +1,10 @@
 import type { TourDefinition } from '../types'
 
-// The first-run orientation tour. This is pure data: adding, reordering, or
-// rewording a step is a one-line edit here with no engine changes. Keep it
-// short (orientation, not documentation) — deeper surfaces are better served
-// by their own contextual mini-tours added to the registry later.
+// The first-run orientation tour. This is pure structure: adding, reordering,
+// or repositioning a step is a one-line edit here with no engine changes. The
+// step copy (title + description) is NOT stored here — it lives in the `tour`
+// i18n catalog keyed by step id (`tour:steps.<id>.title` / `.description`), so
+// it stays translatable. Keep the tour short (orientation, not documentation).
 export const coreTour: TourDefinition = {
   id: 'core',
   autoStart: true,
@@ -13,19 +14,11 @@ export const coreTour: TourDefinition = {
       // draft session rather than the user's persistent Main session.
       id: 'welcome',
       env: ['openNewChat'],
-      popover: {
-        title: 'Welcome to CraftBot',
-        description:
-          'Here is a quick tour of the essentials. It takes about a minute.',
-      },
     },
     {
       id: 'chat-composer',
       anchor: 'chat-composer',
       popover: {
-        title: 'Talk to CraftBot',
-        description:
-          'Type anything here: a question, a task, attach files, or a whole project. Communicate with CraftBot like you would with human over text messages.',
         side: 'top',
         align: 'center',
       },
@@ -38,9 +31,6 @@ export const coreTour: TourDefinition = {
       anchor: 'nav-main-session',
       env: ['ensureSidebarVisible', 'ensureChatsExpanded'],
       popover: {
-        title: 'Your Main chat',
-        description:
-          "Main is the agent's home chat: it can't be deleted or renamed, and anything that happens on its own (like scheduled tasks or updates from connected apps) arrives here.",
         side: 'right',
         align: 'start',
       },
@@ -50,9 +40,6 @@ export const coreTour: TourDefinition = {
       anchor: 'nav-living-ui',
       env: ['ensureSidebarVisible', 'closeLivingUIModal'],
       popover: {
-        title: 'Living UI apps',
-        description:
-          'Ask CraftBot to build you a real app (a tracker, a CRM, a dashboard) and it appears here, built and running. There are three ways to add one:',
         side: 'right',
         align: 'start',
       },
@@ -64,9 +51,6 @@ export const coreTour: TourDefinition = {
       env: ['openLivingUIModal', { id: 'openLivingUITab', arg: 'marketplace' }],
       anchor: 'livingui-tab-marketplace',
       popover: {
-        title: 'Marketplace',
-        description:
-          'Install a ready-made app from the community marketplace with a single click.',
         side: 'bottom',
         align: 'start',
       },
@@ -76,9 +60,6 @@ export const coreTour: TourDefinition = {
       env: ['openLivingUIModal', { id: 'openLivingUITab', arg: 'custom' }],
       anchor: 'livingui-tab-custom',
       popover: {
-        title: 'Create Custom',
-        description:
-          'Describe what you want and the agent builds it: configure a few basics, answer a short interview, then it writes the spec and builds the app.',
         side: 'bottom',
         align: 'center',
       },
@@ -88,9 +69,6 @@ export const coreTour: TourDefinition = {
       env: ['openLivingUIModal', { id: 'openLivingUITab', arg: 'import' }],
       anchor: 'livingui-tab-import',
       popover: {
-        title: 'Import',
-        description:
-          'Bring in an existing Living UI from a ZIP, a folder, or a git URL.',
         side: 'bottom',
         align: 'end',
       },
@@ -104,9 +82,6 @@ export const coreTour: TourDefinition = {
       anchor: 'nav-dashboard',
       env: ['closeLivingUIModal', 'ensureSidebarVisible'],
       popover: {
-        title: 'CraftBot Dashboard',
-        description:
-          'A live control room for CraftBot, tracking usage, activity, and system health.',
         side: 'right',
         align: 'start',
       },
@@ -117,9 +92,6 @@ export const coreTour: TourDefinition = {
       anchor: 'nav-memory',
       env: ['ensureSidebarVisible'],
       popover: {
-        title: 'CraftBot memory',
-        description:
-          'Everything CraftBot learns about you and your work lives here as a browsable graph of memories, entities, and files. The more you use CraftBot, the better it remembers you.',
         side: 'right',
         align: 'start',
       },
@@ -130,8 +102,6 @@ export const coreTour: TourDefinition = {
       anchor: 'nav-workspace',
       env: ['ensureSidebarVisible'],
       popover: {
-        title: 'CraftBot workspace',
-        description: "CraftBot's dedicated file system. Browse the files your agent reads and writes, and upload your own.",
         side: 'right',
         align: 'start',
       },
@@ -141,9 +111,6 @@ export const coreTour: TourDefinition = {
       route: '/settings',
       anchor: 'settings-categories',
       popover: {
-        title: 'Settings',
-        description:
-          'Configure your agent here. A few areas worth knowing:',
         side: 'right',
         align: 'start',
       },
@@ -154,9 +121,6 @@ export const coreTour: TourDefinition = {
       anchor: 'settings-proactive',
       env: [{ id: 'openSettingsTab', arg: 'proactive' }],
       popover: {
-        title: 'Proactive',
-        description:
-          'Let your agent work on its own: run scheduled tasks and react to events without being asked.',
         side: 'right',
         align: 'center',
       },
@@ -167,9 +131,6 @@ export const coreTour: TourDefinition = {
       anchor: 'settings-skills',
       env: [{ id: 'openSettingsTab', arg: 'skills' }],
       popover: {
-        title: 'Skills',
-        description:
-          'Add reusable capabilities so your agent knows how to carry out specific tasks.',
         side: 'right',
         align: 'center',
       },
@@ -180,9 +141,6 @@ export const coreTour: TourDefinition = {
       anchor: 'settings-integrations',
       env: [{ id: 'openSettingsTab', arg: 'integrations' }],
       popover: {
-        title: 'Integrations',
-        description:
-          'Connect apps like Gmail, Calendar, and Notion so your agent can work across them.',
         side: 'right',
         align: 'center',
       },
@@ -191,11 +149,6 @@ export const coreTour: TourDefinition = {
       // Return to a fresh New Chat so the user lands ready to start working.
       id: 'done',
       env: ['openNewChat'],
-      popover: {
-        title: "You're all set",
-        description:
-          'That is the end of this tour. Start giving CraftBot tasks to work for you.',
-      },
     },
   ],
 }

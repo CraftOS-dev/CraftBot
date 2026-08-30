@@ -340,6 +340,7 @@ def get_general_settings() -> Dict[str, Any]:
         Dict containing current settings
     """
     from app.onboarding import onboarding_manager
+    from app.config import get_ui_language
 
     picture_info = get_agent_profile_picture_info()
 
@@ -347,6 +348,7 @@ def get_general_settings() -> Dict[str, Any]:
         "agent_name": onboarding_manager.state.agent_name or "Agent",
         "agent_profile_picture_url": picture_info["url"],
         "agent_profile_picture_has_custom": picture_info["has_custom"],
+        "language": get_ui_language(),
         # Theme is handled client-side (stored in localStorage)
         # Add more settings here as needed
     }
@@ -362,11 +364,15 @@ def update_general_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         Dict with 'success' and optional 'error' fields
     """
     from app.onboarding import onboarding_manager
+    from app.config import set_ui_language
 
     try:
         if "agent_name" in settings:
             onboarding_manager.state.agent_name = settings["agent_name"]
             onboarding_manager.save()
+
+        if "language" in settings:
+            set_ui_language(settings["language"])
 
         return {"success": True}
     except Exception as e:

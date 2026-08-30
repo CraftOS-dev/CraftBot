@@ -9,6 +9,7 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { FullscreenProvider } from './contexts/FullscreenContext'
 import { store } from './store'
+import './i18n/config'
 import './styles/global.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

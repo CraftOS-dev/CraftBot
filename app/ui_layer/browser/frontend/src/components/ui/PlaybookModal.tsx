@@ -12,6 +12,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { MarkdownContent } from './MarkdownContent'
@@ -48,6 +49,7 @@ interface Playbook {
 const DEFAULT_EMOJI = '📖'
 
 export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
+  const { t } = useTranslation(['components', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
   const enabledSkills = useAppSelector(selectEnabledSkillNames)
@@ -80,7 +82,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
         setPlaybooks(d.playbooks)
         setError(null)
       } else {
-        setError(d.error || 'Failed to load playbooks')
+        setError(d.error || t('components:playbookModal.loadFailed'))
       }
     })
   }, [onMessage])
@@ -148,7 +150,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
         title={
           <span className={styles.titleRow}>
             <BookOpen size={18} className={styles.titleIcon} />
-            Playbook
+            {t('components:playbookModal.detailTitle')}
           </span>
         }
       >
@@ -159,7 +161,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
             onClick={() => setSelectedPlaybook(null)}
           >
             <ArrowLeft size={14} />
-            Back to all playbooks
+            {t('components:playbookModal.backToAll')}
           </button>
 
           <div className={styles.detailHeader}>
@@ -177,17 +179,17 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
           {(wbw.agent_profile || (wbw.skills && wbw.skills.length) || (wbw.mcp_servers && wbw.mcp_servers.length) || (wbw.living_ui_apps && wbw.living_ui_apps.length)) && (
             <div className={styles.section}>
               <div className={styles.sectionLabel}>
-                Works best with
+                {t('components:playbookModal.worksBestWith')}
                 <span
                   className={styles.sectionHint}
-                  title="These are hints — CraftBot can run the prompt without them, and will offer to help install anything missing."
+                  title={t('components:playbookModal.worksBestWithHint')}
                 >
                   ?
                 </span>
               </div>
               <div className={styles.chips}>
                 {wbw.agent_profile && (
-                  <span className={styles.chip} title="Suggested agent profile">
+                  <span className={styles.chip} title={t('components:playbookModal.suggestedAgentProfile')}>
                     <UserCircle size={12} />
                     {wbw.agent_profile}
                   </span>
@@ -198,7 +200,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                     <span
                       key={`skill-${skill}`}
                       className={`${styles.chip} ${installed ? styles.chipInstalled : ''}`}
-                      title={installed ? 'Skill already enabled' : 'Suggested skill'}
+                      title={installed ? t('components:playbookModal.skillEnabled') : t('components:playbookModal.suggestedSkill')}
                     >
                       <Wrench size={12} />
                       {skill}
@@ -207,13 +209,13 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                   )
                 })}
                 {(wbw.mcp_servers || []).map(mcp => (
-                  <span key={`mcp-${mcp}`} className={styles.chip} title="Suggested MCP server">
+                  <span key={`mcp-${mcp}`} className={styles.chip} title={t('components:playbookModal.suggestedMcp')}>
                     <Server size={12} />
                     {mcp}
                   </span>
                 ))}
                 {(wbw.living_ui_apps || []).map(app => (
-                  <span key={`app-${app}`} className={styles.chip} title="Suggested Living UI app">
+                  <span key={`app-${app}`} className={styles.chip} title={t('components:playbookModal.suggestedApp')}>
                     <Layout size={12} />
                     {app}
                   </span>
@@ -224,7 +226,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
 
           {selectedPlaybook.description && (
             <div className={styles.section}>
-              <div className={styles.sectionLabel}>About</div>
+              <div className={styles.sectionLabel}>{t('components:playbookModal.about')}</div>
               <MarkdownContent
                 content={selectedPlaybook.description}
                 className={styles.description}
@@ -234,7 +236,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
 
           {selectedPlaybook.steps && selectedPlaybook.steps.length > 0 && (
             <div className={styles.section}>
-              <div className={styles.sectionLabel}>What CraftBot will do</div>
+              <div className={styles.sectionLabel}>{t('components:playbookModal.whatItWillDo')}</div>
               <ol className={styles.steps}>
                 {selectedPlaybook.steps.map((step, idx) => (
                   <li key={idx} className={styles.step}>
@@ -246,19 +248,19 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
           )}
 
           <div className={styles.section}>
-            <div className={styles.sectionLabel}>Prompt preview</div>
+            <div className={styles.sectionLabel}>{t('components:playbookModal.promptPreview')}</div>
             <pre className={styles.promptPreview}>{selectedPlaybook.prompt}</pre>
           </div>
 
           <div className={styles.detailFooter}>
             <Button variant="secondary" onClick={() => setSelectedPlaybook(null)}>
-              Back
+              {t('common:actions.back')}
             </Button>
             <Button
               icon={<Zap size={14} />}
               onClick={() => handleUse(selectedPlaybook)}
             >
-              Use this playbook
+              {t('components:playbookModal.useButton')}
             </Button>
           </div>
         </div>
@@ -275,7 +277,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
       title={
         <span className={styles.titleRow}>
           <BookOpen size={18} className={styles.titleIcon} />
-          Playbooks
+          {t('components:playbookModal.title')}
         </span>
       }
     >
@@ -285,7 +287,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
             <Search size={14} className={styles.searchIcon} />
             <input
               className={styles.searchInput}
-              placeholder="Search playbooks..."
+              placeholder={t('components:playbookModal.searchPlaceholder')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               autoFocus
@@ -301,7 +303,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                   className={`${styles.tagChip} ${selectedTags.size === 0 ? styles.tagChipActive : ''}`}
                   onClick={() => setSelectedTags(new Set())}
                 >
-                  All
+                  {t('components:playbookModal.filterAll')}
                 </button>
                 {visibleTags.map(tag => (
                   <button
@@ -319,7 +321,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                     className={styles.tagChip}
                     onClick={() => setTagsExpanded(v => !v)}
                   >
-                    {tagsExpanded ? 'Show less' : `+${hiddenCount} more`}
+                    {tagsExpanded ? t('common:actions.showLess') : t('components:playbookModal.moreCount', { count: hiddenCount })}
                   </button>
                 )}
               </div>
@@ -344,18 +346,18 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                   send('playbook_list')
                 }}
               >
-                Retry
+                {t('common:actions.retry')}
               </Button>
             </div>
           ) : playbooks.length === 0 ? (
             <div className={styles.stateCenter}>
               <Sparkles size={32} className={styles.stateIcon} />
-              <p className={styles.stateText}>No playbooks available yet.</p>
+              <p className={styles.stateText}>{t('components:playbookModal.emptyNone')}</p>
             </div>
           ) : filteredPlaybooks.length === 0 ? (
             <div className={styles.stateCenter}>
               <Search size={32} className={styles.stateIcon} />
-              <p className={styles.stateText}>No playbooks match your filters.</p>
+              <p className={styles.stateText}>{t('components:playbookModal.emptyFiltered')}</p>
             </div>
           ) : (
             <div className={styles.grid}>

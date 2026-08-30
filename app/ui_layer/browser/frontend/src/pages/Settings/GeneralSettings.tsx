@@ -14,6 +14,7 @@ import {
   Package,
   PackageOpen,
   Compass,
+  Save,
 } from 'lucide-react'
 import {
   Button,
@@ -25,10 +26,14 @@ import {
   type ProfileBundleManifest,
   type ProfileBundlePreview,
 } from '../../components/ui'
+import { useTranslation, Trans } from 'react-i18next'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTour } from '../../tour'
 import { useConfirmModal } from '../../hooks'
+import i18n, { setUiLanguage } from '../../i18n/config'
+import { SUPPORTED_LANGUAGES, resolveSupportedLanguage } from '../../i18n/languages'
+import { formatList } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
@@ -73,7 +78,13 @@ function getInitialAgentName(): string {
   return localStorage.getItem('craftbot-agent-name') || 'CraftBot'
 }
 
+// Get initial UI language from the already-resolved i18n instance
+function getInitialLanguage(): string {
+  return i18n.language || 'en'
+}
+
 export function GeneralSettings() {
+  const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
   const { startTour } = useTour()
@@ -84,6 +95,8 @@ export function GeneralSettings() {
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
   const [theme, setTheme] = useState(getInitialTheme)
   const [initialTheme, setInitialTheme] = useState(getInitialTheme)
+  const [language, setLanguage] = useState(getInitialLanguage)
+  const [initialLanguage, setInitialLanguage] = useState(getInitialLanguage)
   const [isResetting, setIsResetting] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [showResetModal, setShowResetModal] = useState(false)
@@ -195,7 +208,8 @@ export function GeneralSettings() {
   const isUserMdDirty = userMdContent !== originalUserMdContent
   const isAgentMdDirty = agentMdContent !== originalAgentMdContent
   const isSoulMdDirty = soulMdContent !== originalSoulMdContent
-  const isGeneralSettingsDirty = agentName !== initialAgentName || theme !== initialTheme
+  const isGeneralSettingsDirty =
+    agentName !== initialAgentName || theme !== initialTheme || language !== initialLanguage
 
   // Sync local theme when global theme changes (e.g., from TopBar button)
   useEffect(() => {
@@ -235,6 +249,7 @@ export function GeneralSettings() {
           settings?: {
             agentName: string
             theme: string
+            language?: string
             agentProfilePictureUrl?: string
             agentProfilePictureHasCustom?: boolean
           }
@@ -242,6 +257,13 @@ export function GeneralSettings() {
         if (d.success && d.settings) {
           setAgentName(d.settings.agentName)
           setTheme(d.settings.theme)
+          if (d.settings.language) {
+            // Server value is authoritative; normalize to a supported UI language.
+            const resolved = resolveSupportedLanguage(d.settings.language) ?? 'en'
+            setLanguage(resolved)
+            setInitialLanguage(resolved)
+            setUiLanguage(resolved)
+          }
           if (d.settings.agentProfilePictureUrl) {
             setProfilePictureUrl(d.settings.agentProfilePictureUrl)
           }
@@ -258,7 +280,7 @@ export function GeneralSettings() {
           setHasCustomPicture(d.has_custom ?? true)
           setPictureError(null)
         } else {
-          setPictureError(d.error || 'Upload failed')
+          setPictureError(d.error || t('common:status.uploadFailed'))
         }
       }),
       onMessage('agent_profile_picture_remove', (data: unknown) => {
@@ -268,7 +290,7 @@ export function GeneralSettings() {
           setHasCustomPicture(d.has_custom ?? false)
           setPictureError(null)
         } else {
-          setPictureError(d.error || 'Remove failed')
+          setPictureError(d.error || t('common:status.removeFailed'))
         }
       }),
       onMessage('settings_update', (data: unknown) => {
@@ -389,13 +411,17 @@ export function GeneralSettings() {
       setGlobalTheme(theme as 'dark' | 'light')
     }
 
+    // Language is applied live on selection; persist the choice on save.
+    setUiLanguage(language)
+
     // Update the initial values to mark as not dirty
     // This triggers the useEffect that applies the theme
     setInitialAgentName(agentName)
     setInitialTheme(theme)
+    setInitialLanguage(language)
 
     // Send to backend (for potential server-side persistence)
-    send('settings_update', { settings: { agentName, theme } })
+    send('settings_update', { settings: { agentName, theme, language } })
 
     // Show success feedback
     setIsSaving(false)
@@ -428,7 +454,7 @@ export function GeneralSettings() {
     }
     reader.onerror = () => {
       setIsUploadingPicture(false)
-      setPictureError('Could not read file')
+      setPictureError(t('common:status.couldNotReadFile'))
     }
     reader.readAsDataURL(file)
   }
@@ -461,9 +487,9 @@ export function GeneralSettings() {
 
   const handleRestoreUserMd = () => {
     confirm({
-      title: 'Restore USER.md',
-      message: 'Are you sure you want to restore USER.md to its default template? This will overwrite your current customizations.',
-      confirmText: 'Restore',
+      title: t('settings:general.advanced.restoreConfirmTitle', { file: 'USER.md' }),
+      message: t('settings:general.advanced.restoreConfirmMessage', { file: 'USER.md' }),
+      confirmText: t('common:actions.restore'),
       variant: 'danger',
     }, () => {
       setIsRestoringUserMd(true)
@@ -473,9 +499,9 @@ export function GeneralSettings() {
 
   const handleRestoreAgentMd = () => {
     confirm({
-      title: 'Restore AGENT.md',
-      message: 'Are you sure you want to restore AGENT.md to its default template? This will overwrite your current customizations.',
-      confirmText: 'Restore',
+      title: t('settings:general.advanced.restoreConfirmTitle', { file: 'AGENT.md' }),
+      message: t('settings:general.advanced.restoreConfirmMessage', { file: 'AGENT.md' }),
+      confirmText: t('common:actions.restore'),
       variant: 'danger',
     }, () => {
       setIsRestoringAgentMd(true)
@@ -496,11 +522,11 @@ export function GeneralSettings() {
 
   const handleDoUpdate = () => {
     confirm({
-      title: 'Update CraftBot',
+      title: t('settings:general.update.confirmTitle'),
       message: latestVersion === version
-        ? 'Are you sure you want to update CraftBot to the latest changes on main? The application will restart automatically after the update.'
-        : `Are you sure you want to update CraftBot to v${latestVersion}? The application will restart automatically after the update.`,
-      confirmText: 'Update',
+        ? t('settings:general.update.confirmMessageMain')
+        : t('settings:general.update.confirmMessage', { version: latestVersion }),
+      confirmText: t('settings:general.update.confirmButton'),
       variant: 'danger',
     }, () => {
       setIsUpdating(true)
@@ -511,9 +537,9 @@ export function GeneralSettings() {
 
   const handleRestoreSoulMd = () => {
     confirm({
-      title: 'Restore SOUL.md',
-      message: 'Are you sure you want to restore SOUL.md to its default template? This will overwrite your current personality customizations.',
-      confirmText: 'Restore',
+      title: t('settings:general.advanced.restoreConfirmTitle', { file: 'SOUL.md' }),
+      message: t('settings:general.advanced.restoreConfirmMessageSoul'),
+      confirmText: t('common:actions.restore'),
       variant: 'danger',
     }, () => {
       setIsRestoringSoulMd(true)
@@ -530,7 +556,7 @@ export function GeneralSettings() {
       const response = await fetch('/api/profile/export')
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
-        throw new Error(body.error || `Export failed (${response.status})`)
+        throw new Error(body.error || t('settings:general.profile.exportFailedStatus', { status: response.status }))
       }
       const blob = await response.blob()
       const disposition = response.headers.get('Content-Disposition') || ''
@@ -546,9 +572,9 @@ export function GeneralSettings() {
       link.remove()
       URL.revokeObjectURL(url)
 
-      setProfileStatus({ type: 'success', message: 'Profile exported' })
+      setProfileStatus({ type: 'success', message: t('settings:general.profile.exported') })
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Export failed'
+      const msg = err instanceof Error ? err.message : t('settings:general.profile.exportFailed')
       setProfileStatus({ type: 'error', message: msg })
     } finally {
       setIsExportingProfile(false)
@@ -583,13 +609,13 @@ export function GeneralSettings() {
       })
       const data = await response.json()
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Could not read bundle')
+        throw new Error(data.error || t('settings:general.profile.couldNotReadBundle'))
       }
       setImportManifest(data.manifest)
       setImportPreview(data.preview)
       setImportBundleToken(data.bundle_token)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not read bundle'
+      const msg = err instanceof Error ? err.message : t('settings:general.profile.couldNotReadBundle')
       setImportError(msg)
     }
   }
@@ -614,31 +640,37 @@ export function GeneralSettings() {
       })
       const data = await response.json()
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Import failed')
+        throw new Error(data.error || t('settings:general.profile.importFailed'))
       }
 
       const summary = data.summary || {}
       const parts: string[] = []
-      if (summary.skills_added?.length) parts.push(`${summary.skills_added.length} skill(s)`)
-      if (summary.mcp_added?.length) parts.push(`${summary.mcp_added.length} MCP server(s)`)
-      if (summary.living_ui_added?.length || summary.living_ui_renamed?.length) {
-        parts.push(
-          `${(summary.living_ui_added?.length || 0) + (summary.living_ui_renamed?.length || 0)} Living UI app(s)`
-        )
+      if (summary.skills_added?.length) {
+        parts.push(t('settings:general.profile.skillCount', { count: summary.skills_added.length }))
       }
-      const verb = mode === 'overwrite' ? 'Overwrote agent with' : 'Imported'
-      const what = parts.length > 0 ? parts.join(', ') : 'profile'
+      if (summary.mcp_added?.length) {
+        parts.push(t('settings:general.profile.mcpCount', { count: summary.mcp_added.length }))
+      }
+      const livingUiCount =
+        (summary.living_ui_added?.length || 0) + (summary.living_ui_renamed?.length || 0)
+      if (livingUiCount) {
+        parts.push(t('settings:general.profile.livingUiCount', { count: livingUiCount }))
+      }
+      const what = parts.length > 0 ? formatList(parts) : t('settings:general.profile.profileWord')
 
       setProfileStatus({
         type: 'success',
-        message: `${verb} ${what}.`,
+        message:
+          mode === 'overwrite'
+            ? t('settings:general.profile.importedOverwrite', { what })
+            : t('settings:general.profile.importedMerge', { what }),
       })
       setShowImportModal(false)
       setImportManifest(null)
       setImportPreview(null)
       setImportBundleToken(null)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Import failed'
+      const msg = err instanceof Error ? err.message : t('settings:general.profile.importFailed')
       setImportError(msg)
     } finally {
       setIsApplyingImport(false)
@@ -648,17 +680,17 @@ export function GeneralSettings() {
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
-        <h3>General Settings</h3>
-        <p>Configure basic agent settings and preferences</p>
+        <h3>{t('settings:general.title')}</h3>
+        <p>{t('settings:general.subtitle')}</p>
       </div>
 
       <div className={styles.settingsForm}>
         <div className={styles.formGroup}>
-          <label>Avatar</label>
+          <label>{t('settings:general.avatar.label')}</label>
           <div className={styles.profilePictureRow}>
             <img
               src={profilePictureUrl}
-              alt="Agent avatar"
+              alt={t('settings:general.avatar.alt')}
               className={styles.profilePreview}
             />
             <div className={styles.profilePictureActions}>
@@ -681,7 +713,7 @@ export function GeneralSettings() {
                   )
                 }
               >
-                {isUploadingPicture ? 'Uploading...' : 'Upload'}
+                {isUploadingPicture ? t('common:status.uploading') : t('common:actions.upload')}
               </Button>
               {hasCustomPicture && (
                 <Button
@@ -690,13 +722,13 @@ export function GeneralSettings() {
                   disabled={isUploadingPicture}
                   icon={<Trash2 size={14} />}
                 >
-                  Remove
+                  {t('common:actions.remove')}
                 </Button>
               )}
             </div>
           </div>
           <span className={styles.hint}>
-            Shown next to agent messages in chat. PNG/JPG/WEBP/GIF, max 5 MB.
+            {t('settings:general.avatar.hint')}
           </span>
           {pictureError && (
             <span className={styles.statusError}>
@@ -706,88 +738,108 @@ export function GeneralSettings() {
         </div>
 
         <div className={styles.formGroup}>
-          <label>Agent Name</label>
+          <label>{t('settings:general.agentName.label')}</label>
           <input
             type="text"
             value={agentName}
             onChange={(e) => setAgentName(e.target.value)}
-            placeholder="Enter agent name"
+            placeholder={t('settings:general.agentName.placeholder')}
           />
-          <span className={styles.hint}>The name displayed in conversations</span>
+          <span className={styles.hint}>{t('settings:general.agentName.hint')}</span>
         </div>
 
         <div className={styles.formGroup}>
-          <label>Theme</label>
+          <label>{t('settings:general.theme.label')}</label>
           <select value={theme} onChange={(e) => setTheme(e.target.value)}>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-            <option value="system">System</option>
+            <option value="dark">{t('settings:general.theme.dark')}</option>
+            <option value="light">{t('settings:general.theme.light')}</option>
+            <option value="system">{t('settings:general.theme.system')}</option>
           </select>
         </div>
 
         <div className={styles.formGroup}>
-          <label>Product Tour</label>
+          <label>{t('settings:general.language.label')}</label>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+          >
+            {SUPPORTED_LANGUAGES.map(l => (
+              <option key={l.code} value={l.code}>{l.label}</option>
+            ))}
+          </select>
+          <span className={styles.hint}>{t('settings:general.language.hint')}</span>
+        </div>
+
+        <div className={styles.formGroup}>
+          <label>{t('settings:general.tour.label')}</label>
           <div>
             <Button
               variant="secondary"
               icon={<Compass size={14} />}
               onClick={() => startTour('core', { restart: true })}
             >
-              Take the tour
+              {t('settings:general.tour.button')}
             </Button>
           </div>
           <span className={styles.hint}>
-            Replay the guided walkthrough of the CraftBot interface.
+            {t('settings:general.tour.hint')}
           </span>
         </div>
       </div>
 
-      <div className={styles.sectionFooter}>
+      <div className={styles.generalSaveRow}>
         <Button
           variant="primary"
           onClick={handleSaveSettings}
           disabled={isSaving || !isGeneralSettingsDirty}
+          icon={isSaving ? <Loader2 size={14} className={styles.spinning} /> : <Save size={14} />}
         >
-          {isSaving ? 'Saving...' : 'Save Changes'}
+          {isSaving ? t('common:status.saving') : t('common:actions.saveChanges')}
         </Button>
         {saveStatus === 'success' && (
           <span className={styles.statusSuccess}>
-            <Check size={14} /> Settings saved
+            <Check size={14} /> {t('common:status.settingsSaved')}
           </span>
         )}
         {saveStatus === 'error' && (
           <span className={styles.statusError}>
-            <X size={14} /> Save failed
+            <X size={14} /> {t('common:status.saveFailed')}
           </span>
         )}
       </div>
+
+      <div className={styles.generalDivider} />
 
       {/* Version & Updates Section */}
       <div className={styles.dangerZone} style={{ background: 'rgba(59, 130, 246, 0.05)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
         <div className={styles.dangerHeader}>
           <Download size={18} style={{ color: 'var(--text-primary)' }} />
-          <h4 style={{ color: 'var(--text-primary)' }}>Version & Updates</h4>
+          <h4 style={{ color: 'var(--text-primary)' }}>{t('settings:general.update.title')}</h4>
         </div>
         <p className={styles.dangerDescription}>
           {isCheckingUpdate ? (<>
-            Current version: v{version}<br />
-            Checking the latest version from GitHub...
+            {t('settings:general.update.currentVersion', { version })}<br />
+            {t('settings:general.update.checking')}
           </>) : updateCheckDone && updateAvailable ? (<>
-            Current version: v{version}<br />
-            {!isSameVersionUpdate && <>Latest version: v{latestVersion}<br /></>}
+            {t('settings:general.update.currentVersion', { version })}<br />
+            {!isSameVersionUpdate && <>{t('settings:general.update.latestVersion', { latestVersion })}<br /></>}
             {isSameVersionUpdate
-              ? 'New changes are available on the main branch. '
-              : 'A newer version is available on GitHub. '}
-            Updating will pull the latest code, install dependencies, and restart CraftBot automatically.
+              ? t('settings:general.update.availableBodyMain')
+              : t('settings:general.update.availableBodyGeneric')}
           </>) : updateCheckDone && updateBranch ? (<>
-            Current version: v{version}<br />
-            You are on branch <strong>{updateBranch}</strong>. Updates are only applied on the main branch — switch to main to update CraftBot.
+            {t('settings:general.update.currentVersion', { version })}<br />
+            <Trans
+              ns="settings"
+              i18nKey="general.update.onBranch"
+              values={{ branch: updateBranch }}
+              components={{ 1: <strong /> }}
+            />
           </>) : updateCheckDone ? (<>
-            Current version: v{version}<br />
-            You are running the latest version. No updates are available at this time.
+            {t('settings:general.update.currentVersion', { version })}<br />
+            {t('settings:general.update.upToDate')}
           </>) : (<>
-            Current version: v{version}<br />
-            Check GitHub for the latest available version.
+            {t('settings:general.update.currentVersion', { version })}<br />
+            {t('settings:general.update.checkPrompt')}
           </>)}
         </p>
         {isCheckingUpdate ? (
@@ -796,7 +848,7 @@ export function GeneralSettings() {
             disabled
             icon={<Loader2 size={14} className={styles.spinning} />}
           >
-            Checking...
+            {t('settings:general.update.checkingButton')}
           </Button>
         ) : updateCheckDone && updateAvailable ? (
           <Button
@@ -805,7 +857,11 @@ export function GeneralSettings() {
             disabled={isUpdating}
             icon={isUpdating ? <Loader2 size={14} className={styles.spinning} /> : <Download size={14} />}
           >
-            {isUpdating ? 'Updating...' : isSameVersionUpdate ? 'Update to latest' : `Update to v${latestVersion}`}
+            {isUpdating
+              ? t('settings:general.update.updatingButton')
+              : isSameVersionUpdate
+                ? t('settings:general.update.updateToLatest')
+                : t('settings:general.update.updateButton', { latestVersion })}
           </Button>
         ) : (
           <Button
@@ -813,7 +869,7 @@ export function GeneralSettings() {
             onClick={handleCheckUpdate}
             icon={<RefreshCw size={14} />}
           >
-            Check for updates
+            {t('settings:general.update.checkButton')}
           </Button>
         )}
         {updateMessages.length > 0 && (
@@ -839,11 +895,10 @@ export function GeneralSettings() {
       <div className={styles.dangerZone}>
         <div className={styles.dangerHeader}>
           <AlertTriangle size={18} className={styles.dangerIcon} />
-          <h4>Reset Agent</h4>
+          <h4>{t('settings:general.reset.title')}</h4>
         </div>
         <p className={styles.dangerDescription}>
-          Reset selected parts of the agent. Chats can be wiped without deleting
-          Living UI apps. Saved settings and credentials are preserved.
+          {t('settings:general.reset.description')}
         </p>
         <Button
           variant="danger"
@@ -851,16 +906,16 @@ export function GeneralSettings() {
           disabled={isResetting}
           icon={isResetting ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
         >
-          {isResetting ? 'Resetting...' : 'Reset Agent'}
+          {isResetting ? t('settings:general.reset.resetting') : t('settings:general.reset.button')}
         </Button>
         {resetStatus === 'success' && (
           <span className={styles.statusSuccess}>
-            <Check size={14} /> Agent reset successfully
+            <Check size={14} /> {t('settings:general.reset.success')}
           </span>
         )}
         {resetStatus === 'error' && (
           <span className={styles.statusError}>
-            <X size={14} /> Reset failed
+            <X size={14} /> {t('settings:general.reset.failed')}
           </span>
         )}
       </div>
@@ -869,12 +924,10 @@ export function GeneralSettings() {
       <div className={styles.profileSection}>
         <div className={styles.profileHeader}>
           <Package size={18} className={styles.profileIcon} />
-          <h4>Agent Profile</h4>
+          <h4>{t('settings:general.profile.title')}</h4>
         </div>
         <p className={styles.profileDescription}>
-          Share your agent's personality, skills, MCP servers, and Living UI apps
-          as a single <code>.craftbot</code> file. API keys, personal memory, and
-          conversation history are never included.
+          <Trans ns="settings" i18nKey="general.profile.description" components={{ 0: <code /> }} />
         </p>
         <div className={styles.profileActions}>
           <input
@@ -896,7 +949,7 @@ export function GeneralSettings() {
               )
             }
           >
-            {isExportingProfile ? 'Exporting…' : 'Export Profile'}
+            {isExportingProfile ? t('common:status.exporting') : t('settings:general.profile.export')}
           </Button>
           <Button
             variant="secondary"
@@ -904,7 +957,7 @@ export function GeneralSettings() {
             disabled={isApplyingImport}
             icon={<PackageOpen size={14} />}
           >
-            Import Profile
+            {t('settings:general.profile.import')}
           </Button>
           {profileStatus?.type === 'success' && (
             <span className={styles.statusSuccess}>
@@ -926,7 +979,7 @@ export function GeneralSettings() {
           onClick={() => setShowAdvanced(!showAdvanced)}
         >
           <FileText size={18} />
-          <span>Advanced: Agent Configuration Files</span>
+          <span>{t('settings:general.advanced.toggle')}</span>
           <ChevronRight
             size={14}
             className={`${styles.advancedChevron} ${showAdvanced ? styles.open : ''}`}
@@ -940,26 +993,24 @@ export function GeneralSettings() {
               <div className={styles.fileEditorHeader}>
                 <div className={styles.fileEditorTitle}>
                   <h4>USER.md</h4>
-                  <Badge variant="info">User Profile</Badge>
+                  <Badge variant="info">{t('settings:general.advanced.badgeUserProfile')}</Badge>
                 </div>
                 <p className={styles.fileEditorDescription}>
-                  This file contains your personal information and preferences that help the agent
-                  understand how to interact with you. Editing this file will change how the agent
-                  addresses you and tailors its responses to your preferences.
+                  {t('settings:general.advanced.userDescription')}
                 </p>
               </div>
               <div className={styles.fileEditorContent}>
                 {isLoadingUserMd ? (
                   <div className={styles.fileLoading}>
                     <Loader2 size={20} className={styles.spinning} />
-                    <span>Loading USER.md...</span>
+                    <span>{t('settings:general.advanced.loading', { file: 'USER.md' })}</span>
                   </div>
                 ) : (
                   <textarea
                     className={styles.fileTextarea}
                     value={userMdContent}
                     onChange={(e) => setUserMdContent(e.target.value)}
-                    placeholder="Loading..."
+                    placeholder={t('common:status.loading')}
                     spellCheck={false}
                   />
                 )}
@@ -972,7 +1023,7 @@ export function GeneralSettings() {
                   disabled={isRestoringUserMd || isLoadingUserMd}
                   icon={isRestoringUserMd ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
                 >
-                  {isRestoringUserMd ? 'Restoring...' : 'Restore Default'}
+                  {isRestoringUserMd ? t('common:status.restoring') : t('common:actions.restoreDefault')}
                 </Button>
                 <Button
                   variant="primary"
@@ -980,21 +1031,21 @@ export function GeneralSettings() {
                   onClick={handleSaveUserMd}
                   disabled={isSavingUserMd || isLoadingUserMd || !isUserMdDirty}
                 >
-                  {isSavingUserMd ? 'Saving...' : 'Save'}
+                  {isSavingUserMd ? t('common:status.saving') : t('common:actions.save')}
                 </Button>
                 {userMdSaveStatus === 'success' && (
                   <span className={styles.statusSuccess}>
-                    <Check size={14} /> Saved
+                    <Check size={14} /> {t('common:status.saved')}
                   </span>
                 )}
                 {userMdSaveStatus === 'error' && (
                   <span className={styles.statusError}>
-                    <X size={14} /> Save failed
+                    <X size={14} /> {t('common:status.saveFailed')}
                   </span>
                 )}
                 {isUserMdDirty && userMdSaveStatus === 'idle' && (
                   <span className={styles.statusWarning}>
-                    Unsaved changes
+                    {t('common:status.unsavedChanges')}
                   </span>
                 )}
               </div>
@@ -1005,26 +1056,24 @@ export function GeneralSettings() {
               <div className={styles.fileEditorHeader}>
                 <div className={styles.fileEditorTitle}>
                   <h4>SOUL.md</h4>
-                  <Badge variant="success">Personality</Badge>
+                  <Badge variant="success">{t('settings:general.advanced.badgePersonality')}</Badge>
                 </div>
                 <p className={styles.fileEditorDescription}>
-                  This file defines the agent's personality, tone, and behavioral traits. It is injected
-                  directly into the system prompt and shapes how the agent communicates. Edit this to give
-                  your agent a unique character.
+                  {t('settings:general.advanced.soulDescription')}
                 </p>
               </div>
               <div className={styles.fileEditorContent}>
                 {isLoadingSoulMd ? (
                   <div className={styles.fileLoading}>
                     <Loader2 size={20} className={styles.spinning} />
-                    <span>Loading SOUL.md...</span>
+                    <span>{t('settings:general.advanced.loading', { file: 'SOUL.md' })}</span>
                   </div>
                 ) : (
                   <textarea
                     className={styles.fileTextarea}
                     value={soulMdContent}
                     onChange={(e) => setSoulMdContent(e.target.value)}
-                    placeholder="Loading..."
+                    placeholder={t('common:status.loading')}
                     spellCheck={false}
                   />
                 )}
@@ -1037,7 +1086,7 @@ export function GeneralSettings() {
                   disabled={isRestoringSoulMd || isLoadingSoulMd}
                   icon={isRestoringSoulMd ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
                 >
-                  {isRestoringSoulMd ? 'Restoring...' : 'Restore Default'}
+                  {isRestoringSoulMd ? t('common:status.restoring') : t('common:actions.restoreDefault')}
                 </Button>
                 <Button
                   variant="primary"
@@ -1045,21 +1094,21 @@ export function GeneralSettings() {
                   onClick={handleSaveSoulMd}
                   disabled={isSavingSoulMd || isLoadingSoulMd || !isSoulMdDirty}
                 >
-                  {isSavingSoulMd ? 'Saving...' : 'Save'}
+                  {isSavingSoulMd ? t('common:status.saving') : t('common:actions.save')}
                 </Button>
                 {soulMdSaveStatus === 'success' && (
                   <span className={styles.statusSuccess}>
-                    <Check size={14} /> Saved
+                    <Check size={14} /> {t('common:status.saved')}
                   </span>
                 )}
                 {soulMdSaveStatus === 'error' && (
                   <span className={styles.statusError}>
-                    <X size={14} /> Save failed
+                    <X size={14} /> {t('common:status.saveFailed')}
                   </span>
                 )}
                 {isSoulMdDirty && soulMdSaveStatus === 'idle' && (
                   <span className={styles.statusWarning}>
-                    Unsaved changes
+                    {t('common:status.unsavedChanges')}
                   </span>
                 )}
               </div>
@@ -1070,26 +1119,24 @@ export function GeneralSettings() {
               <div className={styles.fileEditorHeader}>
                 <div className={styles.fileEditorTitle}>
                   <h4>AGENT.md</h4>
-                  <Badge variant="warning">Agent Manual</Badge>
+                  <Badge variant="warning">{t('settings:general.advanced.badgeAgentManual')}</Badge>
                 </div>
                 <p className={styles.fileEditorDescription}>
-                  This file is the agent's instruction manual — it describes how the agent works, including
-                  file handling, error handling, self-improvement protocols, and task execution guidelines.
-                  The agent reads this on demand when it needs to understand its own mechanisms. Edit with caution.
+                  {t('settings:general.advanced.agentDescription')}
                 </p>
               </div>
               <div className={styles.fileEditorContent}>
                 {isLoadingAgentMd ? (
                   <div className={styles.fileLoading}>
                     <Loader2 size={20} className={styles.spinning} />
-                    <span>Loading AGENT.md...</span>
+                    <span>{t('settings:general.advanced.loading', { file: 'AGENT.md' })}</span>
                   </div>
                 ) : (
                   <textarea
                     className={styles.fileTextarea}
                     value={agentMdContent}
                     onChange={(e) => setAgentMdContent(e.target.value)}
-                    placeholder="Loading..."
+                    placeholder={t('common:status.loading')}
                     spellCheck={false}
                   />
                 )}
@@ -1102,7 +1149,7 @@ export function GeneralSettings() {
                   disabled={isRestoringAgentMd || isLoadingAgentMd}
                   icon={isRestoringAgentMd ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
                 >
-                  {isRestoringAgentMd ? 'Restoring...' : 'Restore Default'}
+                  {isRestoringAgentMd ? t('common:status.restoring') : t('common:actions.restoreDefault')}
                 </Button>
                 <Button
                   variant="primary"
@@ -1110,21 +1157,21 @@ export function GeneralSettings() {
                   onClick={handleSaveAgentMd}
                   disabled={isSavingAgentMd || isLoadingAgentMd || !isAgentMdDirty}
                 >
-                  {isSavingAgentMd ? 'Saving...' : 'Save'}
+                  {isSavingAgentMd ? t('common:status.saving') : t('common:actions.save')}
                 </Button>
                 {agentMdSaveStatus === 'success' && (
                   <span className={styles.statusSuccess}>
-                    <Check size={14} /> Saved
+                    <Check size={14} /> {t('common:status.saved')}
                   </span>
                 )}
                 {agentMdSaveStatus === 'error' && (
                   <span className={styles.statusError}>
-                    <X size={14} /> Save failed
+                    <X size={14} /> {t('common:status.saveFailed')}
                   </span>
                 )}
                 {isAgentMdDirty && agentMdSaveStatus === 'idle' && (
                   <span className={styles.statusWarning}>
-                    Unsaved changes
+                    {t('common:status.unsavedChanges')}
                   </span>
                 )}
               </div>

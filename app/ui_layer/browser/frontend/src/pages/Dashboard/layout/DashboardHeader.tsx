@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, Pencil, Plus, RotateCcw, Timer, Trash2 } from 'lucide-react'
 import { Button, ConfirmModal, IconButton, StatusIndicator } from '../../../components/ui'
 import { useConfirmModal, useDerivedAgentStatus } from '../../../hooks'
@@ -32,6 +33,7 @@ export function DashboardHeader({
   onResetLayout,
   onAddWidget,
 }: DashboardHeaderProps) {
+  const { t } = useTranslation(['dashboard', 'common'])
   const [nameModal, setNameModal] = useState<'create' | 'rename' | null>(null)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
@@ -40,14 +42,14 @@ export function DashboardHeader({
   // agent status belongs in DashboardPage's props.
   const { connected, actions, messages, dashboardMetrics } = useWebSocket()
   const status = useDerivedAgentStatus({ actions, messages, connected })
-  const uptime = dashboardMetrics?.uptimeSeconds ? formatUptime(dashboardMetrics.uptimeSeconds) : '0m'
+  const uptime = formatUptime(dashboardMetrics?.uptimeSeconds ?? 0)
 
   const handleDelete = () => {
     confirm(
       {
-        title: 'Delete layout',
-        message: `Delete "${activeLayout.name}"? This can't be undone.`,
-        confirmText: 'Delete',
+        title: t('dashboard:header.deleteConfirmTitle'),
+        message: t('dashboard:header.deleteConfirmMessage', { name: activeLayout.name }),
+        confirmText: t('common:actions.delete'),
         variant: 'danger',
       },
       () => onDeleteLayout(activeLayoutId)
@@ -57,9 +59,9 @@ export function DashboardHeader({
   const handleReset = () => {
     confirm(
       {
-        title: 'Reset layout',
-        message: `Reset "${activeLayout.name}" to the default arrangement? Widgets you've added that aren't part of the default layout are kept.`,
-        confirmText: 'Reset',
+        title: t('dashboard:header.resetConfirmTitle'),
+        message: t('dashboard:header.resetConfirmMessage', { name: activeLayout.name }),
+        confirmText: t('common:actions.reset'),
       },
       onResetLayout
     )
@@ -70,12 +72,12 @@ export function DashboardHeader({
       <div className={styles.status}>
         <StatusIndicator status={status.state} size="lg" variant="dot" />
         <div className={styles.statusText}>
-          <h2>Agent Status</h2>
+          <h2>{t('dashboard:header.agentStatus')}</h2>
           <p>{status.message}</p>
         </div>
         <div className={styles.uptime}>
           <Timer size={12} />
-          <span>Uptime: {uptime}</span>
+          <span>{t('dashboard:header.uptime', { uptime })}</span>
         </div>
       </div>
 
@@ -92,17 +94,17 @@ export function DashboardHeader({
           </select>
           <ChevronDown size={14} className={styles.selectChevron} />
         </span>
-        <IconButton icon={<Pencil size={14} />} tooltip="Rename layout" onClick={() => setNameModal('rename')} />
-        <IconButton icon={<Plus size={14} />} tooltip="New layout" onClick={() => setNameModal('create')} />
-        <IconButton icon={<RotateCcw size={14} />} tooltip="Reset layout" onClick={handleReset} />
+        <IconButton icon={<Pencil size={14} />} tooltip={t('dashboard:header.renameLayout')} onClick={() => setNameModal('rename')} />
+        <IconButton icon={<Plus size={14} />} tooltip={t('dashboard:header.newLayout')} onClick={() => setNameModal('create')} />
+        <IconButton icon={<RotateCcw size={14} />} tooltip={t('dashboard:header.resetLayout')} onClick={handleReset} />
         <IconButton
           icon={<Trash2 size={14} />}
-          tooltip="Delete layout"
+          tooltip={t('dashboard:header.deleteLayout')}
           disabled={layouts.length <= 1}
           onClick={handleDelete}
         />
         <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setAddWidgetOpen(true)}>
-          Add Widget
+          {t('dashboard:header.addWidget')}
         </Button>
       </div>
 

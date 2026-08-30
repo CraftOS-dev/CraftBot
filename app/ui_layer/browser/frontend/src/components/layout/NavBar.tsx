@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   MessageSquare,
   MessageCircle,
@@ -86,14 +87,6 @@ function AnimatedSessionTitle({ title }: { title: string }) {
   )
 }
 
-const utilityNavItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard', tourAnchor: 'nav-dashboard' },
-  { id: 'memory', label: 'Memory', icon: <Waypoints size={16} />, path: '/memory', tourAnchor: 'nav-memory' },
-  { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace', tourAnchor: 'nav-workspace' },
-]
-
-const settingsItem: NavItem = { id: 'settings', label: 'Settings', icon: <Settings size={16} />, path: '/settings' }
-
 interface NavBarProps {
   collapsed?: boolean
   onToggleCollapsed?: () => void
@@ -139,8 +132,20 @@ const persistGroupExpanded = (group: SidebarGroup, expanded: boolean) => {
 }
 
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
+  const { t } = useTranslation(['nav', 'common'])
   const location = useLocation()
   const navigate = useNavigate()
+
+  const utilityNavItems: NavItem[] = useMemo(() => [
+    { id: 'dashboard', label: t('nav:items.dashboard'), icon: <LayoutDashboard size={16} />, path: '/dashboard', tourAnchor: 'nav-dashboard' },
+    { id: 'memory', label: t('nav:items.memory'), icon: <Waypoints size={16} />, path: '/memory', tourAnchor: 'nav-memory' },
+    { id: 'workspace', label: t('nav:items.workspace'), icon: <FolderOpen size={16} />, path: '/workspace', tourAnchor: 'nav-workspace' },
+  ], [t])
+
+  const settingsItem: NavItem = useMemo(
+    () => ({ id: 'settings', label: t('nav:items.settings'), icon: <Settings size={16} />, path: '/settings' }),
+    [t],
+  )
   const {
     livingUIProjects,
     deleteSession,
@@ -288,8 +293,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   }
   const renderSessionDot = (sessionId: string | null | undefined): React.ReactNode => {
     const kind = sessionDotKind(sessionId)
-    if (kind === 'busy') return <span className={styles.busyDot} aria-label="Agent working" />
-    if (kind === 'unread') return <span className={styles.unreadDot} aria-label="New messages" />
+    if (kind === 'busy') return <span className={styles.busyDot} aria-label={t('nav:dots.agentWorking')} />
+    if (kind === 'unread') return <span className={styles.unreadDot} aria-label={t('nav:dots.newMessages')} />
     return null
   }
 
@@ -306,8 +311,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   }
   const renderCollapsedDot = (ids: (string | null | undefined)[]): React.ReactNode => {
     const kind = aggregateDotKind(ids)
-    if (kind === 'busy') return <span className={styles.collapsedBusyDot} aria-label="Agent working" />
-    if (kind === 'unread') return <span className={styles.collapsedUnreadDot} aria-label="New messages" />
+    if (kind === 'busy') return <span className={styles.collapsedBusyDot} aria-label={t('nav:dots.agentWorking')} />
+    if (kind === 'unread') return <span className={styles.collapsedUnreadDot} aria-label={t('nav:dots.newMessages')} />
     return null
   }
 
@@ -441,22 +446,22 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
       <div ref={positionSessionMenu} className={styles.sessionMenu} onMouseDown={e => e.stopPropagation()}>
         {!isMain && (
           <button className={styles.sessionMenuItem} onClick={() => startRename(session)}>
-            <Pencil size={13} /> Rename
+            <Pencil size={13} /> {t('common:actions.rename')}
           </button>
         )}
         <button className={styles.sessionMenuItem} onClick={() => handleClearSession(session.id)}>
-          <Eraser size={13} /> Clear conversation
+          <Eraser size={13} /> {t('nav:sessionMenu.clearConversation')}
         </button>
         {!isMain && (
           <button
             className={`${styles.sessionMenuItem} ${styles.sessionMenuItemDanger}`}
             onClick={() => handleDeleteSession(session.id)}
           >
-            <Trash2 size={13} /> Delete
+            <Trash2 size={13} /> {t('common:actions.delete')}
           </button>
         )}
         <button className={styles.sessionMenuItem} onClick={() => handleCreateSkill(session.id)}>
-          <Sparkles size={13} /> Create skill from this session
+          <Sparkles size={13} /> {t('nav:sessionMenu.createSkill')}
         </button>
       </div>
     )
@@ -471,7 +476,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
       <div
         key={session.id}
         className={`${styles.sessionRow} ${active ? styles.sessionRowActive : ''} ${opts.isMain ? styles.sessionRowMain : ''}`}
-        title={opts.isMain ? 'Main' : session.title}
+        title={opts.isMain ? t('nav:items.main') : session.title}
         {...(opts.isMain ? tourAnchorProps('nav-main-session') : {})}
       >
         {renaming ? (
@@ -491,31 +496,27 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             <button
               className={styles.sessionRowButton}
               onClick={() => navigate(path)}
-              title={opts.isMain ? 'Main' : session.title}
+              title={opts.isMain ? t('nav:items.main') : session.title}
             >
               <span className={styles.icon}>
                 {opts.isMain ? <MessageSquare size={16} /> : <MessageCircle size={14} />}
               </span>
               <span className={styles.label}>
-                {opts.isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
+                {opts.isMain ? t('nav:items.main') : <AnimatedSessionTitle title={session.title} />}
               </span>
               {opts.isMain && (
-                <span className={styles.mainInfo} aria-label="About the Main chat" title="">
+                <span className={styles.mainInfo} aria-label={t('nav:mainTooltip.aria')} title="">
                   <Info size={12} />
                   <span className={styles.mainInfoTooltip} role="tooltip">
-                    <strong>Why is Main different?</strong>
+                    <strong>{t('nav:mainTooltip.title')}</strong>
                     <span className={styles.mainInfoLine}>
-                      Main is the agent's home chat, so it can't be deleted or renamed.
+                      {t('nav:mainTooltip.line1')}
                     </span>
                     <span className={styles.mainInfoLine}>
-                      Anything that happens on its own, like scheduled tasks and
-                      updates from connected apps, arrives here.
+                      {t('nav:mainTooltip.line2')}
                     </span>
                     <span className={styles.mainInfoLine}>
-                      All chats share one memory: what the agent learns about you
-                      in any chat, it remembers everywhere. But each chat keeps its
-                      own conversation, so messages in one chat aren't visible from
-                      another.
+                      {t('nav:mainTooltip.line3')}
                     </span>
                   </span>
                 </span>
@@ -531,8 +532,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                     ? null
                     : { sessionId: session.id })
               }}
-              aria-label="Session options"
-              title="Options"
+              aria-label={t('nav:sessionMenu.sessionOptions')}
+              title={t('nav:sessionMenu.options')}
             >
               <MoreHorizontal size={14} />
             </button>
@@ -565,7 +566,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.logoLink}
-                aria-label="CraftBot website"
+                aria-label={t('nav:sidebar.websiteLabel')}
               >
                 <img
                   src={logoSrc}
@@ -579,9 +580,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               type="button"
               className={styles.collapseButton}
               onClick={onToggleCollapsed}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? t('nav:sidebar.expand') : t('nav:sidebar.collapse')}
               aria-pressed={collapsed}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={collapsed ? t('nav:sidebar.expand') : t('nav:sidebar.collapse')}
             >
               {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             </button>
@@ -599,11 +600,11 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             <button
               className={`${styles.navItem} ${location.pathname === '/session/new' ? styles.active : ''}`}
               onClick={startNewChat}
-              title="New Chat"
+              title={t('nav:items.newChat')}
               {...tourAnchorProps('nav-new-chat')}
             >
               <span className={styles.icon}><SquarePen size={16} /></span>
-              <span className={styles.label}>New Chat</span>
+              <span className={styles.label}>{t('nav:items.newChat')}</span>
             </button>
 
             {/* Utility items */}
@@ -629,7 +630,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   className={`${styles.navItem} ${flyout?.kind === 'livingui' ? styles.active : ''}`}
                   onClick={e => openFlyout('livingui', e)}
                   onMouseDown={e => e.stopPropagation()}
-                  title="Living UI"
+                  title={t('nav:groups.livingUi')}
                   aria-haspopup="menu"
                   aria-expanded={flyout?.kind === 'livingui'}
                 >
@@ -640,7 +641,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   className={`${styles.navItem} ${flyout?.kind === 'chats' ? styles.active : ''}`}
                   onClick={e => openFlyout('chats', e)}
                   onMouseDown={e => e.stopPropagation()}
-                  title="Chats"
+                  title={t('nav:groups.chats')}
                   aria-haspopup="menu"
                   aria-expanded={flyout?.kind === 'chats'}
                 >
@@ -662,13 +663,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   className={`${styles.groupChevron} ${livingUIExpanded ? styles.groupChevronOpen : ''}`}
                 />
                 <span className={styles.icon}><Box size={16} /></span>
-                <span className={styles.label}>Living UI</span>
+                <span className={styles.label}>{t('nav:groups.livingUi')}</span>
               </button>
               <button
                 className={styles.groupAddButton}
                 onClick={() => setShowCreateModal(true)}
-                aria-label="Add Living UI"
-                title="Add Living UI"
+                aria-label={t('nav:sidebar.addLivingUi')}
+                title={t('nav:sidebar.addLivingUi')}
               >
                 <Plus size={14} />
               </button>
@@ -704,12 +705,12 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                     onClick={() => setShowAllLivingUI(v => !v)}
                   >
                     {showAllLivingUI
-                      ? 'Show less'
-                      : `Show more (${livingUIProjects.length - GROUP_PREVIEW_COUNT})`}
+                      ? t('common:actions.showLess')
+                      : t('nav:sidebar.showMoreCount', { count: livingUIProjects.length - GROUP_PREVIEW_COUNT })}
                   </button>
                 )}
                 {livingUIProjects.length === 0 && (
-                  <div className={styles.groupEmpty}>No Living UI apps</div>
+                  <div className={styles.groupEmpty}>{t('nav:sidebar.noLivingUiApps')}</div>
                 )}
               </div>
             )}
@@ -728,13 +729,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   className={`${styles.groupChevron} ${chatsExpanded ? styles.groupChevronOpen : ''}`}
                 />
                 <span className={styles.icon}><MessageCircle size={16} /></span>
-                <span className={styles.label}>Chats</span>
+                <span className={styles.label}>{t('nav:groups.chats')}</span>
               </button>
               <button
                 className={styles.groupAddButton}
                 onClick={startNewChat}
-                aria-label="New chat"
-                title="New chat"
+                aria-label={t('nav:sidebar.newChat')}
+                title={t('nav:sidebar.newChat')}
               >
                 <Plus size={14} />
               </button>
@@ -787,7 +788,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
           role="menu"
         >
           <div className={styles.flyoutHeader}>
-            {flyout.kind === 'livingui' ? 'Living UI' : 'Chats'}
+            {flyout.kind === 'livingui' ? t('nav:groups.livingUi') : t('nav:groups.chats')}
           </div>
           <div className={styles.flyoutList}>
             {flyout.kind === 'livingui' ? (
@@ -815,7 +816,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   )
                 })}
                 {livingUIProjects.length === 0 && (
-                  <div className={styles.flyoutEmpty}>No Living UI apps</div>
+                  <div className={styles.flyoutEmpty}>{t('nav:sidebar.noLivingUiApps')}</div>
                 )}
               </>
             ) : (
@@ -830,13 +831,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       setFlyout(null)
                       navigate(path)
                     }}
-                    title={isMain ? 'Main' : session.title}
+                    title={isMain ? t('nav:items.main') : session.title}
                   >
                     <span className={styles.flyoutItemIcon}>
                       {isMain ? <MessageSquare size={13} /> : <MessageCircle size={13} />}
                     </span>
                     <span className={styles.flyoutItemLabel}>
-                      {isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
+                      {isMain ? t('nav:items.main') : <AnimatedSessionTitle title={session.title} />}
                     </span>
                     {renderSessionDot(session.id)}
                   </button>

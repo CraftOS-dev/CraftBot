@@ -22,7 +22,7 @@ export type SettingsCategory =
 
 export interface SettingsCategoryItem {
   id: SettingsCategory
-  label: string
+  // Display label is rendered from i18n (settings:nav.<id>) in SettingsPage.
   icon: React.ReactNode
 }
 
@@ -85,42 +85,34 @@ export interface IntegrationApplyAccountChangesResult {
 export const categories: SettingsCategoryItem[] = [
   {
     id: 'general',
-    label: 'General',
     icon: React.createElement(Settings, { size: 18 }),
   },
   {
     id: 'proactive',
-    label: 'Proactive',
     icon: React.createElement(Brain, { size: 18 }),
   },
   {
     id: 'memory',
-    label: 'Memory',
     icon: React.createElement(Waypoints, { size: 18 }),
   },
   {
     id: 'model',
-    label: 'Model',
     icon: React.createElement(Cpu, { size: 18 }),
   },
   {
     id: 'mcps',
-    label: 'MCPs',
     icon: React.createElement(Plug, { size: 18 }),
   },
   {
     id: 'skills',
-    label: 'Skills',
     icon: React.createElement(Package, { size: 18 }),
   },
   {
     id: 'integrations',
-    label: 'Integrations',
     icon: React.createElement(Globe, { size: 18 }),
   },
   {
     id: 'living_ui',
-    label: 'Living UI',
     icon: React.createElement(Box, { size: 18 }),
   },
 ]
