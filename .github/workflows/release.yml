@@ -112,22 +112,13 @@ jobs:
 
       # A missing lock does not break the BUILD — it breaks the user's
       # install, minutes in and hundreds of MB down. Catch it here instead.
-      # Matched by prefix: the macOS tag carries an OS version
-      # (macosx_11_0_arm64-py310), so the exact filename is not fixed.
+      #
+      # Same code the PR check runs, with --require-all promoting "no lock for
+      # this platform" from a warning to a failure. The list of shipped
+      # platforms lives in that script, so it cannot drift from a second copy
+      # written in bash here.
       - name: Require a lock for every platform we ship
-        run: |
-          missing=0
-          for prefix in win_amd64 linux_x86_64 macosx; do
-            if ! ls requirements/lock-"$prefix"*.txt >/dev/null 2>&1; then
-              echo "::error::no lock matching requirements/lock-$prefix*.txt"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            echo "Run the 'Install parity' workflow — it generates and commits them."
-            exit 1
-          fi
-          ls -1 requirements/lock-*.txt
+        run: python scripts/generate_lock.py --check --require-all
 
       - name: Build payload
         run: |

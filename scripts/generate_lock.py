@@ -51,6 +51,13 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIREMENTS = os.path.join(REPO_ROOT, "requirements.txt")
 LOCK_DIR = os.path.join(REPO_ROOT, "requirements")
 
+#: Platforms a release ships an installer for, as lock-filename prefixes.
+#: Matched by prefix because the macOS tag carries an OS version and arch
+#: (macosx_11_0_arm64-py310), so the exact filename is not fixed.
+#:
+#: Keep in step with the pyinstaller matrix in .github/workflows/release.yml.
+SHIPPED_PLATFORMS = ("win_amd64", "linux_x86_64", "macosx")
+
 
 def lock_tag() -> str:
     """Identify the (platform, python) this lock is valid for.
@@ -155,12 +162,18 @@ def _source_digest() -> str:
     return "sha256:" + hashlib.sha256(body.encode()).hexdigest()[:16]
 
 
-def _check_committed_locks() -> int:
+def _check_committed_locks(require_all: bool = False) -> int:
     """Verify every committed lock came from the current requirements.txt.
 
     Checks all of them, not just this platform's: a Windows machine should
     still be told that the Linux lock is out of date, because someone has to
     regenerate it somewhere. Needs no pip resolve, so it is instant.
+
+    A platform with no lock at all is reported either way, but only fails the
+    run under `require_all`. On a PR that would be noise — you cannot fix a
+    missing macOS lock from the branch you are reviewing — while at release
+    time it is fatal, because that installer would download hundreds of MB
+    and then stop at the dependency step.
     """
     digest = _source_digest()
     locks = sorted(glob.glob(os.path.join(LOCK_DIR, "lock-*.txt")))
@@ -183,11 +196,32 @@ def _check_committed_locks() -> int:
         else:
             print(f"OK: {name}")
 
+    missing = [
+        prefix
+        for prefix in SHIPPED_PLATFORMS
+        if not any(
+            os.path.basename(p).startswith(f"lock-{prefix}") for p in locks
+        )
+    ]
+    for prefix in missing:
+        # ::warning/::error:: renders on the GitHub summary rather than being
+        # buried in the log.
+        level = "error" if require_all else "warning"
+        print(f"::{level}::no lock for {prefix} - that platform cannot install")
+
     if stale:
         print()
         print("requirements.txt changed without regenerating these locks.")
         print("Run `python scripts/generate_lock.py` on each affected platform.")
         return 1
+    if missing and require_all:
+        print()
+        print("Generate the missing lock(s) on the platform each describes.")
+        return 1
+    if missing:
+        print()
+        print(f"{len(missing)} platform(s) have no lock: {', '.join(missing)}")
+        print("Not fatal here; release.yml will refuse to build without them.")
     return 0
 
 
@@ -198,10 +232,15 @@ def main() -> int:
         action="store_true",
         help="verify every committed lock matches requirements.txt (for CI)",
     )
+    ap.add_argument(
+        "--require-all",
+        action="store_true",
+        help="with --check, also fail when a shipped platform has no lock",
+    )
     args = ap.parse_args()
 
     if args.check:
-        return _check_committed_locks()
+        return _check_committed_locks(require_all=args.require_all)
 
     target = lock_path()
     rendered = render(resolve())

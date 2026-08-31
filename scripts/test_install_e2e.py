@@ -103,10 +103,22 @@ def main() -> int:
         if not described.get("managed_install"):
             print("   FAIL: managed marker not detected")
             ok = False
-        if Path(described["state_root"]) != state_dir:
+        # Compare CANONICAL paths. app.paths resolves what it is given, and on
+        # two of the three platforms the resolved form differs from the string
+        # we passed in:
+        #
+        #   Windows  C:\Users\RUNNER~1\... resolves to C:\Users\runneradmin\...
+        #            (8.3 short name, which is what TEMP holds on CI)
+        #   macOS    /var/folders/... resolves to /private/var/folders/...
+        #            (/var is a symlink to /private/var)
+        #
+        # Linux has neither, which is why a raw string compare passed there
+        # and failed on the other two. Resolving is correct behaviour in
+        # app.paths — the expectation here was the wrong thing.
+        if Path(described["state_root"]).resolve() != state_dir.resolve():
             print(f"   FAIL: state_root is {described['state_root']}, want {state_dir}")
             ok = False
-        if Path(described["code_root"]) != src_root:
+        if Path(described["code_root"]).resolve() != src_root.resolve():
             print(f"   FAIL: code_root is {described['code_root']}, want {src_root}")
             ok = False
 
