@@ -252,7 +252,11 @@
   white-space: nowrap;
 }
 
-/* Agent App inline tab */
+/* Agent App row shares .sessionRow (wrapper) + .sessionMenuButton + .sessionMenu
+   so its hover/"…" behaviour is identical to the Chats list. Only the inner
+   nav button and the dimmed idle state are Agent-App-specific. */
+
+/* Agent App inline tab — the flex-fill nav button inside a .sessionRow. */
 .agentAppTab {
   display: flex;
   align-items: center;
@@ -266,15 +270,18 @@
   font-weight: var(--font-medium);
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--transition-fast), color var(--transition-fast);
-  flex-shrink: 0;
-  width: 100%;
+  transition: all var(--transition-fast);
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
 }
 
-.agentAppTab:hover {
+/* Mirror .sessionRow:hover .sessionRowButton exactly: brighten and open a gap
+   on the right so the revealed "…" doesn't sit on top of the label/dot. */
+.agentAppRow:hover .agentAppTab {
   color: var(--text-primary);
   background: var(--bg-tertiary);
+  padding-right: 30px;
 }
 
 .agentAppTabActive {
@@ -283,8 +290,23 @@
   font-weight: var(--font-semibold);
 }
 
-.agentAppTabActive:hover {
+.agentAppRow:hover .agentAppTabActive {
   background: var(--bg-selected-hover);
+}
+
+/* Stopped / idle apps read as dimmed until hovered, so their state is legible
+   at a glance without a status pill. */
+.agentAppRowDimmed .agentAppTabIcon,
+.agentAppRowDimmed .agentAppTabLabel {
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+}
+
+.agentAppRow:hover .agentAppTabIcon,
+.agentAppRow:hover .agentAppTabLabel,
+.agentAppRowActive .agentAppTabIcon,
+.agentAppRowActive .agentAppTabLabel {
+  opacity: 1;
 }
 
 .agentAppTabIcon {
@@ -753,6 +775,19 @@
 
 .flyoutItemMain {
   font-weight: 600;
+}
+
+/* Match the expanded rows: a stopped / idle Agent App reads as dimmed until
+   hovered, so its state is legible at a glance in the collapsed flyout too. */
+.flyoutItemDimmed .flyoutItemIcon,
+.flyoutItemDimmed .flyoutItemLabel {
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+}
+
+.flyoutItemDimmed:hover .flyoutItemIcon,
+.flyoutItemDimmed:hover .flyoutItemLabel {
+  opacity: 1;
 }
 
 .flyoutItemIcon {

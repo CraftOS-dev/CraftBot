@@ -3,8 +3,6 @@
     "notFoundTitle": "未找到 Agent App",
     "notFoundBody": "你查找的 Agent App 项目不存在或已被删除。",
     "goToChat": "前往对话",
-    "fullscreen": "全屏",
-    "exitFullscreen": "退出全屏（Esc）",
     "stop": "停止",
     "launch": "启动",
     "launching": "启动中…",

@@ -3,8 +3,6 @@
     "notFoundTitle": "找不到 Agent App",
     "notFoundBody": "你要找的 Agent App 專案不存在或已遭刪除。",
     "goToChat": "前往對話",
-    "fullscreen": "全螢幕",
-    "exitFullscreen": "結束全螢幕（Esc）",
     "stop": "停止",
     "launch": "啟動",
     "launching": "啟動中…",

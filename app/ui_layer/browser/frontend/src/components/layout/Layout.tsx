@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Menu, X } from 'lucide-react'
 import { NavBar } from './NavBar'
-import { useFullscreen } from '../../contexts/FullscreenContext'
 import { useTourEnvAction } from '../../tour'
 import styles from './Layout.module.css'
 
@@ -28,7 +27,6 @@ function readCollapsedFromStorage(): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const { t } = useTranslation(['nav', 'common'])
-  const { isFullscreen } = useFullscreen()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(readCollapsedFromStorage)
@@ -73,30 +71,26 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className={styles.layout}>
-      {!isFullscreen && (
-        <>
-          <button
-            type="button"
-            className={styles.menuButton}
-            onClick={() => setMobileOpen(v => !v)}
-            aria-label={mobileOpen ? t('nav:layout.closeMenu') : t('nav:layout.openMenu')}
-            aria-expanded={mobileOpen}
-          >
-            {mobileOpen ? <X size={16} /> : <Menu size={16} />}
-          </button>
-          <div
-            className={`${styles.backdrop} ${mobileOpen ? styles.backdropVisible : ''}`}
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          <aside
-            className={`${styles.sidebar} ${mobileOpen ? styles.sidebarOpen : ''} ${collapsed ? styles.sidebarCollapsed : ''}`}
-          >
-            <NavBar collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
-          </aside>
-        </>
-      )}
-      <main className={`${styles.content} ${!isFullscreen ? styles.contentWithSidebar : ''}`}>
+      <button
+        type="button"
+        className={styles.menuButton}
+        onClick={() => setMobileOpen(v => !v)}
+        aria-label={mobileOpen ? t('nav:layout.closeMenu') : t('nav:layout.openMenu')}
+        aria-expanded={mobileOpen}
+      >
+        {mobileOpen ? <X size={16} /> : <Menu size={16} />}
+      </button>
+      <div
+        className={`${styles.backdrop} ${mobileOpen ? styles.backdropVisible : ''}`}
+        onClick={() => setMobileOpen(false)}
+        aria-hidden="true"
+      />
+      <aside
+        className={`${styles.sidebar} ${mobileOpen ? styles.sidebarOpen : ''} ${collapsed ? styles.sidebarCollapsed : ''}`}
+      >
+        <NavBar collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+      </aside>
+      <main className={`${styles.content} ${styles.contentWithSidebar}`}>
         {children}
       </main>
     </div>

@@ -3,8 +3,6 @@
     "notFoundTitle": "Agent App Not Found",
     "notFoundBody": "The Agent App project you're looking for doesn't exist or has been deleted.",
     "goToChat": "Go to Chat",
-    "fullscreen": "Fullscreen",
-    "exitFullscreen": "Exit Fullscreen (Esc)",
     "stop": "Stop",
     "launch": "Launch",
     "launching": "Launching…",

@@ -8,8 +8,9 @@ import React from 'react'
  * V2 model: every preset is a kit style pack (`data-style` in the kit's
  * tokens.css) that carries light AND dark palettes and follows the host's
  * mode. 'custom' pins the four core colors via the bridge's customColors.
- * Applied over postMessage: { type: 'agentapp-theme', themeId, mode,
- * customColors? } (see agent-app/kit/src/theme/bridge.ts).
+ * Applied over postMessage: { type: 'livingui-theme', themeId, mode,
+ * customColors? } (see agent-app/kit/src/theme/bridge.ts). The wire type stays
+ * 'livingui-theme' — a frozen contract with already-built apps.
  */
 
 export type AgentAppStyleId =
@@ -67,7 +68,7 @@ export const PRESET_THEMES: ThemeDef[] = [
 ]
 
 /**
- * Translate a theme selection into the `agentapp-theme` postMessage payload
+ * Translate a theme selection into the `livingui-theme` postMessage payload
  * the kit's ThemeBridge understands. Presets are pure style packs (the kit
  * owns their palettes, both modes); 'custom' rides the base style with the
  * four core colors pinned.
@@ -76,12 +77,12 @@ export function buildThemeMessage(
   themeId: AgentAppThemeId,
   mode: 'dark' | 'light',
   customColors: AgentAppCustomColors,
-): { type: 'agentapp-theme'; themeId: string; mode: 'dark' | 'light'; customColors?: AgentAppCustomColors } {
+): { type: 'livingui-theme'; themeId: string; mode: 'dark' | 'light'; customColors?: AgentAppCustomColors } {
   if (themeId === 'custom') {
-    return { type: 'agentapp-theme', themeId: 'craftbot', mode, customColors }
+    return { type: 'livingui-theme', themeId: 'craftbot', mode, customColors }
   }
   // No customColors key → the bridge clears any previous pinned colors.
-  return { type: 'agentapp-theme', themeId, mode }
+  return { type: 'livingui-theme', themeId, mode }
 }
 
 // ── mini previews ───────────────────────────────────────────────────────────

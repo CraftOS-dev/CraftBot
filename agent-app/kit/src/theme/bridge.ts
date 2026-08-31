@@ -1,9 +1,13 @@
 /**
  * Theme bridge (spec K3) — host-owned theming with a standalone fallback.
  *
- * Inside CraftBot: listens for `agentapp-theme` postMessage
- *   { type: 'agentapp-theme', themeId, mode: 'light'|'dark', customColors? }
+ * Inside CraftBot: listens for `livingui-theme` postMessage
+ *   { type: 'livingui-theme', themeId, mode: 'light'|'dark', customColors? }
  * and announces readiness with `craftbot-theme-request` so the host replays.
+ *
+ * The `livingui-theme` type is a frozen wire contract shared with every app
+ * already built by this kit — it deliberately survived the Living UI → Agent
+ * App rename so theme following keeps working for existing apps. Do not rename.
  *
  * Standalone (no embedding host): follows the system color scheme.
  *
@@ -14,7 +18,7 @@
 export type ThemeMode = 'light' | 'dark';
 
 interface HostThemeMessage {
-  type: 'agentapp-theme';
+  type: 'livingui-theme';
   themeId?: string;
   mode?: ThemeMode;
   customColors?: Partial<Record<'bg' | 'surface' | 'text' | 'accent', string>>;
@@ -34,7 +38,7 @@ export class ThemeBridge {
   start(): void {
     const onMessage = (event: MessageEvent<unknown>): void => {
       const data = event.data as HostThemeMessage | null;
-      if (data === null || typeof data !== 'object' || data.type !== 'agentapp-theme') return;
+      if (data === null || typeof data !== 'object' || data.type !== 'livingui-theme') return;
       this.hostControlled = true;
       this.apply(data);
     };

@@ -5,7 +5,6 @@
    from the rest of the app — which uses a much-closer-to-white
    --bg-secondary. Dark-mode rules below resolve via the token and are not
    affected. */
-[data-theme="light"] .menuBar,
 [data-theme="light"] .hintsBox,
 [data-theme="light"] .chatPanel,
 [data-theme="light"] .message.system,
@@ -26,60 +25,7 @@
   user-select: none;
 }
 
-/* Menu Bar */
-.menuBar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 32px;
-  padding: 0 var(--space-3);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-primary);
-  flex-shrink: 0;
-}
-
-.menuLeft {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.projectIcon {
-  color: var(--text-primary);
-  flex-shrink: 0;
-}
-
-.projectName {
-  font-size: 13px;
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.status {
-  font-size: 11px;
-  font-weight: var(--font-medium);
-  padding: 1px var(--space-2);
-  border-radius: var(--radius-full);
-  text-transform: capitalize;
-  line-height: 1.4;
-}
-
-.status.running {
-  color: var(--color-success);
-}
-
-.status.creating,
-.status.launching,
-.status.stopping {
-  color: var(--color-warning);
-}
-
-/* Spinner shown on the launch/stop action button during the transition */
+/* Spinner shown on the stopping/launching in-pane states */
 .spinner {
   animation: agentapp-spin 0.8s linear infinite;
 }
@@ -87,35 +33,6 @@
 @keyframes agentapp-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-.status.ready {
-  color: var(--text-primary);
-}
-
-.status.stopped {
-  color: var(--text-muted);
-}
-
-.status.error {
-  color: var(--color-error);
-}
-
-.menuActions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-/* Fullscreen indicator badge */
-.fullscreenBadge {
-  font-size: 11px;
-  font-weight: var(--font-medium);
-  padding: 1px var(--space-2);
-  border-radius: var(--radius-full);
-  background: var(--color-primary-subtle);
-  color: var(--text-primary);
-  line-height: 1.4;
 }
 
 /* Main Content */
@@ -440,30 +357,84 @@
   to { opacity: 1; transform: none; }
 }
 
-/* Resize Handle - matches Chat/Tasks page style */
+/* Seam handle between the app and the chat panel: a hairline divider (exactly
+   like the other split views) with a pill grip sitting on it. Drag to resize,
+   click to collapse/expand. The handle itself is the 1px line; a transparent
+   ::after widens the grab zone; the pill is purely visual. z-index keeps it
+   (and the collapsed tab) clickable above the floating iframe (z-index 10). */
 .resizeHandle {
   position: relative;
+  z-index: 11;
   width: 1px;
-  background: var(--border-primary);
-  cursor: col-resize;
   flex-shrink: 0;
+  align-self: stretch;
+  background: var(--border-primary);
+  border: none;
+  padding: 0;
+  cursor: col-resize;
   touch-action: none;
 }
 
+/* Widened, transparent grab/click zone straddling the hairline. */
 .resizeHandle::after {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -2px;
-  width: 5px;
-  background: transparent;
-  transition: background var(--transition-fast);
+  left: -4px;
+  width: 9px;
 }
 
-.resizeHandle:hover::after,
-.resizeHandle.resizing::after {
-  background: var(--color-gray-300);
+/* The pill grip centered on the hairline (visual only — hits fall through to
+   the ::after grab zone / the handle). */
+.resizeGrip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 5px;
+  height: 58px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+  pointer-events: none;
+  transition: background var(--transition-fast), height var(--transition-fast), width var(--transition-fast);
+}
+
+.resizeHandle:hover .resizeGrip,
+.resizeHandle.resizing .resizeGrip {
+  background: var(--text-secondary);
+  width: 7px;
+}
+
+/* Collapsed: the panel is gone; the handle parks flush at the right edge and
+   shows only a half-pill tab (left corners rounded, right side flush to the
+   edge) — the affordance to click and re-open. No seam line here. */
+.resizeHandleCollapsed {
+  width: 0;
+  cursor: pointer;
+  overflow: visible;
+}
+
+.resizeHandleCollapsed::after {
+  display: none;
+}
+
+.resizeHandleCollapsed .resizeGrip {
+  position: absolute;
+  top: 50%;
+  left: auto;
+  right: 0;
+  height: 58px;
+  width: 5px;
+  transform: translateY(-50%);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  pointer-events: auto;
+}
+
+.resizeHandleCollapsed:hover .resizeGrip {
+  width: 7px;
+  background: var(--text-secondary);
 }
 
 /* Transparent full-screen overlay active only during resize. Sits above the
@@ -478,13 +449,38 @@
 }
 
 /* Chat Panel — same background as the chat session page (--bg-primary)
-   so the input shell and agent bubbles keep their contrast. */
+   so the input shell and agent bubbles keep their contrast. The seam handle
+   (to its left) draws the divider, so the panel itself carries no left border.
+   Collapse/expand animates the width; overflow:hidden clips the fixed-size
+   inner so the content slides rather than reflows. */
 .chatPanel {
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
-  border-left: 1px solid var(--border-primary);
+  flex-grow: 0;
   flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Suppress the transition while actively dragging so the panel tracks the
+   pointer exactly (the animation is only for the collapse/expand snap). */
+.chatPanelDragging {
+  transition: none;
+}
+
+.chatPanelCollapsed {
+  pointer-events: none;
+}
+
+/* Holds the panel's open size fixed so the chat doesn't reflow as the outer
+   box animates to/from zero — it just slides out of the clip region. */
+.chatPanelInner {
+  height: 100%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .chatHeader {
@@ -823,62 +819,73 @@
     cursor: row-resize;
   }
 
-  /* Flip the resize handle to a horizontal bar sitting between the iframe
-     area and the chat panel. The handle gets a visible grip pill so mobile
-     users can see and grab it easily. Inline style on the chat panel
-     controls its height via flex-basis, so both sections scale with the
-     viewport. */
+  /* Content stacks vertically, so the hairline seam runs horizontally: drag
+     up/down to resize, tap to toggle. The pill grip turns horizontal. */
   .resizeHandle {
     width: auto;
-    height: 18px;
+    height: 1px;
     cursor: row-resize;
     align-self: stretch;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border-primary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
 
-  /* Visible grip pill */
-  .resizeHandle::before {
-    content: '';
-    display: block;
-    width: 40px;
-    height: 4px;
-    border-radius: var(--radius-full);
-    background: var(--text-muted);
-    opacity: 0.55;
-    transition: opacity var(--transition-fast), background var(--transition-fast);
-  }
-
-  .resizeHandle:hover::before,
-  .resizeHandle.resizing::before {
-    opacity: 1;
-    background: var(--text-secondary);
-  }
-
-  /* Extended touch hit area straddling the handle */
   .resizeHandle::after {
+    top: -4px;
+    bottom: auto;
     left: 0;
     right: 0;
-    top: -6px;
-    bottom: -6px;
     width: auto;
-    height: auto;
+    height: 9px;
   }
 
-  /* Visible feedback on mobile is the ::before grip, not the ::after overlay */
-  .resizeHandle:hover::after,
-  .resizeHandle.resizing::after {
-    background: transparent;
+  .resizeGrip {
+    width: 42px;
+    height: 4px;
+  }
+
+  .resizeHandle:hover .resizeGrip,
+  .resizeHandle.resizing .resizeGrip {
+    width: 60px;
+    height: 5px;
+  }
+
+  /* Collapsed: park the tab flush at the BOTTOM edge as a top-rounded half-pill. */
+  .resizeHandleCollapsed {
+    width: 100%;
+    height: 0;
+  }
+
+  .resizeHandleCollapsed .resizeGrip {
+    top: auto;
+    bottom: 0;
+    right: 50%;
+    left: auto;
+    width: 58px;
+    height: 11px;
+    transform: translateX(50%);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  .resizeHandleCollapsed:hover .resizeGrip {
+    height: 14px;
+    width: 58px;
   }
 
   .chatPanel {
     width: 100% !important;
-    border-left: none;
-    border-top: none;
     min-height: 0;
+    /* Vertical stack: animate the height (flex-basis) instead of width. */
+    transition: flex-basis 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Keep the drag 1:1 on mobile too (this must follow the rule above). */
+  .chatPanelDragging {
+    transition: none;
+  }
+
+  /* Inner fills the width; height stays 100% (brief reflow on collapse is
+     acceptable on the narrow mobile stack). */
+  .chatPanelInner {
+    width: 100% !important;
   }
 
   .iframeContainer {

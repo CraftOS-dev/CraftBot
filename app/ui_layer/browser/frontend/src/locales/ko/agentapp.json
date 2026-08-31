@@ -3,8 +3,6 @@
     "notFoundTitle": "Agent App를 찾을 수 없음",
     "notFoundBody": "찾으시는 Agent App 프로젝트가 존재하지 않거나 삭제되었습니다.",
     "goToChat": "채팅으로 이동",
-    "fullscreen": "전체 화면",
-    "exitFullscreen": "전체 화면 종료 (Esc)",
     "stop": "중지",
     "launch": "실행",
     "launching": "실행 중…",

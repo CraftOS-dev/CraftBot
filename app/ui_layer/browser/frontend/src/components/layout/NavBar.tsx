@@ -22,9 +22,14 @@ import {
   Eraser,
   Trash2,
   Sparkles,
+  Play,
+  Square,
+  Palette,
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import { removeIframe } from '../../pages/AgentApp/iframePool'
+import { ConfirmModal } from '../ui/ConfirmModal'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import { useSkillCreator } from '../../hooks'
 import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
@@ -132,7 +137,7 @@ const persistGroupExpanded = (group: SidebarGroup, expanded: boolean) => {
 }
 
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
-  const { t } = useTranslation(['nav', 'common'])
+  const { t } = useTranslation(['nav', 'common', 'agentapp'])
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -148,6 +153,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   )
   const {
     agentAppProjects,
+    launchAgentApp,
+    stopAgentApp,
+    deleteAgentApp,
     deleteSession,
     renameSession,
     clearSession,
@@ -156,6 +164,10 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   } = useWebSocket()
   const { theme } = useTheme()
   const [showCreateModal, setShowCreateModal] = useState(false)
+  // Which Agent App row's "…" menu is open, and the app queued for a delete
+  // confirmation (delete is destructive, so it always confirms).
+  const [agentMenu, setAgentMenu] = useState<string | null>(null)
+  const [agentDelete, setAgentDelete] = useState<{ id: string; name: string } | null>(null)
 
   const mainSession = useAppSelector(selectMainSession)
   const chatSessions = useAppSelector(selectChatSessions)
@@ -344,13 +356,35 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   useTourEnvAction('openAgentAppModal', () => setShowCreateModal(true))
   useTourEnvAction('closeAgentAppModal', () => setShowCreateModal(false))
 
-  // Close any open context menu when clicking anywhere else.
+  // Close any open context menu when clicking anywhere else. The window-blur
+  // guard covers clicks into the cross-origin Agent App iframe, whose mousedown
+  // never reaches our document (also closes on tab switch, which is fine).
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(null)
     document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
+    window.addEventListener('blur', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      window.removeEventListener('blur', close)
+    }
   }, [menu])
+
+  // Same for the Agent App row's "…" menu, with one extra guard: the Agent App
+  // view is a cross-origin iframe, so clicks inside it never reach our document
+  // and can't fire the mousedown close. Clicking into the iframe blurs the top
+  // window, so we close on window blur too (this also closes on tab switch,
+  // which is fine).
+  useEffect(() => {
+    if (!agentMenu) return
+    const close = () => setAgentMenu(null)
+    document.addEventListener('mousedown', close)
+    window.addEventListener('blur', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      window.removeEventListener('blur', close)
+    }
+  }, [agentMenu])
 
   useEffect(() => {
     if (renamingId) {
@@ -544,6 +578,130 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     )
   }
 
+  const confirmDeleteAgentApp = () => {
+    if (!agentDelete) return
+    const { id } = agentDelete
+    removeIframe(id)
+    deleteAgentApp(id)
+    setAgentDelete(null)
+    // Deleting the open app navigates back to Main.
+    if (activeAgentAppId === id) navigate('/')
+  }
+
+  // Agent App row. Reuses the exact session-row hover mechanics (.sessionRow /
+  // .sessionMenuButton / .sessionMenu) so the Agent App and Chats lists behave
+  // identically. Everything lives behind the "…" menu: lifecycle (start/stop),
+  // theme, and delete. A stopped/idle app is dimmed so its state reads at a
+  // glance.
+  const renderAgentAppRow = (project: typeof agentAppProjects[number]) => {
+    const path = `/agent-app/${project.id}`
+    const active = isActive(path)
+    const status = project.status
+    const transitional = status === 'creating' || status === 'launching' || status === 'stopping'
+    const running = status === 'running'
+    const dimmed = !running && !transitional
+    const canDelete = status !== 'running'
+    // Lifecycle: running → offer Stop; a settled idle app → offer Start;
+    // mid-transition → no lifecycle action (the spinner already tells the story).
+    const lifecycle: 'stop' | 'start' | null = running ? 'stop' : (!transitional ? 'start' : null)
+    // Theme edits happen on the mounted (active) page, which owns the iframe
+    // bridge — so it's only offered for the active app.
+    const showTheme = active
+    const showKebab = lifecycle !== null || showTheme || canDelete
+
+    return (
+      <div
+        key={project.id}
+        className={`${styles.sessionRow} ${styles.agentAppRow} ${active ? styles.agentAppRowActive : ''} ${dimmed ? styles.agentAppRowDimmed : ''}`}
+        title={project.name}
+      >
+        <button
+          className={`${styles.agentAppTab} ${active ? styles.agentAppTabActive : ''}`}
+          onClick={() => navigate(path)}
+          title={project.name}
+        >
+          <span className={styles.agentAppTabIcon}>
+            {transitional
+              ? <Loader2 size={13} className={styles.spinner} />
+              : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
+          </span>
+          <span className={styles.agentAppTabLabel}>{project.name}</span>
+          {renderSessionDot(project.sessionId)}
+        </button>
+
+        {showKebab && (
+          <button
+            className={styles.sessionMenuButton}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => {
+              e.stopPropagation()
+              setAgentMenu(prev => (prev === project.id ? null : project.id))
+            }}
+            aria-label={t('nav:sessionMenu.options')}
+            title={t('nav:sessionMenu.options')}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        )}
+
+        {agentMenu === project.id && showKebab && (
+          <div
+            ref={positionSessionMenu}
+            className={styles.sessionMenu}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            {lifecycle === 'stop' && (
+              <button
+                className={styles.sessionMenuItem}
+                onClick={() => {
+                  setAgentMenu(null)
+                  stopAgentApp(project.id)
+                }}
+              >
+                <Square size={13} /> {t('agentapp:page.stop')}
+              </button>
+            )}
+            {lifecycle === 'start' && (
+              <button
+                className={styles.sessionMenuItem}
+                onClick={() => {
+                  setAgentMenu(null)
+                  launchAgentApp(project.id)
+                }}
+              >
+                <Play size={13} /> {t('agentapp:page.launch')}
+              </button>
+            )}
+            {showTheme && (
+              <button
+                className={styles.sessionMenuItem}
+                onClick={() => {
+                  setAgentMenu(null)
+                  window.dispatchEvent(
+                    new CustomEvent('agentapp:open-theme', { detail: { projectId: project.id } }),
+                  )
+                }}
+              >
+                <Palette size={13} /> {t('agentapp:page.theme')}
+              </button>
+            )}
+            {canDelete && (
+              <button
+                className={`${styles.sessionMenuItem} ${styles.sessionMenuItemDanger}`}
+                onClick={() => {
+                  setAgentMenu(null)
+                  setAgentDelete({ id: project.id, name: project.name })
+                }}
+              >
+                <Trash2 size={13} /> {t('common:actions.delete')}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // The Main session is always present in the UI (pinned first) even if the
   // backend hasn't confirmed it yet — its id is the well-known "main".
   const mainSessionInfo: SessionInfo = mainSession ?? {
@@ -679,26 +837,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                 {(showAllAgentApp
                   ? agentAppProjects
                   : agentAppProjects.slice(0, GROUP_PREVIEW_COUNT)
-                ).map(project => {
-                  const path = `/agent-app/${project.id}`
-                  const active = isActive(path)
-                  return (
-                    <button
-                      key={project.id}
-                      className={`${styles.agentAppTab} ${active ? styles.agentAppTabActive : ''}`}
-                      onClick={() => navigate(path)}
-                      title={project.name}
-                    >
-                      <span className={styles.agentAppTabIcon}>
-                        {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
-                          ? <Loader2 size={13} className={styles.spinner} />
-                          : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
-                      </span>
-                      <span className={styles.agentAppTabLabel}>{project.name}</span>
-                      {renderSessionDot(project.sessionId)}
-                    </button>
-                  )
-                })}
+                ).map(project => renderAgentAppRow(project))}
                 {agentAppProjects.length > GROUP_PREVIEW_COUNT && (
                   <button
                     className={styles.showMoreRow}
@@ -795,10 +934,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               <>
                 {agentAppProjects.map(project => {
                   const path = `/agent-app/${project.id}`
+                  const transitional = project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
+                  // Match the expanded rows: a settled, non-running app is dimmed.
+                  const dimmed = project.status !== 'running' && !transitional
                   return (
                     <button
                       key={project.id}
-                      className={`${styles.flyoutItem} ${isActive(path) ? styles.flyoutItemActive : ''}`}
+                      className={`${styles.flyoutItem} ${isActive(path) ? styles.flyoutItemActive : ''} ${dimmed ? styles.flyoutItemDimmed : ''}`}
                       onClick={() => {
                         setFlyout(null)
                         navigate(path)
@@ -806,7 +948,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       title={project.name}
                     >
                       <span className={styles.flyoutItemIcon}>
-                        {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
+                        {transitional
                           ? <Loader2 size={13} className={styles.spinner} />
                           : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
                       </span>
@@ -853,6 +995,16 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onInstalled={handleProjectCreated}
+      />
+
+      <ConfirmModal
+        isOpen={agentDelete !== null}
+        title={t('agentapp:page.deleteModalTitle')}
+        message={t('agentapp:page.deleteModalMessage', { name: agentDelete?.name ?? '' })}
+        confirmText={t('common:actions.delete')}
+        variant="danger"
+        onConfirm={confirmDeleteAgentApp}
+        onCancel={() => setAgentDelete(null)}
       />
 
       <SkillCreatorModal

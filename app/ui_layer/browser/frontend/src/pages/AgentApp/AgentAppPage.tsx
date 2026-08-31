@@ -2,27 +2,17 @@ import React, { useEffect, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Box,
-  RefreshCw,
-  Trash2,
   Play,
-  Square,
   AlertCircle,
-  MessageSquare,
-  Maximize2,
-  Minimize2,
   Loader2,
-  Palette,
 } from 'lucide-react'
 import { CraftBotMascot } from '@mascot'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { useFullscreen } from '../../contexts/FullscreenContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { Button } from '../../components/ui/Button'
-import { IconButton } from '../../components/ui/IconButton'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { Chat } from '../../components/Chat'
-import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, ownsProjectWindow } from './iframePool'
+import { getOrCreateIframe, showIframe, hideIframe, removeIframe, postMessageToIframe, ownsProjectWindow } from './iframePool'
 import { ConstructionDock } from './ConstructionDock'
 import { AgentAppThemeModal, DEFAULT_CUSTOM_COLORS } from './AgentAppThemeModal'
 import type { AgentAppThemeId, AgentAppCustomColors } from './AgentAppThemeModal'
@@ -34,16 +24,15 @@ import styles from './AgentAppPage.module.css'
 // Stable empty array so the dock's memoized selectors don't churn per render.
 const EMPTY_EVENTS: AgentAppBuildEvent[] = []
 
-// Maps each backend status enum to its (type-checked) i18n key for the status pill.
-const STATUS_LABEL_KEY = {
-  creating: 'agentapp:page.status.creating',
-  launching: 'agentapp:page.status.launching',
-  ready: 'agentapp:page.status.ready',
-  running: 'agentapp:page.status.running',
-  stopping: 'agentapp:page.status.stopping',
-  stopped: 'agentapp:page.status.stopped',
-  error: 'agentapp:page.status.error',
-} as const
+// Chat panel resize bounds (desktop = px width, mobile = height ratio). Dragging
+// the panel narrower than the COLLAPSE threshold snaps it shut instead of
+// clamping — a natural "drag it away to hide it" gesture.
+const PANEL_MIN_WIDTH = 220
+const PANEL_MAX_WIDTH = 600
+const PANEL_COLLAPSE_WIDTH = 180
+const MOBILE_MIN_RATIO = 0.15
+const MOBILE_MAX_RATIO = 0.85
+const MOBILE_COLLAPSE_RATIO = 0.07
 
 function loadAgentAppTheme(projectId: string): AgentAppThemeId {
   try {
@@ -80,12 +69,10 @@ export function AgentAppPage() {
     agentAppProjects,
     agentAppTodos,
     launchAgentApp,
-    stopAgentApp,
     deleteAgentApp,
     setActiveAgentApp,
     updateAgentAppTheme,
   } = useWebSocket()
-  const { isFullscreen, setFullscreen, toggleFullscreen } = useFullscreen()
   const { theme: appTheme } = useTheme()
   const buildEventsMap = useAppSelector(selectAgentAppBuildEvents)
   const snapshotMap = useAppSelector(selectAgentAppSnapshots)
@@ -107,6 +94,9 @@ export function AgentAppPage() {
   const [isResizing, setIsResizing] = useState(false)
   const iframePlaceholderRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  // Tracks a pointer interaction on the seam handle so we can tell a click
+  // (toggle the panel) from a drag (resize it).
+  const dragRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(null)
 
   // Track viewport width for mobile/desktop layout switch
   useEffect(() => {
@@ -115,20 +105,18 @@ export function AgentAppPage() {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // Reset fullscreen when leaving the page so other pages aren't stuck without nav
+  // The theme picker now lives behind the sidebar row's "…" menu. That kebab
+  // only appears for the active project, so its page (this one) is mounted and
+  // catches the event to open the modal here, where the iframe bridge lives.
   useEffect(() => {
-    return () => setFullscreen(false)
-  }, [setFullscreen])
-
-  // ESC exits fullscreen
-  useEffect(() => {
-    if (!isFullscreen) return
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFullscreen(false)
+    if (!projectId) return
+    const onOpenTheme = (e: Event) => {
+      const detail = (e as CustomEvent<{ projectId?: string }>).detail
+      if (detail?.projectId === projectId) setShowThemeModal(true)
     }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [isFullscreen, setFullscreen])
+    window.addEventListener('agentapp:open-theme', onOpenTheme)
+    return () => window.removeEventListener('agentapp:open-theme', onOpenTheme)
+  }, [projectId])
 
   // Find the current project
   const project = agentAppProjects.find(p => p.id === projectId)
@@ -202,11 +190,16 @@ export function AgentAppPage() {
     }
   }, [projectId, project?.status, project?.url])
 
-  // Send the selected Agent App theme + current app mode to the iframe
+  // Send the selected Agent App theme + current app mode to the iframe.
+  // NOTE: the postMessage `type` stays 'livingui-theme' — it is the wire
+  // contract with apps already built by their bridge. Renaming it (like the
+  // rest of the Living UI → Agent App rename) would silently break theme
+  // following for every app scaffolded before the rename, so it's kept stable
+  // exactly like the other retained runtime values (trigger/session values).
   useEffect(() => {
     if (!projectId || project?.status !== 'running') return
     postMessageToIframe(projectId, {
-      type: 'agentapp-theme',
+      type: 'livingui-theme',
       themeId: agentAppTheme,
       mode: appTheme,
       // Only for the 'custom' theme — the bridge applies these as inline
@@ -223,7 +216,8 @@ export function AgentAppPage() {
       if (e.data?.type !== 'craftbot-theme-request' || !e.source) return
       if (!ownsProjectWindow(projectId, e.source)) return
       ;(e.source as Window).postMessage({
-        type: 'agentapp-theme',
+        // Stable wire type — see the send effect above.
+        type: 'livingui-theme',
         themeId: agentAppTheme,
         mode: appTheme,
         customColors: agentAppTheme === 'custom' ? agentAppCustomColors : undefined,
@@ -254,12 +248,6 @@ export function AgentAppPage() {
     }
   }
 
-  const handleStop = () => {
-    if (projectId) {
-      stopAgentApp(projectId)
-    }
-  }
-
   const handleDelete = () => {
     if (projectId) {
       removeIframe(projectId)
@@ -268,36 +256,60 @@ export function AgentAppPage() {
     }
   }
 
-  const handleRefresh = () => {
-    if (projectId) {
-      refreshIframe(projectId)
-    }
-  }
-
-  // Handle resize (horizontal on desktop, vertical on mobile). Uses pointer
-  // events so both mouse and touch work on the mobile handle.
+  // The seam handle does double duty: drag it to resize the panel, or click it
+  // (no drag) to collapse/expand. Pointer events cover both mouse and touch.
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault()
+    dragRef.current = { startX: e.clientX, startY: e.clientY, moved: false }
     setIsResizing(true)
   }
+
+  const toggleChat = () => setShowChat(prev => !prev)
 
   useEffect(() => {
     if (!isResizing) return
 
     const handlePointerMove = (e: PointerEvent) => {
+      if (!dragRef.current) return
+      if (
+        Math.abs(e.clientX - dragRef.current.startX) > 4 ||
+        Math.abs(e.clientY - dragRef.current.startY) > 4
+      ) {
+        dragRef.current.moved = true
+      }
+      // A collapsed panel has nothing to resize — the handle is click-only.
+      if (!showChat) return
       const rect = contentRef.current?.getBoundingClientRect()
       if (!rect) return
       if (isMobile) {
-        const chatHeight = rect.bottom - e.clientY
-        const ratio = chatHeight / rect.height
-        setMobileChatRatio(Math.max(0.15, Math.min(0.85, ratio)))
+        const ratio = (rect.bottom - e.clientY) / rect.height
+        // Dragged too small ⇒ collapse and end the drag.
+        if (ratio < MOBILE_COLLAPSE_RATIO) {
+          dragRef.current = null
+          setIsResizing(false)
+          setShowChat(false)
+          return
+        }
+        setMobileChatRatio(Math.max(MOBILE_MIN_RATIO, Math.min(MOBILE_MAX_RATIO, ratio)))
       } else {
         const newWidth = rect.right - e.clientX
-        setPanelWidth(Math.max(280, Math.min(600, newWidth)))
+        if (newWidth < PANEL_COLLAPSE_WIDTH) {
+          dragRef.current = null
+          setIsResizing(false)
+          setShowChat(false)
+          return
+        }
+        setPanelWidth(Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, newWidth)))
       }
     }
 
-    const handlePointerUp = () => setIsResizing(false)
+    const handlePointerUp = () => {
+      // No meaningful movement ⇒ it was a click ⇒ toggle the panel.
+      const wasClick = !!dragRef.current && !dragRef.current.moved
+      dragRef.current = null
+      setIsResizing(false)
+      if (wasClick) toggleChat()
+    }
 
     document.addEventListener('pointermove', handlePointerMove)
     document.addEventListener('pointerup', handlePointerUp)
@@ -308,7 +320,7 @@ export function AgentAppPage() {
       document.removeEventListener('pointerup', handlePointerUp)
       document.removeEventListener('pointercancel', handlePointerUp)
     }
-  }, [isResizing, isMobile])
+  }, [isResizing, isMobile, showChat])
 
   // Project not found
   if (!project) {
@@ -326,84 +338,9 @@ export function AgentAppPage() {
 
   return (
     <div className={`${styles.container} ${isResizing ? styles.resizing : ''}`}>
-      {/* Menu Bar */}
-      <div className={styles.menuBar}>
-        <div className={styles.menuLeft}>
-          <Box size={14} className={styles.projectIcon} />
-          <h1 className={styles.projectName}>{project.name}</h1>
-          <span className={`${styles.status} ${styles[project.status]}`}>
-            {t(STATUS_LABEL_KEY[project.status])}
-          </span>
-          {isFullscreen && (
-            <span className={styles.fullscreenBadge}>{t('agentapp:page.fullscreen')}</span>
-          )}
-        </div>
-
-        <div className={styles.menuActions}>
-          {project.status === 'running' ? (
-            <>
-              <IconButton
-                size="sm"
-                icon={<RefreshCw size={14} />}
-                tooltip={t('common:actions.refresh')}
-                onClick={handleRefresh}
-              />
-              <IconButton
-                size="sm"
-                icon={<Square size={14} />}
-                tooltip={t('agentapp:page.stop')}
-                onClick={handleStop}
-              />
-            </>
-          ) : project.status === 'launching' || project.status === 'stopping' ? (
-            <IconButton
-              size="sm"
-              disabled
-              icon={<Loader2 size={14} className={styles.spinner} />}
-              tooltip={project.status === 'launching' ? t('agentapp:page.launching') : t('agentapp:page.stopping')}
-            />
-          ) : project.status === 'ready' || project.status === 'stopped' ? (
-            <IconButton
-              size="sm"
-              icon={<Play size={14} />}
-              tooltip={t('agentapp:page.launch')}
-              onClick={handleLaunch}
-            />
-          ) : null}
-          <IconButton
-            size="sm"
-            icon={<Palette size={14} />}
-            tooltip={t('agentapp:page.theme')}
-            onClick={() => setShowThemeModal(true)}
-          />
-          {project.sessionId && (
-            <IconButton
-              size="sm"
-              icon={<MessageSquare size={14} />}
-              tooltip={showChat ? t('agentapp:page.hideChat') : t('agentapp:page.showChat')}
-              onClick={() => setShowChat(prev => !prev)}
-            />
-          )}
-          <IconButton
-            size="sm"
-            active={isFullscreen}
-            icon={isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            tooltip={isFullscreen ? t('agentapp:page.exitFullscreen') : t('agentapp:page.fullscreen')}
-            onClick={toggleFullscreen}
-          />
-          {project.status !== 'running' && (
-            <IconButton
-              size="sm"
-              icon={<Trash2 size={14} />}
-              tooltip={t('common:actions.delete')}
-              variant="ghost"
-              onClick={() => setShowDeleteModal(true)}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Main Content Area */}
+      {/* Main Content Area. The old top bar is gone: lifecycle + view controls
+          now live on the sidebar row, and the chat panel collapses to an edge
+          rail (below) so it can be hidden without losing its re-open affordance. */}
       <div ref={contentRef} className={styles.content}>
         {/* Agent App Iframe */}
         <div className={styles.iframeContainer}>
@@ -447,30 +384,55 @@ export function AgentAppPage() {
           )}
         </div>
 
-        {/* Resize Handle. The chat panel only exists when the backend gave
-            this project a backing session — older projects without one just
-            show the Agent App full-width. */}
-        {showChat && project.sessionId && (
+        {/* Seam handle: drag to resize, click to collapse/expand. When
+            collapsed the panel is gone and this parks at the edge as a
+            half-visible tab — the only re-open affordance. Exists only when
+            the backend gave this project a backing session; older projects
+            without one just show the Agent App full-width. */}
+        {project.sessionId && (
           <div
-            className={`${styles.resizeHandle} ${isResizing ? styles.resizing : ''}`}
+            className={`${styles.resizeHandle} ${!showChat ? styles.resizeHandleCollapsed : ''} ${isResizing ? styles.resizing : ''}`}
             onPointerDown={handlePointerDown}
-          />
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                toggleChat()
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-expanded={showChat}
+            aria-label={showChat ? t('agentapp:page.hideChat') : t('agentapp:page.showChat')}
+            title={showChat ? t('agentapp:page.hideChat') : t('agentapp:page.showChat')}
+          >
+            <span className={styles.resizeGrip} aria-hidden="true" />
+          </div>
         )}
 
-        {/* Chat Panel */}
-        {showChat && project.sessionId && (
+        {/* Chat Panel. Kept mounted (when a session exists) so collapse/expand
+            can animate its width/height to zero and back. The inner wrapper
+            holds the panel's open size fixed, so the chat content slides out of
+            view instead of reflowing as the outer size animates. Transitions are
+            suppressed mid-drag (chatPanelDragging) so resizing tracks 1:1. */}
+        {project.sessionId && (
           <div
-            className={styles.chatPanel}
+            className={`${styles.chatPanel} ${!showChat ? styles.chatPanelCollapsed : ''} ${isResizing ? styles.chatPanelDragging : ''}`}
             style={
               isMobile
-                ? { flex: `0 0 ${mobileChatRatio * 100}%` }
-                : { width: panelWidth }
+                ? { flexBasis: showChat ? `${mobileChatRatio * 100}%` : '0%' }
+                : { width: showChat ? panelWidth : 0 }
             }
+            aria-hidden={!showChat}
           >
-            <Chat
-              sessionId={project.sessionId}
-              placeholder={t('agentapp:page.chatPlaceholder')}
-            />
+            <div
+              className={styles.chatPanelInner}
+              style={isMobile ? undefined : { width: panelWidth }}
+            >
+              <Chat
+                sessionId={project.sessionId}
+                placeholder={t('agentapp:page.chatPlaceholder')}
+              />
+            </div>
           </div>
         )}
       </div>
