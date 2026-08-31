@@ -3,7 +3,7 @@
   "general": {
     "agent_name": "CraftBot",
     "os_language": "en",
-    "ui_language": "ja"
+    "ui_language": "en"
   },
   "proactive": {
     "enabled": true
@@ -21,7 +21,11 @@
   },
   "model": {
     "slow_mode": true,
-    "slow_mode_tpm_limit": 25000
+    "slow_mode_tpm_limit": 25000,
+    "llm_provider": "anthropic",
+    "vlm_provider": "anthropic",
+    "llm_model": null,
+    "vlm_model": null
   },
   "api_keys": {
     "openai": "",
