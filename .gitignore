@@ -11,6 +11,10 @@ agent_file_system/workspace/
 craftbot/external_tools/
 craftbot/generated_task_document/
 **/__pycache__/
+.pytest_cache/
+# Written by the agent when boot() completes, read by run.py. Runtime
+# state, not source.
+.agent-ready
 **/rag_docs_actions/
 **/rag_docs_taskdocs/
 ollama_data/
@@ -31,16 +35,19 @@ debug_images
 .vscode/
 .idea/
 # PyInstaller auto-generates a <name>.spec when run without one — those are
-# build artifacts. Our hand-written CraftBotInstaller.spec and
-# CraftBotAgent.spec live under packaging/ and are source-of-truth for the
-# release workflow, so they MUST be tracked. Keep the broad ignore but
-# allow-list the two we own.
+# build artifacts. Our hand-written CraftBotInstaller.spec lives under
+# packaging/ and is source-of-truth for the release workflow, so it MUST
+# be tracked. Keep the broad ignore but allow-list the one we own.
 *.spec
 !packaging/CraftBotInstaller.spec
-!packaging/CraftBotAgent.spec
 **/.whatsapp_web_sessions/
 **/build
 **/build_*
+# ...but scripts/ holds SOURCE, not build output. `build_*` there is a
+# script that builds something (build_wheelhouse.py, build_installer_marks.py)
+# and is referenced by name from code and docs. Without this negation they
+# are silently absent from every clone.
+!scripts/build_*.py
 **/dist
 **/release
 **/*wwebjs*
@@ -62,3 +69,19 @@ app/data/.file_index/
 .playwright-mcp
 # Sidecar Node runtime (install.py downloads it when the system Node is too old for Agent App)
 runtime/
+
+# Local wheel cache built by scripts/build_wheelhouse.py (~2GB of .whl
+# files). Machine- and platform-specific, and regenerable from the lock, so
+# it must never be committed or land in a Docker build context.
+wheelhouse/
+
+# Runtime archives fetched by scripts/prefetch_runtimes.py (Python, Node,
+# the VC++ redistributable). Regenerable, ~100MB, machine-specific.
+downloads-cache/
+
+# Prefetched by scripts/prefetch_runtimes.py so Sandbox tests do not
+# re-download ~300MB every run. Regenerable, machine-specific.
+npm-cache/
+playwright-browsers/
+
+hf-cache/

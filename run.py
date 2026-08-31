@@ -48,50 +48,41 @@ CRAFTBOT_READY_MARKER = "CRAFTBOT IS READY"
 # No .env file is used - all settings come from app/config/settings.json
 
 # --- Base directory ---
-# In a PyInstaller --onefile binary, bundled data is extracted to sys._MEIPASS
-if getattr(sys, "frozen", False):
-    BASE_DIR = sys._MEIPASS
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# app.paths is the single answer to code-vs-state (see app/paths.py). It is
+# stdlib-only, so importing it here — before dependencies exist — is safe.
+from app import paths as _paths  # noqa: E402
+
+BASE_DIR = str(_paths.CODE_ROOT)
 
 
-def _bootstrap_frozen():
-    """Copy bundled config/data from _MEIPASS to the user data dir on first run.
+def _bootstrap_state():
+    """Seed the per-user state directory from the shipped defaults.
 
-    PyInstaller extracts bundled files into a temp directory (sys._MEIPASS)
-    which is read-only and deleted on exit. The app expects mutable config
-    and data directories that persist between runs. We target a per-user
-    data dir (NOT the install dir, NOT cwd) so:
-      - User data lives outside Program Files / install location
-      - Uninstall + reinstall preserves history
-      - Direct double-click of CraftBotAgent.exe doesn't dump runtime files
-        next to the binary
+    A managed install keeps CODE in the install directory (replaced wholesale
+    by the next upgrade, and on Windows not reliably writable) and STATE in
+    the per-user data dir. The app expects mutable app/config, app/data,
+    agents, assets and skills trees, so on first run they are copied across.
+
+    Only ever copies what is ABSENT — a user's edited settings.json or their
+    customised skills must survive every upgrade.
+
+    A dev checkout is skipped: there, code and state are the same tree, which
+    is what makes a checkout convenient to work in.
     """
-    if not getattr(sys, "frozen", False):
+    if _paths.is_dev_checkout():
         return
 
     import shutil as _shutil
 
-    # Per-user data root — same convention as the installer wizard
-    # (craftbot._user_data_dir() / app.config._frozen_user_data_root()).
-    if sys.platform == "win32":
-        _root = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
-        user_data = os.path.join(_root, "CraftBot")
-    elif sys.platform == "darwin":
-        user_data = os.path.expanduser("~/Library/Application Support/CraftBot")
-    else:
-        _root = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-        user_data = os.path.join(_root, "craftbot")
+    user_data = str(_paths.STATE_ROOT)
     os.makedirs(user_data, exist_ok=True)
 
-    # Switch CWD so any code that still uses os.getcwd() / relative paths
-    # ends up writing into user_data instead of the install dir.
+    # Switch CWD so any code still using relative paths writes into the state
+    # dir rather than the install dir.
     os.chdir(user_data)
 
-    meipass = sys._MEIPASS
-    cwd = user_data
+    src_root = str(_paths.CODE_ROOT)
 
-    # Directories to bootstrap (source relative to _MEIPASS)
     dirs_to_copy = [
         "app/config",
         "app/data",
@@ -99,29 +90,28 @@ def _bootstrap_frozen():
         "assets",
         "skills",
     ]
-    # Individual files to bootstrap
     files_to_copy = [
         "config.json",
         ".env.example",
     ]
 
     for rel_dir in dirs_to_copy:
-        src = os.path.join(meipass, rel_dir)
-        dst = os.path.join(cwd, rel_dir)
+        src = os.path.join(src_root, rel_dir)
+        dst = os.path.join(user_data, rel_dir)
         if os.path.isdir(src) and not os.path.isdir(dst):
             print(f"  Bootstrapping {rel_dir}/...")
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             _shutil.copytree(src, dst)
 
     for rel_file in files_to_copy:
-        src = os.path.join(meipass, rel_file)
-        dst = os.path.join(cwd, rel_file)
+        src = os.path.join(src_root, rel_file)
+        dst = os.path.join(user_data, rel_file)
         if os.path.isfile(src) and not os.path.isfile(dst):
             print(f"  Bootstrapping {rel_file}...")
             _shutil.copy2(src, dst)
 
 
-_bootstrap_frozen()
+_bootstrap_state()
 
 # --- Configuration ---
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
@@ -600,22 +590,32 @@ def _ensure_frontend_deps_fresh(npm_cmd: str, silent: bool = False) -> bool:
 
 
 def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
-    """Launch the frontend dev server for browser mode."""
-    # If running as a PyInstaller binary, serve pre-built static files
-    # instead of launching npm dev server (node/npm won't be available)
-    dist_dir = os.path.join(FRONTEND_DIR, "dist")
-    is_frozen = getattr(sys, "frozen", False)
+    """Serve the browser UI: prebuilt files for an install, Vite for a checkout.
 
-    if is_frozen:
-        if os.path.exists(dist_dir):
+    The choice used to be "am I a PyInstaller binary?". That question no
+    longer means anything — the agent is never frozen — and getting it wrong
+    was expensive: a managed install fell through to the Vite dev-server
+    path, which demands node_modules the install has no reason to have. The
+    install payload already ships a COMPILED dist/, so it needs neither npm
+    nor a build step to show a working UI.
+
+    The real question is what this tree is:
+      * managed install → serve the prebuilt dist statically. No Node, no
+        npm, no network.
+      * dev checkout    → run Vite, so hot reload works while editing.
+    """
+    dist_dir = os.path.join(FRONTEND_DIR, "dist")
+    prebuilt = os.path.isfile(os.path.join(dist_dir, "index.html"))
+
+    if not _paths.is_dev_checkout():
+        if prebuilt:
             return _launch_static_frontend(silent)
-        else:
-            # Binary mode but no dist folder bundled — can't start frontend
-            if not silent:
-                print(f"Error: Frontend dist not found at {dist_dir}")
-                print(f"  BASE_DIR: {BASE_DIR}")
-                print(f"  FRONTEND_DIR: {FRONTEND_DIR}")
-            return None
+        if not silent:
+            print(f"Error: Frontend dist not found at {dist_dir}")
+            print(f"  BASE_DIR: {BASE_DIR}")
+            print(f"  FRONTEND_DIR: {FRONTEND_DIR}")
+            print("  The install payload should contain a prebuilt frontend.")
+        return None
 
     if not os.path.exists(FRONTEND_DIR):
         if not silent:
@@ -800,6 +800,11 @@ def print_ready_banner(url: str):
     print(f"{ORANGE}║{RESET}{ORANGE}{_r2.ljust(W)}{RESET}{ORANGE}║{RESET}")
     print(f"{ORANGE}║{' ' * W}║{RESET}")
     print(f"{ORANGE}╚{'═' * W}╝{RESET}\n")
+    # MUST flush. When craftbot.py starts us as a service our stdout is a log
+    # FILE, not a terminal, so Python block-buffers it — and this banner is
+    # only ~400 bytes into an 8 KB buffer. Anything watching the log for the
+    # ready marker would wait forever while the text sat in memory.
+    sys.stdout.flush()
 
 
 def wait_for_backend_silent(timeout: int = 60) -> bool:
@@ -1197,7 +1202,109 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
 # ==========================================
 # MAIN
 # ==========================================
+#: How long to wait for the agent to finish booting before giving up and
+#: showing the UI anyway. Generous on purpose: a first run downloads the
+#: embedding model, which on a slow connection is genuinely minutes. Timing
+#: out is not an error — it just means we stop waiting to open the browser.
+AGENT_READY_TIMEOUT_S = 900
+
+
+def _clear_agent_ready() -> None:
+    """Remove a previous run's readiness marker."""
+    try:
+        from app import paths
+
+        paths.AGENT_READY_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _wait_for_agent_ready(process=None, timeout: float = AGENT_READY_TIMEOUT_S) -> bool:
+    """Block until the agent says boot() finished. See app/paths.py.
+
+    Returns True if the marker appeared, False if the agent died or the
+    timeout expired — the caller proceeds either way, because refusing to
+    show the UI just because the agent was slow would be worse than showing
+    it early.
+
+    Watching `process` matters: the marker is only written on a *successful*
+    boot, so an agent that crashes part-way through would otherwise leave us
+    sitting here for the full timeout with nothing to show for it.
+    """
+    try:
+        from app import paths
+
+        marker = paths.AGENT_READY_FILE
+    except Exception:
+        return True  # cannot check; do not block the boot on it
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if marker.is_file():
+                return True
+        except OSError:
+            pass
+        if process is not None and process.poll() is not None:
+            print(
+                f"\n  Agent exited during startup (code {process.returncode}).",
+                flush=True,
+            )
+            return False
+        time.sleep(0.4)
+    print(
+        f"\n  Agent still starting after {int(timeout)}s — continuing anyway.",
+        flush=True,
+    )
+    return False
+
+
+def _suppress_child_consoles() -> None:
+    """Stop console children opening their own terminal windows.
+
+    craftbot.py spawns run.py detached, so it has no console of its own. On
+    Windows a *console* application launched from a process with no console
+    gets a brand new console window — so npm, node, conda and the agent
+    process each popped up a terminal during an installed start.
+
+    The frozen agent never showed this: PyInstaller ran
+    rthooks/rthook-windows-noflash.py, which patched subprocess for exactly
+    this reason. The agent is no longer a frozen bundle, so that hook now
+    applies only to the installer EXE and nothing covered run.py any more.
+    This restores the behaviour at the same choke point.
+
+    Only patch when we genuinely have no console. A developer running
+    `python run.py` in a terminal has one, and there the children *should*
+    inherit it — that is where the output is meant to go.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        if ctypes.windll.kernel32.GetConsoleWindow():
+            return  # we have a console; children should inherit it
+    except Exception:
+        return
+
+    CREATE_NO_WINDOW = 0x08000000
+    _original_init = subprocess.Popen.__init__
+
+    def _patched_init(self, *args, **kwargs):
+        flags = kwargs.get("creationflags", 0) or 0
+        # Idempotent: Windows ignores CREATE_NO_WINDOW when DETACHED_PROCESS
+        # is already set, and the call sites that set it stay correct.
+        kwargs["creationflags"] = flags | CREATE_NO_WINDOW
+        return _original_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = _patched_init
+
+
 if __name__ == "__main__":
+    # Before anything spawns a child. See the docstring for why this is not
+    # simply always-on.
+    _suppress_child_consoles()
+
     # Whatever `python` launched us is a trampoline: hop onto the project's
     # interpreter (the one the dependencies live in) before doing anything.
     python_runtime.reexec_if_needed()
@@ -1326,6 +1433,9 @@ if __name__ == "__main__":
 
         # Step 2: Start agent backend
         print_step(2, 8, "Starting agent backend")
+        # Clear last run's marker first, or we would read it as this run's
+        # readiness and open the browser instantly.
+        _clear_agent_ready()
         agent_process = launch_agent_background(env_name, use_conda, silent=True)
         if not agent_process:
             print(" ✗")
@@ -1368,6 +1478,14 @@ if __name__ == "__main__":
             except Exception:
                 pass
             time.sleep(0.5)
+
+        # The backend port answering is NOT the agent being ready: it binds
+        # early, while steps 3-7 (model download, MCP servers, skills,
+        # integrations, scheduler) are still running. Treating the port as
+        # readiness is what printed the ready banner — and opened the browser
+        # — at step 2 of 8, onto a backend that could not serve yet.
+        if backend_ready:
+            backend_ready = _wait_for_agent_ready(agent_process)
 
         # Small delay to ensure agent's stdout is flushed before we print
         # The agent prints steps 3-8, and we want them to appear before the ready banner

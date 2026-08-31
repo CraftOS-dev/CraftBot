@@ -69,6 +69,77 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ──────────────────────────────────────────────
+  # Build the source payload the installer provisions around.
+  # ONE asset for every platform: it is pure Python plus data files. What
+  # used to differ per platform (the bundled interpreter, compiled wheels)
+  # is provisioned on the user's machine by app.provision.
+  # ──────────────────────────────────────────────
+  source:
+    name: Source payload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend
+        env:
+          VITE_BACKEND_PORT: "7926"
+        run: |
+          # Ships compiled into the payload: users have no Node toolchain at
+          # install time and must not need one to get a working UI.
+          cd app/ui_layer/browser/frontend
+          npm install
+          npx vite build
+
+      - name: Write VERSION file from git tag
+        run: |
+          REF="${{ github.ref_name }}"
+          echo "${REF#v}" > VERSION
+
+      - name: Create default config.json
+        run: |
+          echo '{"use_conda": false, "gui_mode_enabled": false}' > config.json
+
+      # A missing lock does not break the BUILD — it breaks the user's
+      # install, minutes in and hundreds of MB down. Catch it here instead.
+      # Matched by prefix: the macOS tag carries an OS version
+      # (macosx_11_0_arm64-py310), so the exact filename is not fixed.
+      - name: Require a lock for every platform we ship
+        run: |
+          missing=0
+          for prefix in win_amd64 linux_x86_64 macosx; do
+            if ! ls requirements/lock-"$prefix"*.txt >/dev/null 2>&1; then
+              echo "::error::no lock matching requirements/lock-$prefix*.txt"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Run the 'Install parity' workflow — it generates and commits them."
+            exit 1
+          fi
+          ls -1 requirements/lock-*.txt
+
+      - name: Build payload
+        run: |
+          python scripts/package_source.py
+
+      - name: Upload source payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-source
+          path: dist/CraftBot-src.zip
+
+  # ──────────────────────────────────────────────
   # Build platform binaries with PyInstaller
   # ──────────────────────────────────────────────
   pyinstaller:
@@ -100,37 +171,15 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Linux webview system packages
-        if: matrix.os_label == 'linux'
-        shell: bash
-        run: |
-          # PyGObject builds against these headers. WebKitGTK 4.1 + the
-          # webkit2-4.1 GObject introspection bindings are what pywebview's
-          # GTK backend talks to at runtime — the WebKit2 namespace is
-          # identical across 4.0 and 4.1, so pywebview needs no change.
-          # Ubuntu 24.04 (noble) on ubuntu-latest dropped the 4.0 packages;
-          # earlier 22.04 runners had only 4.0. Pin to 4.1 to match noble.
-          # End users need the runtime halves of these (libwebkit2gtk-4.1-0,
-          # gir1.2-webkit2-4.1) installed via their distro's package manager.
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-0 \
-            gir1.2-webkit2-4.1 \
-            libgirepository1.0-dev \
-            libgirepository-2.0-dev \
-            libcairo2-dev \
-            python3-gi \
-            python3-gi-cairo
-
       - name: Install dependencies
         shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # Installer-only deps (pywebview + per-OS backend bindings). Kept
-          # in a separate file so the agent's requirements.txt stays lean.
+          # The installer's own build deps (CustomTkinter + PyInstaller) are
+          # listed apart from the agent's so the bootstrapper cannot quietly
+          # inherit the agent's stack. Tk itself comes with CPython.
           pip install -r packaging/requirements-installer.txt
-          pip install pyinstaller
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -145,6 +194,13 @@ jobs:
           cd app/ui_layer/browser/frontend
           npm install
           npx vite build
+
+      - name: Verify the dependency lock is current
+        shell: bash
+        run: |
+          # A stale lock means users install a dependency set CI never
+          # resolved or tested. Fail the release rather than ship it.
+          python scripts/generate_lock.py --check
 
       - name: Create default config.json
         shell: bash
@@ -162,22 +218,13 @@ jobs:
           echo "$VERSION" > VERSION
           echo "VERSION file content: $(cat VERSION)"
 
-      - name: Build agent (CraftBotAgent) with PyInstaller
-        shell: bash
-        run: pyinstaller --noconfirm --clean packaging/CraftBotAgent.spec
-
-      - name: Zip agent payload
-        shell: bash
-        run: |
-          # CraftBotAgent.spec produces dist/CraftBotAgent/ (folder).
-          # Zip it into the asset name the installer downloads at runtime.
-          cd dist
-          if [ "${{ matrix.os_label }}" = "windows" ]; then
-            7z a -tzip "CraftBot-agent-${{ matrix.os_label }}.zip" CraftBotAgent
-          else
-            zip -r "CraftBot-agent-${{ matrix.os_label }}.zip" CraftBotAgent
-          fi
-          ls -lh "CraftBot-agent-${{ matrix.os_label }}.zip"
+      # The agent is no longer frozen. It used to be built here as a
+      # per-platform PyInstaller bundle (~408 MB zipped, 2.3 GB on disk);
+      # the installer now fetches a 17 MB source payload and provisions an
+      # interpreter and the locked dependencies around it. That is what makes
+      # an installed CraftBot the same thing as a source checkout instead of
+      # a separate artifact with its own bugs.
+      # See docs/plans/unified-install-architecture.md.
 
       - name: Build installer (CraftBotInstaller) with PyInstaller
         shell: bash
@@ -195,18 +242,13 @@ jobs:
           name: release-installer-${{ matrix.os_label }}
           path: dist/CraftBotInstaller-${{ matrix.os_label }}${{ matrix.ext }}
 
-      - name: Upload agent zip artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-agent-${{ matrix.os_label }}
-          path: dist/CraftBot-agent-${{ matrix.os_label }}.zip
 
   # ──────────────────────────────────────────────
   # Create GitHub Release with all artifacts
   # ──────────────────────────────────────────────
   release:
     name: Publish GitHub Release
-    needs: [docker, pyinstaller]
+    needs: [docker, source, pyinstaller]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -223,12 +265,15 @@ jobs:
           body: |
             ### Installer (Recommended)
             Download `CraftBotInstaller-<platform>` from the assets below and
-            run it. The installer wizard will let you choose an install
-            location and will download the matching agent payload
-            (`CraftBot-agent-<platform>.zip`) from this same release.
+            run it. The wizard lets you choose an install location, then
+            downloads `CraftBot-src.zip` from this release and sets up
+            everything it needs — Python, Node.js and all dependencies. You do
+            not need Git, Python or Node installed beforehand.
+
+            First install takes a few minutes while the runtime is prepared.
 
             ### Manual install
             If you'd rather skip the wizard, download both
-            `CraftBotInstaller-<platform>` and `CraftBot-agent-<platform>.zip`,
-            place them in the same folder, and run the installer — it'll find
-            the local zip instead of fetching from GitHub.
+            `CraftBotInstaller-<platform>` and `CraftBot-src.zip`, place them
+            in the same folder, and run the installer — it'll use the local
+            payload instead of fetching from GitHub.

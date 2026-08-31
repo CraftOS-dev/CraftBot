@@ -95,6 +95,11 @@ try:
 except ImportError:
     _python_runtime = None
 
+# Where code and state live, for every install path (see app/paths.py).
+# Imported unconditionally — it is stdlib-only, so it is available in the
+# frozen installer EXE too, unlike the rest of app/.
+from app import paths  # noqa: E402
+
 # Agent payload (download/extract/version) lives in craftbot_payload.
 # These re-exports keep external callers (e.g. CraftBotInstaller.spec docstring,
 # any future tooling) working with the legacy `craftbot.GITHUB_OWNER` etc.
@@ -141,16 +146,6 @@ INSTALL_METADATA_FILE = os.path.join(_user_data_dir(), "install.json")
 RUN_SCRIPT = os.path.join(BASE_DIR, "run.py")
 
 
-def download_agent_zip(
-    progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
-) -> str:
-    return _payload.download_agent_zip(BASE_DIR, EXE_PATH, progress_cb=progress_cb)
-
-
-def extract_agent_zip(zip_path: str, target_dir: str) -> str:
-    return _payload.extract_agent_zip(zip_path, target_dir)
-
-
 def default_install_location() -> str:
     """Return the default install directory used by the wizard's location chooser.
 
@@ -175,8 +170,21 @@ def read_install_metadata() -> Optional[dict]:
     return _metadata.read(INSTALL_METADATA_FILE)
 
 
-def write_install_metadata(installed_path: str, mode: str) -> None:
-    _metadata.write(INSTALL_METADATA_FILE, installed_path, mode)
+def write_install_metadata(
+    installed_path: str,
+    mode: str,
+    python: Optional[str] = None,
+    version: Optional[str] = None,
+) -> None:
+    """Record what was installed, where, and what runs it.
+
+    python/version are schema-2 fields: an install is now a source tree plus
+    an interpreter, so both have to be recorded for cmd_start and auto-start
+    registration to reconstruct the launch command.
+    """
+    _metadata.write(
+        INSTALL_METADATA_FILE, installed_path, mode, python=python, version=version
+    )
 
 
 def clear_install_metadata() -> None:
@@ -202,11 +210,6 @@ SHORTCUT_NAME = "CraftBot.lnk"
 _BUNDLE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 LOGO_PNG = os.path.join(_BUNDLE_DIR, "craftbot_logo_1.png")
 LOGO_ICO = os.path.join(_BUNDLE_DIR, "craftbot_logo_1.ico")
-# Wordmark logo for the wizard header.
-LOGO_TEXT_WHITE_PNG = os.path.join(
-    _BUNDLE_DIR, "assets", "craftbot_logo_text_no_border_dark.png"
-)
-
 # ─── Terminal colors (orange/white brand palette) ─────────────────────────────
 
 
@@ -412,6 +415,55 @@ def _wait_for_startup_exit(
     return None
 
 
+#: How long cmd_start waits for the agent to finish booting before it gives
+#: up on opening the browser. Minutes, not seconds: a first run downloads the
+#: embedding model, and on a slow connection that dominates startup.
+BROWSER_READY_TIMEOUT_S = 600
+
+
+def _clear_agent_ready() -> None:
+    """Drop any previous run's readiness marker before we launch."""
+    try:
+        paths.AGENT_READY_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _wait_for_ready_marker(start_offset: int, timeout: float) -> bool:
+    """Block until the agent reports that it finished booting.
+
+    `_wait_for_startup_exit` is not a substitute: it returns after 8 seconds
+    whether or not anything is ready, because its job is only to catch a
+    launch that dies immediately. Opening the browser on that signal put a
+    tab in front of the user at around step 2 of 8.
+
+    Two signals, checked in this order:
+
+      1. app.paths.AGENT_READY_FILE, written by the agent itself. This is
+         authoritative and is what we actually wait on.
+      2. The ready banner in the log, kept only as a fallback for an older
+         installed agent that predates the marker file.
+
+    The log used to be the ONLY signal, and that was a bug: run.py's stdout
+    is a log FILE here, so Python block-buffers it. The banner sat unflushed
+    in an 8 KB buffer while this function timed out around it — the install
+    looked stuck on "Working..." long after the agent was serving.
+
+    Returns False on timeout; the caller decides what that means.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if paths.AGENT_READY_FILE.is_file():
+                return True
+        except OSError:
+            pass
+        if CRAFTBOT_READY_MARKER in _tail_log_lines(200, start_offset):
+            return True
+        time.sleep(0.5)
+    return False
+
+
 def _is_running(pid: int) -> bool:
     """Return True if a process with the given PID is currently alive."""
     if _PLATFORM == "win32":
@@ -462,16 +514,6 @@ def _build_run_args(extra: List[str], service_mode: bool = True) -> List[str]:
 
 
 # ─── Core operations ──────────────────────────────────────────────────────────
-
-
-def _open_browser_when_ready(url: str, pid_check_fn, delay: float = 4.0) -> None:
-    """Wait for the server to start, then open the browser."""
-    time.sleep(delay)
-    if not pid_check_fn():
-        print("\nWarning: CraftBot process exited before browser could open.")
-        print("Check logs: python craftbot.py logs")
-        return
-    webbrowser.open(url)
 
 
 def _open_browser_detached(url: str) -> None:
@@ -550,14 +592,15 @@ def cmd_start(extra_args: List[str]) -> bool:
             run_args.append("--no-open-browser")
 
     if IS_FROZEN:
-        # In frozen-installer mode, spawn the installed agent EXE (downloaded
-        # by the install flow). The agent EXE is its own self-contained
-        # PyInstaller binary and runs run.py's __main__ block directly.
-        installed = installed_exe_path()
-        if not installed:
-            print("Error: no installed agent found — run install first.")
+        # Launching an install is metadata.launch_command()'s job — it is the
+        # only place that knows the difference between a schema-2 install
+        # ([python, run.py]) and a legacy schema-1 frozen bundle ([agent.exe]).
+        # Spreading that knowledge is how the entry points drifted before.
+        launch = _metadata.launch_command(INSTALL_METADATA_FILE)
+        if not launch:
+            print("Error: no usable install found — run install first.")
             return False
-        cmd = [installed] + run_args
+        cmd = launch + run_args
     else:
         python = _python_exe()
         # Use plain python.exe for CLI because pythonw has no console
@@ -567,6 +610,10 @@ def cmd_start(extra_args: List[str]) -> bool:
 
     # UTF-8 with replace so the agent's Unicode banner / box-drawing chars
     # don't crash on Windows where the default file encoding is cp1252.
+    # Clear the readiness marker BEFORE launching, so a marker left by the
+    # previous run cannot make this one look instantly ready.
+    _clear_agent_ready()
+
     log_fh = open(LOG_FILE, "a", encoding="utf-8", errors="replace")
     log_fh.write(f"\n{'=' * 60}\n")
     log_fh.write(f"CraftBot service started at {_timestamp()}\n")
@@ -629,7 +676,24 @@ def cmd_start(extra_args: List[str]) -> bool:
     if open_browser:
         browser_url = _frontend_url(extra_args)
         print(f"  {DIM}░░{RESET} {ORANGE}{browser_url}{RESET}")
-        _open_browser_detached(browser_url)
+        # Wait for the agent to actually be up before opening a tab at it.
+        #
+        # This used to open immediately after _wait_for_startup_exit(), which
+        # returns after 8 seconds — around step 2 of 8, while the model
+        # download, MCP servers, skills, integrations and the scheduler were
+        # all still to come. The browser then showed a backend that could not
+        # serve it.
+        #
+        # run.py only prints the ready marker once the agent signals that
+        # boot() finished (see app/paths.py AGENT_READY_FILE), so waiting for
+        # the marker here is waiting for the real thing.
+        if _wait_for_ready_marker(ready_log_offset, BROWSER_READY_TIMEOUT_S):
+            _open_browser_detached(browser_url)
+        else:
+            print(
+                f"  {DIM}Still starting — open {browser_url} "
+                f"once it finishes.{RESET}"
+            )
 
     return True
 
@@ -873,13 +937,24 @@ def _create_desktop_shortcut_windows() -> None:
         print(f"  (Could not create desktop shortcut: {e})")
 
 
+def _installed_launch() -> Optional[List[str]]:
+    """Command that starts the installed CraftBot, or None.
+
+    One accessor for all of auto-start registration, the desktop shortcut and
+    cmd_start. Under schema 2 an install is [python, run.py] rather than a
+    single EXE, and having four call sites each rebuild that is exactly how
+    the entry points drifted before.
+    """
+    return _metadata.launch_command(INSTALL_METADATA_FILE)
+
+
 def _shortcut_start_command(extra_args: List[str]) -> Optional[str]:
     restart_args = _port_args(extra_args)
     if IS_FROZEN:
-        installed = installed_exe_path()
-        if not installed:
+        launch = _installed_launch()
+        if not launch:
             return None
-        return shlex.join([installed] + restart_args)
+        return shlex.join(launch + restart_args)
     return shlex.join([_python_exe(), "craftbot.py", "start"] + restart_args)
 
 
@@ -965,15 +1040,17 @@ def _install_windows_registry(action: str) -> bool:
 
 def _install_windows(run_args: List[str]) -> None:
     if IS_FROZEN:
-        # Frozen mode: register the extracted agent EXE for auto-start.
-        target = installed_exe_path()
-        if not target:
+        # Register the installed CraftBot for auto-start: [python, run.py].
+        launch = _installed_launch()
+        if not launch:
             print(
-                f"  {RED}✗{RESET} {WHITE}No installed agent found — run install first.{RESET}"
+                f"  {RED}✗{RESET} {WHITE}No installed CraftBot found — run install first.{RESET}"
             )
             return
-        target_s = _to_short_path(target)
-        action = f'"{target_s}" {" ".join(run_args)}'.strip()
+        # 8.3 short paths avoid quoting trouble in Task Scheduler's XML for
+        # paths containing spaces, which %LOCALAPPDATA%\Programs often does.
+        quoted = " ".join(f'"{_to_short_path(part)}"' for part in launch)
+        action = f"{quoted} {' '.join(run_args)}".strip()
     else:
         python = _python_exe()
         # Use 8.3 short paths to avoid Unicode/long-path failures in schtasks /tr
@@ -1068,11 +1145,11 @@ def _install_linux(run_args: List[str]) -> None:
 
     service_file = os.path.join(service_dir, f"{SYSTEMD_SERVICE}.service")
     if IS_FROZEN:
-        target = installed_exe_path()
-        if not target:
-            print("Error: no installed agent found — run install first.")
+        launch = _installed_launch()
+        if not launch:
+            print("Error: no installed CraftBot found — run install first.")
             return
-        exec_start = f"{target} {' '.join(run_args)}".strip()
+        exec_start = f"{' '.join(launch)} {' '.join(run_args)}".strip()
     else:
         python = _installed_python()
         exec_start = f"{python} {RUN_SCRIPT} {' '.join(run_args)}"
@@ -1156,11 +1233,11 @@ def _install_macos(run_args: List[str]) -> None:
 
     plist_file = os.path.join(agents_dir, f"{LAUNCHD_LABEL}.plist")
     if IS_FROZEN:
-        target = installed_exe_path()
-        if not target:
-            print("Error: no installed agent found — run install first.")
+        launch = _installed_launch()
+        if not launch:
+            print("Error: no installed CraftBot found — run install first.")
             return
-        program_args = [target] + run_args
+        program_args = launch + run_args
     else:
         python = _installed_python()
         program_args = [python, RUN_SCRIPT] + run_args
@@ -1270,20 +1347,48 @@ def _is_installed() -> bool:
         return os.path.isfile(service_file)
 
 
+def _remove_legacy_agent_bundle(target_dir: str) -> None:
+    """Delete a schema-1 frozen-agent install, if one is here.
+
+    Upgrading from <= 1.4.x leaves a ~2 GB CraftBotAgent/ folder that nothing
+    will ever run again — the agent is no longer a PyInstaller bundle. Silence
+    here would mean every upgraded machine quietly keeps it forever.
+
+    User DATA is untouched: it lives in the per-user data dir, never in the
+    install dir (see app/paths.py).
+    """
+    legacy = os.path.join(target_dir, "CraftBotAgent")
+    if not os.path.isdir(legacy):
+        return
+    print("  Removing the previous frozen agent bundle (no longer used)…")
+    try:
+        shutil.rmtree(legacy)
+    except OSError as e:
+        # Not fatal — it wastes disk but breaks nothing.
+        print(f"  (could not remove {legacy}: {e})")
+
+
 def _full_install_frozen(
     target_dir: str,
     extra_args: List[str],
     progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
 ) -> None:
-    """Frozen-mode install: download the agent zip from GitHub Releases,
-    extract it to target_dir, register auto-start pointing at the extracted
-    agent EXE, create a desktop shortcut, then start the service.
+    """Install CraftBot: fetch the source payload, provision a runtime around
+    it, register auto-start, and launch.
 
-    No pip / dependency install runs — the agent payload is self-contained.
-    Called by cmd_install when IS_FROZEN, and by the wizard's Install button.
+    This no longer downloads a frozen agent. The agent used to ship as a
+    PyInstaller bundle, which made an installer-based CraftBot a *different
+    kind of thing* from a source install — different module graph, different
+    data files, different embedding model — and every difference was a bug
+    waiting to be found one at a time. Now the installer produces a real
+    source install: the same tree a developer checks out, with an interpreter
+    and dependency set provisioned by the same app.provision pipeline that
+    `python install.py` runs.
+
+    See docs/plans/unified-install-architecture.md.
 
     Args:
-        target_dir: Directory to extract the agent into.
+        target_dir: Directory to install the source into.
         extra_args: User-supplied flags (--cli, --browser, etc.).
         progress_cb: Optional download-progress callback (bytes_read, total_or_none).
     """
@@ -1292,47 +1397,97 @@ def _full_install_frozen(
 
     target_dir = os.path.normpath(target_dir)
 
-    # 0. If there's an existing install at this location, stop the agent and
-    #    remove the old files first. Otherwise extraction fails with Permission
-    #    denied because the running agent has CraftBotAgent.exe open.
+    # 0. Stop anything running from this location first — on Windows an open
+    #    file cannot be replaced, so extraction would fail midway and leave a
+    #    half-written tree.
     if _stop_running_agent_if_alive():
-        print("  Stopped running agent before reinstalling.")
+        print("  Stopped running CraftBot before reinstalling.")
 
-    existing_agent_dir = os.path.join(target_dir, "CraftBotAgent")
-    if os.path.isdir(existing_agent_dir):
-        print(f"  Removing previous install at {existing_agent_dir}")
-        try:
-            shutil.rmtree(existing_agent_dir)
-        except OSError as e:
-            raise RuntimeError(
-                f"Could not remove previous install at {existing_agent_dir} — {e}.\n"
-                f"Close any running CraftBotAgent.exe (Task Manager) and try again."
-            )
+    _remove_legacy_agent_bundle(target_dir)
 
-    # 1. Download the agent payload (or use a locally-staged zip if available)
-    print(f"  Downloading agent payload (version {_read_bundled_version()})…")
-    zip_path = download_agent_zip(progress_cb=progress_cb)
+    # 1. Source payload.
+    print(f"  Downloading CraftBot (version {_read_bundled_version()})…")
+    zip_path = _payload.download_source_zip(BASE_DIR, EXE_PATH, progress_cb=progress_cb)
     try:
-        # 2. Extract into target_dir; locate the agent EXE
-        agent_exe = extract_agent_zip(zip_path, target_dir)
-        print(f"  Installed agent at {agent_exe}")
+        src_root = _payload.extract_source_zip(zip_path, target_dir)
+        # Stamp it BEFORE anything imports app.paths from that tree: the
+        # payload contains install.py and requirements.txt, so without this
+        # marker the installed copy looks exactly like a dev checkout and
+        # would put the user's agent_file_system, databases and logs inside
+        # the install directory — which the next upgrade replaces wholesale.
+        paths.mark_managed_install(src_root)
+        print(f"  Installed source at {src_root}")
     finally:
-        # Only delete if we downloaded it to a temp file. A locally-staged zip
-        # next to the installer (dev test workflow) must survive the install.
+        # Only delete a copy we downloaded. A locally-staged zip beside the
+        # installer is the dev workflow and must survive.
         if _payload.is_temp_zip(zip_path):
             try:
                 os.unlink(zip_path)
             except OSError:
                 pass
 
-    # 3. Persist install metadata so subsequent commands know where the
-    #    installed agent lives.
+    # 2. Provision everything the source needs to run: the interpreter, the
+    #    locked dependency set, Node, both npm trees, Playwright.
+    #
+    #    This is the same pipeline `python install.py` drives. The installer
+    #    used to run NONE of it — that is why an installer-based machine had
+    #    no Node at all and Agent App could not start.
+    #
+    #    CRAFTBOT_HOME is not set here: state belongs in the per-user data
+    #    dir (app/paths.py), separate from this install dir, so an upgrade
+    #    that replaces the source tree cannot take the user's data with it.
+    from app import provision
+
+    print("  Setting up the runtime — this takes a few minutes on first install.")
+    ctx = provision.Context(
+        code_root=src_root,
+        state_root=str(paths.STATE_ROOT),
+    )
+    report = provision.install(log=print, ctx=ctx)
+
+    resolved_python = None
+    python_stage = dict(report.results).get("python")
+    if python_stage is not None:
+        resolved_python = python_stage.data.get("python")
+
+    if not report.ok:
+        print()
+        print(provision.format_report(report))
+        required_failed = [
+            name
+            for name, res in report.results
+            if not res.ok
+            and name in ("python", "python-deps", "native-runtime", "smoke", "frontend")
+        ]
+        if required_failed:
+            raise RuntimeError(
+                "Setup could not complete: "
+                + ", ".join(required_failed)
+                + ". Re-run the installer to retry — finished steps are not redone."
+            )
+        # Optional stages only (Playwright, the WhatsApp bridge): those
+        # degrade a feature. Refusing to finish the install over one would be
+        # worse than starting without it.
+        print("  Some optional components are unavailable; continuing.")
+
+    if not resolved_python:
+        raise RuntimeError(
+            "Setup finished without resolving a Python interpreter — cannot "
+            "record how to start CraftBot."
+        )
+
+    # 3. Record what was installed and how to launch it. Schema 2: the install
+    #    root plus the interpreter, because there is no longer an EXE to point
+    #    at. installer/metadata.launch_command() is the only place that turns
+    #    this back into a command.
     mode = "cli" if "--cli" in extra_args else "browser"
-    write_install_metadata(agent_exe, mode)
+    write_install_metadata(
+        src_root, mode, python=resolved_python, version=_read_bundled_version()
+    )
 
     # 4. Copy the icon out of the bundled _MEIPASS dir into the persistent
-    #    user data dir. The desktop shortcut's IconLocation will point at
-    #    this stable copy — _MEIPASS is wiped when the installer exits.
+    #    user data dir. The desktop shortcut's IconLocation points at this
+    #    stable copy — _MEIPASS is wiped when the installer exits.
     persistent_icon = os.path.join(_user_data_dir(), "craftbot_logo_1.ico")
     persistent_png = os.path.join(_user_data_dir(), "craftbot_logo_1.png")
     for src, dest in ((LOGO_ICO, persistent_icon), (LOGO_PNG, persistent_png)):
@@ -1342,13 +1497,13 @@ def _full_install_frozen(
             except OSError as e:
                 print(f"  (could not copy icon: {e})")
 
-    # 5. Register auto-start using the extracted agent EXE
+    # 5. Register auto-start.
     run_args = _build_run_args(extra_args, service_mode=True)
     _helpers.dispatch_per_platform(
         win=_install_windows, mac=_install_macos, linux=_install_linux
     )(run_args)
 
-    # 6. Start the service via the extracted agent EXE
+    # 6. Start.
     if not cmd_start(extra_args):
         raise RuntimeError("CraftBot installed but failed to start.")
 
@@ -1511,16 +1666,24 @@ def cmd_uninstall() -> None:
         # Reinstall regenerates everything else from the bundled defaults.
         _remove_pid()
         installed = installed_exe_path()
-        if installed and os.path.isfile(installed):
-            install_dir = os.path.dirname(installed)
-            if os.path.basename(install_dir).lower() == "craftbotagent":
-                install_dir = os.path.dirname(install_dir)
+        install_dir = None
+        if installed:
+            # Schema 2 records the install ROOT (a directory holding run.py).
+            # Schema 1 recorded the agent EXE, so walk up from it — and up
+            # again past the CraftBotAgent/ wrapper the old zip extracted to.
+            if os.path.isdir(installed):
+                install_dir = installed
+            elif os.path.isfile(installed):
+                install_dir = os.path.dirname(installed)
+                if os.path.basename(install_dir).lower() == "craftbotagent":
+                    install_dir = os.path.dirname(install_dir)
+        if install_dir and os.path.isdir(install_dir):
             try:
                 shutil.rmtree(install_dir, ignore_errors=False)
-                print(f"Removed installed agent directory: {install_dir}")
+                print(f"Removed installed directory: {install_dir}")
             except OSError as e:
                 print(f"Warning: could not remove {install_dir} — {e}")
-                print("(It may be in use; close the wizard / installed EXE first.)")
+                print("(It may be in use; close the wizard / stop CraftBot first.)")
 
         # Compute user data dir path independently of _user_data_dir() (that
         # helper recreates the dir, which we don't want here).
@@ -1610,12 +1773,18 @@ def cmd_repair(
         return
 
     installed = meta["installed_path"]
-    # The install location is the dir CONTAINING the agent EXE's nested
-    # CraftBotAgent/ folder (or the agent EXE directly if extracted flat).
-    # _full_install_frozen is idempotent and will overwrite either layout.
-    target_dir = os.path.dirname(installed)
-    if os.path.basename(target_dir).lower() == "craftbotagent":
-        target_dir = os.path.dirname(target_dir)
+    if _metadata.schema_of(meta) >= 2:
+        # Schema 2 records the install root directly.
+        target_dir = installed
+    else:
+        # Schema 1 recorded the agent EXE: walk up to the directory it was
+        # extracted into, past the CraftBotAgent/ wrapper if present. Repair
+        # from a legacy install is also the upgrade path — the reinstall below
+        # replaces the frozen bundle with a real source install and
+        # _remove_legacy_agent_bundle() deletes what it superseded.
+        target_dir = os.path.dirname(installed)
+        if os.path.basename(target_dir).lower() == "craftbotagent":
+            target_dir = os.path.dirname(target_dir)
     print(f"  Repairing CraftBot at {target_dir}")
 
     # Stop the existing service so we can overwrite the agent files
@@ -1757,6 +1926,24 @@ def main() -> None:
         from installer.wizard import launch_wizard
 
         launch_wizard()
+
+    elif command == "doctor":
+        # Every provisioning stage's check(), and nothing else — no downloads,
+        # no installs. This is the same pipeline `install` runs, so what it
+        # reports is exactly what an install would act on. Answers "why won't
+        # it start?" without anyone guessing which of the three install paths
+        # this machine went through.
+        from app import provision
+
+        report = provision.doctor(log=print)
+        print()
+        print(provision.format_report(report))
+        print()
+        print(f"  code : {paths.CODE_ROOT}")
+        print(f"  state: {paths.STATE_ROOT}")
+        if not report.ok:
+            print("\n  Run `python craftbot.py install` to fix.")
+            sys.exit(1)
 
     else:
         print(f"Unknown command: '{command}'")

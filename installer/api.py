@@ -1,18 +1,27 @@
-"""JS-callable Python API exposed to the wizard webview.
+"""Lifecycle actions behind the installer window.
 
-Each method is invoked from JS as `window.pywebview.api.<method>(...)` and
-returns a Promise. Lifecycle actions (install/start/stop/repair/uninstall)
-spawn a worker thread so the bridge call returns immediately; the worker
-pushes log lines and progress events back to JS via `window.evaluate_js()`.
+Each method is called straight from installer/ui/window.py. Install, start,
+stop, repair and uninstall spawn a worker thread and return immediately;
+their output is buffered here and the window collects it with
+drain_output() on its own tick.
 
-Why a thread per action: the JS bridge call is itself async, but blocking
-the bridge thread means progress callbacks would back up. The worker keeps
-the bridge thread free to handle state polls from JS while the install runs.
+Why a thread per action: an install runs for minutes, and doing it on Tk's
+main loop would freeze the window — no repaint, no log, no close button —
+for the entire time, which is exactly when the user most needs to see that
+something is happening.
+
+Note the direction of travel: the worker does NOT push to the UI, it
+buffers. An earlier version pushed via pywebview's window.evaluate_js(), and
+when the UI changed that channel disappeared silently — the install ran to
+completion with an empty output panel, because the push no-opped whenever
+there was no window to push into. Polling cannot fail that way.
+
+This class deliberately knows nothing about Tk. Everything it exposes is
+plain dict/list/str/int, so the command-line path exercises the same code.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
@@ -22,44 +31,58 @@ from typing import Callable, Optional
 
 import craftbot
 
-# webview imported lazily inside `attach` so a syntax error here doesn't
-# break source-mode tests that don't have pywebview installed.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 class WizardAPI:
-    """Methods on this class become JS-callable. Method names map directly
-    to `window.pywebview.api.<name>(...)`.
+    """The installer's actions, with no UI attached.
 
-    All public methods MUST be JSON-serializable in/out — pywebview marshals
-    arguments via JSON, so plain dict/list/str/int only.
+    Kept free of Tk imports on purpose: this is what the window calls, and
+    it is also what a headless install path can call, so the two cannot
+    drift apart.
     """
 
-    def __init__(self) -> None:
-        self._window: object = None  # set via attach() once the webview exists
-        self._worker: Optional[threading.Thread] = None
+    #: Cap on buffered log lines. A pip install emits tens of thousands, and
+    #: a UI that stopped polling must not grow this without limit.
+    _OUTPUT_MAX = 5000
 
-    def attach(self, window: object) -> None:
-        """Called once after webview.create_window() so we can push events
-        back to JS via window.evaluate_js()."""
-        self._window = window
+    def __init__(self) -> None:
+        # Log lines waiting for the UI to collect, plus the most recent
+        # progress event. Written from the worker thread, read from the UI
+        # thread, so both go through the lock.
+        self._output: list = []
+        self._progress: Optional[dict] = None
+        self._output_lock = threading.Lock()
+        self._worker: Optional[threading.Thread] = None
 
     # ── State queries ───────────────────────────────────────────────────────
 
     def get_state(self) -> dict:
-        """Return the current install/run state. Polled by JS every ~1s.
+        """Return the current install/run state. Polled about once a second.
 
-        Mirrors the old Tk wizard's state machine — deliberately uses
-        `installed_exe_path()` (install metadata + binary on disk) rather
-        than `craftbot._is_installed()` which returns True for stale
-        Task Scheduler entries from older installs.
+        Called from a worker thread, not the UI thread: on Windows this
+        shells out to `tasklist`, which is far too slow to run on Tk's main
+        loop every second.
+
+        Mirrors the old Tk wizard's state machine — deliberately checks that
+        the install is actually launchable, rather than `craftbot._is_installed()`
+        which returns True for stale Task Scheduler entries from older installs.
+
+        `launch_command()` handles both layouts: a schema-2 install (a source
+        tree plus an interpreter) and a legacy schema-1 frozen bundle (an EXE).
+        Testing `os.path.isfile(installed_path)` directly would report every
+        schema-2 install as missing, because there installed_path is a
+        directory.
         """
-        installed_path = craftbot.installed_exe_path()
-        installed = bool(installed_path and os.path.isfile(installed_path))
+        installed = bool(
+            craftbot._metadata.launch_command(craftbot.INSTALL_METADATA_FILE)
+        )
         pid = craftbot._read_pid()
         running = bool(pid and craftbot._is_running(pid))
+        ready = running and self._agent_ready()
         if installed and running:
-            state = "installed_running"
+            # A live PID is NOT a usable CraftBot — see _agent_ready().
+            state = "installed_running" if ready else "installed_starting"
         elif installed:
             state = "installed_stopped"
         elif running:
@@ -71,35 +94,97 @@ class WizardAPI:
             "pid": pid if running else None,
             "worker_busy": self._worker is not None and self._worker.is_alive(),
             "browser_url": craftbot.BROWSER_URL,
+            # Which boot step it is on, so a slow start reads as progress
+            # rather than a hang.
+            "detail": self._starting_detail() if state == "installed_starting" else "",
         }
+
+    #: run.py prints "  [ 2/8] Starting agent backend...      ✓" and the agent
+    #: prints "  [ 3/7] Initializing agent...                 ✓".
+    _STEP_RE = re.compile(r"\[\s*(\d+)\s*/\s*(\d+)\s*\]\s*([^\r\n]*)")
+
+    @classmethod
+    def _starting_detail(cls) -> str:
+        """The most recent boot step from the log, e.g. "Loading skills".
+
+        A first run downloads an embedding model, so "Starting…" can sit
+        there for minutes. Without naming the current step that is
+        indistinguishable from a hang — which is exactly what it looked like.
+        """
+        try:
+            size = os.path.getsize(craftbot.LOG_FILE)
+            with open(craftbot.LOG_FILE, "rb") as fh:
+                fh.seek(max(0, size - cls._READY_TAIL_BYTES))
+                tail = fh.read().decode("utf-8", errors="replace")
+        except OSError:
+            return ""
+        banner = tail.rfind("CraftBot service started at")
+        if banner != -1:
+            tail = tail[banner:]
+        matches = cls._STEP_RE.findall(tail)
+        if not matches:
+            return ""
+        step, total, message = matches[-1]
+        # The line is padded out to a fixed width before its tick, so cut at
+        # the first run of two or more spaces: "Loading skills   ✓" -> "Loading
+        # skills". Single spaces inside the message itself must survive.
+        message = re.split(r"\s{2,}", message.strip())[0]
+        message = message.replace("...", "").strip(" .·✓")
+        return f"{message} ({step}/{total})" if message else ""
+
+    #: How much of the tail of craftbot.log to search for the ready marker.
+    #: The banner and the boot sequence are the last thing written, so this is
+    #: generous — and bounded, because the log grows without limit and this
+    #: runs once a second.
+    _READY_TAIL_BYTES = 64 * 1024
+
+    @classmethod
+    def _agent_ready(cls) -> bool:
+        """True once the agent has logged its ready marker for THIS run.
+
+        The window used to report "Running" the moment a PID existed. But
+        run.py then spends a noticeable while initialising the agent, MCP
+        servers, skills, integrations and the scheduler — so the user was
+        told CraftBot was up and sent to a browser tab that was not serving
+        yet.
+
+        Two signals, in order:
+
+          1. app.paths.AGENT_READY_FILE, written by the agent itself. This is
+             authoritative — cmd_start deletes it before each launch, so it can
+             only mean "this run is up".
+          2. The ready banner in the log, for an older installed agent that
+             predates the marker file.
+
+        The log alone is not enough: run.py's stdout is a log FILE here, so
+        Python block-buffers it, and the banner can sit unflushed for a long
+        time after the agent is actually serving.
+
+        The log check is still scoped to the last service-start banner so a
+        marker from a previous session cannot make a still-booting agent look
+        finished.
+        """
+        try:
+            from app import paths
+
+            if paths.AGENT_READY_FILE.is_file():
+                return True
+        except Exception:
+            pass
+        try:
+            size = os.path.getsize(craftbot.LOG_FILE)
+            with open(craftbot.LOG_FILE, "rb") as fh:
+                fh.seek(max(0, size - cls._READY_TAIL_BYTES))
+                tail = fh.read().decode("utf-8", errors="replace")
+        except OSError:
+            return False
+        banner = tail.rfind("CraftBot service started at")
+        if banner != -1:
+            tail = tail[banner:]
+        return craftbot.CRAFTBOT_READY_MARKER in tail
 
     def get_default_install_location(self) -> str:
         return craftbot.default_install_location()
-
-    def pick_install_location(self) -> Optional[str]:
-        """Open the OS-native folder picker, return the chosen path (or None
-        if the user cancelled). Called from JS when Install is clicked."""
-        import webview
-
-        if not self._window:
-            return None
-        default = craftbot.default_install_location()
-        initial_dir = (
-            os.path.dirname(default)
-            if os.path.isdir(os.path.dirname(default))
-            else None
-        )
-        result = self._window.create_file_dialog(
-            webview.FOLDER_DIALOG, directory=initial_dir or ""
-        )
-        if not result:
-            return None
-        path = result[0] if isinstance(result, (list, tuple)) else result
-        # If the user picked a parent rather than a CraftBot subdir, append
-        # one — keeps the installed binary tidy.
-        if os.path.basename(path).lower() != "craftbot":
-            path = os.path.join(path, "CraftBot")
-        return path
 
     def open_in_browser(self) -> None:
         import webbrowser
@@ -241,36 +326,47 @@ class WizardAPI:
         self._push_event("progress", {"read": read, "total": total})
 
     def _push_log(self, text: str) -> None:
-        if not self._window or not text:
+        """Buffer a log line for the UI to collect.
+
+        Buffering rather than pushing is deliberate — see the module
+        docstring for the empty-output-panel bug that pushing caused.
+        """
+        if not text:
             return
         # Strip ANSI escapes — craftbot.py captures _USE_COLOR at import time
         # and may emit them even after we redirect sys.stdout.
         clean = _ANSI_RE.sub("", text)
-        try:
-            self._window.evaluate_js(
-                f"window.appendLog && window.appendLog({json.dumps(clean)})"
-            )
-        except Exception:
-            # Window may have been closed mid-write — ignore.
-            pass
+        with self._output_lock:
+            self._output.append(clean)
+            # Bound the buffer: a pip install is tens of thousands of lines,
+            # and a page that stops polling must not grow it without limit.
+            if len(self._output) > self._OUTPUT_MAX:
+                del self._output[: len(self._output) - self._OUTPUT_MAX]
 
     def _push_event(self, name: str, data: Optional[dict] = None) -> None:
-        if not self._window:
-            return
-        payload = json.dumps(data or {})
-        try:
-            self._window.evaluate_js(
-                f"window.dispatchEvent(new CustomEvent('py:{name}', "
-                f"{{detail: {payload}}}))"
-            )
-        except Exception:
-            pass
+        """Record an event (currently only progress) for the next poll."""
+        if name == "progress":
+            with self._output_lock:
+                self._progress = dict(data or {})
+
+    def drain_output(self) -> dict:
+        """Return buffered log lines and the latest progress, then clear.
+
+        Called by the window several times a second. Draining rather than
+        accumulating keeps each hand-off small during a long install.
+        """
+        with self._output_lock:
+            lines = self._output
+            self._output = []
+            progress = self._progress
+            self._progress = None
+        return {"lines": lines, "progress": progress}
 
 
 class _BridgeWriter:
-    """File-like that mirrors stdout/stderr writes from a worker thread into
-    the JS log panel via WizardAPI._push_log. Runs on the worker thread; all
-    cross-thread marshalling happens inside evaluate_js()."""
+    """File-like that redirects a worker thread's stdout/stderr into the log
+    buffer. craftbot.py's install functions print their progress, so this is
+    what makes that progress visible in the window without changing them."""
 
     def __init__(self, api: WizardAPI) -> None:
         self._api = api

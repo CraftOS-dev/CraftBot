@@ -104,7 +104,14 @@ async def _check_source_update(
     the release-tag check instead of blocking update checks on git-specific
     failures.
     """
-    if getattr(sys, "frozen", False):
+    # A git-based update check is only meaningful in a source checkout. This
+    # used to test sys.frozen as a proxy for that; the agent is no longer
+    # frozen, so the test silently started passing and every installed
+    # machine began spawning git processes that can only ever answer "not a
+    # repository" - on machines that may not have git at all.
+    from app import paths
+
+    if not paths.is_dev_checkout():
         return None
 
     try:
