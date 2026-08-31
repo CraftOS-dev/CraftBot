@@ -67,6 +67,15 @@ CRITICAL_DATA_FILES = [
 ]
 
 
+#: Packaging plumbing that whoever built the environment supplies, not
+#: requirements.txt. A venv ships one pip version; conda ships another plus
+#: wheel. That is a difference between venv and conda bootstrap, not in what
+#: CraftBot installs — recorded for the record, excluded from the comparison.
+BOOTSTRAP_PACKAGES = frozenset(
+    {"pip", "setuptools", "wheel", "distribute", "pkg-resources"}
+)
+
+
 def _packages() -> Dict[str, Any]:
     """Installed distributions as name==version, plus a digest of the set."""
     try:
@@ -80,11 +89,14 @@ def _packages() -> Dict[str, Any]:
         if name:
             found[name] = dist.version or "?"
 
-    joined = "\n".join(f"{k}=={found[k]}" for k in sorted(found))
+    bootstrap = {k: v for k, v in found.items() if k in BOOTSTRAP_PACKAGES}
+    app = {k: v for k, v in found.items() if k not in BOOTSTRAP_PACKAGES}
+    joined = "\n".join(f"{k}=={app[k]}" for k in sorted(app))
     return {
-        "count": len(found),
+        "count": len(app),
         "digest": hashlib.sha256(joined.encode()).hexdigest()[:16],
-        "list": dict(sorted(found.items())),
+        "list": dict(sorted(app.items())),
+        "bootstrap": dict(sorted(bootstrap.items())),
     }
 
 
@@ -230,15 +242,28 @@ def compare(paths: List[str]) -> int:
                 f"{b}={other['embedding']['effective']}"
             )
 
-        if base["python"]["version"] != other["python"]["version"]:
+        # Minor version, not patch. Locks are keyed to py310 because the minor
+        # is what decides wheel compatibility; setup-python resolves "3.10" to
+        # the newest patch while environment.yml pins an exact one, so the
+        # patch differs by construction and means nothing here.
+        def _minor(fp: Dict[str, Any]) -> str:
+            return ".".join(fp["python"]["version"].split(".")[:2])
+
+        if _minor(base) != _minor(other):
             note(
                 f"python: {a}={base['python']['version']} "
                 f"{b}={other['python']['version']}"
             )
 
+        # Node is reported, never a divergence. This job installs a lock into
+        # two PYTHON environments; it never runs app.provision's node stage.
+        # So one side reports whatever the runner happened to have on PATH and
+        # the other reports what environment.yml's `nodejs` pulled in — a
+        # difference between the two bootstraps, not between install paths.
+        # installer-e2e is what exercises node provisioning.
         bn, on = base["node"]["version"], other["node"]["version"]
         if bn != on:
-            note(f"node: {a}={bn} {b}={on}")
+            print(f"      note: node {a}={bn} {b}={on} (not compared here)")
 
     print(f"\n{problems} divergence(s)")
     return 1 if problems else 0
