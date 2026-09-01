@@ -43,6 +43,50 @@ if TYPE_CHECKING:
     from app.triggers import TriggerService
 
 
+# ── Windows MAX_PATH ───────────────────────────────────────────────────────
+# Importing a large foreign repo copies a SHORT source path (a temp dir) to a
+# LONG destination path (the living_ui workspace, which sits under the user's
+# home + repo checkout). Odoo failed at exactly that step (2026-08-31): every
+# entry in the shutil.Error list read the source fine and died writing the
+# destination with "[Errno 2] No such file or directory" — the classic
+# MAX_PATH signature, not a missing file. A 218-char source became a 264-char
+# destination because the workspace prefix is 46 chars longer than the temp
+# prefix. The \\?\ extended-length prefix lifts the 260-char limit per call,
+# independent of the machine's LongPathsEnabled registry setting, so it works
+# on an unconfigured user box.
+def long_path(path: Any) -> str:
+    """Windows extended-length (\\\\?\\) form of *path*; unchanged elsewhere.
+
+    The prefix disables all path normalization in Win32, so the path MUST be
+    absolute and separator-normalized first — os.path.abspath does both, and
+    is a no-op on an already-prefixed path (so this is idempotent).
+    """
+    p = os.fspath(path)
+    if os.name != "nt":
+        return p
+    p = os.path.abspath(p)
+    if p.startswith("\\\\?\\"):
+        return p
+    # UNC shares take the \\?\UNC\server\share form, not \\?\\\server\share.
+    if p.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + p[2:]
+    return "\\\\?\\" + p
+
+
+def copytree_long(src: Any, dst: Any, **kwargs: Any) -> str:
+    """shutil.copytree that survives paths over 260 chars on Windows."""
+    return shutil.copytree(long_path(src), long_path(dst), **kwargs)
+
+
+def rmtree_long(path: Any, **kwargs: Any) -> None:
+    """shutil.rmtree that survives paths over 260 chars on Windows.
+
+    Deletion needs this as much as the copy: without it a deep tree that
+    imported successfully could never be removed again.
+    """
+    shutil.rmtree(long_path(path), **kwargs)
+
+
 @dataclass
 class AgentAppProject:
     """Represents a Agent App project."""
@@ -2417,11 +2461,14 @@ UI in {project.path}/frontend/src/app/."""
             if self._find_project_root(root) is not None:
                 return await self._import_project_tree(root, name)
             return await self._import_external_tree(root, name, origin=source)
-        with tempfile.TemporaryDirectory() as tmp:
+        # ignore_cleanup_errors: a deep foreign tree can carry paths this
+        # rmtree cannot reach, and losing a temp dir must never fail an
+        # otherwise-successful import.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
             if kind == "zip":
                 with zipfile.ZipFile(source) as zf:
-                    zf.extractall(root)
+                    zf.extractall(long_path(root))
             else:
                 self._fetch_git_source(source, root)
             if self._find_project_root(root) is not None:
@@ -2449,7 +2496,9 @@ UI in {project.path}/frontend/src/app/."""
         port = self._allocate_port()
         dest = self.agent_app_dir / f"{self._sanitize_name(display)}_{project_id}"
         # node_modules is rebuilt by the install verb; .git/logs never import.
-        shutil.copytree(
+        # copytree_long, not shutil.copytree: a foreign repo can carry paths
+        # that only blow MAX_PATH once rebased onto the workspace prefix.
+        copytree_long(
             src,
             dest,
             ignore=shutil.ignore_patterns("node_modules", ".git", "logs"),
@@ -2667,10 +2716,10 @@ UI in {project.path}/frontend/src/app/."""
         import tempfile
         import zipfile
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
             with zipfile.ZipFile(zip_path) as zf:
-                zf.extractall(root)
+                zf.extractall(long_path(root))
             return await self._import_project_tree(root, name)
 
     async def convert_foreign_source(
@@ -2692,13 +2741,13 @@ UI in {project.path}/frontend/src/app/."""
             return await self._convert_tree(
                 Path(source).expanduser(), name, description, origin=source
             )
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
             if kind == "zip":
                 import zipfile
 
                 with zipfile.ZipFile(source) as zf:
-                    zf.extractall(root)
+                    zf.extractall(long_path(root))
             else:
                 self._fetch_git_source(source, root)
             return await self._convert_tree(root, name, description, origin=source)
@@ -2853,14 +2902,25 @@ UI in {project.path}/frontend/src/app/."""
                         req, timeout=60, context=ssl_ctx
                     ).read()
                     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                        zf.extractall(dest)
+                        zf.extractall(long_path(dest))
                     return
                 except Exception as e:
                     last_err = e
             raise RuntimeError(f"GitHub download failed for {url}: {last_err}")
 
+        # -c core.longpaths=true is git's own MAX_PATH escape hatch — without
+        # it a clone of a deeply-nested repo dies the same way the copy did.
         result = subprocess.run(
-            ["git", "clone", "--depth", "1", url, str(dest / "repo")],
+            [
+                "git",
+                "-c",
+                "core.longpaths=true",
+                "clone",
+                "--depth",
+                "1",
+                url,
+                str(dest / "repo"),
+            ],
             capture_output=True,
             text=True,
             timeout=120,
@@ -2905,7 +2965,7 @@ UI in {project.path}/frontend/src/app/."""
         # install step rebuilds it from package.json. .factory/.snapshots are
         # the DONOR's lifecycle state (machine history, delivery stamp,
         # legacy baseline) — a fresh identity must start a fresh lifecycle.
-        shutil.copytree(
+        copytree_long(
             src,
             dest,
             ignore=shutil.ignore_patterns(
@@ -4026,7 +4086,11 @@ UI in {project.path}/frontend/src/app/."""
             if living_root in project_path.parents:
                 if project_path.exists():
                     try:
-                        shutil.rmtree(project_path)
+                        # rmtree_long, not shutil.rmtree: an imported foreign
+                        # tree may hold paths past MAX_PATH, and a project
+                        # that cannot be deleted is stuck forever. The guard
+                        # above ran on the plain path and is unaffected.
+                        rmtree_long(project_path)
                     except Exception as e:
                         logger.error(
                             f"[AGENT_APP] Failed to delete project directory: {e}"
