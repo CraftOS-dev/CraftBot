@@ -22,9 +22,23 @@ _DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 _DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19  # Windows 10 builds before 19041
 _DWMWA_WINDOW_CORNER_PREFERENCE = 33  # Windows 11 only; ignored on 10
 _DWMWCP_ROUND = 2
+# Windows 11 build 22000+. Older builds return an error code we ignore, and
+# keep the plain dark title bar.
+_DWMWA_BORDER_COLOR = 34
+_DWMWA_CAPTION_COLOR = 35
+_DWMWA_TEXT_COLOR = 36
 
 
-def apply_native_chrome(window) -> bool:
+def _colorref(hex_color: str) -> int:
+    """'#14141f' -> 0x001F1414. DWM wants COLORREF, which is BGR, not RGB."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return (b << 16) | (g << 8) | r
+
+
+def apply_native_chrome(
+    window, caption: str = "", caption_text: str = ""
+) -> bool:
     """Make the OS title bar match the window. Returns True if anything
     was applied.
 
@@ -32,6 +46,16 @@ def apply_native_chrome(window) -> bool:
     application paints in its client area. Without this the window is a
     near-black panel wearing a white hat, which is the single most obvious
     tell that something is a Tk app.
+
+    `caption` goes further: it paints the title bar and border the window's
+    own colour, so the frame stops reading as a separate strip and the window
+    becomes one surface. Windows 11 only —
+    older builds reject the attribute and keep the plain dark bar, which
+    still looks fine, just not seamless.
+
+    The alternative is a frameless window with hand-drawn controls, which
+    costs taskbar presence, snapping, and Alt-Tab behaviour. Not worth it for
+    a cosmetic gain the OS will do for us.
     """
     if sys.platform != "win32":
         # macOS already tracks the system appearance for Tk windows, and on
@@ -70,15 +94,27 @@ def apply_native_chrome(window) -> bool:
                 applied = True
                 break
 
+        def _set(attribute: int, value: int) -> None:
+            v = ctypes.c_int(value)
+            dwm.DwmSetWindowAttribute(
+                wintypes.HWND(hwnd),
+                wintypes.DWORD(attribute),
+                ctypes.byref(v),
+                ctypes.sizeof(v),
+            )
+
         # Rounded window corners. Windows 11 only — 10 returns a failure code
         # we simply ignore, which is why this is not part of `applied`.
-        corner = ctypes.c_int(_DWMWCP_ROUND)
-        dwm.DwmSetWindowAttribute(
-            wintypes.HWND(hwnd),
-            wintypes.DWORD(_DWMWA_WINDOW_CORNER_PREFERENCE),
-            ctypes.byref(corner),
-            ctypes.sizeof(corner),
-        )
+        _set(_DWMWA_WINDOW_CORNER_PREFERENCE, _DWMWCP_ROUND)
+
+        # Merge the title bar into the window. Border gets the same colour as
+        # the caption so there is no seam where the frame meets the content.
+        if caption:
+            _set(_DWMWA_CAPTION_COLOR, _colorref(caption))
+            _set(_DWMWA_BORDER_COLOR, _colorref(caption))
+        if caption_text:
+            _set(_DWMWA_TEXT_COLOR, _colorref(caption_text))
+
         return applied
     except Exception:
         return False

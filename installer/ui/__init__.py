@@ -5,8 +5,8 @@ parts that do not:
 
     theme.py    design tokens and colour maths. No tkinter import, so it is
                 testable without a display.
-    glass.py    renders the lit backdrop and answers "what colour is behind
-                this point", which every widget needs to tint itself.
+    glass.py    the two helpers that depend on the display: which fonts
+                exist, and how much text fits.
     chrome.py   best-effort native window polish (dark title bar, rounded
                 corners). Every call is optional and swallows its own errors.
     window.py   the window, and the only module that talks to WizardAPI.

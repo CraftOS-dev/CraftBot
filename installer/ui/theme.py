@@ -1,34 +1,28 @@
 """Design tokens and colour maths for the installer window.
 
 Deliberately imports nothing from tkinter: this is pure arithmetic, so it can
-be unit-tested (and eyeballed) without a display. installer/ui/glass.py turns
-these numbers into pixels.
+be unit-tested (and eyeballed) without a display.
 
-## Why the colours are computed rather than hard-coded
+## Why the surface colours are computed rather than written down
 
 Tk has no alpha channel. A widget is either fully opaque or, via
-`-transparentcolor`, fully invisible — there is no "70% white over whatever is
-behind me", which is the single effect the whole frosted-glass look rests on.
+`-transparentcolor`, fully invisible — there is no "8% white over whatever is
+behind me", which is how every raised surface in this window is described.
 
-So we do the compositing ourselves. The backdrop is a gradient whose colour at
-any height is a known function (see glass.Backdrop), which means the colour a
-translucent panel *would* have at that height is also known: `over()` blends
-the panel's tint onto the sampled backdrop and returns the opaque hex that
-looks identical. Every panel in the window gets its fill this way, so the
-"glass" tracks the gradient instead of sitting on it as a flat slab.
+So we composite ahead of time. The window is one flat colour, so the colour a
+translucent film *would* be over it is a constant: `over()` blends the tint
+onto `base` and returns the opaque hex that looks identical. `Palette.surface`
+and friends are those constants.
 
-The same trick fixes rounded corners. CustomTkinter draws a frame's rounded
-corners by filling the region *outside* the arc with the widget's `bg_color`,
-which normally means the parent's colour. Over a gradient the parent has no
-single colour, so a default `bg_color` leaves visible square shoulders on every
-card. Passing the sampled backdrop as `bg_color` makes those shoulders match
-what is behind them and the corners read as genuinely round.
+That also fixes rounded corners for free. CustomTkinter fills the region
+*outside* a corner's arc with the widget's `bg_color`; set it to `base` and
+the shoulders match the window, so the corners read as genuinely round.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Sequence, Tuple
+from dataclasses import dataclass
+from typing import Tuple
 
 Rgb = Tuple[int, int, int]
 
@@ -38,7 +32,6 @@ __all__ = [
     "rgb_to_hex",
     "mix",
     "over",
-    "Bloom",
     "Palette",
     "PALETTE",
     "FONT_STACKS",
@@ -69,8 +62,8 @@ def mix(a: Rgb, b: Rgb, t: float) -> Rgb:
 def over(top: Rgb, alpha: float, base: Rgb) -> Rgb:
     """Composite `top` at `alpha` onto opaque `base` (source-over).
 
-    This is the function that makes the glass look work at all — see the
-    module docstring for why Tk forces us to do it by hand.
+    This is what makes the raised surfaces work at all — see the module
+    docstring for why Tk forces us to do it by hand.
     """
     return mix(base, top, alpha)
 
@@ -79,49 +72,22 @@ def over(top: Rgb, alpha: float, base: Rgb) -> Rgb:
 
 
 @dataclass(frozen=True)
-class Bloom:
-    """A soft radial glow painted over the base gradient.
-
-    Coordinates and radius are fractions of the window, so the same numbers
-    describe the design at any window size.
-    """
-
-    color: str
-    x: float  # centre, 0..1 across the width
-    y: float  # centre, 0..1 down the height
-    radius: float  # as a fraction of the window's larger edge
-    strength: float  # peak alpha at the centre, fading to 0 at the edge
-
-
-@dataclass(frozen=True)
 class Palette:
     """Every colour in the window, in one place.
 
-    The look is "liquid glass": a near-black ground lit unevenly by two
-    coloured blooms, with panels that are barely-there white films over it.
-    The only saturated colour in the entire window is the accent, which is
-    why the single primary action reads instantly.
+    One flat ground. An earlier version lit it with a gradient and two
+    coloured blooms, which meant every widget had to sample the colour behind
+    itself to disappear into it. Flat means the surfaces below are constants,
+    and the only colour in the window that draws the eye is the accent — which
+    is exactly the one the user is meant to press.
     """
 
-    # Ground. A vertical ramp, darkest at the bottom, so the window has a
-    # sense of light coming from above.
-    base_top: str = "#14141F"
-    base_bottom: str = "#08080D"
+    #: The window. Everything else is this, plus a little white.
+    base: str = "#14141F"
 
-    # The coloured light. Orange is the brand; the indigo counterweight stops
-    # the window reading as a monochrome-orange gradient and is what gives
-    # the glass its faintly iridescent, Apple-ish cast.
-    blooms: Sequence[Bloom] = field(
-        default_factory=lambda: (
-            Bloom("#FF4F18", x=0.86, y=-0.26, radius=1.15, strength=0.22),
-            Bloom("#5B6BFF", x=0.04, y=1.16, radius=1.05, strength=0.24),
-        )
-    )
-
-    # Glass films. Alphas, not colours — they get composited onto whatever
-    # the backdrop happens to be at that height.
-    glass_alpha: float = 0.055  # a standard panel
-    glass_alpha_raised: float = 0.085  # hover / the status pill
+    #: Films over `base`, as alphas. Resolved to hex by the properties below.
+    surface_alpha: float = 0.055  # a control at rest
+    surface_raised_alpha: float = 0.085  # hover
     hairline_alpha: float = 0.10  # 1px border
     tint: str = "#FFFFFF"
 
@@ -137,9 +103,25 @@ class Palette:
     green: str = "#4ADE80"
     amber: str = "#FBBF24"
 
+    # ── Derived surfaces ────────────────────────────────────────────────
+    # Computed, not written down, so changing `base` moves every surface with
+    # it and they cannot drift apart.
+
+    def film(self, alpha: float) -> str:
+        """The opaque colour a white film at `alpha` would appear to be."""
+        return rgb_to_hex(over(hex_to_rgb(self.tint), alpha, hex_to_rgb(self.base)))
+
     @property
-    def tint_rgb(self) -> Rgb:
-        return hex_to_rgb(self.tint)
+    def surface(self) -> str:
+        return self.film(self.surface_alpha)
+
+    @property
+    def surface_raised(self) -> str:
+        return self.film(self.surface_raised_alpha)
+
+    @property
+    def hairline(self) -> str:
+        return self.film(self.hairline_alpha)
 
 
 PALETTE = Palette()

@@ -1,10 +1,8 @@
 """The installer window.
 
-Layout is absolute (`place`) and the window is a fixed size. That is a
-deliberate simplification: every widget has to know the colour of the backdrop
-behind it (see glass.Backdrop), and a reflowing layout means a widget's colour
-changes whenever it moves. Fixing the size makes each tint a constant computed
-once, and an installer is a fixed-size dialog on every OS anyway.
+Layout is absolute (`place`) and the window is a fixed size — an installer is
+a fixed-size dialog on every OS, and absolute positioning keeps the vertical
+rhythm exact without a layout manager second-guessing it.
 
 ## What is on screen, and what is not
 
@@ -14,15 +12,13 @@ far", not ten thousand lines of pip output. That output still exists — it goes
 to craftbot.log, and `Open log` hands it to the OS — but showing it by default
 made the window big and busy for something almost nobody reads.
 
-## Where text lives, and why it varies
+## Why text is drawn on a canvas
 
-Tk widgets are opaque rectangles. Painting a label directly onto the gradient
-means filling it with one flat colour, and across a wide label the real
-backdrop drifts enough for that flat fill to show as a faint box. So:
-
-  * Over the raw gradient, text is a *canvas item*, which composites onto the
-    backdrop image with no rectangle of its own.
-  * Inside a widget, text is filled with that widget's own colour.
+Tk widgets are opaque rectangles, and a label is a rectangle whether you want
+one or not. Text that should have no surface of its own — the wordmark, the
+status line, the links — is drawn as a *canvas item* instead, which puts
+glyphs on the background and nothing else. Text that lives inside a control
+is a normal label filled with that control's colour.
 
 Canvas items cannot be drawn on top of a widget — Tk always draws widgets
 above them — which is the whole reason for the split.
@@ -52,7 +48,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import customtkinter as ctk
 
 from installer.ui import chrome
-from installer.ui.glass import Backdrop, elide, pick_font
+from installer.ui.glass import elide, pick_font
 from installer.ui.theme import PALETTE
 
 __all__ = ["InstallerWindow", "run"]
@@ -74,10 +70,9 @@ _ROOT = os.path.dirname(os.path.dirname(_UI_DIR))
 #:
 #:   * Tk can only scale a PhotoImage by integer subsample/zoom, which turns
 #:     the 3000px source into an aliased mess at this size.
-#:   * The icon draws the robot on a dark rounded-square tile. On the window's
-#:     gradient that tile reads as a box — and inside the ring it became a
-#:     square in a circle, two containers fighting each other. These have the
-#:     tile removed, so the mark floats on the backdrop.
+#:   * The icon draws the robot on a dark rounded-square tile, which reads as
+#:     a box sitting on the window. These have the tile removed, so the mark
+#:     sits directly on the background.
 MARK_SIZES = (96, 144, 192)
 MARK_BASE = 96
 
@@ -145,7 +140,6 @@ class InstallerWindow(ctk.CTk):
         self.version = version
         self.p = PALETTE
         self.m = Metrics(_display_scale())
-        self.backdrop = Backdrop(self.m.width, self.m.height, self.p)
 
         self._state: Dict = {"state": "not_installed", "worker_busy": False}
         self._state_q: "queue.Queue[Dict]" = queue.Queue()
@@ -184,16 +178,22 @@ class InstallerWindow(ctk.CTk):
         self.title("CraftBot Setup")
         self.resizable(False, False)
         chrome.center(self, self.m.width, self.m.height)
-        # The root's own background shows for a beat before the backdrop is
-        # painted; matching it avoids a pale flash on open.
-        self.configure(fg_color=self.p.base_bottom)
+        # The root's own background shows for a beat before the canvas is
+        # mapped; matching it avoids a pale flash on open.
+        self.configure(fg_color=self.p.base)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         chrome.set_window_icon(
             self,
             os.path.join(_ROOT, "craftbot_logo_1.ico"),
             os.path.join(_ROOT, "craftbot_logo_1.png"),
         )
-        chrome.apply_native_chrome(self)
+        # Paint the title bar the window's own colour so the frame and the
+        # content read as one surface.
+        chrome.apply_native_chrome(
+            self,
+            caption=self.p.base,
+            caption_text=self.p.text_dim,
+        )
 
     def _build(self) -> None:
         self.font_display = ctk.CTkFont(pick_font("display"), self.m.font(23), "bold")
@@ -207,11 +207,27 @@ class InstallerWindow(ctk.CTk):
             height=self.m.height,
             highlightthickness=0,
             bd=0,
-            bg=self.p.base_bottom,
+            bg=self.p.base,
         )
         self.canvas.place(x=0, y=0)
-        self.backdrop.attach(self.canvas)
 
+        self._build_sections()
+
+        # Put the background canvas at the BOTTOM of the stacking order.
+        #
+        # It is a full-window canvas created before every control, so on Tk
+        # the controls land above it by creation order alone — which is why
+        # this was never needed on Windows. Relying on that is an implicit
+        # assumption about sibling stacking, and a canvas that covers the
+        # whole window is exactly the thing that swallows clicks when the
+        # assumption does not hold.
+        #
+        # Via Misc, not self.canvas.lower(): Canvas overrides lower() to mean
+        # tag_lower (restack a canvas ITEM), so calling it on the widget
+        # raises "wrong # args". This is the widget-stacking one.
+        tk.Misc.lower(self.canvas)
+
+    def _build_sections(self) -> None:
         self._build_mark()
         self._build_identity()
         self._build_location()
@@ -319,29 +335,24 @@ class InstallerWindow(ctk.CTk):
     def _build_location(self) -> None:
         m = self.m
         self.path_item = self._text(
-            m.width / 2, m.px(266), "", self.font_small, self.p.text_faint
+            m.width / 2, m.px(296), "", self.font_small, self.p.text_faint
         )
-        bw, bh = m.px(132), m.px(28)
-        bx, by = (m.width - bw) // 2, m.px(284)
-        ccx, ccy = bx + bw / 2, by + bh / 2
-        self.btn_change = ctk.CTkButton(
-            self,
-            text="Change location",
-            width=bw,
-            height=bh,
-            corner_radius=bh // 2,
-            font=self.font_small,
-            fg_color=self.backdrop.film(ccx, ccy, self.p.glass_alpha),
-            hover_color=self.backdrop.film(ccx, ccy, self.p.glass_alpha_raised),
-            text_color=self.p.text_dim,
-            text_color_disabled=self.p.text_faint,
-            border_width=1,
-            border_color=self.backdrop.hairline(ccx, ccy),
-            bg_color=self.backdrop.hex_at(ccx, ccy),
-            command=self._on_change_location,
+        # A link, not a button. Changing the location is a rare, secondary
+        # act; giving it a bordered pill put it in the same visual class as
+        # Stop/Repair/Uninstall and competed with the one action that matters.
+        self.change_item = self._link(
+            m.width / 2, m.px(318), "Change location", self._on_change_location
         )
-        self.btn_change.place(x=bx, y=by)
         self._set_target(self.api.get_default_install_location())
+
+    def _set_change_enabled(self, enabled: bool) -> None:
+        """Links have no disabled state, so fade it and drop the binding."""
+        self._change_enabled = enabled
+        self.canvas.itemconfigure(
+            self.change_item,
+            fill=self.p.text_dim if enabled else self.p.text_faint,
+            state="normal" if enabled else "disabled",
+        )
 
     def _set_target(self, path: str) -> None:
         self._target_dir = path or ""
@@ -352,7 +363,7 @@ class InstallerWindow(ctk.CTk):
     def _build_actions(self) -> None:
         m = self.m
         pw, ph = m.px(240), m.px(46)
-        px_, py = (m.width - pw) // 2, m.px(334)
+        px_, py = (m.width - pw) // 2, m.px(378)
         self.btn_primary = ctk.CTkButton(
             self,
             text="Install CraftBot",
@@ -364,28 +375,29 @@ class InstallerWindow(ctk.CTk):
             hover_color=self.p.accent_hover,
             text_color=self.p.accent_text,
             text_color_disabled=self.p.text_dim,
-            bg_color=self.backdrop.hex_at(m.width / 2, py + ph / 2),
+            bg_color=self.p.base,
             command=self._on_primary,
         )
         self.btn_primary.place(x=px_, y=py)
         # A disabled button keeping the full accent fill still reads as
         # pressable, so busy state swaps it for glass.
-        self._primary_busy_fill = self.backdrop.film(
-            m.width / 2, py + ph / 2, self.p.glass_alpha_raised
-        )
+        self._primary_busy_fill = self.p.surface_raised
 
-        # Progress. Created now, placed only once there is real progress: a
-        # bar sitting at zero for two minutes reads as "stuck".
+        # Progress sits directly under the status line, which is where the
+        # byte count it belongs to is written — and out of the gap between
+        # the primary and the secondary row, which is deliberately tight.
+        # Created now, placed only once there is real progress: a bar sitting
+        # at zero for two minutes reads as "stuck".
         self._bar_w, self._bar_h = m.px(240), m.px(5)
-        self._bar_pos = ((m.width - self._bar_w) // 2, m.px(398))
+        self._bar_pos = ((m.width - self._bar_w) // 2, m.px(252))
         self.progress = ctk.CTkProgressBar(
             self,
             width=self._bar_w,
             height=self._bar_h,
             corner_radius=self._bar_h // 2,
             progress_color=self.p.accent,
-            fg_color=self.backdrop.film(m.width / 2, self._bar_pos[1], 0.12),
-            bg_color=self.backdrop.hex_at(m.width / 2, self._bar_pos[1]),
+            fg_color=self.p.film(0.12),
+            bg_color=self.p.base,
         )
         self.progress.set(0)
         self._progress_shown = False
@@ -404,11 +416,10 @@ class InstallerWindow(ctk.CTk):
         ]
         bw, bh, gap = m.px(94), m.px(30), m.px(10)
         total = len(specs) * bw + (len(specs) - 1) * gap
-        sx, sy = (m.width - total) // 2, m.px(428)
+        sx, sy = (m.width - total) // 2, m.px(440)
         self.secondary: Dict[str, ctk.CTkButton] = {}
         for i, (key, label, command) in enumerate(specs):
             bx = sx + i * (bw + gap)
-            ccx, ccy = bx + bw / 2, sy + bh / 2
             self.secondary[key] = ctk.CTkButton(
                 self,
                 text=label,
@@ -416,13 +427,13 @@ class InstallerWindow(ctk.CTk):
                 height=bh,
                 corner_radius=bh // 2,
                 font=self.font_small,
-                fg_color=self.backdrop.film(ccx, ccy, self.p.glass_alpha),
-                hover_color=self.backdrop.film(ccx, ccy, self.p.glass_alpha_raised),
+                fg_color=self.p.surface,
+                hover_color=self.p.surface_raised,
                 text_color=self.p.text_dim,
                 text_color_disabled=self.p.text_faint,
                 border_width=1,
-                border_color=self.backdrop.hairline(ccx, ccy),
-                bg_color=self.backdrop.hex_at(ccx, ccy),
+                border_color=self.p.hairline,
+                bg_color=self.p.base,
                 command=command,
             )
             self.secondary[key].place(x=bx, y=sy)
@@ -436,30 +447,36 @@ class InstallerWindow(ctk.CTk):
         )
         # The log is not on screen any more, so there has to be a way to reach
         # it when an install fails.
-        self.log_item = self._text(
+        self.log_item = self._link(
             m.width - m.pad,
             m.height - m.px(24),
             "Open log",
-            self.font_small,
-            self.p.text_faint,
-            "e",
-        )
-        self.canvas.tag_bind(self.log_item, "<Button-1>", lambda _e: self._on_open_log())
-        self.canvas.tag_bind(
-            self.log_item, "<Enter>", lambda _e: self._hover_log(True)
-        )
-        self.canvas.tag_bind(
-            self.log_item, "<Leave>", lambda _e: self._hover_log(False)
+            self._on_open_log,
+            anchor="e",
         )
 
-    def _hover_log(self, on: bool) -> None:
-        self.canvas.itemconfigure(
-            self.log_item, fill=self.p.text_dim if on else self.p.text_faint
-        )
-        try:
-            self.canvas.configure(cursor="hand2" if on else "")
-        except Exception:
-            pass
+    def _link(self, x, y, text, command, anchor="center") -> int:
+        """Clickable text. Brightens on hover and shows a hand cursor.
+
+        Canvas text rather than a widget: a link has no surface of its own, so
+        a CTkButton with a transparent fill would still be a rectangle with a
+        hover fill. This is the same treatment `Open log` always had.
+        """
+        item = self._text(x, y, text, self.font_small, self.p.text_faint, anchor)
+
+        def hover(on: bool) -> None:
+            self.canvas.itemconfigure(
+                item, fill=self.p.text_dim if on else self.p.text_faint
+            )
+            try:
+                self.canvas.configure(cursor="hand2" if on else "")
+            except Exception:
+                pass
+
+        self.canvas.tag_bind(item, "<Button-1>", lambda _e: command())
+        self.canvas.tag_bind(item, "<Enter>", lambda _e: hover(True))
+        self.canvas.tag_bind(item, "<Leave>", lambda _e: hover(False))
+        return item
 
     # ── Polling ─────────────────────────────────────────────────────────
 
@@ -573,9 +590,7 @@ class InstallerWindow(ctk.CTk):
             button.configure(state="normal" if on else "disabled")
 
         # Choosing where to install is meaningless once it is installed.
-        self.btn_change.configure(
-            state="normal" if (not installed and not busy) else "disabled"
-        )
+        self._set_change_enabled(not installed and not busy)
 
         # Any busy stage gets a bar; a measured download upgrades it to a
         # real percentage in _show_progress().
