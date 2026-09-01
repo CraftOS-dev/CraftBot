@@ -24,6 +24,7 @@ spec file), so the build works regardless of the current working directory.
 """
 
 import os as _os
+import sys as _sys
 
 from PyInstaller.utils.hooks import collect_data_files
 
@@ -58,8 +59,11 @@ datas += [
 # craftbot._read_bundled_version() pins the installer to the matching agent
 # version.
 _version_path = _os.path.join(ROOT, 'VERSION')
+_version = '0.0.0'  # Info.plist needs a version even on a local build
 if _os.path.isfile(_version_path):
     datas.append((_version_path, '.'))
+    with open(_version_path, encoding='utf-8') as _fh:
+        _version = _fh.read().strip() or _version
 
 
 a = Analysis(
@@ -143,3 +147,37 @@ exe = EXE(
     entitlements_file=None,
     icon=_os.path.join(ROOT, 'craftbot_logo_1.ico'),
 )
+
+# On macOS the EXE above is a bare Unix executable. Finder will not launch one
+# by double-click — it opens it in Terminal, if it runs at all, and a browser
+# download strips the execute bit so it usually does not. The form a Mac user
+# recognises is an application BUNDLE: a directory with a fixed layout that
+# Finder presents as a single app.
+#
+# .app is macOS-only, so this block is skipped everywhere else and Windows and
+# Linux keep the single-file output they already had.
+if _sys.platform == 'darwin':
+    # iconutil (macOS-native) writes this in the release workflow. Absent on a
+    # local build, in which case the bundle just gets the default icon.
+    _icns = _os.path.join(ROOT, 'craftbot_logo_1.icns')
+
+    app = BUNDLE(
+        exe,
+        name='CraftBotInstaller.app',
+        icon=_icns if _os.path.isfile(_icns) else None,
+        bundle_identifier='dev.craftos.craftbot.installer',
+        info_plist={
+            'CFBundleName': 'CraftBot Setup',
+            'CFBundleDisplayName': 'CraftBot Setup',
+            'CFBundleShortVersionString': _version,
+            'CFBundleVersion': _version,
+            # Without this the app runs through Retina's 1x compatibility
+            # path and every glyph is upscaled and soft — the window would
+            # look markedly worse on a Mac than on Windows for no reason.
+            'NSHighResolutionCapable': True,
+            # The window is drawn dark. Let it stay dark when the system is
+            # in light mode rather than being force-lightened.
+            'NSRequiresAquaSystemAppearance': False,
+            'LSApplicationCategoryType': 'public.app-category.developer-tools',
+        },
+    )

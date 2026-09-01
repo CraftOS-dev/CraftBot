@@ -151,7 +151,8 @@ jobs:
           - os: macos-latest
             os_label: macos
             data_sep: ":"
-            ext: ""
+            # A .app is a DIRECTORY, so the macOS artifact is a zip of it.
+            ext: ".zip"
 
     steps:
       - name: Checkout
@@ -217,15 +218,46 @@ jobs:
       # a separate artifact with its own bugs.
       # See docs/plans/unified-install-architecture.md.
 
+      # PyInstaller's BUNDLE wants a .icns; the repo ships .ico and .png.
+      # sips and iconutil are both part of macOS, so this needs nothing
+      # installed. The spec falls back to no icon if the file is absent, which
+      # is what happens on a local build.
+      - name: Build the macOS app icon
+        if: matrix.os_label == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          iconset="$RUNNER_TEMP/craftbot.iconset"
+          mkdir -p "$iconset"
+          for size in 16 32 64 128 256 512; do
+            sips -z $size $size craftbot_logo_1.png \
+                 --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            sips -z $((size * 2)) $((size * 2)) craftbot_logo_1.png \
+                 --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o craftbot_logo_1.icns
+          ls -la craftbot_logo_1.icns
+
       - name: Build installer (CraftBotInstaller) with PyInstaller
         shell: bash
         run: pyinstaller --noconfirm --clean packaging/CraftBotInstaller.spec
 
-      - name: Rename installer artifact
+      - name: Package installer artifact
         shell: bash
         run: |
-          mv "dist/CraftBotInstaller${{ matrix.ext }}" \
-             "dist/CraftBotInstaller-${{ matrix.os_label }}${{ matrix.ext }}"
+          set -euo pipefail
+          if [ "${{ matrix.os_label }}" = "macos" ]; then
+            # ditto, not zip: it preserves the bundle's symlinks, extended
+            # attributes and execute bits. A plain zip loses them and the
+            # app will not launch after the user unzips it.
+            ditto -c -k --keepParent \
+              "dist/CraftBotInstaller.app" \
+              "dist/CraftBotInstaller-macos.zip"
+          else
+            mv "dist/CraftBotInstaller${{ matrix.ext }}" \
+               "dist/CraftBotInstaller-${{ matrix.os_label }}${{ matrix.ext }}"
+          fi
+          ls -la dist/
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -255,11 +287,23 @@ jobs:
           generate_release_notes: true
           body: |
             ### Installer (Recommended)
-            Download `CraftBotInstaller-<platform>` from the assets below and
-            run it. The wizard lets you choose an install location, then
-            downloads `CraftBot-src.zip` from this release and sets up
-            everything it needs — Python, Node.js and all dependencies. You do
-            not need Git, Python or Node installed beforehand.
+            Download the file for your platform from the assets below and run
+            it. The wizard lets you choose an install location, then downloads
+            `CraftBot-src.zip` from this release and sets up everything it
+            needs — Python, Node.js and all dependencies. You do not need Git,
+            Python or Node installed beforehand.
+
+            | Platform | Download | How to run |
+            |---|---|---|
+            | Windows | `CraftBotInstaller-windows.exe` | Double-click it. |
+            | macOS | `CraftBotInstaller-macos.zip` | Unzip, then **right-click the app and choose Open**. |
+            | Linux | `CraftBotInstaller-linux` | `chmod +x CraftBotInstaller-linux && ./CraftBotInstaller-linux` |
+
+            On macOS the right-click is required the first time: the app is not
+            yet signed with an Apple Developer ID, so double-clicking it shows
+            "cannot be opened because the developer cannot be verified".
+            Right-click → Open gives you an Open button that double-click does
+            not. You only need to do this once.
 
             First install takes a few minutes while the runtime is prepared.
 

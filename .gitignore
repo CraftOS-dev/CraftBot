@@ -15,6 +15,9 @@ craftbot/generated_task_document/
 # Written by the agent when boot() completes, read by run.py. Runtime
 # state, not source.
 .agent-ready
+# Generated on macOS by the release workflow (sips + iconutil) for the
+# .app bundle's icon. Derived from craftbot_logo_1.png, not source.
+craftbot_logo_1.icns
 **/rag_docs_actions/
 **/rag_docs_taskdocs/
 ollama_data/

@@ -1,0 +1,264 @@
+# Build and actually EXERCISE the macOS installer, without cutting a release.
+#
+# Exists because macOS is the one platform nobody here can test: the release
+# workflow only runs on a tag, and a Windows machine cannot run a .app or
+# resolve macOS wheels. The runner is a real Mac, so everything that needs one
+# happens here and comes back as artifacts.
+#
+# Run it from the Actions tab. It produces:
+#
+#   macos-window/     a screenshot of the installer window on real hardware,
+#                     plus the probe output that says whether clicks land
+#   macos-app/        the zipped .app, so the packaging can be inspected
+#
+# With remote_desktop: true it also opens Screen Sharing over a tunnel, so
+# the window can be driven with an actual mouse.
+#
+# Nothing here publishes anything, and it does not generate lock files — those
+# are committed by hand (see scripts/generate_lock.py).
+#
+# This is a DEBUGGING tool. Once the macOS window behaves, delete it.
+
+name: macOS check
+
+on:
+  workflow_dispatch:
+    inputs:
+      remote_desktop:
+        description: >-
+          Hold the runner open with Screen Sharing so you can drive it with a
+          mouse. Needs NGROK_AUTHTOKEN in repository secrets.
+        type: boolean
+        default: false
+      hold_minutes:
+        description: "How long to keep the session open (max 300)."
+        type: string
+        default: "60"
+
+jobs:
+  macos:
+    name: Build + probe on macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Report the runner
+        run: |
+          echo "arch      : $(uname -m)"
+          echo "macOS     : $(sw_vers -productVersion)"
+          python -c "import sysconfig,sys; print('lock tag  :',
+            sysconfig.get_platform().replace('.','_').replace('-','_')
+            + '-py%d%d' % sys.version_info[:2])"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r packaging/requirements-installer.txt
+
+      - name: Build the app icon
+        run: |
+          set -euo pipefail
+          iconset="$RUNNER_TEMP/craftbot.iconset"
+          mkdir -p "$iconset"
+          for size in 16 32 64 128 256 512; do
+            sips -z $size $size craftbot_logo_1.png \
+                 --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            sips -z $((size * 2)) $((size * 2)) craftbot_logo_1.png \
+                 --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o craftbot_logo_1.icns
+
+      - name: Build the installer
+        run: pyinstaller --noconfirm --clean packaging/CraftBotInstaller.spec
+
+      - name: Verify the bundle is well formed
+        run: |
+          set -euo pipefail
+          app="dist/CraftBotInstaller.app"
+          test -d "$app" || { echo "::error::no .app was produced"; exit 1; }
+          test -f "$app/Contents/Info.plist" || { echo "::error::no Info.plist"; exit 1; }
+          test -x "$app/Contents/MacOS/CraftBotInstaller" || { echo "::error::inner binary missing or not executable"; exit 1; }
+          echo "--- Info.plist ---"
+          plutil -p "$app/Contents/Info.plist"
+          echo "--- does Launch Services accept it? ---"
+          lsappinfo test "$app" 2>/dev/null || true
+          du -sh "$app"
+
+      # ── Does the window actually open, and do clicks land? ────────────
+      # This is the question a Windows machine cannot answer. Runs the real
+      # window against a fake backend, so nothing is installed.
+      - name: Probe the window
+        id: probe
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/probe.txt"
+          import sys, traceback
+          sys.path.insert(0, ".")
+          import customtkinter as ctk
+          from installer.ui.window import InstallerWindow
+
+          class FakeAPI:
+              def get_state(self):
+                  return {"state": "not_installed", "pid": None,
+                          "worker_busy": False, "browser_url": ""}
+              def get_default_install_location(self):
+                  return "/Users/runner/CraftBot"
+              def drain_output(self):
+                  return {"lines": [], "progress": None}
+              def view_log(self): return ""
+              def open_in_browser(self): pass
+              def install(self, t): return {"started": False}
+              start = stop = repair = uninstall = lambda self, *a: {"started": False}
+
+          ctk.set_appearance_mode("dark")
+          try:
+              ctk.deactivate_automatic_dpi_awareness()
+          except Exception:
+              pass
+
+          win = InstallerWindow(FakeAPI(), version="probe")
+          win.update()
+
+          print("tk patchlevel :", win.tk.call("info", "patchlevel"))
+          print("tk scaling    :", win.tk.call("tk", "scaling"))
+          print("metrics factor:", win.m.factor)
+          print("window        :", win.winfo_width(), "x", win.winfo_height())
+
+          print("\nstacking (bottom -> top):")
+          for i, c in enumerate(win.tk.call("winfo", "children", win._w)):
+              print(f"  {i}: {win.tk.call('winfo', 'class', c)}")
+
+          print("\nhit testing:")
+          targets = {"primary": win.btn_primary}
+          targets.update(win.secondary)
+          bad = 0
+          for name, b in targets.items():
+              x = b.winfo_rootx() + b.winfo_width() // 2
+              y = b.winfo_rooty() + b.winfo_height() // 2
+              hit = win.winfo_containing(x, y)
+              ok = hit is not None and str(hit).startswith(str(b))
+              bad += 0 if ok else 1
+              print(f"  {name:10} -> {'BUTTON' if ok else 'NOT the button: ' + str(hit)}")
+
+          # Does the command path fire when invoked directly? Separates "the
+          # click never arrives" from "the click arrives and does nothing".
+          fired = []
+          win.btn_primary.configure(command=lambda: fired.append(True))
+          win.btn_primary.invoke()
+          win.update()
+          print("\ncommand fires on invoke():", bool(fired))
+          print("buttons failing hit test :", bad)
+
+          win.after(1500, win.destroy)
+          win.mainloop()
+          PY
+
+      - name: Screenshot whatever is on the display
+        if: always()
+        run: |
+          set -uo pipefail
+          # Launch the real bundle and photograph it. If the runner has no
+          # window server this fails harmlessly and the probe above still
+          # carries the useful data.
+          open dist/CraftBotInstaller.app || true
+          sleep 12
+          screencapture -x "$RUNNER_TEMP/screen.png" || echo "screencapture unavailable"
+          pkill -f CraftBotInstaller || true
+          ls -la "$RUNNER_TEMP"/*.png || true
+
+      - name: Package the app
+        if: always()
+        run: |
+          ditto -c -k --keepParent dist/CraftBotInstaller.app \
+            "$RUNNER_TEMP/CraftBotInstaller-macos.zip" || true
+
+      # ── Drive the runner with a real mouse ────────────────────────────
+      # Turns the runner into a Mac you can remote into. This is the only way
+      # to answer "the buttons are not clickable" from a Windows machine: the
+      # probe above measures geometry and bindings, but only a hand on a mouse
+      # tells you what a user experiences.
+      #
+      # The runner is destroyed when the job ends, so the password below lives
+      # for minutes on a throwaway machine. Still: the tunnel is public while
+      # open, so keep hold_minutes tight and do not leave it running.
+      - name: Open Screen Sharing over a tunnel
+        if: ${{ inputs.remote_desktop }}
+        env:
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NGROK_AUTHTOKEN:-}" ]; then
+            echo "::error::NGROK_AUTHTOKEN secret is not set."
+            echo "Create a free ngrok account, copy the authtoken, and add it"
+            echo "under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+          PASSWORD="craftbot-$RANDOM$RANDOM"
+          sudo dscl . -passwd /Users/runner "$PASSWORD" || \
+            echo "::warning::could not set the runner password"
+
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -users runner -privs -all -restart -agent
+
+          brew install ngrok >/dev/null 2>&1 || brew install ngrok/ngrok/ngrok
+          ngrok config add-authtoken "$NGROK_AUTHTOKEN"
+          ngrok tcp 5900 --log=stdout > "$RUNNER_TEMP/ngrok.log" 2>&1 &
+
+          for _ in $(seq 1 30); do
+            URL=$(grep -o 'tcp://[^ ]*' "$RUNNER_TEMP/ngrok.log" | head -1 || true)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          [ -n "${URL:-}" ] || { echo "::error::ngrok tunnel never came up"; cat "$RUNNER_TEMP/ngrok.log"; exit 1; }
+
+          HOSTPORT="${URL#tcp://}"
+          {
+            echo "## Screen Sharing is open"
+            echo ""
+            echo "Connect with any VNC client (RealVNC, TightVNC, TigerVNC):"
+            echo ""
+            echo '```'
+            echo "address : $HOSTPORT"
+            echo "user    : runner"
+            echo "password: $PASSWORD"
+            echo '```'
+            echo ""
+            echo "The installer is at \`dist/CraftBotInstaller.app\` in the"
+            echo "runner's home. Open it and click the buttons."
+            echo ""
+            echo "Session ends in ${{ inputs.hold_minutes }} minutes."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "VNC at $HOSTPORT  user=runner  password=$PASSWORD"
+
+      - name: Hold the session open
+        if: ${{ inputs.remote_desktop }}
+        run: |
+          MINUTES="${{ inputs.hold_minutes }}"
+          # GitHub kills the job at 6h regardless; cap below that.
+          [ "$MINUTES" -gt 300 ] 2>/dev/null && MINUTES=300
+          echo "Holding for $MINUTES minutes. Cancel the run to end early."
+          sleep $(( MINUTES * 60 ))
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-window
+          path: |
+            ${{ runner.temp }}/probe.txt
+            ${{ runner.temp }}/screen.png
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-app
+          path: ${{ runner.temp }}/CraftBotInstaller-macos.zip
+          if-no-files-found: warn
