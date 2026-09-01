@@ -72,7 +72,18 @@ def list_available_integrations(input_data: dict) -> dict:
         return {
             "status": "success",
             "integrations": integrations,
-            "message": f"Found {len(integrations)} integration(s).",
+            # State the scope. An empty/short list read as "you cannot do
+            # that" (observed live 2026-09-01: asked for the weather, the
+            # agent called this twice, saw no weather entry, and told the
+            # user 12 times over 4 minutes that it had no weather
+            # capability — while holding web_fetch and http_request, and
+            # with Open-Meteo needing neither key nor account).
+            "message": (
+                f"Found {len(integrations)} integration(s). This lists "
+                "CREDENTIALED account integrations only. Public APIs and "
+                "websites never appear here and need no integration — use "
+                "http_request / web_fetch / web_search for those."
+            ),
         }
     except Exception as e:
         return {"status": "error", "integrations": [], "message": str(e)}

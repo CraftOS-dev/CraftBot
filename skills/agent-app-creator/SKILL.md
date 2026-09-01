@@ -320,6 +320,27 @@ the app fetched it from the real source.
   (`GET /api/collections/<name>/records`). `GET /api/_a2app` answers
   `env: "dev"` if you need to confirm which instance a port is.
 
+### Fix rounds
+
+Failing features come back as a fix brief: defect cards with evidence, plus
+an **ATTEMPT LOG** — every previous round, the cause signature of each
+defect, what moved between rounds (`cause identical`, `cause changed`,
+`gone`, `new`) and any streak across them. It reports and stops; reading it
+is yours, and so is how you spend the round.
+
+Two things you can write into that record. Each round is a fresh run that
+remembers nothing of the last one, so what is not written here is not known
+next round:
+
+- `agent_app_report_finding(project_id, ruled_out=["not the grant — dry-run
+  of send_gmail returns 200"])` — causes you eliminated, and what eliminated
+  them. Quoted back in every later brief.
+- `agent_app_report_finding(project_id, blocked_question="…")` — ends the
+  work and puts one question to the user. For something you cannot GET (a
+  decision, an account, a credential), not something you have not solved.
+
+Repeating a failure does not end the build; only the mission budget does.
+
 ## FORBIDDEN
 
 - Editing system-managed files (see ownership rule) — the gate will fail
@@ -332,5 +353,8 @@ the app fetched it from the real source.
   plus a report, not a simulation
 - Printing or copying `.superuser` credentials
 - Starting `pocketbase`, `vite`, or `npm run` servers by hand
-- Ending the run mid-build — pause ONLY for a user question (final
-  send_message), finish ONLY via `agent_app_walk_verify`
+- Ending the run mid-build — finish ONLY via `agent_app_walk_verify`. To
+  pause on a question only the USER can answer, say so through
+  `agent_app_report_finding(project_id, blocked_question="…")`: a
+  send_message alone leaves the build tracker thinking you walked out, and it
+  will restart you on the same work

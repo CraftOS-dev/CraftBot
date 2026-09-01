@@ -95,3 +95,26 @@ HONESTY RULE: the change is live only when `agent_app_walk_verify` returns
 `status: success` — never tell the user a change is live when the relaunch,
 verification or deploy failed. On failure the user's app still runs the
 previous working version.
+
+## When verification comes back with defects
+
+Failing features come back as a fix brief: defect cards with evidence, plus
+an **ATTEMPT LOG** — every previous round, the cause signature of each
+defect, what moved between rounds (`cause identical`, `cause changed`,
+`gone`, `new`) and any streak across them. It reports and stops; reading it
+is yours, and so is how you spend the round.
+
+Two things you can write into that record. Each round is a fresh run that
+remembers nothing of the last one, so what is not written here is not known
+next round:
+
+- `agent_app_report_finding(project_id="<ID>", ruled_out=["not the grant —
+  dry-run of send_gmail returns 200"])` — causes you eliminated, and what
+  eliminated them. Quoted back in every later brief.
+- `agent_app_report_finding(project_id="<ID>", blocked_question="Which
+  calendar should bookings write to?")` — ends the work and puts one
+  question to the user. For something you cannot GET (a decision, an
+  account, a credential), not something you have not solved. It is also the
+  only way to stop that the tracker does not read as walking out.
+
+Repeating a failure does not end the work; only the mission budget does.

@@ -11,7 +11,8 @@
     "agent-app-manager",
     "agent-app-modify",
     "craftbot-skill-creator",
-    "craftbot-skill-improve"
+    "craftbot-skill-improve",
+    "agent-app-importer"
   ],
   "disabled_skills": [
     "cli-anything",

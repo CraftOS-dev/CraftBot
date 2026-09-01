@@ -8076,6 +8076,45 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # happens"), because failures only broadcast a generic error the
         # already-closed modal never saw.
         logger.info(f"[AGENT_APP] import requested: {source!r} (name={name!r})")
+        # Mirror progress to the browser for the duration of THIS import.
+        # The fetch/extract/copy run on a worker thread (they used to block
+        # the event loop for 13 minutes), so the sink has to hop back onto
+        # the loop — run_coroutine_threadsafe, never a bare await.
+        from app.agent_app.manager import set_import_progress_sink
+
+        loop = asyncio.get_running_loop()
+
+        def _sink(event: Dict[str, Any]) -> None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast(
+                        {
+                            "type": "agent_app_import_progress",
+                            "data": {**event, "source": source, "name": name},
+                        }
+                    ),
+                    loop,
+                )
+            except Exception:
+                pass
+
+        set_import_progress_sink(_sink)
+        # Tell the UI the import is under way NOW, so the modal can close and
+        # hand the outcome to a toast instead of holding a dialog open for
+        # the length of a 300MB download.
+        await self._broadcast(
+            {
+                "type": "agent_app_import_progress",
+                "data": {
+                    "phase": "starting",
+                    "done": 0,
+                    "total": 0,
+                    "unit": "files",
+                    "source": source,
+                    "name": name,
+                },
+            }
+        )
         try:
             project = await self._agent_app_manager.import_project_source(
                 source, name or None
@@ -8120,6 +8159,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": {"projectId": "", "error": f"Import failed: {e}"},
                 }
             )
+        finally:
+            set_import_progress_sink(None)
         return
 
     async def _send_to(self, ws, message: Dict[str, Any]) -> None:

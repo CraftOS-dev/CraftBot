@@ -10,8 +10,10 @@ drift from the plan.
 from __future__ import annotations
 
 from app.factory.engine.machine import (
+    ANNOUNCE_BLOCKED,
     ANNOUNCE_READY,
     ANNOUNCE_STUCK,
+    BLOCKED,
     DISPATCH_MISSION,
     DONE,
     NONE,
@@ -36,7 +38,23 @@ MISSION_STATES = (BUILDING, RESEARCHING, FIXING, MODIFYING)
 
 def transition(state: str, outcome: Outcome) -> Decision:  # noqa: C901
     """Pre-caps Decision for every (state, outcome) pair the plan defines.
-    The engine applies caps/escalation on top; the model decides nothing."""
+    The engine applies budget/escalation on top; the model decides nothing
+    except the one thing below."""
+
+    # ── the agent raises its hand ──────────────────────────────────────────
+    # Checked before everything else: it can arrive from any working state,
+    # and it is the only outcome whose CONTENT the agent authors. Not a
+    # verdict on the code — a question about it ("which calendar should this
+    # write to?", "this needs a Stripe key you have not connected"). Left
+    # unavailable, an agent in this position could only fail on repeat until
+    # a cap fired, and the user got "stuck" instead of the question.
+    if outcome.payload.get("blocked"):
+        return Decision(
+            BLOCKED,
+            ANNOUNCE_BLOCKED,
+            reason=str(outcome.payload.get("question") or "").strip(),
+            payload=outcome.payload,
+        )
 
     # ── happy path ─────────────────────────────────────────────────────────
     if state == INTERVIEWING and outcome.ok:

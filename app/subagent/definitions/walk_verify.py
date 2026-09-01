@@ -242,6 +242,45 @@ def _guard_quality(result: str):
             "those features now, or mark them NOT REACHED / FAIL honestly."
         )
 
+    # A PASS whose OWN evidence describes the broken state.
+    #
+    # Observed live 2026-09-01 (newsletter_tool 3f6013ce), verbatim:
+    #   "- Settings — PASS — ...the integration badges showed AI writer
+    #    connected and Gmail send not connected..."
+    # That was the exact defect the user had reported. The verifier looked
+    # straight at it, wrote it down, and passed the feature — because the
+    # checklist only asked whether the page RENDERS. It then passed the same
+    # app again 14 minutes later, and the system announced it ready twice
+    # while the user was saying it was broken.
+    contradiction = _re.search(
+        r"^-\s[^\n]*—\s*PASS\s*—[^\n]*?"
+        r"\b(not connected|disconnected|not enabled|not configured|"
+        r"unavailable|failed to|is missing|still shows|shows as not)"
+        r"\b[^\n]*",
+        result,
+        _re.MULTILINE | _re.IGNORECASE,
+    )
+    # Escape hatch: a negative state can be the CORRECT one (nothing is
+    # connected, so "not connected" is right). The verifier must be able to
+    # say so and move on — an unsatisfiable guard just recreates the
+    # reject -> BLOCKED -> bad-routing loop this file is trying to prevent.
+    if contradiction and _re.search(
+        r"is correct|correct display|is expected|expected because|by design|"
+        r"matches the (backend|server|api|account)",
+        contradiction.group(0),
+        _re.IGNORECASE,
+    ):
+        contradiction = None
+    if contradiction:
+        return (
+            "Verdict REJECTED — self-contradicting PASS: this line marks a "
+            "feature PASS while its own evidence reports a broken or "
+            f"negative state ('{contradiction.group(0)[:140]}'). If you "
+            "OBSERVED that state, the feature is FAIL — say so. If that "
+            "state is genuinely correct here, keep PASS but say why in the "
+            "same line (e.g. 'no account is connected, so \"not connected\" "
+            "is the correct display')."
+        )
     # Live/external/scheduled-data PASS without quoted hook evidence: the
     # browser cannot see server-side fetches — the report must quote the
     # grep result ($http.send / callIntegration / cronAdd), per step 6.

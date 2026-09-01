@@ -569,6 +569,59 @@ async def agent_app_notify_ready(input_data: dict) -> dict:
                 if result.get("dir")
                 else ""
             )
+            # The app's OWN log, surfaced automatically on a successful
+            # launch. A launch can pass the gate while the app logs, on every
+            # request, the exact reason a feature is broken.
+            #
+            # Observed live 2026-09-01: the app logged
+            #   [integrations.status] gmailConnected=false gmailProbe=
+            #   {"status":403,"error":"...manifest has no
+            #    capabilities.integrations..."}
+            # — the diagnosis AND the fix, in plain text, sitting there for 20
+            # minutes while the agent re-read source files and told the user
+            # to hard-refresh. walk_verify already quotes this log when it
+            # FAILS; the launch path never did, so nothing put it in front of
+            # the agent at the moment it was choosing what to look at next.
+            _log_note = ""
+            try:
+                from pathlib import Path as _LP
+
+                _lroot = _LP(
+                    str(result.get("dir") or (_proj_ok.path if _proj_ok else ""))
+                )
+                _llines = []
+                for _lf in (
+                    _lroot / "logs" / "pocketbase.log",
+                    _lroot / "logs" / "app.log",
+                ):
+                    if _lf.exists():
+                        _llines = _lf.read_text(
+                            encoding="utf-8", errors="replace"
+                        ).splitlines()[-300:]
+                        break
+                _keys = (
+                    "error",
+                    "failed",
+                    "panic",
+                    "cannot",
+                    "denied",
+                    "not permitted",
+                    "=false",
+                )
+                _hits = [
+                    ln
+                    for ln in _llines
+                    if any(k in ln.lower() for k in _keys)
+                ][-12:]
+                if _hits:
+                    _body = "\n".join(ln[:300] for ln in _hits)[:2000]
+                    _log_note = (
+                        " The app's own log is ALREADY reporting something —"
+                        " read this before re-reading source or asking the"
+                        " user to refresh:\n" + _body + "\n"
+                    )
+            except Exception:
+                _log_note = ""
             return {
                 "status": "success",
                 "message": (
@@ -579,6 +632,7 @@ async def agent_app_notify_ready(input_data: dict) -> dict:
                     "the independent verifier against the running app. The "
                     "build is complete ONLY when that returns success — do "
                     "NOT tell the user the app is ready before then."
+                    + _log_note
                 ),
             }
         else:
@@ -829,6 +883,14 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                     f"Walk-verify: {passed_n} passed, coverage incomplete "
                     "(some features NOT REACHED)"
                 )
+            elif kind == "unparseable":
+                # Not a tooling outage and not an app defect: the verifier
+                # produced a report our guards rejected. Saying "BLOCKED
+                # (tooling)" here sent everyone looking at the browser.
+                outcome = (
+                    "Walk-verify report REJECTED (verifier paperwork, not "
+                    "the app) — re-running the verifier"
+                )
             else:
                 outcome = "Walk-verify BLOCKED (tooling) — smoke checks only"
             await broadcast_agent_app_progress(project_id, "verifying", 96, outcome)
@@ -1018,22 +1080,65 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                 )
             )
             if decision is None:
-                # Machine done (a re-verify after delivery, outside a modify
-                # arc): report_verify ignored the verdict and dispatched
-                # NOTHING. Falling through to the "mission queued" text here
-                # made the agent end the run waiting for a mission that
-                # never comes. (Stuck machines no longer land here — a fresh
-                # verify re-arms them and dispatches a real mission.)
+                # No machine is tracking this arc (an externally adopted app,
+                # or a re-verify after delivery): report_verify dispatched
+                # NOTHING. Two texts have been wrong here in a row. The
+                # original "mission queued" wording made the agent end the
+                # run waiting for a mission that never comes; its
+                # replacement said "end the run", which is just as wrong —
+                # with no machine, THIS run is the only thing that can fix
+                # the defect, so telling the agent the verify path is a dead
+                # end simply retires the verifier.
+                #
+                # Observed 2026-09-01 (newsletter-tool, session lui_7ee64eb1):
+                # an agent read "will NOT retry ... end the run", never called
+                # walk_verify again across 7 further relaunches and ~10 edits,
+                # and substituted its own http_request probes — which bypass
+                # the frontend, i.e. exactly the layer that was broken, and so
+                # always agreed with it — while telling the user five times
+                # that the app was fixed. Both halves are addressed here: the
+                # agent is told to iterate and re-verify, and the app is put
+                # back up so iterating is possible.
+                _resumed = ""
+                if _is_external:
+                    # Nothing will queue a fix mission, so leaving the app
+                    # stopped strands the agent (nothing to iterate against)
+                    # AND the user (their app is simply down, with no
+                    # machine that will ever bring it back).
+                    try:
+                        if await manager.launch_project(project_id):
+                            _resumed = (
+                                "The app has been restarted so you can keep "
+                                "working against it. "
+                            )
+                        else:
+                            _resumed = (
+                                "The app was stopped and could not be "
+                                "restarted automatically — relaunch it with "
+                                "agent_app_notify_ready. "
+                            )
+                    except Exception:
+                        _resumed = (
+                            "The app was stopped — relaunch it with "
+                            "agent_app_notify_ready. "
+                        )
                 return {
                     "status": "error",
                     "message": (
                         f"Walk-verify FAILED: {len(defects) or 'some'} "
-                        f"feature(s) observed NOT working. {_stopped_note}"
-                        "The build machine is not tracking this arc, so the "
-                        "system did NOT queue a fix mission and will NOT "
-                        "retry on its own — do not claim otherwise. Report "
-                        "the remaining failures (test_errors below) to the "
-                        "user honestly, then end the run."
+                        f"feature(s) observed NOT working. "
+                        f"{_resumed or _stopped_note}"
+                        "No build machine is tracking this arc, so nothing "
+                        "will queue a fix mission and nothing will retry on "
+                        "its own — THIS run owns the fix. Do NOT end the run "
+                        "and do NOT substitute your own HTTP/endpoint probes "
+                        "for this verdict: a passing endpoint check is not a "
+                        "passing app, and it cannot see the layer the "
+                        "verifier just failed on. Fix the defects in "
+                        "test_errors, relaunch with agent_app_notify_ready, "
+                        "then call agent_app_walk_verify again. The app is "
+                        "verified ONLY when this action returns success — "
+                        "until then do not tell the user it is fixed."
                     ),
                     "test_errors": defects[:10] or [raw],
                 }
@@ -1042,10 +1147,10 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                     "status": "error",
                     "message": (
                         f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
-                        "NOT working — and the retry cap is reached. The system "
-                        "has reported the build as stuck to the user, with the "
-                        "full history. Do NOT retry and do NOT send a status "
-                        "message. End the run."
+                        "NOT working — and the mission budget for this build is "
+                        "spent. The system has reported the build as stuck to the "
+                        "user, with the full history and what was ruled out. Do "
+                        "NOT retry and do NOT send a status message. End the run."
                     ),
                     "test_errors": defects[:10] or [raw],
                 }
@@ -1433,6 +1538,135 @@ async def agent_app_report_progress(input_data: dict) -> dict:
             "status": "error",
             "message": f"Failed to report progress: {str(e)}",
         }
+
+
+@action(
+    name="agent_app_report_finding",
+    description=(
+        "During a factory FIX round: record what you PROVED is not the cause, "
+        "and/or stop and ask the user a question you cannot answer yourself. "
+        "Each round is a fresh run with no memory of the last one, so a cause "
+        "you eliminated and did not record here gets re-tested by the next "
+        "round; ruled_out entries are quoted back in every later brief. "
+        "blocked_question ENDS the build cleanly and puts the question to the "
+        "user - use it only for a genuine external blocker (a decision between "
+        "designs, an account that is not connected, a credential), never to "
+        "escape a hard bug."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["agent_app"],
+    parallelizable=True,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "abc12345",
+            "description": "The Agent App project ID.",
+        },
+        "ruled_out": {
+            "type": "array",
+            "example": [
+                "the grant is fine - dry-run of send_gmail returned 200",
+                "not a schema problem - the record saves from the CLI",
+            ],
+            "description": (
+                "Causes you eliminated WITH evidence this round. One short "
+                "sentence each: the theory, and what killed it."
+            ),
+        },
+        "blocked_question": {
+            "type": "string",
+            "example": "Which calendar should new bookings write to?",
+            "description": (
+                "The one question the user must answer for work to continue. "
+                "Ends the build in a waiting state - omit it unless you are "
+                "genuinely blocked on the user."
+            ),
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "success, or error with a message.",
+        },
+        "recorded": {
+            "type": "integer",
+            "example": 2,
+            "description": "How many new ruled-out entries were stored.",
+        },
+        "state": {
+            "type": "string",
+            "example": "blocked",
+            "description": "The machine state after the report.",
+        },
+    },
+    test_payload={
+        "project_id": "test123",
+        "ruled_out": ["not the grant"],
+        "simulated_mode": True,
+    },
+)
+def agent_app_report_finding(input_data: dict) -> dict:
+    """Record ruled-out causes and/or raise a blocking question."""
+    project_id = input_data.get("project_id", "")
+    ruled_out = input_data.get("ruled_out") or []
+    question = (input_data.get("blocked_question") or "").strip()
+
+    if not project_id:
+        return {"status": "error", "message": "project_id is required"}
+    if input_data.get("simulated_mode"):
+        return {"status": "success", "recorded": len(ruled_out), "state": "fixing"}
+    if isinstance(ruled_out, str):
+        ruled_out = [ruled_out]
+
+    try:
+        from app.factory.host_craftbot import get_factory_host
+
+        host = get_factory_host()
+        machine = host.machine_for(project_id)
+        if machine is None:
+            return {
+                "status": "error",
+                "message": f"No factory machine for project '{project_id}'.",
+            }
+        if question:
+            # Blocking also stores the evidence: the user reads the question
+            # with what has already been established under it.
+            decision = host.report_blocked(
+                project_id, question, ruled_out=list(ruled_out)
+            )
+            if decision is None:
+                return {
+                    "status": "error",
+                    "state": machine.state,
+                    "message": (
+                        f"This build is already {machine.state} — there is nothing "
+                        "in flight to pause. Use send_message to talk to the user."
+                    ),
+                }
+            return {
+                "status": "success",
+                "recorded": len(ruled_out),
+                "state": machine.state,
+                "message": (
+                    "The build is paused and your question has gone to the user. "
+                    "Do not continue working on it."
+                ),
+            }
+        recorded = host.record_ruled_out(project_id, list(ruled_out))
+        return {
+            "status": "success",
+            "recorded": recorded,
+            "state": machine.state,
+            "message": (
+                f"{recorded} cause(s) recorded; every later fix round will see them."
+                if recorded
+                else "Nothing new to record (already known, or nothing supplied)."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to record finding: {str(e)}"}
 
 
 @action(

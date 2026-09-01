@@ -9,8 +9,10 @@ import tempfile
 from pathlib import Path
 
 from app.factory.engine import (
+    ANNOUNCE_BLOCKED,
     ANNOUNCE_READY,
     ANNOUNCE_STUCK,
+    BLOCKED,
     DISPATCH_MISSION,
     DONE,
     STUCK,
@@ -20,6 +22,7 @@ from app.factory.engine import (
     card_from_dict,
     validate_card,
 )
+from app.factory.engine.cards import fingerprint_all
 from app.factory.appfactory import (
     BUILDING,
     FIXING,
@@ -49,6 +52,54 @@ assert validate_card({**EXAMPLE, "observed": ""}) != []  # empty required
 assert validate_card({**EXAMPLE, "extra": "x"}) != []  # unknown field
 print("card schema: OK")
 
+# ── the fingerprint tracks the CAUSE, not the wording ───────────────────────
+# Both halves matter and they pull against each other. Too coarse (hashing the
+# feature title, as it first did) and a loop clearing one gate per round looks
+# identical every round: the Gmail status check below burned its whole budget
+# one gate from done. Too fine (harvesting quoted strings, as it did next) and
+# the same failure reworded by the verifier hashes differently every round,
+# which makes the stall signal unreachable.
+_C = dict(expected="x", candidate_cause="y", suggested_direction="z", repro="r")
+_R = "/api/ops/integrations/status"
+
+
+def _card(observed: str, key: str = "verify.gmail-status"):
+    return card_from_dict({"key": key, "where": _R, "observed": observed, **_C})
+
+
+# Three rounds, three real causes: each fix cleared one gate and exposed the
+# next. The discriminating tokens are all machine-written identifiers.
+causes = [
+    _card(f"POST {_R} 403 - action create_gmail_draft not in capabilities.actions"),
+    _card(f"POST {_R} 403 - action send_gmail not in capabilities.actions"),
+    _card(f"POST {_R} 400 - send_gmail requires confirm_irreversible"),
+]
+assert len({c.fingerprint() for c in causes}) == 3, [c.cause_signature() for c in causes]
+
+# One round, three ways the verifier might write it up — including the route
+# ending a sentence, where the full stop rides along on the token.
+rewordings = [
+    _card(f'POST {_R} returned 400 {{"error":"Invalid payload"}}'),
+    _card(f'The check failed: POST {_R} gave a 400 with "Invalid payload".'),
+    _card(f'Clicking "Check Gmail" shows "Gmail not connected"; 400 on {_R}.'),
+    _card(f"Still failing - {_R}, HTTP 400."),
+]
+assert len({c.fingerprint() for c in rewordings}) == 1, [
+    c.cause_signature() for c in rewordings
+]
+
+# A defect with no machine-written token left falls back to the feature key
+# rather than to an empty signature every card would share.
+assert _card("the timeline never renders", key="verify.timeline").cause_signature()
+
+# The SET's identity ignores card order (ordering is the distiller's, not the
+# failure's) and moves when any member's cause moves — that is the whole
+# progress signal: two defects, fix one, the set reads as different.
+assert fingerprint_all(causes[:2]) == fingerprint_all(list(reversed(causes[:2])))
+assert fingerprint_all(causes[:2]) != fingerprint_all(causes[1:])
+assert fingerprint_all([]) == ""
+print("defect fingerprints: cause-sensitive, wording-blind: OK")
+
 
 # ── the arc: happy path ─────────────────────────────────────────────────────
 def fresh_machine(tmp: Path, caps=None) -> Machine:
@@ -70,9 +121,13 @@ with tempfile.TemporaryDirectory() as td:
     assert not m.needs_redispatch()
 print("happy path: OK")
 
-# ── failure loop: caps + escalation ─────────────────────────────────────────
+# ── a repeating FAILURE escalates and keeps working ─────────────────────────
+# It used to end the build at three. That is a judgement about whether the
+# approach is working, made from a hash: the Gmail loop that cleared one gate
+# per round was killed one gate short. Repetition now buys a harder brief and
+# nothing else; only the budget stops the work.
 with tempfile.TemporaryDirectory() as td:
-    m = fresh_machine(Path(td), caps=Caps(per_fingerprint=3, total_missions=12))
+    m = fresh_machine(Path(td), caps=Caps(per_stall=3, total_missions=12))
     fp = card.fingerprint()
     m.advance(Outcome(SPECIFYING, ok=True))  # → building (mission 1)
     m.advance(Outcome(BUILDING, ok=True))  # → gating
@@ -80,20 +135,97 @@ with tempfile.TemporaryDirectory() as td:
         Outcome(GATING, ok=False, fingerprint=fp, payload={"cards": [EXAMPLE]})
     )
     assert (m.state, d1.action, d1.escalate) == (FIXING, DISPATCH_MISSION, False)
-    m.advance(Outcome(FIXING, ok=True))  # fix ended → re-gate
-    d2 = m.advance(Outcome(GATING, ok=False, fingerprint=fp))
-    assert d2.escalate, "second identical failure must escalate the brief"
-    m.advance(Outcome(FIXING, ok=True))
-    d3 = m.advance(Outcome(GATING, ok=False, fingerprint=fp))
-    assert (m.state, d3.action) == (STUCK, ANNOUNCE_STUCK)  # cap 3 → stuck
-    assert "3×" in d3.reason or "cap" in d3.reason
+    assert d1.escalate_level == 1
+    for expected_level in (2, 3, 4, 5):
+        m.advance(Outcome(FIXING, ok=True))  # fix ended → re-gate
+        d = m.advance(Outcome(GATING, ok=False, fingerprint=fp))
+        assert d.action == DISPATCH_MISSION, (
+            f"round {expected_level}: a repeating failure must keep working "
+            "while budget remains"
+        )
+        assert d.escalate and d.escalate_level == expected_level
+    assert m.state == FIXING and not m.terminal
+print("repeating failure escalates, never terminates: OK")
+
+# ── a repeating STALL does end it ───────────────────────────────────────────
+# A run that ends without producing a verdict is not an attempt at anything.
+# Live: chili3d, 2026-08-05 — 37 redispatches in ~4 minutes.
+with tempfile.TemporaryDirectory() as td:
+    m = fresh_machine(Path(td), caps=Caps(per_stall=3, total_missions=12))
+    m.advance(Outcome(SPECIFYING, ok=True))
+    m.advance(Outcome(BUILDING, ok=True))
+    for _ in range(2):
+        d = m.advance(Outcome(m.state, ok=False, fingerprint="surrender", stall=True))
+        assert d.action == DISPATCH_MISSION
+    d = m.advance(Outcome(m.state, ok=False, fingerprint="surrender", stall=True))
+    assert (m.state, d.action) == (STUCK, ANNOUNCE_STUCK)
+    assert "without completing" in d.reason
     report = m.stuck_report()
-    assert "could not be completed" in report and fp in report
-print("caps + escalation + honest stuck report: OK")
+    assert "could not be completed" in report and "Missions attempted" in report
+print("repeating stall caps out: OK")
+
+# ── the attempt ledger: rounds and ruled-out survive into the next brief ────
+with tempfile.TemporaryDirectory() as td:
+    m = fresh_machine(Path(td), caps=Caps(per_stall=3, total_missions=12))
+    m.advance(Outcome(SPECIFYING, ok=True))
+    m.advance(Outcome(BUILDING, ok=True))
+    m.advance(
+        Outcome(
+            GATING,
+            ok=False,
+            fingerprint="f1",
+            payload={"cards": [{"key": "a", "sig": "/api/x|status403"}]},
+        )
+    )
+    m.advance(Outcome(FIXING, ok=True))
+    m.advance(
+        Outcome(
+            GATING,
+            ok=False,
+            fingerprint="f2",
+            payload={"cards": [{"key": "a", "sig": "/api/x|status400"}]},
+        )
+    )
+    rounds = m.rounds()
+    assert [r["n"] for r in rounds] == [1, 2]
+    assert rounds[-1]["cards"][0]["sig"].endswith("status400")
+
+    assert m.record_ruled_out(["not the grant - dry run returns 200"]) == 1
+    assert m.record_ruled_out(["NOT THE GRANT - dry run returns 200"]) == 0  # deduped
+    assert m.ruled_out()[0]["what"].startswith("not the grant")
+    assert "not the grant" in m.stuck_report()
+
+    m2 = fresh_machine(Path(td))  # survives a restart, like everything else
+    assert len(m2.rounds()) == 2 and len(m2.ruled_out()) == 1
+print("attempt ledger: rounds + ruled-out persist: OK")
+
+# ── the agent raises its hand: BLOCKED is terminal and carries a question ───
+with tempfile.TemporaryDirectory() as td:
+    m = fresh_machine(Path(td), caps=Caps(per_stall=3, total_missions=12))
+    m.advance(Outcome(SPECIFYING, ok=True))
+    d = m.advance(
+        Outcome(
+            BUILDING,
+            ok=False,
+            payload={"blocked": True, "question": "Which calendar do bookings use?"},
+        )
+    )
+    assert (m.state, d.action) == (BLOCKED, ANNOUNCE_BLOCKED)
+    assert m.terminal and not m.needs_redispatch(), (
+        "a blocked build waits for the user; it must not redispatch itself"
+    )
+    report = m.blocked_report(d.reason)
+    assert "Which calendar do bookings use?" in report
+    assert "could not be completed" not in report, (
+        "a question is not a failure report"
+    )
+    m.reopen(BUILDING)  # the user answers → work resumes
+    assert m.state == BUILDING and not m.terminal
+print("blocked: honest terminal with a question: OK")
 
 # ── total mission budget ────────────────────────────────────────────────────
 with tempfile.TemporaryDirectory() as td:
-    m = fresh_machine(Path(td), caps=Caps(per_fingerprint=99, total_missions=2))
+    m = fresh_machine(Path(td), caps=Caps(per_stall=99, total_missions=2))
     m.advance(Outcome(SPECIFYING, ok=True))  # mission 1 (build)
     m.advance(Outcome(BUILDING, ok=True))  # → gating
     d = m.advance(Outcome(GATING, ok=False, fingerprint="x1"))  # mission 2 (fix)
@@ -131,7 +263,7 @@ print("persistence: OK")
 
 # ── reopen (LIFECYCLE-PLAN Phase 2): terminal → new generation ──────────────
 with tempfile.TemporaryDirectory() as td:
-    m = fresh_machine(Path(td), caps=Caps(per_fingerprint=3, total_missions=2))
+    m = fresh_machine(Path(td), caps=Caps(per_stall=3, total_missions=2))
     m.advance(Outcome(SPECIFYING, ok=True))  # mission 1 (build)
     for s in (BUILDING, GATING, LAUNCHING):
         m.advance(Outcome(s, ok=True))

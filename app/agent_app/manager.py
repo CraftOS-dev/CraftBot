@@ -78,6 +78,65 @@ def copytree_long(src: Any, dst: Any, **kwargs: Any) -> str:
     return shutil.copytree(long_path(src), long_path(dst), **kwargs)
 
 
+# Set for the duration of one import by the UI adapter, so progress can reach
+# the browser. A plain module global (not a constructor arg) because _progress
+# is called from deep inside blocking helpers running on a worker thread.
+_PROGRESS_SINK: Any = None
+
+
+def set_import_progress_sink(sink: Any) -> None:
+    """Install (or clear, with None) the callback that mirrors import
+    progress to the UI. Scoped to a single import by the caller."""
+    global _PROGRESS_SINK
+    _PROGRESS_SINK = sink
+
+
+def _human_bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f}{unit}" if unit == "B" else f"{n:.1f}{unit}"
+        n /= 1024.0
+    return f"{n:.1f}GB"
+
+
+def _progress(phase: str, done: int, total: int, what: str = "") -> None:
+    """One log line per import phase.
+
+    Observed live 2026-09-01: importing github.com/odoo/odoo produced ONE log
+    line ("import requested") and then 13 minutes 6 seconds of complete
+    silence — not just from the import, from the whole process — before
+    "Registered EXTERNAL app". With nothing to look at, a working import is
+    indistinguishable from a hung one.
+    """
+    # GitHub's codeload sends no Content-Length, so a download has no total —
+    # raw byte counts ("downloading: 236978176") are not a progress report.
+    is_bytes = phase == "downloading"
+    try:
+        shown = _human_bytes(done) if is_bytes else f"{done:,}"
+        if total:
+            pct = int(done * 100 / total)
+            of = _human_bytes(total) if is_bytes else f"{total:,}"
+            logger.info(
+                f"[AGENT_APP] import {phase}: {shown}/{of} ({pct}%) {what}"
+            )
+        else:
+            logger.info(f"[AGENT_APP] import {phase}: {shown} {what}")
+    except Exception:
+        pass
+    try:
+        if _PROGRESS_SINK is not None:
+            _PROGRESS_SINK(
+                {
+                    "phase": phase,
+                    "done": done,
+                    "total": total,
+                    "unit": "bytes" if is_bytes else "files",
+                    "what": what,
+                }
+            )
+    except Exception:
+        pass
+
 def rmtree_long(path: Any, **kwargs: Any) -> None:
     """shutil.rmtree that survives paths over 260 chars on Windows.
 
@@ -2464,17 +2523,86 @@ UI in {project.path}/frontend/src/app/."""
         # ignore_cleanup_errors: a deep foreign tree can carry paths this
         # rmtree cannot reach, and losing a temp dir must never fail an
         # otherwise-successful import.
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        # The staging dir lives on the WORKSPACE volume, not %TEMP%. Windows
+        # temp is typically C: while the workspace is elsewhere, which makes
+        # the later move a cross-volume copy of every file. Same volume turns
+        # it into a rename (see _land_tree).
+        staging_root = self.agent_app_dir / "_import_tmp"
+        try:
+            staging_root.mkdir(parents=True, exist_ok=True)
+            tmp_parent = str(staging_root)
+        except Exception:
+            tmp_parent = None
+        with tempfile.TemporaryDirectory(
+            ignore_cleanup_errors=True, dir=tmp_parent
+        ) as tmp:
             root = Path(tmp)
+            # to_thread, NOT a bare call. asyncio runs EVERYTHING on one
+            # thread — websockets, timers, the agent loop, the UI broadcasts.
+            # These calls are ordinary blocking I/O, so running them inline
+            # froze the entire process for the length of the import (observed
+            # live 2026-09-01: 13m06s of dead silence on odoo/odoo). It also
+            # made progress reporting impossible in principle, because the
+            # loop that would deliver it was the one being blocked.
             if kind == "zip":
-                with zipfile.ZipFile(source) as zf:
-                    zf.extractall(long_path(root))
+                await asyncio.to_thread(self._extract_zip, source, root)
             else:
-                self._fetch_git_source(source, root)
+                await asyncio.to_thread(self._fetch_git_source, source, root)
             if self._find_project_root(root) is not None:
                 return await self._import_project_tree(root, name)
             return await self._import_external_tree(root, name, origin=source)
 
+    def _extract_zip(self, source: str, root: Path) -> None:
+        """Blocking zip extraction with per-batch progress (runs off-loop)."""
+        import zipfile as _zipfile
+
+        with _zipfile.ZipFile(source) as zf:
+            members = zf.infolist()
+            for i, member in enumerate(members, 1):
+                zf.extract(member, long_path(root))
+                if i % 2000 == 0 or i == len(members):
+                    _progress("extracting", i, len(members), str(source))
+
+    def _land_tree(self, src: Path, dest: Path, ignore_names: tuple) -> None:
+        """Put the staged tree at *dest*, moving rather than copying.
+
+        The old path wrote every file TWICE and then deleted one copy:
+        extract ~40k files to temp, copytree the same ~40k to the workspace,
+        rmtree the ~40k temp files — ~120k file operations, where Windows
+        per-file overhead dominates. Staging now lives on the workspace
+        volume (see import_project_source), so the same result is one
+        rename. The ignore list is applied by deleting those entries from
+        OUR staging copy first, which keeps copytree_long's exact semantics.
+
+        Falls back to the copy on any OSError (different volume, locked
+        file, dest exists) — the move is an optimisation, never a
+        correctness requirement.
+        """
+        src, dest = Path(src), Path(dest)
+        try:
+            dropped = 0
+            for name in ignore_names:
+                for hit in list(src.rglob(name)):
+                    if hit.is_dir():
+                        rmtree_long(hit, ignore_errors=True)
+                    else:
+                        hit.unlink(missing_ok=True)
+                    dropped += 1
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # An empty dest would fail the rename AND the copy fallback
+            # (shutil.copytree refuses an existing dir). Clearing it keeps
+            # the fast path usable if anything pre-created the folder.
+            if dest.is_dir() and not any(dest.iterdir()):
+                dest.rmdir()
+            os.replace(long_path(src), long_path(dest))
+            _progress("landed", 1, 1, f"{dest.name} ({dropped} excluded)")
+            return
+        except OSError as e:
+            logger.info(
+                f"[AGENT_APP] import move unavailable ({e}) — copying instead"
+            )
+        _progress("copying", 0, 0, str(dest.name))
+        copytree_long(src, dest, ignore=shutil.ignore_patterns(*ignore_names))
     async def _import_external_tree(
         self, root: Path, name: Optional[str], origin: str
     ) -> AgentAppProject:
@@ -2498,10 +2626,8 @@ UI in {project.path}/frontend/src/app/."""
         # node_modules is rebuilt by the install verb; .git/logs never import.
         # copytree_long, not shutil.copytree: a foreign repo can carry paths
         # that only blow MAX_PATH once rebased onto the workspace prefix.
-        copytree_long(
-            src,
-            dest,
-            ignore=shutil.ignore_patterns("node_modules", ".git", "logs"),
+        await asyncio.to_thread(
+            self._land_tree, src, dest, ("node_modules", ".git", "logs")
         )
         (dest / "logs").mkdir(exist_ok=True)
 
@@ -2658,6 +2784,13 @@ UI in {project.path}/frontend/src/app/."""
                 f"and re-run until it passes: a mapping that does not work "
                 f"must not ship.\n"
                 f'7. agent_app_walk_verify(project_id="{project.id}").\n'
+                f"If this app CANNOT run here (needs a database server, "
+                f"private APIs, system deps, a credential that is not "
+                f"connected), stop through agent_app_report_finding"
+                f'(project_id="{project.id}", blocked_question="...") — it '
+                f"puts the question to the user and ends the adoption "
+                f"cleanly. Ending the run any other way reads as walking out, "
+                f"and you will be restarted on the same app.\n"
                 f"The system announces the result — do not send status "
                 f"messages."
             )
@@ -2667,8 +2800,11 @@ UI in {project.path}/frontend/src/app/."""
             f"Launch and verify it now:\n"
             f'agent_app_notify_ready(project_id="{project.id}") then\n'
             f'agent_app_walk_verify(project_id="{project.id}").\n'
-            f"Fix any returned errors and repeat. The system announces "
-            f"the result to the user — do not send status messages."
+            f"Fix any returned errors and repeat. If you need a decision only "
+            f"the user can make, ask through agent_app_report_finding"
+            f'(project_id="{project.id}", blocked_question="...") — stopping '
+            f"any other way reads as walking out and restarts you. The system "
+            f"announces the result to the user — do not send status messages."
             + self.declared_triggers_brief(project)
         )
 
@@ -2898,11 +3034,45 @@ UI in {project.path}/frontend/src/app/."""
                     req = urllib.request.Request(
                         zip_url, headers={"User-Agent": "CraftBot"}
                     )
-                    data = urllib.request.urlopen(
+                    # STREAM to disk. `.read()` pulled the WHOLE archive into
+                    # one bytes object first: odoo/odoo is ~300MB, so that is a
+                    # 300MB spike, and a single call that returns only when it
+                    # is completely done — no way to know you are 40% through.
+                    # Chunked reads give flat memory and a real byte count,
+                    # which is what any progress display is made of.
+                    zip_path = Path(dest) / "_download.zip"
+                    zip_path.parent.mkdir(parents=True, exist_ok=True)
+                    with urllib.request.urlopen(
                         req, timeout=60, context=ssl_ctx
-                    ).read()
-                    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                        zf.extractall(long_path(dest))
+                    ) as resp, open(long_path(zip_path), "wb") as out:
+                        total = int(resp.headers.get("Content-Length") or 0)
+                        got = 0
+                        next_mark = 0
+                        while True:
+                            chunk = resp.read(1 << 20)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                            got += len(chunk)
+                            if got >= next_mark:
+                                _progress(
+                                    "downloading",
+                                    got,
+                                    total,
+                                    f"{url} ({branch})",
+                                )
+                                next_mark = got + (25 << 20)
+                    with zipfile.ZipFile(long_path(zip_path)) as zf:
+                        members = zf.infolist()
+                        _progress("extracting", 0, len(members), url)
+                        for i, member in enumerate(members, 1):
+                            zf.extract(member, long_path(dest))
+                            if i % 2000 == 0 or i == len(members):
+                                _progress("extracting", i, len(members), url)
+                    try:
+                        zip_path.unlink()
+                    except OSError:
+                        pass
                     return
                 except Exception as e:
                     last_err = e
@@ -2965,12 +3135,11 @@ UI in {project.path}/frontend/src/app/."""
         # install step rebuilds it from package.json. .factory/.snapshots are
         # the DONOR's lifecycle state (machine history, delivery stamp,
         # legacy baseline) — a fresh identity must start a fresh lifecycle.
-        copytree_long(
+        await asyncio.to_thread(
+            self._land_tree,
             src,
             dest,
-            ignore=shutil.ignore_patterns(
-                "node_modules", ".git", "logs", ".factory", ".snapshots"
-            ),
+            ("node_modules", ".git", "logs", ".factory", ".snapshots"),
         )
 
         # Never trust shipped credentials or runtime state.

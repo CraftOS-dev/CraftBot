@@ -1219,6 +1219,13 @@ agent_app_walk_verify(project_id, scope?)   Headless-browser sub-agent drives th
                                             real data) and destroys the dev copy. 35-minute ceiling.
 agent_app_restart(project_id)               Stop + full launch pipeline.
 agent_app_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
+agent_app_report_finding(project_id,        Inside a factory FIX round. ruled_out: causes you PROVED
+  ruled_out?, blocked_question?)            innocent, with the evidence that killed each — every later
+                                            round is a fresh run and re-tests anything you did not
+                                            record. blocked_question: ends the build cleanly and puts
+                                            ONE question to the user (a design decision, an account
+                                            that is not connected, a credential). Never use it to
+                                            escape a hard bug — a bug is yours while budget remains.
 agent_app_usage(project_id)                 Returns the project's operating manual: path, live data
                                             schema, exact lui CLI commands. Call this FIRST when
                                             working on an existing project.
@@ -1421,7 +1428,8 @@ proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggl
 
 agent_app                agent_app_scaffold, agent_app_list_projects, agent_app_notify_ready,
                          agent_app_walk_verify, agent_app_restart, agent_app_report_progress,
-                         agent_app_http, agent_app_usage, agent_app_marketplace_list,
+                         agent_app_report_finding, agent_app_http, agent_app_usage,
+                         agent_app_marketplace_list,
                          agent_app_marketplace_install, agent_app_import_zip, agent_app_import,
                          agent_app_convert, agent_app_ops_verify, agent_app_approve_triggers,
                          browser_probe

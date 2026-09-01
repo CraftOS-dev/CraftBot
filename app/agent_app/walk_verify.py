@@ -417,6 +417,7 @@ def _scope_fields(text: str) -> Dict[str, Any]:
 def parse_check_report(text: str) -> Dict[str, Any]:
     """Classify a walk_verify result. kinds:
     pass | defects | incomplete (NOT REACHED, defect-free) | blocked |
+    unparseable (the report itself is non-compliant — re-run the verifier) |
     throttled (the verifier's own LLM died — not the app, not the report).
     Every result also carries `scope` (the verifier's SCOPE block, or None)
     and `features` ({feature: PASS|FAIL|NOT REACHED})."""
@@ -446,6 +447,33 @@ def parse_check_report(text: str) -> Dict[str, Any]:
     if verdict is not None and verdict.startswith(("INCOMPLETE", "PARTIAL")):
         verdict = "FAIL"
 
+    # A verdict our OWN REPORT GUARDS rejected ("Verdict REJECTED — ...")
+    # is a compliance failure in the verifier's paperwork, not a finding
+    # about the app. It must never reach the defect path.
+    #
+    # Observed live 2026-09-01 (newsletter_tool 3f6013ce): _guard_evidence
+    # rejected a report for marking an AI feature PASS without a quoted hook
+    # line; the sub echoed that as "VERDICT: BLOCKED / BLOCKED BY: Verdict
+    # rejected: ...". _reads_as_blocked only knows BROWSER/TOOLING markers,
+    # so this fell through the mirror-image branch into FAIL -> defects ->
+    # DefectCard("verify.unstructured-failure") -> a fix mission reading
+    # "Your ONLY goal: make these features work". The builder then spent
+    # five minutes grepping the APP for the verifier's report template,
+    # which of course lives in CraftBot. "unparseable" is the right kind:
+    # it re-runs the verifier instead of dispatching app work.
+    # Guarded: only when the report carries NO real per-feature FAIL lines.
+    # A genuine defect report that merely quotes an earlier rejection still
+    # contains findings, and those must survive.
+    if re.search(r"verdict\s+rejected", text, re.IGNORECASE) and not re.search(
+        r"^-\s+.*\s—\s*FAIL\b", text, re.MULTILINE | re.IGNORECASE
+    ):
+        return {
+            "kind": "unparseable",
+            "passed": [],
+            "defects": [],
+            "raw": text,
+            **extra,
+        }
     # A FAIL whose body describes a blockage is a blockage wearing a FAIL
     # costume — never dispatch fixes for defects nobody observed.
     if verdict == "FAIL" and _reads_as_blocked(text):

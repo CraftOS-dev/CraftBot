@@ -13,6 +13,7 @@ import { AgentAppPage } from './pages/AgentApp'
 import { useWebSocket } from './contexts/WebSocketContext'
 import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
+import { AgentAppImportToast } from './components/ui/AgentAppImportToast'
 
 // Forces AgentAppPage to remount per-project so useState initializers
 // (theme, custom colors) always start fresh - not carried over from a previous project.
@@ -100,6 +101,10 @@ function App() {
   // the router, so the tour can navigate between pages.
   return (
     <TourProvider autoStartEnabled>
+    {/* Root-level: an import outlives the modal that started it, so the
+        progress/outcome toast has to be mounted somewhere that never
+        unmounts. Renders nothing. */}
+    <AgentAppImportToast />
     <Layout>
       <Routes>
         <Route path="/" element={<ChatPage key="main" sessionId="main" />} />

@@ -357,6 +357,11 @@ class _RecvSessionMgr:
 
 
 class _RecvHost:
+    # _report_agent_app_writes matches with self._LUI_WRITE: without it
+    # every receipt raised AttributeError into the "a receipt must never
+    # break the turn" handler and the section asserted on an empty list.
+    _LUI_WRITE = AgentBase._LUI_WRITE if _AGENT_BASE else None
+
     def __init__(self):
         self.described = []
         self.session_manager = _RecvSessionMgr()
@@ -391,5 +396,125 @@ assert host.described == ["tasks"], (
     f"only real data writes may receipt — got {host.described}"
 )
 print("§8 receipts skip queue bookkeeping: OK")
+
+# -- §9 action gates: a DRY RUN is not a send ---------------------------
+# A dry run executes nothing, so demanding confirm_irreversible for one made
+# the mode unreachable for every irreversible action. An app probing Gmail
+# with a dry-run send_gmail read "it acts on the user's real account"
+# (correctly) as a reason NOT to set the flag, and reported Gmail as
+# disconnected to the user for three straight verification rounds.
+class _Meta:
+    def __init__(self, irreversible):
+        self.action_sets = ["gmail_mail", "gmail"]
+        self.irreversible = irreversible
+        self.input_schema = {}
+
+
+class _Impl:
+    def __init__(self, irreversible=True):
+        self.metadata = _Meta(irreversible)
+        self.calls = []
+
+    def handler(self, params):
+        self.calls.append(params)
+        return {"sent": True}
+
+
+class _Registry:
+    impl = None
+
+    def get_action_implementation(self, name):
+        return _Registry.impl
+
+
+def _call(bridge, body):
+    import agent_core.core.action_framework.registry as _reg
+
+    _reg.ActionRegistry = _Registry
+    return asyncio.run(bridge._handle_action(_Req("good", body)))
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    living = Path(tmp) / "agent_app"
+    project = _make_project(living, "acts0001")
+    manifest = Path(project.path) / "manifest.json"
+    manifest.write_text(
+        _json.dumps({"id": "acts0001", "capabilities": {"actions": ["send_gmail"]}})
+    )
+    bridge = _bridge(_MgrStub(project))
+    impl = _Impl(irreversible=True)
+    _Registry.impl = impl
+
+    # A real call still demands the flag, and still refuses without it.
+    resp = _call(bridge, {"action": "send_gmail", "params": {"subject": "x"}})
+    assert resp.status == 400 and b"confirm_irreversible" in resp.body, (
+        "a real irreversible call must still require confirmation"
+    )
+    assert impl.calls == [], "a refused call must not execute"
+
+    # The same call as a dry run passes that gate and executes NOTHING.
+    resp = _call(
+        bridge, {"action": "send_gmail", "params": {"subject": "x"}, "dry_run": True}
+    )
+    assert resp.status == 200, f"dry run must pass the irreversible gate: {resp.body}"
+    assert b"dry_run" in resp.body
+    assert impl.calls == [], "a dry run must never reach the handler"
+
+    # camelCase spelling behaves identically.
+    resp = _call(bridge, {"action": "send_gmail", "params": {}, "dryRun": True})
+    assert resp.status == 200, "camelCase dryRun must behave identically"
+
+    # ...but a dry run is NOT a way past the capability grant.
+    manifest.write_text(
+        _json.dumps({"id": "acts0001", "capabilities": {"actions": []}})
+    )
+    resp = _call(bridge, {"action": "send_gmail", "params": {}, "dry_run": True})
+    assert resp.status == 403 and b"capabilities.actions" in resp.body, (
+        "dry run must not bypass the capability grant"
+    )
+    assert impl.calls == []
+print("§9 dry run bypasses irreversible confirm, not the grant: OK")
+
+# -- §10 the connection probe is never a write --------------------------
+# The capability block names ONE call per integration for "is this
+# connected?". Picking it from the metadata alone chose create_google_doc
+# for google_docs — neither `destructive` nor `parallelizable` is set on it,
+# so it scored as safe and took the fewest parameters. Every app checking
+# that integration would have created a blank document in the user's Drive,
+# one line below a sentence reading "never a send/create".
+from app.agent_app.agent_view import _probe_action  # noqa: E402
+
+
+class _M:
+    def __init__(self, params, irreversible=False, parallelizable=True):
+        self.input_schema = {p: {"type": "string"} for p in params}
+        self.irreversible = irreversible
+        self.parallelizable = parallelizable
+
+
+_google_docs = [
+    ("create_google_doc", _M(["account", "title"])),
+    ("get_google_doc_text", _M(["account", "document_id"])),
+    ("get_google_doc", _M(["account", "document_id", "include_metadata"])),
+]
+assert _probe_action(_google_docs) == "", (
+    "no zero-arg read exists here: name nothing rather than a write "
+    "(create_google_doc) or a read that needs an id the app hasn't got"
+)
+
+_gmail = [
+    ("create_gmail_draft", _M(["account", "to"])),
+    ("get_gmail", _M(["account", "message_id"])),
+    ("list_gmail_labels", _M(["account"])),
+    ("get_gmail_profile", _M(["account"])),
+]
+assert _probe_action(_gmail) == "get_gmail_profile", _probe_action(_gmail)
+# Stable across runs: two zero-arg reads tie and alphabetical breaks it.
+assert _probe_action(list(reversed(_gmail))) == "get_gmail_profile"
+# `account` is injected by the bridge, so it is not an argument the app owns;
+# anything else IS one, however read-shaped the name.
+assert _probe_action([("get_thing", _M(["account", "id"]))]) == ""
+assert _probe_action([("get_thing", _M([]))]) == "get_thing"
+print("§10 connection probe is a zero-arg read or nothing: OK")
 
 print("\nTrigger-plane acceptance: ALL GREEN")

@@ -33,6 +33,7 @@ from app.factory.appfactory import (
     transition,
 )
 from app.factory.engine import (
+    ANNOUNCE_BLOCKED,
     ANNOUNCE_READY,
     ANNOUNCE_STUCK,
     DISPATCH_MISSION,
@@ -54,12 +55,132 @@ except Exception:  # pragma: no cover
 _REDISPATCH_MIN_INTERVAL_S = 20  # thrash guard on the run-end hook
 
 
+def _cli() -> str:
+    """The lui CLI invocation, absolute and quoted so a pasted repro runs from
+    any cwd and survives a space in the path. Imported inside the call: this
+    module is imported during app startup and app.config pulls settings."""
+    from app.config import PROJECT_ROOT
+
+    return f'node "{Path(PROJECT_ROOT).as_posix()}/agent-app/tools/src/cli.ts"'
+
+
 def _fingerprint(text: str) -> str:
     """Stable identity of a failure from its first meaningful line."""
     first = next(
         (ln.strip() for ln in (text or "").splitlines() if ln.strip()), "unknown"
     )
     return hashlib.sha1(first[:200].encode("utf-8")).hexdigest()[:12]
+
+
+# ── the attempt log, rendered for the next mission ─────────────────────────
+# Missions are fresh triggers with no shared context: mission 4 knows nothing
+# of missions 1-3. This is the log it would have kept if it had been there —
+# rounds, causes, and what moved between them.
+#
+# It states facts and stops. An earlier version editorialised ("your last fix
+# did not reach this failure", "stop fixing and diagnose") and that is the
+# machine deciding strategy again, one layer up from the cap it replaced: an
+# inference drawn from a hash, phrased as an order, by the party that cannot
+# see the code. The agent reads the log and decides. What it may NOT do is
+# work without it, which is why this is pushed rather than offered.
+
+
+def _round_cards(entry: Dict[str, Any]) -> Dict[str, str]:
+    """{feature key → cause signature} for one recorded round. Tolerates the
+    older shape (a bare list of keys) so a mid-build upgrade reads its own
+    state file instead of crashing on it."""
+    out: Dict[str, str] = {}
+    for card in entry.get("cards") or []:
+        if isinstance(card, dict):
+            out[str(card.get("key", ""))] = str(card.get("sig", ""))
+        else:
+            out[str(card)] = ""
+    out.pop("", None)
+    return out
+
+
+def _delta(prev: Dict[str, str], cur: Dict[str, str]) -> Dict[str, List[str]]:
+    """What moved between two rounds. `changed` — still failing, but on a
+    different cause — is the distinction the old fingerprint could not draw
+    and the one a reader most needs."""
+    return {
+        "gone": sorted(k for k in prev if k not in cur),
+        "new": sorted(k for k in cur if k not in prev),
+        "identical": sorted(k for k in cur if k in prev and cur[k] == prev[k]),
+        "changed": sorted(k for k in cur if k in prev and cur[k] != prev[k]),
+    }
+
+
+def _routes(signature: str) -> set:
+    return {t for t in (signature or "").split("|") if t.startswith("/")}
+
+
+def _patterns(rounds: List[Dict[str, Any]]) -> List[str]:
+    """Streaks a single round cannot show, stated as measurements.
+
+    Both shapes below were live incidents, and both are invisible from inside
+    one round: a defect whose cause never moves, and a defect whose cause
+    moves every round on the same route (preconditions being cleared one at a
+    time — grant, another grant, confirmation). What they IMPLY is the
+    reader's call; the numbers are the machine's.
+    """
+    real = [_round_cards(r) for r in rounds if not r.get("stall")]
+    if len(real) < 3:
+        return []
+    out = []
+    for key in sorted(real[-1]):
+        streak = [c[key] for c in real if key in c]
+        if len(streak) < 3 or len(streak) != len(real):
+            continue  # not present every round — no streak to report
+        if len(set(streak)) == 1:
+            out.append(f"{key}: {len(streak)} rounds, byte-identical cause each time")
+        elif len(set(streak)) == len(streak):
+            shared = set.intersection(*(_routes(s) for s in streak)) if streak else set()
+            where = f" at {sorted(shared)[0]}" if shared else ""
+            out.append(
+                f"{key}: {len(streak)} rounds, a different cause each round{where}"
+            )
+    return out
+
+
+def _render_attempt_log(rounds: List[Dict[str, Any]], show: int = 4) -> str:
+    """Rounds so far, oldest of the window first. Empty until there IS a
+    history — a first-round brief must not read as though it were a retry."""
+    if len(rounds) < 2:
+        return ""
+    window = rounds[-show:]
+    lines = [
+        "=== ATTEMPT LOG (recorded by the system; read it as you would your "
+        "own notes) ==="
+    ]
+    prev_cards: Optional[Dict[str, str]] = None
+    prev_n = None
+    for entry in window:
+        n = entry.get("n")
+        if entry.get("stall"):
+            lines.append(f"Round {n}: run ended without producing a verdict")
+            continue
+        cards = _round_cards(entry)
+        lines.append(f"Round {n}: {len(cards)} defect{'' if len(cards) == 1 else 's'}")
+        for key, sig in sorted(cards.items()):
+            lines.append(f"  {key}{('  ' + sig) if sig else ''}")
+        if prev_cards is not None:
+            d = _delta(prev_cards, cards)
+            moved = []
+            if d["gone"]:
+                moved.append(f"gone: {', '.join(d['gone'])}")
+            if d["changed"]:
+                moved.append(f"cause changed: {', '.join(d['changed'])}")
+            if d["identical"]:
+                moved.append(f"cause identical: {', '.join(d['identical'])}")
+            if d["new"]:
+                moved.append(f"new: {', '.join(d['new'])}")
+            if moved:
+                lines.append(f"  vs round {prev_n} — " + "; ".join(moved))
+        prev_cards, prev_n = cards, n
+    for line in _patterns(rounds):
+        lines.append(f"Across rounds — {line}")
+    return "\n".join(lines)
 
 
 class FactoryHost:
@@ -447,26 +568,36 @@ class FactoryHost:
         from app.factory.appfactory.distill import distill
 
         project = self._project(project_id)
-        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/agent-app/tools/src/cli.ts"
         cards = distill(
             walk_report=walk_report or "\n".join(defects or []),
             server_log=server_log,
             console_lines=console_lines or [],
             project_path=str(project.path) if project else "<project>",
-            cli=cli,
+            cli=_cli(),
         )
-        # Fingerprint = the FIRST card's identity (stable across rounds).
-        fp = (
-            cards[0].fingerprint()
-            if cards
-            else _fingerprint(details or "verification failed")
+        # Fingerprint = the identity of the whole outstanding defect SET, cause
+        # included. cards[0].fingerprint() keyed on the first card's feature
+        # NAME, so a loop that was clearing one gate per round looked identical
+        # every round and hit the cap while still making progress.
+        from app.factory.engine.cards import fingerprint_all
+
+        fp = fingerprint_all(cards) or _fingerprint(
+            details or "verification failed"
         )
         decision = machine.advance(
             Outcome(
                 VERIFYING,
                 ok=False,
                 fingerprint=fp,
-                payload={"cards": [c.key for c in cards]},
+                # Key AND cause, because the next mission has to be told which
+                # of the two moved: same key + new cause is progress, same key
+                # + same cause is a fix that missed. A list of keys cannot
+                # tell them apart.
+                payload={
+                    "cards": [
+                        {"key": c.key, "sig": c.cause_signature()} for c in cards
+                    ]
+                },
             )
         )
         if decision.action == DISPATCH_MISSION:
@@ -543,14 +674,22 @@ class FactoryHost:
         self, project, machine: Machine, decision: Decision, cards: list
     ) -> str:
         n = len([h for h in machine.history() if h["action"] == DISPATCH_MISSION])
-        escalation = ""
-        if decision.escalate:
-            escalation = (
-                "\nTHIS FAILURE HAS REPEATED. Your previous approach did not fix it — "
-                "do something DIFFERENT: reread the evidence below, reproduce with the "
-                "exact command, and check the server log after reproducing.\n"
-            )
-        cli = "node /Users/ahmad/Work/CraftOS/CraftBot/agent-app/tools/src/cli.ts"
+        # No "do something DIFFERENT" line any more. It was the machine
+        # telling the agent how to work off a repeat count, which is the same
+        # mistake the retry cap made — and unanswerable anyway to a mission
+        # that could not see what the previous one did. The log below says
+        # what happened; the approach is the agent's.
+        log = _render_attempt_log(machine.rounds())
+        log_text = f"\n{log}\n" if log else ""
+        ruled = machine.ruled_out()
+        ruled_text = (
+            "\n=== RULED OUT BY EARLIER ROUNDS (their evidence, not mine) ===\n"
+            + "\n".join(f"- {e['what']}" for e in ruled[-8:])
+            + "\n"
+            if ruled
+            else ""
+        )
+        cli = _cli()
         cards_text = "\n\n".join(c.render() for c in cards)[:6000]
         books = self._select_cookbooks(cards_text)
         books_text = (
@@ -574,10 +713,10 @@ class FactoryHost:
 
 The independent verifier drove the app in a real browser. Each DEFECT below
 carries its evidence and a repro. Your ONLY goal: make these features work.
-{escalation}
+
 === DEFECT CARDS ===
 {cards_text}
-{books_text}
+{log_text}{ruled_text}{books_text}
 
 === HOW TO WORK (concrete) ===
 1. Reproduce first: use the repro commands / exercise the failing op
@@ -586,12 +725,36 @@ carries its evidence and a repro. Your ONLY goal: make these features work.
 2. Read the evidence before theorizing: {run_dir}/logs/pocketbase.log
    (every causal claim must quote a log line; if you can't quote it, gather
    more evidence — "unknown, investigating" is valid, a guess is not).
-3. Fix in {project.path} (hooks/migrations/frontend per the ownership rules)
+3. If the error text you are quoting was written by YOUR OWN code, it is not
+   evidence of a cause — a catch-all reports one message for every possible
+   failure. Before fixing, make it tell the truth:
+       catch (err) {{ return e.json(400, {{ error: 'Invalid payload' }}) }}   // says nothing
+       catch (err) {{ return e.json(400, {{ error: String(err) }}) }}         // says everything
+   Relaunch, reproduce, read the REAL exception, then fix that. Spending one
+   round to learn the cause beats two rounds guessing at it — a fix aimed at
+   a message your own handler invented will not work.
+4. Fix in {project.path} (hooks/migrations/frontend per the ownership rules)
    — agent_app_notify_ready syncs your edits into the dev instance.
-4. Relaunch: agent_app_notify_ready(project_id="{project.id}")
-5. Verify: agent_app_walk_verify(project_id="{project.id}")
-The system tracks attempts and reports status to the user — do NOT send
-status messages; when verification passes the user is informed automatically."""
+5. Relaunch: agent_app_notify_ready(project_id="{project.id}")
+6. Verify: agent_app_walk_verify(project_id="{project.id}")
+Two things you can write into the record. Both optional; both are read by
+every later round, and each round is a fresh run that remembers nothing of
+this one, so what you do not write here is not known next time.
+
+   agent_app_report_finding(project_id="{project.id}",
+       ruled_out=["the grant is fine — dry-run of send_gmail returns 200"])
+       Your notes: causes you eliminated, and what eliminated them.
+
+   agent_app_report_finding(project_id="{project.id}",
+       blocked_question="Which calendar should new bookings write to?")
+       Ends the work and puts one question to the user. It is for something
+       you cannot GET — a decision, an account, a credential — not something
+       you have not yet solved. It is also the only way to stop that the
+       system does not read as walking out of the room.
+
+How you use the round is yours. The system tracks attempts and reports
+status to the user — do NOT send status messages; when verification passes
+the user is informed automatically."""
 
     def _dispatch_fix_mission(
         self, project_id: str, machine: Machine, decision: Decision, cards: list
@@ -760,20 +923,20 @@ status messages; when verification passes the user is informed automatically."""
                 return
 
             # A redispatch is a MACHINE event, not a free retry: feed the
-            # surrender through advance() so the existing caps apply — the
-            # stable fingerprint escalates at 2 and goes STUCK at 3, and the
-            # total mission budget counts every resume. Without this,
-            # resumes bypassed every cap: observed live (chili3d,
-            # 2026-08-05) a fix agent that correctly judged a defect
-            # unfixable end_turned into a 37-cycle redispatch loop, one LLM
-            # call every ~7s, until CraftBot was killed. The advance also
-            # writes a history entry, so the 20s thrash guard finally
-            # throttles consecutive resumes too.
+            # surrender through advance() so the budget applies and the
+            # STALL cap can trip. Without this, resumes bypassed everything:
+            # observed live (chili3d, 2026-08-05) a fix agent that correctly
+            # judged a defect unfixable end_turned into a 37-cycle redispatch
+            # loop, one LLM call every ~7s, until CraftBot was killed. This
+            # is the one place stall=True is set, and the reason the stall
+            # cap survived the removal of the per-failure one: a run that
+            # produced no verdict is not an attempt at anything.
             decision = machine.advance(
                 Outcome(
                     machine.state,
                     ok=False,
                     fingerprint="surrender-loop",
+                    stall=True,
                     payload={"reason": "run ended without completing the arc"},
                 )
             )
@@ -808,6 +971,55 @@ status messages; when verification passes the user is informed automatically."""
             )
         except Exception as e:
             logger.error(f"[FACTORY] on_run_end failed for {project_id}: {e}")
+
+    # ── what the working agent may tell the machine ────────────────────────
+    # Two reports, and neither is a self-assessment of the code (E2 still
+    # holds: only the verifier says whether the app works). One is evidence
+    # the agent gathered; the other is a question it cannot answer alone.
+    def record_ruled_out(self, project_id: str, items: List[str]) -> int:
+        """Causes proved innocent this round. Carried into every later brief."""
+        machine = self.machine_for(project_id)
+        if machine is None:
+            return 0
+        added = machine.record_ruled_out(items, mission=machine.active_mission or "")
+        if added:
+            logger.info(f"[FACTORY] {project_id} ruled out {added} cause(s)")
+        return added
+
+    def report_blocked(
+        self, project_id: str, question: str, ruled_out: Optional[List[str]] = None
+    ) -> Optional[Decision]:
+        """The agent needs a decision only the user can make. Ends the arc in
+        BLOCKED — a terminal that carries a question, so the user gets the
+        question instead of a stuck report they have to decode. Reopening the
+        machine (the answer arrives, the user asks for a change) resumes work
+        normally."""
+        machine = self.machine_for(project_id)
+        if machine is None:
+            return None
+        if machine.terminal:
+            # Nothing is in flight to block. A late call (the run kept going
+            # after the build was announced) must not drag a delivered app
+            # back into a waiting state.
+            logger.info(
+                f"[FACTORY] ignoring blocked report for {project_id}: "
+                f"machine is already {machine.state}"
+            )
+            return None
+        if ruled_out:
+            machine.record_ruled_out(ruled_out, mission=machine.active_mission or "")
+        question = (question or "").strip()
+        decision = machine.advance(
+            Outcome(
+                machine.state,
+                ok=False,
+                payload={"blocked": True, "question": question},
+            )
+        )
+        if decision.action == ANNOUNCE_BLOCKED:
+            self._announce_blocked(project_id, machine, question)
+        logger.warning(f"[FACTORY] {project_id} BLOCKED on a user decision")
+        return decision
 
     # ── machine-composed status (§3.6: retire agent announcements) ─────────
     def _emit_chat(self, project_id: str, text: str) -> None:
@@ -877,6 +1089,30 @@ status messages; when verification passes the user is informed automatically."""
             project_id,
             f"FYI: the Agent App build for project {project_id} is COMPLETE. {text}",
         )
+
+    def _announce_blocked(
+        self, project_id: str, machine: Machine, question: str
+    ) -> None:
+        self._emit_chat(project_id, "🙋 " + machine.blocked_report(question))
+        self._notify_origin(
+            project_id,
+            f"FYI: the Agent App build for project {project_id} is waiting on a "
+            f"decision from the user: {question[:300]}",
+        )
+        try:
+            import asyncio
+
+            from app.agent_app.broadcast import broadcast_agent_app_progress
+
+            coroutine = broadcast_agent_app_progress(
+                project_id, "error", 100, "Waiting on your answer — see chat"
+            )
+            try:
+                asyncio.get_running_loop().create_task(coroutine)
+            except RuntimeError:
+                asyncio.run(coroutine)
+        except Exception as e:
+            logger.debug(f"[FACTORY] blocked broadcast failed: {e}")
 
     def _announce_stuck(self, project_id: str, machine: Machine) -> None:
         self._emit_chat(project_id, "❌ " + machine.stuck_report())

@@ -14,12 +14,12 @@ _INPUT_SCHEMA = {
     "glob": {
         "type": "string",
         "example": "*.py",
-        "description": "Glob pattern to filter which files to search (e.g., '*.py' for Python files, '*.{js,ts}' for JS/TS files, 'test_*.py' for test files). Only applies when path is a directory.",
+        "description": "Glob filter (e.g. '*.py', '*.{js,ts}', 'test_*.py', 'src/**/*.ts'). Brace alternatives are expanded. A pattern with no '/' matches the FILENAME anywhere in the tree; one with a '/' matches the path and is also tried unanchored, so 'src/**/*.ts' finds 'frontend/src/app/x.ts'. Only applies when path is a directory.",
     },
     "file_type": {
         "type": "string",
         "example": "py",
-        "description": "Filter by file extension type (e.g., 'py', 'js', 'json', 'md'). Shorthand alternative to glob — 'py' is equivalent to glob '*.py'. If both glob and file_type are provided, glob takes priority.",
+        "description": "Filter by file extension. Accepts one ('py') or a comma-separated list ('ts,tsx'). NOTE: a single extension is exact — 'ts' does NOT include .tsx, so use 'ts,tsx' for a React codebase. Shorthand for glob; if both are given, glob wins.",
     },
     "output_mode": {
         "type": "string",
@@ -176,6 +176,61 @@ def grep_files(input_data: dict) -> dict:
             "applied_offset": None,
         }
 
+    def expand_braces(pat):
+        """Expand {a,b} alternatives into separate patterns.
+
+        fnmatch has no brace support, but THIS TOOL'S OWN SCHEMA advertises
+        "*.{js,ts}" as a valid glob. Every agent that followed the docs got a
+        silent 0 results — indistinguishable from "the string is not there".
+        """
+        out = [pat]
+        while True:
+            grown = []
+            changed = False
+            for item in out:
+                i = item.find("{")
+                j = item.find("}", i + 1) if i >= 0 else -1
+                if i >= 0 and j > i:
+                    head, body, tail = item[:i], item[i + 1 : j], item[j + 1 :]
+                    for alt in body.split(","):
+                        grown.append(head + alt.strip() + tail)
+                    changed = True
+                else:
+                    grown.append(item)
+            out = grown
+            if not changed:
+                return out
+
+    def glob_hit(rel_path, fname, patterns):
+        """Match a file against expanded patterns.
+
+        A pattern with no separator is a NAME pattern ("*.py" anywhere in the
+        tree); one with a separator is a PATH pattern ("src/**/*.ts"). The
+        old code compared every pattern against the BASENAME only, so any
+        path-shaped glob matched nothing, silently.
+        """
+        for pat in patterns:
+            if "/" not in pat and os.sep not in pat:
+                if fnmatch.fnmatch(fname, pat):
+                    return True
+                continue
+            norm = rel_path.replace(os.sep, "/")
+            if fnmatch.fnmatch(norm, pat):
+                return True
+            # "**/" must also match ZERO directories: "src/**/*.ts" has to
+            # find "src/x.ts", not only "src/a/x.ts".
+            flat = pat.replace("**/", "")
+            if "**/" in pat and fnmatch.fnmatch(norm, flat):
+                return True
+            # Unanchored fallback: "src/**/*.ts" should also find
+            # "frontend/src/app/x.ts". Strict root-anchoring is defensible,
+            # but a false negative here costs far more than a false positive
+            # — the caller reads it as "this code does not exist".
+            if fnmatch.fnmatch(norm, "*/" + pat) or fnmatch.fnmatch(
+                norm, "*/" + flat
+            ):
+                return True
+        return False
     def collect_files(directory, glob_pat=None, max_files=10000):
         SKIP_DIRS = {
             ".git",
@@ -194,18 +249,25 @@ def grep_files(input_data: dict) -> dict:
             ".idea",
             ".vscode",
         }
+        patterns = expand_braces(glob_pat) if glob_pat else None
         collected = []
+        stats = {"seen": 0, "skipped_by_glob": 0, "hidden": 0}
         for root, dirs, files in os.walk(directory):
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
             for fname in files:
                 if fname.startswith("."):
+                    stats["hidden"] += 1
                     continue
-                if glob_pat and not fnmatch.fnmatch(fname, glob_pat):
-                    continue
+                stats["seen"] += 1
+                if patterns:
+                    rel = os.path.relpath(os.path.join(root, fname), directory)
+                    if not glob_hit(rel, fname, patterns):
+                        stats["skipped_by_glob"] += 1
+                        continue
                 collected.append(os.path.join(root, fname))
                 if len(collected) >= max_files:
-                    return collected
-        return collected
+                    return collected, stats
+        return collected, stats
 
     def format_content_lines(
         fpath, lines, sorted_indices, display_map, single_file, first_file
@@ -311,16 +373,27 @@ def grep_files(input_data: dict) -> dict:
     if not os.path.exists(search_path):
         return make_error(f"Path does not exist: {search_path}")
 
+    active_glob = None
+    collect_stats = None
     if os.path.isfile(search_path):
         files_to_search = [search_path]
     else:
         if glob_pattern:
             active_glob = glob_pattern
         elif file_type:
-            active_glob = f"*.{file_type.lstrip('.')}"
-        else:
-            active_glob = None
-        files_to_search = collect_files(search_path, active_glob)
+            # file_type now accepts a list ("ts,tsx"). A bare "ts" silently
+            # excludes every .tsx file — i.e. most of a React codebase — and
+            # the caller only ever saw "0 matches" for it.
+            exts = [
+                t.strip().lstrip(".")
+                for t in str(file_type).split(",")
+                if t.strip()
+            ]
+            if len(exts) > 1:
+                active_glob = "*.{" + ",".join(exts) + "}"
+            elif exts:
+                active_glob = f"*.{exts[0]}"
+        files_to_search, collect_stats = collect_files(search_path, active_glob)
 
     # --- Search each file ---
     matched_filenames = []
@@ -433,6 +506,43 @@ def grep_files(input_data: dict) -> dict:
             )
         return clamped, "; ".join(notes)
 
+    def _with_note(msg):
+        note = search_note()
+        return f"{msg} — {note}" if note else msg
+
+    def search_note():
+        """Explain an empty result instead of just reporting one.
+
+        A 0 from a filter that ate every candidate used to read exactly like
+        a 0 from a genuine absence. Observed twice in production: an agent
+        turned "0 matches" into a confident structural claim ("the handler
+        must live in the frontend", "the code must be bundled elsewhere") and
+        acted on it for half an hour. The file it wanted was four lines long
+        and sat in the directory it had just searched.
+        """
+        if matched_filenames or collect_stats is None:
+            return ""
+        skipped = collect_stats.get("skipped_by_glob", 0)
+        seen = collect_stats.get("seen", 0)
+        hidden = collect_stats.get("hidden", 0)
+        if not files_to_search:
+            which = "glob" if glob_pattern else "file_type"
+            return (
+                f"NOTHING WAS SEARCHED: the {which} filter {active_glob!r} "
+                f"excluded all {seen} file(s) under {search_path}. This is "
+                "NOT evidence the pattern is absent — widen or drop the "
+                "filter and search again."
+            )
+        parts = [f"searched {len(files_to_search)} file(s)"]
+        if skipped:
+            parts.append(
+                f"{skipped} more were excluded by {active_glob!r} and never "
+                "looked at"
+            )
+        if hidden:
+            parts.append(f"{hidden} dot-file(s) are always skipped")
+        return "no match after " + "; ".join(parts) + "."
+
     effective_limit = None if unlimited else head_limit
 
     if output_mode == "files_with_matches":
@@ -440,7 +550,7 @@ def grep_files(input_data: dict) -> dict:
         paginated = paginate(matched_filenames)
         return {
             "status": "success",
-            "message": f"Found matches in {total} file(s)",
+            "message": _with_note(f"Found matches in {total} file(s)"),
             "mode": "files_with_matches",
             "num_files": total,
             "filenames": paginated,
@@ -461,6 +571,7 @@ def grep_files(input_data: dict) -> dict:
         )
         if cap_note:
             message += f" ({cap_note})"
+        message = _with_note(message)
         return {
             "status": "success",
             "message": message,
@@ -480,7 +591,10 @@ def grep_files(input_data: dict) -> dict:
         paginated = paginate(count_entries)
         return {
             "status": "success",
-            "message": f"Total: {total_match_count} match(es) in {len(matched_filenames)} file(s)",
+            "message": _with_note(
+                f"Total: {total_match_count} match(es) in "
+                f"{len(matched_filenames)} file(s)"
+            ),
             "mode": "count",
             "num_files": len(matched_filenames),
             "filenames": matched_filenames,

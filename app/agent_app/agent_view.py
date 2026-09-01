@@ -24,7 +24,7 @@ import json
 import time
 import urllib.request
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 try:
     from app.logger import logger
@@ -119,6 +119,67 @@ def schema_block(base_url: str, max_chars: int = 2000) -> Optional[str]:
 _CAP_CACHE: Dict[str, tuple] = {}
 _CAP_TTL_SECONDS = 300
 
+# Names that read as a read. Weak evidence on its own, which is why it only
+# ever narrows a choice here and never widens one.
+_READ_PREFIXES = (
+    "get_",
+    "list_",
+    "search_",
+    "find_",
+    "check_",
+    "fetch_",
+    "read_",
+    "download_",
+)
+
+
+def _is_safe(meta) -> bool:
+    """Metadata's best guess at "changes nothing" — good enough to ORDER by,
+    never good enough to recommend a call on.
+
+    Classifying by name prefix was tried first and dropped every action
+    matching neither list (forward_gmail, reply_gmail, trash_gmail …) out of
+    BOTH buckets. The flags never drop anything: irreversible is the
+    provider's `destructive`, and everything else falls in here. But they
+    also do not mean what the name suggests — `parallelizable` defaults True
+    and providers set it False only on SOME writes, so create_gmail_draft,
+    create_google_meet and create_google_doc all land in this bucket. Both
+    buckets are printed, so a misfile costs a line of ordering. It must not
+    cost more than that: see _probe_action.
+    """
+    return not getattr(meta, "irreversible", False) and getattr(
+        meta, "parallelizable", False
+    )
+
+
+def _probe_action(safe: List[tuple]) -> str:
+    """The one call an app may make JUST to ask "is this connected?".
+
+    Both conditions are required, because a wrong answer here is worse than
+    no answer at all:
+
+    - the NAME must read as a read. The flags cannot be trusted for this —
+      create_google_doc carries neither `destructive` nor `parallelizable`,
+      scored as safe, took the fewest parameters, and won the pick. Every app
+      checking whether Google Docs was connected would have created a blank
+      document in the user's Drive, one line under a sentence saying "never a
+      send/create".
+    - it must take NO arguments. get_google_doc_text is a genuine read that
+      wants a document_id the app hasn't got: it would fail, and the app
+      would report "not connected" — the original bug wearing a new hat.
+
+    Nothing qualifies for google_docs, google_drive or hubspot today, so they
+    get no named probe. The general instruction still tells the app to call a
+    read; naming nothing beats naming a write.
+    """
+    ranked = sorted(
+        n
+        for n, m in safe
+        if n.startswith(_READ_PREFIXES)
+        and set((getattr(m, "input_schema", None) or {}).keys()) <= {"account"}
+    )
+    return ranked[0] if ranked else ""
+
 
 def capability_block() -> Optional[str]:
     """What the app CAN reach through the bridge — connected integrations
@@ -149,8 +210,12 @@ def capability_block() -> Optional[str]:
             (connected if ok else disconnected).append(pid)
 
         # Key actions per connected integration, from the registry's
-        # action_sets convention (["gmail_mail", "gmail"] → gmail). Sends and
-        # creates first — those are what apps reach for.
+        # action_sets convention (["gmail_mail", "gmail"] → gmail). Both
+        # KINDS are shown and capped separately: sorting writes first and then
+        # truncating showed Gmail as four ways to send and pushed
+        # get_gmail_profile behind the ellipsis, so an app that only wanted to
+        # know whether Gmail was CONNECTED probed with send_gmail and died on
+        # the irreversible gate. A safe action must always be in view.
         registry = ActionRegistry().list_all_actions()
         by_integration: Dict[str, list] = {pid: [] for pid in connected}
         for action_name, impls in registry.items():
@@ -160,16 +225,42 @@ def capability_block() -> Optional[str]:
             sets = set(getattr(impl.metadata, "action_sets", None) or [])
             for pid in connected:
                 if pid in sets:
-                    by_integration[pid].append(action_name)
-        for pid in by_integration:
-            by_integration[pid].sort(
-                key=lambda n: (not n.startswith(("send_", "create_", "post_")), n)
+                    by_integration[pid].append((action_name, impl.metadata))
+
+        probes: Dict[str, str] = {}
+        shown_by: Dict[str, tuple] = {}
+        for pid, entries in by_integration.items():
+            safe = [(n, m) for n, m in entries if _is_safe(m)]
+            # Everything not safe is a change — no third bucket to fall into,
+            # so nothing can silently vanish from the block the way a
+            # prefix test dropped forward_gmail and reply_gmail.
+            #
+            # ORDER, unlike membership, is not in the metadata: "which write
+            # will an app reach for" is a judgement no flag records, and
+            # alphabetically Gmail leads with batch_delete_gmail while
+            # send_gmail sits 20 names down — the exact invisibility that had
+            # three builds inventing an SMTP requirement. A name hint decides
+            # the order only; it can no longer decide membership, so the worst
+            # it can do now is bury a name, never drop one.
+            changing = sorted(
+                (n for n, m in entries if not _is_safe(m)),
+                key=lambda n: (not n.startswith(("send_", "post_", "create_")), n),
             )
+            probe = _probe_action(safe)
+            probes[pid] = probe
+            # The probe leads its group: alphabetically it loses to id-taking
+            # reads (get_gmail before get_gmail_profile) and would fall off
+            # the cap, which is the whole bug this shape exists to fix.
+            safe_names = sorted(n for n, _ in safe)
+            if probe:
+                safe_names = [probe] + [n for n in safe_names if n != probe]
+            shown_by[pid] = (changing[:3], safe_names[:3], len(entries))
 
         lines = ["[INTEGRATIONS this app can use — bridge.callAction(name, params)]"]
         for pid in sorted(connected):
-            names = by_integration.get(pid) or []
-            shown = ", ".join(names[:4]) + (", …" if len(names) > 4 else "")
+            changing, safe_names, total = shown_by.get(pid) or ([], [], 0)
+            names = changing + safe_names
+            shown = ", ".join(names) + (", …" if total > len(names) else "")
             lines.append(
                 f"  connected: {pid} ({shown})" if names else f"  connected: {pid}"
             )
@@ -184,6 +275,27 @@ def capability_block() -> Optional[str]:
             "  omit 'to' to email the user. Credentials are injected by the bridge; never\n"
             "  ask the user for keys, never stub a feature 'until SMTP is configured'."
         )
+        # To CHECK a connection, call a read. An app once probed Gmail with
+        # send_gmail (the only action its capability line showed) and reported
+        # the irreversible-confirmation refusal to the user as "not connected".
+        probe_examples = ", ".join(
+            f"{pid} → callAction('{probes[pid]}')"
+            for pid in sorted(connected)
+            if probes.get(pid)
+        )
+        # The RULE is stated for every connected integration; the named call
+        # only where one is provably safe AND argument-free (_probe_action).
+        # Where none exists the app picks its own read — a weaker answer, but
+        # the only honest one.
+        if connected:
+            check = (
+                "  CONNECTION CHECKS: to show whether an integration is connected, call a\n"
+                "  READ action (get_*/list_*) and treat a 2xx as connected — never a\n"
+                "  send/create, and never one that needs an id you do not have."
+            )
+            if probe_examples:
+                check += f"\n  Use: {probe_examples}."
+            lines.append(check)
         block = "\n".join(lines)
     except Exception as e:
         logger.debug(f"[AGENT_VIEW] capability block unavailable: {e}")

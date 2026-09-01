@@ -325,8 +325,15 @@ class IntegrationBridge:
                 status=403,
             )
 
-        if getattr(impl.metadata, "irreversible", False) and not data.get(
-            "confirm_irreversible"
+        # A dry run executes nothing, so the confirmation it would be asking
+        # for is meaningless — and refusing it made the mode unreachable for
+        # every irreversible action. An app probing Gmail with a dry-run
+        # send_gmail read "it acts on the user's real account" (correctly)
+        # as a reason NOT to set the flag, and reported Gmail as disconnected.
+        if (
+            not dry_run
+            and getattr(impl.metadata, "irreversible", False)
+            and not data.get("confirm_irreversible")
         ):
             # A refused send with no server-side log line is how an app once
             # shipped a cron that logged "sent" while nothing ever left.
@@ -344,9 +351,11 @@ class IntegrationBridge:
 
         if dry_run:
             # Everything above ran: token, action exists, integration mapped,
-            # grant present, irreversible confirmed. Now validate params
-            # WITHOUT executing, so build-time verification can exercise
-            # paths that must never fire for real (emails, posts, deletes).
+            # grant present. Now validate params WITHOUT executing, so
+            # build-time verification can exercise paths that must never fire
+            # for real (emails, posts, deletes). Irreversibility is NOT
+            # confirmed here — nothing executes, so there is nothing to
+            # confirm; a real call still has to carry the flag.
             problems = _dry_run_param_problems(
                 getattr(impl.metadata, "input_schema", None) or {}, params
             )
@@ -365,8 +374,9 @@ class IntegrationBridge:
                     "dry_run": True,
                     "would_execute": name,
                     "integration": integration,
-                    "note": "All checks passed (grant, params, confirmation). "
-                    "Nothing was executed.",
+                    "note": "Checks passed (grant, params). Nothing was executed. "
+                    "An irreversible action still needs confirm_irreversible "
+                    "when you call it for real.",
                 },
                 status=200,
             )
