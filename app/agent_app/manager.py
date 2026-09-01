@@ -2366,6 +2366,21 @@ UI in {project.path}/frontend/src/app/."""
         return None
 
     @staticmethod
+    def _manifest_version(manifest: dict) -> Optional[int]:
+        """The Agent App format version declared by a manifest.
+
+        Reads the current ``agentAppVersion`` key, falling back to the
+        legacy ``livingUIVersion`` key. Apps published in the marketplace
+        before the Living UI -> Agent App rename carry the old key; a
+        published package can't be reseeded, so every gate reads through
+        this helper rather than deciding the format is unsupported.
+        """
+        version = manifest.get("agentAppVersion")
+        if version is None:
+            version = manifest.get("livingUIVersion")
+        return version
+
+    @staticmethod
     def _find_project_root(root: Path) -> Optional[Path]:
         """The Agent App project dir inside a source tree (root or first
         level), or None when the tree is a FOREIGN app."""
@@ -2375,10 +2390,8 @@ UI in {project.path}/frontend/src/app/."""
             if not mf.exists():
                 continue
             try:
-                if (
-                    json.loads(mf.read_text(encoding="utf-8")).get("agentAppVersion")
-                    == 2
-                ):
+                manifest = json.loads(mf.read_text(encoding="utf-8"))
+                if AgentAppManager._manifest_version(manifest) == 2:
                     return c
             except Exception:
                 continue
@@ -2700,12 +2713,8 @@ UI in {project.path}/frontend/src/app/."""
             mf = c / "manifest.json"
             if mf.exists():
                 try:
-                    if (
-                        json.loads(mf.read_text(encoding="utf-8")).get(
-                            "agentAppVersion"
-                        )
-                        == 2
-                    ):
+                    manifest = json.loads(mf.read_text(encoding="utf-8"))
+                    if self._manifest_version(manifest) == 2:
                         raise ValueError(
                             "This source IS a Agent App project — use "
                             "agent_app_import, not conversion."
@@ -2882,7 +2891,7 @@ UI in {project.path}/frontend/src/app/."""
             )
         raw_manifest = (src / "manifest.json").read_text(encoding="utf-8")
         manifest = json.loads(raw_manifest)
-        if manifest.get("agentAppVersion") != 2:
+        if self._manifest_version(manifest) != 2:
             raise ValueError(
                 "Only native Agent App projects can be imported (foreign apps need "
                 "the conversion flow)"
@@ -3207,7 +3216,7 @@ UI in {project.path}/frontend/src/app/."""
                     )
             else:
                 try:
-                    version = json.loads(mf.read_text()).get("agentAppVersion")
+                    version = self._manifest_version(json.loads(mf.read_text()))
                     is_v2 = version == 2
                     if not is_v2:
                         reason = (
