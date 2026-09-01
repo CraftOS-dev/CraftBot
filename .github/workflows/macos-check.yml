@@ -22,6 +22,18 @@
 name: macOS check
 
 on:
+  # push, not workflow_dispatch alone: a workflow_dispatch workflow is only
+  # listed (and only gets a Run button) once the file is on the DEFAULT
+  # branch. This one is a temporary debugging tool and does not belong on
+  # main, so it triggers from the branch it lives on instead.
+  #
+  # Change the branch below if you move this. Put [vnc] anywhere in the commit
+  # message to open Screen Sharing — a push carries no inputs, so the commit
+  # message is the switch.
+  push:
+    branches:
+      - revamp/launcher-revamp
+
   workflow_dispatch:
     inputs:
       remote_desktop:
@@ -188,7 +200,9 @@ jobs:
       # for minutes on a throwaway machine. Still: the tunnel is public while
       # open, so keep hold_minutes tight and do not leave it running.
       - name: Open Screen Sharing over a tunnel
-        if: ${{ inputs.remote_desktop }}
+        if: >-
+          ${{ inputs.remote_desktop == true ||
+              contains(github.event.head_commit.message, '[vnc]') }}
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
@@ -239,9 +253,11 @@ jobs:
           echo "VNC at $HOSTPORT  user=runner  password=$PASSWORD"
 
       - name: Hold the session open
-        if: ${{ inputs.remote_desktop }}
+        if: >-
+          ${{ inputs.remote_desktop == true ||
+              contains(github.event.head_commit.message, '[vnc]') }}
         run: |
-          MINUTES="${{ inputs.hold_minutes }}"
+          MINUTES="${{ inputs.hold_minutes || '60' }}"
           # GitHub kills the job at 6h regardless; cap below that.
           [ "$MINUTES" -gt 300 ] 2>/dev/null && MINUTES=300
           echo "Holding for $MINUTES minutes. Cancel the run to end early."
