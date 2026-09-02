@@ -20,7 +20,7 @@ pub fn user_data_root() -> PathBuf {
     {
         let root = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
-            .or_else(|| dirs::data_local_dir())
+            .or_else(dirs::data_local_dir)
             .unwrap_or_else(|| home().join("AppData").join("Local"));
         root.join("CraftBot")
     }
