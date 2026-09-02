@@ -26,7 +26,10 @@ pub fn user_data_root() -> PathBuf {
     }
     #[cfg(target_os = "macos")]
     {
-        home().join("Library").join("Application Support").join("CraftBot")
+        home()
+            .join("Library")
+            .join("Application Support")
+            .join("CraftBot")
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -122,7 +125,11 @@ pub fn beside_app_dirs() -> Vec<PathBuf> {
         dirs.push(dir.clone());
         // Walk out of a macOS bundle: MacOS/ -> Contents/ -> Foo.app -> dir.
         if cfg!(target_os = "macos") {
-            if let Some(outside) = dir.parent().and_then(|c| c.parent()).and_then(|a| a.parent()) {
+            if let Some(outside) = dir
+                .parent()
+                .and_then(|c| c.parent())
+                .and_then(|a| a.parent())
+            {
                 dirs.push(outside.to_path_buf());
             }
         }

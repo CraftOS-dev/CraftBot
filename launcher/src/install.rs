@@ -130,7 +130,9 @@ fn install(target: &Path, tx: &Sender<Event>) -> Result<(), String> {
     say("Setting up the runtime — this takes a few minutes on first install");
     let code = run_craftbot(&python, &src_root, &["install", "--no-open-browser"], tx)?;
     if code != 0 {
-        return Err(format!("Setup did not complete (craftbot.py install exited {code}). See the log."));
+        return Err(format!(
+            "Setup did not complete (craftbot.py install exited {code}). See the log."
+        ));
     }
     say("Installed");
     Ok(())
@@ -152,7 +154,9 @@ fn start(tx: &Sender<Event>) -> Result<(), String> {
     // offers "Open CraftBot" when it is real.
     let code = run_craftbot(&rec.python, rec.dir(), &["start", "--no-open-browser"], tx)?;
     if code != 0 {
-        return Err(format!("CraftBot failed to start (exit {code}). See the log."));
+        return Err(format!(
+            "CraftBot failed to start (exit {code}). See the log."
+        ));
     }
     Ok(())
 }
@@ -178,7 +182,9 @@ fn uninstall(tx: &Sender<Event>) -> Result<(), String> {
     if rec.craftbot_py().is_file() && rec.python.is_file() {
         let code = run_craftbot(&rec.python, rec.dir(), &["uninstall"], tx)?;
         if code != 0 {
-            logger::log(&format!("craftbot.py uninstall exited {code}; removing files anyway"));
+            logger::log(&format!(
+                "craftbot.py uninstall exited {code}; removing files anyway"
+            ));
         }
     }
 
@@ -196,7 +202,12 @@ fn uninstall(tx: &Sender<Event>) -> Result<(), String> {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-fn run_craftbot(python: &Path, dir: &Path, args: &[&str], tx: &Sender<Event>) -> Result<i32, String> {
+fn run_craftbot(
+    python: &Path,
+    dir: &Path,
+    args: &[&str],
+    tx: &Sender<Event>,
+) -> Result<i32, String> {
     let mut on_line = |line: &str| {
         if let Some(text) = craftbot::meaningful(line) {
             let _ = tx.send(Event::Status(text));
@@ -207,7 +218,10 @@ fn run_craftbot(python: &Path, dir: &Path, args: &[&str], tx: &Sender<Event>) ->
 
 fn stop_if_running(tx: &Sender<Event>) -> Result<(), String> {
     let snap = state::poll();
-    if !matches!(snap.phase, state::Phase::InstalledRunning | state::Phase::InstalledStarting) {
+    if !matches!(
+        snap.phase,
+        state::Phase::InstalledRunning | state::Phase::InstalledStarting
+    ) {
         return Ok(());
     }
     if let Some(rec) = snap.record {
@@ -223,8 +237,8 @@ fn remove_tree(dir: &Path) -> Result<(), String> {
     }
     // Refuse anything that is not clearly ours. Deleting the user's home
     // because a record was hand-edited would be unforgivable.
-    let is_root_like = dir.parent().is_none()
-        || dirs::home_dir().map(|h| h == dir).unwrap_or(false);
+    let is_root_like =
+        dir.parent().is_none() || dirs::home_dir().map(|h| h == dir).unwrap_or(false);
     if is_root_like {
         return Err(format!("refusing to remove {}", dir.display()));
     }
@@ -234,7 +248,11 @@ fn remove_tree(dir: &Path) -> Result<(), String> {
 #[allow(dead_code)]
 pub fn describe_progress(read: u64, total: Option<u64>) -> String {
     match total {
-        Some(t) => format!("Downloading… {} of {} MB", download::mb(read), download::mb(t)),
+        Some(t) => format!(
+            "Downloading… {} of {} MB",
+            download::mb(read),
+            download::mb(t)
+        ),
         None => format!("Downloading… {} MB", download::mb(read)),
     }
 }

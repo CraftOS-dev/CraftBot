@@ -28,7 +28,13 @@ impl InstallRecord {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        Self { schema: SCHEMA, install_dir, python, version: version.to_string(), installed_at }
+        Self {
+            schema: SCHEMA,
+            install_dir,
+            python,
+            version: version.to_string(),
+            installed_at,
+        }
     }
 
     /// The record, if one exists and still describes a real install: the
@@ -55,7 +61,8 @@ impl InstallRecord {
     pub fn save(&self) -> Result<(), String> {
         let path = crate::paths::install_record();
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
         }
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))

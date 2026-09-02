@@ -36,9 +36,17 @@ pub fn ensure(
                 say(&format!("Python {}.{} ready", v.0, v.1));
                 return Ok(exe);
             }
-            logger::log(&format!("sidecar at {} is {}.{}, replacing", exe.display(), v.0, v.1));
+            logger::log(&format!(
+                "sidecar at {} is {}.{}, replacing",
+                exe.display(),
+                v.0,
+                v.1
+            ));
         } else {
-            logger::log(&format!("sidecar at {} does not run, replacing", exe.display()));
+            logger::log(&format!(
+                "sidecar at {} does not run, replacing",
+                exe.display()
+            ));
         }
         // A wrong or broken sidecar is removed wholesale; a partial tree is
         // worse than none.
@@ -46,7 +54,10 @@ pub fn ensure(
     }
 
     let triple = triple().ok_or_else(|| {
-        format!("no portable Python {}.{} is published for this machine", TARGET.0, TARGET.1)
+        format!(
+            "no portable Python {}.{} is published for this machine",
+            TARGET.0, TARGET.1
+        )
     })?;
     say(&format!("Downloading Python {}.{}…", TARGET.0, TARGET.1));
     let url = resolve_url(&triple)?;
@@ -71,7 +82,10 @@ pub fn ensure(
             say(&format!("Python {}.{} ready", v.0, v.1));
             Ok(exe)
         }
-        Some(v) => Err(format!("downloaded Python reports {}.{}, expected {}.{}", v.0, v.1, TARGET.0, TARGET.1)),
+        Some(v) => Err(format!(
+            "downloaded Python reports {}.{}, expected {}.{}",
+            v.0, v.1, TARGET.0, TARGET.1
+        )),
         None => Err("downloaded Python will not run on this machine".to_string()),
     }
 }
@@ -79,7 +93,10 @@ pub fn ensure(
 /// Run the interpreter and read back its (major, minor).
 pub fn probe(exe: &std::path::Path) -> Option<(u32, u32)> {
     let out = crate::craftbot::quiet_command(exe)
-        .args(["-c", "import sys; print(sys.version_info[0], sys.version_info[1])"])
+        .args([
+            "-c",
+            "import sys; print(sys.version_info[0], sys.version_info[1])",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -96,7 +113,11 @@ pub fn probe(exe: &std::path::Path) -> Option<(u32, u32)> {
 /// as `_pbs_triple()` in runtimes.py, including "arm64 Windows runs the x64
 /// build under emulation" because no win-arm64 build is published.
 fn triple() -> Option<String> {
-    let arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x86_64" };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86_64"
+    };
     if cfg!(target_os = "windows") {
         Some("x86_64-pc-windows-msvc".to_string())
     } else if cfg!(target_os = "macos") {
@@ -113,7 +134,11 @@ fn resolve_url(triple: &str) -> Result<String, String> {
         .map_err(|e| format!("could not reach the Python download index: {e}"))?;
     let prefix = format!("cpython-{}.{}.", TARGET.0, TARGET.1);
     let suffix = format!("-{triple}-install_only.tar.gz");
-    let assets = data.get("assets").and_then(|a| a.as_array()).cloned().unwrap_or_default();
+    let assets = data
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .cloned()
+        .unwrap_or_default();
     for asset in &assets {
         let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
         if name.starts_with(&prefix) && name.ends_with(&suffix) {
@@ -123,18 +148,22 @@ fn resolve_url(triple: &str) -> Result<String, String> {
         }
     }
     let tag = data.get("tag_name").and_then(|t| t.as_str()).unwrap_or("?");
-    Err(format!("no {prefix}*{suffix} in python-build-standalone release {tag}"))
+    Err(format!(
+        "no {prefix}*{suffix} in python-build-standalone release {tag}"
+    ))
 }
 
 /// Extract a .tar.gz, preserving permissions — the executable bit on
 /// bin/python3 is the whole point on macOS and Linux.
 fn extract_tar_gz(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
-    let file = std::fs::File::open(archive).map_err(|e| format!("cannot open {}: {e}", archive.display()))?;
+    let file = std::fs::File::open(archive)
+        .map_err(|e| format!("cannot open {}: {e}", archive.display()))?;
     let gz = flate2::read::GzDecoder::new(std::io::BufReader::new(file));
     let mut tar = tar::Archive::new(gz);
     tar.set_preserve_permissions(true);
     tar.set_overwrite(true);
-    tar.unpack(dest).map_err(|e| format!("cannot unpack Python: {e}"))
+    tar.unpack(dest)
+        .map_err(|e| format!("cannot unpack Python: {e}"))
 }
 
 /// Free space available at (the nearest existing ancestor of) `path`.

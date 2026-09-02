@@ -125,13 +125,11 @@ fn main() {
 
     // ── Static bits ─────────────────────────────────────────────────────
     let version = payload::VERSION;
-    ui.set_version_label(
-        if matches!(version, "" | "latest" | "dev" | "unknown") {
-            SharedString::new()
-        } else {
-            format!("Version {version}").into()
-        },
-    );
+    ui.set_version_label(if matches!(version, "" | "latest" | "dev" | "unknown") {
+        SharedString::new()
+    } else {
+        format!("Version {version}").into()
+    });
     app.show_target();
 
     // ── Callbacks ───────────────────────────────────────────────────────
@@ -163,14 +161,19 @@ fn main() {
     });
     {
         let app = app.clone();
-        ui.window().on_close_requested(move || app.on_close_requested());
+        ui.window()
+            .on_close_requested(move || app.on_close_requested());
     }
 
     // ── Tick: drain both channels on the UI thread ──────────────────────
     let tick = slint::Timer::default();
     {
         let app = app.clone();
-        tick.start(slint::TimerMode::Repeated, Duration::from_millis(200), move || app.tick());
+        tick.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(200),
+            move || app.tick(),
+        );
     }
 
     logger::log("entering event loop");
@@ -184,7 +187,10 @@ fn main() {
 fn headless(args: &[String]) -> i32 {
     let job = match args.first().map(String::as_str) {
         Some("install") => Job::Install {
-            target: args.get(1).map(PathBuf::from).unwrap_or_else(paths::default_install_dir),
+            target: args
+                .get(1)
+                .map(PathBuf::from)
+                .unwrap_or_else(paths::default_install_dir),
         },
         Some("repair") => Job::Repair,
         Some("uninstall") => Job::Uninstall,
@@ -246,7 +252,10 @@ impl App {
             Some(Phase::InstalledRunning) => {
                 if let Err(e) = open::that(paths::BROWSER_URL) {
                     logger::log(&format!("could not open the browser: {e}"));
-                    self.set_status(&format!("Open {} in your browser", paths::BROWSER_URL), Tone::Dim);
+                    self.set_status(
+                        &format!("Open {} in your browser", paths::BROWSER_URL),
+                        Tone::Dim,
+                    );
                     self.hold_status(CONFIRM_WINDOW);
                 }
             }
@@ -279,7 +288,10 @@ impl App {
             return;
         }
         let current = self.target_dir.borrow().clone();
-        let start_in = current.parent().map(|p| p.to_path_buf()).unwrap_or(current.clone());
+        let start_in = current
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or(current.clone());
         let picked = rfd::FileDialog::new()
             .set_title("Choose where to install CraftBot")
             .set_directory(start_in)
@@ -309,7 +321,10 @@ impl App {
             return slint::CloseRequestResponse::HideWindow;
         }
         self.close_armed.set(Some(Instant::now()));
-        self.set_status("Setup is still working — close again to quit anyway", Tone::Amber);
+        self.set_status(
+            "Setup is still working — close again to quit anyway",
+            Tone::Amber,
+        );
         self.hold_status(CONFIRM_WINDOW);
         slint::CloseRequestResponse::KeepWindowShown
     }
@@ -359,13 +374,20 @@ impl App {
                         ui.set_progress_indeterminate(false);
                         ui.set_progress((read as f64 / t as f64).clamp(0.0, 1.0) as f32);
                         self.set_status(
-                            &format!("Downloading… {} of {} MB", download::mb(read), download::mb(t)),
+                            &format!(
+                                "Downloading… {} of {} MB",
+                                download::mb(read),
+                                download::mb(t)
+                            ),
                             Tone::Dim,
                         );
                     }
                     _ => {
                         ui.set_progress_indeterminate(true);
-                        self.set_status(&format!("Downloading… {} MB", download::mb(read)), Tone::Dim);
+                        self.set_status(
+                            &format!("Downloading… {} MB", download::mb(read)),
+                            Tone::Dim,
+                        );
                     }
                 }
             }
@@ -411,7 +433,11 @@ impl App {
 
         // While a job is running the status line belongs to it; a held
         // status (a prompt, or the last job's error) stays put as well.
-        let held = self.status_hold.get().map(|t| Instant::now() < t).unwrap_or(false);
+        let held = self
+            .status_hold
+            .get()
+            .map(|t| Instant::now() < t)
+            .unwrap_or(false);
         if !busy && !held {
             match phase {
                 Phase::InstalledStarting => self.set_status("Starting CraftBot…", Tone::Amber),
@@ -513,19 +539,26 @@ mod tests {
 
     #[test]
     fn ansi_is_stripped() {
-        assert_eq!(logger::strip_ansi("\x1b[38;2;255;79;24m▸\x1b[0m hi"), "▸ hi");
+        assert_eq!(
+            logger::strip_ansi("\x1b[38;2;255;79;24m▸\x1b[0m hi"),
+            "▸ hi"
+        );
     }
 
     #[test]
     fn meaningful_lines() {
         assert_eq!(craftbot::meaningful("═══════════"), None);
         assert_eq!(craftbot::meaningful("  "), None);
-        assert_eq!(craftbot::meaningful("  ▸ STEP 1/3  Installing dependencies"), Some("STEP 1/3  Installing dependencies".into()));
+        assert_eq!(
+            craftbot::meaningful("  ▸ STEP 1/3  Installing dependencies"),
+            Some("STEP 1/3  Installing dependencies".into())
+        );
     }
 
     #[test]
     fn extract_handles_wrapper_dir() {
-        let tmp = std::env::temp_dir().join(format!("craftbot-launcher-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("craftbot-launcher-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let zip_path = tmp.join("src.zip");

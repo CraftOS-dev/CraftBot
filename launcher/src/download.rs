@@ -28,7 +28,8 @@ pub fn get_json(url: &str) -> Result<serde_json::Value, String> {
         .set("Accept", "application/vnd.github+json")
         .call()
         .map_err(|e| describe(url, e))?;
-    resp.into_json().map_err(|e| format!("{url}: bad JSON: {e}"))
+    resp.into_json()
+        .map_err(|e| format!("{url}: bad JSON: {e}"))
 }
 
 /// Download `url` to `dest`, writing to a `.part` file first so a partial
@@ -45,7 +46,8 @@ pub fn to_file(url: &str, dest: &Path, progress: Progress) -> Result<(), String>
         None => "part".to_string(),
     });
     if let Some(dir) = dest.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
     let mut file = std::fs::File::create(&part)
         .map_err(|e| format!("cannot write {}: {e}", part.display()))?;
@@ -55,11 +57,14 @@ pub fn to_file(url: &str, dest: &Path, progress: Progress) -> Result<(), String>
     let mut read: u64 = 0;
     progress(0, total);
     loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("download interrupted: {e}"))?;
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| format!("download interrupted: {e}"))?;
         if n == 0 {
             break;
         }
-        file.write_all(&buf[..n]).map_err(|e| format!("write failed: {e}"))?;
+        file.write_all(&buf[..n])
+            .map_err(|e| format!("write failed: {e}"))?;
         read += n as u64;
         progress(read, total);
     }

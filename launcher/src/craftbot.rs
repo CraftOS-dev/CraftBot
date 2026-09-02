@@ -37,9 +37,16 @@ pub fn run(
 ) -> Result<i32, String> {
     let script = install_dir.join("craftbot.py");
     if !script.is_file() {
-        return Err(format!("{} is missing — the install is incomplete", script.display()));
+        return Err(format!(
+            "{} is missing — the install is incomplete",
+            script.display()
+        ));
     }
-    crate::logger::log(&format!("run: {} craftbot.py {}", python.display(), args.join(" ")));
+    crate::logger::log(&format!(
+        "run: {} craftbot.py {}",
+        python.display(),
+        args.join(" ")
+    ));
 
     let mut cmd = quiet_command(python);
     cmd.arg(&script)
@@ -61,7 +68,9 @@ pub fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| format!("cannot start {}: {e}", python.display()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", python.display()))?;
 
     // stderr is drained on its own thread so neither pipe can fill up and
     // block the child while we wait on the other.
@@ -85,10 +94,15 @@ pub fn run(
         }
     }
 
-    let status = child.wait().map_err(|e| format!("waiting for craftbot.py: {e}"))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("waiting for craftbot.py: {e}"))?;
     let err_lines = err_thread.join().unwrap_or_default();
     let code = status.code().unwrap_or(-1);
-    crate::logger::log(&format!("craftbot.py {} exited {code}", args.first().unwrap_or(&"")));
+    crate::logger::log(&format!(
+        "craftbot.py {} exited {code}",
+        args.first().unwrap_or(&"")
+    ));
 
     if code != 0 {
         // Surface the last error line so the status can say something

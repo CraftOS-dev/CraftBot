@@ -24,7 +24,10 @@ fn main() {
         .unwrap_or_else(|| "latest".to_string());
     println!("cargo:rustc-env=CRAFTBOT_VERSION={version}");
     println!("cargo:rerun-if-env-changed=CRAFTBOT_VERSION");
-    println!("cargo:rerun-if-changed={}", repo_root().join("VERSION").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        repo_root().join("VERSION").display()
+    );
 
     // ── UI ──────────────────────────────────────────────────────────────
     // One style everywhere. The window is drawn from primitives (rectangles,

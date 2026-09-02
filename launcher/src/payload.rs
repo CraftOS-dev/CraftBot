@@ -23,7 +23,9 @@ pub fn download_url() -> String {
     if VERSION == "latest" {
         format!("https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest/download/{ASSET}")
     } else {
-        format!("https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/download/v{VERSION}/{ASSET}")
+        format!(
+            "https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/download/v{VERSION}/{ASSET}"
+        )
     }
 }
 
@@ -60,7 +62,10 @@ pub fn obtain(
     }
     let url = download_url();
     logger::log(&format!("payload: {url}"));
-    say(&format!("Downloading CraftBot {}…", if VERSION == "latest" { "" } else { VERSION }));
+    say(&format!(
+        "Downloading CraftBot {}…",
+        if VERSION == "latest" { "" } else { VERSION }
+    ));
     let dest = temp_zip();
     download::to_file(&url, &dest, progress).map_err(|e| {
         if e.contains("HTTP 404") {
@@ -78,29 +83,40 @@ pub fn obtain(
 /// own zips produce) — because getting this wrong yields an install that
 /// looks fine until nothing can find run.py.
 pub fn extract(zip_path: &Path, target: &Path) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(target).map_err(|e| format!("cannot create {}: {e}", target.display()))?;
-    let file = std::fs::File::open(zip_path).map_err(|e| format!("cannot open {}: {e}", zip_path.display()))?;
+    std::fs::create_dir_all(target)
+        .map_err(|e| format!("cannot create {}: {e}", target.display()))?;
+    let file = std::fs::File::open(zip_path)
+        .map_err(|e| format!("cannot open {}: {e}", zip_path.display()))?;
     let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
         .map_err(|e| format!("{} is not a valid zip: {e}", zip_path.display()))?;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("zip entry {i}: {e}"))?;
         // enclosed_name() refuses "../" and absolute paths: a payload must not
         // be able to write outside the install directory.
         let Some(rel) = entry.enclosed_name() else {
-            logger::log(&format!("payload: skipping unsafe entry {:?}", entry.name()));
+            logger::log(&format!(
+                "payload: skipping unsafe entry {:?}",
+                entry.name()
+            ));
             continue;
         };
         let out = target.join(rel);
         if entry.is_dir() {
-            std::fs::create_dir_all(&out).map_err(|e| format!("cannot create {}: {e}", out.display()))?;
+            std::fs::create_dir_all(&out)
+                .map_err(|e| format!("cannot create {}: {e}", out.display()))?;
             continue;
         }
         if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
         let mut data = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut data).map_err(|e| format!("cannot read {}: {e}", entry.name()))?;
+        entry
+            .read_to_end(&mut data)
+            .map_err(|e| format!("cannot read {}: {e}", entry.name()))?;
         std::fs::write(&out, &data).map_err(|e| format!("cannot write {}: {e}", out.display()))?;
         #[cfg(unix)]
         {

@@ -34,16 +34,28 @@ pub struct Snapshot {
 pub fn poll() -> Snapshot {
     let record = InstallRecord::load();
     let Some(rec) = record.as_ref() else {
-        return Snapshot { phase: Phase::NotInstalled, pid: None, record: None };
+        return Snapshot {
+            phase: Phase::NotInstalled,
+            pid: None,
+            record: None,
+        };
     };
     let pid = read_pid(&paths::pid_file(rec.dir()));
     let running = pid.map(pid_alive).unwrap_or(false);
     if !running {
-        return Snapshot { phase: Phase::InstalledStopped, pid: None, record };
+        return Snapshot {
+            phase: Phase::InstalledStopped,
+            pid: None,
+            record,
+        };
     }
     let ready = paths::agent_ready_file().is_file();
     Snapshot {
-        phase: if ready { Phase::InstalledRunning } else { Phase::InstalledStarting },
+        phase: if ready {
+            Phase::InstalledRunning
+        } else {
+            Phase::InstalledStarting
+        },
         pid,
         record,
     }

@@ -18,7 +18,11 @@ fn handle() -> &'static Mutex<Option<File>> {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let file = OpenOptions::new().create(true).append(true).open(&path).ok();
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok();
         Mutex::new(file)
     })
 }
