@@ -1275,18 +1275,35 @@ def _install_macos(run_args: List[str]) -> None:
     with open(plist_file, "w") as f:
         f.write(content)
 
+    # `launchctl load` honours RunAtLoad, so loading the agent starts CraftBot
+    # then and there. When one is already running — the normal case, since
+    # install starts it first — that second process fights the first for ports
+    # 7925/7926 and one of them loses. Writing the plist is enough on its own:
+    # launchd bootstraps ~/Library/LaunchAgents at login, so auto-start works
+    # from the next login whether or not it was loaded now.
+    pid = _read_pid()
+    if pid and _is_running(pid):
+        print(f"Auto-start registered as launchd agent '{LAUNCHD_LABEL}'.")
+        print("CraftBot is already running — auto-start begins at your next login.")
+        _print_launchd_hints(plist_file)
+        return
+
     try:
         subprocess.run(["launchctl", "load", plist_file], check=True, timeout=10)
         print(f"Auto-start registered as launchd agent '{LAUNCHD_LABEL}'.")
         print("CraftBot will start automatically when you log in.")
-        print(f"\nOpen CraftBot: {BROWSER_URL}")
-        print(f"  Tip: Bookmark {BROWSER_URL} so you never have to remember it!")
-        _create_desktop_shortcut_unix()
-        print(f"\nPlist file: {plist_file}")
+        _print_launchd_hints(plist_file)
     except subprocess.CalledProcessError as e:
         print(f"Error loading launchd agent: {e}")
         print(f"Plist written to: {plist_file}")
         print(f"Try manually: launchctl load {plist_file}")
+
+
+def _print_launchd_hints(plist_file: str) -> None:
+    print(f"\nOpen CraftBot: {BROWSER_URL}")
+    print(f"  Tip: Bookmark {BROWSER_URL} so you never have to remember it!")
+    _create_desktop_shortcut_unix()
+    print(f"\nPlist file: {plist_file}")
 
 
 def _uninstall_macos() -> None:
@@ -1587,28 +1604,38 @@ def cmd_install(extra_args: List[str]) -> bool:
     else:
         print(f"  {DIM}(install.py not found — skipping dependency install){RESET}\n")
 
-    # ── Step 2: Register auto-start ────────────────────────────────────────
+    # ── Step 2: Start the service now ──────────────────────────────────────
+    #
+    # Starting BEFORE registering auto-start, not after. The macOS plist
+    # carries RunAtLoad, so `launchctl load` starts an instance there and
+    # then; registering first therefore left two run.py processes racing for
+    # ports 7925/7926, and the loser died with "Failed to start browser
+    # frontend" while the winner quietly served the UI. cmd_start's own guard
+    # could not catch it — it reads craftbot.pid, which the launchd instance
+    # has not written yet a second into its boot. Start first and the pid
+    # exists by the time registration looks for it (see _install_macos).
+    _retro_step(2, 3, "Starting CraftBot")
+    if not cmd_start(extra_args):
+        print(f"\n  {RED}✗{RESET} {WHITE}CraftBot failed to start.{RESET}")
+        return False
+    print()
+
+    # ── Step 3: Register auto-start ────────────────────────────────────────
     if _is_installed():
         print(
-            f"\n  {DIM}▸ STEP 2/3  ░░  AUTO-START ALREADY REGISTERED — SKIPPING{RESET}"
+            f"\n  {DIM}▸ STEP 3/3  ░░  AUTO-START ALREADY REGISTERED — SKIPPING{RESET}"
         )
         if _PLATFORM == "win32":
             _create_desktop_shortcut_windows()
         elif _PLATFORM != "darwin":
             _create_desktop_shortcut_unix()
     else:
-        _retro_step(2, 3, "Registering auto-start")
+        _retro_step(3, 3, "Registering auto-start")
         run_args = _build_run_args(extra_args, service_mode=True)
         _helpers.dispatch_per_platform(
             win=_install_windows, mac=_install_macos, linux=_install_linux
         )(run_args)
         print()
-
-    # ── Step 3: Start the service now ──────────────────────────────────────
-    _retro_step(3, 3, "Starting CraftBot")
-    if not cmd_start(extra_args):
-        print(f"\n  {RED}✗{RESET} {WHITE}CraftBot failed to start.{RESET}")
-        return False
 
     print(f"\n  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS RUNNING IN THE BACKGROUND{RESET}")
     print(f"  {DIM}░░{RESET} {ORANGE}{_frontend_url(extra_args)}{RESET}")

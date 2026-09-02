@@ -507,7 +507,8 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
         httpd = _QuietHTTPServer(("localhost", FRONTEND_PORT), FrontendHandler)
     except OSError as e:
         if not silent:
-            print(f"Error: Could not start static frontend server: {e}")
+            print(f"Error: could not serve the UI on port {FRONTEND_PORT}: {e}")
+            print("  Another CraftBot instance may already hold that port.")
         return None
 
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1410,7 +1411,12 @@ if __name__ == "__main__":
         # Step 1: Start frontend server (0% -> 10%)
         # Step 1: Start frontend server
         print_step(1, 8, "Starting frontend server")
-        frontend_process = launch_frontend(silent=not getattr(sys, "frozen", False))
+        # Not silent. This used to be `silent=not sys.frozen`, which made
+        # sense while the agent shipped as a PyInstaller binary; nothing is
+        # frozen since that was retired, so the flag was always True and every
+        # specific reason this can fail — a busy port, a missing dist/ — was
+        # swallowed in favour of the generic "install Node.js" advice below.
+        frontend_process = launch_frontend()
         if not frontend_process:
             print(" ✗")
             print("\nError: Failed to start browser frontend.")
