@@ -53,8 +53,7 @@ EXCLUDE_PREFIXES = (
     "docs/",
     "tests/",
     "diagnostic/",
-    "packaging/",
-    "installer/",  # the wizard ships inside the installer EXE, not the payload
+    "launcher/",  # the native launcher is built and shipped separately
 )
 
 EXCLUDE_SUFFIXES = (".md",)
@@ -137,6 +136,11 @@ def build(output: Path) -> int:
         "app/provision/__init__.py",
         "app/ui_layer/browser/frontend/dist/index.html",
         "craftos_integrations/providers/whatsapp_web/bridge.js",
+        # craftbot.py imports these at module scope; without them every
+        # command fails before parsing its arguments.
+        "installer/helpers.py",
+        "installer/metadata.py",
+        "installer/payload.py",
     ]
     with zipfile.ZipFile(output) as zf:
         names = set(zf.namelist())

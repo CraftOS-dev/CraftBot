@@ -30,7 +30,7 @@ workspace
 # the image. CI escapes it only by checking out clean, which makes this a trap
 # that fires exactly once, on someone's laptop.
 #
-# Same failure as packaging/CraftBotAgent.spec's blanket app/data entry, which
+# Same failure as the old PyInstaller spec's blanket app/data entry, which
 # shipped 1.1 GB of one machine's memory index and databases.
 app/data/.file_index
 app/data/.usage

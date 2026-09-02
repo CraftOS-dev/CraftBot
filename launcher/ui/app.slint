@@ -1,0 +1,268 @@
+// CraftBot setup window.
+//
+// The layout is the one the Tk window used — one mark, one line of status,
+// one primary button, a quiet row of secondary actions — drawn from
+// primitives so it looks identical on all three platforms. Every colour is a
+// Palette token; the values are the ones from installer/ui/theme.py.
+//
+// Everything here is presentation. State lives in Rust (src/main.rs), which
+// sets the `in` properties below and receives the callbacks.
+
+export global Palette {
+    out property <color> base: #14141F;
+    // Raised surfaces are a white film over the base. Slint composites for
+    // real, so these are the films themselves rather than pre-blended hexes.
+    out property <color> surface: #FFFFFF0E;        // 5.5%
+    out property <color> surface-raised: #FFFFFF16; // 8.5%
+    out property <color> hairline: #FFFFFF1A;       // 10%
+    out property <color> track: #FFFFFF1F;          // 12%
+    out property <color> text: #F2F2F6;
+    out property <color> text-dim: #9C9CAB;
+    out property <color> text-faint: #63636F;
+    out property <color> accent: #FF4F18;
+    out property <color> accent-hover: #FF6A3B;
+    out property <color> accent-text: #FFFFFF;
+    out property <color> green: #4ADE80;
+    out property <color> amber: #FBBF24;
+    out property <color> red: #F87171;
+}
+
+// A pill. `primary` is the one accent-filled control in the window; the
+// rest are glass outlines that only brighten on hover.
+component PillButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> primary: false;
+    // The primary button while work is in progress: no accent, no hover,
+    // reads as "not now" rather than "press me".
+    in property <bool> busy: false;
+    in property <length> font-size: 12px;
+    callback clicked;
+
+    border-radius: self.height / 2;
+    border-width: primary ? 0px : 1px;
+    border-color: Palette.hairline;
+    background: primary
+        ? (busy ? Palette.surface-raised : (touch.has-hover && enabled ? Palette.accent-hover : Palette.accent))
+        : (touch.has-hover && enabled ? Palette.surface-raised : Palette.surface);
+    animate background { duration: 120ms; }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        text: root.label;
+        font-size: root.font-size;
+        font-weight: root.primary ? 700 : 400;
+        color: root.primary
+            ? (root.enabled ? Palette.accent-text : Palette.text-dim)
+            : (root.enabled ? Palette.text-dim : Palette.text-faint);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// Clickable text with no surface of its own.
+component Link inherits Text {
+    in property <bool> enabled: true;
+    callback clicked;
+    font-size: 11px;
+    color: enabled ? (area.has-hover ? Palette.text-dim : Palette.text-faint) : Palette.text-faint;
+    opacity: enabled ? 1.0 : 0.55;
+    animate color { duration: 120ms; }
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component InstallerWindow inherits Window {
+    title: "CraftBot Setup";
+    icon: @image-url("../assets/craftbot_mark_192.png");
+    // Fixed size: an installer is a fixed-size dialog on every OS.
+    width: 440px;
+    height: 540px;
+    background: Palette.base;
+    default-font-size: 12px;
+
+    // ── State set from Rust ─────────────────────────────────────────────
+    in property <string> status: "Checking…";
+    in property <color> status-color: Palette.text-dim;
+    in property <string> install-path: "";
+    in property <bool> change-enabled: true;
+
+    in property <string> primary-label: "Install CraftBot";
+    in property <bool> primary-enabled: false;
+    in property <bool> busy: false;
+
+    in property <bool> stop-enabled: false;
+    in property <bool> repair-enabled: false;
+    in property <bool> uninstall-enabled: false;
+
+    in property <bool> progress-visible: false;
+    in property <bool> progress-indeterminate: true;
+    in property <float> progress: 0.0;   // 0..1 when determinate
+
+    in property <string> version-label: "";
+
+    // ── Actions ─────────────────────────────────────────────────────────
+    callback primary-clicked();
+    callback stop-clicked();
+    callback repair-clicked();
+    callback uninstall-clicked();
+    callback change-location-clicked();
+    callback open-log-clicked();
+
+    // ── The mark, which blinks ──────────────────────────────────────────
+    property <bool> eyes-closed: false;
+    Timer {
+        interval: 4200ms;
+        running: true;
+        triggered => { root.eyes-closed = true; }
+    }
+    Timer {
+        interval: 140ms;
+        running: root.eyes-closed;
+        triggered => { root.eyes-closed = false; }
+    }
+    Image {
+        source: @image-url("../assets/craftbot_mark_192.png");
+        width: 96px;
+        height: 96px;
+        x: (root.width - self.width) / 2;
+        y: 112px - self.height / 2;
+        visible: !root.eyes-closed;
+    }
+    Image {
+        source: @image-url("../assets/craftbot_mark_192_blink3.png");
+        width: 96px;
+        height: 96px;
+        x: (root.width - self.width) / 2;
+        y: 112px - self.height / 2;
+        visible: root.eyes-closed;
+    }
+
+    // ── Identity + status ───────────────────────────────────────────────
+    Text {
+        text: "CraftBot";
+        font-size: 23px;
+        font-weight: 700;
+        color: Palette.text;
+        horizontal-alignment: center;
+        x: 0; width: root.width;
+        y: 204px - self.height / 2;
+    }
+    Text {
+        text: root.status;
+        font-size: 11px;
+        color: root.status-color;
+        horizontal-alignment: center;
+        overflow: elide;
+        x: 28px; width: root.width - 56px;
+        y: 228px - self.height / 2;
+        animate color { duration: 200ms; }
+    }
+
+    // ── Progress ────────────────────────────────────────────────────────
+    // Sits under the status line, shown only while something is happening:
+    // a bar at zero for two minutes reads as "stuck".
+    property <float> sweep: root.progress-indeterminate && root.progress-visible ? 1.0 : 0.0;
+    animate sweep { duration: 1400ms; iteration-count: -1; easing: ease-in-out; }
+    Rectangle {
+        visible: root.progress-visible;
+        x: (root.width - 240px) / 2;
+        y: 252px;
+        width: 240px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: Palette.track;
+        clip: true;
+        Rectangle {
+            border-radius: 2.5px;
+            background: Palette.accent;
+            height: parent.height;
+            width: root.progress-indeterminate ? 80px : parent.width * max(0.0, min(1.0, root.progress));
+            x: root.progress-indeterminate ? (parent.width + 80px) * root.sweep - 80px : 0px;
+            animate width { duration: 150ms; }
+        }
+    }
+
+    // ── Install location ────────────────────────────────────────────────
+    Text {
+        text: root.install-path;
+        font-size: 11px;
+        color: Palette.text-faint;
+        horizontal-alignment: center;
+        overflow: elide;
+        x: 28px; width: root.width - 56px;
+        y: 296px - self.height / 2;
+    }
+    Link {
+        text: "Change location";
+        enabled: root.change-enabled;
+        horizontal-alignment: center;
+        x: 0; width: root.width;
+        y: 318px - self.height / 2;
+        clicked => { root.change-location-clicked(); }
+    }
+
+    // ── Actions ─────────────────────────────────────────────────────────
+    PillButton {
+        label: root.busy ? "Working…" : root.primary-label;
+        primary: true;
+        busy: root.busy;
+        enabled: root.primary-enabled && !root.busy;
+        font-size: 14px;
+        width: 240px;
+        height: 46px;
+        x: (root.width - self.width) / 2;
+        y: 378px;
+        clicked => { root.primary-clicked(); }
+    }
+
+    HorizontalLayout {
+        x: (root.width - 302px) / 2;
+        y: 440px;
+        width: 302px;
+        height: 30px;
+        spacing: 10px;
+        PillButton {
+            label: "Stop";
+            enabled: root.stop-enabled && !root.busy;
+            font-size: 11px;
+            clicked => { root.stop-clicked(); }
+        }
+        PillButton {
+            label: "Repair";
+            enabled: root.repair-enabled && !root.busy;
+            font-size: 11px;
+            clicked => { root.repair-clicked(); }
+        }
+        PillButton {
+            label: "Uninstall";
+            enabled: root.uninstall-enabled && !root.busy;
+            font-size: 11px;
+            clicked => { root.uninstall-clicked(); }
+        }
+    }
+
+    // ── Footer ──────────────────────────────────────────────────────────
+    Text {
+        text: root.version-label;
+        font-size: 11px;
+        color: Palette.text-faint;
+        x: 28px;
+        y: root.height - 24px - self.height / 2;
+    }
+    Link {
+        text: "Open log";
+        horizontal-alignment: right;
+        x: root.width - 28px - self.width;
+        y: root.height - 24px - self.height / 2;
+        clicked => { root.open-log-clicked(); }
+    }
+}

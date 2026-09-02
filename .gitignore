@@ -38,16 +38,13 @@ debug_images
 .vscode/
 .idea/
 # PyInstaller auto-generates a <name>.spec when run without one — those are
-# build artifacts. Our hand-written CraftBotInstaller.spec lives under
-# packaging/ and is source-of-truth for the release workflow, so it MUST
-# be tracked. Keep the broad ignore but allow-list the one we own.
+# build artifacts.
 *.spec
-!packaging/CraftBotInstaller.spec
 **/.whatsapp_web_sessions/
 **/build
 **/build_*
 # ...but scripts/ holds SOURCE, not build output. `build_*` there is a
-# script that builds something (build_wheelhouse.py, build_installer_marks.py)
+# script that builds something (build_wheelhouse.py)
 # and is referenced by name from code and docs. Without this negation they
 # are silently absent from every clone.
 !scripts/build_*.py

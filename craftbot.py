@@ -1728,7 +1728,17 @@ def cmd_uninstall() -> None:
         print("\nUninstall complete.")
         return
 
-    # Source mode: uninstall pip packages
+    # Source mode: uninstall pip packages.
+    #
+    # Not for a managed install: there the interpreter is a sidecar under the
+    # user data directory that the launcher removes wholesale right after
+    # this returns, so uninstalling packages from it one by one would only
+    # add minutes to the uninstall.
+    if paths.is_managed_install():
+        print("\n(managed install — the launcher removes the runtime)")
+        print("\nUninstall complete.")
+        return
+
     req_file = os.path.join(BASE_DIR, "requirements.txt")
     if os.path.isfile(req_file):
         print("\nUninstalling pip packages...")
@@ -1826,8 +1836,14 @@ def _get_parent_pid() -> Optional[int]:
 
 
 def _close_console_window() -> None:
-    """Close the current console/terminal window on Windows then exit."""
-    if _PLATFORM != "win32":
+    """Close the current console/terminal window on Windows then exit.
+
+    Only when this process owns a console. Launched from a script, a pipe or
+    the CraftBot launcher, the "parent" is not a cmd.exe window at all — it
+    is whatever started us, and killing it would take the launcher's window
+    down with it.
+    """
+    if _PLATFORM != "win32" or not sys.stdout.isatty():
         sys.exit(0)
     # Use PowerShell to kill the parent cmd.exe after a short delay
     try:

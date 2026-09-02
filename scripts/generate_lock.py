@@ -55,7 +55,7 @@ LOCK_DIR = os.path.join(REPO_ROOT, "requirements")
 #: Matched by prefix because the macOS tag carries an OS version and arch
 #: (macosx_11_0_arm64-py310), so the exact filename is not fixed.
 #:
-#: Keep in step with the pyinstaller matrix in .github/workflows/release.yml.
+#: Keep in step with the launcher matrix in .github/workflows/release.yml.
 SHIPPED_PLATFORMS = ("win_amd64", "linux_x86_64", "macosx")
 
 
