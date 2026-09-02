@@ -689,6 +689,15 @@ class FactoryHost:
             if ruled
             else ""
         )
+        disputed = machine.disputed()
+        disputed_text = (
+            "\n=== VERDICTS EARLIER ROUNDS DISPUTED (and why) ===\n"
+            + "\n".join(f"- {e['what']}" for e in disputed[-8:])
+            + "\nIf one of your cards repeats a disputed verdict, read that "
+            "reasoning before you touch code.\n"
+            if disputed
+            else ""
+        )
         cli = _cli()
         cards_text = "\n\n".join(c.render() for c in cards)[:6000]
         books = self._select_cookbooks(cards_text)
@@ -716,7 +725,7 @@ carries its evidence and a repro. Your ONLY goal: make these features work.
 
 === DEFECT CARDS ===
 {cards_text}
-{log_text}{ruled_text}{books_text}
+{log_text}{ruled_text}{disputed_text}{books_text}
 
 === HOW TO WORK (concrete) ===
 1. Reproduce first: use the repro commands / exercise the failing op
@@ -737,13 +746,25 @@ carries its evidence and a repro. Your ONLY goal: make these features work.
    — agent_app_notify_ready syncs your edits into the dev instance.
 5. Relaunch: agent_app_notify_ready(project_id="{project.id}")
 6. Verify: agent_app_walk_verify(project_id="{project.id}")
-Two things you can write into the record. Both optional; both are read by
+Three things you can write into the record. All optional; all are read by
 every later round, and each round is a fresh run that remembers nothing of
 this one, so what you do not write here is not known next time.
 
    agent_app_report_finding(project_id="{project.id}",
        ruled_out=["the grant is fine — dry-run of send_gmail returns 200"])
        Your notes: causes you eliminated, and what eliminated them.
+
+   agent_app_report_finding(project_id="{project.id}",
+       disputed=["AI Explore — I ran it against the dev instance, the graph
+       went 1 -> 5 nodes with AI-written ideas, and the hook evidence above
+       confirms callLLM at ops.pb.js:32. The verdict is wrong; nothing here
+       is broken."])
+       The verifier can be wrong, and you are the only one who can find out
+       — you can reproduce the feature; it only watched it once. If you did
+       reproduce it and it works, say so HERE rather than editing code that
+       is not broken. Your reasoning goes to the next verifier, which must
+       re-judge that feature knowing what you observed. Use it on evidence
+       you gathered, never to skip a defect you have not reproduced.
 
    agent_app_report_finding(project_id="{project.id}",
        blocked_question="Which calendar should new bookings write to?")
@@ -841,10 +862,40 @@ the user is informed automatically."""
         self._sidecar_write(project_id, side)
 
     # ── run-end hook (closes I6) ───────────────────────────────────────────
-    def on_run_end(self, project_id: str, trigger_payload: Dict[str, Any]) -> None:
+    def _defer_run_end(self, project_id: str, delay: float, reason: str) -> None:
+        """Re-run this hook later instead of now. NEVER drops the wakeup.
+
+        Idempotent by design: if the arc moved on meanwhile, needs_redispatch
+        is False and the re-check no-ops.
+        """
+        try:
+            import asyncio as _asyncio
+
+            _asyncio.get_running_loop().call_later(
+                delay, self.on_run_end, project_id, {}
+            )
+            logger.info(
+                f"[FACTORY] redispatch deferred {delay:.0f}s ({reason}) "
+                f"for {project_id}"
+            )
+        except RuntimeError:
+            logger.warning(
+                f"[FACTORY] {reason} with no event loop — {project_id} may "
+                "need a manual nudge"
+            )
+
+    def on_run_end(
+        self,
+        project_id: str,
+        trigger_payload: Dict[str, Any],
+        awaiting_answer: bool = False,
+    ) -> None:
         """Called by the host when ANY run in a project session ends. If the
         machine says work should be in flight but isn't, redispatch — the
-        agent surrendering is no longer a terminal event."""
+        agent surrendering is no longer a terminal event.
+
+        ``awaiting_answer`` marks a run that parked on a question the user can
+        answer. That is not a surrender and must not be redispatched into."""
         try:
             machine = self.machine_for(project_id)
             if machine is None:
@@ -866,6 +917,38 @@ the user is informed automatically."""
                     side.pop("running_mission", None)
                     self._sidecar_write(project_id, side)
             if not machine.needs_redispatch():
+                return
+            if awaiting_answer:
+                # The run stopped because the agent CHOSE to wait for an
+                # answer. Asking does not have to end a run — send_message
+                # takes continue_work and suggested_responses independently,
+                # so an agent that can carry on while a question is
+                # outstanding does exactly that. Ending the run instead is a
+                # decision it made, and this hook does not get to overrule it.
+                #
+                # So: no redispatch, and no timer either. A deadline here
+                # would just be the system deciding how long the agent should
+                # be allowed to wait, and the only thing a resume can do with
+                # an unanswered question is ask it again — which is precisely
+                # what went wrong. Observed live 2026-09-02 13:26
+                # (brainstorm_graph 4fa24e8b): the agent asked which data
+                # source to use, offering three responses; the run parked and
+                # IN THE SAME SECOND this hook called it a surrender and
+                # dispatched a resume, which re-read the codebase and asked
+                # the identical question. Redispatched again 94s later. The
+                # user answered both copies and the arc went STUCK four
+                # seconds after the second answer landed.
+                #
+                # Unlike the thrash guard this needs no deferred wakeup: the
+                # user's reply IS the wakeup. That run ends and re-enters here
+                # with the arc moved on. If the answer never comes, the
+                # project stays parked on a question the user can see in the
+                # chat with its buttons — which is the honest state, not a
+                # stall to be broken by a countdown.
+                logger.info(
+                    f"[FACTORY] {project_id} is parked on a question to the "
+                    "user — not a surrender, no redispatch."
+                )
                 return
             # Thrash guard: history timestamps are UTC ("...Z"); parse them
             # as UTC (calendar.timegm) — time.mktime read them as LOCAL time,
@@ -900,21 +983,7 @@ the user is informed automatically."""
                         # mission became active meanwhile, needs_redispatch
                         # is False and the re-check no-ops.
                         delay = max(1.0, _REDISPATCH_MIN_INTERVAL_S - elapsed + 1.0)
-                        try:
-                            import asyncio as _asyncio
-
-                            _asyncio.get_running_loop().call_later(
-                                delay, self.on_run_end, project_id, {}
-                            )
-                            logger.info(
-                                f"[FACTORY] redispatch deferred {delay:.0f}s "
-                                f"(thrash guard) for {project_id}"
-                            )
-                        except RuntimeError:
-                            logger.warning(
-                                f"[FACTORY] thrash guard tripped with no event "
-                                f"loop — {project_id} may need a manual nudge"
-                            )
+                        self._defer_run_end(project_id, delay, "thrash guard")
                         return
                 except Exception:
                     pass
@@ -984,6 +1053,17 @@ the user is informed automatically."""
         added = machine.record_ruled_out(items, mission=machine.active_mission or "")
         if added:
             logger.info(f"[FACTORY] {project_id} ruled out {added} cause(s)")
+        return added
+
+    def record_disputed(self, project_id: str, items: List[str]) -> int:
+        """Verdicts the builder reproduced and rejected. Carried into every
+        later brief AND into the next verifier's evidence."""
+        machine = self.machine_for(project_id)
+        if machine is None:
+            return 0
+        added = machine.record_disputed(items, mission=machine.active_mission or "")
+        if added:
+            logger.info(f"[FACTORY] {project_id} disputed {added} verdict(s)")
         return added
 
     def report_blocked(
@@ -1088,6 +1168,28 @@ the user is informed automatically."""
         self._notify_origin(
             project_id,
             f"FYI: the Agent App build for project {project_id} is COMPLETE. {text}",
+        )
+
+    def announce_undeployed(self, project_id: str, name: str) -> None:
+        """This project holds code the running app has not been given.
+
+        Said by the SYSTEM because the agent's own account cannot be trusted
+        here: in the incident this exists for (2026-09-02, brainstorm_graph
+        f1eb1c85) the agent reported "Done — I added the suggestion feature",
+        then "Done — I made the suggestions more visible", then "Yes — they
+        should now show up automatically", while the running app never changed
+        and the user kept replying that they saw nothing.
+
+        Phrased as a STATE, not as an act. The trigger is a tree that differs
+        from the last promote, which can be true on a run that edited nothing
+        (a question asked in the project's session), so "I changed it" would
+        be a claim this run did not earn.
+        """
+        self._emit_chat(
+            project_id,
+            f"⚠️ {name} has code changes that were never deployed — your live "
+            "app is still running the previous version. Tell me to deploy it "
+            "and I'll relaunch and verify.",
         )
 
     def _announce_blocked(

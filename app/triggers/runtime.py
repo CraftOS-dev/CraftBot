@@ -79,6 +79,15 @@ class _StopSignal:
         self.settled = asyncio.Event()
 
 
+# Sources that must never be folded into another trigger's turn.
+EXCLUSIVE_SOURCES: frozenset[str] = frozenset({TriggerSource.AGENT_APP_CRASH_FIX.value})
+
+# Payload keys that identify WHICH work a trigger belongs to. Unlike routing
+# fields these are not interchangeable, so they are carried across a merge
+# rather than silently dropped with the rest of an extra's payload.
+_IDENTITY_KEYS = ("project_id", "factory_mission_id")
+
+
 def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
     """Fold ALL due triggers into `base` for one aggregated turn.
 
@@ -155,6 +164,13 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
         p = t.payload or {}
         for key in ("platform", "contact_id", "channel_id"):
             if p.get(key):
+                base.payload[key] = p[key]
+        # Work identity, not routing: without these the factory cannot tell
+        # which mission this run belonged to, so it can neither close it nor
+        # redispatch it (see EXCLUSIVE_SOURCES). Never overwrite the base's
+        # own identity — first one in the batch wins.
+        for key in _IDENTITY_KEYS:
+            if p.get(key) and not base.payload.get(key):
                 base.payload[key] = p[key]
         if p.get("is_self_message"):
             base.payload["is_self_message"] = True
@@ -361,10 +377,13 @@ class SessionRuntimeManager:
     async def _consume(self, session_id: str, queue: SessionTriggerQueue) -> None:
         """The serial agent loop for one session: claim → react → settle.
 
-        Aggregation: after claiming a trigger of an aggregatable source,
-        any same-source triggers already due (they piled up while the
-        previous turn was running) are drained and merged into the SAME
-        turn. All merged rows are claimed together and settle together.
+        Aggregation: after claiming a trigger, everything else already due
+        (it piled up while the previous turn was running) is drained and
+        merged into the SAME turn, whatever its source. All merged rows are
+        claimed together and settle together. The exception is
+        EXCLUSIVE_SOURCES, which keep their own turn in both directions:
+        they are never drained into someone else's batch, and when one is
+        the claimed trigger nothing is drained into it.
         """
         # Give this session its own log folder/sink and tag every line emitted
         # during its turns with the session id, so each session's logs land in
@@ -387,13 +406,22 @@ class SessionRuntimeManager:
                 except asyncio.CancelledError:
                     raise
 
-                # Drain EVERYTHING else that is due — all sources — and
-                # aggregate the whole batch into this one turn.
+                # Drain everything else that is due and aggregate the whole
+                # batch into this one turn — except the sources that must not
+                # share a turn with anything (see EXCLUSIVE_SOURCES).
                 extras: list[Trigger] = []
-                try:
-                    extras = await queue.pop_due_batch()
-                except Exception as e:
-                    logger.warning(f"[SessionRuntime] Batch drain failed: {e}")
+                if trig.source in EXCLUSIVE_SOURCES:
+                    logger.info(
+                        f"[SessionRuntime] {trig.source} runs alone — not "
+                        f"aggregating other due triggers into it ({session_id})"
+                    )
+                else:
+                    try:
+                        extras = await queue.pop_due_batch(
+                            exclude_sources=EXCLUSIVE_SOURCES
+                        )
+                    except Exception as e:
+                        logger.warning(f"[SessionRuntime] Batch drain failed: {e}")
                 group = [trig] + extras
 
                 if self._service:

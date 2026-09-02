@@ -756,12 +756,22 @@ class ActionRouter:
                 f"Using non-parallelizable action: {non_parallel_name}"
             )
             # Mark other actions as dropped with error
+            kept = 0
+            for action_dict in actions:
+                if action_dict is not non_parallel_action:
+                    kept += 1
             for action_dict in actions:
                 if action_dict is not non_parallel_action:
                     dropped_action = action_dict.copy()
                     dropped_action["_error"] = (
-                        f"Action dropped: cannot run in parallel with non-parallelizable action '{non_parallel_name}'. "
-                        f"Non-parallelizable actions must run alone."
+                        f"Action dropped: '{non_parallel_name}' cannot run in "
+                        f"parallel, so it ran ALONE and the other {kept} "
+                        "action(s) in this batch did not run. Nothing about "
+                        "them failed — re-issue them, ONE non-parallelizable "
+                        "action per turn, after re-reading any state the "
+                        f"'{non_parallel_name}' call just changed. Do not "
+                        "re-send the same multi-action batch: it will be cut "
+                        "the same way."
                     )
                     dropped_actions.append(dropped_action)
             actions = [non_parallel_action]

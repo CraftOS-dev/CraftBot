@@ -112,22 +112,35 @@ YOUR WALK:
    (weather, prices, feeds, "pulled from", "real-time", a scheduled sync)
    OR AI-generated content (an "AI summary", anything the app "generates"
    with a model): rendered data and confirmation toasts are NOT evidence.
-   The fetch happens server-side, so the browser cannot see it — instead
-   grep_files the project's pb/pb_hooks/*.js (excluding _*.js) for
-   "$http.send", "callIntegration", "callLLM" or "cronAdd". Neither present
-   = FAIL for that feature: "displays data but the app fetches nothing —
-   the data cannot be live". An "AI" feature specifically needs "callLLM"
-   (the bridge's LLM helper) or an external LLM call — string-joining
-   records is not AI. If the serving hook instead generates values
-   (Math.random, hardcoded samples), FAIL it and quote the line. Your
-   PASS/FAIL line for such a feature MUST quote the hook evidence
-   ("$http.send"/"callIntegration"/"callLLM"/"cronAdd" plus the line) — a
-   verdict without the quote is rejected. This rule exists because an app
-   once rendered Math.random() as "live weather" and passed review, another
-   passed a "scheduled daily pull" whose hooks contained no fetch, and a
-   third passed an "AI summary" that just listed the items (observed live
-   2026-08-06).
-7. Decide each included feature and end.
+   The fetch happens server-side, so the browser cannot see it — grep_files
+   the project's pb/pb_hooks/*.js (excluding _*.js, the vendored bridge) for
+   "$http.send", "callIntegration", "callLLM", "callAction" or "cronAdd", and
+   satisfy YOURSELF that a real call is reachable from the code serving that
+   feature (a match inside a comment, a string, or a function nothing calls
+   is not one). Nothing present = FAIL for that feature: "displays data but
+   the app fetches nothing — the data cannot be live". An "AI" feature needs
+   "callLLM" or an external LLM call — string-joining records is not AI. If
+   the serving hook generates values instead (Math.random, hardcoded
+   samples), FAIL it and quote the line.
+   How you WRITE the finding is not part of the test. NEVER mark a feature
+   FAIL because of how evidence is cited or phrased — a citation is not a
+   defect, and a FAIL there blocks the deploy of a working app. If you
+   watched the flow work and the call is there, it is a PASS.
+   This rule exists because an app once rendered Math.random() as "live
+   weather" and passed review, another passed a "scheduled daily pull" whose
+   hooks contained no fetch, and a third passed an "AI summary" that just
+   listed the items (observed live 2026-08-06). The requirement to QUOTE the
+   hook was removed on 2026-09-02, after a verifier FAILed an AI feature it
+   had just watched work purely for not phrasing the quote — which blocked a
+   real deploy while the user was told it had shipped.
+7. DISPUTED verdicts — if your query carries a "DISPUTED BY THE BUILDER"
+   block, the builder reproduced that feature and says your last verdict was
+   wrong. It could run the flow repeatedly and read the server log while it
+   did; you saw it once. So exercise each disputed feature yourself and
+   answer the evidence: either FAIL it again citing what YOU observed THIS
+   time (not last time), or change the verdict. Being contradicted is not a
+   reason to dig in, and it is not a reason to fold either.
+8. Decide each included feature and end.
 
 VERDICTS (mechanical, not stylistic):
 V1. PASS a feature ONLY with concrete evidence from an action YOU ran: a
@@ -281,9 +294,16 @@ def _guard_quality(result: str):
             "same line (e.g. 'no account is connected, so \"not connected\" "
             "is the correct display')."
         )
-    # Live/external/scheduled-data PASS without quoted hook evidence: the
-    # browser cannot see server-side fetches — the report must quote the
-    # grep result ($http.send / callIntegration / cronAdd), per step 6.
+    # Live/external/scheduled/AI features: the browser cannot see a
+    # server-side fetch, so a PASS whose report never mentions one anywhere
+    # suggests the verifier judged it on rendered pixels alone.
+    #
+    # The TRIGGER is unchanged from the original guard. The MESSAGE is not:
+    # it used to end "QUOTE the line in your verdict", and on 2026-09-02 a
+    # verifier satisfied that by DOWNGRADING a feature it had watched work to
+    # FAIL — a verdict that promotes nothing, so a working change never
+    # shipped. A guard must not be satisfiable by breaking the thing it
+    # guards, so this one now says what to do in both directions.
     live_pass = _re.search(
         r"^-\s[^\n]*\b(pull|sync|fetch|live|real-?time|bridge|external|"
         r"scheduled|refresh|ai|llm)\b[^\n]*—\s*PASS\b",
@@ -291,15 +311,17 @@ def _guard_quality(result: str):
         _re.MULTILINE | _re.IGNORECASE,
     )
     if live_pass and not _re.search(
-        r"\$http\.send|callIntegration|callLLM|cronAdd", result
+        r"\$http\.send|callIntegration|callLLM|callAction|cronAdd", result
     ):
         return (
             "Verdict REJECTED — a live/external/scheduled/AI-generated "
-            f"feature is marked PASS ('{live_pass.group(0)[:120]}') with no "
-            "quoted hook evidence. Per step 6: grep_files the project's "
-            "pb/pb_hooks/*.js (excluding _*.js) for $http.send / "
-            "callIntegration / callLLM / cronAdd and QUOTE the line in your "
-            "verdict. No implementing code found = that feature is FAIL."
+            f"feature is marked PASS ('{live_pass.group(0)[:120]}') and "
+            "nothing in your report shows the app fetches or generates "
+            "anything server-side. Per step 6, grep_files pb/pb_hooks/*.js "
+            "(excluding _*.js) and settle it: if a real call is reachable "
+            "from the code serving that feature, KEEP the PASS and say what "
+            "you found; if there is none, FAIL it and say that. Do NOT fail "
+            "a feature you watched work in order to clear this check."
         )
     return None
 

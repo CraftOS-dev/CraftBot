@@ -139,6 +139,31 @@ def _exact_symbols_factory(manager, store_dir: Path):
     return symbols_for
 
 
+def _disputed_verdicts(project) -> List[str]:
+    """What the builder reproduced and says the last verdict got wrong.
+
+    A verifier drives a feature once; the builder can run it as many times as
+    it likes, read the server log while it does, and inspect the record
+    afterwards. So when the two disagree, the builder's evidence is worth
+    something, and a verifier repeating a verdict should have to answer it
+    rather than re-run blind. Never raises.
+    """
+    try:
+        from app.factory.host_craftbot import get_factory_host
+
+        machine = get_factory_host().machine_for(project.id)
+        if machine is None:
+            return []
+        return [
+            str(e.get("what", "")).strip()
+            for e in machine.disputed()[-5:]
+            if str(e.get("what", "")).strip()
+        ]
+    except Exception as e:
+        logger.debug(f"[WALK_VERIFY] disputed ledger unavailable: {e}")
+        return []
+
+
 def build_verify_evidence(
     project,
     verify_path: Path,
@@ -205,6 +230,16 @@ def build_verify_evidence(
             blocks.append(
                 "BUILDER'S HINT (a claim by an interested party — read it, do not "
                 "trust it): touches " + "; ".join(hints)
+            )
+        disputes = _disputed_verdicts(project)
+        if disputes:
+            blocks.append(
+                "DISPUTED BY THE BUILDER (it reproduced these and reports the "
+                "last verdict was wrong — its evidence, not mine). Put every "
+                "one IN SCOPE and exercise it yourself. Then either confirm "
+                "the failure with what YOU observed this time, or change the "
+                "verdict. Do not repeat a verdict without answering the "
+                "evidence below:\n  - " + "\n  - ".join(disputes)
             )
         blocks.append(
             "COVERAGE RECORDING: before exercising EACH feature, call "

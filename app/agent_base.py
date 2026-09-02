@@ -1189,6 +1189,85 @@ class AgentBase:
 
         return self._merge_action_outputs(results)
 
+    async def _warn_if_undeployed(self, session) -> None:
+        """A run ending with un-shipped source changes must say so.
+
+        Editing a file is not shipping it: the running app serves whatever the
+        project tree held when it was last launched or promoted, so a run can
+        edit, tick its own "Verify" todo, say "Done" and end while the user
+        looks at the old build. Observed live 2026-09-02 (brainstorm_graph
+        f1eb1c85): three rounds of edits, three "Done" messages, zero deploys,
+        and a user replying "i dont see suggestions" after each one.
+
+        The question "is anything unshipped?" is answered by comparing the
+        tree against the verify baseline, which is stamped in exactly the two
+        places an app ships — Promoter.promote and every live launch. That
+        makes this a CONTENT comparison against the system's own record,
+        rather than a guess assembled from which action names ran: it needs no
+        list of edit actions to maintain, it sees an edit made with `sed`
+        through run_shell, and it cannot disagree with the verifier about what
+        counts as changed, because it reads the same snapshot the verifier does.
+        """
+        project_id = getattr(session, "agent_app_project_id", None)
+        if not project_id:
+            return
+        try:
+            from app.agent_app import get_agent_app_manager
+            from app.factory.host_craftbot import get_factory_host
+
+            mgr = get_agent_app_manager()
+            project = mgr.get_project(project_id) if mgr else None
+            if project is None or not project.path:
+                return
+            if getattr(project, "status", "") == "creating":
+                return  # an unfinished build is the factory arc's business
+            unshipped = await asyncio.to_thread(self._unshipped_fingerprint, project)
+            if unshipped is None:
+                return
+            name = getattr(project, "name", None) or project_id
+            logger.warning(
+                "[AGENT_APP] run ended with un-deployed source changes in "
+                f"{name} ({project_id}) — telling the user."
+            )
+            get_factory_host().announce_undeployed(project_id, str(name))
+        except Exception as e:
+            logger.debug(f"[AGENT_APP] undeployed check skipped: {e}")
+
+    @staticmethod
+    def _unshipped_fingerprint(project) -> Optional[str]:
+        """What the project tree holds that the running app does not.
+
+        Returns a stable digest of the differing files, or None when the tree
+        matches the last thing shipped. A digest rather than a bool so the
+        caller can tell "still the same unshipped work" from "something new",
+        and speak up only for the second.
+
+        Synchronous and hashes the watched tree, so callers run it off the
+        event loop. No baseline means the app has never shipped at all, which
+        is the build arc's problem, not this warning's.
+        """
+        import hashlib
+
+        from app.agent_app.verify_scope import (
+            read_baseline,
+            snapshot_files,
+            verify_store_dir,
+        )
+
+        baseline = read_baseline(verify_store_dir(project))
+        if baseline is None:
+            return None
+        now = snapshot_files(Path(project.path))
+        then = baseline.get("files") or {}
+        if now == then:
+            return None
+        differing = sorted(
+            path for path in set(now) | set(then) if now.get(path) != then.get(path)
+        )
+        return hashlib.sha256(
+            "\n".join(f"{p}:{now.get(p, '-')}" for p in differing).encode()
+        ).hexdigest()[:16]
+
     # Recognises a WRITE through the lui CLI. Reads (list/get) are ignored:
     # they change nothing and need no receipt.
     _LUI_WRITE = re.compile(
@@ -1360,6 +1439,11 @@ class AgentBase:
                 (output.get("fire_at_delay", 0.0) for output in outputs), default=0.0
             ),
             "run_ends": all(output.get("end_turn", False) for output in outputs),
+            # Any action in the batch parking on an answerable question makes
+            # the whole run a wait, not a surrender.
+            "awaiting_answer": any(
+                output.get("awaiting_answer", False) for output in outputs
+            ),
         }
 
         errors = [o for o in outputs if o.get("status") == "error"]
@@ -1387,6 +1471,9 @@ class AgentBase:
             # The claim gate is scoped to a run: what was written for THIS
             # request says nothing about the next one.
             self._lui_run_writes.pop(session.id, None)
+            # Files edited but never deployed: the user hears it from the
+            # system, not from an agent that believes "written" means "live".
+            await self._warn_if_undeployed(session)
             # FACTORY Phase 1 (closes I6): if this run belonged to a Agent App
             # build and the machine says work should be in flight but isn't,
             # the machine redispatches a fresh mission. The agent surrendering
@@ -1397,7 +1484,9 @@ class AgentBase:
                     from app.factory.host_craftbot import get_factory_host
 
                     get_factory_host().on_run_end(
-                        lui_project, (trigger.payload or {}) if trigger else {}
+                        lui_project,
+                        (trigger.payload or {}) if trigger else {},
+                        awaiting_answer=bool(action_output.get("awaiting_answer")),
                     )
             except Exception as e:
                 logger.debug(f"[FACTORY] run-end hook failed: {e}")
@@ -2273,7 +2362,13 @@ class AgentBase:
                         f"  node {_lui_cli} run {proj.path} <op-name> --param value\n"
                         f"If debugging, read {proj.path}/logs/pocketbase.log and logs/frontend_console.log.\n"
                         f"Using the app needs no skill. To CHANGE its code, or import/diagnose one,\n"
-                        f"load the right Agent App skill first (use_skill); list_skills shows all skills."
+                        f"load the right Agent App skill first (use_skill); list_skills shows all skills.\n"
+                        f"EDITING FILES IS NOT SHIPPING THEM. This app serves the last PROMOTED\n"
+                        f"build, so after a code change run\n"
+                        f'  agent_app_notify_ready(project_id="{proj.id}")   # build + boot a dev copy\n'
+                        f'  agent_app_walk_verify(project_id="{proj.id}")    # verify, then PROMOTE\n'
+                        f"The change reaches the user only when walk_verify returns success. Until\n"
+                        f"then the app they are looking at is unchanged, whatever the files say."
                     )
         except Exception:
             pass

@@ -7988,6 +7988,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return
 
+        # A second copy of an app you already have is a legitimate thing to
+        # want, and a very easy thing to install by accident. Either way the
+        # user has to KNOW: the two run on different ports, and work done on
+        # one never appears in the other (observed live 2026-09-02).
+        try:
+            existing = self._agent_app_manager.find_marketplace_installs(app_id)
+        except Exception as e:
+            logger.debug(f"[AGENT_APP] duplicate-install check skipped: {e}")
+            existing = []
+        if existing:
+            logger.warning(
+                f"[AGENT_APP] '{app_id}' is already installed as "
+                + ", ".join(f"{p.name} ({p.id})" for p in existing)
+                + " — installing an additional separate copy."
+            )
+
         # Spawn a placeholder tab immediately so the user sees the install is
         # underway (the install itself is synchronous and can take a while).
         # install_from_marketplace adopts this id so the same tab becomes the
@@ -8035,11 +8051,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Mirror the install into chat as a system message so the request
             # is visible in the conversation (not just the new tab).
             body = f"{app_description}\n\n" if app_description else ""
+            note = "Installed from the marketplace — open it in the new tab."
+            if existing:
+                others = ", ".join(f"**{p.name}**" for p in existing)
+                note = (
+                    "Installed from the marketplace as a **second, separate "
+                    f"copy** — you already have {others}. The two run "
+                    "independently on different ports, so changes I make to "
+                    "one will not appear in the other. Open the new tab to "
+                    "use this copy."
+                )
             try:
                 await self._display_chat_message(
                     "System",
-                    f"**Agent App: {app_name}**\n\n{body}"
-                    "Installed from the marketplace — open it in the new tab.",
+                    f"**Agent App: {app_name}**\n\n{body}{note}",
                     "system",
                 )
             except Exception as e:

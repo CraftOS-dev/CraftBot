@@ -622,11 +622,27 @@ async def agent_app_notify_ready(input_data: dict) -> dict:
                     )
             except Exception:
                 _log_note = ""
+            _smoke = result.get("verify_skipped")
+            _smoke_note = (
+                (
+                    " NOTE: the headless smoke walk did NOT run "
+                    f"({_smoke}) — 'launched' here means the gate and health "
+                    "check passed, nothing more. Do not describe this app as "
+                    "checked until walk_verify has actually driven it."
+                )
+                if _smoke
+                else ""
+            )
+            _checks = (
+                "gate and health checks passed"
+                if _smoke
+                else "gate, health and smoke checks passed"
+            )
             return {
                 "status": "success",
                 "message": (
-                    f"App launched at {url} — gate, health and smoke checks "
-                    f"passed. {env_note}{_dir_note}{spec_note}NOT VERIFIED "
+                    f"App launched at {url} — {_checks}."
+                    f"{_smoke_note} {env_note}{_dir_note}{spec_note}NOT VERIFIED "
                     "YET: now call "
                     f'agent_app_walk_verify(project_id="{project_id}") to run '
                     "the independent verifier against the running app. The "
@@ -1551,7 +1567,10 @@ async def agent_app_report_progress(input_data: dict) -> dict:
         "blocked_question ENDS the build cleanly and puts the question to the "
         "user - use it only for a genuine external blocker (a decision between "
         "designs, an account that is not connected, a credential), never to "
-        "escape a hard bug."
+        "escape a hard bug (it does not carry a dispute - raise that "
+        "separately). disputed records a verdict you REPRODUCED and found "
+        "wrong, so the next verifier re-judges that feature against what you "
+        "observed instead of you editing code that is not broken."
     ),
     default=False,
     mode="CLI",
@@ -1574,6 +1593,18 @@ async def agent_app_report_progress(input_data: dict) -> dict:
                 "sentence each: the theory, and what killed it."
             ),
         },
+        "disputed": {
+            "type": "array",
+            "example": [
+                "AI Explore - ran it on the dev instance, graph went 1 -> 5 "
+                "nodes with AI-written ideas. Not broken."
+            ],
+            "description": (
+                "Verdicts you REPRODUCED and found wrong. Name the feature, "
+                "what you ran, what you saw. Goes to the next verifier. Only "
+                "for a defect you reproduced - never to skip one you have not."
+            ),
+        },
         "blocked_question": {
             "type": "string",
             "example": "Which calendar should new bookings write to?",
@@ -1593,7 +1624,7 @@ async def agent_app_report_progress(input_data: dict) -> dict:
         "recorded": {
             "type": "integer",
             "example": 2,
-            "description": "How many new ruled-out entries were stored.",
+            "description": "How many new ruled-out and disputed entries stored.",
         },
         "state": {
             "type": "string",
@@ -1611,14 +1642,23 @@ def agent_app_report_finding(input_data: dict) -> dict:
     """Record ruled-out causes and/or raise a blocking question."""
     project_id = input_data.get("project_id", "")
     ruled_out = input_data.get("ruled_out") or []
+    disputed = input_data.get("disputed") or []
     question = (input_data.get("blocked_question") or "").strip()
 
     if not project_id:
         return {"status": "error", "message": "project_id is required"}
-    if input_data.get("simulated_mode"):
-        return {"status": "success", "recorded": len(ruled_out), "state": "fixing"}
+    # Coerce BEFORE the simulated-mode return: len() on a bare string counts
+    # characters, so a single-item call reported nonsense.
     if isinstance(ruled_out, str):
         ruled_out = [ruled_out]
+    if isinstance(disputed, str):
+        disputed = [disputed]
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "recorded": len(ruled_out) + len(disputed),
+            "state": "fixing",
+        }
 
     try:
         from app.factory.host_craftbot import get_factory_host
@@ -1655,6 +1695,24 @@ def agent_app_report_finding(input_data: dict) -> dict:
                 ),
             }
         recorded = host.record_ruled_out(project_id, list(ruled_out))
+        challenged = host.record_disputed(project_id, list(disputed))
+        recorded += challenged
+        if challenged:
+            return {
+                "status": "success",
+                "recorded": recorded,
+                "state": machine.state,
+                "message": (
+                    f"{challenged} verdict(s) disputed on the record. Your "
+                    "reasoning goes to the NEXT verifier, which has to "
+                    "re-judge those features against it — so re-run "
+                    f'agent_app_notify_ready(project_id="{project_id}") and '
+                    f'agent_app_walk_verify(project_id="{project_id}") to get '
+                    "a fresh verdict. If it comes back the same way, the "
+                    "disagreement is real: treat the feature as broken and "
+                    "debug it."
+                ),
+            }
         return {
             "status": "success",
             "recorded": recorded,

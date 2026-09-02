@@ -120,6 +120,13 @@ class Machine:
             # are the only part of the state that goes back into a brief.
             "rounds": [],
             "ruled_out": [],
+            # Verdicts a builder investigated and REJECTED on evidence. A
+            # verifier can be wrong, and when it is, the builder is the only
+            # party positioned to notice — it can reproduce the feature. Its
+            # options used to be to edit working code, re-run and hope, or
+            # end the run (which the machine reads as a stall). This is the
+            # third move: say so, on the record, with what you observed.
+            "disputed": [],
             "caps": {
                 "per_stall": self._caps.per_stall,
                 "total_missions": self._caps.total_missions,
@@ -200,6 +207,7 @@ class Machine:
                 "history": list(self._state["history"]),
                 "rounds": list(self._state.get("rounds") or []),
                 "ruled_out": list(self._state.get("ruled_out") or []),
+                "disputed": list(self._state.get("disputed") or []),
             }
         )
         self._state["state"] = state
@@ -212,6 +220,7 @@ class Machine:
         # that no longer exists — archived above, never carried forward.
         self._state["rounds"] = []
         self._state["ruled_out"] = []
+        self._state["disputed"] = []
         self.save()
 
     # ── the arc ────────────────────────────────────────────────────────────
@@ -299,6 +308,44 @@ class Machine:
 
     def ruled_out(self) -> List[Dict[str, Any]]:
         return list(self._state.get("ruled_out") or [])
+
+    def disputed(self) -> List[Dict[str, Any]]:
+        return list(self._state.get("disputed") or [])
+
+    def record_disputed(self, items: List[str], mission: str = "") -> int:
+        """Verdicts a builder reproduced and found to be wrong.
+
+        Kept for the same reason as ruled_out — every later round is a fresh
+        run that remembers nothing — but pointed the other way: ruled_out says
+        "this cause is innocent", disputed says "this VERDICT is". It is also
+        the only entry that travels forward to the VERIFIER, which is the
+        party that has to reconsider (see build_verify_evidence).
+
+        No cap on how often a verdict may be disputed: a dispute is a result,
+        not a stall, so the ordinary round and repeat-failure budgets already
+        apply. A builder that disputes the same feature round after round
+        while it keeps failing escalates exactly like any other repeat.
+        """
+        ledger = self._state.setdefault("disputed", [])
+        seen = {str(e.get("what", "")).strip().lower() for e in ledger}
+        added = 0
+        for raw in items or []:
+            what = str(raw).strip()
+            if not what or what.lower() in seen:
+                continue
+            seen.add(what.lower())
+            ledger.append(
+                {
+                    "what": what[:600],
+                    "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "mission": mission,
+                }
+            )
+            added += 1
+        del ledger[:-20]
+        if added:
+            self.save()
+        return added
 
     def record_ruled_out(self, items: List[str], mission: str = "") -> int:
         """Causes an agent PROVED innocent, kept for every later mission.

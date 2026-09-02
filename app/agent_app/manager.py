@@ -298,6 +298,10 @@ class AgentAppManager:
 
         self.backups = BackupService(self.agent_app_dir)
         self._backup_lock = asyncio.Lock()
+        # ONE launch at a time per project. The watchdog restarts a dead app
+        # on its own schedule while the agent can call notify_ready at any
+        # moment, and both drive the same pipeline over the same ports.
+        self._launch_locks: Dict[str, asyncio.Lock] = {}
         self._live_ops: set = set()  # project ids mid-promote/mid-restore
         self._backups_inflight: set = set()  # ids with a capture task queued/running
         # Pre-promote backup (lifecycle plan deferred issue #1): snapshot the
@@ -458,25 +462,7 @@ class AgentAppManager:
                         retry_counts.pop(project_id, None)
                         continue
 
-                    frontend_dead = (
-                        project.process is not None
-                        and project.process.poll() is not None
-                    )
-                    if not frontend_dead and project.port:
-                        if project.process is None and not self._is_port_in_use(
-                            project.port
-                        ):
-                            frontend_dead = True
-                    # External apps: the in-process proxy keeps the PROJECT
-                    # port alive even when the app behind it dies, so the
-                    # app's own (internal) port is the honest liveness probe.
-                    if (
-                        not frontend_dead
-                        and getattr(project, "project_type", "native") == "external"
-                        and project.internal_port
-                        and not self._is_port_in_use(project.internal_port)
-                    ):
-                        frontend_dead = True
+                    frontend_dead = self._project_is_dead(project)
 
                     if not frontend_dead:
                         # Everything healthy, reset retry counter
@@ -516,28 +502,7 @@ class AgentAppManager:
                     # restart via its own pipeline, not as PocketBase (the
                     # orphaned V1 machinery's sharpest bug: this call used to
                     # hardcode runner.start for every project type).
-                    restart_ok = True
-                    project.process = None
-                    try:
-                        if not project.bridge_token:
-                            project.bridge_token = secrets.token_urlsafe(32)
-                        if getattr(project, "project_type", "native") == "external":
-                            _res = await self._run_external_pipeline(project)
-                            restart_ok = _res.get("status") == "success"
-                            if restart_ok:
-                                project.process = _res.pop("process")
-                        else:
-                            project.process = await self.runner.start(
-                                Path(project.path),
-                                project.port,
-                                bridge_token=project.bridge_token,
-                            )
-                            restart_ok = await self.runner.wait_healthy(project.port)
-                    except Exception as e:
-                        logger.error(
-                            f"[AGENT_APP:WATCHDOG] restart failed for {project_id}: {e}"
-                        )
-                        restart_ok = False
+                    restart_ok = await self._watchdog_restart(project)
 
                     if restart_ok:
                         logger.info(
@@ -689,6 +654,46 @@ class AgentAppManager:
         except Exception:
             pass
 
+    async def _watchdog_restart(self, project: "AgentAppProject") -> bool:
+        """Bring a crashed project back up, without fighting a launch already
+        in flight.
+
+        The delay before this call is a window the agent can walk into: it
+        calls notify_ready, that launch takes the lock, and by the time the
+        watchdog gets it the app is already back. Restarting again from here
+        would kill the app the other launch just started, so re-check liveness
+        once the lock is held and do nothing if it recovered.
+        """
+        async with self._launch_lock(project.id):
+            if not self._project_is_dead(project):
+                logger.info(
+                    f"[AGENT_APP:WATCHDOG] {project.name} ({project.id}) came back "
+                    "while we waited — another launch handled it."
+                )
+                return True
+
+            project.process = None
+            try:
+                if not project.bridge_token:
+                    project.bridge_token = secrets.token_urlsafe(32)
+                if getattr(project, "project_type", "native") == "external":
+                    _res = await self._run_external_pipeline(project)
+                    if _res.get("status") != "success":
+                        return False
+                    project.process = _res.pop("process")
+                    return True
+                project.process = await self.runner.start(
+                    Path(project.path),
+                    project.port,
+                    bridge_token=project.bridge_token,
+                )
+                return await self.runner.wait_healthy(project.port)
+            except Exception as e:
+                logger.error(
+                    f"[AGENT_APP:WATCHDOG] restart failed for {project.id}: {e}"
+                )
+                return False
+
     async def _escalate_crash(self, project_id: str, crash_targets: List[str]) -> None:
         """
         Escalate a crash to the agent by creating a fix task.
@@ -832,6 +837,43 @@ UI in {project.path}/frontend/src/app/."""
         except Exception as e:
             logger.error(f"[AGENT_APP:WATCHDOG] Failed to queue crash-fix run: {e}")
 
+    def find_marketplace_installs(
+        self, app_id: str, exclude_id: str = ""
+    ) -> List["AgentAppProject"]:
+        """Projects already installed from this marketplace app.
+
+        Installing a delivered app again as a SEPARATE project is deliberate
+        (see install_from_marketplace) — the gap is that nothing said so. On
+        2026-09-02 a second Brainstorm Graph was installed mid-session and
+        launched on its own port; every edit in that session went to the
+        first one, so the user was told "Done" three times while looking at a
+        pristine copy that could never contain the work.
+
+        Reads the marketplaceAppId marker install_from_marketplace writes
+        into each project's manifest.json, so apps installed before this
+        check existed are still found.
+        """
+        if not app_id:
+            return []
+        found: List["AgentAppProject"] = []
+        for project in self.projects.values():
+            if project.id == exclude_id or not project.path:
+                continue
+            # A deleted project is gone from self.projects entirely
+            # (delete_project does `del`), so "creating" — a placeholder whose
+            # install has not landed yet — is the only status to skip.
+            if project.status == "creating":
+                continue
+            try:
+                manifest = json.loads(
+                    (Path(project.path) / "manifest.json").read_text(encoding="utf-8")
+                )
+            except Exception:
+                continue
+            if manifest.get("marketplaceAppId") == app_id:
+                found.append(project)
+        return found
+
     def _load_projects(self) -> None:
         """Load projects from persistent storage."""
         if self._projects_file.exists():
@@ -927,13 +969,66 @@ UI in {project.path}/frontend/src/app/."""
                     f"[AGENT_APP] Port {port} in use by external process, skipping"
                 )
                 continue
+            # connect_ex only sees a LISTENER, and nothing binds this port
+            # until much later in the pipeline. Bind-probe too, the way
+            # DevProvisioner._free_port already does, so two launches racing
+            # through that window are not handed the same "free" port.
+            if not self._can_bind(port):
+                logger.warning(f"[AGENT_APP] Port {port} not bindable, skipping")
+                continue
             self._used_ports.add(port)
             return port
         raise RuntimeError("No available ports in the Agent App port range")
 
+    def _launch_lock(self, project_id: str) -> asyncio.Lock:
+        """The per-project launch lock, created on first use.
+
+        Unsynchronised, an agent relaunch and a watchdog restart interleave:
+        the first pops the in-process A2App proxy, the second finds nothing to
+        stop, and whichever reaches `proxy.start()` second gets WinError 10048
+        and then terminates ITS OWN app process — after both have already
+        overwritten project.internal_port, project.process and
+        self._external_proxies[id]. Observed live 2026-09-02 17:06 (opentetris
+        949f0cad): the user's rounded-blocks edit was on disk and the relaunch
+        that would have shipped it died on "A2App adapter failed to bind
+        :3105".
+        """
+        lock = self._launch_locks.get(project_id)
+        if lock is None:
+            lock = self._launch_locks[project_id] = asyncio.Lock()
+        return lock
+
+    def _project_is_dead(self, project: "AgentAppProject") -> bool:
+        """Whether a project marked running has actually stopped serving."""
+        if project.process is not None and project.process.poll() is not None:
+            return True
+        if project.port and project.process is None:
+            if not self._is_port_in_use(project.port):
+                return True
+        # External apps: the in-process proxy keeps the PROJECT port alive
+        # even when the app behind it dies, so the app's own (internal) port
+        # is the honest liveness probe.
+        if (
+            getattr(project, "project_type", "native") == "external"
+            and project.internal_port
+            and not self._is_port_in_use(project.internal_port)
+        ):
+            return True
+        return False
+
     def _release_port(self, port: int) -> None:
         """Release a port back to the pool."""
         self._used_ports.discard(port)
+
+    @staticmethod
+    def _can_bind(port: int) -> bool:
+        """True when 127.0.0.1:<port> can actually be bound right now."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return True
+            except OSError:
+                return False
 
     def _is_port_in_use(self, port: int) -> bool:
         """Check if a port is actually in use on the system."""
@@ -1233,6 +1328,16 @@ UI in {project.path}/frontend/src/app/."""
             logger.warning(
                 f"[AGENT_APP] verify skipped for {project_dir.name}: {verify_detail}"
             )
+            # A skip is not a pass. Carried out of the pipeline so the caller
+            # can say so: the launch message otherwise claims "gate, health
+            # and smoke checks passed" when the smoke walk never ran (it was
+            # skipped on every launch in the 2026-09-02 session — "playwright
+            # not installed" — and nobody downstream ever heard about it).
+            return {
+                "status": "success",
+                "process": process,
+                "verify_skipped": verify_detail or "browser not installed",
+            }
 
         return {"status": "success", "process": process}
 
@@ -1527,6 +1632,18 @@ UI in {project.path}/frontend/src/app/."""
         return False
 
     async def _launch_native(self, project: AgentAppProject) -> dict:
+        """Launch a project, serialized against every other launch of it.
+
+        Every launch that goes through the registry funnels here — the
+        agent's notify_ready and a promote's live boot — so this is where
+        the lock is taken for them. The watchdog does not come through here
+        (it drives the pipeline directly) and takes the same lock itself in
+        _watchdog_restart. See _launch_lock for what happens without it.
+        """
+        async with self._launch_lock(project.id):
+            return await self._launch_native_locked(project)
+
+    async def _launch_native_locked(self, project: AgentAppProject) -> dict:
         """Native launch of the REAL project: the shared pipeline plus registry
         state (status, url, persistence).
 
@@ -1587,12 +1704,15 @@ UI in {project.path}/frontend/src/app/."""
             await self._record_verify_baseline(project)
 
         logger.info(f"[AGENT_APP] {project.name} running at {project.url}")
-        return {
+        envelope = {
             "status": "success",
             "url": project.url,
             "backend_url": project.url,
             "port": project.port,
         }
+        if result.get("verify_skipped"):
+            envelope["verify_skipped"] = result["verify_skipped"]
+        return envelope
 
     async def _record_verify_baseline(self, project: AgentAppProject) -> None:
         """Best-effort, off the event loop; never fails a launch."""

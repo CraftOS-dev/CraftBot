@@ -12,8 +12,12 @@ fire, a run continuation) is distinct work that must be delivered.
 Ordering: a trigger becomes eligible when its ``fire_at`` arrives; among
 eligible triggers ORDER IS THE ONLY RULE — earliest ``fire_at`` first, ties
 broken by insertion order. There is no priority: at claim time the consumer
-drains ALL due triggers (pop_due_batch) and aggregates them into one turn,
-so preemption between kinds is meaningless.
+drains the due triggers (pop_due_batch) and aggregates them into one turn,
+so preemption between kinds is meaningless. The consumer may name sources
+that must not be folded into another turn (``exclude_sources``); those stay
+queued in the same order and are claimed on their own next time round. That
+is still not priority — it buys a trigger its own turn, never an earlier
+one.
 """
 
 from __future__ import annotations
@@ -102,8 +106,8 @@ class SessionTriggerQueue:
                 else:
                     await self._cv.wait()
 
-    async def pop_due_batch(self) -> List[Trigger]:
-        """Pop ALL currently-due triggers, regardless of source.
+    async def pop_due_batch(self, exclude_sources=None) -> List[Trigger]:
+        """Pop currently-due triggers for aggregation into one turn.
 
         Non-blocking companion to get(): after the consumer claims one
         trigger, it drains everything else that is already due (piled up
@@ -111,16 +115,26 @@ class SessionTriggerQueue:
         aggregated into a single turn instead of firing turn-after-turn.
         Not-yet-due triggers stay queued untouched.
 
+        ``exclude_sources`` names sources that must NOT be folded into
+        someone else's turn. They stay queued, in order, and are claimed on
+        their own next time round. The queue still has no priority — this is
+        the consumer saying "not into this turn", not "sooner".
+
         Returns the drained triggers in (fire_at, insertion) order; empty
         when nothing else is due.
         """
+        excluded = set(exclude_sources or ())
         async with self._cv:
             if self._closed or not self._heap:
                 return []
             now = time.time()
             batch: List[tuple] = []
+            held: List[tuple] = []
             while self._heap and self._heap[0][0] <= now:
-                batch.append(heapq.heappop(self._heap))
+                entry = heapq.heappop(self._heap)
+                (held if entry[2].source in excluded else batch).append(entry)
+            for entry in held:
+                heapq.heappush(self._heap, entry)
             return [entry[2] for entry in batch]
 
     async def purge(self, predicate) -> int:
