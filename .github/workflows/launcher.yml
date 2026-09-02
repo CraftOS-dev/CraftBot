@@ -1,0 +1,73 @@
+name: Launcher
+
+# CI for the native launcher in launcher/ (Rust + Slint). The Release
+# workflow builds and ships it; this one catches breakage on the way there,
+# on every platform the launcher is shipped for.
+
+on:
+  push:
+    paths:
+      - "launcher/**"
+      - ".github/workflows/launcher.yml"
+  pull_request:
+    paths:
+      - "launcher/**"
+      - ".github/workflows/launcher.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os_label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os_label: linux
+          - os: windows-latest
+            os_label: windows
+          - os: macos-latest
+            os_label: macos
+
+    defaults:
+      run:
+        working-directory: launcher
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+
+      # Same insurance as the Release workflow: Slint has no C build deps,
+      # but a few crates probe for these headers.
+      - name: Linux build prerequisites
+        if: matrix.os_label == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libfontconfig1-dev
+
+      - name: Format
+        if: matrix.os_label == 'linux'
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        if: matrix.os_label == 'linux'
+        run: cargo clippy --release -- -D warnings
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release

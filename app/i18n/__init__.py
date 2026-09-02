@@ -26,8 +26,9 @@ Add one entry to ``_PROVIDER_DISPLAY`` in agent_core/core/impl/llm/errors.py.
 Adding a new language
 ---------------------
 Drop app/i18n/errors.<lang>.json alongside errors.en.json.  Missing keys
-fall back to "en" automatically.  Packaging picks the file up via the
-errors.*.json glob in packaging/CraftBotAgent.spec.
+fall back to "en" automatically.  No packaging change is needed: the install
+payload is built from the tracked file list (scripts/package_source.py), so
+a committed catalog ships automatically.
 """
 
 from __future__ import annotations

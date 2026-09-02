@@ -1,59 +1,35 @@
 name: craftbot
+
+# Conda provides the RUNTIME and system-level binaries only.
+#
+# Python packages are NOT listed here. They come from
+# requirements/lock-<platform>-<py>.txt, installed into this env by
+# app.provision's python-deps stage — the same lock the pip path and the
+# installer use. This file used to carry its own copy of that list and the
+# two drifted badly, so `install.py --conda` built a broken environment.
+# One list, one lock, no drift.
+
 channels:
   - conda-forge
   - defaults
+
 dependencies:
   - python=3.10.19
   - pip=26.0.1
-  - requests=2.32.5
-  - pyyaml=6.0.3
-  - loguru=0.7.3
-  - nest-asyncio=1.6.0
-  - pymongo=4.16.0
-  - tzlocal=5.3.1
-  - pillow=12.1.1
-  - pytesseract=0.3.13
-  - tesseract=5.5.2
-  - aiohttp=3.13.3
+
   # PINNED: openssl 3.6.3 / 3.5.7 regress the Windows cert-store load
   # (ssl.SSLError ASN1: NOT_ENOUGH_DATA in _load_windows_store_certs, crashes
   # aiohttp at import). Broke 2026-06-22 and AGAIN 2026-08-19 when a nodejs
   # install transitively bumped it — keep this pin, verify before raising:
   #   conda run -n craftbot python -c "import ssl; ssl.create_default_context()"
   - openssl=3.6.2
+
   # Agent App builds: the lui CLI is TypeScript run by Node's native type
   # stripping — needs Node >= 24 (older majors ERR_UNKNOWN_FILE_EXTENSION).
+  # Inside the env this leads PATH when CraftBot runs, so node_runtime
+  # resolves it and the sidecar download is skipped.
   - nodejs>=24
-  - beautifulsoup4=4.14.3
-  - chardet=5.2.0
-  - lxml=6.0.2
-  - scikit-learn=1.7.2
-  - pip:
-      - croniter
-      - openai==2.21.0
-      - google-genai==1.0.0
-      - anthropic==0.83.0
-      - chromadb==1.5.1
-      - tiktoken==0.12.0
-      - langgraph==1.0.9
-      - neo4j==6.1.0
-      - mss==10.1.0
-      - httpx==0.28.1
-      - trafilatura==2.0.0
-      - markdown2==2.5.4
-      - python-docx==1.2.0
-      - fake-useragent==2.2.0
-      - fpdf2==2.8.6
-      - googlesearch-python==1.3.0
-      - pyautogui==0.9.54
-      - pygetwindow==0.0.9
-      - python3-xlib==0.15
-      - tenacity==9.1.4
-      - docling==2.74.0
-      - gradio_client==2.1.0
-      - python-dotenv==1.2.1
-      - watchdog==6.0.0
-      - telethon==1.42.0
-      - playwright==1.58.0
-      - qrcode==8.2
-      - sentence-transformers==6.0.0
+
+  # The tesseract BINARY (pytesseract, the Python wrapper, is in the lock).
+  # Conda is the only one of our install paths that can provide it.
+  - tesseract=5.5.2

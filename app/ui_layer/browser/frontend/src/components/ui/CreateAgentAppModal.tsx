@@ -59,6 +59,7 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   const [installCounts, setInstallCounts] = useState<Map<string, number>>(new Map())
   const [configuringApp, setConfiguringApp] = useState<MarketplaceApp | null>(null)
   const installTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const marketplaceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
 
   // Marketplace filter state
@@ -135,7 +136,10 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
       setCustomValues({})
       setSearchQuery('')
       setSelectedTags(new Set())
-      if (activeTab === 'marketplace' && apps.length === 0) {
+      // isConnected matters: opening straight onto the marketplace tab before
+      // the websocket is up would send the request into a closed socket. The
+      // effect below re-fires once the connection comes up.
+      if (activeTab === 'marketplace' && apps.length === 0 && isConnected) {
         fetchMarketplace()
       }
     }
@@ -152,6 +156,10 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   useEffect(() => {
     const cleanups = [
       onMessage('agent_app_marketplace_list', (data: any) => {
+        if (marketplaceTimeoutRef.current) {
+          clearTimeout(marketplaceTimeoutRef.current)
+          marketplaceTimeoutRef.current = null
+        }
         setMarketplaceLoading(false)
         if (data.success) {
           const appsWithThumbnails = (data.apps || []).map((app: any) => ({
@@ -232,8 +240,18 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
   const fetchMarketplace = useCallback(() => {
     setMarketplaceLoading(true)
     setMarketplaceError(null)
+    // The backend always answers — but only if the socket actually delivered
+    // the request. Without this, a request sent into a closing or not-yet-open
+    // connection leaves the spinner up for ever with nothing to explain it,
+    // which is exactly how this looked when the marketplace "kept loading".
+    if (marketplaceTimeoutRef.current) clearTimeout(marketplaceTimeoutRef.current)
+    marketplaceTimeoutRef.current = setTimeout(() => {
+      marketplaceTimeoutRef.current = null
+      setMarketplaceLoading(false)
+      setMarketplaceError(t('components:createAgentApp.marketplaceFailed'))
+    }, 45000)
     send('agent_app_marketplace_list')
-  }, [send])
+  }, [send, t])
 
   // Derive tag list from catalogue, sorted by frequency (popular first)
   const allTags = useMemo(() => {

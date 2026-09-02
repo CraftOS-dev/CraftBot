@@ -3867,6 +3867,30 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[RESTORE] Failed to enqueue restart notice: {e}")
 
+        self._signal_ready()
+
+    @staticmethod
+    def _signal_ready() -> None:
+        """Announce that boot() has finished, for whoever launched us.
+
+        run.py waits on this before printing the ready banner and opening the
+        browser. It cannot watch our output (we inherit its stdout, so there
+        is nothing for it to read), and it used to settle for "the backend
+        port answers" — which happens long before this line, while the model
+        download, MCP servers, skills and scheduler are still starting. That
+        is why the browser opened at step 2 of 8.
+
+        Best-effort: a failure here must never take down a working agent, so
+        the worst case is falling back to the old timeout behaviour.
+        """
+        try:
+            from app import paths
+
+            paths.AGENT_READY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            paths.AGENT_READY_FILE.write_text(str(os.getpid()), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"[BOOT] Could not write the ready marker: {e}")
+
     def _start_index_prewarm(self) -> None:
         """Warm the find_files index for every local drive in a background thread.
 

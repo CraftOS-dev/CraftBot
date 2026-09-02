@@ -1,0 +1,70 @@
+[package]
+name = "craftbot-launcher"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "CraftBot setup window: a native launcher that installs and runs CraftBot on Windows, macOS and Linux"
+license = "MIT"
+publish = false
+
+# The binary keeps the name every download link, workflow step and support
+# article already uses. Only the technology behind it changed.
+[[bin]]
+name = "CraftBotInstaller"
+path = "src/main.rs"
+
+[dependencies]
+# UI. Slint draws its own widgets, so nothing needs to be present on the
+# user's machine. Both renderers are enabled: femtovg (GPU) is the default
+# and the software renderer is the fallback for machines with no usable
+# OpenGL — Windows Sandbox, most VMs, some remote desktops. That fallback is
+# the difference between "opens a window" and "does nothing when clicked".
+slint = { version = "1.17", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-winit",
+    "renderer-femtovg",
+    "renderer-software",
+    "accessibility",
+] }
+
+# HTTP, blocking. All downloads run on a worker thread, so a synchronous
+# client is the simplest correct choice. rustls: no OpenSSL to find or ship.
+# native-certs: trust the OS certificate store rather than a bundled list, so
+# a corporate TLS-inspecting proxy whose CA is installed on the machine works.
+ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Archives. The source payload is a zip; python-build-standalone is .tar.gz.
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1"
+
+# OS integration.
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+open = "5"
+dirs = "6"
+fs4 = "0.13"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+slint-build = "1.17"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
