@@ -23,3 +23,26 @@ install.bat
 OmniParser_CraftOS
 debug_images
 workspace
+
+# ── Per-machine runtime state — never belongs in an image ──────────────────
+# `COPY . .` takes whatever is in the build context, so without these a local
+# `docker build` bakes in the BUILDER's data and publishes it to every user of
+# the image. CI escapes it only by checking out clean, which makes this a trap
+# that fires exactly once, on someone's laptop.
+#
+# Same failure as the old PyInstaller spec's blanket app/data entry, which
+# shipped 1.1 GB of one machine's memory index and databases.
+app/data/.file_index
+app/data/.usage
+agent_file_system
+chroma_db_memory
+logs
+runtime
+*.db
+.craftbot-managed
+config.json
+wheelhouse
+downloads-cache
+npm-cache
+playwright-browsers
+hf-cache

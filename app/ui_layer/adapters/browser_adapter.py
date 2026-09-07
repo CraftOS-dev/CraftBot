@@ -7919,29 +7919,44 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # Marketplace Handlers
     # =====================
 
-    async def _handle_marketplace_list(self) -> None:
-        """Fetch marketplace catalogue from GitHub."""
-        import urllib.request
+    @staticmethod
+    def _fetch_catalogue(url: str) -> dict:
+        """Blocking fetch + parse of the marketplace catalogue.
+
+        Split out so the caller can run it off the event loop — see
+        _handle_marketplace_list.
+        """
         import json as _json
         import re as _re
+        import ssl
+        import urllib.request
 
+        import certifi
+
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
+        raw = urllib.request.urlopen(req, timeout=15, context=ssl_ctx).read().decode()
+        # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
+        return _json.loads(_re.sub(r",\s*([}\]])", r"\1", raw))
+
+    async def _handle_marketplace_list(self) -> None:
+        """Fetch marketplace catalogue from GitHub."""
         from app.agent_app import marketplace_source
 
         CATALOGUE_URL = marketplace_source.catalogue_url()
 
         try:
-            import ssl
-            import certifi
-
-            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-            req = urllib.request.Request(
-                CATALOGUE_URL, headers={"User-Agent": "CraftBot"}
+            # MUST run off the event loop. urlopen is blocking, and this used
+            # to be called inline in an async handler: a slow fetch froze the
+            # whole loop, so the websocket could neither deliver this reply
+            # nor anything else. `timeout=15` does not bound it either — name
+            # resolution happens before the socket timeout applies, so a DNS
+            # blackhole hangs indefinitely and the UI spinner never resolves.
+            # Every other network call in this module already uses to_thread.
+            catalogue = await asyncio.wait_for(
+                asyncio.to_thread(self._fetch_catalogue, CATALOGUE_URL),
+                timeout=30,
             )
-            response = urllib.request.urlopen(req, timeout=15, context=ssl_ctx)
-            raw = response.read().decode()
-            # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
-            raw = _re.sub(r",\s*([}\]])", r"\1", raw)
-            catalogue = _json.loads(raw)
             # Resolve thumbnails here rather than in the frontend, which would
             # otherwise build them against a hard-coded branch and 404 for any
             # app that only exists on the ref being tested.
@@ -7959,11 +7974,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": {"success": True, "apps": apps},
                 }
             )
+        except asyncio.TimeoutError:
+            # str(TimeoutError()) is "", which would reach the UI as a blank
+            # error and read as "it failed for no reason".
+            await self._broadcast(
+                {
+                    "type": "agent_app_marketplace_list",
+                    "data": {
+                        "success": False,
+                        "error": (
+                            "The marketplace did not respond within 30 seconds. "
+                            "Check your internet connection and try again."
+                        ),
+                        "apps": [],
+                    },
+                }
+            )
         except Exception as e:
             await self._broadcast(
                 {
                     "type": "agent_app_marketplace_list",
-                    "data": {"success": False, "error": str(e), "apps": []},
+                    "data": {
+                        "success": False,
+                        "error": f"{type(e).__name__}: {e}",
+                        "apps": [],
+                    },
                 }
             )
 

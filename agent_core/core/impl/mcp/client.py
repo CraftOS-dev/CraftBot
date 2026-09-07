@@ -7,7 +7,6 @@ connection management, tool discovery, and action registration.
 """
 
 import asyncio
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -17,15 +16,21 @@ from agent_core.core.impl.mcp.server import MCPServerConnection, MCPTool
 
 
 def _default_config_path() -> Path:
-    """Resolve MCP config path relative to the correct base directory."""
-    rel = Path("app") / "config" / "mcp_config.json"
-    if getattr(sys, "frozen", False):
-        # Prefer CWD (bootstrapped, user-editable) over _MEIPASS (bundled)
-        cwd_path = Path.cwd() / rel
-        if cwd_path.exists():
-            return cwd_path
-        return Path(sys._MEIPASS) / rel
-    return Path(__file__).resolve().parent.parent.parent.parent.parent / rel
+    """The user-editable MCP config.
+
+    app.config.APP_CONFIG_PATH is the one authority on where editable config
+    lives. Deriving it from __file__ here was wrong for a managed install:
+    that points into the INSTALL directory, while the copy the user edits is
+    bootstrapped into the per-user state directory. Edits to
+    mcp_config.json would have had no effect, silently.
+
+    (The old code had a frozen branch that read CWD, which happened to be
+    right because run.py chdir'd there — but the agent is no longer frozen,
+    so that branch stopped running and took the correct behaviour with it.)
+    """
+    from app.config import APP_CONFIG_PATH
+
+    return Path(APP_CONFIG_PATH) / "mcp_config.json"
 
 
 DEFAULT_CONFIG_PATH = _default_config_path()

@@ -31,8 +31,6 @@ from typing import Tuple, Optional, Dict, Any
 # and the single resolved Node runtime — see app/node_runtime.py (both are
 # stdlib-only; app/__init__.py is empty, so safe before any deps exist).
 from app import python_runtime
-from app import node_runtime
-from app.node_runtime import MIN_NODE_MAJOR
 
 multiprocessing.freeze_support()
 
@@ -56,6 +54,24 @@ OMNIPARSER_MARKER_FILE = ".omniparser_setup_complete_v1"
 # ==========================================
 # TERMINAL COLORS  (orange/white brand palette)
 # ==========================================
+def _force_utf8_stdio() -> None:
+    """Make stdout/stderr able to carry the glyphs this script prints.
+
+    A Windows console defaults to cp1252, which cannot encode ✓ ⚠ ▓ ░ — and
+    a bare `print` of one raises UnicodeEncodeError. That is not cosmetic: it
+    killed the installer mid-run while printing its OWN Python-version
+    warning, so the user saw a traceback instead of the advice.
+
+    Runs before anything prints. errors="replace" is the backstop for streams
+    that cannot be reconfigured at all (a pipe with a fixed encoding).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def _enable_windows_vtp() -> None:
     """Enable ANSI/VT100 virtual terminal processing on Windows 10+."""
     if sys.platform != "win32":
@@ -338,6 +354,7 @@ def _auto_install_python_310() -> None:
             sys.exit(0)
 
 
+_force_utf8_stdio()
 _enable_windows_vtp()
 _USE_COLOR = sys.stdout.isatty()
 
@@ -931,768 +948,19 @@ def verify_conda_env(env_name: str) -> bool:
         return False
 
 
-def _install_node_sidecar() -> Optional[str]:
-    """Download an official Node build into <BASE_DIR>/runtime/node — no
-    PATH edits, nothing else touched; node_runtime discovery picks it up.
-    Returns the new binary path, or None."""
-    import platform
-    import ssl
-    import tarfile
-    import urllib.request
-    import zipfile
-
-    try:
-        import certifi
-
-        ctx = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        ctx = ssl.create_default_context()
-
-    machine = platform.machine().lower()
-    arch = "arm64" if machine in ("arm64", "aarch64") else "x64"
-    if sys.platform == "win32":
-        suffix, ext = f"win-{arch}", "zip"
-    elif sys.platform == "darwin":
-        suffix, ext = f"darwin-{arch}", "tar.gz"
-    else:
-        suffix, ext = f"linux-{arch}", "tar.xz"
-
-    try:
-        # Latest release of the MIN_NODE_MAJOR line (index is newest-first).
-        req = urllib.request.Request(
-            "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
-        )
-        index = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
-        ver = next(
-            (
-                e["version"]
-                for e in index
-                if e.get("version", "").startswith(f"v{MIN_NODE_MAJOR}.")
-            ),
-            None,
-        )
-        if not ver:
-            print(f"   ⚠ No v{MIN_NODE_MAJOR}.x release found in the Node index")
-            return None
-
-        url = f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
-        dest_root = os.path.join(BASE_DIR, "runtime", "node")
-        os.makedirs(dest_root, exist_ok=True)
-        print(f"   Downloading {url} (may take a minute)...")
-        req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
-        # Stream to disk — the archive is 30-55MB and low-memory VPS
-        # deployments shouldn't hold it in RAM (twice) just to extract it.
-        archive = os.path.join(dest_root, f"_download.{ext}")
-        try:
-            with urllib.request.urlopen(req, timeout=600, context=ctx) as resp:
-                with open(archive, "wb") as fh:
-                    shutil.copyfileobj(resp, fh)
-            if ext == "zip":
-                zipfile.ZipFile(archive).extractall(dest_root)
-            else:
-                # tarfile preserves the executable bits
-                tarfile.open(archive, mode="r:*").extractall(dest_root)
-        finally:
-            try:
-                os.remove(archive)
-            except OSError:
-                pass
-        binary = os.path.join(
-            dest_root,
-            f"node-{ver}-{suffix}",
-            "node.exe" if sys.platform == "win32" else os.path.join("bin", "node"),
-        )
-        return binary if os.path.isfile(binary) else None
-    except Exception as e:
-        print(f"   ⚠ Sidecar Node download failed: {str(e)[:200]}")
-        return None
-
-
-def ensure_nodejs() -> bool:
-    """Use a suitable existing Node (>= MIN_NODE_MAJOR) for everything, else
-    download the sidecar. Resolution and the never-touch-the-system-Node
-    contract live in app/node_runtime.py. On False the install continues
-    with whatever PATH npm exists (frontend and bridge tolerate Node 20),
-    but Agent App stays off until fixed."""
-    rt = node_runtime.resolve(refresh=True)
-    if rt is not None:
-        source = {
-            "override": "CRAFTBOT_NODE",
-            "path": "PATH",
-            "discovered": "a discovered install",
-        }[rt.source]
-        print(
-            f"✓ Node.js {rt.version or '(version unprobed)'} via {source}: "
-            f"{rt.node} — used for all components"
-        )
-        if not (rt.npm or shutil.which("npm")):
-            # A bare node binary (e.g. CRAFTBOT_NODE at a lone executable)
-            # can't install frontend/bridge deps.
-            print("⚠ That Node has no npm beside it and none is on PATH —")
-            print("  frontend/bridge dependency installs below will fail.")
-            print("  Point CRAFTBOT_NODE at a full Node install (bin/ with npm).")
-            return False
-        return True
-
-    print(f"\n🔧 No Node.js >= {MIN_NODE_MAJOR} found — downloading a sidecar copy")
-    print("   (no system changes; any existing Node stays untouched)...")
-    if _install_node_sidecar():
-        rt = node_runtime.resolve(refresh=True)
-        if rt is not None:
-            print(
-                f"✓ Node.js {rt.version or ''} sidecar ready: {rt.node} — "
-                "used for all components"
-            )
-            return True
-
-    print(f"\n⚠ Could not set up Node.js >= {MIN_NODE_MAJOR}.")
-    print("  Browser frontend, WhatsApp bridge and Agent App apps need it. Options:")
-    print(f"    - nvm install {MIN_NODE_MAJOR}   (auto-discovered, default unchanged)")
-    print(f"    - set CRAFTBOT_NODE to a Node >= {MIN_NODE_MAJOR} binary")
-    print(f"    - install Node {MIN_NODE_MAJOR} LTS from https://nodejs.org/")
-    print("  Then re-run: python install.py")
-    return False
-
-
 def ensure_native_runtime() -> None:
-    """OS prerequisites that pip cannot provide for the native wheels
-    (torch, onnxruntime, ...) the memory stack imports at boot.
+    """OS prerequisites for the native wheels (torch, onnxruntime, ...).
 
-    Windows: the Visual C++ 2015-2022 Redistributable — torch's DLLs link
-    against it and a fresh Windows (observed: Windows Sandbox, 2026-08-25)
-    lacks it, dying at first boot with WinError 126 on torch_python.dll.
-    Installed silently when missing (one-time, machine-wide, UAC prompt).
-    Linux: libgomp/libstdc++ (missing on minimal images) — sudo territory,
-    so only a hint. macOS: torch wheels are self-contained."""
-    if sys.platform == "win32":
-        import winreg
-
-        def _redist_installed() -> bool:
-            try:
-                key = winreg.OpenKey(
-                    winreg.HKEY_LOCAL_MACHINE,
-                    r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
-                )
-                installed, _ = winreg.QueryValueEx(key, "Installed")
-                return bool(installed)
-            except OSError:
-                sys32 = os.path.join(
-                    os.environ.get("SystemRoot", r"C:\Windows"), "System32"
-                )
-                return all(
-                    os.path.isfile(os.path.join(sys32, dll))
-                    for dll in (
-                        "msvcp140.dll",
-                        "vcruntime140.dll",
-                        "vcruntime140_1.dll",
-                    )
-                )
-
-        if _redist_installed():
-            print("✓ Visual C++ Redistributable present")
-            return
-        import platform
-        import urllib.request
-
-        arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
-        url = f"https://aka.ms/vs/17/release/vc_redist.{arch}.exe"
-        dest = os.path.join(BASE_DIR, f"vc_redist.{arch}.exe")
-        print(
-            "\n🔧 Visual C++ Redistributable missing — installing (torch needs it)..."
-        )
-        print(f"   {url}  (a UAC prompt may appear)")
-        try:
-            urllib.request.urlretrieve(url, dest)
-            result = run_command(
-                [dest, "/install", "/quiet", "/norestart"],
-                check=False,
-                capture=True,
-                quiet=True,
-                show_error=False,
-            )
-            code = getattr(result, "returncode", None)
-            # 0 = installed, 1638 = a newer version is already present, 3010 = reboot pending
-            if code in (0, 1638, 3010) and _redist_installed():
-                print("✓ Visual C++ Redistributable installed")
-            else:
-                print(
-                    f"⚠ Redistributable installer exited with {code} — install it manually:"
-                )
-                print(f"   {url}")
-        except Exception as e:
-            print(f"⚠ Could not install the Visual C++ Redistributable: {str(e)[:200]}")
-            print(f"   Install it manually: {url}")
-        finally:
-            try:
-                os.remove(dest)
-            except OSError:
-                pass
-    elif sys.platform.startswith("linux"):
-        import ctypes.util
-
-        missing = [
-            name
-            for name, lib in (("libgomp1", "gomp"), ("libstdc++6", "stdc++"))
-            if ctypes.util.find_library(lib) is None
-        ]
-        if missing:
-            print(f"⚠ Missing system libraries torch needs: {', '.join(missing)}")
-            print(
-                f"   Debian/Ubuntu/Kali:  sudo apt-get install -y {' '.join(missing)}"
-            )
-            print("   Fedora/RHEL:         sudo dnf install -y libgomp libstdc++")
-
-
-def verify_native_imports(python_cmd: list) -> bool:
-    """Prove the memory stack's native wheels actually LOAD in the interpreter
-    that will run the service — a pip success only means the files landed.
-    This is the cross-platform half of ensure_native_runtime: whatever the
-    OS-specific gap is, it surfaces here at install time with the fix,
-    instead of as a dead port after "INSTALLATION COMPLETE"."""
-    if os.environ.get("MEMORY_EMBEDDING_MODEL") == "default":
-        return True  # ChromaDB's bundled embedder; torch never loads
-    result = run_command(
-        python_cmd + ["-c", "import torch, sentence_transformers"],
-        check=False,
-        capture=True,
-        quiet=True,
-        show_error=False,
-    )
-    if result is not None and getattr(result, "returncode", 1) == 0:
-        print("✓ Memory embedding stack loads (torch, sentence-transformers)")
-        return True
-    tail = (getattr(result, "stderr", "") or "").strip().splitlines()[-1:] or [
-        "(no output)"
-    ]
-    print("\n✗ The memory embedding stack is installed but does not load:")
-    print(f"   {tail[0][:300]}")
-    if sys.platform == "win32":
-        print("   Usual cause: Visual C++ Redistributable missing/failed —")
-        print("   https://aka.ms/vs/17/release/vc_redist.x64.exe, then re-run install.")
-    elif sys.platform.startswith("linux"):
-        print(
-            "   Usual cause: sudo apt-get install -y libgomp1 libstdc++6, then re-run install."
-        )
-    print("   Escape hatch: set MEMORY_EMBEDDING_MODEL=default (ChromaDB's bundled")
-    print("   embedder, no torch) — memory retrieval quality is lower.")
-    return False
-
-
-def install_playwright_browser(use_conda: bool = False):
-    """Install Playwright Chromium for the agent's browser-automation
-    actions. (The WhatsApp bridge no longer uses a browser — it speaks the
-    protocol directly via Baileys.)"""
-    print("\nInstalling Playwright Chromium browser...")
-    try:
-        if use_conda:
-            conda_cmd = get_conda_command()
-            env_name = get_env_name_from_yml()
-            result = run_command(
-                [
-                    conda_cmd,
-                    "run",
-                    "-n",
-                    env_name,
-                    "python",
-                    "-m",
-                    "playwright",
-                    "install",
-                    "chromium",
-                ],
-                check=False,
-                capture=True,
-                show_error=False,
-            )
-        else:
-            result = run_command(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                check=False,
-                capture=True,
-                show_error=False,
-            )
-        if result and hasattr(result, "returncode") and result.returncode == 0:
-            print("✓ Playwright Chromium installed")
-            return True
-        else:
-            print("⚠ Warning: Playwright browser installation failed")
-            if result and hasattr(result, "stderr") and result.stderr:
-                error_msg = result.stderr[:300].strip()
-                if error_msg:
-                    print(f"  Error details: {error_msg}")
-            print("  Browser-automation actions may not work")
-            print("  You can manually install later with: playwright install chromium")
-            return False
-    except Exception as e:
-        print(f"⚠ Warning: Failed to install Playwright browser: {e}")
-        print("  Browser-automation actions may not work")
-        print("  You can manually install later with: playwright install chromium")
-        return False
-
-
-def _frontend_deps_stale(frontend_dir: str) -> Optional[str]:
-    """Why node_modules does NOT satisfy the current package.json, or None.
-
-    "node_modules exists" only proves npm install ran *once*; it says nothing
-    about whether it ran for the CURRENT manifest. Pulling a branch that adds
-    a dependency (e.g. react-grid-layout in the dashboard revamp) left the old
-    check reporting "already installed" forever. Two real conditions instead:
-
-    1. Every package declared in dependencies/devDependencies resolves to an
-       installed node_modules/<name>/package.json — catches added packages.
-    2. Neither manifest is newer than npm's own install receipt
-       (node_modules/.package-lock.json, rewritten by every npm install) —
-       catches version bumps, which condition 1 can't see.
-
-    Returns a human-readable reason so the caller can say WHY it's installing.
+    The implementation lives in app.provision.verify so the installer shares
+    it. It used to live here, which meant an installer-based machine never
+    ran it and died at first boot with WinError 126 on torch_python.dll —
+    exactly the failure this function was written to prevent.
     """
-    node_modules = os.path.join(frontend_dir, "node_modules")
-    if not os.path.isdir(node_modules):
-        return "node_modules is missing"
+    from app.provision.verify import ensure_native_runtime as _ensure
 
-    try:
-        with open(os.path.join(frontend_dir, "package.json"), encoding="utf-8") as fh:
-            manifest = json.load(fh)
-    except (OSError, ValueError):
-        # Unreadable manifest — run npm install and let npm report the
-        # real problem loudly instead of silently skipping.
-        return "package.json could not be read"
-
-    declared = {
-        **manifest.get("dependencies", {}),
-        **manifest.get("devDependencies", {}),
-    }
-    for name in declared:
-        # Scoped names ("@types/react") nest one directory deeper.
-        pkg_json = os.path.join(node_modules, *name.split("/"), "package.json")
-        if not os.path.isfile(pkg_json):
-            return f"declared dependency '{name}' is not installed"
-
-    receipt = os.path.join(node_modules, ".package-lock.json")
-    if not os.path.isfile(receipt):
-        return "npm's install receipt (node_modules/.package-lock.json) is missing"
-    installed_at = os.path.getmtime(receipt)
-    for filename in ("package.json", "package-lock.json"):
-        path = os.path.join(frontend_dir, filename)
-        if os.path.isfile(path) and os.path.getmtime(path) > installed_at:
-            return f"{filename} changed after the last npm install"
-
-    return None
+    _ensure(log=print)
 
 
-def resolve_npm_cmd(
-    use_conda: bool = False, env_name: Optional[str] = None
-) -> Optional[list]:
-    """Command prefix for npm, or None when no npm is reachable.
-
-    The resolved runtime's npm first (same Node version as everything else);
-    in conda mode the env's npm via `conda run` comes BEFORE any stale PATH
-    npm (the env's Node 24 is what runs the result); plain PATH npm last."""
-    rt = node_runtime.resolve()
-    if rt and rt.npm:
-        return [rt.npm]
-    if use_conda and env_name:
-        conda_cmd = get_conda_command()
-        probe = run_command(
-            [conda_cmd, "run", "-n", env_name, "npm", "--version"],
-            check=False,
-            capture=True,
-            quiet=True,
-            show_error=False,
-        )
-        if probe and hasattr(probe, "returncode") and probe.returncode == 0:
-            print("   Using the conda env's npm")
-            return [conda_cmd, "run", "-n", env_name, "npm"]
-    npm = shutil.which("npm")
-    return [npm] if npm else None
-
-
-def install_browser_frontend(npm_cmd: Optional[list]):
-    """Install npm dependencies for the browser frontend.
-
-    npm_cmd is the command prefix from resolve_npm_cmd, or None when no npm
-    is reachable."""
-    frontend_dir = os.path.join(BASE_DIR, "app", "ui_layer", "browser", "frontend")
-
-    if not os.path.exists(frontend_dir):
-        print(f"\n⚠ Warning: Browser frontend directory not found at {frontend_dir}")
-        print("   Browser interface will not work")
-        return False
-
-    if npm_cmd is None:
-        print("\n⚠ Warning: npm not found in PATH")
-        print("   Browser interface requires Node.js and npm.")
-        print("\n   📥 Install Node.js from: https://nodejs.org/")
-        print(f"      (v{MIN_NODE_MAJOR}+ — Agent App apps need it)")
-        print("\n   After installation:")
-        print("   1. Restart your terminal")
-        print("   2. Run: python install.py")
-        print("\n   Or manually install frontend:")
-        print("      cd app/ui_layer/browser/frontend")
-        print("      npm install")
-        return False
-
-    stale_reason = _frontend_deps_stale(frontend_dir)
-    if stale_reason is None:
-        print("\n✓ Browser frontend dependencies already installed")
-        return True
-
-    # Try to install
-    print(f"\n🔧 Installing browser frontend dependencies ({stale_reason})...")
-    try:
-        result = run_command_with_progress(
-            npm_cmd + ["install"],
-            message="Installing npm packages",
-            cwd=frontend_dir,
-            check=False,
-            env_extras=node_runtime.path_env(),
-        )
-        if result and hasattr(result, "returncode") and result.returncode == 0:
-            print("✓ Browser frontend dependencies installed")
-            return True
-        else:
-            print("\n⚠ Warning: npm install command failed")
-            print("\n   Troubleshooting:")
-            print("   1. Make sure Node.js is installed: node --version")
-            print("   2. Check npm version: npm --version")
-            print("   3. Try manually: cd app/ui_layer/browser/frontend && npm install")
-            print("\n   If you still need help:")
-            print("   - Check Node.js/npm documentation: https://nodejs.org/")
-            print("   - Ensure internet connection is working")
-            return False
-    except Exception as e:
-        print(f"\n⚠ Warning: Failed to install browser frontend: {e}")
-        print("\n   You can manually install with:")
-        print("   cd app/ui_layer/browser/frontend")
-        print("   npm install")
-        return False
-
-
-def install_whatsapp_bridge(npm_cmd: Optional[list]):
-    """Install npm dependencies for the WhatsApp bridge (Baileys).
-
-    The bridge is a Node subprocess speaking WhatsApp's protocol via
-    Baileys — no browser involved. Installing here (instead of lazily at
-    the first bridge start) means the first QR link isn't blocked behind
-    an npm download. Uses the same staleness check as the frontend, so a
-    pulled branch that bumps the Baileys version reinstalls automatically.
-    """
-    bridge_dir = os.path.join(
-        BASE_DIR, "craftos_integrations", "providers", "whatsapp_web"
-    )
-
-    if not os.path.exists(os.path.join(bridge_dir, "package.json")):
-        print(f"\n⚠ Warning: WhatsApp bridge directory not found at {bridge_dir}")
-        print("   WhatsApp integration will not work")
-        return False
-
-    if npm_cmd is None:
-        # install_browser_frontend already walks the user through Node.js
-        # installation; keep this message short.
-        print("\n⚠ Warning: npm not found — WhatsApp bridge dependencies skipped")
-        print("   After installing Node.js, run:")
-        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
-        return False
-
-    stale_reason = _frontend_deps_stale(bridge_dir)
-    if stale_reason is None:
-        print("\n✓ WhatsApp bridge dependencies already installed")
-        return True
-
-    print(f"\n🔧 Installing WhatsApp bridge dependencies ({stale_reason})...")
-    try:
-        result = run_command_with_progress(
-            npm_cmd + ["install"],
-            message="Installing WhatsApp bridge (Baileys)",
-            cwd=bridge_dir,
-            check=False,
-            env_extras=node_runtime.path_env(),
-        )
-        if result and hasattr(result, "returncode") and result.returncode == 0:
-            print("✓ WhatsApp bridge dependencies installed")
-            return True
-        print("\n⚠ Warning: npm install for the WhatsApp bridge failed")
-        print("   WhatsApp integration will not work until it succeeds:")
-        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
-        return False
-    except Exception as e:
-        print(f"\n⚠ Warning: Failed to install WhatsApp bridge deps: {e}")
-        print("   You can manually install with:")
-        print("     cd craftos_integrations/providers/whatsapp_web && npm install")
-        return False
-
-
-def setup_pip_environment(requirements_file: str = REQUIREMENTS_FILE):
-    try:
-        if not os.path.exists(requirements_file):
-            print(f"Error: {requirements_file} not found.")
-            sys.exit(1)
-
-        print("🔧 Installing core dependencies...")
-
-        # Setup environment with TMPDIR for pip cache management
-        # This helps on systems with limited space or PEP 668 issues
-        my_env = os.environ.copy()
-        tmp_dir = os.path.expanduser("~/pip-tmp")
-        my_env["TMPDIR"] = tmp_dir
-        # Disable pip's rich/colored output so it falls back to plain text.
-        # This prevents pip's vendored rich library from crashing on Windows
-        # terminals with encoding issues (common on Python 3.14+).
-        my_env["NO_COLOR"] = "1"
-        my_env["FORCE_COLOR"] = "0"
-        my_env["PYTHONIOENCODING"] = "utf-8"
-
-        # Create temp directory if it doesn't exist
-        os.makedirs(tmp_dir, exist_ok=True)
-
-        # First attempt with standard pip install
-        # --no-color keeps output plain and avoids rich console crashes
-        cmd = [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--no-color",
-            "-r",
-            requirements_file,
-        ]
-        result = run_command_with_progress(
-            cmd,
-            message="Installing core dependencies",
-            check=False,
-            env_extras={
-                "TMPDIR": tmp_dir,
-                "NO_COLOR": "1",
-                "FORCE_COLOR": "0",
-                "PYTHONIOENCODING": "utf-8",
-            },
-        )
-
-        if result and hasattr(result, "returncode") and result.returncode != 0:
-            # Check error output
-            error_output = ""
-            if hasattr(result, "stderr"):
-                error_output = result.stderr
-            elif hasattr(result, "stdout"):
-                error_output = result.stdout
-
-            # Check for disk space errors
-            if (
-                "no space left on device" in error_output.lower()
-                or "disk full" in error_output.lower()
-            ):
-                print("\n❌ DISK SPACE ERROR - No space left on device\n")
-                print(
-                    "This is a common issue on Kali Linux when installing large packages.\n"
-                )
-                print("Immediate fixes:\n")
-                print("1. Clear pip cache (usually frees 1-5 GB):")
-                print("   pip cache purge\n")
-                print("2. Clear npm cache (if installed):")
-                print("   npm cache clean --force\n")
-                print("3. Use alternate disk with more space:")
-                mkdir_cmd = (
-                    "/mnt/external/pip-tmp" if sys.platform != "win32" else "D:/pip-tmp"
-                )
-                print(f"   mkdir -p {mkdir_cmd}")
-                print(f"   TMPDIR={mkdir_cmd} python install.py\n")
-                print("4. Check disk usage:")
-                check_cmd = "du -sh ~/*" if sys.platform != "win32" else "dir /-s C:\\"
-                print(f"   {check_cmd}\n")
-                suggest_cleanup_steps()
-                sys.exit(1)
-
-            # Check for PEP 668 error
-            if (
-                "externally-managed-environment" in error_output
-                or "externally managed" in error_output
-            ):
-                print("\n⚠️  PEP 668 Error Detected (externally-managed-environment)\n")
-                print(
-                    "This usually happens on Kali Linux or other systems with managed Python."
-                )
-                print("\nOptions to fix:\n")
-                print("Option 1 (Recommended): Use a virtual environment")
-                print("  python3 -m venv craftbot-env")
-                print("  source craftbot-env/bin/activate  # On Linux/macOS")
-                print("  .\\craftbot-env\\Scripts\\activate  # On Windows")
-                print("  python install.py\n")
-
-                print("Option 2: Use conda (recommended for data science projects)")
-                print("  python install.py --conda\n")
-
-                print("Option 3: Break system packages (not recommended)")
-                print("  Retrying with --break-system-packages flag...\n")
-
-                # Retry with --break-system-packages
-                cmd_with_flag = [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--no-color",
-                    "--break-system-packages",
-                    "-r",
-                    requirements_file,
-                ]
-                result = run_command_with_progress(
-                    cmd_with_flag,
-                    message="Retrying installation",
-                    check=False,
-                    env_extras={
-                        "TMPDIR": tmp_dir,
-                        "NO_COLOR": "1",
-                        "FORCE_COLOR": "0",
-                        "PYTHONIOENCODING": "utf-8",
-                    },
-                )
-
-                if result and hasattr(result, "returncode") and result.returncode == 0:
-                    print(
-                        "✓ Core dependencies installed (with --break-system-packages)"
-                    )
-                else:
-                    print("\n✗ Installation failed even with --break-system-packages")
-                    if hasattr(result, "stderr") and result.stderr:
-                        print(f"\nError: {result.stderr[:500]}")
-                    print("\nPlease use Option 1 or Option 2 above.")
-                    sys.exit(1)
-            else:
-                _pip_env = {
-                    "TMPDIR": tmp_dir,
-                    "NO_COLOR": "1",
-                    "FORCE_COLOR": "0",
-                    "PYTHONIOENCODING": "utf-8",
-                }
-                _ver = sys.version_info
-
-                # On pre-release Python (3.14+), many packages only have wheels
-                # under --pre.  Try that automatically before giving up.
-                if _ver >= (3, 14):
-                    print(
-                        f"\n⚠  Python {_ver.major}.{_ver.minor} detected (pre-release)."
-                    )
-                    print("   Retrying with --pre to pick up pre-release wheels...")
-                    cmd_pre = [
-                        sys.executable,
-                        "-m",
-                        "pip",
-                        "install",
-                        "--no-color",
-                        "--pre",
-                        "-r",
-                        requirements_file,
-                    ]
-                    result = run_command_with_progress(
-                        cmd_pre,
-                        message="Retrying (--pre)",
-                        check=False,
-                        env_extras=_pip_env,
-                    )
-                    if (
-                        result
-                        and hasattr(result, "returncode")
-                        and result.returncode == 0
-                    ):
-                        print("✓ Core dependencies installed (--pre)")
-                        return
-
-                    # Second retry: prefer binary wheels, fall back to source only when needed.
-                    # --prefer-binary is much safer than --only-binary=:all: because it still
-                    # allows source builds for packages that genuinely have no wheel yet.
-                    print(
-                        "   Retrying with --prefer-binary to favour wheels over source builds..."
-                    )
-                    cmd_bin = [
-                        sys.executable,
-                        "-m",
-                        "pip",
-                        "install",
-                        "--no-color",
-                        "--pre",
-                        "--prefer-binary",
-                        "-r",
-                        requirements_file,
-                    ]
-                    result = run_command_with_progress(
-                        cmd_bin,
-                        message="Retrying (prefer-binary)",
-                        check=False,
-                        env_extras=_pip_env,
-                    )
-                    if (
-                        result
-                        and hasattr(result, "returncode")
-                        and result.returncode == 0
-                    ):
-                        print("✓ Core dependencies installed (prefer-binary)")
-                        return
-
-                # Show as much context as possible then give up
-                print("\n✗ Error installing core dependencies:")
-                err_text = ""
-                if hasattr(result, "stderr") and result.stderr:
-                    err_text = result.stderr.strip()
-                if hasattr(result, "stdout") and result.stdout and not err_text:
-                    err_text = result.stdout.strip()
-                if err_text:
-                    print(err_text[:2000])
-
-                if _ver >= (3, 14):
-                    print(
-                        f"\n   Python {_ver.major}.{_ver.minor} is pre-release; some packages"
-                    )
-                    print(
-                        "   may not yet ship wheels for it. The safest fix is to install"
-                    )
-                    print(
-                        "   Python 3.11 or 3.12 from https://www.python.org/downloads/"
-                    )
-                    print("   and re-run: python install.py")
-
-                print("\nTroubleshooting:")
-                print(
-                    "  1. Check for disk space: "
-                    + ("df -h" if sys.platform != "win32" else "dir C:\\")
-                )
-                print("  2. Clear pip cache: pip cache purge")
-                print("  3. Check your internet connection")
-                print("  4. Try: pip install --upgrade pip")
-                print("  5. Try with conda: python install.py --conda")
-                sys.exit(1)
-        else:
-            print("✓ Core dependencies installed")
-
-        # Quick import smoke-test: verify that the most critical packages are
-        # actually importable with the current interpreter.  pip can report
-        # returncode 0 yet leave some packages missing (e.g. version conflicts,
-        # wrong interpreter, PEP 668 partial installs).
-        _critical = ["openai", "anthropic", "requests", "aiohttp", "websockets"]
-        _missing = []
-        for _pkg in _critical:
-            chk = subprocess.run(
-                [sys.executable, "-c", f"import {_pkg}"],
-                capture_output=True,
-            )
-            if chk.returncode != 0:
-                _missing.append(_pkg)
-        if _missing:
-            print("\n  ✗ Import check failed — these packages are not importable:")
-            for _m in _missing:
-                print(f"    • {_m}")
-            print("\n  This usually means pip installed them for a different Python")
-            print(f"  interpreter. Current interpreter: {sys.executable}")
-            print("\n  Fix: re-run with the correct Python:")
-            print(f"    {sys.executable} install.py")
-            sys.exit(1)
-        print("  ✓ Import check passed")
-    except Exception as e:
-        print(f"\n✗ Exception during setup: {e}")
-        raise
-
-
-# ==========================================
-# OMNIPARSER SETUP (GUI Mode)
-# ==========================================
 def setup_omniparser(force_cpu: bool, use_conda: bool):
     """Install OmniParser for GUI mode support."""
 
@@ -2475,63 +1743,79 @@ if __name__ == "__main__":
 
     # After user choice, setup the appropriate environment
     env_name = None
+    # Conda creates the ENV (interpreter, openssl, node, tesseract). It no
+    # longer installs Python packages — environment.yml carried a second,
+    # drifted copy of the dependency list. The lock is installed into whatever
+    # environment we end up with, by the python-deps stage below, so both
+    # modes converge on the same package set.
     if use_conda:
         env_name = get_env_name_from_yml()
         setup_conda_environment(env_name)
         print("✓ Verifying conda environment...")
         verify_conda_env(env_name)
         print("✓ Environment verified\n")
-    else:
-        setup_pip_environment()
-        print()
 
     # Record the interpreter the dependencies went into. craftbot.py may have
     # launched us under a different Python (a fresh box's only `python` is
     # often 3.13/3.14 — the version gate above re-execs us under 3.10); its
     # verify / start / auto-start must use THIS one, not the launcher's.
+    # Placeholder — overwritten below with whatever the python stage actually
+    # resolved, which may be a downloaded sidecar rather than the interpreter
+    # running this script.
     save_config_value("python_executable", sys.executable)
 
     # Native prerequisites + proof the memory stack loads in the SERVICE
     # interpreter. Hard stop on failure: the backend cannot boot without it,
     # and "INSTALLATION COMPLETE" followed by a dead port is worse than a
     # clear error here.
-    ensure_native_runtime()
+    ensure_native_runtime()  # OS-level prerequisites (apt/brew), not packages
+
+    # Everything else — the locked package set, the embedding stack check,
+    # Node, both npm trees, Playwright — is provisioned by app.provision: the
+    # SAME pipeline craftbot.py and the installer wizard run. Each entry point
+    # used to carry its own copy of these steps, and they drifted; the
+    # installer never ran the Node sidecar download at all, so an
+    # installer-only machine had no Node and Agent App could not start.
+    # See docs/plans/unified-install-architecture.md.
+    from app import provision
+
     _service_python = (
         [get_conda_command(), "run", "-n", env_name, "python"]
         if use_conda
         else [sys.executable]
     )
-    if not verify_native_imports(_service_python):
-        sys.exit(1)
+    _ctx = provision.default_context(
+        service_python=_service_python,
+        conda_env=env_name if use_conda else None,
+    )
+    _report = provision.install(log=print, ctx=_ctx)
 
-    # Node.js: one runtime for everything — use a suitable existing Node
-    # (>= MIN_NODE_MAJOR via CRAFTBOT_NODE/PATH/nvm/fnm/volta/sidecar) or
-    # download the sidecar; never touch the system Node. Conda mode skips
-    # this: environment.yml ships nodejs>=24 inside the env, which leads
-    # PATH when CraftBot runs and becomes that runtime.
-    if not use_conda:
-        ensure_nodejs()
-    npm_cmd = resolve_npm_cmd(use_conda, env_name)
+    # The python stage may have resolved a DIFFERENT interpreter than the one
+    # running install.py — a downloaded sidecar, or a matching Python found on
+    # PATH. Everything downstream (verify, start, auto-start) must use that
+    # one, so record it over the placeholder written above.
+    _resolved = dict(_report.results).get("python")
+    if _resolved is not None and _resolved.data.get("python"):
+        save_config_value("python_executable", _resolved.data["python"])
 
-    # Install Playwright browser (needed for browser-automation actions)
-    install_playwright_browser(use_conda=use_conda)
-
-    # Install browser frontend dependencies — required for browser mode
-    frontend_ok = install_browser_frontend(npm_cmd)
-
-    # Install the WhatsApp bridge's npm deps (Baileys) so the first QR
-    # link isn't blocked behind an npm download.
-    install_whatsapp_bridge(npm_cmd)
-    if not frontend_ok:
-        print(f"\n  {RED}✗{RESET} {WHITE}Browser frontend setup failed.{RESET}")
+    if not _report.ok:
+        print(f"\n  {RED}[x]{RESET} {WHITE}Setup incomplete.{RESET}\n")
+        print(provision.format_report(_report))
         print(
-            "  Browser mode (localhost:7925) will not work until Node.js is installed"
+            "\n  Re-run `python install.py` to retry — every stage is idempotent,"
+            "\n  so the parts that already succeeded are not redone."
         )
-        print("  and 'npm install' succeeds in app/ui_layer/browser/frontend/")
-        print("\n  Fix:")
-        print("    1. Install Node.js LTS from https://nodejs.org/")
-        print("    2. Re-run: python install.py")
-        sys.exit(1)
+        # Only a required stage is fatal. An optional one (Playwright, the
+        # WhatsApp bridge) degrades a feature; taking the whole install down
+        # for it would be worse than starting without it.
+        _required_failed = [
+            name
+            for name, res in _report.results
+            if not res.ok
+            and name in ("python", "python-deps", "native-runtime", "smoke", "frontend")
+        ]
+        if _required_failed:
+            sys.exit(1)
 
     # Step 2: Install GUI components (optional)
     if install_gui:

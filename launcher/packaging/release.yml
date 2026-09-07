@@ -128,7 +128,7 @@ jobs:
   # ──────────────────────────────────────────────
   # The launcher: one native binary per platform, built from launcher/.
   #
-  # This replaced the old Python/Tk installer window. A native binary is one
+  # This replaced the PyInstaller-built Tk window. A native binary is one
   # process with no bootloader and no unpacking step, which is what fixed the
   # macOS bundle (two Dock icons, an inactive window, dropped taps). It needs
   # no Python, Node or web runtime on the user's machine: it downloads the
