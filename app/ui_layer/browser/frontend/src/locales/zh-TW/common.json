@@ -76,6 +76,7 @@
     "quota": "配額",
     "model": "模型",
     "badRequest": "請求",
+    "contextOverflow": "超出上下文視窗",
     "blocked": "已封鎖",
     "server": "服務無法使用",
     "connection": "連線",

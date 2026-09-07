@@ -16,8 +16,8 @@
     "processing_threshold": 23
   },
   "context": {
-    "stream_fraction_of_window": 0.5,
-    "tail_keep_fraction": 0.4
+    "reserve_tokens": 16384,
+    "keep_recent_tokens": 20000
   },
   "model": {
     "slow_mode": true,

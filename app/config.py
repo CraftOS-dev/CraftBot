@@ -75,13 +75,11 @@ def invalidate_settings_cache() -> None:
     _settings_cache = None
 
 
-# Event-stream summarization thresholds are derived from three settings:
-#   model.context_window               the model's window, in tokens
-#   context.stream_fraction_of_window  share of the window the event stream may
-#                                      use before it is summarized; the rest is
-#                                      the system prompt, the prompt wrapper and
-#                                      the output reservation
-#   context.tail_keep_fraction         share of that threshold kept after a fold
+# Context budget settings. The decision to summarize the event stream is made
+# on the WHOLE request (see ActionRouter / LLMInterface.fits_context):
+#   model.context_window        the model's window, in tokens
+#   context.reserve_tokens      headroom the summary request itself needs
+#   context.keep_recent_tokens  recent events kept verbatim after a fold
 # A key that is absent takes the shipped value from _get_default_settings();
 # a key that is present but invalid is a ConfigurationError.
 
@@ -104,8 +102,8 @@ def _get_default_settings() -> Dict[str, Any]:
         "proactive": {"enabled": True},
         "memory": {"enabled": True},
         "context": {
-            "stream_fraction_of_window": 0.5,
-            "tail_keep_fraction": 0.4,
+            "reserve_tokens": 16384,
+            "keep_recent_tokens": 20000,
         },
         "model": {
             "llm_provider": "anthropic",
@@ -237,24 +235,21 @@ def get_context_window() -> int:
     return value
 
 
-def _get_context_fraction(key: str) -> float:
-    """settings.json ``context.<key>``, a number strictly between 0 and 1."""
-    value = _setting("context", key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value < 1:
-        raise ConfigurationError(
-            f"settings.json context.{key} must be a number between 0 and 1 (exclusive)."
-        )
-    return float(value)
+def _get_positive_int(section: str, key: str) -> int:
+    value = _setting(section, key)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ConfigurationError(f"settings.json {section}.{key} must be a positive integer.")
+    return value
 
 
-def get_context_limits() -> Tuple[int, int]:
-    """Event-stream summarization thresholds, derived from settings.json.
+def get_reserve_tokens() -> int:
+    """Headroom kept free for the summary request (context.reserve_tokens)."""
+    return _get_positive_int("context", "reserve_tokens")
 
-    Returns ``(summarize_at_tokens, tail_keep_after_summarize_tokens)``:
-    ``window * stream_fraction_of_window`` and ``that * tail_keep_fraction``.
-    """
-    summarize_at = int(get_context_window() * _get_context_fraction("stream_fraction_of_window"))
-    return summarize_at, int(summarize_at * _get_context_fraction("tail_keep_fraction"))
+
+def get_keep_recent_tokens() -> int:
+    """Recent event-stream tokens kept verbatim after a fold (context.keep_recent_tokens)."""
+    return _get_positive_int("context", "keep_recent_tokens")
 
 
 def get_llm_provider() -> str:

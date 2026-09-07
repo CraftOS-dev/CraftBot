@@ -9,7 +9,6 @@ The event stream maintains:
 APIs:
   log(kind, message, severity="INFO") -> int (event index)
   to_prompt_snapshot(max_events=60, include_summary=True) -> str
-  summarize_if_needed()  # auto-rollup when thresholds exceeded
   summarize_by_rule()        # force summarization of oldest chunk
   summarize_by_LLM()        # force summarization of oldest chunk
 """
@@ -32,8 +31,8 @@ import threading
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
 
 
-def _configured_context_limits() -> Tuple[int, int]:
-    """Read the summarization thresholds from settings.json.
+def _configured_keep_recent_tokens() -> int:
+    """Read context.keep_recent_tokens from settings.json.
 
     app.config owns the defaults and already absorbs a missing file, bad JSON
     and out-of-range values, so there is nothing left to guard here — a raised
@@ -48,9 +47,9 @@ def _configured_context_limits() -> Tuple[int, int]:
     Read once per stream, so a settings.json edit applies to sessions created
     after it; the main session's stream needs a restart.
     """
-    from app.config import get_context_limits
+    from app.config import get_keep_recent_tokens
 
-    return get_context_limits()
+    return get_keep_recent_tokens()
 
 
 # Messages longer than this are externalized to a temp file and replaced with a
@@ -117,34 +116,16 @@ class EventStream:
         llm: LLMInterfaceProtocol,
         temp_dir: Path | None = None,
     ) -> None:
-        # Thresholds come from settings.json — there is no per-stream override,
-        # so every session folds on the same rules. Tests pin them by patching
-        # _configured_context_limits (see the event_stream_limits fixture).
-        summarize_at_tokens, tail_keep_after_summarize_tokens = (
-            _configured_context_limits()
-        )
-
+        # The stream never decides to fold on its own. The router asks for a
+        # fold (summarize_by_LLM) when the NEXT REQUEST would not fit the
+        # context budget; the only stream-side setting is how much recent
+        # history a fold keeps. Tests pin it by patching
+        # _configured_keep_recent_tokens (see the event_stream_limits fixture).
         self.head_summary: Optional[str] = None
         self.llm = llm
         self.tail_events: List[EventRecord] = []
-        self.summarize_at_tokens = summarize_at_tokens
-        self.tail_keep_after_summarize_tokens = tail_keep_after_summarize_tokens
+        self.tail_keep_after_summarize_tokens = _configured_keep_recent_tokens()
         self.temp_dir = temp_dir
-
-        MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION = 2000
-        if (
-            tail_keep_after_summarize_tokens
-            + MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION
-            > summarize_at_tokens
-        ):
-            logger.warning(
-                f"[EventStream] Value for tail_keep_after_summarize_tokens ({tail_keep_after_summarize_tokens}) "
-                f"is too large relative to summarize_at_tokens ({summarize_at_tokens}). "
-                f"Resetting tail_keep_after_summarize_tokens to {summarize_at_tokens - MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION}"
-            )
-            self.tail_keep_after_summarize_tokens = (
-                summarize_at_tokens - MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION
-            )
 
         self._lock = threading.RLock()
         self._total_tokens: int = 0
@@ -320,7 +301,6 @@ class EventStream:
             self._total_tokens += get_cached_token_count(rec)
             # Summarization runs inside the lock - blocks other log() calls
             # until summarization completes
-            self.summarize_if_needed()
             return len(self.tail_events) - 1
 
     # Convenience wrappers for common event families (optional use)
@@ -385,21 +365,6 @@ class EventStream:
                 f"(action={action_name or 'n/a'}, temp_dir={self.temp_dir})",
             )
             return message
-
-    def summarize_if_needed(self) -> None:
-        """
-        Trigger summarization when the tail token count exceeds the configured threshold.
-
-        This is a SYNCHRONOUS blocking call - if summarization is needed, it runs
-        immediately and waits for completion before returning.
-        """
-        if self._total_tokens < self.summarize_at_tokens:
-            return
-
-        logger.debug(
-            f"[EventStream] Triggering summarization: {self._total_tokens} tokens >= {self.summarize_at_tokens} threshold"
-        )
-        self.summarize_by_LLM()
 
     def _find_token_cutoff(self, events: List[EventRecord], keep_tokens: int) -> int:
         """
@@ -510,8 +475,6 @@ class EventStream:
         # verbatim BEFORE deciding whether an LLM call is warranted — that alone
         # often drops the stream back under the threshold for free.
         if self._shrink_pinned_oversize(cutoff):
-            if self._total_tokens < self.summarize_at_tokens:
-                return
             # Budget changed; the fold boundary moves with it.
             cutoff = self._find_token_cutoff(
                 self.tail_events, self.tail_keep_after_summarize_tokens

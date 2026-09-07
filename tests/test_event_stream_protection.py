@@ -24,7 +24,7 @@ class _FakeLLM:
 def test_requirements_survive_summarization(event_stream_limits):
     assert "requirements" in PROTECTED_SUMMARY_KINDS
 
-    event_stream_limits(2100, 100)  # min allowed given the 2000 internal buffer
+    event_stream_limits(100)
     es = EventStream(llm=_FakeLLM())
 
     # The protected contract, logged FIRST so it becomes the oldest event.
@@ -39,6 +39,7 @@ def test_requirements_survive_summarization(event_stream_limits):
             f"action {i} completed and produced some output text to add tokens",
         )
 
+    es.summarize_by_LLM()
     kinds = [r.event.kind for r in es.tail_events]
 
     # Summarization actually happened (old filler collapsed into the summary)…
@@ -56,7 +57,7 @@ def test_requirements_survive_summarization(event_stream_limits):
 def test_protected_only_region_is_noop(event_stream_limits):
     # If the only summarizable-aged content is protected, nothing is collapsed
     # (and it doesn't crash).
-    event_stream_limits(2100, 100)
+    event_stream_limits(100)
     es = EventStream(llm=_FakeLLM())
     es.log("requirements", "\n  [ ] x: y\n         done_when: z")
     es.summarize_by_LLM()  # force; region is tiny + protected

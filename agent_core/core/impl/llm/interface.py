@@ -70,6 +70,16 @@ _llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
 )
 
 
+# Session key of the session call in flight. Set by the public session entry
+# points and read by _report_usage_async, so the input count the provider
+# reports lands on the right session. A ContextVar rather than an attribute:
+# asyncio.to_thread copies the context into the worker thread, and concurrent
+# sessions run in separate contexts, so they never see each other's value.
+_active_session_key: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "_active_session_key", default=None
+)
+
+
 class LLMContextOverflowError(RuntimeError):
     """The assembled request does not fit the configured context window.
 
@@ -280,6 +290,9 @@ class LLMInterface:
         # message shape inside is whatever that provider's session branch
         # builds; the container itself knows nothing about providers.
         self._session_histories: Dict[str, List[dict]] = {}
+        # Input tokens the provider reported for each session's last request:
+        # the exact size of the context that request carried.
+        self._last_input_tokens: Dict[str, int] = {}
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -430,6 +443,7 @@ class LLMInterface:
                 # providers, so the accumulated histories aren't reusable.
                 self._session_system_prompts = {}
                 self._session_histories = {}
+                self._last_input_tokens = {}
 
             # Reinitialize Gemini cache manager
             if self._gemini_client:
@@ -480,6 +494,9 @@ class LLMInterface:
         cached_tokens: int = 0,
     ) -> None:
         """Report usage asynchronously if hook is set."""
+        session_key = _active_session_key.get()
+        if session_key is not None:
+            self._last_input_tokens[session_key] = input_tokens
         if not self._report_usage:
             return
 
@@ -852,6 +869,14 @@ class LLMInterface:
                 # served fallback turn is a success; an exhausted (or
                 # unconfigured) chain falls through to the exact historical
                 # failure path below.
+                if (
+                    error_info is not None
+                    and error_info.category == ErrorCategory.CONTEXT_OVERFLOW
+                ):
+                    # The provider refused the request for size. Not a provider
+                    # failure, and a fallback provider would get the same payload:
+                    # surface it so the caller can fold the stream and retry.
+                    raise LLMContextOverflowError(error_detail)
                 served = self._try_fallback(
                     response,
                     lambda fb: fb._generate_response_sync(
@@ -1063,6 +1088,7 @@ class LLMInterface:
         session_key = f"{task_id}:{call_type}"
         system_prompt = self._session_system_prompts.pop(session_key, None)
         self._session_histories.pop(session_key, None)
+        self._last_input_tokens.pop(session_key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -1080,10 +1106,36 @@ class LLMInterface:
         also dropped the registration and pushed every following turn onto the
         stateless path.
         """
-        self._session_histories.pop(f"{task_id}:{call_type}", None)
+        session_key = f"{task_id}:{call_type}"
+        self._session_histories.pop(session_key, None)
+        self._last_input_tokens.pop(session_key, None)
         if self._byteplus_cache_manager:
             # This provider keeps the history server-side; end that chain too.
             self._byteplus_cache_manager.end_session(task_id, call_type)
+
+    def last_input_tokens(self, task_id: str, call_type: str) -> Optional[int]:
+        """Input tokens the provider reported for this session's last request."""
+        return self._last_input_tokens.get(f"{task_id}:{call_type}")
+
+    def fits_context(
+        self, task_id: str, call_type: str, system_prompt: Optional[str], pending: str
+    ) -> bool:
+        """Whether this session's next request fits inside the context budget.
+
+        Projection: the provider's own input count for the previous request
+        (exact, and already paid for) plus a local count of only what is new,
+        plus the output reservation, against the window less the headroom the
+        summary request needs. On a session's first request there is no
+        provider count yet, so the whole prompt is counted locally.
+        """
+        from app.config import get_context_window, get_reserve_tokens
+
+        last = self._last_input_tokens.get(f"{task_id}:{call_type}")
+        if last is None:
+            projected = count_tokens(system_prompt or "") + count_tokens(pending)
+        else:
+            projected = last + count_tokens(pending)
+        return projected + self.max_tokens <= get_context_window() - get_reserve_tokens()
 
     def end_all_session_caches(self, task_id: str) -> None:
         """End ALL session/explicit caches for a task (all call types).
@@ -1109,8 +1161,9 @@ class LLMInterface:
         # Clean up multi-turn message histories across all providers that
         # accumulate (anthropic, bedrock, openrouter-via-claude, gemini,
         # openai-subscription).
-        for key in [k for k in self._session_histories if k.startswith(f"{task_id}:")]:
-            self._session_histories.pop(key, None)
+        for state in (self._session_histories, self._last_input_tokens):
+            for key in [k for k in state if k.startswith(f"{task_id}:")]:
+                state.pop(key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -1202,6 +1255,11 @@ class LLMInterface:
             # on a fallback provider. The fallback interface keeps its own
             # session buffers, so its history accumulates independently and
             # the primary's buffers stay warm for the next-turn retry.
+            if (
+                error_info is not None
+                and error_info.category == ErrorCategory.CONTEXT_OVERFLOW
+            ):
+                raise LLMContextOverflowError(error_detail)
             if self._current_session_call is not None:
                 task_id, call_type, fb_user_prompt = self._current_session_call
                 stored_system = self._session_system_prompts.get(
@@ -1818,9 +1876,13 @@ class LLMInterface:
             prompt_name: Identity of the named prompt, for capture/profiling.
         """
         self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
-        return self._generate_response_with_session_sync(
-            task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
-        )
+        token = _active_session_key.set(f"{task_id}:{call_type}")
+        try:
+            return self._generate_response_with_session_sync(
+                task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
+            )
+        finally:
+            _active_session_key.reset(token)
 
     @profile("llm_generate_response_with_session_async", OperationCategory.LLM)
     async def generate_response_with_session_async(
@@ -1845,14 +1907,18 @@ class LLMInterface:
         # Stamp here (caller's context) so asyncio.to_thread copies it into the
         # worker thread where capture runs.
         self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
-        return await asyncio.to_thread(
-            self._generate_response_with_session_sync,
-            task_id,
-            call_type,
-            user_prompt,
-            system_prompt_for_new_session,
-            log_response,
-        )
+        token = _active_session_key.set(f"{task_id}:{call_type}")
+        try:
+            return await asyncio.to_thread(
+                self._generate_response_with_session_sync,
+                task_id,
+                call_type,
+                user_prompt,
+                system_prompt_for_new_session,
+                log_response,
+            )
+        finally:
+            _active_session_key.reset(token)
 
     def _generate_byteplus_with_session(
         self, task_id: str, call_type: str, user_prompt: str

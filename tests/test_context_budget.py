@@ -1,18 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Context budget: one bound, sessions survive folds, nothing truncated silently.
+"""Context budget: one decision, on the request, made before it is sent.
 
-The history collapse came from two budgets that could not see each other: the
-event stream's summarization threshold and an independent character cap on
-the accumulated session history. There is one budget now, derived from the
-configured context window. These tests pin:
+The history collapse came from two budgets that could not see each other: a
+threshold on the event stream alone and an independent cap on the session
+history. There is one decision now, and it is made on the whole request the
+way pi and OpenClaw make it -- the provider's own input count for the previous
+request plus what is new -- against the window less the headroom the summary
+request needs. These tests pin:
 
-* the cap is gone;
-* a fold resets the history WITHOUT ending the session, so the router keeps
-  the session path -- and with it the cached prefix;
-* the history container is provider-agnostic;
+* the history cap is gone; a fold resets the history WITHOUT ending the
+  session, so the router keeps the session path and its cached prefix;
 * the cache markers the providers need are still on the wire;
-* an oversized request is refused before it is sent;
-* the window is required configuration and the thresholds derive from it.
+* the provider's input count is recorded per session and drives fits_context;
+* the event stream never folds on its own -- only on request;
+* an overflow is surfaced as one typed error, never counted as a provider
+  failure, never retried on a fallback provider;
+* the settings are configuration with shipped defaults, invalid values error.
 """
 
 from types import SimpleNamespace
@@ -20,9 +23,16 @@ from unittest.mock import patch
 
 import pytest
 
+from agent_core.core.errors import ErrorCategory
 from agent_core.core.impl.llm.interface import LLMContextOverflowError, LLMInterface
+from agent_core.utils.token import count_tokens
 from app import config as app_config
 from app.models.factory import ModelFactory
+
+WINDOW = 128000
+RESERVE = 16384
+MAX_TOKENS = 8000
+FOLD_POINT = WINDOW - RESERVE - MAX_TOKENS  # 103,616 input tokens
 
 
 def _ctx(provider, model, anthropic_client=None):
@@ -42,16 +52,13 @@ def _ctx(provider, model, anthropic_client=None):
 
 def _make(provider="grok", model="grok-3", anthropic_client=None):
     with patch.object(ModelFactory, "create", return_value=_ctx(provider, model, anthropic_client)):
-        return LLMInterface(provider=provider, model=model, api_key="k", base_url="", max_tokens=8000)
+        return LLMInterface(provider=provider, model=model, api_key="k", base_url="", max_tokens=MAX_TOKENS)
 
 
-def _settings(context_window, stream_fraction=0.5, tail_keep_fraction=0.4):
+def _settings(context_window=WINDOW, reserve_tokens=RESERVE, keep_recent_tokens=20000):
     return {
         "model": {"context_window": context_window},
-        "context": {
-            "stream_fraction_of_window": stream_fraction,
-            "tail_keep_fraction": tail_keep_fraction,
-        },
+        "context": {"reserve_tokens": reserve_tokens, "keep_recent_tokens": keep_recent_tokens},
     }
 
 
@@ -71,7 +78,19 @@ class _FakeAnthropic:
         )
 
 
-# ---------------------------------------------------------------- one budget
+class _CountingLLM:
+    consecutive_failures = 0
+    _max_consecutive_failures = 5
+
+    def __init__(self):
+        self.calls = 0
+
+    def generate_response(self, user_prompt=None, prompt_name=None, **kw):
+        self.calls += 1
+        return "SUMMARY"
+
+
+# ------------------------------------------------------------- one budget
 
 
 def test_the_independent_history_cap_is_gone():
@@ -82,42 +101,37 @@ def test_the_independent_history_cap_is_gone():
     source = Path(module.__file__).read_text(encoding="utf-8")
     assert "_trim_openai_compat_history" not in source
     assert "max_history_chars" not in source
-
-
-def test_the_history_container_is_provider_agnostic():
-    """One dict keyed by session. Adding a provider must not touch teardown."""
-    from pathlib import Path
-
-    import agent_core.core.impl.llm.interface as module
-
-    source = Path(module.__file__).read_text(encoding="utf-8")
-    assert "_session_histories" in source
-    assert "_session_messages" not in source
+    assert "_session_messages" not in source  # one provider-agnostic container
 
 
 def test_reset_session_history_keeps_the_session_registered():
-    """The router's gate is has_session_cache. A fold must not close it."""
     iface = _make()
     key = "task:action_selection"
     iface.create_session_cache("task", "action_selection", "SYSTEM")
     iface._session_histories[key] = [{"role": "user", "content": "stale"}]
+    iface._last_input_tokens[key] = 90000
 
     iface.reset_session_history("task", "action_selection")
 
     assert key not in iface._session_histories
+    assert iface.last_input_tokens("task", "action_selection") is None
     assert iface.has_session_cache("task", "action_selection") is True
 
 
-def test_router_restarts_a_session_without_ending_it():
+def test_router_decides_on_the_request_and_restarts_without_ending():
     from pathlib import Path
 
     import agent_core.core.impl.action.router as router
 
     src = Path(router.__file__).read_text(encoding="utf-8")
+    delta_branch = src.index("if has_synced_before:")
+    delta_send = src.index("Sending delta events", delta_branch)
+    assert "fits_context" in src[delta_branch:delta_send]
     first_call = src.index("if not has_synced_before:")
     send = src.index("generate_response_with_session_async", first_call)
     assert "reset_session_history" in src[first_call:send]
     assert "end_session_cache" not in src[src.index("No delta events"):send]
+    assert "except LLMContextOverflowError" in src
 
 
 def test_subagent_first_turn_resets_history():
@@ -129,11 +143,9 @@ def test_subagent_first_turn_resets_history():
     branch = src.index("if not stream.has_session_sync(_SUBAGENT_CALL_TYPE):")
     build = src.index("make_first_turn_user_prompt", branch)
     assert "_reset_session" in src[branch:build]
-    reset = src.index("def _reset_session")
-    assert "reset_session_history" in src[reset: src.index("def ", reset + 10)]
 
 
-# ------------------------------------------------------------- KV caching
+# ------------------------------------------------------------ KV caching
 
 
 def test_anthropic_session_marks_system_and_last_assistant():
@@ -141,7 +153,6 @@ def test_anthropic_session_marks_system_and_last_assistant():
     iface = _make("anthropic", "claude-x", anthropic_client=fake)
     iface._anthropic_client = fake
     iface.create_session_cache("task", "action_selection", "S" * 5000)
-
     for turn in ("turn 1", "turn 2"):
         iface._generate_response_with_session_sync("task", "action_selection", turn, log_response=False)
 
@@ -172,112 +183,138 @@ def test_openai_compat_session_sends_a_growing_identical_prefix():
     assert sent[1][:3] == sent[2][:3]
 
 
-# ---------------------------------------------------------------- pre-flight
+# --------------------------------------- the decision is made on the request
+
+
+def test_the_providers_input_count_is_recorded_per_session():
+    """Every transport reports it through _report_usage_async; it must land on
+    the session that made the call and nowhere else."""
+    iface = _make()
+    iface.create_session_cache("task", "action_selection", "SYSTEM")
+
+    def fake_generate_openai(self, system_prompt, user_prompt, call_type=None, messages_override=None, **kw):
+        self._report_usage_async("llm_openai", "grok", "grok-3", 4321, 10, 0)
+        return {"content": '{"ok": 1}', "tokens_used": 4331}
+
+    with patch.object(LLMInterface, "_generate_openai", fake_generate_openai):
+        iface.generate_response_with_session("task", "action_selection", "turn 1", log_response=False)
+    assert iface.last_input_tokens("task", "action_selection") == 4321
+
+    iface._report_usage_async("llm_openai", "grok", "grok-3", 999, 1, 0)  # outside any session call
+    assert iface.last_input_tokens("task", "action_selection") == 4321
+
+
+def test_fits_context_uses_the_providers_count_plus_only_what_is_new():
+    iface = _make()
+    pending = "new events " * 300
+    pending_tokens = count_tokens(pending)
+    with patch.object(app_config, "get_settings", return_value=_settings()):
+        iface._last_input_tokens["task:action_selection"] = FOLD_POINT - pending_tokens
+        assert iface.fits_context("task", "action_selection", "SYSTEM", pending) is True
+        iface._last_input_tokens["task:action_selection"] = FOLD_POINT - pending_tokens + 1
+        assert iface.fits_context("task", "action_selection", "SYSTEM", pending) is False
+
+
+def test_fits_context_counts_the_whole_prompt_on_a_sessions_first_request():
+    iface = _make()
+    system, prompt = "system " * 100, "prompt " * 100
+    with patch.object(app_config, "get_settings", return_value=_settings()):
+        assert iface.fits_context("task", "action_selection", system, prompt) is True
+        too_big = "word " * (FOLD_POINT + 5000)
+        assert iface.fits_context("task", "action_selection", system, too_big) is False
+
+
+def test_the_shipped_fold_point_for_a_128k_window():
+    """window 128,000 - reserve 16,384 - output 8,000: fold when input passes 103,616."""
+    iface = _make()
+    with patch.object(app_config, "get_settings", return_value=_settings()):
+        iface._last_input_tokens["task:action_selection"] = 103_616
+        assert iface.fits_context("task", "action_selection", "s", "") is True
+        iface._last_input_tokens["task:action_selection"] = 103_617
+        assert iface.fits_context("task", "action_selection", "s", "") is False
+
+
+# ----------------------------------------- the stream folds only on request
+
+
+def test_the_event_stream_never_folds_on_its_own(event_stream_limits):
+    from agent_core.core.impl.event_stream.event_stream import EventStream
+
+    event_stream_limits(100)
+    llm = _CountingLLM()
+    es = EventStream(llm=llm, temp_dir=None)
+    for i in range(400):
+        es.log("action_end", f"action {i} produced output " + "x " * 50)
+    assert llm.calls == 0 and es.head_summary is None
+
+    es.summarize_by_LLM()
+    assert llm.calls == 1 and es.head_summary is not None
+
+
+# ------------------------------------------------------------- overflow
+
+
+def test_a_provider_size_rejection_is_a_typed_overflow_not_a_failure():
+    iface = _make()
+    refusal = {
+        "content": "",
+        "error": "BadRequestError: context_length_exceeded",
+        "error_info_obj": SimpleNamespace(
+            category=ErrorCategory.CONTEXT_OVERFLOW, message="request too large"
+        ),
+    }
+    fallback_calls = []
+    with patch.dict("agent_core.core.impl.llm.transports.TRANSPORTS",
+                    {"chat_completions": lambda *a, **k: refusal}), \
+         patch.object(LLMInterface, "_try_fallback", lambda self, *a, **k: fallback_calls.append(1)), \
+         patch.object(app_config, "get_settings", return_value=_settings()):
+        with pytest.raises(LLMContextOverflowError):
+            iface._generate_response_sync(system_prompt="s", user_prompt="u", log_response=False)
+    assert iface._consecutive_failures == 0
+    assert fallback_calls == []
+
+
+def test_the_structured_openai_code_maps_to_context_overflow():
+    from pathlib import Path
+
+    import agent_core.core.impl.llm.errors as errors
+
+    src = Path(errors.__file__).read_text(encoding="utf-8")
+    i = src.index('code == "context_length_exceeded"')
+    assert "ErrorCategory.CONTEXT_OVERFLOW" in src[i: i + 120]
 
 
 def test_preflight_refuses_a_request_that_does_not_fit():
     iface = _make()
-    with patch.object(app_config, "get_settings", return_value=_settings(128000)):
+    with patch.object(app_config, "get_settings", return_value=_settings()):
         with pytest.raises(LLMContextOverflowError):
             iface._check_context_fits("system", "word " * 200_000)
-
-
-def test_preflight_counts_the_whole_session_history():
-    iface = _make()
-    history = [{"role": "user", "content": "word " * 70_000}, {"role": "assistant", "content": "word " * 70_000}]
-    with patch.object(app_config, "get_settings", return_value=_settings(128000)):
-        with pytest.raises(LLMContextOverflowError):
-            iface._check_context_fits("system", messages=history)
-
-
-def test_preflight_passes_a_request_that_fits():
-    iface = _make()
-    with patch.object(app_config, "get_settings", return_value=_settings(128000)):
-        iface._check_context_fits("system", "a modest prompt")
-
-
-def test_overflow_is_not_counted_as_a_provider_failure():
-    iface = _make()
-    iface._consecutive_failures = 0
-    with patch.object(app_config, "get_settings", return_value=_settings(128000)):
-        with pytest.raises(LLMContextOverflowError):
-            iface._generate_response_sync(system_prompt="s", user_prompt="word " * 200_000, log_response=False)
     assert iface._consecutive_failures == 0
 
 
-# ------------------------------------------------- required window, derived
+# ------------------------------------------------------------ configuration
 
 
-@pytest.mark.parametrize("window", [64000, 128000, 200000, 1000000])
-@pytest.mark.parametrize("stream_fraction,tail_keep_fraction", [(0.4, 0.4), (0.25, 0.5), (0.6, 0.2)])
-def test_thresholds_derive_from_the_configured_window_and_fractions(window, stream_fraction, tail_keep_fraction):
-    settings = _settings(window, stream_fraction, tail_keep_fraction)
-    with patch.object(app_config, "get_settings", return_value=settings):
-        summarize_at, tail_keep = app_config.get_context_limits()
-    assert summarize_at == int(window * stream_fraction)
-    assert tail_keep == int(summarize_at * tail_keep_fraction)
-    assert 0 < tail_keep < summarize_at < window
+def test_shipped_defaults_apply_when_keys_are_absent():
+    with patch.object(app_config, "get_settings", return_value={"model": {}, "context": {}}):
+        assert app_config.get_context_window() == 128000
+        assert app_config.get_reserve_tokens() == 16384
+        assert app_config.get_keep_recent_tokens() == 20000
 
 
-def test_the_shipped_numbers_for_a_128k_window():
-    """window 128000 x 0.5 -> summarize at 64,000; keep 64,000 x 0.4 -> 25,600."""
-    with patch.object(app_config, "get_settings", return_value=_settings(128000)):
-        assert app_config.get_context_limits() == (64000, 25600)
-
-
-@pytest.mark.parametrize("key,shipped", [("stream_fraction_of_window", 0.5), ("tail_keep_fraction", 0.4)])
-def test_an_absent_fraction_takes_the_shipped_default(key, shipped):
-    settings = _settings(128000)
-    del settings["context"][key]
-    with patch.object(app_config, "get_settings", return_value=settings):
-        assert app_config._get_context_fraction(key) == shipped
-
-
-@pytest.mark.parametrize("key", ["stream_fraction_of_window", "tail_keep_fraction"])
-@pytest.mark.parametrize("value", [0, 1, 1.5, -0.4, True, "0.4"])
-def test_an_invalid_fraction_is_a_configuration_error(key, value):
-    settings = _settings(128000)
+@pytest.mark.parametrize("value", [0, -1, True, "16384", 12.5])
+@pytest.mark.parametrize("key", ["reserve_tokens", "keep_recent_tokens"])
+def test_an_invalid_context_setting_is_a_configuration_error(key, value):
+    settings = _settings()
     settings["context"][key] = value
     with patch.object(app_config, "get_settings", return_value=settings):
         with pytest.raises(app_config.ConfigurationError):
-            app_config.get_context_limits()
+            getattr(app_config, f"get_{key}")()
 
 
-def test_an_absent_window_takes_the_shipped_default():
-    """Works out of the box: an older settings.json without the key gets 128000."""
-    settings = _settings(None)
-    del settings["model"]["context_window"]
-    with patch.object(app_config, "get_settings", return_value=settings):
-        assert app_config.get_context_window() == 128000
-    with patch.object(app_config, "get_settings", return_value=_settings(None)):
-        assert app_config.get_context_window() == 128000
-
-
-@pytest.mark.parametrize("value", [0, -1, True, "128000", 12.5])
-def test_an_invalid_window_is_a_configuration_error(value):
-    """Present but wrong is an error, never silently replaced."""
-    with patch.object(app_config, "get_settings", return_value=_settings(value)):
-        with pytest.raises(app_config.ConfigurationError):
-            app_config.get_context_window()
-        with pytest.raises(app_config.ConfigurationError):
-            app_config.get_context_limits()
-
-
-def test_no_fallback_thresholds_exist():
+def test_no_fallback_constants_and_no_fractions_remain():
     from pathlib import Path
 
     source = Path(app_config.__file__).read_text(encoding="utf-8")
-    assert "LEGACY" not in source
-    assert "DEFAULT_SUMMARIZE_AT_TOKENS" not in source
-    assert "v1.4.1" not in source
-    # the fractions are configuration too -- no constant to fall back on
-    assert "STREAM_FRACTION_OF_WINDOW" not in source
-    assert "TAIL_KEEP_FRACTION" not in source
-
-
-def test_no_context_window_is_written_in_provider_config():
-    from pathlib import Path
-
-    import agent_core.core.models.provider_config as pc
-
-    assert "context_window=" not in Path(pc.__file__).read_text(encoding="utf-8")
+    for token in ("LEGACY", "v1.4.1", "stream_fraction_of_window", "tail_keep_fraction", "get_context_limits"):
+        assert token not in source, token
