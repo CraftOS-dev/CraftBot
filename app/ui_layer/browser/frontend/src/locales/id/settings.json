@@ -396,6 +396,8 @@
     "noDescription": "Tanpa deskripsi",
     "actionsLabel": "Tindakan:",
     "viewDetails": "Lihat detail",
+    "systemBadge": "Sistem",
+    "systemLocked": "Keterampilan sistem selalu aktif dan tidak dapat dinonaktifkan.",
     "remove": "Hapus",
     "installSkill": "Instal Keahlian",
     "createSkill": "Buat Keahlian",

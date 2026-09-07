@@ -55,6 +55,14 @@ def get_project_root() -> Path:
 PROJECT_ROOT = get_project_root()
 AGENT_WORKSPACE_ROOT = PROJECT_ROOT / "agent_file_system/workspace"
 AGENT_FILE_SYSTEM_PATH = PROJECT_ROOT / "agent_file_system"
+# Per-session workspace dirs live under here (one folder per session id). Each
+# holds that session's EVENT.md / EVENT_UNPROCESSED.md / NOTE.md.
+AGENT_SESSIONS_ROOT = AGENT_WORKSPACE_ROOT / "sessions"
+# Ephemeral staging area where the memory run assembles every session's
+# EVENT_UNPROCESSED.md into one time-ordered file for the memory-processor
+# skill. Rebuilt fresh each run and deleted on run-end (see
+# app/memory/unprocessed_queue.py).
+MEMORY_STAGING_DIR = AGENT_WORKSPACE_ROOT / ".memory_staging"
 APP_DATA_PATH = PROJECT_ROOT / "app" / "data"
 APP_CONFIG_PATH = PROJECT_ROOT / "app" / "config"
 AGENT_FILE_SYSTEM_TEMPLATE_PATH = APP_DATA_PATH / "agent_file_system_template"

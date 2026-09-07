@@ -157,19 +157,15 @@ def set_memory_processing_threshold(value: int) -> bool:
 
 
 def get_unprocessed_event_count() -> int:
-    """Number of unprocessed event lines waiting in EVENT_UNPROCESSED.md.
+    """Total unprocessed event lines across every session's EVENT_UNPROCESSED.md.
 
-    Event lines start with '[' (a bracketed timestamp); headers/blanks do not,
-    matching how the memory-processing pre-check counts them.
+    Event lines start with '[' (a bracketed timestamp); headers/blanks do not.
+    Summed over all per-session queues, matching how the memory-processing
+    pre-check assembles them.
     """
-    path = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-    if not path.exists():
-        return 0
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return 0
-    return sum(1 for line in text.splitlines() if line.strip().startswith("["))
+    from app.memory.unprocessed_queue import count_unprocessed_events
+
+    return count_unprocessed_events()
 
 
 def memory_needs_pruning() -> bool:
@@ -596,33 +592,18 @@ def reset_memory() -> Dict[str, Any]:
 
 
 def clear_unprocessed_events() -> Dict[str, Any]:
-    """Clear all unprocessed events from EVENT_UNPROCESSED.md.
+    """Clear all unprocessed events from every session's EVENT_UNPROCESSED.md.
+
+    Resets each per-session queue back to just its header and drops any memory
+    staging file.
 
     Returns:
         Dict with 'success' or 'error' fields
     """
-    event_path = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-    template_path = AGENT_FILE_SYSTEM_TEMPLATE_PATH / "EVENT_UNPROCESSED.md"
-
     try:
-        if template_path.exists():
-            shutil.copy(template_path, event_path)
-        else:
-            # Write a minimal reset
-            content = """# Unprocessed Event Log
+        from app.memory.unprocessed_queue import reset_all_queues
 
-Agent DO NOT append to this file, only delete processed event during memory processing.
-
-## Overview
-
-This file store all the unprocessed events run by the agent.
-Once the agent run 'process memory' action, all the processed events will learned by the agent (move to MEMORY.md) and wiped from this file.
-
-## Unprocessed Events
-
-"""
-            event_path.write_text(content, encoding="utf-8")
-
+        reset_all_queues()
         return {"success": True}
     except Exception as e:
         return {
@@ -814,15 +795,8 @@ def get_memory_stats() -> Dict[str, Any]:
             cat = item["category"]
             category_counts[cat] = category_counts.get(cat, 0) + 1
 
-        # Count unprocessed events
-        event_path = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-        unprocessed_count = 0
-        if event_path.exists():
-            content = event_path.read_text(encoding="utf-8")
-            # Count lines that look like events
-            for line in content.split("\n"):
-                if line.strip().startswith("[") and "]" in line:
-                    unprocessed_count += 1
+        # Count unprocessed events across every session queue
+        unprocessed_count = get_unprocessed_event_count()
 
         return {
             "success": True,

@@ -396,6 +396,8 @@
     "noDescription": "説明なし",
     "actionsLabel": "アクション:",
     "viewDetails": "詳細を表示",
+    "systemBadge": "システム",
+    "systemLocked": "システムスキルは常に有効で、無効にできません。",
     "remove": "削除",
     "installSkill": "スキルをインストール",
     "createSkill": "スキルを作成",

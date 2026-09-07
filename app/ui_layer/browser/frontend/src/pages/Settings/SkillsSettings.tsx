@@ -170,6 +170,10 @@ export function SkillsSettings() {
 
   // Handlers
   const handleToggleSkill = (name: string, enabled: boolean) => {
+    // System skills are always enabled and cannot be toggled off. Guard here
+    // as well as disabling the control, so a stale click can never fire.
+    const skill = skills.find(s => s.name === name)
+    if (skill?.is_system) return
     if (enabled) {
       send('skill_enable', { name })
     } else {
@@ -311,6 +315,9 @@ export function SkillsSettings() {
                   <Badge variant={skill.enabled ? 'success' : 'default'}>
                     {skill.enabled ? t('common:status.enabled') : t('common:status.disabled')}
                   </Badge>
+                  {skill.is_system && (
+                    <Badge variant="warning">{t('settings:skills.systemBadge')}</Badge>
+                  )}
                   {skill.user_invocable && (
                     <Badge variant="info">/{skill.name}</Badge>
                   )}
@@ -336,19 +343,24 @@ export function SkillsSettings() {
                   icon={<Wrench size={14} />}
                   title={t('settings:skills.viewDetails')}
                 />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleRemoveSkill(skill.name)}
-                  icon={<Trash2 size={14} />}
-                  title={t('settings:skills.remove')}
-                />
+                {!skill.is_system && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleRemoveSkill(skill.name)}
+                    icon={<Trash2 size={14} />}
+                    title={t('settings:skills.remove')}
+                  />
+                )}
                 <input
                   type="checkbox"
                   className={styles.toggle}
                   checked={skill.enabled}
+                  disabled={skill.is_system}
                   onChange={(e) => handleToggleSkill(skill.name, e.target.checked)}
-                  title={skill.enabled ? t('common:actions.disable') : t('common:actions.enable')}
+                  title={skill.is_system
+                    ? t('settings:skills.systemLocked')
+                    : skill.enabled ? t('common:actions.disable') : t('common:actions.enable')}
                 />
               </div>
             </div>
@@ -557,15 +569,17 @@ export function SkillsSettings() {
                   {t('settings:skills.info.runSkill')}
                 </Button>
               )}
-              <Button
-                variant={viewingSkill.enabled ? 'danger' : 'primary'}
-                onClick={() => {
-                  handleToggleSkill(viewingSkill.name, !viewingSkill.enabled)
-                  setViewingSkill({ ...viewingSkill, enabled: !viewingSkill.enabled })
-                }}
-              >
-                {viewingSkill.enabled ? t('common:actions.disable') : t('common:actions.enable')}
-              </Button>
+              {!viewingSkill.is_system && (
+                <Button
+                  variant={viewingSkill.enabled ? 'danger' : 'primary'}
+                  onClick={() => {
+                    handleToggleSkill(viewingSkill.name, !viewingSkill.enabled)
+                    setViewingSkill({ ...viewingSkill, enabled: !viewingSkill.enabled })
+                  }}
+                >
+                  {viewingSkill.enabled ? t('common:actions.disable') : t('common:actions.enable')}
+                </Button>
+              )}
             </div>
           </div>
         </div>

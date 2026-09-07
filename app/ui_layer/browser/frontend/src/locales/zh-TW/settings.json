@@ -396,6 +396,8 @@
     "noDescription": "無描述",
     "actionsLabel": "操作：",
     "viewDetails": "檢視詳細資料",
+    "systemBadge": "系統",
+    "systemLocked": "系統技能始終啟用，無法停用。",
     "remove": "移除",
     "installSkill": "安裝技能",
     "createSkill": "建立技能",

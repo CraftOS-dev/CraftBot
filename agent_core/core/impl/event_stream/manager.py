@@ -5,10 +5,13 @@ core.impl.event_stream.manager
 Event stream manager that owns one event stream per session (the main
 session included — it is just a session with the well-known id ``main``).
 
-Also handles file-based event logging to:
-- EVENT.md: Complete event history
-- EVENT_UNPROCESSED.md: Events pending memory processing
+Also handles file-based event logging. Each session logs to files inside its
+own workspace directory (agent_file_system/workspace/sessions/<id>/):
+- EVENT.md: complete event history for that session
+- EVENT_UNPROCESSED.md: that session's events pending memory processing
 
+The memory pipeline later aggregates every session's EVENT_UNPROCESSED.md in
+timestamp order (see app/memory/unprocessed_queue.py).
 """
 
 from __future__ import annotations
@@ -35,6 +38,26 @@ def _is_memory_enabled() -> bool:
         return is_memory_enabled()
     except ImportError:
         return True  # Default to enabled if settings module not available
+
+
+# Header seeded into a session's EVENT_UNPROCESSED.md before its first event.
+# The memory-processor skill reads events from a fixed line offset and deletes
+# processed events by line number, so this header MUST stay exactly this shape
+# (it mirrors app/data/agent_file_system_template/EVENT_UNPROCESSED.md).
+UNPROCESSED_HEADER = (
+    "# Unprocessed Event Log\n"
+    "\n"
+    "Agent DO NOT append to this file, only delete processed event during memory processing.\n"
+    "\n"
+    "## Overview\n"
+    "\n"
+    "This file store all the unprocessed events run by the agent.\n"
+    "Once the agent run 'process memory' action, all the processed events will "
+    "learned by the agent (move to MEMORY.md) and wiped from this file.\n"
+    "\n"
+    "## Unprocessed Events\n"
+    "\n"
+)
 
 
 # Event types that should not be logged to EVENT_UNPROCESSED.md
@@ -229,18 +252,25 @@ class EventStreamManager:
         """
         return kind in SKIP_UNPROCESSED_EVENT_TYPES
 
-    def _log_to_files(self, kind: str, message: str) -> None:
+    def _log_to_files(self, kind: str, message: str, temp_dir: Optional[Path]) -> None:
         """
-        Append an event to EVENT.md and optionally EVENT_UNPROCESSED.md.
+        Append an event to the writing session's EVENT.md and (optionally)
+        EVENT_UNPROCESSED.md.
 
-        This method is thread-safe and handles file I/O errors gracefully.
-        Events are written in the format: [YYYY-MM-DD HH:MM:SS] [kind]: message
+        Both files live in the session's own workspace directory (``temp_dir``
+        = ``agent_file_system/workspace/sessions/<id>/``), so each session keeps
+        an isolated event log and memory-staging queue. This method is
+        thread-safe and handles file I/O errors gracefully. Events are written
+        in the format: [YYYY-MM-DD HH:MM:SS] [kind]: message
 
         Args:
             kind: Event category (e.g., "action", "trigger")
             message: Event message content
+            temp_dir: The writing session's workspace dir. ``None`` during very
+                early boot (main stream before its workspace is wired) — the
+                event stays in memory and no file is written.
         """
-        if not self._agent_file_system_path:
+        if temp_dir is None:
             return
 
         # Format: [YYYY-MM-DD HH:MM:SS] [kind]: message — LOCAL time, in the
@@ -251,7 +281,7 @@ class EventStreamManager:
         with self._file_lock:
             # Always write to EVENT.md (create if doesn't exist)
             try:
-                event_file = self._agent_file_system_path / "EVENT.md"
+                event_file = temp_dir / "EVENT.md"
                 rotate_md_file_if_needed(event_file)
                 with open(event_file, "a", encoding="utf-8") as f:
                     f.write(event_line)
@@ -265,9 +295,13 @@ class EventStreamManager:
                 kind
             ):
                 try:
-                    unprocessed_file = (
-                        self._agent_file_system_path / "EVENT_UNPROCESSED.md"
-                    )
+                    unprocessed_file = temp_dir / "EVENT_UNPROCESSED.md"
+                    # Seed the standard header on first write so the
+                    # memory-processor skill's fixed line offsets stay valid.
+                    if not unprocessed_file.exists():
+                        unprocessed_file.write_text(
+                            UNPROCESSED_HEADER, encoding="utf-8"
+                        )
                     rotate_md_file_if_needed(unprocessed_file)
                     with open(unprocessed_file, "a", encoding="utf-8") as f:
                         f.write(event_line)
@@ -347,8 +381,10 @@ class EventStreamManager:
             question=question,
         )
 
-        # Also log to markdown files for persistence
-        self._log_to_files(kind, message)
+        # Also log to the writing session's markdown files for persistence.
+        # `stream` is the resolved per-session stream, so stream.temp_dir points
+        # at that session's workspace dir (its own EVENT.md / EVENT_UNPROCESSED.md).
+        self._log_to_files(kind, message, stream.temp_dir)
 
         return idx
 

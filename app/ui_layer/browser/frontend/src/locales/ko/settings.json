@@ -396,6 +396,8 @@
     "noDescription": "설명 없음",
     "actionsLabel": "액션:",
     "viewDetails": "세부 정보 보기",
+    "systemBadge": "시스템",
+    "systemLocked": "시스템 스킬은 항상 활성화되어 있어 비활성화할 수 없습니다.",
     "remove": "제거",
     "installSkill": "스킬 설치",
     "createSkill": "스킬 만들기",

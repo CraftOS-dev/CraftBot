@@ -863,7 +863,9 @@ class InternalActionInterface:
         skill = skill_manager.get_skill(skill_name)
         if not skill:
             return {"success": False, "error": f"Skill '{skill_name}' not found."}
-        if not skill.enabled:
+        # System skills are always loadable (they are runtime-managed and never
+        # user-disabled); only user skills honor the enabled flag.
+        if not skill.enabled and not skill.is_system:
             return {"success": False, "error": f"Skill '{skill_name}' is not enabled."}
 
         sid = session_id or cls._get_current_session_id()

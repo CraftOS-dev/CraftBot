@@ -837,8 +837,6 @@ agent_file_system/
 ├── FORMAT.md                 Document / design standards
 ├── MEMORY.md                 Distilled facts                     DO NOT EDIT
 ├── ENTITIES.md               Entity-graph registry               DO NOT EDIT
-├── EVENT.md                  Full event log                      DO NOT EDIT
-├── EVENT_UNPROCESSED.md      Memory-pipeline staging buffer      DO NOT EDIT
 ├── PROACTIVE.md              Recurring tasks + Goals/Plan/Status
 ├── GLOBAL_AGENT_APP.md       Global Agent App design rules
 ├── MISSION_INDEX_TEMPLATE.md Template for mission INDEX.md files
@@ -854,7 +852,6 @@ AGENT.md
 PROACTIVE.md
 MEMORY.md
 USER.md
-EVENT_UNPROCESSED.md
 ENTITIES.md
 ```
 
@@ -900,22 +897,30 @@ plus any user-added extras from `memory.indexed_files` in settings.json. Editing
 - Read pattern: `read_file` / `grep_files` to inspect the graph when troubleshooting retrieval. See `## Memory` "The entity graph".
 - Format: `## Entities` (one name per line) and `## Connections` (`[chunk-id] [pending|judged] names :: preview`; marks: plain = confirmed, `!` = rejected, `?` = pending judgment).
 
-### EVENT.md
-- Purpose: complete chronological event log. Append-only.
-- Write access: EventStreamManager. Hard rule: DO NOT edit.
-- Read pattern: `read_file` / `grep_files` for self-troubleshooting. See `## Errors` for log workflow.
-- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
-- Auto-rotated when size threshold is exceeded.
+### EVENT.md, EVENT_UNPROCESSED.md, NOTE.md (per-session)
 
-### EVENT_UNPROCESSED.md
-- Purpose: staging buffer for events awaiting memory distillation.
+These three files are PER-SESSION and live in THIS session's workspace dir,
+`agent_file_system/workspace/sessions/{session_id}/` (the concrete path is given
+to you each turn in the `<session>` state block — do not guess it). There is no
+longer a global EVENT.md at the `agent_file_system/` root.
+
+**EVENT.md** — this session's complete chronological event log. Append-only.
+- Write access: EventStreamManager. Hard rule: DO NOT edit.
+- Read pattern: `read_file` / `grep_files` on THIS session's copy for self-troubleshooting. Your live context only carries a summarized slice, so grep here to recover full detail. See `## Errors`.
+- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines. Auto-rotated when the size threshold is exceeded.
+
+**EVENT_UNPROCESSED.md** — this session's staging buffer for events awaiting memory distillation.
 - Write access: EventStreamManager (filtered subset of EVENT.md events). Hard rule: DO NOT edit.
-- Read pattern: the memory processor reads it daily 3am. See `## Memory`.
-- Cleared: after each successful memory-processing run.
-- Filter: events of kind `action_start`, `action_end`, `todos`, `error`, `waiting_for_user`, `gui_action`, `agent reasoning`, `screen_description`, `relevant_memories` are NOT staged. The pipeline focuses on user-facing dialogue and important state changes.
+- Read pattern: the memory processor aggregates every session's copy (oldest event first) into one staging file daily at 3am. See `## Memory`.
+- Cleared: this session's processed events are removed after each successful memory-processing run.
+- Filter: events of kind `action_start`, `action_end`, `todos`, `error`, `waiting_for_user`, `gui_action`, `agent reasoning`, `screen_description`, `relevant_memories` are NOT staged.
 - Skip flag: during memory-processing runs, `set_skip_unprocessed_logging(True)` prevents the run's own events from looping back. Reset automatically at run end.
 
-To review past dialogue or past run outcomes, grep EVENT.md (the complete history) or use `memory_search`.
+**NOTE.md** — YOUR scratchpad for this session. You may freely read AND write it (the only per-session file you may write).
+- Purpose: record plans, intermediate results, key facts, decisions, and running state so they survive event-stream summarization (NOTE.md is never summarized).
+- Use it whenever you have working state you must not lose across turns. It persists for the life of the session and is removed only when the session is deleted.
+
+To review past dialogue or past run outcomes, grep THIS session's EVENT.md or use `memory_search`.
 
 ### PROACTIVE.md
 - Purpose: recurring proactive task definitions plus the planner-maintained Goals / Plan / Status section.
@@ -995,7 +1000,10 @@ agent_file_system/workspace/
 ├── <files at root>           Persistent outputs the user should keep
 ├── sessions/
 │   └── {session_id}/         Per-session scratch directory. Persists for the
-│                             session's life; removed when the session is deleted.
+│       │                     session's life; removed when the session is deleted.
+│       ├── EVENT.md          This session's full event log        DO NOT EDIT
+│       ├── EVENT_UNPROCESSED.md  This session's memory buffer      DO NOT EDIT
+│       └── NOTE.md           Your scratchpad (read AND write it)
 ├── missions/
 │   └── <mission_name>/       Multi-run initiative. Persists indefinitely.
 │       ├── INDEX.md          Required (template at MISSION_INDEX_TEMPLATE.md)
@@ -1010,6 +1018,7 @@ agent_file_system/workspace/
 Type of file                                      → Destination
 final document the user should keep               → workspace/<filename>
 draft, sketch, intermediate state, scratch        → workspace/sessions/{session_id}/<filename>
+working notes that must survive summarization     → workspace/sessions/{session_id}/NOTE.md
 mission deliverable (multi-run initiative)        → workspace/missions/<mission_name>/<filename>
 Agent App project file                            → workspace/agent_app/<name>_<hash>/...
 ```
@@ -3172,29 +3181,34 @@ Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manag
 1. Action / message / system event happens
         |
         v
-2. EventStreamManager appends to EVENT.md           (full chronological log)
+2. EventStreamManager appends to the writing         (per-session full log,
+   session's EVENT.md                                 workspace/sessions/<id>/)
         |
         v
-3. EventStreamManager appends filtered subset to    (memory pipeline staging
-   EVENT_UNPROCESSED.md                              buffer; see filter below)
+3. EventStreamManager appends filtered subset to    (that session's memory
+   the same session's EVENT_UNPROCESSED.md            staging buffer; filter below)
         |
         v
-4. Daily at the configured time (default 3am) the    (or on startup if buffer
-   scheduler fires a MEMORY-source trigger — but      is non-empty)
-   the run proceeds ONLY if unprocessed events ≥
+4. Daily at the configured time (default 3am) the    (or on startup if buffers
+   scheduler fires a MEMORY-source trigger — but      are non-empty)
+   the run proceeds ONLY if unprocessed events
+   (summed across ALL sessions) ≥
    memory.processing_threshold (default 25) OR
    MEMORY.md pruning is due; otherwise the fire
    is skipped (idle days cost nothing)
         |
         v
-5. Run loads the memory-processor skill             (set_skip_unprocessed_logging
-   reads EVENT_UNPROCESSED.md                        is True so the run's own
-   applies the Future Utility Test                   events do not loop back)
-   (SAVE / NEVER-save condition lists)
-   distills passing events to MEMORY.md
+5. The run assembles EVERY session's                (oldest event first, one
+   EVENT_UNPROCESSED.md into one time-ordered         merged staging file)
+   staging file, then loads the memory-processor     (set_skip_unprocessed_logging
+   skill, applies the Future Utility Test             is True so the run's own
+   (SAVE / NEVER-save lists), and distills            events do not loop back)
+   passing events into the single global MEMORY.md
         |
         v
-6. EVENT_UNPROCESSED.md is cleared
+6. On success, the processed events are cleared      (an interrupted run clears
+   from each source session's EVENT_UNPROCESSED.md    nothing, so events are
+   and the staging file is removed                    reprocessed next time)
         |
         v
 7. memory_file_watcher detects MEMORY.md changed,

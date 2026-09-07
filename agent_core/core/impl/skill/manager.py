@@ -218,7 +218,10 @@ class SkillManager:
 
         for name in skill_names:
             skill = self.get_skill(name)
-            if skill and skill.enabled:
+            # System skills always contribute their instructions when loaded —
+            # they can only reach selected_skills because the runtime loaded
+            # them for a workflow, so the enabled gate must not strip them.
+            if skill and (skill.enabled or skill.is_system):
                 skill_text = f"## Skill: {skill.name}\n\n{skill.instructions}"
 
                 # Check if adding this skill would exceed the limit
@@ -261,7 +264,7 @@ class SkillManager:
 
         for name in skill_names:
             skill = self.get_skill(name)
-            if skill and skill.enabled:
+            if skill and (skill.enabled or skill.is_system):
                 action_sets.update(skill.metadata.action_sets)
 
         return list(action_sets)
@@ -309,6 +312,14 @@ class SkillManager:
         """
         skill = self.get_skill(name)
         if skill:
+            # System skills are loaded by the runtime for its own workflows and
+            # must never be disabled — refuse rather than silently break the
+            # next memory/planner/skill-creation run.
+            if skill.is_system:
+                logger.warning(
+                    f"[SKILLS] Refusing to disable system skill: {name}"
+                )
+                return False
             skill.enabled = False
 
             # Update config

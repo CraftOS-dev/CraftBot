@@ -396,6 +396,8 @@
     "noDescription": "Sin descripción",
     "actionsLabel": "Acciones:",
     "viewDetails": "Ver detalles",
+    "systemBadge": "Sistema",
+    "systemLocked": "Las habilidades del sistema siempre están activadas y no se pueden desactivar.",
     "remove": "Quitar",
     "installSkill": "Instalar habilidad",
     "createSkill": "Crear habilidad",

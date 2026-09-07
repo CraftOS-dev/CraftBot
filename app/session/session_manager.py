@@ -28,6 +28,18 @@ if TYPE_CHECKING:
 PostUpdateTodosHook = Callable[[Session, List[Dict[str, Any]]], None]
 
 
+# Seeded into every new session's NOTE.md. The agent OWNS this file: it is the
+# one per-session file the agent may freely write, meant for working notes that
+# must survive event-stream summarization (which collapses older events).
+_NOTE_SCRATCHPAD_HEADER = """# Session Notes
+
+Your scratchpad for THIS session. You may freely read and write this file.
+
+Use it to record anything you must not lose to event-stream summarization:
+plans, intermediate results, key facts, decisions, links, and running state.
+"""
+
+
 def _get_agent_property(session_id: str):
     def getter(name: str, default):
         state = StateSession.get_or_none(session_id)
@@ -137,6 +149,25 @@ class SessionManager(_SessionManager):
             on_session_persist=_make_on_session_persist(event_stream_manager),
             on_session_delete=_on_session_delete,
         )
+
+    def _prepare_workspace_dir(self, session_id: str) -> Path:
+        """Create the session workspace dir and seed its NOTE.md scratchpad.
+
+        EVENT.md / EVENT_UNPROCESSED.md are created lazily by the
+        EventStreamManager on the session's first event, but NOTE.md is
+        agent-owned and seeded here so it always exists (and is discoverable)
+        from the session's very first turn. Seeding is idempotent.
+        """
+        session_dir = super()._prepare_workspace_dir(session_id)
+        note_file = session_dir / "NOTE.md"
+        if not note_file.exists():
+            try:
+                note_file.write_text(_NOTE_SCRATCHPAD_HEADER, encoding="utf-8")
+            except OSError as e:
+                logger.warning(
+                    f"[SessionManager] Failed to seed NOTE.md for {session_id}: {e}"
+                )
+        return session_dir
 
     def add_post_update_todos_hook(self, hook: PostUpdateTodosHook) -> None:
         """Register a hook that fires after every update_todos call.

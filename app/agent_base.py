@@ -387,6 +387,12 @@ class AgentBase:
         self.context_engine.set_memory_manager(self.memory_manager)
         # Serializes entity-judge pipeline invocations (_run_entity_judge_pipeline).
         self._entity_judge_lock = asyncio.Lock()
+        # Snapshot of {session_queue_path: events_taken} captured when a memory
+        # run assembles the staging file. Consumed at run-end to clear exactly
+        # the processed events from each per-session EVENT_UNPROCESSED.md. None
+        # when no memory run is in flight — a premature exit thus clears
+        # nothing, so events survive for the next run.
+        self._memory_run_snapshot: Optional[Dict[str, int]] = None
 
         # ── Register components with shared registries ──
         # This enables shared code to access components via get_*() functions
@@ -707,18 +713,13 @@ class AgentBase:
             logger.info("[MEMORY] Memory is disabled, skipping trigger")
             return None
 
-        unprocessed_file = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-        event_lines: list[str] = []
-        if unprocessed_file.exists():
-            try:
-                content = unprocessed_file.read_text(encoding="utf-8")
-                event_lines = [
-                    line
-                    for line in content.strip().split("\n")
-                    if line.strip() and line.strip().startswith("[")
-                ]
-            except Exception as e:
-                logger.warning(f"[MEMORY] Failed to read EVENT_UNPROCESSED.md: {e}")
+        # Assemble every session's EVENT_UNPROCESSED.md into one time-ordered
+        # staging file (oldest event first) that the memory-processor skill
+        # reads. build_staging() rebuilds the file fresh, so a stale staging
+        # file left by an interrupted run is overwritten here, never reused.
+        from app.memory.unprocessed_queue import STAGING_FILE, build_staging
+
+        event_count, snapshot = build_staging()
 
         # Inspect MEMORY.md purely for the pruning need (item cap). Entity
         # work is NOT the memory-processor's job — the entity-judge
@@ -736,19 +737,25 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[MEMORY] Failed to inspect MEMORY.md: {e}")
 
-        if not event_lines and not needs_pruning:
+        if not event_count and not needs_pruning:
             logger.info("[MEMORY] No unprocessed events and no pruning needed")
             return None
 
-        # Freeze the unprocessed buffer so this run's own events don't loop
-        # back into it. Reset when the run ends (_on_run_end).
+        # Remember which events came from which session queue so run-end can
+        # clear exactly the processed prefix from each (see _on_run_end). Empty
+        # when this run is pruning-only.
+        self._memory_run_snapshot = snapshot or None
+
+        # Freeze the unprocessed buffers so this run's own events don't loop
+        # back into them. Reset when the run ends (_on_run_end).
         self.event_stream_manager.set_skip_unprocessed_logging(True)
 
         parts = []
-        if event_lines:
+        if event_count:
             parts.append(
-                f"Process the {len(event_lines)} unprocessed event(s) in "
-                f"EVENT_UNPROCESSED.md into long-term memory."
+                f"Process the {event_count} unprocessed event(s) in the "
+                f"EVENT_UNPROCESSED.md staging file at {STAGING_FILE} into "
+                f"long-term memory."
             )
         parts.append("Follow the memory-processor skill instructions.")
         instruction = " ".join(parts)
@@ -764,7 +771,7 @@ class AgentBase:
             "workflow_action_sets": ["file_operations"],
         }
         logger.info(
-            f"[MEMORY] Memory run: {len(event_lines)} events, pruning={needs_pruning}"
+            f"[MEMORY] Memory run: {event_count} events, pruning={needs_pruning}"
         )
         return instruction, workflow
 
@@ -1538,11 +1545,26 @@ class AgentBase:
         # Unload temporary workflow skills loaded at run start.
         self._remove_workflow_capabilities(session, run_payload)
 
-        # Memory runs freeze the unprocessed buffer while they work —
-        # release it when the run ends.
+        # Memory runs freeze the unprocessed buffers while they work —
+        # release them when the run ends.
         if run_source == TriggerSource.MEMORY.value:
             if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
                 self.event_stream_manager.set_skip_unprocessed_logging(False)
+
+            # Removal is gated on ACTUAL processing: reconcile each source
+            # queue against what the processor left in the staging file, so an
+            # event is removed only after it was distilled (whatever remains in
+            # staging was not processed and stays in its source queue). Then
+            # drop the throwaway staging file.
+            if self._memory_run_snapshot is not None:
+                from app.memory.unprocessed_queue import (
+                    reconcile_sources,
+                    discard_staging,
+                )
+
+                reconcile_sources(self._memory_run_snapshot)
+                discard_staging()
+                self._memory_run_snapshot = None
 
             # The entity judge runs AFTER memory processing — a direct
             # pipeline (single-shot LLM calls + deterministic ENTITIES.md
@@ -1621,13 +1643,28 @@ class AgentBase:
         """
         self._lui_run_writes.pop(session_id, None)
 
-        # A force-stopped memory run must not leave the unprocessed buffer
-        # frozen forever.
+        # A force-stopped memory run must not leave the unprocessed buffers
+        # frozen forever. Reconcile the source queues against the staging
+        # remainder first: events the processor already distilled (removed from
+        # staging) are cleared, and every un-processed event is kept for the
+        # next run. Removal stays gated on processing even on a hard stop.
         if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
             try:
                 self.event_stream_manager.set_skip_unprocessed_logging(False)
             except Exception:
                 pass
+        if self._memory_run_snapshot is not None:
+            try:
+                from app.memory.unprocessed_queue import (
+                    reconcile_sources,
+                    discard_staging,
+                )
+
+                reconcile_sources(self._memory_run_snapshot)
+                discard_staging()
+            except Exception:
+                pass
+            self._memory_run_snapshot = None
 
         # One event, two audiences: the SYSTEM bubble tells the user the stop
         # landed; the stream copy tells the next turn's LLM why work halted
@@ -3697,23 +3734,16 @@ class AgentBase:
             return
 
         try:
-            unprocessed_file = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-            if not unprocessed_file.exists():
-                return
+            from app.memory.unprocessed_queue import count_unprocessed_events
 
-            content = unprocessed_file.read_text(encoding="utf-8")
-            event_lines = [
-                line
-                for line in content.strip().split("\n")
-                if line.strip() and line.strip().startswith("[")
-            ]
-            if not event_lines:
+            event_count = count_unprocessed_events()
+            if not event_count:
                 logger.info("[MEMORY] No unprocessed events found at startup")
                 return
 
             logger.info(
-                f"[MEMORY] Found {len(event_lines)} unprocessed events at startup, "
-                f"firing processing trigger"
+                f"[MEMORY] Found {event_count} unprocessed events at startup "
+                f"(across sessions), firing processing trigger"
             )
 
             await self.trigger_service.emit(

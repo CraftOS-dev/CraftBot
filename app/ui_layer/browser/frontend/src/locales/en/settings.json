@@ -396,6 +396,8 @@
     "noDescription": "No description",
     "actionsLabel": "Actions:",
     "viewDetails": "View details",
+    "systemBadge": "System",
+    "systemLocked": "System skills are always enabled and can't be disabled.",
     "remove": "Remove",
     "installSkill": "Install Skill",
     "createSkill": "Create Skill",

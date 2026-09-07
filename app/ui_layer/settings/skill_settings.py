@@ -36,6 +36,9 @@ def list_skills() -> List[Dict[str, Any]]:
                 "description": skill.description,
                 "enabled": skill.enabled,
                 "user_invocable": skill.metadata.user_invocable,
+                # System skills are always enabled and cannot be disabled by
+                # the user; the settings UI renders their toggle as locked.
+                "is_system": skill.is_system,
                 "action_sets": skill.metadata.action_sets,
                 "source": str(skill.source_path),
             }
@@ -69,6 +72,7 @@ def get_skill_info(name: str) -> Optional[Dict[str, Any]]:
             "description": skill.description,
             "enabled": skill.enabled,
             "user_invocable": skill.metadata.user_invocable,
+            "is_system": skill.is_system,
             "argument_hint": skill.metadata.argument_hint,
             "action_sets": skill.metadata.action_sets,
             "allowed_tools": skill.metadata.allowed_tools,
