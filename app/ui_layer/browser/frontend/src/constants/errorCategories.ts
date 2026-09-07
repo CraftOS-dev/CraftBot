@@ -29,6 +29,7 @@ export const ERROR_CATEGORY_STYLE: Record<string, ErrorCategoryStyle> = {
   quota: { icon: CreditCard, colorVar: '--color-warning', labelKey: 'common:errorCategory.quota' },
   model: { icon: AlertCircle, colorVar: '--color-error', labelKey: 'common:errorCategory.model' },
   bad_request: { icon: AlertCircle, colorVar: '--color-error', labelKey: 'common:errorCategory.badRequest' },
+  context_overflow: { icon: AlertCircle, colorVar: '--color-error', labelKey: 'common:errorCategory.contextOverflow' },
   blocked: { icon: ShieldAlert, colorVar: '--color-error', labelKey: 'common:errorCategory.blocked' },
   server: { icon: ServerCrash, colorVar: '--color-error', labelKey: 'common:errorCategory.server' },
   connection: { icon: WifiOff, colorVar: '--color-error', labelKey: 'common:errorCategory.connection' },

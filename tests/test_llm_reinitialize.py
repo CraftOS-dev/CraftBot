@@ -3,7 +3,7 @@
 
 Covers the fix for: a model-only (or no-op) Settings save was
 unconditionally wiping every active task's session-cache state
-(_session_system_prompts + per-provider message histories), even though
+(_session_system_prompts + the accumulated session history), even though
 those buffers are only invalidated by an actual *provider* change — the
 message format they hold is provider-specific, not model-specific.
 """
@@ -39,7 +39,7 @@ def llm_interface():
         )
     # Seed accumulated session state as if a task were mid-flight.
     interface._session_system_prompts["task-1:reasoning"] = "system prompt"
-    interface._anthropic_session_messages["task-1:reasoning"] = [
+    interface._session_histories["task-1:reasoning"] = [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "hello"},
     ]
@@ -58,7 +58,7 @@ def test_reinitialize_noop_preserves_everything(llm_interface):
 
     assert ok is True
     mock_create.assert_not_called()
-    assert llm_interface._anthropic_session_messages["task-1:reasoning"]
+    assert llm_interface._session_histories["task-1:reasoning"]
     assert llm_interface._session_system_prompts["task-1:reasoning"] == "system prompt"
 
 
@@ -74,7 +74,7 @@ def test_reinitialize_model_only_preserves_histories(llm_interface):
 
     assert ok is True
     assert llm_interface.model == "claude-b"
-    assert llm_interface._anthropic_session_messages["task-1:reasoning"]
+    assert llm_interface._session_histories["task-1:reasoning"]
     assert llm_interface._session_system_prompts["task-1:reasoning"] == "system prompt"
 
 
@@ -92,5 +92,5 @@ def test_reinitialize_provider_change_clears_histories(llm_interface):
 
     assert ok is True
     assert llm_interface.provider == "openai"
-    assert llm_interface._anthropic_session_messages == {}
+    assert llm_interface._session_histories == {}
     assert llm_interface._session_system_prompts == {}

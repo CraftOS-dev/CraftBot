@@ -76,6 +76,7 @@
     "quota": "할당량",
     "model": "모델",
     "badRequest": "요청",
+    "contextOverflow": "컨텍스트 창 초과",
     "blocked": "차단됨",
     "server": "서비스 사용 불가",
     "connection": "연결",
