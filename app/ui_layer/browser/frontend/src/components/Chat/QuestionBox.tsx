@@ -89,7 +89,11 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') {
+              if (
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
                 e.preventDefault()
                 submit(text)
               }
