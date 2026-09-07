@@ -19,6 +19,8 @@ from agent_core.core.impl.mcp.server import (
     MCPServerConnection,
     set_client_info,
     get_client_info,
+    set_default_stdio_cwd,
+    get_default_stdio_cwd,
 )
 from agent_core.core.impl.mcp.client import (
     MCPClient,
@@ -40,6 +42,8 @@ __all__ = [
     "MCPServerConnection",
     "set_client_info",
     "get_client_info",
+    "set_default_stdio_cwd",
+    "get_default_stdio_cwd",
     # Client
     "MCPClient",
     "mcp_client",

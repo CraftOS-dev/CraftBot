@@ -1171,7 +1171,9 @@
       "command": "npx",
       "args": [
         "@playwright/mcp@latest",
-        "--headless"
+        "--headless",
+        "--output-dir",
+        ".playwright-mcp"
       ],
       "env": {},
       "enabled": true

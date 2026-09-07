@@ -40,6 +40,24 @@ def get_client_info() -> Dict[str, str]:
     return {"name": _client_name, "version": _client_version}
 
 
+# Working directory for stdio server subprocesses whose config has no "cwd".
+# Without it they inherit the host process cwd, and servers that write
+# cwd-relative artifacts (e.g. playwright's .playwright-mcp/) litter the
+# install root with files the agent's own file tools can't find.
+_default_stdio_cwd: Optional[str] = None
+
+
+def set_default_stdio_cwd(path: Optional[str]) -> None:
+    """Set the default working directory for stdio MCP server subprocesses."""
+    global _default_stdio_cwd
+    _default_stdio_cwd = path
+
+
+def get_default_stdio_cwd() -> Optional[str]:
+    """Get the default working directory for stdio MCP server subprocesses."""
+    return _default_stdio_cwd
+
+
 @dataclass
 class MCPTool:
     """Represents an MCP tool discovered from a server."""
@@ -88,10 +106,17 @@ class MCPTransport(ABC):
 class StdioTransport(MCPTransport):
     """Stdio transport using subprocess communication."""
 
-    def __init__(self, command: str, args: List[str], env: Dict[str, str]):
+    def __init__(
+        self,
+        command: str,
+        args: List[str],
+        env: Dict[str, str],
+        cwd: Optional[str] = None,
+    ):
         self.command = command
         self.args = args
         self.env = env
+        self.cwd = cwd
         self._process: Optional[asyncio.subprocess.Process] = None
         self._request_id = 0
         self._lock = asyncio.Lock()
@@ -145,8 +170,11 @@ class StdioTransport(MCPTransport):
             # Resolve command path, especially for Windows
             command = self._resolve_command(self.command)
 
+            cwd = self.cwd or _default_stdio_cwd
+
             logger.info(
                 f"[StdioTransport] Starting subprocess: {command} {' '.join(self.args)}"
+                f" (cwd={cwd or os.getcwd()})"
             )
 
             # Start the subprocess
@@ -166,6 +194,7 @@ class StdioTransport(MCPTransport):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                         env=full_env,
+                        cwd=cwd,
                         limit=10
                         * 1024
                         * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
@@ -178,6 +207,7 @@ class StdioTransport(MCPTransport):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                         env=full_env,
+                        cwd=cwd,
                         limit=10
                         * 1024
                         * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
@@ -734,6 +764,7 @@ class MCPServerConnection:
                 command=self.config.command,
                 args=self.config.args,
                 env=self.config.env,
+                cwd=self.config.cwd,
             )
         elif self.config.transport == "sse":
             return SSETransport(

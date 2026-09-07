@@ -3261,8 +3261,8 @@ class AgentBase:
         sessions can load via add_action_sets.
         """
         try:
-            from app.mcp import mcp_client
-            from app.config import PROJECT_ROOT
+            from app.mcp import mcp_client, set_default_stdio_cwd
+            from app.config import PROJECT_ROOT, AGENT_WORKSPACE_ROOT
 
             config_path = PROJECT_ROOT / "app" / "config" / "mcp_config.json"
 
@@ -3273,6 +3273,12 @@ class AgentBase:
                 return
 
             logger.info(f"[MCP] Loading config from {config_path}")
+
+            # Stdio servers run from the agent workspace so cwd-relative
+            # artifacts (playwright screenshots, .playwright-mcp/) land where
+            # the agent's file tools look, not in the install root.
+            AGENT_WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+            set_default_stdio_cwd(str(AGENT_WORKSPACE_ROOT))
 
             # Initialize MCP client (loads config and connects to servers)
             await mcp_client.initialize(config_path)
