@@ -25,6 +25,34 @@ sys.path.insert(0, str(PROJECT_ROOT))
 os.chdir(PROJECT_ROOT)
 
 
+@pytest.fixture(autouse=True)
+def configured_context_window(monkeypatch):
+    """Give every test a configured model.context_window.
+
+    It is required configuration -- the agent refuses to start without it --
+    and the tracked settings.json ships it as null on purpose. A test that
+    exercises the missing-window error patches get_settings itself, which
+    takes precedence over this fixture for that test.
+    """
+    from app import config as app_config
+
+    real_get_settings = app_config.get_settings
+
+    def _with_window(reload: bool = False):
+        settings = dict(real_get_settings(reload))
+        model = dict(settings.get("model") or {})
+        if not model.get("context_window"):
+            model["context_window"] = 128000
+        settings["model"] = model
+        context = dict(settings.get("context") or {})
+        context.setdefault("stream_fraction_of_window", 0.5)
+        context.setdefault("tail_keep_fraction", 0.4)
+        settings["context"] = context
+        return settings
+
+    monkeypatch.setattr(app_config, "get_settings", _with_window)
+
+
 @pytest.fixture
 def event_stream_limits(monkeypatch):
     """Pin EventStream's summarization thresholds for a test.

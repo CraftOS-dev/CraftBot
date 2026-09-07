@@ -75,11 +75,19 @@ def invalidate_settings_cache() -> None:
     _settings_cache = None
 
 
-# Event-stream summarization thresholds. Defined here rather than in
-# event_stream.py so settings.json defaults and the runtime fallback cannot
-# drift apart.
-DEFAULT_SUMMARIZE_AT_TOKENS = 100000
-DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS = 10000
+# Event-stream summarization thresholds are derived from three settings:
+#   model.context_window               the model's window, in tokens
+#   context.stream_fraction_of_window  share of the window the event stream may
+#                                      use before it is summarized; the rest is
+#                                      the system prompt, the prompt wrapper and
+#                                      the output reservation
+#   context.tail_keep_fraction         share of that threshold kept after a fold
+# A key that is absent takes the shipped value from _get_default_settings();
+# a key that is present but invalid is a ConfigurationError.
+
+
+class ConfigurationError(ValueError):
+    """A required setting is missing or invalid in settings.json."""
 
 
 def _get_default_settings() -> Dict[str, Any]:
@@ -96,8 +104,8 @@ def _get_default_settings() -> Dict[str, Any]:
         "proactive": {"enabled": True},
         "memory": {"enabled": True},
         "context": {
-            "summarize_at_tokens": DEFAULT_SUMMARIZE_AT_TOKENS,
-            "tail_keep_after_summarize_tokens": DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS,
+            "stream_fraction_of_window": 0.5,
+            "tail_keep_fraction": 0.4,
         },
         "model": {
             "llm_provider": "anthropic",
@@ -106,6 +114,7 @@ def _get_default_settings() -> Dict[str, Any]:
             "video_gen_provider": "gemini",
             "llm_model": None,
             "vlm_model": None,
+            "context_window": 128000,
             "image_gen_model": None,
             "video_gen_model": None,
             "slow_mode": False,
@@ -208,31 +217,44 @@ def get_app_version() -> str:
     return v or "0.0.0"
 
 
+def _setting(section: str, key: str) -> Any:
+    """``settings.json[section][key]``, or the shipped default when absent."""
+    values = get_settings().get(section)
+    value = values.get(key) if isinstance(values, dict) else None
+    if value is None:
+        return _get_default_settings()[section][key]
+    return value
+
+
+def get_context_window() -> int:
+    """The configured model's context window in tokens (model.context_window)."""
+    value = _setting("model", "context_window")
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ConfigurationError(
+            "settings.json model.context_window must be a positive integer: the "
+            "context window of the configured model, in tokens."
+        )
+    return value
+
+
+def _get_context_fraction(key: str) -> float:
+    """settings.json ``context.<key>``, a number strictly between 0 and 1."""
+    value = _setting("context", key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value < 1:
+        raise ConfigurationError(
+            f"settings.json context.{key} must be a number between 0 and 1 (exclusive)."
+        )
+    return float(value)
+
+
 def get_context_limits() -> Tuple[int, int]:
-    """Get event-stream summarization thresholds from settings.json.
+    """Event-stream summarization thresholds, derived from settings.json.
 
-    Returns ``(summarize_at_tokens, tail_keep_after_summarize_tokens)``.
-    Non-positive or non-integer values fall back to the defaults rather than
-    raising — a bad hand-edit must not take the agent down. EventStream still
-    validates the two against each other; this only guarantees sane types.
+    Returns ``(summarize_at_tokens, tail_keep_after_summarize_tokens)``:
+    ``window * stream_fraction_of_window`` and ``that * tail_keep_fraction``.
     """
-    context = get_settings().get("context") or {}
-    if not isinstance(context, dict):
-        context = {}
-
-    def _positive_int(key: str, default: int) -> int:
-        value = context.get(key, default)
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            return default
-        return value
-
-    return (
-        _positive_int("summarize_at_tokens", DEFAULT_SUMMARIZE_AT_TOKENS),
-        _positive_int(
-            "tail_keep_after_summarize_tokens",
-            DEFAULT_TAIL_KEEP_AFTER_SUMMARIZE_TOKENS,
-        ),
-    )
+    summarize_at = int(get_context_window() * _get_context_fraction("stream_fraction_of_window"))
+    return summarize_at, int(summarize_at * _get_context_fraction("tail_keep_fraction"))
 
 
 def get_llm_provider() -> str:

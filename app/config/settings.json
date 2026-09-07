@@ -16,8 +16,8 @@
     "processing_threshold": 23
   },
   "context": {
-    "summarize_at_tokens": 100000,
-    "tail_keep_after_summarize_tokens": 10000
+    "stream_fraction_of_window": 0.5,
+    "tail_keep_fraction": 0.4
   },
   "model": {
     "slow_mode": true,
@@ -25,7 +25,8 @@
     "llm_provider": "anthropic",
     "vlm_provider": "anthropic",
     "llm_model": null,
-    "vlm_model": null
+    "vlm_model": null,
+    "context_window": 128000
   },
   "api_keys": {
     "openai": "",

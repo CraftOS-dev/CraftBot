@@ -308,7 +308,7 @@ class ActionRouter:
                                 logger.info(
                                     f"[SESSION CACHE] No delta events, resetting cache for {call_type}"
                                 )
-                                self.llm_interface.end_session_cache(
+                                self.llm_interface.reset_session_history(
                                     current_task_id, call_type
                                 )
                                 self.context_engine.reset_event_stream_sync(
@@ -318,7 +318,12 @@ class ActionRouter:
                                 has_synced_before = False
 
                         if not has_synced_before:
-                            # First call with session - send full prompt to establish session
+                            # First call with session - send full prompt to establish session.
+                            # Also reached after the stream folds (the fold clears the
+                            # sync point); any accumulated turns are stale by then.
+                            self.llm_interface.reset_session_history(
+                                current_task_id, call_type
+                            )
                             logger.info(
                                 f"[SESSION CACHE] Creating new session for {call_type} (first call)"
                             )

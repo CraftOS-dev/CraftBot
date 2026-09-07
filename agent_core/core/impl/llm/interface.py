@@ -49,7 +49,7 @@ from agent_core.core.models.registry import (
 
 # Logging setup - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
-from agent_core.utils.token import billable_tokens
+from agent_core.utils.token import billable_tokens, count_tokens
 
 # Per-call metadata (prompt identity + start time) propagated from the public
 # entry methods down to the capture chokepoint (_call_log_to_db) without
@@ -68,6 +68,15 @@ _llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
 _llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
     "_llm_call_ctx", default={}
 )
+
+
+class LLMContextOverflowError(RuntimeError):
+    """The assembled request does not fit the configured context window.
+
+    Raised before anything is sent. It is a local budget error, not a provider
+    failure, so callers must not count it against the provider or retry it on
+    a fallback provider with the same payload.
+    """
 
 
 class _EmptyResponse(Exception):
@@ -266,17 +275,11 @@ class LLMInterface:
         #   by OR to the last cacheable block (i.e. last assistant message)
         # - gemini:    growing `contents` array; implicit caching matches
         #   the longest stable prefix automatically (no marker required)
-        self._anthropic_session_messages: Dict[str, List[dict]] = {}
-        self._bedrock_session_messages: Dict[str, List[dict]] = {}
-        self._openrouter_anthropic_session_messages: Dict[str, List[dict]] = {}
-        self._gemini_session_messages: Dict[str, List[dict]] = {}
-        # openai / deepseek / grok / non-Claude openrouter: stateless
-        # chat-completions APIs with no server-side session. We accumulate a
-        # growing [user, assistant, ...] history here and resend it each turn
-        # so the model retains earlier context (the delta-only approach dropped
-        # everything but the newest turn); the stable growing prefix also feeds
-        # prompt_cache_key prefix caching.
-        self._openai_compat_session_messages: Dict[str, List[dict]] = {}
+        # Accumulated multi-turn history per session, keyed by
+        # "<task_id>:<call_type>". One interface serves one provider, so the
+        # message shape inside is whatever that provider's session branch
+        # builds; the container itself knows nothing about providers.
+        self._session_histories: Dict[str, List[dict]] = {}
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -426,11 +429,7 @@ class LLMInterface:
                 # Real provider change: message formats differ across
                 # providers, so the accumulated histories aren't reusable.
                 self._session_system_prompts = {}
-                self._anthropic_session_messages = {}
-                self._bedrock_session_messages = {}
-                self._openrouter_anthropic_session_messages = {}
-                self._gemini_session_messages = {}
-                self._openai_compat_session_messages = {}
+                self._session_histories = {}
 
             # Reinitialize Gemini cache manager
             if self._gemini_client:
@@ -745,6 +744,44 @@ class LLMInterface:
                 return content
         return None
 
+    def _check_context_fits(
+        self,
+        system_prompt: Optional[str],
+        user_prompt: Optional[str] = None,
+        messages: Optional[List[dict]] = None,
+    ) -> None:
+        """Refuse a request that cannot fit the configured context window.
+
+        Counts the payload that is about to be sent: the system prompt plus
+        either the single user prompt or every accumulated message. Input and
+        the output reservation share the window.
+        """
+        from app.config import get_context_window
+
+        window = get_context_window()
+        budget = window - self.max_tokens
+
+        total = count_tokens(system_prompt or "")
+        if messages:
+            for message in messages:
+                content = message.get("content", message.get("parts"))
+                if isinstance(content, str):
+                    total += count_tokens(content)
+                elif isinstance(content, list):
+                    for block in content:
+                        text = block.get("text") if isinstance(block, dict) else None
+                        if isinstance(text, str):
+                            total += count_tokens(text)
+        elif user_prompt:
+            total += count_tokens(user_prompt)
+
+        if total > budget:
+            raise LLMContextOverflowError(
+                f"Request of ~{total} input tokens exceeds the {budget}-token budget "
+                f"({window} window - {self.max_tokens} reserved for output) for "
+                f"{self.provider}/{self.model}."
+            )
+
     def _generate_response_sync(
         self,
         system_prompt: Optional[str] = None,
@@ -790,6 +827,7 @@ class LLMInterface:
             )
             if _transport is None:  # pragma: no cover
                 raise RuntimeError(f"Unknown provider {self.provider!r}")
+            self._check_context_fits(system_prompt, user_prompt)
             response = _transport(self, system_prompt, user_prompt, json_mode=json_mode)
             content = response.get("content", "").strip()
 
@@ -861,6 +899,9 @@ class LLMInterface:
 
         except LLMConsecutiveFailureError:
             # Re-raise consecutive failure errors without incrementing counter
+            raise
+        except LLMContextOverflowError:
+            # Nothing was sent; not a provider failure. Do not count or fall back.
             raise
         except _EmptyResponse as e:
             # Failure already counted above; convert back to RuntimeError for callers.
@@ -1021,11 +1062,7 @@ class LLMInterface:
         # Clean up stored system prompt and multi-turn message histories
         session_key = f"{task_id}:{call_type}"
         system_prompt = self._session_system_prompts.pop(session_key, None)
-        self._anthropic_session_messages.pop(session_key, None)
-        self._bedrock_session_messages.pop(session_key, None)
-        self._openrouter_anthropic_session_messages.pop(session_key, None)
-        self._gemini_session_messages.pop(session_key, None)
-        self._openai_compat_session_messages.pop(session_key, None)
+        self._session_histories.pop(session_key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -1033,6 +1070,20 @@ class LLMInterface:
         elif self.provider == "gemini" and self._gemini_cache_manager and system_prompt:
             # Invalidate the explicit cache for this system prompt + call_type
             self._gemini_cache_manager.invalidate_cache(system_prompt, call_type)
+
+    def reset_session_history(self, task_id: str, call_type: str) -> None:
+        """Drop the accumulated turns for a session after its event stream folded.
+
+        The session stays registered, so the router keeps taking the session
+        path and the next call re-establishes the prefix from the current
+        stream. ``end_session_cache`` is for the end of a task; using it here
+        also dropped the registration and pushed every following turn onto the
+        stateless path.
+        """
+        self._session_histories.pop(f"{task_id}:{call_type}", None)
+        if self._byteplus_cache_manager:
+            # This provider keeps the history server-side; end that chain too.
+            self._byteplus_cache_manager.end_session(task_id, call_type)
 
     def end_all_session_caches(self, task_id: str) -> None:
         """End ALL session/explicit caches for a task (all call types).
@@ -1058,16 +1109,8 @@ class LLMInterface:
         # Clean up multi-turn message histories across all providers that
         # accumulate (anthropic, bedrock, openrouter-via-claude, gemini,
         # openai-subscription).
-        for buffer in (
-            self._anthropic_session_messages,
-            self._bedrock_session_messages,
-            self._openrouter_anthropic_session_messages,
-            self._gemini_session_messages,
-            self._openai_compat_session_messages,
-        ):
-            stale = [k for k in buffer if k.startswith(f"{task_id}:")]
-            for key in stale:
-                buffer.pop(key, None)
+        for key in [k for k in self._session_histories if k.startswith(f"{task_id}:")]:
+            self._session_histories.pop(key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -1076,43 +1119,6 @@ class LLMInterface:
             # Invalidate all explicit caches for this task's prompts
             for system_prompt, call_type in prompts_and_types:
                 self._gemini_cache_manager.invalidate_cache(system_prompt, call_type)
-
-    def _trim_openai_compat_history(self, history: List[dict]) -> None:
-        """Bound an accumulated openai-compat session history IN PLACE.
-
-        Stateless resends grow every turn, so cap the history to keep
-        ``[system + history + new turn + response]`` inside the model's context
-        window. This is a safety backstop — the agent's summarization-driven
-        session reset (which clears the whole buffer via ``end_session_cache``)
-        normally fires first.
-
-        Trimming preserves the FIRST user/assistant pair — the grounding turn
-        carrying the original query / Definition of Done — and drops the oldest
-        MIDDLE pairs, so we never re-introduce the amnesia this fix exists to
-        prevent. Uses a chars≈4*tokens heuristic.
-        """
-        # Fixed history budget (~240k chars ≈ 60k tokens), leaving room for the
-        # system prompt, newest turn, and response. Provider-independent by
-        # design: we keep no per-model context-window table (no hardcoded model
-        # list), so a single conservative constant governs trimming for every
-        # provider. A power user can raise it via model.context_window_override.
-        max_history_chars = 240_000
-        try:
-            from app.config import get_settings
-
-            override = get_settings().get("model", {}).get("context_window_override")
-            if override:
-                max_history_chars = max(240_000, int(override) * 4)
-        except Exception:
-            pass
-
-        def _size() -> int:
-            return sum(len(m.get("content", "") or "") for m in history)
-
-        # Keep index 0/1 (grounding) and the most recent pair; trim from the
-        # oldest middle pair inward.
-        while len(history) > 4 and _size() > max_history_chars:
-            del history[2:4]
 
     def has_session_cache(self, task_id: str, call_type: str) -> bool:
         """Check if a session/explicit cache is available for the given task and call type.
@@ -1302,9 +1308,7 @@ class LLMInterface:
             if not effective_system_prompt:
                 raise ValueError(f"No system prompt for task {task_id}:{call_type}")
 
-            if session_key not in self._gemini_session_messages:
-                self._gemini_session_messages[session_key] = []
-            history = self._gemini_session_messages[session_key]
+            history = self._session_histories.setdefault(session_key, [])
 
             # Build contents = history + new user turn.
             contents: List[Dict[str, Any]] = []
@@ -1317,6 +1321,7 @@ class LLMInterface:
                 f"sending {len(contents)} total contents"
             )
 
+            self._check_context_fits(effective_system_prompt, messages=contents)
             response = self._generate_gemini(
                 effective_system_prompt,
                 user_prompt,
@@ -1361,9 +1366,7 @@ class LLMInterface:
             )
 
             if is_openrouter_claude:
-                if session_key not in self._openrouter_anthropic_session_messages:
-                    self._openrouter_anthropic_session_messages[session_key] = []
-                history = self._openrouter_anthropic_session_messages[session_key]
+                history = self._session_histories.setdefault(session_key, [])
 
                 # Build OpenAI-shaped messages: [system, user1, assistant1,
                 # ..., new_user]. OpenRouter applies extra_body.cache_control
@@ -1380,6 +1383,7 @@ class LLMInterface:
                     f"{len(history)} history msgs, sending {len(or_messages)} total"
                 )
 
+                self._check_context_fits(None, messages=or_messages)
                 response = self._generate_openai(
                     effective_system_prompt,
                     user_prompt,
@@ -1407,10 +1411,7 @@ class LLMInterface:
                 # resend [system, u1, a1, ..., new_user] every turn. Correctness
                 # aside, the stable growing prefix is exactly what prompt_cache_key
                 # rewards, so most of the resend is served from cache once warm.
-                if session_key not in self._openai_compat_session_messages:
-                    self._openai_compat_session_messages[session_key] = []
-                history = self._openai_compat_session_messages[session_key]
-                self._trim_openai_compat_history(history)
+                history = self._session_histories.setdefault(session_key, [])
 
                 oa_messages: List[Dict[str, Any]] = [
                     {"role": "system", "content": effective_system_prompt}
@@ -1424,6 +1425,7 @@ class LLMInterface:
                     f"{len(history)} history msgs, sending {len(oa_messages)} total"
                 )
 
+                self._check_context_fits(None, messages=oa_messages)
                 response = self._generate_openai(
                     effective_system_prompt,
                     user_prompt,
@@ -1450,10 +1452,8 @@ class LLMInterface:
                 raise ValueError(f"No system prompt for task {task_id}:{call_type}")
 
             # Get or initialize multi-turn message history
-            if session_key not in self._anthropic_session_messages:
-                self._anthropic_session_messages[session_key] = []
 
-            history = self._anthropic_session_messages[session_key]
+            history = self._session_histories.setdefault(session_key, [])
 
             # Build messages: history (with cache_control on last assistant) + new user msg
             messages: List[dict] = []
@@ -1505,6 +1505,7 @@ class LLMInterface:
             )
 
             # Call Anthropic with the full multi-turn messages
+            self._check_context_fits(effective_system_prompt, messages=messages)
             response = self._generate_anthropic(
                 effective_system_prompt,
                 user_prompt,
@@ -1542,9 +1543,7 @@ class LLMInterface:
 
             # Get or initialize multi-turn message history (Bedrock Converse
             # content-block format: {"role": ..., "content": [{"text": ...}]}).
-            if session_key not in self._bedrock_session_messages:
-                self._bedrock_session_messages[session_key] = []
-            history = self._bedrock_session_messages[session_key]
+            history = self._session_histories.setdefault(session_key, [])
 
             # Build messages: history (strip any prior cachePoint blocks, we
             # re-place exactly one) + new user message.
@@ -1579,6 +1578,7 @@ class LLMInterface:
                 f"sending {len(messages)} msgs to Converse"
             )
 
+            self._check_context_fits(effective_system_prompt, messages=messages)
             response = self._generate_bedrock(
                 effective_system_prompt,
                 user_prompt,
