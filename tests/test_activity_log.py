@@ -78,6 +78,31 @@ class TestGuardLifecycle:
         assert d3.proceed
         assert log2.get(d1.idem_key)["status"] == "INTENT"
 
+    def test_parallel_duplicate_in_same_process_is_not_flagged_as_crashed(
+        self, tmp_path
+    ):
+        log, guard = make_guard(tmp_path)
+        d1 = guard.begin("send_gmail", INPUTS, "task1")
+        assert d1.proceed
+        # A batch mate with identical inputs, dispatched by execute_parallel
+        # before d1's complete() is reached: not a crash, still running.
+        d2 = guard.begin("send_gmail", INPUTS, "task1")
+        assert not d2.proceed
+        assert d2.stored_output is None
+        assert "MAY" not in d2.note
+        assert "already running" in d2.note
+        assert log.get(d1.idem_key)["status"] == "INTENT"
+
+        guard.complete(
+            d1.idem_key, "success", {"status": "success", "message_id": "msg-1"}
+        )
+
+        # Once complete()'d, a later identical call follows the ordinary
+        # DONE-dedup path, not the in-flight one.
+        d3 = guard.begin("send_gmail", INPUTS, "task1")
+        assert not d3.proceed
+        assert d3.stored_output["_idempotent_replay"] is True
+
     def test_failed_run_can_be_retried(self, tmp_path):
         log, guard = make_guard(tmp_path)
         d1 = guard.begin("send_gmail", INPUTS, "task1")
