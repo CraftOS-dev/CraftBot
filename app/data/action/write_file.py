@@ -6,7 +6,7 @@ from agent_core import action
     description="Write or overwrite a text file with the provided content. Creates parent directories if they don't exist.",
     mode="CLI",
     action_sets=["core"],
-    parallelizable=False,
+    parallelizable=True,
     input_schema={
         "file_path": {
             "type": "string",
