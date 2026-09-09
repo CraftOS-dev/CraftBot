@@ -1,5 +1,5 @@
 from agent_core import action
-
+from app.data.action.file_locks import get_file_lock
 
 @action(
     name="stream_edit",
@@ -81,7 +81,7 @@ def stream_edit_action(input_data: dict) -> dict:
             "message": "Successfully replaced 1 occurrence(s)",
             "occurrences_replaced": 1,
         }
-
+    
     try:
         file_path = input_data.get("file_path")
         old_string = input_data.get("old_string")
@@ -118,64 +118,40 @@ def stream_edit_action(input_data: dict) -> dict:
                 "message": "old_string and new_string are identical - no change needed",
                 "occurrences_replaced": 0,
             }
+        lock = get_file_lock(file_path)
 
-        # Read the file
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        with lock:
+            # Read the file
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
 
-        # Count occurrences and perform replacement
-        if use_regex:
-            # Regex mode
-            flags = re.IGNORECASE if ignore_case else 0
-            try:
-                pattern = re.compile(old_string, flags)
-            except re.error as e:
-                return {
-                    "status": "error",
-                    "message": f"Invalid regex pattern: {e}",
-                    "occurrences_replaced": 0,
-                }
+            # Count occurrences and perform replacement
+            if use_regex:
+                # Regex mode
+                flags = re.IGNORECASE if ignore_case else 0
+                try:
+                    pattern = re.compile(old_string, flags)
+                except re.error as e:
+                    return {
+                        "status": "error",
+                        "message": f"Invalid regex pattern: {e}",
+                        "occurrences_replaced": 0,
+                    }
 
-            matches = pattern.findall(content)
-            count = len(matches)
-
-            if count == 0:
-                return {
-                    "status": "error",
-                    "message": "Pattern not found in file.",
-                    "occurrences_replaced": 0,
-                }
-
-            if count > 1 and not replace_all:
-                return {
-                    "status": "error",
-                    "message": f"Pattern matches {count} times in file. Either provide more specific pattern, or set replace_all=True to replace all occurrences.",
-                    "occurrences_replaced": 0,
-                }
-
-            if replace_all:
-                new_content = pattern.sub(new_string, content)
-            else:
-                new_content = pattern.sub(new_string, content, count=1)
-        else:
-            # Literal string mode
-            if ignore_case:
-                # Case-insensitive literal string matching
-                pattern = re.compile(re.escape(old_string), re.IGNORECASE)
                 matches = pattern.findall(content)
                 count = len(matches)
 
                 if count == 0:
                     return {
                         "status": "error",
-                        "message": "old_string not found in file. Make sure the text matches exactly including whitespace and indentation.",
+                        "message": "Pattern not found in file.",
                         "occurrences_replaced": 0,
                     }
 
                 if count > 1 and not replace_all:
                     return {
                         "status": "error",
-                        "message": f"old_string appears {count} times in file. Either provide more context to make it unique, or set replace_all=True to replace all occurrences.",
+                        "message": f"Pattern matches {count} times in file. Either provide more specific pattern, or set replace_all=True to replace all occurrences.",
                         "occurrences_replaced": 0,
                     }
 
@@ -184,37 +160,63 @@ def stream_edit_action(input_data: dict) -> dict:
                 else:
                     new_content = pattern.sub(new_string, content, count=1)
             else:
-                # Case-sensitive literal string matching (original behavior)
-                count = content.count(old_string)
+                # Literal string mode
+                if ignore_case:
+                    # Case-insensitive literal string matching
+                    pattern = re.compile(re.escape(old_string), re.IGNORECASE)
+                    matches = pattern.findall(content)
+                    count = len(matches)
 
-                if count == 0:
-                    return {
-                        "status": "error",
-                        "message": "old_string not found in file. Make sure the text matches exactly including whitespace and indentation.",
-                        "occurrences_replaced": 0,
-                    }
+                    if count == 0:
+                        return {
+                            "status": "error",
+                            "message": "old_string not found in file. Make sure the text matches exactly including whitespace and indentation.",
+                            "occurrences_replaced": 0,
+                        }
 
-                if count > 1 and not replace_all:
-                    return {
-                        "status": "error",
-                        "message": f"old_string appears {count} times in file. Either provide more context to make it unique, or set replace_all=True to replace all occurrences.",
-                        "occurrences_replaced": 0,
-                    }
+                    if count > 1 and not replace_all:
+                        return {
+                            "status": "error",
+                            "message": f"old_string appears {count} times in file. Either provide more context to make it unique, or set replace_all=True to replace all occurrences.",
+                            "occurrences_replaced": 0,
+                        }
 
-                if replace_all:
-                    new_content = content.replace(old_string, new_string)
+                    if replace_all:
+                        new_content = pattern.sub(new_string, content)
+                    else:
+                        new_content = pattern.sub(new_string, content, count=1)
                 else:
-                    new_content = content.replace(old_string, new_string, 1)
+                    # Case-sensitive literal string matching (original behavior)
+                    count = content.count(old_string)
 
-        # Write the file
-        with open(file_path, "w", encoding="utf-8", newline="") as f:
-            f.write(new_content)
+                    if count == 0:
+                        return {
+                            "status": "error",
+                            "message": "old_string not found in file. Make sure the text matches exactly including whitespace and indentation.",
+                            "occurrences_replaced": 0,
+                        }
 
-        return {
-            "status": "success",
-            "message": f"Successfully replaced {count} occurrence(s)",
-            "occurrences_replaced": count,
-        }
+                    if count > 1 and not replace_all:
+                        return {
+                            "status": "error",
+                            "message": f"old_string appears {count} times in file. Either provide more context to make it unique, or set replace_all=True to replace all occurrences.",
+                            "occurrences_replaced": 0,
+                        }
+
+                    if replace_all:
+                        new_content = content.replace(old_string, new_string)
+                    else:
+                        new_content = content.replace(old_string, new_string, 1)
+
+            # Write the file
+            with open(file_path, "w", encoding="utf-8", newline="") as f:
+                f.write(new_content)
+
+            return {
+                "status": "success",
+                "message": f"Successfully replaced {count} occurrence(s)",
+                "occurrences_replaced": count,
+            }
 
     except Exception as e:
         return {"status": "error", "message": str(e), "occurrences_replaced": 0}
