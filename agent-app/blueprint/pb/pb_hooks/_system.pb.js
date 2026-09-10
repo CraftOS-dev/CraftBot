@@ -77,6 +77,31 @@ routerUse((e) => {
     "frame-ancestors 'self' http://127.0.0.1:* http://localhost:*"
   );
 
+  // THE SPA ENTRY MUST NEVER BE CACHED. index.html references content-hashed
+  // assets that change on every deploy, but PocketBase serves it with no
+  // Cache-Control at all, so browsers heuristically cache it — after a
+  // promote, open tabs and CraftBot's app iframe kept rendering the previous
+  // build byte-for-byte (observed live 2026-09-08, clock 72371f3d: the
+  // server provably served the new bundle while every warm-cache browser
+  // showed the old app; a hard refresh of the HOST page does not bypass the
+  // cache for iframe navigations). Content-hashed /assets/ stay cacheable —
+  // their names change with their bytes. Runs before the origin branches:
+  // same-origin iframe loads carry no Origin header and must still get this.
+  var reqPath = '';
+  try {
+    reqPath = String((e.request.url && e.request.url.path) || '');
+  } catch {
+    reqPath = '';
+  }
+  if (
+    reqPath.indexOf('/api/') !== 0 &&
+    reqPath.indexOf('/assets/') !== 0 &&
+    reqPath.indexOf('/_/') !== 0 &&
+    (reqPath === '/' || reqPath.indexOf('.') === -1 || /\.html?$/i.test(reqPath))
+  ) {
+    headers.set('Cache-Control', 'no-store');
+  }
+
   if (origin === '') return e.next(); // not a browser cross-origin request
 
   if (ALLOWED_ORIGIN.test(origin) || isSharedOrigin(origin)) {

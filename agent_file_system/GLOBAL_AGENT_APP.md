@@ -35,21 +35,14 @@ Per-project settings from Phase 0 Q&A override these when they conflict.
 - Text must have sufficient contrast against background (dark text on light backgrounds, light text on dark backgrounds)
 - Never use light text on light backgrounds or dark text on dark backgrounds
 
-## Optional Rules
-
-- [x] Enable drag-and-drop for reordering items
-- [x] Add keyboard shortcuts for common actions
-- [x] Show item count badges on categories/sections
-- [x] Add search/filter bar to all list views
-- [x] Support bulk selection and batch operations
-- [ ] Enable dark mode only (ignore system preference)
-- [ ] Add animations and transitions to UI interactions
-- [ ] Show timestamps on all items (created/updated)
-- [ ] Enable infinite scroll instead of pagination
-- [ ] Add undo/redo support for user actions
-- [ ] Show breadcrumb navigation for nested views
-
 ## Custom Rules
 
-<!-- Add your own rules below as checkbox lines -->
-<!-- Example: - [x] All lists must support search/filter -->
+<!-- Add your own rules below as bullet lines -->
+<!-- Example: - All lists must support search/filter -->
+- Enable drag-and-drop for reordering items
+- Add keyboard shortcuts for common actions
+- Show item count badges on categories/sections
+- Add search/filter bar to all list views
+- Support bulk selection and batch operations
+- Add animations and transitions to UI interactions
+- Add undo/redo support for user actions

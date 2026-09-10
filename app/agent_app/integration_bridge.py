@@ -507,10 +507,9 @@ class IntegrationBridge:
             # agent runs; the dev copy and its rows die at promote anyway.
             # With no dev env there is nothing mid-change that could fire
             # falsely: during a first build the live app does not run yet,
-            # and after a promote fires are legitimate operation. NOT keyed
-            # on the factory machine: machine_for lazily creates a BUILDING
-            # machine for any project, so a marketplace install (which never
-            # builds here) would read as mid-arc forever.
+            # and after a promote fires are legitimate operation. Keyed on
+            # the dev env, not the arc: the era question is "is test traffic
+            # possible", and only a dev environment makes it possible.
             dev_env = host.get_staging_record(project_id)
             if dev_env:
                 logger.info(

@@ -91,64 +91,65 @@ class TestTheSignalSurvivesTheMerge:
 class TestTheSupervisorRespectsTheDecision:
     @pytest.fixture
     def host(self, monkeypatch, tmp_path):
-        """A FactoryHost whose machine always wants a redispatch."""
-        from app.factory.appfactory import BUILDING, transition
-        from app.factory.engine import Caps, Machine
-        from app.factory.host_craftbot import get_factory_host
+        """A FactoryHost with a real open Arc for one project."""
+        from app.factory.engine import ARC_BUILD, Arc
+        from app.factory.host_craftbot import FactoryHost
 
-        machine = Machine(transition, tmp_path / "state.json", BUILDING, Caps())
-        assert machine.needs_redispatch(), "fixture must reproduce the condition"
+        h = FactoryHost()
+        arc = Arc(tmp_path / "arc.json")
+        arc.open(ARC_BUILD)
+        monkeypatch.setattr(h, "arc_for", lambda _pid: arc)
+        kicks = []
+        monkeypatch.setattr(h, "kick", lambda _pid="": kicks.append("kick"))
+        return h, arc, kicks
 
-        h = get_factory_host()
-        monkeypatch.setattr(h, "machine_for", lambda _pid: machine)
-        monkeypatch.setattr(h, "_sidecar_read", lambda _pid: {})
-        deferred, dispatched = [], []
-        monkeypatch.setattr(
-            h,
-            "_defer_run_end",
-            lambda pid, delay, reason: deferred.append((delay, reason)),
-        )
-        monkeypatch.setattr(
-            h,
-            "_project",
-            lambda _pid: (
-                dispatched.append("dispatched")
-                or types.SimpleNamespace(
-                    id="4fa24e8b", name="Brainstorm Graph", path="."
-                )
-            ),
-        )
-        return h, deferred, dispatched
-
-    def test_a_parked_question_is_not_redispatched(self, host):
-        h, _deferred, dispatched = host
+    def test_a_parked_question_pauses_the_arc(self, host):
+        h, arc, kicks = host
         h.on_run_end("4fa24e8b", {}, awaiting_answer=True)
-        assert dispatched == []
+        assert arc.paused and arc.paused["by"] == "question"
+        assert kicks == [], "a parked question must not wake the supervisor"
 
-    def test_there_is_no_deadline_on_the_agent_s_decision(self, host):
-        # Not deferred either. A timer here would be the system deciding how
-        # long the agent may wait — and the only thing a resume can do with an
-        # unanswered question is ask it again, which is the original bug.
-        h, deferred, dispatched = host
+    def test_the_supervisor_never_acts_on_a_parked_question(self, host):
+        # There is no deadline either: a timer here would be the system
+        # deciding how long the agent may wait — and the only thing a resume
+        # can do with an unanswered question is ask it again, which is the
+        # original bug this file exists for.
+        h, arc, _kicks = host
         h.on_run_end("4fa24e8b", {}, awaiting_answer=True)
-        assert deferred == []
-        assert dispatched == []
+        arc._d["last_activity_at"] = 0.0  # hours idle — still the user's move
+        arc.save()
+        project = types.SimpleNamespace(
+            id="4fa24e8b", name="Brainstorm Graph", path=".", session_id="lui_x"
+        )
+        assert h._tick_project("4fa24e8b", project) is False
 
     def test_the_answer_is_the_wakeup(self, host):
-        # The user replies -> that run ends -> this hook is re-entered with
-        # no question outstanding -> the arc carries on as normal.
-        h, _deferred, dispatched = host
+        # The user replies -> that run ends -> the pause clears and the
+        # supervisor is kicked; the arc carries on as normal.
+        h, arc, kicks = host
         h.on_run_end("4fa24e8b", {}, awaiting_answer=True)
         h.on_run_end("4fa24e8b", {})
-        assert dispatched == ["dispatched"]
+        assert arc.paused is None
+        assert kicks == ["kick"]
 
-    def test_a_real_surrender_still_redispatches(self, host):
-        h, _deferred, dispatched = host
+    def test_a_real_surrender_only_kicks_the_supervisor(self, host):
+        # Run-end records facts; the ONE dispatch decision point is the
+        # supervisor tick, where backoff and the stall cap live.
+        h, arc, kicks = host
         h.on_run_end("4fa24e8b", {})
-        assert dispatched == ["dispatched"]
+        assert kicks == ["kick"]
+        assert arc.paused is None
 
-    def test_the_default_is_unchanged_for_every_other_caller(self, host):
-        # on_run_end's new parameter must not alter existing call sites.
-        h, _deferred, dispatched = host
-        h.on_run_end("4fa24e8b", {"factory_mission_id": "m1"})
-        assert dispatched == ["dispatched"]
+    def test_a_user_stop_is_recorded_as_intent(self, host):
+        h, arc, _kicks = host
+        h._emit_chat = lambda pid, text: None
+        h.pause_by_user("4fa24e8b")
+        assert arc.paused and arc.paused["by"] == "user"
+        arc._d["last_activity_at"] = 0.0
+        arc.save()
+        project = types.SimpleNamespace(
+            id="4fa24e8b", name="Brainstorm Graph", path=".", session_id="lui_x"
+        )
+        assert h._tick_project("4fa24e8b", project) is False, (
+            "the stop button is a stop, not a deferral"
+        )

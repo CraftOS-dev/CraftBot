@@ -55,8 +55,6 @@ from agent_core import action
     },
 )
 async def browser_probe(input_data: dict) -> dict:
-    import asyncio
-    import json
     from pathlib import Path
 
     if input_data.get("simulated_mode", False):
@@ -74,45 +72,49 @@ async def browser_probe(input_data: dict) -> dict:
             "message": "url and a non-empty steps array are required",
         }
 
-    from app.config import PROJECT_ROOT
-    from app import node_runtime
+    from app.agent_app.probe_pool import ProbeUnavailable, get_probe_pool
 
-    cli = Path(PROJECT_ROOT) / "agent-app" / "tools" / "src" / "cli.ts"
     out_dir = str(Path(input_data.get("project_path") or "/tmp") / "logs" / "verify")
-    proc = await asyncio.create_subprocess_exec(
-        # the resolved >= 24 runtime — the CLI is TypeScript, bare PATH
-        # "node" may be an older major (see app/node_runtime.py)
-        node_runtime.node_cmd() or "node",
-        str(cli),
-        "probe",
-        "--url",
-        url,
-        "--steps",
-        json.dumps(steps),
-        "--out",
-        out_dir,
-        env=node_runtime.child_env(),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
+    pool = get_probe_pool()
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=180)
-    except asyncio.TimeoutError:
-        proc.kill()
-        return {"status": "error", "message": "browser probe timed out after 180s"}
-
-    text = out.decode(errors="replace").strip()
-    try:
-        payload = json.loads(text.splitlines()[-1])
-    except Exception:
+        result = await pool.probe(url, steps, out_dir)
+    except ProbeUnavailable as e:
         return {
             "status": "error",
-            "message": f"probe output unparseable: {text[-500:]}",
+            "message": (
+                f"No browser can run on this machine ({e}) — UI probing is "
+                "unavailable; rely on the server-side evidence instead."
+            ),
         }
-    if "error" in payload:
-        return {"status": "error", "message": str(payload["error"])}
+    except (RuntimeError, ValueError) as e:
+        return {"status": "error", "message": f"browser probe failed: {e}"}
+
+    # The probe RAN against this port — record it on the shadow whose
+    # environment it exercised, so the walk action's probe-first mandate
+    # has a structural fact to check (port equality, nothing inferred).
+    try:
+        from urllib.parse import urlsplit
+
+        from app.agent_app import get_agent_app_manager
+        from app.factory.host_craftbot import get_factory_host
+
+        probed_port = urlsplit(url).port
+        mgr = get_agent_app_manager()
+        host = get_factory_host()
+        if mgr is not None and probed_port is not None:
+            for _pid in list(getattr(mgr, "projects", {})):
+                record = host.get_staging_record(_pid)
+                if record and int(record.get("port") or 0) == int(probed_port):
+                    import time as _time
+
+                    record["probed_at"] = _time.time()
+                    host.set_staging_record(_pid, record)
+                    break
+    except Exception:
+        pass  # bookkeeping must never fail a successful probe
+
     return {
         "status": "success",
-        "steps": payload.get("steps", []),
-        "console_errors": payload.get("consoleErrors", []),
+        "steps": result.get("steps", []),
+        "console_errors": result.get("consoleErrors", []),
     }

@@ -814,12 +814,15 @@ def _render_source(source_dir: Path) -> str:
             continue
         rel = f.relative_to(source_dir)
         if len(listing) < 200:
-            listing.append(str(rel))
+            # POSIX separators: this rendering is a prompt and must read the
+            # same on every platform (Windows backslashes broke both the
+            # scoring regex targets and the deterministic-output tests).
+            listing.append(rel.as_posix())
         files.append(f)
 
     def _score(f: Path) -> int:
         name = f.name.lower()
-        rel = str(f.relative_to(source_dir)).lower()
+        rel = f.relative_to(source_dir).as_posix().lower()
         if name.startswith("readme"):
             return 0
         if name in ("package.json", "pyproject.toml", "go.mod", "cargo.toml"):
@@ -841,7 +844,7 @@ def _render_source(source_dir: Path) -> str:
             continue
         if not text.strip():
             continue
-        chunk = f"\n\n--- {f.relative_to(source_dir)} ---\n{text}"
+        chunk = f"\n\n--- {f.relative_to(source_dir).as_posix()} ---\n{text}"
         if used + len(chunk) > total_cap:
             continue
         parts.append(chunk)

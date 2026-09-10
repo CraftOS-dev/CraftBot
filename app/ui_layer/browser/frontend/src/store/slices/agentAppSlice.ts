@@ -94,7 +94,18 @@ const agentAppSlice = createSlice({
       delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
         p.id === projectId
-          ? { ...p, status: 'running', url, port, ...(sessionId ? { sessionId } : {}) }
+          ? {
+              ...p,
+              status: 'running',
+              url,
+              port,
+              // Every ready event stamps a fresh version: the app iframe keys
+              // its src on it, so a promote/relaunch forces a real fetch of
+              // index.html instead of the browser's heuristically-cached copy
+              // (which kept showing the previous build after deploys).
+              readyAt: Date.now(),
+              ...(sessionId ? { sessionId } : {}),
+            }
           : p,
       )
     },
@@ -103,7 +114,7 @@ const agentAppSlice = createSlice({
       delete state.buildEvents[projectId]
       delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
-        p.id === projectId ? { ...p, status: 'running', url, port } : p,
+        p.id === projectId ? { ...p, status: 'running', url, port, readyAt: Date.now() } : p,
       )
     },
     // Optimistic transition set the instant the user clicks Launch, so the UI

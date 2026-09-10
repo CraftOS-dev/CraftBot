@@ -44,20 +44,22 @@ def has_live_env(project, host) -> bool:
 
 
 @dataclass
-class DevInstance:
-    """One dev environment: the project's code copied to a hidden port with
-    its own (fresh) database. `process` is runtime-only; everything else
-    round-trips through the factory-host sidecar record.
+class ShadowInstance:
+    """One SHADOW environment: the project's OWN code tree booted on a hidden
+    port with a fresh database and a content-addressed build artifact.
+    Nothing is copied — `dir` is the per-boot state directory (data + logs),
+    not a code tree. `process` is runtime-only; everything else round-trips
+    through the factory-host sidecar record.
 
-    The sidecar key and on-disk root keep their historical "staging" names —
-    they are storage details shared with records written by older versions,
-    and the boot reaper must keep finding both.
+    The sidecar key keeps its historical "staging" name — a storage detail
+    the reapers and redirects already speak.
     """
 
     project_id: str
-    dir: Path
+    dir: Path  # <agent_app>/_shadow/<project>/<boot-id>/ — data, logs
     port: int
     created_at: float
+    public_dir: Path = Path("")  # the served build artifact (content-addressed)
     pid: Optional[int] = None
     process: Optional[subprocess.Popen] = None
 
@@ -65,21 +67,20 @@ class DevInstance:
     def url(self) -> str:
         return f"http://127.0.0.1:{self.port}"
 
+    @property
+    def data_dir(self) -> Path:
+        return self.dir / "pb_data"
+
+    @property
+    def log_dir(self) -> Path:
+        return self.dir / "logs"
+
     def to_record(self) -> Dict[str, Any]:
         return {
             "dir": str(self.dir),
             "port": self.port,
             "url": self.url,
             "pid": self.pid,
+            "public_dir": str(self.public_dir),
             "created_at": self.created_at,
         }
-
-    @classmethod
-    def from_record(cls, project_id: str, record: Dict[str, Any]) -> "DevInstance":
-        return cls(
-            project_id=project_id,
-            dir=Path(record.get("dir", "")),
-            port=int(record.get("port", 0)),
-            created_at=float(record.get("created_at", 0)),
-            pid=record.get("pid"),
-        )

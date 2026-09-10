@@ -165,7 +165,13 @@ export function AgentAppPage() {
       return
     }
 
-    getOrCreateIframe(projectId, project.url)
+    // Version-stamped src: a new deploy broadcasts ready → new readyAt →
+    // the pool navigates the frame past the browser's HTTP cache. Without
+    // this, the iframe kept rendering the pre-deploy build.
+    const versionedSrc = project.readyAt
+      ? `${project.url}${project.url.includes('?') ? '&' : '?'}v=${project.readyAt}`
+      : project.url
+    getOrCreateIframe(projectId, versionedSrc)
 
     const updatePosition = () => {
       if (iframePlaceholderRef.current && projectId) {
@@ -188,7 +194,7 @@ export function AgentAppPage() {
       window.removeEventListener('resize', updatePosition)
       if (projectId) hideIframe(projectId)
     }
-  }, [projectId, project?.status, project?.url])
+  }, [projectId, project?.status, project?.url, project?.readyAt])
 
   // Send the selected Agent App theme + current app mode to the iframe.
   // NOTE: the postMessage `type` stays 'livingui-theme' — it is the wire

@@ -18,9 +18,11 @@ Every file in a project has exactly one owner. You edit **only** these paths:
 | `AGENT_APP.md` | Your plan/context/index — keep it current |
 | `reference/` | Requirements and materials handed to you |
 
-Everything else — `frontend/src/kit/`, `main.tsx`, `config.gen.ts`, configs,
-`_system.pb.js`, `_craftbot_bridge.js`, `manifest.json` — is **system-managed**. The validation gate
-hashes those files and **fails the build if you touched them** (ownership step).
+`frontend/src/kit/`, `config.gen.ts`, the underscore hooks (`_system.pb.js`,
+`_craftbot_bridge.js`, `_a2app*`, `_triggers*`) and `manifest.json` are **system-managed**.
+The validation gate hashes those files and **fails the build if you touched them**
+(ownership step). Other frontend scaffolding (`main.tsx`, `app.css`, `index.html`,
+`vite.config.ts`, `tsconfig.json`) is editable but rarely needs it.
 Need different behavior from a kit component? Wrap it in `app/`:
 
 ```tsx

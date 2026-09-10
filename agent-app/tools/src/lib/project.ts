@@ -10,6 +10,23 @@ export interface ProjectRef {
   baseUrl: string;
 }
 
+/** While a SHADOW environment is up, the host writes `.lui/shadow.json`
+ *  ({"port": n}) into the project and removes it at promote/teardown. All
+ *  agent-facing CLI traffic (ops/run/data) then targets the shadow instance
+ *  — the same routing rule the host applies to its own HTTP action. Without
+ *  this, CLI calls during a build/modify would hit the LIVE app and write
+ *  test records into real user data. */
+function shadowPort(dir: string): number | null {
+  try {
+    const raw = JSON.parse(readFileSync(join(dir, '.lui', 'shadow.json'), 'utf8')) as {
+      port?: number;
+    };
+    return typeof raw.port === 'number' ? raw.port : null;
+  } catch {
+    return null;
+  }
+}
+
 export function loadProject(projectDir: string): ProjectRef {
   const dir = resolve(projectDir);
   const manifestPath = join(dir, 'manifest.json');
@@ -19,12 +36,13 @@ export function loadProject(projectDir: string): ProjectRef {
       id: string;
       port: number;
     };
+    const port = shadowPort(dir) ?? manifest.port;
     return {
       dir,
       name: manifest.name,
       id: manifest.id,
-      port: manifest.port,
-      baseUrl: `http://127.0.0.1:${manifest.port}`,
+      port,
+      baseUrl: `http://127.0.0.1:${port}`,
     };
   }
   // EXTERNAL (adopted third-party) projects have no manifest.json — the

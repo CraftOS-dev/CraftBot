@@ -216,6 +216,18 @@ class SessionRuntimeManager:
         """Register the run-stopped hook (AgentBase._on_run_stopped)."""
         self._on_stopped = finalizer
 
+    def is_session_active(self, session_id: str) -> bool:
+        """A turn is executing right now, or triggers are queued for this
+        session. The factory supervisor's structural 'is work in flight'
+        check — replaces mission-id attribution bookkeeping."""
+        if session_id in self._turns:
+            return True
+        queue = self._queues.get(session_id)
+        try:
+            return bool(queue and queue.pending_count() > 0)
+        except Exception:
+            return False
+
     # ─────────────────────── Lifecycle ──────────────────────────────────────
 
     async def start(self) -> None:

@@ -58,6 +58,11 @@ class SessionTriggerQueue:
         """Register a listener notified when triggers are discarded unconsumed."""
         self._lifecycle_listener = listener
 
+    def pending_count(self) -> int:
+        """Triggers queued (due or future). Read-only, no locking: an
+        approximate answer is fine for the liveness checks that call this."""
+        return len(self._heap)
+
     def _notify_evicted(self, evicted: List[Trigger]) -> None:
         if not self._lifecycle_listener or not evicted:
             return

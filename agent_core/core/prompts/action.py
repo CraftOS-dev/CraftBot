@@ -198,8 +198,11 @@ a habit — do not attach a progress message to routine work actions. Observed
 live 2026-09-02: a run paired one with almost every turn and produced 61
 messages against 324 actions, most of them "I found X, now I'm doing Y".
 A non-parallelizable action MUST be the ONLY action in its step — this
-includes any write/mutate (write_file, stream_edit, clipboard_write), wait,
-and add_action_sets / remove_action_sets / use_skill / unload_skill.
+includes clipboard_write, wait, and add_action_sets / remove_action_sets /
+use_skill / unload_skill.
+NEVER batch two write_file/stream_edit actions on the SAME file — they are
+planned against one snapshot, so the second's anchor is stale once the first
+applies (corrupts the file). Edit the same file in SEPARATE steps.
 Never emit two of the same single-instance action: combine multiple messages
 into ONE send, and use ONE update_todos with the COMPLETE list — the payload
 replaces the whole list, so any todo you omit is deleted.

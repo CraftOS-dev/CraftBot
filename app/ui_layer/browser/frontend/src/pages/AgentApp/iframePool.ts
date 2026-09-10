@@ -44,11 +44,22 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
   if (!iframe) {
     iframe = document.createElement('iframe')
     iframe.src = src
+    // The requested src is remembered separately: reading iframe.src back
+    // returns the browser-normalized absolute URL, so comparing against it
+    // would mismatch every render and reload-loop the app.
+    iframe.dataset.requestedSrc = src
     iframe.style.cssText =
       'position:fixed;border:none;visibility:hidden;pointer-events:none;z-index:10;'
     iframe.title = i18n.t('agentapp:iframe.title', { id })
     getContainer().appendChild(iframe)
     pool.set(id, iframe)
+  } else if (iframe.dataset.requestedSrc !== src) {
+    // A new deploy (version-stamped src) or a changed URL: navigate the
+    // existing frame. The pool used to ignore src changes entirely, which
+    // pinned a tab to whatever build was live when its iframe was first
+    // created — deploys landed on the server and never on screen.
+    iframe.dataset.requestedSrc = src
+    iframe.src = src
   }
   touchAccess(id)
   return iframe
@@ -127,6 +138,7 @@ export function refreshIframe(id: string) {
 
   const fresh = document.createElement('iframe')
   fresh.src = current.src
+  if (current.dataset.requestedSrc) fresh.dataset.requestedSrc = current.dataset.requestedSrc
   fresh.title = current.title
   fresh.style.cssText = current.style.cssText // same geometry, same stacking
   fresh.style.pointerEvents = 'none'

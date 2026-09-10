@@ -65,31 +65,43 @@ this skill covers only what differs.
 ## Finish
 
 ```
-agent_app_notify_ready(project_id="<PROJECT_ID>")   # gate + boot DEV env
-agent_app_walk_verify(project_id="<PROJECT_ID>")    # verify dev + PROMOTE
+agent_app_notify_ready(project_id="<PROJECT_ID>")   # gate + boot SHADOW env
+browser_probe(url="<shadow url>", steps=[...])       # drive YOUR change first
+agent_app_walk_verify(project_id="<PROJECT_ID>")    # verify + PROMOTE
 ```
 
-These run in the **dev environment**: `notify_ready` gates and boots a
-disposable copy of your new CODE on a hidden port with a **FRESH, EMPTY
-database** — migrations replay at boot, so only data your migrations seed
-exists. The user's live app keeps running the previous version, untouched,
-and its data is NEVER cloned into dev. Test freely against the dev URL it
-returns (create whatever test records you need — they are thrown away).
-`walk_verify` drives the dev instance in a real (headless) browser; a clean
+The probe step is mandatory (walk_verify refuses an unprobed boot): drive
+the feature you changed the way a user would and read what rendered. The
+probe browser stays warm across calls, so each probe costs seconds — catch
+the obvious break yourself instead of spending a 2-minute verifier round
+on it. notify_ready also auto-invokes the server ops your change touched
+and reports any failure with its response body — fix those before probing.
+
+These run in the **shadow environment**: `notify_ready` gates your code and
+boots the project's OWN tree a second time on a hidden port with a **FRESH,
+EMPTY database** — migrations replay at boot, so only data your migrations
+seed exists. Nothing is copied: your edits ARE the running candidate. The
+user's live app keeps serving the previously promoted build, untouched, and
+its data is NEVER cloned. Test freely against the shadow URL it returns
+(create whatever test records you need — they are thrown away).
+`walk_verify` drives the shadow in a real (headless) browser; a clean
 verdict is what PROMOTES your change to the live app (new migrations apply
 to the real data at its boot) and announces it.
 
-- **The dev DB starts empty every time.** If a feature needs data to be
+- **The shadow DB starts empty every time.** If a feature needs data to be
   visible, either seed it in a migration (survives promote) or create test
-  records through the app/API after `notify_ready` (dev-only, disposable).
-- **Never run `lui validate` or `lui dev` against the real project dir** —
-  the build overwrites the served frontend in place and blanks the user's
-  live UI. `notify_ready` gates the dev copy for you.
+  records through the app/API after `notify_ready` (shadow-only,
+  disposable).
+- **While a shadow is up, `lui ops/run/data <project_path>` target IT
+  automatically** — you never pass the hidden port yourself.
+- **Never run `lui validate` (without --outRoot) or `lui dev` against the
+  real project dir of a RUNNING app** — the in-place build overwrites the
+  served frontend. `notify_ready` gates safely for you.
 - **Never write test data to the live app** (its DB is the user's real
-  data; agent test writes outside the dev env are refused). Do all testing
-  after `notify_ready`, against the dev URL. `GET /api/_a2app` answers
-  `env: "dev"` or `env: "live"` if you need to confirm which instance a
-  port is.
+  data; agent test writes outside the shadow are refused). Do all testing
+  after `notify_ready`, against the shadow URL. `GET /api/_a2app` answers
+  `env: "dev"` (= shadow) or `env: "live"` if you need to confirm which
+  instance a port is.
 
 HONESTY RULE: the change is live only when `agent_app_walk_verify` returns
 `status: success` — never tell the user a change is live when the relaunch,

@@ -151,12 +151,9 @@ def _disputed_verdicts(project) -> List[str]:
     try:
         from app.factory.host_craftbot import get_factory_host
 
-        machine = get_factory_host().machine_for(project.id)
-        if machine is None:
-            return []
         return [
             str(e.get("what", "")).strip()
-            for e in machine.disputed()[-5:]
+            for e in get_factory_host().disputed(project.id)[-5:]
             if str(e.get("what", "")).strip()
         ]
     except Exception as e:
@@ -414,6 +411,20 @@ async def run_walk_verify(
         remove_subagent_log_sink(sink_id)
 
     raw = (getattr(sub, "result", None) or "").strip()
+    if str(getattr(sub, "status", "") or "").lower() in ("failed", "timeout", "error"):
+        # The verifier ENDED ITSELF as failed — a structural refusal
+        # (missing spec, dead tooling), not a verdict and not report
+        # paperwork. Parsing its apology as a report classified these as
+        # "unparseable", burned the one re-verify on the identical wall,
+        # and stuck-capped healthy arcs (observed live 2026-09-08: every
+        # 8-second walker death was this class). Surface its own words;
+        # the caller must not advance the machine on it.
+        return {
+            "kind": "failed",
+            "passed": [],
+            "defects": [],
+            "raw": raw or "the verifier sub-agent failed without a message",
+        }
     report = parse_check_report(raw)
     record_walk(project, report, evidence, Path(target_path) if project_path else None)
     return report

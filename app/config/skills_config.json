@@ -44,7 +44,6 @@
     "duckduckgo-search",
     "fal-upscale",
     "fathom",
-    "feishu-memory-recall",
     "file_organizer",
     "freeride",
     "frontend-design",
@@ -142,7 +141,8 @@
     "file-organizer",
     "instagram api",
     "invoice organizer",
-    "1password"
+    "1password",
+    "feishu-memory-recall"
   ],
   "project_skills_dir": "skills"
 }

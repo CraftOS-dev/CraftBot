@@ -1,332 +1,283 @@
 # -*- coding: utf-8 -*-
-"""The generic machine runtime (FACTORY-PLAN §3.3) — owns the ARC.
+"""The Arc — the ONE mutable supervision record per project.
 
-Domain-agnostic: states are strings supplied by a domain pack's transition
-function. The engine owns what weak models empirically cannot (I1/I6):
-persistence, budget, escalation, redispatch-on-surrender, and the ATTEMPT
-LEDGER. It decides nothing domain-specific and talks to nothing external —
-pure stdlib, JSON-persisted, so a host or a future TS port carries it whole.
+Everything the old 12-state Machine + transition graph stored is either
+here, derived, or deleted. Design rules (the fragility the rewrite kills):
 
-The MODEL never decides "should I retry": outcomes come in, Decisions go out.
+- ABSENCE IS EXPLICIT. ``arc: "none"`` is a stored value, never a default
+  that impersonates "building". A marketplace app that never had a build
+  arc reads as exactly that, and no run-end hook can mistake it for an
+  unfinished build.
+- INTENT IS RECORDED. A user stop writes ``paused``; nothing may infer
+  "surrendered" from a phantom mission id. A paused arc never auto-resumes.
+- TWO PHASES, because only two things are ever actually reported: the
+  launch pipeline succeeded ("verifying" — waiting on the walker) and
+  everything else ("working" — the agent has the ball). The old
+  gate/launch/build/fix states were only ever synthesized, never reported.
+- Terminal states are not states. "done" is the arc closing back to
+  ``none``; "stuck"/"blocked" are the arc closing plus one announcement.
 
-What the machine does NOT decide is whether the agent's approach is working.
-It used to: three outcomes sharing a fingerprint ended the build. That is a
-judgement, and the machine made it from a hash — so a loop clearing one gate
-per round (create_gmail_draft ungranted → send_gmail ungranted → send_gmail
-unconfirmed) was declared hopeless one gate from done, while the agent, told
-only "this failure has repeated", had no way to see the pattern it was in.
+The division of authority is unchanged: this record owns CONTINUATION and
+MEMORY (budget, attempt ledger); the agent owns STRATEGY; only the verifier
+says whether the app works.
 
-The division now:
-  - The machine owns CONTINUATION and MEMORY. Work continues while budget
-    remains; every round is recorded and handed back to the next mission, so
-    the agent can see what it already tried and what it ruled out.
-  - The agent owns STRATEGY, and can end the arc honestly in one direction
-    only — BLOCKED, meaning "I need a decision or a credential from the
-    user", which carries a question. It still cannot end it by giving up:
-    a run that stops mid-arc is redispatched (I6).
-  - The budget (total_missions) is the one hard stop, and it is a wallet,
-    not a verdict: an engineer has a timebox too.
-One cap survives on the judgement side, and only because it needs no
-judgement: repeated STALL — a run ending without completing the arc — is not
-a strategy, it is an empty loop, and it once burned 37 redispatches in ~4
-minutes (chili3d, 2026-08-05).
+Pure stdlib, JSON-persisted, no host imports.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-# Terminal states are engine-level concepts; domain graphs must use them.
-DONE = "done"
-STUCK = "stuck"
-# BLOCKED is the agent's honest exit: it has a question only the user can
-# answer (a decision, a credential, a capability that does not exist). It is
-# terminal because grinding on is pointless, NOT because attempts ran out —
-# the two read very differently to the user, and conflating them meant a
-# blocked agent could only express itself by failing until the cap fired.
-BLOCKED = "blocked"
-TERMINAL = (DONE, STUCK, BLOCKED)
+# Arc kinds — recorded at OPEN time, which is what replaces the old
+# "generations" archive (announce flavor, skill choice, resume verb all
+# read this one enum).
+ARC_NONE = "none"
+ARC_BUILD = "build"
+ARC_MODIFY = "modify"
 
-# Actions a Decision can carry — the full vocabulary the host executes.
-DISPATCH_MISSION = "dispatch_mission"
-ANNOUNCE_READY = "announce_ready"
-ANNOUNCE_STUCK = "announce_stuck"
-ANNOUNCE_BLOCKED = "announce_blocked"
-NONE = "none"
+# Phases within an open arc.
+WORKING = "working"
+VERIFYING = "verifying"
+
+# Budget. A wallet, not a verdict: an engineer has a timebox too.
+MISSIONS_CAP = 12
+# Consecutive supervisor dispatches with no evidence of work between them
+# (no verdict, no launch report, no finding). Working on a hard bug for
+# five rounds is fine; five empty rounds is a loop (chili3d, 2026-08-05:
+# 37 redispatches in ~4 minutes).
+STALLS_CAP = 3
+# Idle time before the supervisor may dispatch, by stall count. Replaces
+# the run-end thrash guard and its timestamp archaeology.
+BACKOFF_S = (20.0, 60.0, 180.0)
 
 
-@dataclass
-class Outcome:
-    """What just happened, reported by gate/verifier/mission — never by the
-    model's self-assessment."""
-
-    state: str  # state this outcome belongs to
-    ok: bool
-    fingerprint: Optional[str] = None  # stable failure identity (card fingerprint)
-    # A stall is a run that ended without completing the arc — no verdict, no
-    # work reported. Distinct from a failure: a failure is a result, a stall
-    # is the absence of one, and only the second is capped.
-    stall: bool = False
-    payload: Dict[str, Any] = field(default_factory=dict)  # cards, urls, reports
+def backoff_for(stalls: int) -> float:
+    return BACKOFF_S[min(max(stalls, 0), len(BACKOFF_S) - 1)]
 
 
 @dataclass
 class Decision:
+    """What the host decided after an outcome report — returned to the
+    actions layer so it can shape agent-facing text. next_state is one of
+    "done" | "fixing" | "stuck" | "blocked" | "verifying"."""
+
     next_state: str
-    action: str = NONE
-    escalate: bool = False  # same failure seen again → richer brief
-    escalate_level: int = 0  # HOW many times: 1 = first sighting, 3+ = dig in
     reason: str = ""
     payload: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
-class Caps:
-    # Repeated STALLS (empty rounds), not repeated failures. Working on the
-    # same bug for five rounds is what fixing a hard bug looks like; ending
-    # five runs without producing a verdict is a loop.
-    per_stall: int = 3
-    total_missions: int = 12
+def _fresh() -> Dict[str, Any]:
+    return {
+        "arc": ARC_NONE,
+        "phase": WORKING,
+        "mission": None,
+        "paused": None,
+        "missions_spent": 0,
+        "stalls": 0,
+        "opened_at": 0.0,
+        "last_activity_at": 0.0,
+        "unparseable_retried": False,
+        "rounds": [],
+        "ruled_out": [],
+        "disputed": [],
+    }
 
 
-# A domain pack supplies: (current_state, outcome) -> Decision (pre-caps).
-TransitionFn = Callable[[str, Outcome], Decision]
+class Arc:
+    """<project>/.factory/arc.json, atomically written.
 
+    A missing or unreadable file IS the none-arc — but every mutation
+    persists explicitly, so an app that ever had work carries its record.
+    """
 
-class Machine:
-    def __init__(
-        self,
-        transition: TransitionFn,
-        store_path: Path,
-        initial_state: str,
-        caps: Optional[Caps] = None,
-    ) -> None:
-        self._transition = transition
-        self._store_path = Path(store_path)
-        self._caps = caps or Caps()
-        self._state: Dict[str, Any] = {
-            "state": initial_state,
-            "mission_id": None,
-            "total_missions": 0,
-            "defect_fingerprints": {},
-            "history": [],
-            # The attempt ledger: one entry per failing round, and the list of
-            # causes an agent has PROVED are not to blame. History records
-            # what the machine did; these record what the work found, and they
-            # are the only part of the state that goes back into a brief.
-            "rounds": [],
-            "ruled_out": [],
-            # Verdicts a builder investigated and REJECTED on evidence. A
-            # verifier can be wrong, and when it is, the builder is the only
-            # party positioned to notice — it can reproduce the feature. Its
-            # options used to be to edit working code, re-run and hope, or
-            # end the run (which the machine reads as a stall). This is the
-            # third move: say so, on the record, with what you observed.
-            "disputed": [],
-            "caps": {
-                "per_stall": self._caps.per_stall,
-                "total_missions": self._caps.total_missions,
-            },
-        }
-        if self._store_path.exists():
-            self._state.update(json.loads(self._store_path.read_text(encoding="utf-8")))
-        # The record follows the constructor, not the file: caps are code, and
-        # a machine loaded from a state file written before a cap was renamed
-        # would otherwise keep publishing the retired name forever.
-        self._state["caps"] = {
-            "per_stall": self._caps.per_stall,
-            "total_missions": self._caps.total_missions,
-        }
+    _MAX_ROUNDS = 20
+    _MAX_NOTES = 20  # ruled_out / disputed each
+
+    def __init__(self, store_path: Path) -> None:
+        self._path = Path(store_path)
+        self._d: Dict[str, Any] = _fresh()
+        try:
+            if self._path.exists():
+                loaded = json.loads(self._path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict) and loaded.get("arc") in (
+                    ARC_NONE,
+                    ARC_BUILD,
+                    ARC_MODIFY,
+                ):
+                    self._d.update(loaded)
+        except Exception:
+            pass  # unreadable file = none-arc; the next mutation rewrites it
 
     # ── persistence ────────────────────────────────────────────────────────
     def save(self) -> None:
-        self._store_path.parent.mkdir(parents=True, exist_ok=True)
-        self._store_path.write_text(
-            json.dumps(self._state, indent=2) + "\n", encoding="utf-8"
-        )
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self._d, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, self._path)
 
-    # ── introspection ──────────────────────────────────────────────────────
+    # ── facts ──────────────────────────────────────────────────────────────
     @property
-    def state(self) -> str:
-        return str(self._state["state"])
-
-    @property
-    def terminal(self) -> bool:
-        return self.state in TERMINAL
+    def kind(self) -> str:
+        return str(self._d["arc"])
 
     @property
-    def active_mission(self) -> Optional[str]:
-        return self._state.get("mission_id")
+    def is_open(self) -> bool:
+        return self.kind != ARC_NONE
 
     @property
-    def generation(self) -> int:
-        """How many completed arcs precede the current one (0 = first build).
-        Hosts use this to flavor announcements (build ready vs change
-        deployed) — the staging record is gone by announce time."""
-        return len(self._state.get("generations") or [])
+    def phase(self) -> str:
+        return str(self._d["phase"])
 
-    def history(self) -> List[Dict[str, Any]]:
-        return list(self._state["history"])
+    @property
+    def paused(self) -> Optional[Dict[str, Any]]:
+        p = self._d.get("paused")
+        return dict(p) if isinstance(p, dict) else None
 
-    def generations(self) -> List[Dict[str, Any]]:
-        return list(self._state.get("generations") or [])
+    @property
+    def mission_id(self) -> Optional[str]:
+        m = self._d.get("mission")
+        return str(m["id"]) if isinstance(m, dict) and m.get("id") else None
 
-    # ── lifecycle (LIFECYCLE-PLAN Phase 2 — engine amendment) ──────────────
-    def reopen(self, state: str) -> None:
-        """Re-arm a TERMINAL machine for a new arc (a modify of a delivered
-        app), archiving the finished arc as a generation and resetting the
-        caps counters — each modify gets a fresh budget.
+    @property
+    def missions_spent(self) -> int:
+        return int(self._d.get("missions_spent") or 0)
 
-        Deliberately NOT a graph transition: reopening is a host-level
-        lifecycle event (nothing "happens" to cause it inside the arc), so
-        no DONE→MODIFYING edge exists. The terminal guard lives here, with
-        the state: callers that want to re-arm an in-flight machine are
-        holding it wrong. Virgin machines (no history — e.g. minted for a
-        marketplace-installed app that never had a build arc) may also
-        reopen: there is no arc to protect.
+    @property
+    def stalls(self) -> int:
+        return int(self._d.get("stalls") or 0)
+
+    @property
+    def last_activity_at(self) -> float:
+        return float(self._d.get("last_activity_at") or 0.0)
+
+    @property
+    def unparseable_retried(self) -> bool:
+        return bool(self._d.get("unparseable_retried"))
+
+    def rounds(self) -> List[Dict[str, Any]]:
+        return list(self._d.get("rounds") or [])
+
+    def ruled_out(self) -> List[Dict[str, Any]]:
+        return list(self._d.get("ruled_out") or [])
+
+    def disputed(self) -> List[Dict[str, Any]]:
+        return list(self._d.get("disputed") or [])
+
+    # ── lifecycle ──────────────────────────────────────────────────────────
+    def open(self, kind: str) -> None:
+        """Open an arc, or re-enter the one already open.
+
+        Re-entry (a fix mission's notify_ready re-runs open_dev; the user
+        asks again for a change that is mid-flight) clears a pause — the
+        request IS the resume — and touches activity. It never resets the
+        budget or the ledger: same arc, same wallet.
         """
-        if not self.terminal and self._state["history"]:
-            raise ValueError(
-                f"refusing to reopen a machine mid-arc (state={self.state!r})"
-            )
-        # ALWAYS archive — even a virgin arc (empty history). generation > 0
-        # is the durable "this arc is a reopened one" signal hosts key
-        # announce flavor and mission skills on; an empty archived record is
-        # harmless, a missed one mislabels every modify of an app whose
-        # machine never ran a build arc (marketplace/imported installs).
-        self._state.setdefault("generations", []).append(
-            {
-                "closed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "final_state": self.state,
-                "total_missions": self._state["total_missions"],
-                "defect_fingerprints": dict(self._state["defect_fingerprints"]),
-                "history": list(self._state["history"]),
-                "rounds": list(self._state.get("rounds") or []),
-                "ruled_out": list(self._state.get("ruled_out") or []),
-                "disputed": list(self._state.get("disputed") or []),
-            }
-        )
-        self._state["state"] = state
-        self._state["mission_id"] = None
-        self._state["total_missions"] = 0
-        self._state["defect_fingerprints"] = {}
-        self._state["history"] = []
-        # The ledger is scoped to ONE arc. A modify starts against changed
-        # code, so "ruled out during the build" is a claim about a program
-        # that no longer exists — archived above, never carried forward.
-        self._state["rounds"] = []
-        self._state["ruled_out"] = []
-        self._state["disputed"] = []
+        if kind not in (ARC_BUILD, ARC_MODIFY):
+            raise ValueError(f"open() takes build|modify, got {kind!r}")
+        if self.is_open:
+            self._d["paused"] = None
+            self.touch(save=False)
+            self.save()
+            return
+        self._d = _fresh()
+        self._d["arc"] = kind
+        self._d["opened_at"] = time.time()
+        self.touch(save=False)
         self.save()
 
-    # ── the arc ────────────────────────────────────────────────────────────
-    def advance(self, outcome: Outcome) -> Decision:
-        """Feed one outcome; get the machine's Decision, budget applied.
-
-        Policy: a repeating failure ESCALATES (the brief gets the attempt
-        ledger and a harder instruction) for as long as the budget lasts. It
-        never ends the arc by itself — see the module docstring. Repeated
-        STALLS do end it, and the total mission budget is absolute."""
-        decision = self._transition(self.state, outcome)
-
-        if not outcome.ok and outcome.fingerprint:
-            counts = self._state["defect_fingerprints"]
-            n = counts.get(outcome.fingerprint, 0) + 1
-            counts[outcome.fingerprint] = n
-            if decision.action == DISPATCH_MISSION:
-                if outcome.stall and n >= self._caps.per_stall:
-                    decision = Decision(
-                        next_state=STUCK,
-                        action=ANNOUNCE_STUCK,
-                        reason=(
-                            f"{n} runs ended without completing the arc; "
-                            f"stall cap {self._caps.per_stall} reached"
-                        ),
-                        payload=decision.payload,
-                    )
-                else:
-                    # Level, not a flag: round 2 means "your fix did not take",
-                    # round 4 means "stop fixing and go find out why" — the
-                    # brief needs to say different things.
-                    decision.escalate_level = n
-                    decision.escalate = n >= 2
-
-        if not outcome.ok and outcome.fingerprint:
-            self._record_round(outcome)
-
-        if decision.action == DISPATCH_MISSION:
-            total = self._state["total_missions"] + 1
-            if total > self._caps.total_missions:
-                decision = Decision(
-                    next_state=STUCK,
-                    action=ANNOUNCE_STUCK,
-                    reason=f"mission budget exhausted ({self._caps.total_missions})",
-                    payload=decision.payload,
-                )
-            else:
-                self._state["total_missions"] = total
-
-        self._state["history"].append(
-            {
-                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "state": self.state,
-                "ok": outcome.ok,
-                "fingerprint": outcome.fingerprint,
-                "next": decision.next_state,
-                "action": decision.action,
-            }
-        )
-        self._state["state"] = decision.next_state
+    def close(self) -> None:
+        """The arc is over (delivered, stuck, or blocked — the announcement
+        is the host's job). The ledger dies with the arc: it describes a
+        program that no longer exists."""
+        self._d = _fresh()
         self.save()
-        return decision
+
+    def pause(self, by: str, question: str = "") -> None:
+        if not self.is_open:
+            return
+        self._d["paused"] = {
+            "by": by,  # "user" | "question"
+            "question": question[:500],
+            "at": time.time(),
+        }
+        self.save()
+
+    def unpause(self) -> None:
+        if self._d.get("paused") is not None:
+            self._d["paused"] = None
+            self.touch(save=False)
+            self.save()
+
+    def set_phase(self, phase: str) -> None:
+        if not self.is_open:
+            return
+        self._d["phase"] = phase
+        self.touch(save=False)
+        self.save()
+
+    def touch(self, save: bool = True) -> None:
+        self._d["last_activity_at"] = time.time()
+        if save:
+            self.save()
+
+    # ── budget ─────────────────────────────────────────────────────────────
+    def mission_dispatched(self, mission_id: str) -> None:
+        self._d["mission"] = {"id": mission_id, "dispatched_at": time.time()}
+        self._d["missions_spent"] = self.missions_spent + 1
+        self.touch(save=False)
+        self.save()
+
+    def bump_stall(self) -> int:
+        self._d["stalls"] = self.stalls + 1
+        self.save()
+        return self.stalls
+
+    def evidence_of_work(self) -> None:
+        """A verdict, launch report, or finding arrived: whatever is running
+        is not an empty loop. Resets the stall counter, touches activity."""
+        self._d["stalls"] = 0
+        self.touch(save=False)
+        self.save()
+
+    def budget_exhausted(self) -> bool:
+        return self.missions_spent >= MISSIONS_CAP or self.stalls >= STALLS_CAP
+
+    def set_unparseable_retried(self, value: bool) -> None:
+        self._d["unparseable_retried"] = bool(value)
+        self.save()
 
     # ── the attempt ledger (what the next mission gets to know) ────────────
-    _MAX_ROUNDS = 20  # bounds the state file; the brief shows fewer still
-
-    def _record_round(self, outcome: Outcome) -> None:
-        rounds = self._state.setdefault("rounds", [])
+    def record_round(
+        self,
+        fingerprint: str,
+        cards: Optional[List[Dict[str, str]]] = None,
+        features: Optional[List[str]] = None,
+        stall: bool = False,
+    ) -> None:
+        rounds = self._d.setdefault("rounds", [])
         rounds.append(
             {
                 "n": len(rounds) + 1,
                 "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "state": self.state,
-                "fingerprint": outcome.fingerprint,
-                "stall": bool(outcome.stall),
-                # Opaque to the engine: whatever identities the host chose to
-                # describe this round's failures with.
-                "cards": list(outcome.payload.get("cards") or []),
+                "fingerprint": fingerprint,
+                "stall": bool(stall),
+                "cards": list(cards or []),
+                # Feature NAMES the walk observed broken — the next verify's
+                # must-include scope (replaces the last_defects sidecar key).
+                "features": list(features or []),
             }
         )
         del rounds[: -self._MAX_ROUNDS]
+        self._d["unparseable_retried"] = False
+        self.evidence_of_work()
 
-    def rounds(self) -> List[Dict[str, Any]]:
-        return list(self._state.get("rounds") or [])
-
-    def ruled_out(self) -> List[Dict[str, Any]]:
-        return list(self._state.get("ruled_out") or [])
-
-    def disputed(self) -> List[Dict[str, Any]]:
-        return list(self._state.get("disputed") or [])
-
-    def record_disputed(self, items: List[str], mission: str = "") -> int:
-        """Verdicts a builder reproduced and found to be wrong.
-
-        Kept for the same reason as ruled_out — every later round is a fresh
-        run that remembers nothing — but pointed the other way: ruled_out says
-        "this cause is innocent", disputed says "this VERDICT is". It is also
-        the only entry that travels forward to the VERIFIER, which is the
-        party that has to reconsider (see build_verify_evidence).
-
-        No cap on how often a verdict may be disputed: a dispute is a result,
-        not a stall, so the ordinary round and repeat-failure budgets already
-        apply. A builder that disputes the same feature round after round
-        while it keeps failing escalates exactly like any other repeat.
-        """
-        ledger = self._state.setdefault("disputed", [])
+    def _record_notes(self, key: str, items: List[str], cap: int) -> int:
+        ledger = self._d.setdefault(key, [])
         seen = {str(e.get("what", "")).strip().lower() for e in ledger}
         added = 0
         for raw in items or []:
@@ -338,93 +289,44 @@ class Machine:
                 {
                     "what": what[:600],
                     "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "mission": mission,
                 }
             )
             added += 1
-        del ledger[:-20]
+        del ledger[:-cap]
         if added:
-            self.save()
+            self.evidence_of_work()
         return added
 
-    def record_ruled_out(self, items: List[str], mission: str = "") -> int:
-        """Causes an agent PROVED innocent, kept for every later mission.
+    def record_ruled_out(self, items: List[str]) -> int:
+        """Causes an agent PROVED innocent. Every later round is a fresh run
+        that remembers nothing — what is not written here is not known."""
+        return self._record_notes("ruled_out", items, self._MAX_NOTES)
 
-        This is the half of memory a bare attempt history misses: knowing what
-        you tried does not stop you re-testing a theory you already killed,
-        and across fresh missions with no shared context, agents did exactly
-        that. Deduped on text, oldest dropped first, cheap to carry.
-        """
-        ledger = self._state.setdefault("ruled_out", [])
-        seen = {str(e.get("what", "")).strip().lower() for e in ledger}
-        added = 0
-        for raw in items or []:
-            what = str(raw).strip()
-            if not what or what.lower() in seen:
-                continue
-            seen.add(what.lower())
-            ledger.append(
-                {
-                    "what": what[:400],
-                    "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "mission": mission,
-                }
-            )
-            added += 1
-        del ledger[:-20]
-        if added:
-            self.save()
-        return added
+    def record_disputed(self, items: List[str]) -> int:
+        """Verdicts a builder reproduced and found wrong. Travels forward to
+        the next VERIFIER, which is the party that must reconsider."""
+        return self._record_notes("disputed", items, self._MAX_NOTES)
 
-    # ── redispatch-on-surrender (closes I6) ────────────────────────────────
-    def mission_started(self, mission_id: str) -> None:
-        self._state["mission_id"] = mission_id
-        self.save()
+    def last_defect_features(self) -> List[str]:
+        """Feature names from the latest defect round ([] outside a fix arc)."""
+        for entry in reversed(self.rounds()):
+            if not entry.get("stall"):
+                return [str(x) for x in (entry.get("features") or [])]
+        return []
 
-    def mission_ended(self, mission_id: str) -> None:
-        if self._state.get("mission_id") == mission_id:
-            self._state["mission_id"] = None
-            self.save()
-
-    def needs_redispatch(self) -> bool:
-        """True when work should be in flight but is not: non-terminal state
-        and no active mission. The host's run-end hook polls this — the
-        mechanism that makes surrender structurally impossible."""
-        return not self.terminal and self.active_mission is None
-
-    # ── honest stuck report (machine-composed, §3.6) ───────────────────────
+    # ── honest reports (machine-composed, no agent self-assessment) ───────
     def stuck_report(self) -> str:
-        """Why work stopped, in the user's terms. Ends on the budget, because
-        that is what actually ran out — the machine no longer claims a defect
-        was unfixable, only that it stopped paying to find out."""
-        tried = [h for h in self._state["history"] if h["action"] == DISPATCH_MISSION]
-        lines = [
-            "The build could not be completed automatically.",
-            f"State reached: {self.state}. Missions attempted: "
-            f"{self._state['total_missions']}/{self._caps.total_missions}.",
-        ]
-        fps = self._state["defect_fingerprints"]
-        if fps:
-            worst = max(fps.items(), key=lambda kv: kv[1])
-            lines.append(f"Most persistent failure: {worst[0]} ({worst[1]}×).")
-        if tried:
-            lines.append(f"Last attempt: {tried[-1]['state']} → {tried[-1]['next']}.")
-        ruled = self.ruled_out()
-        if ruled:
-            lines.append("Ruled out along the way:")
-            lines.extend(f"  - {e['what']}" for e in ruled[-5:])
-        lines.append("The full attempt history is preserved for review.")
-        return "\n".join(lines)
+        """Why work stopped, in the user's terms. No mission counts, no
+        failure fingerprints, no internal history: the user does not care."""
+        return (
+            "I wasn't able to finish this one automatically. You can ask me "
+            "to try again, or tell me a bit more about what you'd like."
+        )
 
     def blocked_report(self, question: str) -> str:
-        """The agent needs something only the user has. Not a failure report:
-        it ends in a question, and the work is resumable the moment it is
-        answered."""
-        lines = ["The build needs a decision from you before it can continue."]
-        ruled = self.ruled_out()
-        if ruled:
-            lines.append("Already established:")
-            lines.extend(f"  - {e['what']}" for e in ruled[-5:])
-        lines.append("")
-        lines.append(question.strip() or "(no question was given)")
-        return "\n".join(lines)
+        """The agent needs something only the user has. Not a failure: it
+        ends in a question, and work resumes the moment it is answered."""
+        return (
+            "I need a decision from you before I can continue.\n\n"
+            + (question.strip() or "(no question was given)")
+        )

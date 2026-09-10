@@ -770,6 +770,10 @@ export interface AgentAppProject {
   appRuntime?: string | null
   /** CraftBot version that acquired this project (provenance). */
   craftbotVersion?: string | null
+  /** Client stamp of the last ready/launch event — cache-busts the app
+   * iframe so a fresh deploy is actually fetched instead of served from the
+   * browser's HTTP cache. */
+  readyAt?: number
 }
 
 export interface AgentAppCreateRequest {

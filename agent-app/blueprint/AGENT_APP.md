@@ -37,5 +37,5 @@ source. Scheduled syncs use `cronAdd`.
 
 - Editable: `frontend/src/app/`, `pb/pb_migrations/`, `pb/pb_hooks/ops.pb.js`,
   `operations.json` (non-system entries), this file.
-- System-managed (never edit): `frontend/src/kit/`, `frontend/src/main.tsx`,
-  `pb/pb_hooks/_system.pb.js`, `manifest.json`, build configs.
+- System-managed (never edit): `frontend/src/kit/`, `frontend/src/config.gen.ts`,
+  the underscore hooks (`pb/pb_hooks/_*.js`), `manifest.json`.

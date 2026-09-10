@@ -15,6 +15,7 @@ import json
 import os
 import re
 import secrets
+import functools
 import shutil
 import socket
 import subprocess
@@ -886,7 +887,11 @@ UI in {project.path}/frontend/src/app/."""
                             name=project_data["name"],
                             description=project_data.get("description", ""),
                             path=project_data["path"],
-                            status=project_data.get("status", "stopped"),
+                            # Runtime status is DERIVED, never restored: every
+                            # app process died with the previous CraftBot, so
+                            # every project boots stopped. Launch/watchdog/
+                            # auto-launch re-establish the truth from there.
+                            status="stopped",
                             port=project_data.get("port"),
                             backend_port=project_data.get("backendPort"),
                             created_at=project_data.get(
@@ -930,10 +935,6 @@ UI in {project.path}/frontend/src/app/."""
                                 # The app must stop trusting an origin that no
                                 # longer reaches it.
                                 self._publish_tunnel_origin(project, None)
-                        # Reset status to stopped for all loaded projects
-                        project.status = (
-                            "stopped" if project.status == "running" else project.status
-                        )
                         self.projects[project.id] = project
                         # Track both frontend and backend ports
                         if project.port:
@@ -944,12 +945,25 @@ UI in {project.path}/frontend/src/app/."""
             except Exception as e:
                 logger.error(f"[AGENT_APP] Failed to load projects: {e}")
 
+    # Runtime facts that must never be persisted: they describe processes
+    # that die with this CraftBot, and a stale copy on disk is exactly the
+    # class of bug the status rewrite removed (a crash between writes used
+    # to persist "ready"/"launching" forever; "error" survived restarts and
+    # silently blocked auto-launch). to_dict() keeps emitting them — the UI
+    # wants the LIVE values — the registry on disk does not.
+    _RUNTIME_KEYS = ("status", "url", "backendUrl", "error")
+
     def _save_projects(self) -> None:
-        """Save projects to persistent storage."""
+        """Save projects to persistent storage (identity + prefs only)."""
         try:
-            data = {"projects": [p.to_dict() for p in self.projects.values()]}
+            records = []
+            for p in self.projects.values():
+                record = p.to_dict()
+                for key in self._RUNTIME_KEYS:
+                    record.pop(key, None)
+                records.append(record)
             with open(self._projects_file, "w") as f:
-                json.dump(data, f, indent=2)
+                json.dump({"projects": records}, f, indent=2)
         except Exception as e:
             logger.error(f"[AGENT_APP] Failed to save projects: {e}")
 
@@ -1204,16 +1218,16 @@ UI in {project.path}/frontend/src/app/."""
         )
 
     async def _run_launch_pipeline(
-        self, project_dir: Path, port: int, bridge_token: str
+        self, project_dir: Path, port: int, bridge_token: str, shadow=None
     ) -> dict:
-        """The native launch pipeline against an ARBITRARY project directory:
+        """The native launch pipeline against ONE code tree:
         install → validation gate → serve → health → hook-load scan → smoke.
 
-        Registry-free on purpose: `_launch_native` runs it on the real project
-        and adds status/persistence around it; the lifecycle's `open_dev`
-        runs the SAME pipeline on a dev copy — one definition means fix
+        `shadow` (a ShadowInstance) redirects the boot's three inputs —
+        hidden port, fresh data dir, content-addressed build artifact — and
+        the same tree serves both environments. One definition means fix
         missions get identical evidence quality (boot-log excerpts,
-        hook-load failures) in both environments.
+        hook-load failures) in both.
 
         Returns {"status": "success", "process": Popen} — caller owns the
         process — or {"status": "error", "step": ..., "errors": [...]}.
@@ -1233,6 +1247,8 @@ UI in {project.path}/frontend/src/app/."""
 
         # Renamed/deleted APPLIED migrations brick the boot with an error only
         # pocketbase.log ever sees — catch them here, before any process spawns.
+        # Checked against the LIVE pb_data in both environments: a shadow's DB
+        # is fresh, but the promote this shadow is heading for is not.
         divergence = self._check_migration_divergence(project_dir)
         if divergence:
             return _fail("validation", [divergence])
@@ -1242,13 +1258,35 @@ UI in {project.path}/frontend/src/app/."""
         except Exception as e:
             return _fail("install", [str(e)])
 
-        gate = await self.runner.gate(project_dir)
+        # Shadow gates build coverage-instrumented artifacts (walk-verify
+        # records which code each feature runs through) into the project's
+        # content-addressed build cache; live gates build pb/pb_public in
+        # place — nothing serves it at this moment.
+        gate = await self.runner.gate(
+            project_dir,
+            coverage=shadow is not None,
+            out_root=(
+                self.lifecycle.provisioner.builds_root(shadow.project_id)
+                if shadow is not None
+                else None
+            ),
+        )
         if not gate.passed:
             return _fail("validation", [gate.output])
+        if shadow is not None:
+            if gate.artifact is None:
+                return _fail(
+                    "validation",
+                    ["gate produced no build artifact for the shadow boot"],
+                )
+            shadow.public_dir = gate.artifact
 
         # pocketbase.log is append-mode across launches: remember where THIS
         # boot starts so failures below can quote only their own boot's lines.
-        pb_log_path = project_dir / "logs" / "pocketbase.log"
+        pb_log_path = (
+            (shadow.log_dir if shadow is not None else project_dir / "logs")
+            / "pocketbase.log"
+        )
         pb_log_offset = pb_log_path.stat().st_size if pb_log_path.exists() else 0
 
         def _pb_log_since_boot(limit_lines: int = 30) -> str:
@@ -1275,7 +1313,13 @@ UI in {project.path}/frontend/src/app/."""
 
         try:
             process = await self.runner.start(
-                project_dir, port, bridge_token=bridge_token
+                project_dir,
+                port,
+                bridge_token=bridge_token,
+                data_dir=shadow.data_dir if shadow is not None else None,
+                public_dir=shadow.public_dir if shadow is not None else None,
+                log_dir=shadow.log_dir if shadow is not None else None,
+                app_env="shadow" if shadow is not None else "live",
             )
         except Exception as e:
             return _fail("start", [str(e)])
@@ -1324,6 +1368,30 @@ UI in {project.path}/frontend/src/app/."""
             if boot_log:
                 errors.append("pocketbase.log (this boot):\n" + boot_log)
             return _fail("verify", errors)
+        # Changed-op smoke (shadow only): invoke the server ops this change
+        # touched and carry any failure out as EVIDENCE — the fixing agent
+        # gets the status + response body one turn earlier than a walk
+        # verdict would deliver it, and with the body attached.
+        op_smoke_results: list = []
+        if shadow is not None:
+            from app.agent_app.op_smoke import run_op_smoke
+            from app.agent_app.verify_scope import verify_store_dir
+
+            project = self.get_project(shadow.project_id)
+            if project is not None:
+                op_smoke_results = await asyncio.to_thread(
+                    run_op_smoke,
+                    project_dir,
+                    verify_store_dir(project),
+                    f"http://127.0.0.1:{port}",
+                )
+
+        envelope: dict = {"status": "success", "process": process}
+        if op_smoke_results:
+            envelope["op_smoke"] = [
+                {"name": r.name, "ok": r.ok, "status": r.status, "detail": r.detail}
+                for r in op_smoke_results
+            ]
         if verify_status == "skipped":
             logger.warning(
                 f"[AGENT_APP] verify skipped for {project_dir.name}: {verify_detail}"
@@ -1333,13 +1401,8 @@ UI in {project.path}/frontend/src/app/."""
             # and smoke checks passed" when the smoke walk never ran (it was
             # skipped on every launch in the 2026-09-02 session — "playwright
             # not installed" — and nobody downstream ever heard about it).
-            return {
-                "status": "success",
-                "process": process,
-                "verify_skipped": verify_detail or "browser not installed",
-            }
-
-        return {"status": "success", "process": process}
+            envelope["verify_skipped"] = verify_detail or "browser not installed"
+        return envelope
 
     def _external_config(self, project_dir: Path) -> Dict[str, Any]:
         """craftbot.json for an external project ({} when unreadable)."""
@@ -1743,9 +1806,10 @@ UI in {project.path}/frontend/src/app/."""
             logger.debug(f"[AGENT_APP] ready broadcast skipped for {project.id}: {e}")
 
     async def open_dev(self, project_id: str) -> dict:
-        """Boot the DEV environment for a code change (first build or
-        modify): the project's current code on a hidden port with a fresh
-        schema-only DB. See lifecycle.AppLifecycle.open_dev."""
+        """Boot the SHADOW environment for a code change (first build or
+        modify): the project's own code tree on a hidden port with a fresh
+        schema-only DB and an isolated build artifact. See
+        lifecycle.AppLifecycle.open_dev."""
         project = self.projects.get(project_id)
         if not project:
             return {
@@ -1756,8 +1820,8 @@ UI in {project.path}/frontend/src/app/."""
         return await self.lifecycle.open_dev(project)
 
     async def promote(self, project_id: str) -> dict:
-        """Deploy verified code to the live environment and destroy the dev
-        copy. See lifecycle.Promoter.promote."""
+        """Deploy verified code to the live environment and tear the shadow
+        down. See lifecycle.Promoter.promote."""
         project = self.projects.get(project_id)
         if not project:
             return {
@@ -2238,6 +2302,15 @@ UI in {project.path}/frontend/src/app/."""
         Returns:
             True if a process was killed, False otherwise
         """
+        # Whatever served this port is going away — any warm probe page that
+        # rendered it is now showing a dead build. Every boot and stop path
+        # funnels through here, which makes it THE invalidation chokepoint.
+        try:
+            from app.agent_app.probe_pool import get_probe_pool
+
+            get_probe_pool().drop(port)
+        except Exception:
+            pass
         if os.name != "nt":
             # Linux/Mac: use lsof and kill
             try:
@@ -2362,15 +2435,8 @@ UI in {project.path}/frontend/src/app/."""
         except Exception as e:
             logger.warning(f"[AGENT_APP] dev-env reap failed: {e}")
 
-        # 3. Reset all project statuses to 'stopped' and clear process references
-        for project in self.projects.values():
-            if project.status == "running":
-                project.status = "stopped"
-                project.process = None
-                project.url = None
-                project.backend_url = None
-        self._save_projects()
-
+        # Runtime status is never persisted, so there is nothing to
+        # normalize here: _load_projects already booted everything stopped.
         logger.info("[AGENT_APP] Startup cleanup complete")
 
     def _log_orphan_folders(self) -> int:
@@ -2390,12 +2456,13 @@ UI in {project.path}/frontend/src/app/."""
         tracked_paths = {Path(p.path) for p in self.projects.values()}
         orphan_count = 0
 
-        # _staging and _backups are workspace infrastructure, not orphan
-        # projects: the wizard stages reference files under _staging (with
-        # its own age-based sweeper) and DevProvisioner keeps dev-env app
-        # copies there. _backups holds pb_data archives that must OUTLIVE
-        # their project. Skip both so they never show up as orphans.
-        skip_names = {"_staging", "_backups"}
+        # Workspace infrastructure, not orphan projects: the wizard stages
+        # reference files under _staging (with its own age-based sweeper),
+        # _shadow holds shadow-environment state (per-boot databases + build
+        # artifacts, swept by the provisioner), _backups holds pb_data
+        # archives that must OUTLIVE their project, and _verify holds walk
+        # baselines. Skip them so they never show up as orphans.
+        skip_names = {"_staging", "_backups", "_shadow", "_verify", "_import_tmp"}
 
         for folder in self.agent_app_dir.iterdir():
             if folder.name in skip_names:
@@ -2631,15 +2698,8 @@ UI in {project.path}/frontend/src/app/."""
         runtime, adopted by an agent mission (EXTERNAL-APPS-PLAN — the user
         decided foreign apps run unchanged, never auto-rebuilt)."""
         import tempfile
-        import zipfile
 
         kind = self.detect_import_source(source)
-        if kind == "folder":
-            # Read-only: the user's folder is copied, never modified.
-            root = Path(source).expanduser()
-            if self._find_project_root(root) is not None:
-                return await self._import_project_tree(root, name)
-            return await self._import_external_tree(root, name, origin=source)
         # ignore_cleanup_errors: a deep foreign tree can carry paths this
         # rmtree cannot reach, and losing a temp dir must never fail an
         # otherwise-successful import.
@@ -2664,13 +2724,33 @@ UI in {project.path}/frontend/src/app/."""
             # live 2026-09-01: 13m06s of dead silence on odoo/odoo). It also
             # made progress reporting impossible in principle, because the
             # loop that would deliver it was the one being blocked.
+            tree = root
             if kind == "zip":
                 await asyncio.to_thread(self._extract_zip, source, root)
-            else:
+            elif kind == "git":
                 await asyncio.to_thread(self._fetch_git_source, source, root)
-            if self._find_project_root(root) is not None:
-                return await self._import_project_tree(root, name)
-            return await self._import_external_tree(root, name, origin=source)
+            else:
+                # folder — the user's folder is READ-ONLY, so it must be
+                # staged as a copy like every other source: the pipeline
+                # MOVES its input (_land_tree) and prunes junk in place,
+                # and handing it the original destroyed the user's folder
+                # (the "Read-only" comment used to sit directly above the
+                # call that did exactly that).
+                src_folder = Path(source).expanduser()
+                tree = root / (src_folder.name or "import")
+                await asyncio.to_thread(
+                    functools.partial(
+                        copytree_long,
+                        src_folder,
+                        tree,
+                        ignore=shutil.ignore_patterns(
+                            "node_modules", ".git", "logs", ".factory", ".snapshots"
+                        ),
+                    )
+                )
+            if self._find_project_root(tree) is not None:
+                return await self._import_project_tree(tree, name)
+            return await self._import_external_tree(tree, name, origin=source)
 
     def _extract_zip(self, source: str, root: Path) -> None:
         """Blocking zip extraction with per-batch progress (runs off-loop)."""
@@ -3132,7 +3212,6 @@ UI in {project.path}/frontend/src/app/."""
         fast path (no git binary, same mechanism as the marketplace
         installer) with a main→master fallback; everything else (and
         file:// URLs) is a depth-1 clone."""
-        import io
         import subprocess
         import urllib.request
         import zipfile
@@ -3687,6 +3766,9 @@ UI in {project.path}/frontend/src/app/."""
             # later code changes run as modify arcs (dev env + promote)
             # structurally.
             self._register_acquired(project, delivered=True)
+            # No arc is opened here: the app arrived finished, and "no work
+            # in flight" is now an explicit stored state (arc: none) — the
+            # old virgin-machine-means-building inference is gone.
 
             logger.info(
                 f"[AGENT_APP:MARKETPLACE] Created project: {app_name} ({project_id})"
@@ -3817,6 +3899,27 @@ UI in {project.path}/frontend/src/app/."""
             session = self.ensure_project_session(project)
             if not session:
                 raise RuntimeError("could not create project session")
+
+            # Supervision arms at INTENT: this dispatch IS the work starting.
+            # Kind is structural — an app that ever DELIVERED (promoted, or
+            # arrived finished) is being modified; one that never delivered
+            # is being built. NOT keyed on pb_data existence: the scaffold's
+            # superuser bootstrap creates one before any build ran (observed
+            # live 2026-09-08, receipt_record: a first build ran its whole
+            # arc mislabeled as a modify).
+            try:
+                from app.factory.engine import ARC_BUILD, ARC_MODIFY
+                from app.factory.host_craftbot import get_factory_host
+
+                _host = get_factory_host()
+                _host.open_arc(
+                    project_id,
+                    ARC_MODIFY
+                    if _host.delivered_at(project_id) is not None
+                    else ARC_BUILD,
+                )
+            except Exception as e:
+                logger.warning(f"[AGENT_APP] arc open failed for {project_id}: {e}")
 
             if status:
                 self.update_project_status(project_id, status)
@@ -4264,6 +4367,15 @@ UI in {project.path}/frontend/src/app/."""
         if not project:
             logger.error(f"[AGENT_APP] Project not found: {project_id}")
             return False
+
+        # The app on this port is going down — invalidate its warm probe page.
+        if project.port:
+            try:
+                from app.agent_app.probe_pool import get_probe_pool
+
+                get_probe_pool().drop(project.port)
+            except Exception:
+                pass
 
         # External teardown FIRST: the in-process A2App proxy holds the
         # project port — a kill-by-port on that listener would be killing
@@ -4880,11 +4992,7 @@ UI in {project.path}/frontend/src/app/."""
             # Launch all projects with auto_launch enabled
             project_ids = [p.id for p in self.projects.values() if p.auto_launch]
 
-        targets = [
-            pid
-            for pid in project_ids
-            if self.projects.get(pid) and self.projects[pid].status != "error"
-        ]
+        targets = [pid for pid in project_ids if self.projects.get(pid)]
         if not targets:
             return
 
@@ -4899,7 +5007,6 @@ UI in {project.path}/frontend/src/app/."""
                     f"[AGENT_APP] Auto-launching: {project.name} ({project_id})"
                 )
                 project.status = "launching"
-                self._save_projects()
                 try:
                     await self.launch_project(project_id)
                 except Exception as e:
@@ -4911,6 +5018,5 @@ UI in {project.path}/frontend/src/app/."""
                     )
                     project.status = "error"
                     project.error = str(e)[:500]
-                    self._save_projects()
 
         await asyncio.gather(*(_launch_one(pid) for pid in targets))

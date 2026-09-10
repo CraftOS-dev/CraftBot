@@ -18,13 +18,14 @@ import types
 
 import pytest
 
-from app.factory.appfactory import BUILDING, transition
-from app.factory.engine import Caps, Machine
+from app.factory.engine import ARC_BUILD, Arc
 
 
 @pytest.fixture
-def machine(tmp_path):
-    return Machine(transition, tmp_path / "state.json", BUILDING, Caps())
+def arc(tmp_path):
+    a = Arc(tmp_path / "arc.json")
+    a.open(ARC_BUILD)
+    return a
 
 
 DISPUTE = (
@@ -35,65 +36,63 @@ DISPUTE = (
 
 
 class TestDisputeLedger:
-    def test_a_dispute_is_recorded_with_its_reasoning(self, machine):
-        assert machine.record_disputed([DISPUTE], mission="m2") == 1
-        entry = machine.disputed()[0]
+    def test_a_dispute_is_recorded_with_its_reasoning(self, arc):
+        assert arc.record_disputed([DISPUTE]) == 1
+        entry = arc.disputed()[0]
         assert entry["what"] == DISPUTE
-        assert entry["mission"] == "m2"
 
-    def test_repeating_a_dispute_does_not_duplicate_it(self, machine):
-        machine.record_disputed([DISPUTE])
-        assert machine.record_disputed([DISPUTE]) == 0
-        assert len(machine.disputed()) == 1
+    def test_repeating_a_dispute_does_not_duplicate_it(self, arc):
+        arc.record_disputed([DISPUTE])
+        assert arc.record_disputed([DISPUTE]) == 0
+        assert len(arc.disputed()) == 1
 
-    def test_empty_input_records_nothing(self, machine):
-        assert machine.record_disputed([]) == 0
-        assert machine.record_disputed(["", "   "]) == 0
+    def test_empty_input_records_nothing(self, arc):
+        assert arc.record_disputed([]) == 0
+        assert arc.record_disputed(["", "   "]) == 0
 
-    def test_it_survives_a_reload(self, machine, tmp_path):
-        machine.record_disputed([DISPUTE])
-        reloaded = Machine(transition, tmp_path / "state.json", BUILDING, Caps())
+    def test_it_survives_a_reload(self, arc, tmp_path):
+        arc.record_disputed([DISPUTE])
+        reloaded = Arc(tmp_path / "arc.json")
         assert reloaded.disputed()[0]["what"] == DISPUTE
 
-    def test_it_is_scoped_to_one_arc(self, machine):
+    def test_it_is_scoped_to_one_arc(self, arc):
         # Like ruled_out: a dispute is a claim about code that a later arc has
         # already changed, so it must not be carried forward.
-        machine.record_disputed([DISPUTE])
-        machine.reopen(BUILDING)
-        assert machine.disputed() == []
+        arc.record_disputed([DISPUTE])
+        arc.close()
+        arc.open(ARC_BUILD)
+        assert arc.disputed() == []
 
-    def test_ruled_out_and_disputed_are_separate_ledgers(self, machine):
+    def test_ruled_out_and_disputed_are_separate_ledgers(self, arc):
         # They point opposite ways: ruled_out says a CAUSE is innocent,
         # disputed says a VERDICT is wrong.
-        machine.record_ruled_out(["not the grant"])
-        machine.record_disputed([DISPUTE])
-        assert [e["what"] for e in machine.ruled_out()] == ["not the grant"]
-        assert [e["what"] for e in machine.disputed()] == [DISPUTE]
+        arc.record_ruled_out(["not the grant"])
+        arc.record_disputed([DISPUTE])
+        assert [e["what"] for e in arc.ruled_out()] == ["not the grant"]
+        assert [e["what"] for e in arc.disputed()] == [DISPUTE]
 
 
 class TestDisputeReachesTheNextVerifier:
     def test_the_evidence_block_carries_the_builder_s_reasoning(
-        self, monkeypatch, tmp_path
+        self, monkeypatch, arc
     ):
         from app.agent_app import walk_verify as wv
 
         project = types.SimpleNamespace(id="f1eb1c85", name="Brainstorm Graph")
-        m = Machine(transition, tmp_path / "state.json", BUILDING, Caps())
-        m.record_disputed([DISPUTE])
+        arc.record_disputed([DISPUTE])
         monkeypatch.setattr(
             "app.factory.host_craftbot.get_factory_host",
-            lambda: types.SimpleNamespace(machine_for=lambda _pid: m),
+            lambda: types.SimpleNamespace(disputed=lambda _pid: arc.disputed()),
         )
         assert wv._disputed_verdicts(project) == [DISPUTE]
 
-    def test_no_disputes_means_no_block(self, monkeypatch, tmp_path):
+    def test_no_disputes_means_no_block(self, monkeypatch, arc):
         from app.agent_app import walk_verify as wv
 
         project = types.SimpleNamespace(id="f1eb1c85", name="Brainstorm Graph")
-        m = Machine(transition, tmp_path / "state.json", BUILDING, Caps())
         monkeypatch.setattr(
             "app.factory.host_craftbot.get_factory_host",
-            lambda: types.SimpleNamespace(machine_for=lambda _pid: m),
+            lambda: types.SimpleNamespace(disputed=lambda _pid: arc.disputed()),
         )
         assert wv._disputed_verdicts(project) == []
 
@@ -110,9 +109,7 @@ class TestDisputeReachesTheNextVerifier:
 class TestTheAction:
     def _host(self, monkeypatch, recorded):
         host = types.SimpleNamespace(
-            machine_for=lambda _pid: types.SimpleNamespace(
-                state="fixing", active_mission="m2"
-            ),
+            arc_for=lambda _pid: types.SimpleNamespace(is_open=True, kind="modify"),
             record_ruled_out=lambda _pid, items: (
                 recorded["ruled"].extend(items) or len(items)
             ),
@@ -158,17 +155,14 @@ class TestTheAction:
         assert "every later fix round will see them" in out["message"]
 
     def test_a_dispute_is_not_taken_alongside_a_blocking_question(self, monkeypatch):
-        # blocked_question ends the arc as BLOCKED, which is terminal, so the
-        # next begin_modify calls reopen() and reopen() clears the dispute
+        # blocked_question closes the arc, and close() clears the dispute
         # ledger. Recording one here would promise the schema's "goes to the
         # next verifier" and quietly not deliver it.
         from app.data.action.agent_app_actions import agent_app_report_finding
 
         recorded = {"ruled": [], "disputed": []}
         host = types.SimpleNamespace(
-            machine_for=lambda _pid: types.SimpleNamespace(
-                state="blocked", active_mission="m2"
-            ),
+            arc_for=lambda _pid: types.SimpleNamespace(is_open=True, kind="build"),
             record_ruled_out=lambda _pid, items: recorded["ruled"].extend(items)
             or len(items),
             record_disputed=lambda _pid, items: recorded["disputed"].extend(items)
@@ -215,9 +209,10 @@ class TestTheFixBrief:
         project = types.SimpleNamespace(
             id="f1eb1c85", name="Brainstorm Graph", path=str(tmp_path)
         )
-        machine = Machine(transition, tmp_path / "state.json", BUILDING, Caps())
-        machine.record_ruled_out(["the collection exists - lui data list shows it"])
-        machine.record_disputed([DISPUTE])
+        arc = Arc(tmp_path / "arc.json")
+        arc.open(ARC_BUILD)
+        arc.record_ruled_out(["the collection exists - lui data list shows it"])
+        arc.record_disputed([DISPUTE])
 
         host = get_factory_host()
         monkeypatch.setattr(host, "get_staging_record", lambda _pid: None)
@@ -227,10 +222,7 @@ class TestTheFixBrief:
                 "DEFECT verify.ai-explore\n  observed: ... the hooks must be quoted"
             )
         )
-        decision = types.SimpleNamespace(
-            next_state="fixing", escalate_level=1, payload={}
-        )
-        return host._compose_fix_brief(project, machine, decision, [card])
+        return host._compose_fix_brief(project, arc, [card])
 
     def test_earlier_disputes_and_rulings_are_both_carried_forward(self, brief):
         assert "VERDICTS EARLIER ROUNDS DISPUTED" in brief

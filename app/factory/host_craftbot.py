@@ -1,48 +1,46 @@
 # -*- coding: utf-8 -*-
-"""CraftBot host adapter for the Factory (FACTORY-PLAN §5 Phase 1).
+"""CraftBot host adapter for the Factory.
 
 HOST layer: may import app.* freely; nothing in engine/appfactory imports it.
 
-Phase-1 scope (deliberate, per plan):
-- The machine owns the VERIFY→FIX arc, redispatch-on-surrender, caps, and all
-  user-facing ready/stuck status — the empirically failing parts.
-- The tight gate-error loop inside one run (types → fix → relaunch) stays
-  agent-owned for now: it is per-STEP work and measured competent. Phase 3
-  moves it onto the ACI runner.
-- Missions are fresh triggers into the project's session, _escalate_crash
-  style (the proven prototype): concrete brief, ready-made calls, high
-  priority. Stream reset is NOT attempted in Phase 1 (plan R3): a fresh
-  concrete instruction alone was the "100% of observed cases" mechanism.
+The supervision model (the 2026-09 rewrite — one record, one loop):
+
+- Each project carries ONE mutable record, the Arc (engine/machine.py):
+  ``none`` (stored explicitly) or an open build/modify with a phase, a
+  pause, a budget, and the attempt ledger. Runtime app status is derived
+  elsewhere and never consulted here.
+- ONE supervisor loop replaces the run-end redispatch hook, its deferred
+  wakeups, the thrash guard, and phantom-mission attribution. It ticks at
+  boot, on every run-end, and periodically, and asks four questions per
+  project: is an arc open, is it paused, is a run live in its session, and
+  has it been idle past backoff. Dispatch and the stuck cap live here and
+  nowhere else.
+- Run-end and run-stop record FACTS (a question was asked; the user
+  stopped the work); the loop draws the conclusions.
+
+Missions are fresh triggers into the project's session: concrete brief,
+ready-made calls, high priority. The machine owns continuation and memory;
+the agent owns strategy; only the verifier says whether the app works.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.factory.appfactory import (
-    BUILDING,
-    FIXING,
-    GATING,
-    LAUNCHING,
-    MODIFYING,
-    VERIFYING,
-    transition,
-)
 from app.factory.engine import (
-    ANNOUNCE_BLOCKED,
-    ANNOUNCE_READY,
-    ANNOUNCE_STUCK,
-    DISPATCH_MISSION,
-    DONE,
-    STUCK,
-    Caps,
+    ARC_MODIFY,
+    MISSIONS_CAP,
+    STALLS_CAP,
+    VERIFYING,
+    WORKING,
+    Arc,
     Decision,
-    Machine,
-    Outcome,
+    backoff_for,
 )
 
 try:
@@ -52,7 +50,7 @@ except Exception:  # pragma: no cover
 
     logger = logging.getLogger(__name__)
 
-_REDISPATCH_MIN_INTERVAL_S = 20  # thrash guard on the run-end hook
+_TICK_S = 60.0  # supervisor heartbeat between kicks
 
 
 def _cli() -> str:
@@ -184,28 +182,30 @@ def _render_attempt_log(rounds: List[Dict[str, Any]], show: int = 4) -> str:
 
 
 class FactoryHost:
-    """One per process; machines are per-project, persisted in the project."""
+    """One per process; arcs are per-project, persisted in the project."""
 
     def __init__(self) -> None:
-        self._machines: Dict[str, Machine] = {}
+        self._arcs: Dict[str, Arc] = {}
+        self._runtime: Any = None  # SessionRuntimeManager, bound at boot
+        self._supervisor: Optional[asyncio.Task] = None
+        self._kick_event: Optional[asyncio.Event] = None
 
-    # ── machine access ─────────────────────────────────────────────────────
+    # ── arc access ─────────────────────────────────────────────────────────
     def _project(self, project_id: str):
         from app.agent_app import get_agent_app_manager
 
         mgr = get_agent_app_manager()
         return mgr.get_project(project_id) if mgr else None
 
-    def machine_for(self, project_id: str) -> Optional[Machine]:
-        if project_id in self._machines:
-            return self._machines[project_id]
+    def arc_for(self, project_id: str) -> Optional[Arc]:
+        if project_id in self._arcs:
+            return self._arcs[project_id]
         project = self._project(project_id)
-        if project is None:
+        if project is None or not getattr(project, "path", ""):
             return None
-        store = Path(project.path) / ".factory" / "state.json"
-        machine = Machine(transition, store, initial_state=BUILDING, caps=Caps())
-        self._machines[project_id] = machine
-        return machine
+        arc = Arc(Path(project.path) / ".factory" / "arc.json")
+        self._arcs[project_id] = arc
+        return arc
 
     def _sidecar(self, project_id: str) -> Path:
         project = self._project(project_id)
@@ -227,11 +227,8 @@ class FactoryHost:
 
     # ── delivery bookkeeping (sidecar-backed) ──────────────────────────────
     # delivered_at is a COSMETIC timestamp (requirements-staleness warning,
-    # announce wording) — never a control input. The retired "delivered"
-    # flag used to pick the data-safety mode and went stale on real apps
-    # (2026-08-19: a two-week-in-use CRM read as never-delivered and its
-    # live DB was wiped by the first-delivery baseline restore). Every
-    # lifecycle predicate is now structural: lifecycle.live_db_exists().
+    # announce wording) — never a control input. Every lifecycle predicate
+    # is structural: lifecycle.live_db_exists().
     def stamp_delivered(self, project_id: str) -> None:
         side = self._sidecar_read(project_id)
         if side.get("delivered_at"):
@@ -240,12 +237,20 @@ class FactoryHost:
         self._sidecar_write(project_id, side)
         logger.info(f"[FACTORY] {project_id} delivery stamped")
 
+    def delivered_at(self, project_id: str) -> Optional[float]:
+        """Epoch time of first delivery (comparable to st_mtime), or None.
+        Backs the warn-only requirements-staleness belt — fail-open."""
+        value = self._sidecar_read(project_id).get("delivered_at")
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
     # ── trigger-plane consent (spec TRIGGERS-PLAN) ─────────────────────────
     # An app that can fire the agent can drive a session holding the user's
     # integrations, so fires are gated on consent. First-party builds are
-    # approved at creation (the user asked for the app and the agent authored
-    # its triggers); marketplace/imported apps stay unapproved until the user
-    # explicitly says yes. Fails closed: no flag → no fires reach the agent.
+    # approved at creation; marketplace/imported apps stay unapproved until
+    # the user explicitly says yes. Fails closed.
     def is_triggers_approved(self, project_id: str) -> bool:
         return bool(self._sidecar_read(project_id).get("triggers_approved"))
 
@@ -260,11 +265,8 @@ class FactoryHost:
     def consent_nudge_due(self, project_id: str) -> bool:
         """True at most once per hour per project: gates the 'this app needs
         trigger approval' ask so a user clicking a refused ⚡ button five
-        times gets ONE prompt, not five (observed live 2026-08-06: three
-        silent consent-blocks in as many minutes). READ-ONLY — call
-        mark_consent_nudged only after the ask actually queued, or a failed
-        ask suppresses every retry for an hour (also observed live: the
-        13:52 ask died silently and the 14:17 block was then capped)."""
+        times gets ONE prompt, not five. READ-ONLY — call mark_consent_nudged
+        only after the ask actually queued."""
         side = self._sidecar_read(project_id)
         try:
             last = float(side.get("consent_nudge_at") or 0)
@@ -280,10 +282,8 @@ class FactoryHost:
     def bump_throttle_retry(self, project_id: str) -> int:
         """Count LLM-throttled verifier deaths within a rolling hour and
         return the new count. Lets walk_verify say 'wait and retry' a few
-        times without the machine burning its unparseable retry on provider
-        rate limits (observed live 2026-08-06: two walkers died on rate
-        limits 4 seconds apart and a healthy modify went STUCK), while still
-        escalating for real if the provider stays down."""
+        times without burning the arc's unparseable retry on provider rate
+        limits, while still escalating if the provider stays down."""
         now = time.time()
         side = self._sidecar_read(project_id)
         try:
@@ -303,7 +303,7 @@ class FactoryHost:
         """Remember the chat session that requested this build (chat-path
         scaffold), so ready/stuck announcements can be mirrored there —
         without it that agent's last knowledge is 'build is running' and it
-        answers later requests from stale state (observed live 2026-08-05)."""
+        answers later requests from stale state."""
         if not session_id:
             return
         side = self._sidecar_read(project_id)
@@ -329,7 +329,6 @@ class FactoryHost:
             mgr = get_agent_app_manager()
             if mgr is None or not getattr(mgr, "_trigger_service", None):
                 return
-            import asyncio
 
             async def _emit() -> None:
                 await mgr._trigger_service.emit(
@@ -355,19 +354,7 @@ class FactoryHost:
         except Exception as e:
             logger.debug(f"[FACTORY] origin notify failed: {e}")
 
-    def delivered_at(self, project_id: str) -> Optional[float]:
-        """Epoch time of first delivery (comparable to st_mtime), or None.
-        Backs the warn-only requirements-staleness belt — fail-open."""
-        value = self._sidecar_read(project_id).get("delivered_at")
-        try:
-            return float(value) if value is not None else None
-        except (TypeError, ValueError):
-            return None
-
     # ── backup bookkeeping (sidecar-backed; spec agent-app-backups-plan) ───
-    # last_at drives the scheduler's due check (absent -> due now, which is
-    # also the catch-up-after-restart path); last_error is surfaced on the
-    # settings card and cleared by the next success.
     def record_backup_ok(self, project_id: str, ts: float) -> None:
         side = self._sidecar_read(project_id)
         side["backup"] = {"last_at": float(ts)}
@@ -393,37 +380,6 @@ class FactoryHost:
             last_at = None
         return {"last_at": last_at, "last_error": state.get("last_error") or None}
 
-    def begin_modify(self, project_id: str) -> None:
-        """A modify of an app with a live database is starting (called from
-        open_dev success — deterministic, never agent-dependent):
-        re-arm the machine into MODIFYING so the whole supervision apparatus
-        (fix missions, caps, stuck reports, announcements) applies to the
-        modify exactly as it did to the build (LIFECYCLE-PLAN Phase 2).
-
-        Reopen when the machine is TERMINAL (a finished build/modify arc) or
-        VIRGIN (no history — machine_for mints BUILDING for marketplace/
-        imported apps that never had an arc). A non-terminal machine WITH
-        history means a modify/fix arc is already in flight — a fix
-        mission's notify_ready re-enters open_dev — so no-op.
-        """
-        machine = self.machine_for(project_id)
-        if machine is None:
-            return
-        if not machine.terminal and machine.history():
-            return
-        machine.reopen(MODIFYING)
-        # Build-era leftovers must not leak into the new arc: a stale
-        # last_brief would make on_run_end resume a build-era fix mission
-        # into this modify.
-        side = self._sidecar_read(project_id)
-        for key in ("last_brief", "verify_retried", "running_mission"):
-            side.pop(key, None)
-        self._sidecar_write(project_id, side)
-        logger.info(
-            f"[FACTORY] {project_id} reopened for modify "
-            f"(generation {machine.generation})"
-        )
-
     # The staging record is the single source of truth for "a dev environment
     # of this app exists": actions redirect to it, the reaper kills from it,
     # and clearing it is what ends dev mode. (Key name "staging" is
@@ -442,28 +398,49 @@ class FactoryHost:
         if side.pop("staging", None) is not None:
             self._sidecar_write(project_id, side)
 
-    # ── outcome reporting (called by the pipeline actions) ─────────────────
-    def _normalize_to(self, machine: Machine, target: str) -> None:
-        """Advance through implicit-ok states so outcomes land on the right
-        state (a mission that reaches walk_verify implicitly passed its
-        earlier states). Never dispatches: BUILD/FIX ok and GATE/LAUNCH ok
-        transitions carry no mission action."""
-        order = [BUILDING, MODIFYING, FIXING, GATING, LAUNCHING, VERIFYING]
-        guard = 0
-        while machine.state != target and machine.state in order and guard < 6:
-            machine.advance(Outcome(machine.state, ok=True))
-            guard += 1
-
-    def report_launch_success(self, project_id: str) -> None:
-        """notify_ready fully succeeded → the machine is now waiting on the
-        independent verifier."""
-        machine = self.machine_for(project_id)
-        if machine is None or machine.terminal:
+    # ── arc lifecycle (opened at INTENT, never at first success) ───────────
+    def open_arc(self, project_id: str, kind: str) -> None:
+        """Open (or re-enter) the supervised arc. Re-entry clears a pause —
+        the request IS the resume — and never resets the budget."""
+        arc = self.arc_for(project_id)
+        if arc is None:
             return
-        self._normalize_to(machine, VERIFYING)
-        side = self._sidecar_read(project_id)
-        side.pop("verify_retried", None)
-        self._sidecar_write(project_id, side)
+        was_open = arc.is_open
+        arc.open(kind)
+        if not was_open:
+            logger.info(f"[FACTORY] {project_id} {kind} arc opened")
+        self.kick()
+
+    def begin_modify(self, project_id: str) -> None:
+        """A modify is starting (called from the modify entry points,
+        deterministic, never agent-dependent): the whole supervision
+        apparatus — fix missions, caps, stuck reports, announcements —
+        applies to the modify exactly as to a build."""
+        self.open_arc(project_id, ARC_MODIFY)
+
+    def pause_by_user(self, project_id: str) -> None:
+        """The user stopped the run. Recorded as INTENT: a paused arc never
+        auto-resumes; asking for the work again is the resume."""
+        arc = self.arc_for(project_id)
+        if arc is None or not arc.is_open or arc.paused:
+            return
+        arc.pause("user")
+        self._emit_chat(
+            project_id,
+            "⏸ Work on this app is paused because you stopped the run. "
+            "Ask for the change again when you want it to continue.",
+        )
+        logger.info(f"[FACTORY] {project_id} arc paused by user stop")
+
+    # ── outcome reporting (called by the pipeline actions) ─────────────────
+    def report_launch_success(self, project_id: str) -> None:
+        """notify_ready fully succeeded → the arc now waits on the
+        independent verifier."""
+        arc = self.arc_for(project_id)
+        if arc is None or not arc.is_open:
+            return
+        arc.set_phase(VERIFYING)
+        arc.evidence_of_work()
 
     def report_verify(
         self,
@@ -479,93 +456,42 @@ class FactoryHost:
         caveat: str = "",
         scope_note: str = "",
     ) -> Optional[Decision]:
-        """Feed the walk_verify verdict; act on the machine's Decision.
-        Returns the Decision so the action can shape its agent-facing text.
-        `scope_note` is the verifier's scope in one clause ('' = full walk)
-        for the ready announcement."""
-        # Fix-mission input for the NEXT verify: the features observed broken
-        # (must-include), cleared on any clean verdict.
-        try:
-            side = self._sidecar_read(project_id)
-            if kind == "defects":
-                side["last_defects"] = self._defect_feature_names(defects or [])
-                self._sidecar_write(project_id, side)
-            elif (
-                kind in ("pass", "incomplete", "blocked")
-                and side.pop("last_defects", None) is not None
-            ):
-                self._sidecar_write(project_id, side)
-        except Exception as e:
-            logger.debug(f"[FACTORY] last_defects bookkeeping failed: {e}")
-        machine = self.machine_for(project_id)
-        if machine is None:
+        """Feed the walk_verify verdict; act on it. Returns the Decision so
+        the action can shape its agent-facing text, or None when no arc is
+        open (a re-verify after delivery, an app that arrived finished) —
+        the action then owns the announcement itself."""
+        arc = self.arc_for(project_id)
+        if arc is None or not arc.is_open:
             return None
-        if machine.terminal:
-            if machine.state == STUCK:
-                # A fresh verify verdict on a stuck arc means someone (the
-                # user, via the agent) made a new fix attempt: re-arm with a
-                # fresh mission budget so the factory loop resumes. Ignoring
-                # the verdict here stranded the agent — no mission dispatched,
-                # while the walk_verify action still promised one.
-                machine.reopen(VERIFYING)
-                # Stuck-era leftovers must not leak into the new arc (same
-                # hygiene as begin_modify): a stale last_brief would make
-                # on_run_end resume a dead mission into this arc.
-                side = self._sidecar_read(project_id)
-                for key in ("last_brief", "verify_retried", "running_mission"):
-                    side.pop(key, None)
-                self._sidecar_write(project_id, side)
-                logger.info(
-                    f"[FACTORY] {project_id} stuck arc re-armed by fresh "
-                    f"verify (generation {machine.generation})"
-                )
-            else:
-                # A re-verify after done (e.g. modify flows Phase 2+); ignore.
-                return None
-        self._normalize_to(machine, VERIFYING)
+        arc.unpause()  # a verdict arriving IS the work moving
 
         if kind in ("pass", "incomplete", "blocked"):
-            decision = machine.advance(
-                Outcome(
-                    VERIFYING, ok=True, payload={"url": url, "verified": verified or []}
-                )
+            self._announce_ready(
+                project_id,
+                url,
+                verified or [],
+                caveat,
+                modify=arc.kind == ARC_MODIFY,
+                scope_note=scope_note,
             )
-            if decision.action == ANNOUNCE_READY:
-                # "Your change is live" only when the PREVIOUS arc actually
-                # delivered (final_state done) — a virgin re-arm (adapt
-                # install, import verify) is still the app's first delivery.
-                # The staging record is already cleared by the flip, so the
-                # machine is the only witness either way.
-                generations = machine.generations()
-                self._announce_ready(
-                    project_id,
-                    url,
-                    verified or [],
-                    caveat,
-                    modify=bool(generations)
-                    and generations[-1].get("final_state") == DONE,
-                    scope_note=scope_note,
-                )
-            return decision
+            arc.close()
+            return Decision("done", payload={"url": url})
 
         if kind == "unparseable":
-            side = self._sidecar_read(project_id)
-            already = bool(side.get("verify_retried"))
-            side["verify_retried"] = True
-            self._sidecar_write(project_id, side)
-            decision = machine.advance(
-                Outcome(
-                    VERIFYING,
-                    ok=False,
-                    payload={"unknown_verdict": True, "already_retried": already},
-                )
+            # Fail closed: NEVER announce on an unparseable verdict.
+            if arc.unparseable_retried:
+                self._announce_stuck(project_id, arc)
+                arc.close()
+                return Decision("stuck", reason="verifier verdict unparseable twice")
+            arc.set_unparseable_retried(True)
+            arc.touch()
+            return Decision(
+                "verifying", reason="re-verify once", payload={"redo": "verify"}
             )
-            if decision.action == ANNOUNCE_STUCK:
-                self._announce_stuck(project_id, machine)
-            return decision
 
-        # defects → DISTILL to cards (E3: cards are the fix-mission input)
-        from app.factory.appfactory.distill import distill
+        # defects → DISTILL to cards (cards are the fix-mission input)
+        from app.factory.appfactory import distill
+        from app.factory.engine.cards import fingerprint_all
 
         project = self._project(project_id)
         cards = distill(
@@ -575,42 +501,251 @@ class FactoryHost:
             project_path=str(project.path) if project else "<project>",
             cli=_cli(),
         )
-        # Fingerprint = the identity of the whole outstanding defect SET, cause
-        # included. cards[0].fingerprint() keyed on the first card's feature
-        # NAME, so a loop that was clearing one gate per round looked identical
-        # every round and hit the cap while still making progress.
-        from app.factory.engine.cards import fingerprint_all
+        fp = fingerprint_all(cards) or _fingerprint(details or "verification failed")
+        arc.record_round(
+            fingerprint=fp,
+            # Key AND cause, because the next mission has to be told which
+            # of the two moved: same key + new cause is progress, same key
+            # + same cause is a fix that missed.
+            cards=[{"key": c.key, "sig": c.cause_signature()} for c in cards],
+            features=self._defect_feature_names(defects or []),
+        )
+        arc.set_phase(WORKING)
 
-        fp = fingerprint_all(cards) or _fingerprint(
-            details or "verification failed"
-        )
-        decision = machine.advance(
-            Outcome(
-                VERIFYING,
-                ok=False,
-                fingerprint=fp,
-                # Key AND cause, because the next mission has to be told which
-                # of the two moved: same key + new cause is progress, same key
-                # + same cause is a fix that missed. A list of keys cannot
-                # tell them apart.
-                payload={
-                    "cards": [
-                        {"key": c.key, "sig": c.cause_signature()} for c in cards
-                    ]
-                },
+        if arc.missions_spent >= MISSIONS_CAP:
+            self._announce_stuck(project_id, arc)
+            arc.close()
+            return Decision(
+                "stuck", reason=f"mission budget exhausted ({MISSIONS_CAP})"
             )
+        if project is None:
+            return Decision("stuck", reason="project vanished mid-arc")
+        brief = self._compose_fix_brief(project, arc, cards)
+        self._emit_mission(project, brief, mission_kind="fix", arc=arc)
+        return Decision("fixing")
+
+    def report_blocked(
+        self, project_id: str, question: str, ruled_out: Optional[List[str]] = None
+    ) -> Optional[Decision]:
+        """The agent needs a decision only the user can make. Closes the arc
+        with the question — the user gets the question, not a stuck report
+        they have to decode. Asking for the change again resumes work."""
+        arc = self.arc_for(project_id)
+        if arc is None:
+            return None
+        if not arc.is_open:
+            # Nothing is in flight to block. A late call (the run kept going
+            # after the build was announced) must not invent a waiting state.
+            logger.info(
+                f"[FACTORY] ignoring blocked report for {project_id}: no open arc"
+            )
+            return None
+        if ruled_out:
+            arc.record_ruled_out(ruled_out)
+        question = (question or "").strip()
+        self._announce_blocked(project_id, arc, question)
+        arc.close()
+        logger.warning(f"[FACTORY] {project_id} BLOCKED on a user decision")
+        return Decision("blocked", reason=question)
+
+    # ── what the working agent may tell the record ─────────────────────────
+    def record_ruled_out(self, project_id: str, items: List[str]) -> int:
+        """Causes proved innocent this round. Carried into every later brief."""
+        arc = self.arc_for(project_id)
+        if arc is None or not arc.is_open:
+            return 0
+        added = arc.record_ruled_out(items)
+        if added:
+            logger.info(f"[FACTORY] {project_id} ruled out {added} cause(s)")
+        return added
+
+    def record_disputed(self, project_id: str, items: List[str]) -> int:
+        """Verdicts the builder reproduced and rejected. Carried into every
+        later brief AND into the next verifier's evidence."""
+        arc = self.arc_for(project_id)
+        if arc is None or not arc.is_open:
+            return 0
+        added = arc.record_disputed(items)
+        if added:
+            logger.info(f"[FACTORY] {project_id} disputed {added} verdict(s)")
+        return added
+
+    def disputed(self, project_id: str) -> List[Dict[str, Any]]:
+        arc = self.arc_for(project_id)
+        return arc.disputed() if arc else []
+
+    def get_last_defects(self, project_id: str) -> List[str]:
+        """Features the last walk observed broken (empty outside a fix arc)."""
+        arc = self.arc_for(project_id)
+        return arc.last_defect_features() if arc else []
+
+    # ── run-end / run-start facts ──────────────────────────────────────────
+    def on_run_end(
+        self,
+        project_id: str,
+        trigger_payload: Dict[str, Any],
+        awaiting_answer: bool = False,
+    ) -> None:
+        """Called when ANY run in a project session ends. Records the fact
+        and kicks the supervisor — no dispatch decision is made here.
+
+        ``awaiting_answer`` marks a run that parked on a question the user
+        can answer: that is a pause, not a surrender, and the user's reply
+        is the wakeup (a deadline here would just be the system deciding how
+        long the agent may wait)."""
+        try:
+            arc = self.arc_for(project_id)
+            if arc is None or not arc.is_open:
+                return
+            if awaiting_answer:
+                arc.pause("question")
+                logger.info(
+                    f"[FACTORY] {project_id} parked on a question to the user"
+                )
+                return
+            paused = arc.paused
+            if paused and paused.get("by") == "question":
+                # A run just finished AFTER the question park: the answer
+                # arrived and was processed. Whatever remains is supervisable.
+                arc.unpause()
+            self.kick()
+        except Exception as e:
+            logger.error(f"[FACTORY] on_run_end failed for {project_id}: {e}")
+
+    def mission_run_started(self, project_id: str, mission_id: str) -> None:
+        """The queued mission's run has actually begun — activity, so the
+        supervisor's idle clock restarts."""
+        arc = self.arc_for(project_id)
+        if arc is not None and arc.is_open:
+            arc.touch()
+
+    # ── the supervisor (the ONE dispatch decision point) ───────────────────
+    def bind_runtime(self, runtime: Any) -> None:
+        """Attach the SessionRuntimeManager so ticks can ask 'is a run live
+        in this project's session' structurally."""
+        self._runtime = runtime
+
+    def start_supervisor(self, runtime: Any = None) -> None:
+        """Idempotent; call once the event loop is up (boot). Also runs an
+        immediate first tick so arcs frozen by a restart are found now, not
+        at the next accidental run-end."""
+        if runtime is not None:
+            self._runtime = runtime
+        if self._supervisor is not None and not self._supervisor.done():
+            return
+        self._kick_event = asyncio.Event()
+        self._kick_event.set()  # first tick immediately
+        self._supervisor = asyncio.get_running_loop().create_task(
+            self._supervisor_loop(), name="factory-supervisor"
         )
-        if decision.action == DISPATCH_MISSION:
-            self._dispatch_fix_mission(project_id, machine, decision, cards)
-        elif decision.action == ANNOUNCE_STUCK:
-            self._announce_stuck(project_id, machine)
-        return decision
+        logger.info("[FACTORY] supervisor started")
+
+    def kick(self, _project_id: str = "") -> None:
+        """Wake the supervisor now (run-end, arc open). Safe from any thread
+        state — a missed kick only costs one heartbeat."""
+        if self._kick_event is not None:
+            try:
+                self._kick_event.set()
+            except Exception:
+                pass
+
+    async def _supervisor_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.wait_for(self._kick_event.wait(), timeout=_TICK_S)
+            except asyncio.TimeoutError:
+                pass
+            except asyncio.CancelledError:
+                return
+            self._kick_event.clear()
+            try:
+                self.supervise_once()
+            except Exception as e:
+                logger.error(f"[FACTORY] supervisor tick failed: {e}")
+
+    def supervise_once(self) -> List[str]:
+        """One pass over every project. Returns the ids acted on (dispatched
+        or closed as stuck) — the loop calls this; tests call it directly."""
+        from app.agent_app import get_agent_app_manager
+
+        mgr = get_agent_app_manager()
+        if mgr is None:
+            return []
+        acted: List[str] = []
+        for project_id, project in list(getattr(mgr, "projects", {}).items()):
+            try:
+                if self._tick_project(project_id, project):
+                    acted.append(project_id)
+            except Exception as e:
+                logger.error(f"[FACTORY] tick failed for {project_id}: {e}")
+        return acted
+
+    def _session_active(self, project) -> bool:
+        if self._runtime is None:
+            return False  # no runtime bound — backoff alone paces dispatch
+        session_id = getattr(project, "session_id", None) or f"lui_{project.id}"
+        try:
+            return bool(self._runtime.is_session_active(session_id))
+        except Exception:
+            return False
+
+    def _tick_project(self, project_id: str, project) -> bool:
+        arc = self.arc_for(project_id)
+        if arc is None or not arc.is_open:
+            return False
+        if arc.paused:
+            return False  # user stop or open question — their move, not ours
+        if self._session_active(project):
+            return False  # work IS in flight; nothing to conclude
+        idle = time.time() - arc.last_activity_at
+        if idle < backoff_for(arc.stalls):
+            return False
+        stalls = arc.bump_stall()
+        if stalls >= STALLS_CAP or arc.missions_spent >= MISSIONS_CAP:
+            reason = (
+                f"{stalls} runs ended without completing the arc"
+                if stalls >= STALLS_CAP
+                else f"mission budget exhausted ({MISSIONS_CAP})"
+            )
+            logger.warning(f"[FACTORY] {project_id} stuck: {reason}")
+            self._announce_stuck(project_id, arc)
+            arc.close()
+            return True
+        self._dispatch_resume(project_id, project, arc)
+        return True
+
+    def _dispatch_resume(self, project_id: str, project, arc: Arc) -> None:
+        verb = "MODIFY of" if arc.kind == ARC_MODIFY else "BUILD for"
+        log = _render_attempt_log(arc.rounds())
+        log_text = f"\n{log}\n" if log else ""
+        ruled = arc.ruled_out()
+        ruled_text = (
+            "\n=== RULED OUT BY EARLIER ROUNDS ===\n"
+            + "\n".join(f"- {e['what']}" for e in ruled[-8:])
+            + "\n"
+            if ruled
+            else ""
+        )
+        brief = (
+            f"CONTINUE {verb} Agent App '{project.name}' ({project.id}).\n"
+            f"The previous run ended before the change was verified. Continue "
+            f"from the current state of {project.path}: finish the work, then\n"
+            f'agent_app_notify_ready(project_id="{project.id}") and\n'
+            f'agent_app_walk_verify(project_id="{project.id}").\n'
+            f"{log_text}{ruled_text}"
+            f"The system reports status to the user automatically — do not "
+            f"send status messages."
+        )
+        self._emit_mission(project, brief, mission_kind="resume", arc=arc)
+        logger.warning(
+            f"[FACTORY] idle open arc — resume dispatched (project={project_id})"
+        )
 
     # ── missions ───────────────────────────────────────────────────────────
     @staticmethod
     def _select_cookbooks(text: str) -> List[str]:
         """Known-good snippets by evidence keywords (weak models copy-adapt
-        far better than they synthesize — E6/I3)."""
+        far better than they synthesize)."""
         from pathlib import Path as _P
 
         books_dir = _P(__file__).parent / "appfactory" / "cookbooks"
@@ -670,18 +805,11 @@ class FactoryHost:
                     picks.append(path.read_text(encoding="utf-8")[:2200])
         return picks[:2]
 
-    def _compose_fix_brief(
-        self, project, machine: Machine, decision: Decision, cards: list
-    ) -> str:
-        n = len([h for h in machine.history() if h["action"] == DISPATCH_MISSION])
-        # No "do something DIFFERENT" line any more. It was the machine
-        # telling the agent how to work off a repeat count, which is the same
-        # mistake the retry cap made — and unanswerable anyway to a mission
-        # that could not see what the previous one did. The log below says
-        # what happened; the approach is the agent's.
-        log = _render_attempt_log(machine.rounds())
+    def _compose_fix_brief(self, project, arc: Arc, cards: list) -> str:
+        n = arc.missions_spent + 1  # the mission this brief dispatches
+        log = _render_attempt_log(arc.rounds())
         log_text = f"\n{log}\n" if log else ""
-        ruled = machine.ruled_out()
+        ruled = arc.ruled_out()
         ruled_text = (
             "\n=== RULED OUT BY EARLIER ROUNDS (their evidence, not mine) ===\n"
             + "\n".join(f"- {e['what']}" for e in ruled[-8:])
@@ -689,7 +817,7 @@ class FactoryHost:
             if ruled
             else ""
         )
-        disputed = machine.disputed()
+        disputed = arc.disputed()
         disputed_text = (
             "\n=== VERDICTS EARLIER ROUNDS DISPUTED (and why) ===\n"
             + "\n".join(f"- {e['what']}" for e in disputed[-8:])
@@ -709,11 +837,12 @@ class FactoryHost:
             if books
             else ""
         )
-        # The RUNNING instance is the dev environment when one is up —
-        # repro commands and logs must target it, not the (possibly not even
-        # running) live project dir.
+        # Logs live with the RUNNING instance: the shadow's per-boot state
+        # dir when one is up, the project's own logs otherwise. CLI commands
+        # always take the PROJECT path — while a shadow exists they route to
+        # it automatically (.lui/shadow.json).
         _dev_rec = self.get_staging_record(project.id)
-        run_dir = (
+        log_dir = (
             str(_dev_rec.get("dir"))
             if _dev_rec and _dev_rec.get("dir")
             else str(project.path)
@@ -729,9 +858,10 @@ carries its evidence and a repro. Your ONLY goal: make these features work.
 
 === HOW TO WORK (concrete) ===
 1. Reproduce first: use the repro commands / exercise the failing op
-   against the RUNNING dev instance:
-   {cli} run {run_dir} <op-name>
-2. Read the evidence before theorizing: {run_dir}/logs/pocketbase.log
+   against the RUNNING shadow instance (CLI calls on the project path are
+   routed to it automatically while it is up):
+   {cli} run {project.path} <op-name>
+2. Read the evidence before theorizing: {log_dir}/logs/pocketbase.log
    (every causal claim must quote a log line; if you can't quote it, gather
    more evidence — "unknown, investigating" is valid, a guess is not).
 3. If the error text you are quoting was written by YOUR OWN code, it is not
@@ -743,7 +873,7 @@ carries its evidence and a repro. Your ONLY goal: make these features work.
    round to learn the cause beats two rounds guessing at it — a fix aimed at
    a message your own handler invented will not work.
 4. Fix in {project.path} (hooks/migrations/frontend per the ownership rules)
-   — agent_app_notify_ready syncs your edits into the dev instance.
+   — agent_app_notify_ready boots a fresh shadow running your edits.
 5. Relaunch: agent_app_notify_ready(project_id="{project.id}")
 6. Verify: agent_app_walk_verify(project_id="{project.id}")
 Three things you can write into the record. All optional; all are read by
@@ -777,21 +907,7 @@ How you use the round is yours. The system tracks attempts and reports
 status to the user — do NOT send status messages; when verification passes
 the user is informed automatically."""
 
-    def _dispatch_fix_mission(
-        self, project_id: str, machine: Machine, decision: Decision, cards: list
-    ) -> None:
-        project = self._project(project_id)
-        if project is None:
-            return
-        brief = self._compose_fix_brief(project, machine, decision, cards)
-        side = self._sidecar_read(project_id)
-        side["last_brief"] = brief
-        self._sidecar_write(project_id, side)
-        self._emit_mission(project, brief, mission_kind="fix", machine=machine)
-
-    def _emit_mission(
-        self, project, brief: str, mission_kind: str, machine: Machine
-    ) -> None:
+    def _emit_mission(self, project, brief: str, mission_kind: str, arc: Arc) -> None:
         from app.agent_app import get_agent_app_manager
 
         mgr = get_agent_app_manager()
@@ -804,26 +920,12 @@ the user is informed automatically."""
             return
         mission_id = f"{mission_kind}-{int(time.time())}"
 
-        # Modify-era missions (a reopened machine) get the modify skill —
-        # dev-env semantics and the never-touch-pb_data rules live there;
-        # build-era missions keep the full creator workflow. A machine
-        # re-armed from a stuck BUILD (no live database yet — no user data
-        # to protect) is still build-era despite generation > 0; a stuck
-        # MODIFY of an app with live data keeps the modify skill.
-        gens = machine.generations()
-        try:
-            from app.agent_app.lifecycle import has_live_env
-
-            _has_live = has_live_env(project, self)
-        except Exception:
-            _has_live = False
-        resumed_stuck_build = (
-            bool(gens) and gens[-1].get("final_state") == STUCK and not _has_live
-        )
+        # Modify arcs get the modify skill — dev-env semantics and the
+        # never-touch-pb_data rules live there; build arcs keep the full
+        # creator workflow. The arc KIND was recorded at open time, so this
+        # is one enum read, not an archaeology of archived generations.
         workflow_skill = (
-            "agent-app-modify"
-            if machine.generation > 0 and not resumed_stuck_build
-            else "agent-app-creator"
+            "agent-app-modify" if arc.kind == ARC_MODIFY else "agent-app-creator"
         )
 
         async def _emit() -> None:
@@ -843,265 +945,15 @@ the user is informed automatically."""
                 )
             )
 
-        import asyncio
-
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(_emit())
         except RuntimeError:
             asyncio.run(_emit())
-        machine.mission_started(mission_id)
+        arc.mission_dispatched(mission_id)
         logger.info(f"[FACTORY] dispatched {mission_id} for {project.id}")
 
-    def mission_run_started(self, project_id: str, mission_id: str) -> None:
-        """The queued mission's run has actually begun. Lets a later run-end
-        WITHOUT a mission id (run_continuation triggers carry none) still be
-        attributed to the running mission."""
-        side = self._sidecar_read(project_id)
-        side["running_mission"] = mission_id
-        self._sidecar_write(project_id, side)
-
-    # ── run-end hook (closes I6) ───────────────────────────────────────────
-    def _defer_run_end(self, project_id: str, delay: float, reason: str) -> None:
-        """Re-run this hook later instead of now. NEVER drops the wakeup.
-
-        Idempotent by design: if the arc moved on meanwhile, needs_redispatch
-        is False and the re-check no-ops.
-        """
-        try:
-            import asyncio as _asyncio
-
-            _asyncio.get_running_loop().call_later(
-                delay, self.on_run_end, project_id, {}
-            )
-            logger.info(
-                f"[FACTORY] redispatch deferred {delay:.0f}s ({reason}) "
-                f"for {project_id}"
-            )
-        except RuntimeError:
-            logger.warning(
-                f"[FACTORY] {reason} with no event loop — {project_id} may "
-                "need a manual nudge"
-            )
-
-    def on_run_end(
-        self,
-        project_id: str,
-        trigger_payload: Dict[str, Any],
-        awaiting_answer: bool = False,
-    ) -> None:
-        """Called by the host when ANY run in a project session ends. If the
-        machine says work should be in flight but isn't, redispatch — the
-        agent surrendering is no longer a terminal event.
-
-        ``awaiting_answer`` marks a run that parked on a question the user can
-        answer. That is not a surrender and must not be redispatched into."""
-        try:
-            machine = self.machine_for(project_id)
-            if machine is None:
-                return
-            side = self._sidecar_read(project_id)
-            mission_id = (trigger_payload or {}).get("factory_mission_id")
-            if (
-                not mission_id
-                and machine.active_mission
-                and (side.get("running_mission") == machine.active_mission)
-            ):
-                # This run belonged to the active mission (it started via the
-                # mission trigger; the FINAL trigger of the run was a
-                # continuation with no id).
-                mission_id = machine.active_mission
-            if mission_id:
-                machine.mission_ended(str(mission_id))
-                if side.get("running_mission") == str(mission_id):
-                    side.pop("running_mission", None)
-                    self._sidecar_write(project_id, side)
-            if not machine.needs_redispatch():
-                return
-            if awaiting_answer:
-                # The run stopped because the agent CHOSE to wait for an
-                # answer. Asking does not have to end a run — send_message
-                # takes continue_work and suggested_responses independently,
-                # so an agent that can carry on while a question is
-                # outstanding does exactly that. Ending the run instead is a
-                # decision it made, and this hook does not get to overrule it.
-                #
-                # So: no redispatch, and no timer either. A deadline here
-                # would just be the system deciding how long the agent should
-                # be allowed to wait, and the only thing a resume can do with
-                # an unanswered question is ask it again — which is precisely
-                # what went wrong. Observed live 2026-09-02 13:26
-                # (brainstorm_graph 4fa24e8b): the agent asked which data
-                # source to use, offering three responses; the run parked and
-                # IN THE SAME SECOND this hook called it a surrender and
-                # dispatched a resume, which re-read the codebase and asked
-                # the identical question. Redispatched again 94s later. The
-                # user answered both copies and the arc went STUCK four
-                # seconds after the second answer landed.
-                #
-                # Unlike the thrash guard this needs no deferred wakeup: the
-                # user's reply IS the wakeup. That run ends and re-enters here
-                # with the arc moved on. If the answer never comes, the
-                # project stays parked on a question the user can see in the
-                # chat with its buttons — which is the honest state, not a
-                # stall to be broken by a countdown.
-                logger.info(
-                    f"[FACTORY] {project_id} is parked on a question to the "
-                    "user — not a surrender, no redispatch."
-                )
-                return
-            # Thrash guard: history timestamps are UTC ("...Z"); parse them
-            # as UTC (calendar.timegm) — time.mktime read them as LOCAL time,
-            # skewing the guard by the UTC offset (never tripping in +offset
-            # zones). A freshly reopened machine has an empty history — fall
-            # back to the archived generation's closed_at so the first
-            # modify run-end can't redispatch instantly either.
-            import calendar as _calendar
-
-            last = ""
-            history = machine.history()
-            if history:
-                last = history[-1].get("at", "")
-            else:
-                generations = machine.generations()
-                if generations:
-                    last = generations[-1].get("closed_at", "")
-            if last:
-                try:
-                    last_ts = _calendar.timegm(
-                        time.strptime(last, "%Y-%m-%dT%H:%M:%SZ")
-                    )
-                    elapsed = time.time() - last_ts
-                    if elapsed < _REDISPATCH_MIN_INTERVAL_S:
-                        # NEVER drop the wakeup. This suppression used to be a
-                        # bare return — and when the guard trips on the LAST
-                        # run's end there is nothing left to re-fire it:
-                        # observed live 2026-08-05 (Rock Bottom Outreach
-                        # Automator), a 5s surrender was suppressed and the
-                        # build sat stale at 'fixing' forever. Re-check after
-                        # the guard interval instead; idempotent — if a
-                        # mission became active meanwhile, needs_redispatch
-                        # is False and the re-check no-ops.
-                        delay = max(1.0, _REDISPATCH_MIN_INTERVAL_S - elapsed + 1.0)
-                        self._defer_run_end(project_id, delay, "thrash guard")
-                        return
-                except Exception:
-                    pass
-            project = self._project(project_id)
-            if project is None:
-                return
-
-            # A redispatch is a MACHINE event, not a free retry: feed the
-            # surrender through advance() so the budget applies and the
-            # STALL cap can trip. Without this, resumes bypassed everything:
-            # observed live (chili3d, 2026-08-05) a fix agent that correctly
-            # judged a defect unfixable end_turned into a 37-cycle redispatch
-            # loop, one LLM call every ~7s, until CraftBot was killed. This
-            # is the one place stall=True is set, and the reason the stall
-            # cap survived the removal of the per-failure one: a run that
-            # produced no verdict is not an attempt at anything.
-            decision = machine.advance(
-                Outcome(
-                    machine.state,
-                    ok=False,
-                    fingerprint="surrender-loop",
-                    stall=True,
-                    payload={"reason": "run ended without completing the arc"},
-                )
-            )
-            if machine.terminal or decision.action == ANNOUNCE_STUCK:
-                self._announce_stuck(project_id, machine)
-                logger.warning(
-                    f"[FACTORY] surrender loop capped — {project_id} is stuck "
-                    f"(state {machine.state})"
-                )
-                return
-
-            side = self._sidecar_read(project_id)
-            _verb = "MODIFY of" if machine.generation > 0 else "BUILD for"
-            brief = side.get("last_brief") or (
-                f"CONTINUE {_verb} Agent App '{project.name}' ({project.id}).\n"
-                f"The previous run ended before the change was verified. Continue from "
-                f"the current state of {project.path}: finish the work, then\n"
-                f'agent_app_notify_ready(project_id="{project.id}") and\n'
-                f'agent_app_walk_verify(project_id="{project.id}").\n'
-                f"The system reports status to the user automatically — do not send "
-                f"status messages."
-            )
-            brief = (
-                "PREVIOUS ATTEMPT ENDED WITHOUT COMPLETING.\n\n" + brief
-                if side.get("last_brief")
-                else brief
-            )
-            self._emit_mission(project, brief, mission_kind="resume", machine=machine)
-            logger.warning(
-                f"[FACTORY] run ended with machine at '{machine.state}' and no active "
-                f"mission — redispatched (project={project_id})"
-            )
-        except Exception as e:
-            logger.error(f"[FACTORY] on_run_end failed for {project_id}: {e}")
-
-    # ── what the working agent may tell the machine ────────────────────────
-    # Two reports, and neither is a self-assessment of the code (E2 still
-    # holds: only the verifier says whether the app works). One is evidence
-    # the agent gathered; the other is a question it cannot answer alone.
-    def record_ruled_out(self, project_id: str, items: List[str]) -> int:
-        """Causes proved innocent this round. Carried into every later brief."""
-        machine = self.machine_for(project_id)
-        if machine is None:
-            return 0
-        added = machine.record_ruled_out(items, mission=machine.active_mission or "")
-        if added:
-            logger.info(f"[FACTORY] {project_id} ruled out {added} cause(s)")
-        return added
-
-    def record_disputed(self, project_id: str, items: List[str]) -> int:
-        """Verdicts the builder reproduced and rejected. Carried into every
-        later brief AND into the next verifier's evidence."""
-        machine = self.machine_for(project_id)
-        if machine is None:
-            return 0
-        added = machine.record_disputed(items, mission=machine.active_mission or "")
-        if added:
-            logger.info(f"[FACTORY] {project_id} disputed {added} verdict(s)")
-        return added
-
-    def report_blocked(
-        self, project_id: str, question: str, ruled_out: Optional[List[str]] = None
-    ) -> Optional[Decision]:
-        """The agent needs a decision only the user can make. Ends the arc in
-        BLOCKED — a terminal that carries a question, so the user gets the
-        question instead of a stuck report they have to decode. Reopening the
-        machine (the answer arrives, the user asks for a change) resumes work
-        normally."""
-        machine = self.machine_for(project_id)
-        if machine is None:
-            return None
-        if machine.terminal:
-            # Nothing is in flight to block. A late call (the run kept going
-            # after the build was announced) must not drag a delivered app
-            # back into a waiting state.
-            logger.info(
-                f"[FACTORY] ignoring blocked report for {project_id}: "
-                f"machine is already {machine.state}"
-            )
-            return None
-        if ruled_out:
-            machine.record_ruled_out(ruled_out, mission=machine.active_mission or "")
-        question = (question or "").strip()
-        decision = machine.advance(
-            Outcome(
-                machine.state,
-                ok=False,
-                payload={"blocked": True, "question": question},
-            )
-        )
-        if decision.action == ANNOUNCE_BLOCKED:
-            self._announce_blocked(project_id, machine, question)
-        logger.warning(f"[FACTORY] {project_id} BLOCKED on a user decision")
-        return decision
-
-    # ── machine-composed status (§3.6: retire agent announcements) ─────────
+    # ── machine-composed status (no agent announcements) ───────────────────
     def _emit_chat(self, project_id: str, text: str) -> None:
         try:
             from app.internal_action_interface import InternalActionInterface as I
@@ -1115,7 +967,9 @@ the user is informed automatically."""
                 I.event_stream_manager.log(
                     kind="factory_status",
                     message=text,
-                    event_type=EventType.AGENT_MESSAGE,
+                    # A SYSTEM note, not the agent speaking: the agent is free
+                    # to add its own sentence, or not. Nothing forces it to.
+                    event_type=EventType.SYSTEM,
                     display_message=text,
                     task_id=session.id,
                 )
@@ -1137,12 +991,6 @@ the user is informed automatically."""
                 names.append(name[:160])
         return names[:20]
 
-    def get_last_defects(self, project_id: str) -> List[str]:
-        """Features the last walk observed broken (empty outside a fix arc)."""
-        side = self._sidecar_read(project_id)
-        val = side.get("last_defects")
-        return [str(x) for x in val] if isinstance(val, list) else []
-
     def _announce_ready(
         self,
         project_id: str,
@@ -1152,16 +1000,9 @@ the user is informed automatically."""
         modify: bool = False,
         scope_note: str = "",
     ) -> None:
-        n = len(verified)
-        lead = (
-            f"✅ Your change is live at {url}"
-            if modify
-            else f"✅ The app is ready at {url}"
-        )
-        scoped = f" ({scope_note})" if scope_note else ""
-        text = lead + (
-            f" — {n} feature(s) verified in a real browser{scoped}." if n else "."
-        )
+        # Plain, user-facing outcome only. No URL (the user is already in the
+        # CraftBot interface), no feature counts, no scope/verifier internals.
+        text = "✅ Your change is live." if modify else "✅ Your app is ready."
         if caveat:
             text += f"\n⚠️ {caveat}"
         self._emit_chat(project_id, text)
@@ -1174,17 +1015,10 @@ the user is informed automatically."""
         """This project holds code the running app has not been given.
 
         Said by the SYSTEM because the agent's own account cannot be trusted
-        here: in the incident this exists for (2026-09-02, brainstorm_graph
-        f1eb1c85) the agent reported "Done — I added the suggestion feature",
-        then "Done — I made the suggestions more visible", then "Yes — they
-        should now show up automatically", while the running app never changed
-        and the user kept replying that they saw nothing.
-
-        Phrased as a STATE, not as an act. The trigger is a tree that differs
-        from the last promote, which can be true on a run that edited nothing
-        (a question asked in the project's session), so "I changed it" would
-        be a claim this run did not earn.
-        """
+        here (2026-09-02, brainstorm_graph f1eb1c85: three "Done —" claims
+        while the running app never changed). Phrased as a STATE, not an act:
+        the trigger is a tree that differs from the last promote, which can
+        be true on a run that edited nothing."""
         self._emit_chat(
             project_id,
             f"⚠️ {name} has code changes that were never deployed — your live "
@@ -1192,18 +1026,14 @@ the user is informed automatically."""
             "and I'll relaunch and verify.",
         )
 
-    def _announce_blocked(
-        self, project_id: str, machine: Machine, question: str
-    ) -> None:
-        self._emit_chat(project_id, "🙋 " + machine.blocked_report(question))
+    def _announce_blocked(self, project_id: str, arc: Arc, question: str) -> None:
+        self._emit_chat(project_id, "🙋 " + arc.blocked_report(question))
         self._notify_origin(
             project_id,
             f"FYI: the Agent App build for project {project_id} is waiting on a "
             f"decision from the user: {question[:300]}",
         )
         try:
-            import asyncio
-
             from app.agent_app.broadcast import broadcast_agent_app_progress
 
             coroutine = broadcast_agent_app_progress(
@@ -1216,8 +1046,8 @@ the user is informed automatically."""
         except Exception as e:
             logger.debug(f"[FACTORY] blocked broadcast failed: {e}")
 
-    def _announce_stuck(self, project_id: str, machine: Machine) -> None:
-        self._emit_chat(project_id, "❌ " + machine.stuck_report())
+    def _announce_stuck(self, project_id: str, arc: Arc) -> None:
+        self._emit_chat(project_id, "❌ " + arc.stuck_report())
         self._notify_origin(
             project_id,
             f"FYI: the Agent App build for project {project_id} is STUCK "
@@ -1225,8 +1055,6 @@ the user is informed automatically."""
             "report in the project tab).",
         )
         try:
-            import asyncio
-
             from app.agent_app.broadcast import broadcast_agent_app_progress
 
             coroutine = broadcast_agent_app_progress(

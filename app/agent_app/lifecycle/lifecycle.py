@@ -2,13 +2,16 @@
 
 Two operations, one flow for first builds and modifies:
 
-    open_dev(project)  boot the DEV environment: the project's current code
-                       on a hidden port with a FRESH schema-only database.
-                       The live app (if any) keeps serving the old code.
-    promote(project)   after a clean walk_verify: deploy the code to the
-                       live environment and destroy the dev copy.
+    open_dev(project)  boot the SHADOW environment: the project's OWN code
+                       tree on a hidden port with a FRESH database and a
+                       content-addressed build artifact. Nothing is copied;
+                       the tree's hooks/migrations/source ARE the candidate.
+                       The live app (if any) keeps serving the promoted
+                       build untouched.
+    promote(project)   after a clean walk_verify: rebuild + boot the live
+                       environment and tear the shadow down.
 
-Composed, never inherited: the provisioner owns dev-env mechanics, the
+Composed, never inherited: the provisioner owns shadow mechanics, the
 promoter owns the live boot, and the launch pipeline is injected from the
 manager (the same gate/boot pipeline both environments share).
 """
@@ -24,11 +27,11 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
-from app.agent_app.lifecycle.environment import DevInstance, live_db_exists
+from app.agent_app.lifecycle.environment import ShadowInstance, live_db_exists
 from app.agent_app.lifecycle.promoter import Promoter
-from app.agent_app.lifecycle.provisioner import DevProvisioner
+from app.agent_app.lifecycle.provisioner import ShadowProvisioner
 
-LaunchPipeline = Callable[[Path, int, str], Awaitable[Dict[str, Any]]]
+LaunchPipeline = Callable[..., Awaitable[Dict[str, Any]]]
 LaunchLive = Callable[[str], Awaitable[Dict[str, Any]]]
 
 
@@ -40,55 +43,66 @@ class AppLifecycle:
         launch_pipeline: LaunchPipeline,
         launch_live: LaunchLive,
     ) -> None:
-        self.provisioner = DevProvisioner(agent_app_dir, runner)
+        self.provisioner = ShadowProvisioner(agent_app_dir, runner)
         self.promoter = Promoter(self.provisioner, launch_live)
         self._launch_pipeline = launch_pipeline
 
-    # ── dev ────────────────────────────────────────────────────────────────
+    # ── shadow ─────────────────────────────────────────────────────────────
     async def open_dev(self, project) -> Dict[str, Any]:
-        """Gate + boot the dev environment for `project` (creating or
-        refreshing the copy first). The real app is not rebuilt, restarted
-        or written to. The dev DB is reset on EVERY call: it boots empty and
-        the migration chain replays, so each iteration re-proves the chain
-        and starts from the app's true post-migration state.
+        """Gate + boot the SHADOW environment for `project`. The live app is
+        not rebuilt, restarted or written to. Every call is a FRESH boot:
+        new state directory, new hidden port, database recreated from the
+        migration chain — each iteration re-proves the chain and starts
+        from the app's true post-migration state. The previous shadow is
+        killed best-effort; a survivor cannot collide (fresh dirs + port)
+        and is swept later.
 
         Same result envelope as the launch pipeline, plus url/port of the
-        dev instance and dev=True on success.
+        shadow instance and dev=True on success.
         """
         from app.factory.host_craftbot import get_factory_host
 
         if getattr(project, "project_type", "native") == "external":
-            # Dev envs are pb/-shaped; an external app has no gate or
-            # migration chain to replay. Changes to externals run live
+            # Shadow envs need data/artifact redirection; an external app
+            # declares no such contract. Changes to externals run live
             # (EXTERNAL-APPS-PLAN v1) — callers route them there.
             return {
                 "status": "error",
                 "step": "dev",
                 "errors": [
-                    "External apps have no dev environment — relaunch live "
+                    "External apps have no shadow environment — relaunch live "
                     "via agent_app_notify_ready (changes apply directly)."
                 ],
             }
 
         host = get_factory_host()
-        record = host.get_staging_record(project.id)
+
+        # Supervision arms AT INTENT, before the first gate attempt, so work
+        # that never gets past the gate is still supervised. Kind is
+        # structural: an app that ever DELIVERED (promoted, or arrived
+        # finished) is being modified; one that never delivered is (still)
+        # being built — a scaffold's bootstrap pb_data must not read as a
+        # live deployment. Re-entry into an open arc is a no-op that clears
+        # a pause.
         try:
-            if (
-                record
-                and Path(record.get("dir", "")).joinpath("manifest.json").exists()
-            ):
-                instance = DevInstance.from_record(project.id, record)
-                self.provisioner.sync_code(project, instance.dir)
-                self.provisioner.reset_db(instance.dir)
+            if host.delivered_at(project.id) is not None:
+                host.begin_modify(project.id)
             else:
-                instance = await self.provisioner.create_copy(project)
+                from app.factory.engine import ARC_BUILD
+
+                host.open_arc(project.id, ARC_BUILD)
         except Exception as e:
-            # Never fall back to gating/serving the real project dir — the
-            # gate's vite build would blank a live app's served UI in place.
+            logger.warning(f"[AGENT_APP:SHADOW] arc arm failed: {e}")
+
+        try:
+            instance = self.provisioner.prepare(
+                project, host.get_staging_record(project.id)
+            )
+        except Exception as e:
             return {
                 "status": "error",
                 "step": "dev",
-                "errors": [f"Could not prepare the dev environment: {e}"],
+                "errors": [f"Could not prepare the shadow environment: {e}"],
             }
 
         # Reuse (never overwrite) the project's bridge token: a running live
@@ -99,33 +113,25 @@ class AppLifecycle:
             project.bridge_token = secrets.token_urlsafe(32)
 
         # Record BEFORE booting: a pipeline failure must still leave the
-        # record in place so agent_app_http redirects there and the next
-        # open_dev reuses the copy instead of re-cloning.
+        # record in place so agent traffic (HTTP action, lui CLI) targets
+        # the shadow and the reaper can find its state.
         host.set_staging_record(project.id, instance.to_record())
+        self.provisioner.route_cli(Path(project.path), instance.port)
 
         result = await self._launch_pipeline(
-            instance.dir, instance.port, project.bridge_token
+            Path(project.path), instance.port, project.bridge_token, shadow=instance
         )
         if result["status"] != "success":
             return result
 
         self.provisioner.adopt_process(instance, result.pop("process"))
         host.set_staging_record(project.id, instance.to_record())
+        # Old boot dirs (and stale build artifacts) die now that the new
+        # boot is up; anything locked waits for the next sweep.
+        self.provisioner.sweep(project.id, keep=instance.dir)
 
-        # A change to an app WITH a live database is a modify — re-arm the
-        # factory machine so it gets the same supervision as a build: fix
-        # missions on defects, caps, machine announcements. Deterministic
-        # here, never agent-driven; no-ops when an arc is already in flight.
-        # An app with no live DB yet is build-era: its machine already owns
-        # the arc (or is virgin, which stays a first delivery).
-        if live_db_exists(project.path):
-            try:
-                host.begin_modify(project.id)
-            except Exception as e:
-                logger.warning(f"[AGENT_APP:DEV] begin_modify failed: {e}")
-
-        logger.info(f"[AGENT_APP:DEV] {project.id} dev env up at {instance.url}")
-        return {
+        logger.info(f"[AGENT_APP:SHADOW] {project.id} shadow up at {instance.url}")
+        envelope = {
             "status": "success",
             "url": instance.url,
             "backend_url": instance.url,
@@ -133,6 +139,13 @@ class AppLifecycle:
             "dir": str(instance.dir),
             "dev": True,
         }
+        # Pipeline evidence travels with the launch: the changed-op smoke
+        # results and the smoke-skip notice (previously dropped here, so
+        # dev launches always claimed the smoke walk ran).
+        for key in ("op_smoke", "verify_skipped"):
+            if key in result:
+                envelope[key] = result[key]
+        return envelope
 
     # ── live ───────────────────────────────────────────────────────────────
     async def promote(self, project) -> Dict[str, Any]:
@@ -141,5 +154,8 @@ class AppLifecycle:
 
     # ── maintenance ────────────────────────────────────────────────────────
     def reap_dev(self, records: Dict[str, Dict[str, Any]]) -> int:
-        """Startup reaper passthrough (see DevProvisioner.reap_all)."""
+        """Startup reaper passthrough (see ShadowProvisioner.reap_all)."""
         return self.provisioner.reap_all(records)
+
+
+__all__ = ["AppLifecycle", "ShadowInstance", "live_db_exists"]

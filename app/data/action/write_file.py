@@ -1,5 +1,4 @@
 from agent_core import action
-from app.data.action.file_locks import get_file_lock
 
 
 @action(
@@ -51,6 +50,8 @@ from app.data.action.file_locks import get_file_lock
 )
 def write_file(input_data: dict) -> dict:
     import os
+
+    from app.utils.file_locks import get_file_lock
 
     simulated_mode = input_data.get("simulated_mode", False)
 

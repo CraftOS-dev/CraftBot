@@ -46,6 +46,9 @@ class V2ScaffoldResult:
 class V2GateResult:
     passed: bool
     output: str
+    # SHADOW gates (out_root set) build to a content-addressed artifact dir;
+    # the booted instance serves it via --publicDir. None for live gates.
+    artifact: Optional[Path] = None
 
 
 class AgentAppRunnerUnavailable(RuntimeError):
@@ -242,33 +245,36 @@ class AgentAppRunner:
         if code != 0:
             raise RuntimeError(f"npm install failed:\n{out[-4000:]}")
 
-    async def gate(self, project_dir: Path) -> V2GateResult:
+    async def gate(
+        self,
+        project_dir: Path,
+        *,
+        coverage: bool = False,
+        out_root: Optional[Path] = None,
+    ) -> V2GateResult:
         """Run the validation gate; output is the machine-readable error list.
 
-        A DEV copy (manifest env == "dev") builds with LUI_COVERAGE=1: the
-        blueprint's vite config then instruments the bundle so the walk-verify
-        can record which code each feature runs through (scoped verify
-        Phase 2). Live builds never see the flag - bundles stay identical."""
+        SHADOW gates pass `out_root`: the frontend builds into a
+        content-addressed artifact under it (reused when inputs are
+        unchanged) and pb/pb_public is never written — the served live
+        build only changes at promote. `coverage` builds with LUI_COVERAGE=1
+        so walk-verify can record which code each feature runs through
+        (scoped verify); live builds never see the flag, bundles stay
+        identical."""
         self.ensure_available()
-        env_extra = {"LUI_COVERAGE": "1"} if self._is_dev_copy(project_dir) else None
+        args = ["validate", str(project_dir)]
+        if out_root is not None:
+            args += ["--outRoot", str(out_root)]
         code, out = await self._run(
-            self._cli("validate", str(project_dir)),
+            self._cli(*args),
             timeout=GATE_TIMEOUT_S,
-            env_extra=env_extra,
+            env_extra={"LUI_COVERAGE": "1"} if coverage else None,
         )
-        return V2GateResult(passed=code == 0, output=out)
-
-    @staticmethod
-    def _is_dev_copy(project_dir: Path) -> bool:
-        try:
-            import json as _json
-
-            manifest = _json.loads(
-                (Path(project_dir) / "manifest.json").read_text(encoding="utf-8")
-            )
-            return manifest.get("env") == "dev"
-        except Exception:
-            return False
+        artifact: Optional[Path] = None
+        for line in out.splitlines():
+            if line.startswith("ARTIFACT "):
+                artifact = Path(line[len("ARTIFACT ") :].strip())
+        return V2GateResult(passed=code == 0, output=out, artifact=artifact)
 
     async def kit_sync(self, project_dir: Path) -> None:
         """Re-vendor the kit and re-canonize system-file hashes (used after
@@ -319,7 +325,9 @@ class AgentAppRunner:
             raise RuntimeError(f"could not resolve PocketBase binary:\n{out}")
         return Path(out.strip().splitlines()[-1])
 
-    async def ensure_superuser(self, project_dir: Path) -> None:
+    async def ensure_superuser(
+        self, project_dir: Path, data_dir: Optional[Path] = None
+    ) -> None:
         """Guarantee the project's PocketBase has a machine superuser.
 
         Without one, PocketBase treats the first `serve` as an install and
@@ -351,7 +359,7 @@ class AgentAppRunner:
                 email,
                 password,
                 "--dir",
-                str(pb_dir / "pb_data"),
+                str(data_dir if data_dir is not None else pb_dir / "pb_data"),
                 "--migrationsDir",
                 str(pb_dir / "pb_migrations"),
                 "--hooksDir",
@@ -415,19 +423,35 @@ class AgentAppRunner:
         return token
 
     async def start(
-        self, project_dir: Path, port: int, bridge_token: str = ""
+        self,
+        project_dir: Path,
+        port: int,
+        bridge_token: str = "",
+        *,
+        data_dir: Optional[Path] = None,
+        public_dir: Optional[Path] = None,
+        log_dir: Optional[Path] = None,
+        app_env: str = "live",
     ) -> subprocess.Popen:
-        """Start the single production process: PocketBase serving app + API."""
+        """Start ONE PocketBase process serving app + API.
+
+        Environments are just three redirected inputs on the SAME code tree:
+        LIVE = defaults (pb/pb_data, pb/pb_public, assigned port); SHADOW =
+        fresh data dir, content-addressed build artifact, hidden port.
+        Nothing in the tree is copied or rewritten to create an environment —
+        identity travels in CRAFTBOT_APP_ENV."""
         pb_bin = await self.pb_binary()
         pb_dir = project_dir / "pb"
+        effective_data = data_dir if data_dir is not None else pb_dir / "pb_data"
+        effective_public = public_dir if public_dir is not None else pb_dir / "pb_public"
         # Must happen BEFORE serve, or PocketBase opens its setup page.
-        await self.ensure_superuser(project_dir)
+        await self.ensure_superuser(project_dir, data_dir=effective_data)
         # The credential non-browser clients present to write (Phase 2 C4).
         self.ensure_agent_token(project_dir)
         # Upgrade the in-app A2APP layer. This is the ONLY path that reaches an
         # app the user already had — install and import cover new arrivals only.
         await self.adapter_sync(project_dir)
-        logs_dir = project_dir / "logs"
+        logs_dir = log_dir if log_dir is not None else project_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = open(logs_dir / "pocketbase.log", "a")
 
@@ -448,43 +472,94 @@ class AgentAppRunner:
                 "[AGENT_APP] no bridge token provided; AI features will be unavailable"
             )
 
+        # Environment identity for hooks/adapter (A2App reports env=shadow so
+        # any client can structurally confirm which instance a port belongs to).
+        env["CRAFTBOT_APP_ENV"] = app_env
+        env["CRAFTBOT_APP_PORT"] = str(port)
+
         process = subprocess.Popen(
             [
                 str(pb_bin),
                 "serve",
                 f"--http=127.0.0.1:{port}",
                 "--dir",
-                str(pb_dir / "pb_data"),
+                str(effective_data),
                 "--hooksDir",
                 str(pb_dir / "pb_hooks"),
                 "--migrationsDir",
                 str(pb_dir / "pb_migrations"),
                 "--publicDir",
-                str(pb_dir / "pb_public"),
+                str(effective_public),
+                # Hooks are shared by LIVE and SHADOW (they ARE the candidate
+                # code); the live process must never hot-load an edit before
+                # it is verified. No effect on Windows per PB docs — pinned
+                # anyway so the invariant holds on every platform.
+                "--hooksWatch=false",
             ],
             env=env,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
-        logger.info(f"[AGENT_APP] started PocketBase pid={process.pid} port={port}")
+        logger.info(
+            f"[AGENT_APP] started PocketBase pid={process.pid} port={port} "
+            f"env={app_env}"
+        )
         return process
 
     async def verify(self, project_dir: Path, url: str) -> "tuple[str, str]":
-        """Headless smoke verification of the running app (walk-verify core).
+        """Headless smoke verification of the running app (walk-verify core):
+        the app mounts (#root renders real content) with zero console errors,
+        screenshot evidence saved under logs/verify/.
+
+        Runs on the WARM probe session for this port (ProbePool), so every
+        boot after the first skips the browser cold start — and the walk
+        verifier and agent probes that follow inherit the same session.
 
         Returns (status, detail) where status is 'pass' | 'fail' | 'skipped'.
         Skipped (no browser installed) must not block a launch.
         """
-        code, out = await self._run(
-            self._cli("verify", str(project_dir), "--url", url), timeout=120
-        )
-        detail = out.strip().splitlines()[-1] if out.strip() else "{}"
-        if code == 0:
-            return "pass", detail
-        if code == 2:
-            return "skipped", detail
-        return "fail", detail
+        import json as _json
+
+        from app.agent_app.probe_pool import ProbeUnavailable, get_probe_pool
+
+        try:
+            result = await get_probe_pool().probe(
+                url,
+                [
+                    {"op": "goto", "value": "/"},
+                    {"op": "wait", "value": "1200"},
+                    {"op": "mounted"},
+                    {"op": "screenshot", "value": "home"},
+                ],
+                out_dir=str(Path(project_dir) / "logs" / "verify"),
+                timeout=120,
+            )
+        except ProbeUnavailable as e:
+            return "skipped", _json.dumps({"status": "skipped", "reason": str(e)})
+        except (RuntimeError, ValueError) as e:
+            return "skipped", _json.dumps(
+                {"status": "skipped", "reason": f"probe session failed: {e}"}
+            )
+
+        steps = {s.get("op"): s for s in result.get("steps", [])}
+        console_errors = list(result.get("consoleErrors", []))
+        loaded = bool(steps.get("goto", {}).get("ok"))
+        mounted = bool(steps.get("mounted", {}).get("ok"))
+        screenshot = steps.get("screenshot", {}).get("detail")
+        verdict = {
+            "status": "pass"
+            if loaded and mounted and not console_errors
+            else "fail",
+            "checks": {
+                "loaded": loaded,
+                "mounted": mounted,
+                "noConsoleErrors": not console_errors,
+            },
+            "consoleErrors": console_errors,
+            "screenshot": screenshot,
+        }
+        return verdict["status"], _json.dumps(verdict)
 
     async def wait_healthy(self, port: int, timeout: int = HEALTH_TIMEOUT_S) -> bool:
         """Poll /api/health until 200 or timeout."""

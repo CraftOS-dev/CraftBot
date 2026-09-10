@@ -1194,7 +1194,45 @@ class AgentBase:
         # actually landed. See spec/A2APP-PLAN.md Phase 1 B10/B11.
         self._report_agent_app_writes(session_id, actions_with_input, results)
 
+        # Edit-time diagnostics: in an app session, any turn that changed
+        # TypeScript sources gets the compiler's answer attached to it (~2s)
+        # — content-detected like _warn_if_undeployed, so a run_shell edit is
+        # seen exactly like a stream_edit. The alternative was observed live
+        # (2026-09-09): 26 launch-gate cycles at 60-90s used as a compiler.
+        await self._attach_edit_diagnostics(session_id)
+
         return self._merge_action_outputs(results)
+
+    async def _attach_edit_diagnostics(self, session_id: str) -> None:
+        try:
+            session = self.session_manager.get(session_id)
+            project_id = getattr(session, "agent_app_project_id", None)
+            if not project_id:
+                return
+            from app.agent_app import get_agent_app_manager
+            from app.agent_app.edit_diagnostics import get_edit_diagnostics
+
+            mgr = get_agent_app_manager()
+            project = mgr.get_project(str(project_id)) if mgr else None
+            if project is None or not getattr(project, "path", ""):
+                return
+            message = await get_edit_diagnostics().after_turn(project)
+            if message and self.event_stream_manager:
+                # Agent-only feedback: the model reads this from its stream and
+                # fixes the TS errors before notify_ready. The user must NEVER
+                # see it. INTERNAL keeps it in the LLM context but hides it from
+                # the UI; SYSTEM would have surfaced it as a chat bubble
+                # (display_message=None falls back to `message` in the
+                # transformer, which is exactly the leak we are closing).
+                self.event_stream_manager.log(
+                    "typecheck",
+                    message,
+                    event_type=EventType.INTERNAL,
+                    display_message=None,
+                    task_id=session_id,
+                )
+        except Exception as e:
+            logger.debug(f"[EDIT_DIAG] hook skipped: {e}")
 
     async def _warn_if_undeployed(self, session) -> None:
         """A run ending with un-shipped source changes must say so.
@@ -1285,27 +1323,16 @@ class AgentBase:
     def _report_agent_app_writes(
         self, session_id: str, actions_with_input: list, results: list
     ) -> None:
-        """Report what a turn changed, IN CRAFTBOT'S VOICE, and refresh the app.
+        """Track what a turn changed and refresh the app. No chat bubble.
 
-        Why the system writes it: in the incident that motivated A2APP the
-        agent wrote a card with an empty due date, read `"due_date":""` in its
-        own tool output, and told the user "scheduled for tomorrow". Guarding
-        the write stops the bad data; it does not stop the false sentence.
+        The per-write summary is recorded for the run's claim gate and used to
+        decide whether the app needs a refresh, but it is NOT shown to the
+        user. Data-write receipts were noise; the user hears about a change
+        from the agent's own reply, if the agent judges it worth saying.
 
-        Why it is not a separate "System" speaker: it was, and it read badly —
-        the user saw a grey robot line restating what the assistant then said
-        again, less precisely ("due tomorrow" against the receipt's "due Fri 31
-        Jul") and padded with filler. Delivering the fact AS CraftBot removes
-        the duplication and the extra narration turn, and keeps the guarantee:
-        the words come from the stored record, not from the model.
-
-        One line per turn, not per write, so a turn that changes three things
-        does not produce three bubbles. (A bulk run spread over many turns
-        still yields many lines — see A2APP-PLAN for the open case.)
-
-        Also the only place `dispatch_agent_app_data_changed` fires on the CLI
-        path — previously it fired solely from the deprecated `agent_app_http`
-        action, so agent writes never refreshed the iframe.
+        This is also the only place `dispatch_agent_app_data_changed` fires on
+        the CLI path (previously it fired solely from the deprecated
+        `agent_app_http` action, so agent writes never refreshed the iframe).
         """
         try:
             session = self.session_manager.get(session_id)
@@ -1342,20 +1369,9 @@ class AgentBase:
         if not summaries:
             return
 
-        if self.event_stream_manager:
-            text = (
-                summaries[0]
-                if len(summaries) == 1
-                else "\n".join(f"• {s}" for s in summaries)
-            )
-            self.event_stream_manager.log(
-                kind="agent_app_write",
-                message=text,
-                event_type=EventType.AGENT_MESSAGE,
-                display_message=text,
-                task_id=session_id,
-            )
-
+        # Data-write receipts are no longer shown to the user (they were
+        # noise). The summaries above still feed the run claim gate and gate
+        # the refresh below; the user hears about changes from the agent.
         try:
             from app.agent_app import dispatch_agent_app_data_changed
 
@@ -1429,9 +1445,12 @@ class AgentBase:
         Merge outputs from parallel actions into single response.
 
         Preserves all individual results and extracts key fields for run
-        control. A turn ends the run only when EVERY executed action signals
-        ``end_turn`` (send_message without continue_work, end_turn) — any
-        working action means the run continues.
+        control. A turn ends the run as soon as ANY executed action signals
+        ``end_turn`` (a terminal send_message without continue_work, or the
+        end_turn action). A terminal message batched with a working action
+        therefore ends the run and waits for the next trigger, instead of
+        spawning a continuation that would only re-message the user. Only
+        ``continue_work=true`` messages keep the run alive.
         """
         if not outputs:
             return {}
@@ -1445,7 +1464,7 @@ class AgentBase:
             "fire_at_delay": max(
                 (output.get("fire_at_delay", 0.0) for output in outputs), default=0.0
             ),
-            "run_ends": all(output.get("end_turn", False) for output in outputs),
+            "run_ends": any(output.get("end_turn", False) for output in outputs),
             # Any action in the batch parking on an answerable question makes
             # the whole run a wait, not a surrender.
             "awaiting_answer": any(
@@ -1637,11 +1656,23 @@ class AgentBase:
         """A run was force-stopped by the user: settle state for the session.
 
         Called by the session runtime after the turn task is cancelled and
-        queued continuations are purged. Deliberately does NOT run the
-        Agent App factory redispatch hook — the user just killed this work;
-        resurrecting it immediately would make the stop button a no-op.
+        queued continuations are purged.
         """
         self._lui_run_writes.pop(session_id, None)
+
+        # FACTORY: the stop is recorded as INTENT. A paused arc never
+        # auto-resumes — without this, the machine later read the phantom
+        # half-done work as a surrender and resurrected the very job the
+        # user killed (the stop button was a deferral, not a stop).
+        try:
+            session = self.session_manager.get(session_id)
+            lui_project = getattr(session, "agent_app_project_id", None)
+            if lui_project:
+                from app.factory.host_craftbot import get_factory_host
+
+                get_factory_host().pause_by_user(str(lui_project))
+        except Exception as e:
+            logger.debug(f"[FACTORY] stop-pause failed: {e}")
 
         # A force-stopped memory run must not leave the unprocessed buffers
         # frozen forever. Reconcile the source queues against the staging
@@ -3881,6 +3912,17 @@ class AgentBase:
             logger.warning(f"[RESTORE] Activity log GC failed: {e}")
 
         await self.session_runtime.start()
+
+        # FACTORY: the supervisor is the ONE dispatch decision point for
+        # Agent App arcs. Started here (event loop is up); its immediate
+        # first tick finds arcs frozen by the restart instead of waiting
+        # for the next accidental run-end in their sessions.
+        try:
+            from app.factory.host_craftbot import get_factory_host
+
+            get_factory_host().start_supervisor(self.session_runtime)
+        except Exception as e:
+            logger.warning(f"[FACTORY] supervisor start failed: {e}")
 
         # Consolidated restart notice: one message in main when pending work
         # from the previous run was restored.

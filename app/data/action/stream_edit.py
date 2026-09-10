@@ -1,5 +1,4 @@
 from agent_core import action
-from app.data.action.file_locks import get_file_lock
 
 @action(
     name="stream_edit",
@@ -72,6 +71,8 @@ from app.data.action.file_locks import get_file_lock
 def stream_edit_action(input_data: dict) -> dict:
     import os
     import re
+
+    from app.utils.file_locks import get_file_lock
 
     simulated_mode = input_data.get("simulated_mode", False)
 

@@ -15,12 +15,7 @@ const HASH_FILE = join('.lui', 'system-hashes.json');
  *  files it actually just wrote (see vendorSystemFilesInto). */
 export const SYSTEM_PATHS = [
   'frontend/src/kit',
-  'frontend/src/main.tsx',
   'frontend/src/config.gen.ts',
-  'frontend/src/app.css',
-  'frontend/index.html',
-  'frontend/vite.config.ts',
-  'frontend/tsconfig.json',
   'pb/pb_hooks/_system.pb.js',
   'pb/pb_hooks/_craftbot_bridge.js',
   'pb/pb_hooks/_a2app.pb.js',

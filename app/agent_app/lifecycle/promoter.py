@@ -23,15 +23,17 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
+from pathlib import Path
+
 from app.agent_app.lifecycle.environment import has_live_env
-from app.agent_app.lifecycle.provisioner import DevProvisioner
+from app.agent_app.lifecycle.provisioner import ShadowProvisioner
 
 LaunchLive = Callable[[str], Awaitable[Dict[str, Any]]]
 BeforeLiveBoot = Callable[[Any], None]
 
 
 class Promoter:
-    def __init__(self, provisioner: DevProvisioner, launch_live: LaunchLive) -> None:
+    def __init__(self, provisioner: ShadowProvisioner, launch_live: LaunchLive) -> None:
         self._provisioner = provisioner
         self._launch_live = launch_live
         self._before_live_boot: List[BeforeLiveBoot] = []
@@ -73,7 +75,7 @@ class Promoter:
 
         if is_external:
             # External apps run their new code live already (they have no
-            # dev copy — notify_ready relaunched them in place); promoting
+            # shadow env — notify_ready relaunched them in place); promoting
             # is pure bookkeeping.
             result: Dict[str, Any] = {
                 "status": "success",
@@ -90,6 +92,9 @@ class Promoter:
                 )
             finally:
                 host.clear_staging_record(project.id)
+                # Agent traffic goes back to the live app the moment the
+                # shadow record is gone — including the lui CLI's routing.
+                self._provisioner.unroute_cli(Path(project.path))
 
         result["first"] = first
         host.stamp_delivered(project.id)
