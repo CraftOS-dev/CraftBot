@@ -1,16 +1,17 @@
-"""Environment identity: the dev-instance value object and the one
-structural predicate the lifecycle branches on.
+"""Environment identity: the structural predicates the lifecycle branches on.
 
 live_db_exists() replaces the retired "delivered" sidecar flag. The flag
 could diverge from reality (it did, 2026-08-19: a two-week-in-use CRM read
 as never-delivered and its live DB was restored to a stale baseline); the
 filesystem cannot — a live database either exists or it does not.
+
+The running-instance value object (a shadow's port, dir, pid, token) lives in
+app.agent_app.instances.Instance now — one type for live and shadow, keyed by
+a stable instance id, so nothing infers identity from a bare port.
 """
 
-import subprocess
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Union
 
 
 def live_db_exists(project_path: Union[str, Path]) -> bool:
@@ -41,46 +42,3 @@ def has_live_env(project, host) -> bool:
     if getattr(project, "project_type", "native") == "external":
         return host.delivered_at(project.id) is not None
     return live_db_exists(project.path)
-
-
-@dataclass
-class ShadowInstance:
-    """One SHADOW environment: the project's OWN code tree booted on a hidden
-    port with a fresh database and a content-addressed build artifact.
-    Nothing is copied — `dir` is the per-boot state directory (data + logs),
-    not a code tree. `process` is runtime-only; everything else round-trips
-    through the factory-host sidecar record.
-
-    The sidecar key keeps its historical "staging" name — a storage detail
-    the reapers and redirects already speak.
-    """
-
-    project_id: str
-    dir: Path  # <agent_app>/_shadow/<project>/<boot-id>/ — data, logs
-    port: int
-    created_at: float
-    public_dir: Path = Path("")  # the served build artifact (content-addressed)
-    pid: Optional[int] = None
-    process: Optional[subprocess.Popen] = None
-
-    @property
-    def url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
-
-    @property
-    def data_dir(self) -> Path:
-        return self.dir / "pb_data"
-
-    @property
-    def log_dir(self) -> Path:
-        return self.dir / "logs"
-
-    def to_record(self) -> Dict[str, Any]:
-        return {
-            "dir": str(self.dir),
-            "port": self.port,
-            "url": self.url,
-            "pid": self.pid,
-            "public_dir": str(self.public_dir),
-            "created_at": self.created_at,
-        }

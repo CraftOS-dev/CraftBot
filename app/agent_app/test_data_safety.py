@@ -41,13 +41,14 @@ import app.agent_app.wizard as wizard_mod
 from app.data.action import agent_app_actions as LA
 from app.agent_app.manager import AgentAppManager, AgentAppProject
 from app.agent_app.pb_data_io import restore_pb_data, snapshot_pb_data
-from app.agent_app.lifecycle import (
-    SHADOW_PORT_RANGE,
-    ShadowProvisioner,
-    live_db_exists,
-)
+from app.agent_app.lifecycle import ShadowProvisioner, live_db_exists
+from app.agent_app.instances import InstanceRegistry, PortAllocator, SHADOW_RANGE
 from app.agent_app.runner import AgentAppRunner
-from app.agent_app.wizard import _unwrap_document, adapt_chosen, fresh_build_chosen
+from app.agent_app.wizard import (
+    _render_requirements_doc,
+    adapt_chosen,
+    fresh_build_chosen,
+)
 
 
 # ── shared helpers ─────────────────────────────────────────────────────────
@@ -206,11 +207,17 @@ with tempfile.TemporaryDirectory() as tmp:
     proj = _make_project_dir(living, "dev00001", 3125)
     project = _Project("dev00001", proj, 3125)
     sup = ShadowProvisioner(living, _StubRunner())
+    registry = InstanceRegistry(living / "agent_app_instances.json", PortAllocator())
 
-    inst = sup.prepare(project, None)
-    assert inst.dir.parent == living / "_shadow" / "dev00001"
-    assert SHADOW_PORT_RANGE[0] <= inst.port <= SHADOW_PORT_RANGE[1]
-    assert (inst.dir / "logs").is_dir(), "per-boot logs live with the instance"
+    # The provisioner mints only the boot DIR; the port + durable record are
+    # the registry's job (identity by instance id, never by port).
+    boot = sup.prepare(project, None)
+    inst = registry.create_shadow(
+        "dev00001", token="t", boot_id=boot.boot_id, dir=str(boot.dir)
+    )
+    assert Path(inst.dir).parent == living / "_shadow" / "dev00001"
+    assert SHADOW_RANGE[0] <= inst.port <= SHADOW_RANGE[1]
+    assert (Path(inst.dir) / "logs").is_dir(), "per-boot logs live with the instance"
     assert not inst.data_dir.exists(), (
         "the shadow DB is created AT BOOT from the migration chain — live "
         "data is never cloned into an environment the agent writes to"
@@ -218,7 +225,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # THE POINT of the shadow rewrite: nothing is copied and nothing in the
     # tree is rewritten. The project's manifest keeps ITS port; environment
     # identity travels in the process env, not in mutated files.
-    assert not (inst.dir / "manifest.json").exists()
+    assert not (Path(inst.dir) / "manifest.json").exists()
     assert _json.loads((proj / "manifest.json").read_text())["port"] == 3125
 
     # CLI routing: while a shadow is up, project-path CLI calls target it.
@@ -229,20 +236,26 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # THE regression the copy era died of: booting again while the previous
     # shadow still holds its files (Windows lock). prepare() never deletes
-    # in place — the second boot gets a FRESH dir and port and cannot
-    # collide, even though the first boot's dir is still on disk.
-    (inst.dir / "pb_data").mkdir()
-    (inst.dir / "pb_data" / "auxiliary.db").write_bytes(b"locked")
-    second = sup.prepare(project, inst.to_record())
-    assert second.dir != inst.dir and second.dir.exists()
+    # in place — the second boot gets a FRESH dir and the registry a fresh
+    # instance/port that cannot collide, even though the first dir is on disk.
+    (Path(inst.dir) / "pb_data").mkdir()
+    (Path(inst.dir) / "pb_data" / "auxiliary.db").write_bytes(b"locked")
+    boot2 = sup.prepare(project, inst)
+    inst2 = registry.create_shadow(
+        "dev00001", token="t", boot_id=boot2.boot_id, dir=str(boot2.dir)
+    )
+    assert Path(inst2.dir) != Path(inst.dir) and Path(inst2.dir).exists()
+    # create_shadow evicted the first instance and there is exactly one shadow.
+    assert registry.shadow("dev00001").instance_id == inst2.instance_id
+    assert registry.get(inst.instance_id) is None
 
     # sweep keeps the current boot, removes older ones + prunes build cache
     builds = sup.builds_root("dev00001")
     for i in range(5):
         (builds / f"fp{i:02d}").mkdir(parents=True)
         _os.utime(builds / f"fp{i:02d}", (1000 + i, 1000 + i))
-    removed = sup.sweep("dev00001", keep=second.dir)
-    assert not inst.dir.exists() and second.dir.exists()
+    removed = sup.sweep("dev00001", keep=Path(inst2.dir))
+    assert not Path(inst.dir).exists() and Path(inst2.dir).exists()
     assert removed >= 1
     survivors = sorted(d.name for d in builds.iterdir())
     assert survivors == ["fp02", "fp03", "fp04"], (
@@ -256,15 +269,15 @@ with tempfile.TemporaryDirectory() as tmp:
     except ValueError:
         pass
 
-    # destroy + reap; the wizard's OWN staging area must survive the legacy
+    # destroy + dir reap; the wizard's OWN staging area must survive the legacy
     # dev-copy sweep (_staging/wizard is not ours).
-    sup.destroy("dev00001", second.to_record())
-    assert not second.dir.exists()
+    sup.destroy("dev00001", inst2)
+    assert not Path(inst2.dir).exists()
     leftover = living / "_staging" / "project" / "leftover99"
     leftover.mkdir(parents=True)
     wizard_files = living / "_staging" / "wizard" / "w1"
     wizard_files.mkdir(parents=True)
-    reaped = sup.reap_all({"gone12345": {"dir": str(leftover), "pid": 99999999}})
+    reaped = sup.reap_dirs()
     assert reaped >= 1 and not leftover.exists()
     assert wizard_files.exists(), "wizard staging must never be reaped"
 print("§3 ShadowProvisioner: OK")
@@ -290,14 +303,12 @@ with tempfile.TemporaryDirectory() as tmp:
     assert first_stamp is not None
     host.stamp_delivered("sidecar01")
     assert host.delivered_at("sidecar01") == first_stamp, "stamp is write-once"
-    assert host.get_staging_record("sidecar01") is None
-    host.set_staging_record("sidecar01", {"url": "http://127.0.0.1:3901", "port": 3901})
-    assert host.get_staging_record("sidecar01")["port"] == 3901
-    # stamp survives alongside the dev record
+    # "A dev environment exists" is no longer a FactoryHost sidecar record — it
+    # is a shadow Instance in the InstanceRegistry (see §3). The host sidecar
+    # now carries only durable bookkeeping (delivered_at, backups, arcs).
     side = _json.loads((proj / ".factory" / "host.json").read_text())
-    assert side["delivered_at"] == first_stamp and side["staging"]["port"] == 3901
-    host.clear_staging_record("sidecar01")
-    assert host.get_staging_record("sidecar01") is None
+    assert side["delivered_at"] == first_stamp
+    assert "staging" not in side
 
     # live_db_exists: the structural first-vs-update predicate.
     assert live_db_exists(proj) is True
@@ -364,20 +375,20 @@ with tempfile.TemporaryDirectory() as tmp:
 
     result = asyncio.run(mgr.open_dev("mgrtest01"))
     assert result["status"] == "success" and result.get("dev") is True
-    record = host.get_staging_record("mgrtest01")
-    assert record and record["pid"] == 4242
-    sdir = Path(record["dir"])
+    inst = mgr.instances.shadow("mgrtest01")
+    assert inst and inst.pid == 4242
+    sdir = Path(inst.dir)
     assert sdir.exists() and PIPELINE_RUNS[-1][0] == proj_dir, (
         "pipeline targets the PROJECT TREE — nothing is copied"
     )
-    assert PIPELINE_RUNS[-1][1] == record["port"] != 3127
+    assert PIPELINE_RUNS[-1][1] == inst.port != 3127
     _shadow_inst = PIPELINE_RUNS[-1][2]
-    assert _shadow_inst is not None and _shadow_inst.dir == sdir
+    assert _shadow_inst is not None and Path(_shadow_inst.dir) == sdir
     assert result.get("dir") == str(sdir), "agents need the boot dir for logs"
     assert not (sdir / "pb_data").exists(), "shadow DB is born at boot, empty"
     assert _json.loads((proj_dir / ".lui" / "shadow.json").read_text())[
         "port"
-    ] == record["port"], "CLI routing follows the shadow"
+    ] == inst.port, "CLI routing follows the shadow"
     # Never delivered (no promote yet) → this is (still) a BUILD arc, even
     # though the scaffold-era pb_data exists.
     arc = host.arc_for("mgrtest01")
@@ -387,7 +398,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # a zombie holding the old dir's files can never block it
     result = asyncio.run(mgr.open_dev("mgrtest01"))
     assert result["status"] == "success"
-    sdir2 = Path(host.get_staging_record("mgrtest01")["dir"])
+    sdir2 = Path(mgr.instances.shadow("mgrtest01").dir)
     assert sdir2 != sdir, "every boot gets a fresh state dir"
 
     # promote (update): relaunch real app, then destroy dev copy + record
@@ -402,7 +413,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert up["status"] == "success" and PROMOTED == ["mgrtest01"]
     assert up["first"] is False, "live DB existed — this is an UPDATE promote"
     assert not sdir2.exists(), "promote must sweep the shadow state"
-    assert host.get_staging_record("mgrtest01") is None
+    assert mgr.instances.shadow("mgrtest01") is None
     assert not (proj_dir / ".lui" / "shadow.json").exists(), (
         "promote must route the CLI back to the live app"
     )
@@ -411,9 +422,9 @@ with tempfile.TemporaryDirectory() as tmp:
         "INVARIANT VIOLATED: the live DB changed outside the promote boot"
     )
 
-    # failed promote keeps the record (the shadow stays up for the retry)
+    # failed promote keeps the instance (the shadow stays up for the retry)
     result = asyncio.run(mgr.open_dev("mgrtest01"))
-    sdir = Path(host.get_staging_record("mgrtest01")["dir"])
+    sdir = Path(mgr.instances.shadow("mgrtest01").dir)
 
     async def _failing_launch(pid):
         return {"status": "error", "step": "health", "errors": ["boom"]}
@@ -421,9 +432,9 @@ with tempfile.TemporaryDirectory() as tmp:
     mgr.lifecycle.promoter._launch_live = _failing_launch
     up = asyncio.run(mgr.promote("mgrtest01"))
     assert up["status"] == "error"
-    assert sdir.exists() and host.get_staging_record("mgrtest01") is not None
-    mgr.lifecycle.provisioner.destroy("mgrtest01", host.get_staging_record("mgrtest01"))
-    host.clear_staging_record("mgrtest01")
+    assert sdir.exists() and mgr.instances.shadow("mgrtest01") is not None
+    mgr.lifecycle.provisioner.destroy("mgrtest01", mgr.instances.shadow("mgrtest01"))
+    mgr.instances.clear_project("mgrtest01")
 
     # FIRST promote: no live DB → first=True; nothing restores or wipes.
     proj2_dir = _make_project_dir(living, "firstdel01", 3128)
@@ -457,7 +468,7 @@ with tempfile.TemporaryDirectory() as tmp:
     up = asyncio.run(mgr.promote("firstdel01"))
     assert up["status"] == "success" and up["first"] is True
     assert live_db_exists(proj2_dir)
-    assert host.get_staging_record("firstdel01") is None
+    assert mgr.instances.shadow("firstdel01") is None
 print("§5 manager open_dev/promote invariant: OK")
 
 
@@ -471,6 +482,10 @@ class _StubMgr:
     def __init__(self, project):
         self._p = project
         self.projects = {project.id: project}
+        # The walk gate and HTTP redirect resolve "a dev env exists" from here.
+        self.instances = InstanceRegistry(
+            Path(tempfile.mkdtemp()) / "inst.json", PortAllocator()
+        )
 
     def get_project(self, pid):
         return self._p if pid == self._p.id else None
@@ -552,26 +567,13 @@ with tempfile.TemporaryDirectory() as tmp:
     print("§6a dev-env gating: OK")
 
     # §6c dev defects: live app NOT stopped; dev log quoted
-    sdir = living / "_staging" / "project" / "actnostg01"
+    sdir = living / "_shadow" / "actnostg01" / "boot1"
     (sdir / "logs").mkdir(parents=True)
     (sdir / "logs" / "pocketbase.log").write_text(
         "ERROR hook exploded: dev-only-line\n"
     )
-    host.set_staging_record(
-        "actnostg01", {"url": "http://127.0.0.1:3905", "port": 3905, "dir": str(sdir)}
-    )
-    # PROBE-FIRST MANDATE: an unprobed boot is refused — the walker is the
-    # second look, never the first.
-    out = _run_action(LA.agent_app_walk_verify, {"project_id": "actnostg01"})
-    assert out["status"] == "error" and "Probe before you verify" in out["message"]
-    host.set_staging_record(
-        "actnostg01",
-        {
-            "url": "http://127.0.0.1:3905",
-            "port": 3905,
-            "dir": str(sdir),
-            "probed_at": 1.0,
-        },
+    _inst = stub.instances.create_shadow(
+        "actnostg01", token="t", boot_id="boot1", dir=str(sdir)
     )
     captured = {}
     host.report_verify = lambda *a, **k: (
@@ -588,7 +590,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert out["status"] == "error"
     assert "stop_project" not in EVENTS, "native defects must not stop the live app"
     assert "previous working version" in out["message"]
-    assert WALK["base_url"] == "http://127.0.0.1:3905", "verifier must drive the SHADOW"
+    assert WALK["base_url"] == _inst.url, "verifier must drive the SHADOW"
     assert WALK["project_path"] == str(proj), (
         "the verifier reads the PROJECT TREE — the shadow serves exactly it; "
         "its boot dir holds only state (regression: boot dir passed as tree "
@@ -635,7 +637,9 @@ with tempfile.TemporaryDirectory() as tmp:
                 "errors": ["real app did not boot"],
             }
 
-    agent_app_mod.get_agent_app_manager = lambda: _PromoteFailMgr(project)
+    _pfm = _PromoteFailMgr(project)
+    _pfm.instances = stub.instances  # keep the same probed shadow instance
+    agent_app_mod.get_agent_app_manager = lambda: _pfm
     EVENTS.clear()
     out = _run_action(LA.agent_app_walk_verify, {"project_id": "actnostg01"})
     assert out["status"] == "error" and "deploy" in out["message"].lower()
@@ -680,7 +684,7 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         proj = _make_project_dir(living, "acthttp01", 3134)
         project = _Project("acthttp01", proj, 3134)
-        _wire(project, host)
+        stub = _wire(project, host)
 
         # mid-arc (open arc), no dev env → writes refused, reads allowed.
         # Arc state is EXPLICIT now: a build/modify in flight is an open
@@ -699,8 +703,8 @@ with tempfile.TemporaryDirectory() as tmp:
         assert out["status"] == "success"
 
         # dev env up → ALL agent HTTP redirected there, and NO iframe reload
-        host.set_staging_record(
-            "acthttp01", {"url": "http://127.0.0.1:3906", "port": 3906, "dir": "x"}
+        _http_inst = stub.instances.create_shadow(
+            "acthttp01", token="t", boot_id="b", dir="x"
         )
         EVENTS.clear()
         out = _run_action(
@@ -708,16 +712,14 @@ with tempfile.TemporaryDirectory() as tmp:
             {"project_id": "acthttp01", "method": "POST", "path": "/api/x", "json": {}},
         )
         assert out["status"] == "success"
-        assert HTTP[-1][1].startswith("http://127.0.0.1:3906"), (
-            "write must hit the COPY"
-        )
+        assert HTTP[-1][1].startswith(_http_inst.url), "write must hit the SHADOW"
         assert "data_changed" not in EVENTS, (
             "dev writes must not reload the user's iframe"
         )
 
         # arc closed, no dev env → live writes are USER data and flow to
         # the real app + data_changed dispatch.
-        host.clear_staging_record("acthttp01")
+        stub.instances.clear_project("acthttp01")
         host.arc_for("acthttp01").close()
         EVENTS.clear()
         out = _run_action(
@@ -733,27 +735,58 @@ with tempfile.TemporaryDirectory() as tmp:
     print("§8 agent_app_http redirect/refusal: OK")
 
 
-# ── §9 requirements-document unwrap (wizard) ───────────────────────────────
-_MD = "# app — Requirements\n\n## Features\n" + "The user can do a thing.\n" * 20
-assert _unwrap_document(_MD) == _MD.strip(), "plain markdown must pass through"
-assert _unwrap_document(f"```markdown\n{_MD}\n```") == _MD.strip()
-# The observed failure: a {"document": "..."} JSON envelope (grok, 2026-08-04)
-assert _unwrap_document(_json.dumps({"document": _MD})) == _MD.strip()
-assert _unwrap_document(_json.dumps(_MD)) == _MD.strip(), "bare JSON string unwraps"
-# 2026-08-05 live: a short-by-mandate decision doc arrived JSON-wrapped and
-# slipped past the old >=200 unwrap heuristic — must unwrap regardless of length.
-_SHORT_DECISION = (
-    "MARKETPLACE DECISION: install kanban-board; adapt: no\n"
-    "## Adaptations\n## User request\na simple kanban board"
+# ── §9 requirements-document render (wizard) ───────────────────────────────
+# Synthesis now returns STRICT JSON (harness json_mode contract, same as the
+# interview) and _render_requirements_doc deterministically produces the
+# binding markdown the build run and walk-verify read. The full six-section
+# shape renders "# <title>" then "## <heading>\n\n<content>" per section.
+_LONG = "The user can do a thing. " * 20
+_FULL = {
+    "title": "app — Requirements",
+    "sections": [
+        {"heading": "Overview", "content": _LONG},
+        {"heading": "Features", "content": _LONG},
+    ],
+}
+_doc = _render_requirements_doc(_FULL)
+assert _doc.startswith("# app — Requirements")
+assert "## Overview" in _doc and "## Features" in _doc and _LONG.strip() in _doc
+# A truncated/empty response must never become the binding spec.
+try:
+    _render_requirements_doc({"title": "x", "sections": [{"heading": "H", "content": "tiny"}]})
+    raise AssertionError("implausibly short doc must refuse")
+except ValueError:
+    pass
+try:
+    _render_requirements_doc({"title": "x", "sections": []})
+    raise AssertionError("no sections must refuse")
+except ValueError:
+    pass
+# Marketplace-install decision — distinct short shape, rendered to the binding
+# first-line format the builder keys on.
+_dec = _render_requirements_doc(
+    {
+        "marketplace_install": "kanban-board",
+        "adapt": False,
+        "adaptations": [],
+        "user_request": "a simple kanban board",
+    }
 )
-assert _unwrap_document(_json.dumps({"document": _SHORT_DECISION})) == _SHORT_DECISION
-# A dict with several long strings is ambiguous — leave untouched
-_amb = _json.dumps({"a": _MD, "b": _MD})
-assert _unwrap_document(_amb) == _amb
-# Markdown that merely STARTS with "{" but isn't JSON is untouched
-_brace = "{not json}\n" + _MD
-assert _unwrap_document(_brace) == _brace.strip()
-print("§9 requirements unwrap: OK")
+assert _dec.startswith("MARKETPLACE DECISION: install kanban-board; adapt: no")
+assert "## User request\na simple kanban board" in _dec
+# adapt:true with no concrete changes must fall back to the "ask first" bullet.
+_dec2 = _render_requirements_doc(
+    {"marketplace_install": "kanban-board", "adapt": True, "adaptations": []}
+)
+assert "adapt: yes" in _dec2.splitlines()[0]
+assert "none specified — ask the user before changing anything" in _dec2
+# A malformed app-id must refuse.
+try:
+    _render_requirements_doc({"marketplace_install": "bad id!"})
+    raise AssertionError("malformed app-id must refuse")
+except ValueError:
+    pass
+print("§9 requirements render: OK")
 
 
 # ── §10 wizard adapt-choice detection ──────────────────────────────────────
@@ -813,15 +846,10 @@ finally:
 assert r2 and r2[0]["question"].startswith("Which columns")
 print("§10 adapt/fresh-choice detection + round 2: OK")
 
-# Short-document guard vs marketplace-decision docs (observed live
-# 2026-08-05: a VALID as-is decision doc is under 200 chars and failed the
-# whole wizard finalize). Decision docs are exempt; garbage still refused.
-_DECISION_DOC = (
-    "MARKETPLACE DECISION: install kanban-board; adapt: no\n\n"
-    "## Adaptations\n- none\n\n## User request\nkanban board\n"
-)
-
-
+# Synthesis JSON contract end-to-end: the LLM returns strict JSON, the wizard
+# parses + renders it. A valid as-is marketplace decision (short by mandate)
+# renders fine; garbage is refused. The fake _llm returns _SYN_REPLY[0]
+# verbatim so _llm_json's parse (and its one reformat retry) run for real.
 async def _fake_syn_llm(system_prompt, user_prompt, prompt_name):
     return _SYN_REPLY[0]
 
@@ -829,30 +857,42 @@ async def _fake_syn_llm(system_prompt, user_prompt, prompt_name):
 _orig_sllm = wizard_mod._llm
 wizard_mod._llm = _fake_syn_llm
 try:
-    _SYN_REPLY = [_json.dumps({"document": _DECISION_DOC})]  # grok-style envelope
+    _SYN_REPLY = [
+        _json.dumps(
+            {
+                "marketplace_install": "kanban-board",
+                "adapt": False,
+                "adaptations": [],
+                "user_request": "kanban board",
+            }
+        )
+    ]
     doc = asyncio.run(wizard_mod.synthesize_requirements({"name": "k"}, [], []))
     assert doc.startswith("MARKETPLACE DECISION: install kanban-board; adapt: no")
 
-    _SYN_REPLY = [_DECISION_DOC]
+    # A ```json fence around the object is tolerated by _parse_json.
+    _SYN_REPLY = ["```json\n" + _SYN_REPLY[0] + "\n```"]
     doc = asyncio.run(wizard_mod.synthesize_requirements({"name": "k"}, [], []))
     assert doc.startswith("MARKETPLACE DECISION: install kanban-board; adapt: no")
 
-    _SYN_REPLY = ["MARKETPLACE DECISION: broken line"]
+    _SYN_REPLY = [_json.dumps({"marketplace_install": "broken id!"})]
     try:
         asyncio.run(wizard_mod.synthesize_requirements({"name": "k"}, [], []))
-        raise AssertionError("malformed decision line must refuse")
+        raise AssertionError("malformed decision app-id must refuse")
     except ValueError:
         pass
 
-    _SYN_REPLY = ["too short"]
+    _SYN_REPLY = [
+        _json.dumps({"sections": [{"heading": "Overview", "content": "too short"}]})
+    ]
     try:
         asyncio.run(wizard_mod.synthesize_requirements({"name": "k"}, [], []))
-        raise AssertionError("truncated non-decision doc must still refuse")
+        raise AssertionError("truncated spec must still refuse")
     except ValueError:
         pass
 finally:
     wizard_mod._llm = _orig_sllm
-print("§10b short-doc guard vs decision docs: OK")
+print("§10b synthesis JSON contract + short-doc guard: OK")
 
 # Adapt follow-ups must know WHAT the app is (else the model produces
 # category options — "change the columns" — that teach the spec writer
@@ -1156,9 +1196,7 @@ with tempfile.TemporaryDirectory() as tmp:
     host = host_mod.get_factory_host()
     stub = _wire(project, host)
     host.stamp_delivered("specbelt01")
-    host.set_staging_record(
-        "specbelt01", {"url": "http://127.0.0.1:3907", "port": 3907, "dir": "x"}
-    )
+    stub.instances.create_shadow("specbelt01", token="t", boot_id="b", dir="x")
 
     req = proj / "reference" / "requirements.md"
     stale = host.delivered_at("specbelt01") - 1000
@@ -1388,9 +1426,14 @@ with tempfile.TemporaryDirectory() as tmp:
 
     mgr.runner.scaffold = _ScaffoldStub().scaffold
 
-    _FAKE_DOC = (
-        "# Express Todo — Requirements\n\n## Overview\nA todo app.\n\n## Features\n"
-        + "The user can add a todo.\n" * 20
+    _FAKE_DOC = _json.dumps(
+        {
+            "title": "Express Todo — Requirements",
+            "sections": [
+                {"heading": "Overview", "content": "A todo app."},
+                {"heading": "Features", "content": "The user can add a todo.\n" * 20},
+            ],
+        }
     )
 
     async def _fake_source_llm(system_prompt, user_prompt, prompt_name):

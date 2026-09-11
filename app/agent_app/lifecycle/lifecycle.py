@@ -27,7 +27,7 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
-from app.agent_app.lifecycle.environment import ShadowInstance, live_db_exists
+from app.agent_app.lifecycle.environment import live_db_exists
 from app.agent_app.lifecycle.promoter import Promoter
 from app.agent_app.lifecycle.provisioner import ShadowProvisioner
 
@@ -42,9 +42,11 @@ class AppLifecycle:
         runner,
         launch_pipeline: LaunchPipeline,
         launch_live: LaunchLive,
+        registry,
     ) -> None:
         self.provisioner = ShadowProvisioner(agent_app_dir, runner)
-        self.promoter = Promoter(self.provisioner, launch_live)
+        self.registry = registry
+        self.promoter = Promoter(self.provisioner, launch_live, registry)
         self._launch_pipeline = launch_pipeline
 
     # ── shadow ─────────────────────────────────────────────────────────────
@@ -94,10 +96,9 @@ class AppLifecycle:
         except Exception as e:
             logger.warning(f"[AGENT_APP:SHADOW] arc arm failed: {e}")
 
+        previous = self.registry.shadow(project.id)
         try:
-            instance = self.provisioner.prepare(
-                project, host.get_staging_record(project.id)
-            )
+            boot = self.provisioner.prepare(project, previous)
         except Exception as e:
             return {
                 "status": "error",
@@ -112,10 +113,16 @@ class AppLifecycle:
         if not project.bridge_token:
             project.bridge_token = secrets.token_urlsafe(32)
 
-        # Record BEFORE booting: a pipeline failure must still leave the
-        # record in place so agent traffic (HTTP action, lui CLI) targets
-        # the shadow and the reaper can find its state.
-        host.set_staging_record(project.id, instance.to_record())
+        # Register the shadow instance BEFORE booting (reserves its port and
+        # evicts any prior shadow): a pipeline failure must still leave the
+        # instance so agent traffic (HTTP action, lui CLI) targets the shadow
+        # and startup reconciliation can find and reclaim its port.
+        instance = self.registry.create_shadow(
+            project.id,
+            token=project.bridge_token,
+            boot_id=boot.boot_id,
+            dir=str(boot.dir),
+        )
         self.provisioner.route_cli(Path(project.path), instance.port)
 
         result = await self._launch_pipeline(
@@ -124,11 +131,14 @@ class AppLifecycle:
         if result["status"] != "success":
             return result
 
-        self.provisioner.adopt_process(instance, result.pop("process"))
-        host.set_staging_record(project.id, instance.to_record())
+        process = result.pop("process")
+        self.provisioner.adopt_process(project.id, process)
+        # The pipeline set instance.public_dir on the same object the registry
+        # holds; adopt_pid persists both the pid and that artifact path.
+        self.registry.adopt_pid(instance.instance_id, process.pid)
         # Old boot dirs (and stale build artifacts) die now that the new
         # boot is up; anything locked waits for the next sweep.
-        self.provisioner.sweep(project.id, keep=instance.dir)
+        self.provisioner.sweep(project.id, keep=Path(instance.dir))
 
         logger.info(f"[AGENT_APP:SHADOW] {project.id} shadow up at {instance.url}")
         envelope = {
@@ -140,11 +150,9 @@ class AppLifecycle:
             "dev": True,
         }
         # Pipeline evidence travels with the launch: the changed-op smoke
-        # results and the smoke-skip notice (previously dropped here, so
-        # dev launches always claimed the smoke walk ran).
-        for key in ("op_smoke", "verify_skipped"):
-            if key in result:
-                envelope[key] = result[key]
+        # results (previously dropped here, so dev launches lost them).
+        if "op_smoke" in result:
+            envelope["op_smoke"] = result["op_smoke"]
         return envelope
 
     # ── live ───────────────────────────────────────────────────────────────
@@ -153,9 +161,10 @@ class AppLifecycle:
         return await self.promoter.promote(project)
 
     # ── maintenance ────────────────────────────────────────────────────────
-    def reap_dev(self, records: Dict[str, Dict[str, Any]]) -> int:
-        """Startup reaper passthrough (see ShadowProvisioner.reap_all)."""
-        return self.provisioner.reap_all(records)
+    def reap_dirs(self) -> int:
+        """Startup dir sweep passthrough (see ShadowProvisioner.reap_dirs).
+        Process kills are the manager's owned-port job, not this sweep."""
+        return self.provisioner.reap_dirs()
 
 
-__all__ = ["AppLifecycle", "ShadowInstance", "live_db_exists"]
+__all__ = ["AppLifecycle", "live_db_exists"]

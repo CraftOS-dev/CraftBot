@@ -1194,45 +1194,7 @@ class AgentBase:
         # actually landed. See spec/A2APP-PLAN.md Phase 1 B10/B11.
         self._report_agent_app_writes(session_id, actions_with_input, results)
 
-        # Edit-time diagnostics: in an app session, any turn that changed
-        # TypeScript sources gets the compiler's answer attached to it (~2s)
-        # — content-detected like _warn_if_undeployed, so a run_shell edit is
-        # seen exactly like a stream_edit. The alternative was observed live
-        # (2026-09-09): 26 launch-gate cycles at 60-90s used as a compiler.
-        await self._attach_edit_diagnostics(session_id)
-
         return self._merge_action_outputs(results)
-
-    async def _attach_edit_diagnostics(self, session_id: str) -> None:
-        try:
-            session = self.session_manager.get(session_id)
-            project_id = getattr(session, "agent_app_project_id", None)
-            if not project_id:
-                return
-            from app.agent_app import get_agent_app_manager
-            from app.agent_app.edit_diagnostics import get_edit_diagnostics
-
-            mgr = get_agent_app_manager()
-            project = mgr.get_project(str(project_id)) if mgr else None
-            if project is None or not getattr(project, "path", ""):
-                return
-            message = await get_edit_diagnostics().after_turn(project)
-            if message and self.event_stream_manager:
-                # Agent-only feedback: the model reads this from its stream and
-                # fixes the TS errors before notify_ready. The user must NEVER
-                # see it. INTERNAL keeps it in the LLM context but hides it from
-                # the UI; SYSTEM would have surfaced it as a chat bubble
-                # (display_message=None falls back to `message` in the
-                # transformer, which is exactly the leak we are closing).
-                self.event_stream_manager.log(
-                    "typecheck",
-                    message,
-                    event_type=EventType.INTERNAL,
-                    display_message=None,
-                    task_id=session_id,
-                )
-        except Exception as e:
-            logger.debug(f"[EDIT_DIAG] hook skipped: {e}")
 
     async def _warn_if_undeployed(self, session) -> None:
         """A run ending with un-shipped source changes must say so.
@@ -2415,12 +2377,7 @@ class AgentBase:
                         f"{model}"
                         f"{caps}"
                         f"Values: dates as ISO or 'tomorrow'/'next monday' (the CLI resolves them);\n"
-                        f'references by name, e.g. --list "To Do". Only set fields the user asked for.\n'
-                        f"AFTER A SUCCESSFUL WRITE the user is ALREADY shown exactly what changed, in\n"
-                        f"your voice, generated from the stored record. Do NOT send a message repeating\n"
-                        f"it — end the turn. Send a message only to add something that report does not\n"
-                        f"cover: a failure, a question, an answer to a question, or a summary of many\n"
-                        f"changes.\n"
+                        f'references by name, e.g. --list "To Do". \n'
                         f"To OPERATE the app, use the lui CLI via run_shell with ABSOLUTE paths\n"
                         f"(the shell's cwd is NOT the repo root):\n"
                         f'  node {_lui_cli} data {proj.path} <collection> create --field "value"\n'

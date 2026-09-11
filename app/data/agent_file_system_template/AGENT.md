@@ -1440,8 +1440,7 @@ agent_app                agent_app_scaffold, agent_app_list_projects, agent_app_
                          agent_app_report_finding, agent_app_http, agent_app_usage,
                          agent_app_marketplace_list,
                          agent_app_marketplace_install, agent_app_import_zip, agent_app_import,
-                         agent_app_convert, agent_app_ops_verify, agent_app_approve_triggers,
-                         browser_probe
+                         agent_app_convert, agent_app_ops_verify, agent_app_approve_triggers
 
 per-integration sets     Discord, Slack, Telegram (bot/user), Notion, LinkedIn, Jira, GitHub,
                          Outlook, WhatsApp, Twitter, HubSpot, Stripe, LINE, Lark (+calendar/drive),
@@ -1514,7 +1513,7 @@ Any set name not in `DEFAULT_SET_DESCRIPTIONS` is presented to the LLM as `Custo
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
 content_creation      generate_image, generate_video
-agent_app             the full Agent App surface (see ## Agent App) + browser_probe
+agent_app             the full Agent App surface (see ## Agent App)
 
 per-integration sets (loaded only when the user has the integration connected):
 umbrella set = <name> (15-25 high-value actions), plus fine-grained

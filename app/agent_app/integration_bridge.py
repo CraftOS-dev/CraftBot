@@ -510,7 +510,10 @@ class IntegrationBridge:
             # and after a promote fires are legitimate operation. Keyed on
             # the dev env, not the arc: the era question is "is test traffic
             # possible", and only a dev environment makes it possible.
-            dev_env = host.get_staging_record(project_id)
+            from app.agent_app.instances import get_instance_registry
+
+            _registry = get_instance_registry()
+            dev_env = _registry.shadow(project_id) if _registry is not None else None
             if dev_env:
                 logger.info(
                     f"[INTEGRATION_BRIDGE] trigger fire deferred (era) "

@@ -194,6 +194,27 @@ def _parse_json(text: str) -> Any:
     return json.loads(t)
 
 
+async def _llm_json(
+    system_prompt: str, user_prompt: str, prompt_name: str
+) -> Dict[str, Any]:
+    """Call the LLM under the harness's JSON contract (json_mode default) and
+    return the parsed object. Every wizard call runs this way — the provider's
+    JSON mode is on, so the prompt MUST ask for JSON. On a first response that
+    doesn't parse, feed it back once for correction (same recovery the
+    interview uses); a second failure raises."""
+    raw = await _llm(system_prompt, user_prompt, prompt_name=prompt_name)
+    try:
+        return _parse_json(raw)
+    except (json.JSONDecodeError, ValueError):
+        raw = await _llm(
+            system_prompt,
+            "Your previous response was not valid JSON. Reply with ONLY the "
+            "corrected strict-JSON object.\n\nPrevious response:\n" + (raw or ""),
+            prompt_name=f"{prompt_name}_RETRY",
+        )
+        return _parse_json(raw)
+
+
 async def describe_staged_images(agent_app_dir: Path, wizard_id: str) -> List[str]:
     """VLM descriptions of staged reference images (best-effort; skipped
     entirely when no VLM is configured)."""
@@ -692,47 +713,55 @@ async def generate_interview(
 # The document template + rules shared by BOTH synthesis prompts (interview
 # and source-derived) — one definition so they can never drift apart, same
 # reasoning as _PLATFORM_REALITY.
-_REQUIREMENTS_TEMPLATE = """The document is markdown with EXACTLY these sections:
+_REQUIREMENTS_TEMPLATE = """Respond with a STRICT JSON object (no code fence, no prose \
+outside it) with EXACTLY this shape:
 
-# <App name> — Requirements
+{
+  "title": "<App name> — Requirements",
+  "sections": [
+    {"heading": "Overview", "content": "..."},
+    {"heading": "Features", "content": "..."},
+    {"heading": "Data", "content": "..."},
+    {"heading": "Design", "content": "..."},
+    {"heading": "Operations", "content": "..."},
+    {"heading": "Quality of Life", "content": "..."}
+  ]
+}
 
-## Overview
-What the app is, who uses it, and the core experience — a few tight paragraphs.
+Include all six sections, in this exact order, each with a non-empty "content". Each \
+"content" value is Markdown (tight paragraphs and "- " bullet lists) holding the BODY \
+of that section only — never repeat the "heading" inside "content". What each section \
+must contain:
 
-## Features
-Every user-facing capability, each as a concrete "the user can ..." statement with \
-enough detail to build from (controls involved, expected outcome). Cover the full \
-scope the user asked for — nothing vague, nothing invented beyond their intent.
-
-## Data
-Every entity the app manages: collections with fields (and types), relations, and \
-lifecycle (how records are created/updated/deleted through the UI). For EVERY \
-entity, state its INGRESS — how records actually enter the app: user forms, pull \
-from a named connected service via the bridge (on load/refresh and/or a scheduled \
-sync), file import, or computed from other entities. An app whose purpose is \
-displaying external data MUST specify the bridge pull and a scheduled sync \
-operation — a spec with no working ingress is unimplementable.
-
-## Design
-The binding visual contract: the chosen layout translated into concrete regions, \
-the theme/color choices made binding, iconography, empty states, and how the \
-reference images' ideas are incorporated. Where the user chose "agent decides", \
-make a concrete choice HERE and state it.
-
-## Operations
-What the app's operations surface must support so an agent can operate it \
-(reading and writing the app's data programmatically, the key custom verbs to \
+- Overview: What the app is, who uses it, and the core experience — a few tight \
+paragraphs.
+- Features: Every user-facing capability, each as a concrete "the user can ..." \
+statement with enough detail to build from (controls involved, expected outcome). \
+Cover the full scope the user asked for — nothing vague, nothing invented beyond \
+their intent.
+- Data: Every entity the app manages: collections with fields (and types), relations, \
+and lifecycle (how records are created/updated/deleted through the UI). For EVERY \
+entity, state its INGRESS — how records actually enter the app: user forms, pull from \
+a named connected service via the bridge (on load/refresh and/or a scheduled sync), \
+file import, or computed from other entities. An app whose purpose is displaying \
+external data MUST specify the bridge pull and a scheduled sync operation — a spec \
+with no working ingress is unimplementable.
+- Design: The binding visual contract: the chosen layout translated into concrete \
+regions, the theme/color choices made binding, iconography, empty states, and how the \
+reference images' ideas are incorporated. Where the user chose "agent decides", make a \
+concrete choice HERE and state it.
+- Operations: What the app's operations surface must support so an agent can operate \
+it (reading and writing the app's data programmatically, the key custom verbs to \
 declare beyond plain collection CRUD).
-
-## Quality of Life
-Power-user touches appropriate to THIS app (shortcuts, drag & drop, bulk actions, \
-context menus, responsiveness) — concrete and scoped, not a generic checklist.
+- Quality of Life: Power-user touches appropriate to THIS app (shortcuts, drag & drop, \
+bulk actions, context menus, responsiveness) — concrete and scoped, not a generic \
+checklist.
 
 Rules:
 - Every statement must be concrete and checkable; ban filler like "user-friendly", \
 "modern", "polished".
 - Where input is silent, decide — the builder must never need to ask.
-- Respond with the markdown document ONLY (no fence, no preamble)."""
+- Respond with the JSON object ONLY (no fence, no preamble)."""
 
 
 SYNTHESIS_SYSTEM_PROMPT = f"""You write the requirements document for a web-app build. \
@@ -755,19 +784,26 @@ operations surface) and state the limitation plainly in the Overview. A spec \
 whose ingress cannot run ships as a dead button and fails verification.
 
 If an interview answer chose to INSTALL a marketplace app (as-is or adapted), \
-the document is SHORT and different from the template below. Its FIRST line \
-must be exactly: `MARKETPLACE DECISION: install <app-id>; adapt: <yes|no>`, \
-then a `## Adaptations` list, then a `## User request` section quoting the \
-user's own description — and NOTHING else. Do NOT generate the Features/Data/\
-Design/Operations/Quality-of-Life sections for a marketplace install: the \
-installed app already IS the specification, and an invented spec misleads \
-verification. Adaptation bullets may ONLY restate changes the user explicitly \
-asked for (in their description or interview answers), phrased as checkable \
-"the user can ..." statements. If the user chose to adapt but stated no \
-concrete changes anywhere, write `adapt: yes` with the single bullet \
-`- none specified — ask the user before changing anything`; never invent \
-adaptations. The builder installs that app via agent_app_marketplace_install \
-and applies only the adaptations — it must NOT build from scratch.
+respond with a DIFFERENT strict-JSON shape instead of the template below \
+(and NOTHING else):
+
+{{
+  "marketplace_install": "<app-id>",
+  "adapt": <true or false>,
+  "adaptations": ["<checkable 'the user can ...' change>", ...],
+  "user_request": "<the user's own description, quoted verbatim>"
+}}
+
+Do NOT include the "sections" array for a marketplace install: the installed \
+app already IS the specification, and an invented spec misleads verification. \
+"adaptations" may ONLY restate changes the user explicitly asked for (in their \
+description or interview answers), phrased as checkable "the user can ..." \
+statements. For an as-is install set "adapt": false and "adaptations": []. If \
+the user chose to adapt but stated no concrete changes anywhere, set \
+"adapt": true and "adaptations": ["none specified — ask the user before \
+changing anything"]; never invent adaptations. The builder installs that app \
+via agent_app_marketplace_install and applies only the adaptations — it must \
+NOT build from scratch.
 
 NEVER weaken a user-stated deliverable when rewriting: "email me" means the \
 user RECEIVES an email (via the bridge's send_gmail action) — not "queues", \
@@ -865,17 +901,12 @@ async def synthesize_requirements_from_source(
         + _render_source(Path(source_dir))
         + "\n\nWrite the requirements document now."
     )
-    doc = await _llm(
+    data = await _llm_json(
         SOURCE_SYNTHESIS_SYSTEM_PROMPT,
         user_prompt,
         prompt_name="AGENT_APP_SOURCE_SYNTHESIS",
     )
-    doc = _unwrap_document(doc or "")
-    if len(doc) < 200:
-        raise ValueError(
-            "source-requirements synthesis returned an implausibly short document"
-        )
-    return doc
+    return _render_requirements_doc(data)
 
 
 async def synthesize_requirements(
@@ -897,79 +928,68 @@ async def synthesize_requirements(
         _render_config(config, image_notes)
         + "\n\nInterview answers:\n"
         + ("\n\n".join(answer_lines) if answer_lines else "(none)")
-        + "\n\nWrite the requirements document now."
+        + "\n\nWrite the requirements now (STRICT JSON)."
     )
-    doc = await _llm(
+    data = await _llm_json(
         SYNTHESIS_SYSTEM_PROMPT, user_prompt, prompt_name="AGENT_APP_WIZARD_SYNTHESIS"
     )
-    doc = _unwrap_document(doc or "")
-    # The short-document guard protects against a truncated/empty LLM
-    # response becoming the binding spec — but marketplace-decision documents
-    # are SHORT by mandate ("install X; adapt: no" + the user's one-liner is
-    # complete and correct at well under 200 chars). Observed live
-    # 2026-08-05: a valid as-is install doc tripped the guard and failed the
-    # whole wizard finalize. Exempt them; require only the decision line.
-    if doc.startswith("MARKETPLACE DECISION:"):
-        if not re.match(
-            r"^MARKETPLACE DECISION: install [A-Za-z0-9_-]+; adapt: (yes|no)\s*$",
-            doc.splitlines()[0],
-        ):
-            raise ValueError("marketplace decision line is malformed")
-        return doc
-    if len(doc) < 200:
+    return _render_requirements_doc(data)
+
+
+def _render_requirements_doc(data: Any) -> str:
+    """Render the synthesis LLM's JSON object into the binding markdown
+    requirements document — the exact format the build run and walk-verify read
+    from <project>/reference/requirements.md.
+
+    Two shapes: a marketplace-install DECISION (short by mandate — the installed
+    app already IS the spec) or the full six-section requirements spec. Raises
+    ValueError on a shape that cannot produce a usable document (a truncated or
+    empty LLM response must never become the binding spec)."""
+    if not isinstance(data, dict):
+        raise ValueError("requirements synthesis did not return a JSON object")
+
+    # Marketplace-install decision — short by mandate, distinct shape.
+    if data.get("marketplace_install"):
+        app_id = str(data.get("marketplace_install") or "").strip()
+        if not re.match(r"^[A-Za-z0-9_-]+$", app_id):
+            raise ValueError("marketplace decision app-id is malformed")
+        adapt = bool(data.get("adapt"))
+        adaptations = [
+            str(a).strip() for a in (data.get("adaptations") or []) if str(a).strip()
+        ]
+        if adapt and not adaptations:
+            adaptations = ["none specified — ask the user before changing anything"]
+        lines = [
+            f"MARKETPLACE DECISION: install {app_id}; adapt: {'yes' if adapt else 'no'}",
+            "",
+            "## Adaptations",
+        ]
+        lines += [f"- {a}" for a in adaptations] if adaptations else ["- none"]
+        lines += ["", "## User request", str(data.get("user_request") or "").strip()]
+        return "\n".join(lines).strip()
+
+    # Full six-section requirements spec.
+    sections = data.get("sections")
+    if not isinstance(sections, list) or not sections:
+        raise ValueError("requirements synthesis returned no sections")
+    title = str(data.get("title") or "").strip() or "App — Requirements"
+    parts = [f"# {title}"]
+    body_len = 0
+    for s in sections:
+        if not isinstance(s, dict):
+            continue
+        heading = str(s.get("heading") or "").strip()
+        content = str(s.get("content") or "").strip()
+        if not heading or not content:
+            continue
+        parts += ["", f"## {heading}", "", content]
+        body_len += len(content)
+    # Guard against a truncated/empty response becoming the binding spec.
+    if body_len < 200:
         raise ValueError(
             "requirements synthesis returned an implausibly short document"
         )
-    return doc
-
-
-def _unwrap_document(doc: str) -> str:
-    """Strip a code fence and/or JSON envelope off an LLM-written document.
-
-    Some providers return JSON even when told "markdown only". Observed live
-    (kanban_board_1bb64990, 2026-08-04): grok wrapped the whole requirements
-    document as {"document": "# kanban...\\n..."} — the file shipped as
-    escaped JSON and the verifier, unable to read it as markdown, collapsed
-    a 9-feature spec into "1 feature verified". And again 2026-08-05: a
-    SHORT-by-mandate marketplace-decision doc arrived in the same envelope,
-    slipped past the old ≥200-char unwrap heuristic, and tripped the
-    short-document guard while still wrapped. Unwrap: a decision-prefixed
-    value always wins; a dict with exactly one string value unwraps
-    regardless of length; multiple strings fall back to the single-long-one
-    rule; a bare JSON string unwraps. Everything else is untouched.
-    """
-    doc = doc.strip()
-    if doc.startswith("```"):
-        doc = re.sub(r"^```[a-zA-Z]*\s*", "", doc)
-        doc = re.sub(r"\s*```$", "", doc)
-        doc = doc.strip()
-    if doc.startswith("{"):
-        try:
-            parsed = json.loads(doc)
-            if isinstance(parsed, dict):
-                strings = [
-                    v.strip()
-                    for v in parsed.values()
-                    if isinstance(v, str) and v.strip()
-                ]
-                decision = [s for s in strings if s.startswith("MARKETPLACE DECISION:")]
-                if decision:
-                    return decision[0]
-                if len(strings) == 1:
-                    return strings[0]
-                long_strings = [s for s in strings if len(s) >= 200]
-                if len(long_strings) == 1:
-                    return long_strings[0]
-        except Exception:
-            pass
-    elif doc.startswith('"'):
-        try:
-            parsed = json.loads(doc)
-            if isinstance(parsed, str):
-                return parsed.strip()
-        except Exception:
-            pass
-    return doc
+    return "\n".join(parts).strip()
 
 
 # ── chat-path requirements phase ────────────────────────────────────────────

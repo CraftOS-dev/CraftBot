@@ -42,7 +42,7 @@ from agent_core import action
         "content": {
             "type": "string",
             "example": "     1\tFirst line\n     2\tSecond line\n",
-            "description": "File content with line numbers in 'cat -n' format. Each line is prefixed with its 1-based line number and a tab.",
+            "description": "File content with line numbers in 'cat -n' format. Each line is prefixed with its 1-based line number and a tab. When the read is partial (more lines above/below) or any line was truncated, a trailing '[read_file: ...]' footer states the range shown, how many lines lie outside it, and the offset to continue from.",
         },
         "total_lines": {
             "type": "integer",
@@ -63,6 +63,11 @@ from agent_core import action
             "type": "boolean",
             "example": False,
             "description": "True if there are more lines beyond what was returned. Use offset + lines_returned for the next read.",
+        },
+        "truncated_lines": {
+            "type": "integer",
+            "example": 0,
+            "description": "How many returned lines were cut at max_line_length. Non-zero means some content is not shown; re-read with a larger max_line_length if a truncated line matters.",
         },
         "message": {
             "type": "string",
@@ -89,6 +94,7 @@ def read_file(input_data: dict) -> dict:
             "lines_returned": 2,
             "offset": 0,
             "has_more": False,
+            "truncated_lines": 0,
         }
 
     file_path = input_data.get("file_path", "")
@@ -177,11 +183,13 @@ def read_file(input_data: dict) -> dict:
         formatted_lines = []
         used = 0
         capped_at = None
+        truncated_lines = 0
         for i, line in enumerate(selected_lines, start=offset + 1):
             line_content = line.rstrip("\n\r")
             # Truncate long lines
             if len(line_content) > max_line_length:
                 line_content = line_content[:max_line_length] + "..."
+                truncated_lines += 1
             # Format line number with right-alignment (6 chars) + tab + content
             formatted = f"{i:>6}\t{line_content}"
             if used + len(formatted) + 1 > MAX_CONTENT_CHARS:
@@ -190,12 +198,45 @@ def read_file(input_data: dict) -> dict:
             formatted_lines.append(formatted)
             used += len(formatted) + 1
 
+        lines_returned = len(formatted_lines)
+        has_more = (offset + lines_returned) < total_lines
+        # Clamp: a caller can pass an offset past EOF, which would otherwise
+        # print "lines 461-460" and a negative "below" count.
+        lines_above = min(offset, total_lines)
+        lines_below = max(0, total_lines - (offset + lines_returned))
+
         content = "\n".join(formatted_lines)
         if formatted_lines:
             content += "\n"
 
-        lines_returned = len(formatted_lines)
-        has_more = (offset + lines_returned) < total_lines
+        # Inline position footer. total_lines/has_more are ALSO returned as
+        # fields, but out-of-band metadata gets ignored: the agent reads
+        # `content` and stops, unaware it saw lines 1-220 of 253 or that a
+        # data line was cut at max_line_length. Restating those facts inside
+        # the content makes "what I did NOT see" impossible to miss, which is
+        # what turns sequential paging into something the agent does reliably
+        # instead of re-reading overlapping windows. Emitted only when the
+        # read is partial or truncated, so a clean whole-file read stays clean.
+        notes = []
+        if lines_returned == 0 and total_lines:
+            notes.append(
+                f"offset {offset} is at or past end of file ({total_lines} lines)"
+            )
+        elif lines_above or lines_below:
+            note = f"showing lines {offset + 1}-{offset + lines_returned} of {total_lines}"
+            if lines_above:
+                note += f", {lines_above} above"
+            if lines_below:
+                note += f", {lines_below} below"
+            notes.append(note)
+        if truncated_lines:
+            notes.append(
+                f"{truncated_lines} line(s) truncated at {max_line_length} chars"
+            )
+        if has_more:
+            notes.append(f"continue with offset={offset + lines_returned}")
+        if notes:
+            content += "[read_file: " + "; ".join(notes) + "]\n"
 
         result = {
             "status": "success",
@@ -204,6 +245,7 @@ def read_file(input_data: dict) -> dict:
             "lines_returned": lines_returned,
             "offset": offset,
             "has_more": has_more,
+            "truncated_lines": truncated_lines,
         }
         if capped_at is not None:
             result["message"] = (

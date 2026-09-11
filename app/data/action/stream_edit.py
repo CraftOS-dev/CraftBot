@@ -122,9 +122,22 @@ def stream_edit_action(input_data: dict) -> dict:
         lock = get_file_lock(file_path)
 
         with lock:
-            # Read the file
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
+            # Read RAW so we can detect the file's line ending and preserve it
+            # on write. Text mode would translate CRLF->LF; writing LF back then
+            # silently rewrites every line of a CRLF file (a spurious full-file
+            # diff, and it fights git's autocrlf on the next checkout).
+            with open(file_path, "rb") as f:
+                content_raw = f.read().decode("utf-8", errors="replace")
+            crlf_count = content_raw.count("\r\n")
+            lf_count = content_raw.count("\n") - crlf_count
+            uses_crlf = crlf_count > 0 and crlf_count >= lf_count
+
+            # Match in LF space. read_file shows the agent LF-normalized text
+            # (universal newlines), so old_string is LF; normalize content and
+            # both strings to the same space so a CRLF file never mismatches.
+            content = content_raw.replace("\r\n", "\n").replace("\r", "\n")
+            old_string = old_string.replace("\r\n", "\n").replace("\r", "\n")
+            new_string = new_string.replace("\r\n", "\n").replace("\r", "\n")
 
             # Count occurrences and perform replacement
             if use_regex:
@@ -187,13 +200,37 @@ def stream_edit_action(input_data: dict) -> dict:
                     else:
                         new_content = pattern.sub(new_string, content, count=1)
                 else:
-                    # Case-sensitive literal string matching (original behavior)
+                    # Case-sensitive literal matching, exact first.
                     count = content.count(old_string)
+                    ws_pattern = None
+
+                    if count == 0:
+                        # read_file strips trailing whitespace per line, so the
+                        # agent's old_string routinely lacks trailing spaces/tabs
+                        # the file actually has -> exact match misses. Retry
+                        # allowing trailing whitespace at each line end. Every
+                        # non-whitespace character (including indentation) must
+                        # still match, so this can never hit unrelated text.
+                        ws_pattern = re.compile(
+                            "\n".join(
+                                re.escape(ln.rstrip()) + r"[ \t]*"
+                                for ln in old_string.split("\n")
+                            )
+                        )
+                        count = len(ws_pattern.findall(content))
+                        if count == 0:
+                            ws_pattern = None
 
                     if count == 0:
                         return {
                             "status": "error",
-                            "message": "old_string not found in file. Make sure the text matches exactly including whitespace and indentation.",
+                            "message": (
+                                "old_string not found in file. It must match the "
+                                "file's exact characters: quotes ('/\"/`), internal "
+                                "spacing, and indentation. If the target line is "
+                                "long, re-read it with a larger max_line_length in "
+                                "case read_file truncated it with '...'."
+                            ),
                             "occurrences_replaced": 0,
                         }
 
@@ -204,12 +241,24 @@ def stream_edit_action(input_data: dict) -> dict:
                             "occurrences_replaced": 0,
                         }
 
-                    if replace_all:
+                    if ws_pattern is not None:
+                        # Replace via the whitespace-tolerant pattern. A function
+                        # replacement keeps backslashes in new_string literal (no
+                        # regex backreference interpretation).
+                        new_content = ws_pattern.sub(
+                            lambda _m: new_string,
+                            content,
+                            count=0 if replace_all else 1,
+                        )
+                    elif replace_all:
                         new_content = content.replace(old_string, new_string)
                     else:
                         new_content = content.replace(old_string, new_string, 1)
 
-            # Write the file
+            # Write with the file's ORIGINAL line ending restored, so an edit
+            # to a CRLF file stays CRLF instead of being converted to LF.
+            if uses_crlf:
+                new_content = new_content.replace("\n", "\r\n")
             with open(file_path, "w", encoding="utf-8", newline="") as f:
                 f.write(new_content)
 

@@ -18,10 +18,10 @@ The provisioner's discipline, learned from the copy era it replaces:
   LIVE build in pb/pb_public is never touched outside a promote.
 
 Composition mirrors AgentAppRunner: the lifecycle constructs and drives
-this class; it never reaches back into the manager or the registry. The
-authoritative "a shadow exists" record lives in the factory host sidecar
-(.factory/host.json, key "staging" — historical name, kept because the
-redirects and reapers already speak it).
+this class; it owns only processes and filesystem. The authoritative
+"a shadow exists" record is the shadow Instance in the InstanceRegistry
+(app.agent_app.instances) — the lifecycle mints it and hands the provisioner
+just the boot dir and, for teardown, the Instance to kill.
 """
 
 import json
@@ -29,11 +29,11 @@ import os
 import re
 import shutil
 import signal
-import socket
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 try:
     from loguru import logger
@@ -42,12 +42,7 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
-from app.agent_app.lifecycle.environment import ShadowInstance
-
-# Outside the manager's 3100-3199 pool on purpose: _load_projects rebuilds
-# port bookkeeping from registered projects only, and cleanup_on_startup's
-# orphan killer scans that range — shadows own their ports and their reaping.
-SHADOW_PORT_RANGE = (3900, 3999)
+from app.agent_app.instances import Instance
 
 # Content-addressed artifacts to keep per project (the newest is usually the
 # only one that matters; a couple of spares make flip-flopping edits cheap).
@@ -56,6 +51,16 @@ _KEEP_BUILDS = 3
 # Same guard the wizard uses for its ids: nothing outside this pattern ever
 # becomes part of an rmtree'd path.
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
+
+
+@dataclass
+class ShadowBoot:
+    """A freshly minted per-boot directory. The port and the durable record
+    are the InstanceRegistry's job; the provisioner owns only the process and
+    the filesystem — it never allocates ports or writes the registry."""
+
+    boot_id: str
+    dir: Path
 
 
 class ShadowProvisioner:
@@ -73,12 +78,11 @@ class ShadowProvisioner:
         self._processes: Dict[str, subprocess.Popen] = {}
 
     # ── boot preparation ───────────────────────────────────────────────────
-    def prepare(
-        self, project, previous: Optional[Dict[str, Any]]
-    ) -> ShadowInstance:
-        """Kill the previous shadow (best-effort) and mint a FRESH instance:
-        new boot dir, new port. Never reuses directories, so a kill that
-        fails cannot block the boot."""
+    def prepare(self, project, previous: Optional[Instance]) -> ShadowBoot:
+        """Kill the previous shadow (best-effort) and mint a FRESH boot dir.
+        The port and the registry record are minted by the caller from the
+        allocator/registry — the provisioner never touches either. Never
+        reuses directories, so a kill that fails cannot block the boot."""
         if not _ID_RE.match(project.id or ""):
             raise ValueError(f"unsafe project id for shadow env: {project.id!r}")
         self.kill(project.id, previous)
@@ -86,40 +90,24 @@ class ShadowProvisioner:
         boot_id = f"{int(time.time() * 1000):x}"
         boot_dir = self.root / project.id / boot_id
         (boot_dir / "logs").mkdir(parents=True)
-        return ShadowInstance(
-            project_id=project.id,
-            dir=boot_dir,
-            port=self._free_port(),
-            created_at=time.time(),
-        )
+        return ShadowBoot(boot_id=boot_id, dir=boot_dir)
 
     def builds_root(self, project_id: str) -> Path:
         return self.root / project_id / "builds"
 
     # ── process bookkeeping ────────────────────────────────────────────────
-    def adopt_process(self, instance: ShadowInstance, process) -> None:
-        instance.process = process
-        instance.pid = process.pid
-        self._processes[instance.project_id] = process
+    def adopt_process(self, project_id: str, process) -> None:
+        self._processes[project_id] = process
 
-    def kill(self, project_id: str, record: Optional[Dict[str, Any]]) -> None:
+    def kill(self, project_id: str, previous: Optional[Instance]) -> None:
         """Stop the shadow process. Best-effort: a survivor cannot collide
         with the next boot (fresh dirs, fresh port) — it only delays the
         sweep of its own directory."""
-        if record and record.get("port"):
-            # The shadow on this port is dying — its warm probe page (if
-            # any) is now rendering a dead build.
-            try:
-                from app.agent_app.probe_pool import get_probe_pool
-
-                get_probe_pool().drop(int(record["port"]))
-            except Exception:
-                pass
         process = self._processes.pop(project_id, None)
         if process is not None and process.poll() is None:
             self._kill(process=process)
-        elif record and record.get("pid"):
-            self._kill(pid=int(record["pid"]))
+        elif previous is not None and previous.pid:
+            self._kill(pid=int(previous.pid))
 
     # ── CLI routing (.lui/shadow.json) ─────────────────────────────────────
     # While a shadow is up, ALL agent-facing traffic belongs to it: the lui
@@ -144,10 +132,10 @@ class ShadowProvisioner:
             logger.warning(f"[AGENT_APP:SHADOW] could not remove CLI route: {e}")
 
     # ── destroy / sweep / reap ─────────────────────────────────────────────
-    def destroy(self, project_id: str, record: Optional[Dict[str, Any]]) -> None:
+    def destroy(self, project_id: str, instance: Optional[Instance]) -> None:
         """Kill the shadow process and sweep its state. Idempotent and
         best-effort: a half-dead shadow must never block a promote."""
-        self.kill(project_id, record)
+        self.kill(project_id, instance)
         self.sweep(project_id, keep=None)
         logger.info(f"[AGENT_APP:SHADOW] destroyed shadow of {project_id}")
 
@@ -192,20 +180,14 @@ class ShadowProvisioner:
                 pass
         return removed
 
-    def reap_all(self, records: Dict[str, Dict[str, Any]]) -> int:
-        """Startup reaper: no shadow is legitimately alive when CraftBot
-        boots (their missions died with the process). Kill every recorded
-        pid, sweep the whole shadow root, and sweep the retired dev-copy
-        root (`_staging`) left behind by pre-shadow versions."""
+    def reap_dirs(self) -> int:
+        """Startup dir sweep: delete every shadow boot dir/build cache and the
+        retired dev-copy root (`_staging/project`). Process kills are NOT done
+        here — the manager kills leftovers by the ports it OWNS (both ranges),
+        which is verified against its own records instead of a stored pid that
+        may have been reused. `_staging/wizard` is the wizard's attachment
+        staging and is never ours to touch."""
         reaped = 0
-        for project_id, record in records.items():
-            try:
-                self.kill(project_id, record)
-                reaped += self.sweep(project_id, keep=None)
-            except Exception as e:
-                logger.warning(f"[AGENT_APP:SHADOW] reap failed for {project_id}: {e}")
-        # `_staging/project` was the dev-copy era's root; `_staging/wizard`
-        # is the wizard's attachment staging and is NOT ours to touch.
         for root in (self.root, self.agent_app_dir / "_staging" / "project"):
             if not root.exists():
                 continue
@@ -236,19 +218,18 @@ class ShadowProvisioner:
             raise ValueError(f"refusing to delete a shadow root itself: {resolved}")
         shutil.rmtree(resolved)
 
-    def _free_port(self) -> int:
-        for port in range(SHADOW_PORT_RANGE[0], SHADOW_PORT_RANGE[1] + 1):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    s.bind(("127.0.0.1", port))
-                return port
-            except OSError:
-                continue
-        raise RuntimeError("No free port in the shadow range 3900-3999")
-
     def _kill(self, process=None, pid: Optional[int] = None) -> None:
+        target_pid = pid if pid else (process.pid if process is not None else None)
         try:
+            if os.name == "nt" and target_pid:
+                # PocketBase (and any node child) is a tree; a bare terminate
+                # strands grandchildren that keep the port bound.
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(target_pid)],
+                    capture_output=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                return
             if process is not None:
                 process.terminate()
                 try:

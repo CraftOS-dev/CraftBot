@@ -507,60 +507,6 @@ class AgentAppRunner:
         )
         return process
 
-    async def verify(self, project_dir: Path, url: str) -> "tuple[str, str]":
-        """Headless smoke verification of the running app (walk-verify core):
-        the app mounts (#root renders real content) with zero console errors,
-        screenshot evidence saved under logs/verify/.
-
-        Runs on the WARM probe session for this port (ProbePool), so every
-        boot after the first skips the browser cold start — and the walk
-        verifier and agent probes that follow inherit the same session.
-
-        Returns (status, detail) where status is 'pass' | 'fail' | 'skipped'.
-        Skipped (no browser installed) must not block a launch.
-        """
-        import json as _json
-
-        from app.agent_app.probe_pool import ProbeUnavailable, get_probe_pool
-
-        try:
-            result = await get_probe_pool().probe(
-                url,
-                [
-                    {"op": "goto", "value": "/"},
-                    {"op": "wait", "value": "1200"},
-                    {"op": "mounted"},
-                    {"op": "screenshot", "value": "home"},
-                ],
-                out_dir=str(Path(project_dir) / "logs" / "verify"),
-                timeout=120,
-            )
-        except ProbeUnavailable as e:
-            return "skipped", _json.dumps({"status": "skipped", "reason": str(e)})
-        except (RuntimeError, ValueError) as e:
-            return "skipped", _json.dumps(
-                {"status": "skipped", "reason": f"probe session failed: {e}"}
-            )
-
-        steps = {s.get("op"): s for s in result.get("steps", [])}
-        console_errors = list(result.get("consoleErrors", []))
-        loaded = bool(steps.get("goto", {}).get("ok"))
-        mounted = bool(steps.get("mounted", {}).get("ok"))
-        screenshot = steps.get("screenshot", {}).get("detail")
-        verdict = {
-            "status": "pass"
-            if loaded and mounted and not console_errors
-            else "fail",
-            "checks": {
-                "loaded": loaded,
-                "mounted": mounted,
-                "noConsoleErrors": not console_errors,
-            },
-            "consoleErrors": console_errors,
-            "screenshot": screenshot,
-        }
-        return verdict["status"], _json.dumps(verdict)
-
     async def wait_healthy(self, port: int, timeout: int = HEALTH_TIMEOUT_S) -> bool:
         """Poll /api/health until 200 or timeout."""
         import urllib.request

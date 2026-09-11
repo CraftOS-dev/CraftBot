@@ -66,16 +66,13 @@ this skill covers only what differs.
 
 ```
 agent_app_notify_ready(project_id="<PROJECT_ID>")   # gate + boot SHADOW env
-browser_probe(url="<shadow url>", steps=[...])       # drive YOUR change first
 agent_app_walk_verify(project_id="<PROJECT_ID>")    # verify + PROMOTE
 ```
 
-The probe step is mandatory (walk_verify refuses an unprobed boot): drive
-the feature you changed the way a user would and read what rendered. The
-probe browser stays warm across calls, so each probe costs seconds — catch
-the obvious break yourself instead of spending a 2-minute verifier round
-on it. notify_ready also auto-invokes the server ops your change touched
-and reports any failure with its response body — fix those before probing.
+walk_verify drives the app in a real browser (Playwright) against the
+requirements and PROMOTES on a clean verdict. notify_ready also auto-invokes
+the server ops your change touched and reports any failure with its response
+body — fix those before you call walk_verify.
 
 These run in the **shadow environment**: `notify_ready` gates your code and
 boots the project's OWN tree a second time on a hidden port with a **FRESH,

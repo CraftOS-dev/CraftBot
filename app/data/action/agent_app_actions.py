@@ -622,17 +622,6 @@ async def agent_app_notify_ready(input_data: dict) -> dict:
                     )
             except Exception:
                 _log_note = ""
-            _smoke = result.get("verify_skipped")
-            _smoke_note = (
-                (
-                    " NOTE: the headless smoke walk did NOT run "
-                    f"({_smoke}) — 'launched' here means the gate and health "
-                    "check passed, nothing more. Do not describe this app as "
-                    "checked until walk_verify has actually driven it."
-                )
-                if _smoke
-                else ""
-            )
             # Changed-op smoke: the pipeline already invoked the server ops
             # this change touched. Failures arrive HERE, with bodies — fix
             # them before probing/verifying instead of rediscovering them
@@ -657,24 +646,18 @@ async def agent_app_notify_ready(input_data: dict) -> dict:
                     f" Changed-op smoke: all {len(_ops)} changed operation(s) "
                     "responded OK."
                 )
-            _checks = (
-                "gate and health checks passed"
-                if _smoke
-                else "gate, health and smoke checks passed"
-            )
+            _checks = "gate and health checks passed"
             return {
                 "status": "success",
                 "message": (
                     f"App launched at {url} — {_checks}."
-                    f"{_smoke_note}{_op_note} {env_note}{_dir_note}{spec_note}NOT "
-                    "VERIFIED YET: first PROBE the feature you changed with "
-                    f'browser_probe(url="{url}", ...) — drive it the way a '
-                    "user would and read what rendered (the probe browser "
-                    "stays warm, this costs seconds) — then call "
+                    f"{_op_note} {env_note}{_dir_note}{spec_note}NOT "
+                    "VERIFIED YET: call "
                     f'agent_app_walk_verify(project_id="{project_id}") to run '
-                    "the independent verifier. The build is complete ONLY "
-                    "when that returns success — do NOT tell the user the "
-                    "app is ready before then."
+                    "the independent verifier — it drives the app in a real "
+                    "browser (Playwright) against the requirements. The build "
+                    "is complete ONLY when that returns success — do NOT tell "
+                    "the user the app is ready before then."
                     + _log_note
                 ),
             }
@@ -824,15 +807,13 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
         # it is what gets announced after the promote. EXTERNAL apps have no
         # dev env (no pb_data to protect) — they always verify live.
         _is_external = getattr(project, "project_type", "native") == "external"
-        _dev_record = None
+        _dev = None
         if not _is_external:
-            try:
-                from app.factory.host_craftbot import get_factory_host as _gfh
+            from app.agent_app.instances import get_instance_registry
 
-                _dev_record = _gfh().get_staging_record(project_id)
-            except Exception:
-                _dev_record = None
-            if not _dev_record:
+            _registry = get_instance_registry()
+            _dev = _registry.shadow(project_id) if _registry is not None else None
+            if _dev is None:
                 return {
                     "status": "error",
                     "message": (
@@ -841,33 +822,6 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                         "boots your code in the dev env), then verify."
                     ),
                 }
-            # PROBE-FIRST MANDATE: the walker is the independent second look,
-            # not the first. A boot that was never probed sends a 2-minute
-            # verifier to discover what a 5-second probe would have (observed
-            # live 2026-09-09, abce2616: walk #1's whole verdict was one
-            # obvious defect + a fix-mission ceremony). probed_at is stamped
-            # by browser_probe on this boot's record; records are minted
-            # fresh per boot, so a stale stamp cannot leak across boots.
-            # Fail-open when no browser can run here — a machine that cannot
-            # probe must not deadlock the pipeline.
-            if not _dev_record.get("probed_at"):
-                from app.agent_app.probe_pool import get_probe_pool as _gpp
-
-                if _gpp().unavailable_reason is None:
-                    _shadow_url = str(_dev_record.get("url") or "")
-                    return {
-                        "status": "error",
-                        "message": (
-                            "Probe before you verify: this boot has not been "
-                            "exercised at all. Drive the feature you changed "
-                            f'with browser_probe(url="{_shadow_url}", '
-                            'steps=[...]) — click it the way a user would and '
-                            "read what rendered (the warm probe browser makes "
-                            "this cost seconds). Fix anything you see, then "
-                            "call agent_app_walk_verify again. The verifier "
-                            "is the independent SECOND look, not the first."
-                        ),
-                    }
         if _is_external and project.status != "running":
             return {
                 "status": "error",
@@ -877,18 +831,18 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                 ),
             }
         url = f"http://127.0.0.1:{project.port}"
-        verify_url = str(_dev_record.get("url")) if _dev_record else url
+        verify_url = _dev.url if _dev is not None else url
         # The CODE TREE the verifier reads (requirements, evidence, coverage)
         # is ALWAYS the project's own dir — the shadow serves exactly that
-        # tree, nothing is copied. The record's dir is the shadow's per-boot
+        # tree, nothing is copied. The instance's dir is the shadow's per-boot
         # STATE (its logs/pocketbase.log): server-log evidence, never a tree.
         # (Regression 2026-09-08, brainstorm 9c2c772c: the boot dir was
         # passed as the tree and every walk died in 8s on "Missing
         # requirements", stuck-capping a healthy modify.)
         verify_path = str(project.path)
         _state_dir = (
-            str(_dev_record.get("dir"))
-            if _dev_record and _dev_record.get("dir")
+            str(_dev.dir)
+            if _dev is not None and _dev.dir
             else str(project.path)
         )
 
@@ -1005,16 +959,10 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                 ),
             }
 
-        # Distinguish a genuinely blocked verifier (browser/tooling died —
-        # legitimate announce-with-warning) from an UNPARSEABLE report (the
-        # sub-agent produced nonsense): announcing on nonsense is the
-        # fail-open hole the factory closes (FACTORY-PLAN §3.3).
-        if kind == "blocked":
-            from app.agent_app.walk_verify import _reads_as_blocked
-
-            raw_text = str((report or {}).get("raw") or "")
-            if raw_text.strip() and not _reads_as_blocked(raw_text):
-                kind = "unparseable"
+        # `blocked` is now a TYPED verdict (the verifier set verdict="blocked"
+        # with a blocked_reason), not a phrase guessed from prose — so it is
+        # trusted directly. A report that is absent or shape-invalid is already
+        # classified `unparseable` upstream, which the belt below handles.
 
         # The verifier's own LLM was throttled/unavailable — the app was
         # never judged. Say so and have the agent retry after a pause,
@@ -1089,18 +1037,15 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
             # withheld. External: stop the live app as before.
             if _is_external:
                 await manager.stop_project(project_id)
+            # The verdict is typed JSON; parse_check_report has already
+            # DERIVED the per-feature FAIL lines into `defects` (the exact
+            # "- <feature> — FAIL — <observed>" shape the distiller consumes).
+            # Those structured lines are the distiller's input — NOT the raw
+            # JSON, which carries no FAIL lines and would distill to a bogus
+            # 'unstructured-failure' card (the 2026-09-10 fix-loop that never
+            # converged). `raw` is kept only for the human-readable record.
             defects = report.get("defects") or []
-            raw = report.get("raw") or ""
-            # The SCOPE block (which features the verifier chose and why)
-            # precedes the verdict; the distiller and the fix brief need the
-            # FEATURES/FAILURES evidence, not 2500 chars of exclusions
-            # (observed live 2026-08-25: a fix mission received a
-            # 'verify.unstructured-failure' card whose 'observed' was the
-            # SCOPE block, and had to rediscover the defect).
-            _v = raw.find("VERDICT:")
-            if _v > 0:
-                raw = raw[_v:]
-            raw = raw[:2500]
+            raw = (report.get("raw") or "")[:2500]
             # The browser report says WHAT failed; the server log says WHY
             # (hook exceptions, bad queries — logged via the console.error
             # pattern). Without it, agents invent causes: one read a bare
@@ -1176,7 +1121,6 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                 "defects",
                 defects=defects,
                 details=full_details,
-                walk_report=raw,
                 server_log=server_log,
             )
             _stopped_note = (
@@ -1300,13 +1244,13 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
             }
 
         await broadcast_agent_app_ready(project_id, url, project.port)
-        if kind == "pass":
-            caveat = ""
-        elif kind == "incomplete":
-            caveat = "Some parts may not fully work yet."
-        else:
-            # blocked / verifier-unavailable: the app is up but not fully tested.
-            caveat = "The app is running, but I could not fully test it yet."
+        # No verify-outcome caveat is shown to the user. A clean verdict
+        # (pass / incomplete / tooling-blocked) all deliver the app; the old
+        # ⚠️ lines ("some parts may not fully work yet", "could not fully test
+        # it yet") confused users more than they helped — the app is either
+        # delivered or it is not. The verdict is still recorded via
+        # report_verify below for the machine's own bookkeeping.
+        caveat = ""
 
         from app.factory.host_craftbot import get_factory_host
 
@@ -2035,11 +1979,13 @@ def agent_app_http(input_data: dict) -> dict:
     _dev_url = None
     _mid_arc = False
     try:
+        from app.agent_app.instances import get_instance_registry
         from app.factory.host_craftbot import get_factory_host as _gfh
 
-        _rec = _gfh().get_staging_record(project_id)
-        if _rec and _rec.get("url"):
-            _dev_url = str(_rec["url"])
+        _registry = get_instance_registry()
+        _dev = _registry.shadow(project_id) if _registry is not None else None
+        if _dev is not None:
+            _dev_url = _dev.url
         _arc = _gfh().arc_for(project_id)
         _mid_arc = _arc is not None and _arc.is_open
     except Exception:

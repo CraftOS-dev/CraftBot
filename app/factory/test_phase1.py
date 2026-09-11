@@ -153,8 +153,8 @@ with tempfile.TemporaryDirectory() as td:
         caveat="",
     )
     assert d.next_state == "done"
-    # User-facing announcement: friendly, no URL, no feature counts.
-    assert CHAT and "Your app is ready" in CHAT[-1]
+    # User-facing announcement: friendly, names the app, no URL/feature counts.
+    assert CHAT and 'Your app "Test App" is ready' in CHAT[-1]
     assert "http" not in CHAT[-1] and "feature" not in CHAT[-1]
     assert not host.arc_for("testproj").is_open, "done = the arc is gone"
     age(host)
@@ -177,7 +177,9 @@ with tempfile.TemporaryDirectory() as td:
     host.report_verify(
         "testproj", "pass", url="http://127.0.0.1:3100", verified=["Board"]
     )
-    assert "Your change is live" in CHAT[-1], "modify flavor comes from arc kind"
+    assert (
+        'Your change to "Test App" is live' in CHAT[-1]
+    ), "modify flavor comes from arc kind"
 print("modify arc: modify skill + change-is-live flavor: OK")
 
 # ── the supervisor: idle open arc → resume; stall cap → honest stuck ────────

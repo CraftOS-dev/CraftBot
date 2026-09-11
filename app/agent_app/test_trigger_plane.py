@@ -71,8 +71,14 @@ class _MgrStub:
     """Just enough AgentAppManager for the bridge handler."""
 
     def __init__(self, project):
+        from app.agent_app.instances import InstanceRegistry, PortAllocator
+
         self._project = project
         self.notified = []
+        # The era gate resolves "is a dev env up" from the instance registry.
+        self.instances = InstanceRegistry(
+            Path(tempfile.mkdtemp()) / "inst.json", PortAllocator()
+        )
 
     def validate_bridge_token(self, token):
         return self._project.id if token == "good" else None
@@ -177,7 +183,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # traffic (the walker clicks ⚡ in the dev instance, which aliases to the
     # real project id through the shared bridge token) — must defer.
     host.set_triggers_approved("gates001")
-    host.set_staging_record("gates001", {"dir": "/tmp/x", "port": 3901, "pid": 1})
+    mgr.instances.create_shadow("gates001", token="t", boot_id="b1", dir="/tmp/x")
     resp = _fire(bridge)
     assert resp.status == 200 and b"deferred" in resp.body, "dev-env fire must defer"
     assert mgr.notified == []
@@ -185,7 +191,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # Live era: consented, no dev env → dispatch exactly once. (No stored
     # "delivered" flag any more — with no dev env in flight, a consented
     # fire from a running app is legitimate operation.)
-    host.clear_staging_record("gates001")
+    mgr.instances.clear_project("gates001")
     resp = _fire(bridge)
     assert resp.status == 200 and b"deferred" not in resp.body
     assert mgr.notified == [("gates001", "restock_needed", "row1")], (
@@ -273,15 +279,33 @@ with tempfile.TemporaryDirectory() as tmp:
     assert mgr.declared_triggers_brief(bare) == "", "no triggers → no consent ask"
 print("§5 consent surfacing: OK")
 
-# ── §6 throttled verifier: classified, bounded, never stuck-on-first ───────
-report = parse_check_report(
-    "(sub-agent aborted — LLM unavailable: Rate limit exceeded for grok-4)"
+# ── §6 structured verdict: typed classification, throttle told apart ───────
+from app.agent_app.walk_verify import _LLM_ABORT_SENTINEL  # noqa: E402
+
+_pass_json = _json.dumps(
+    {
+        "scope": {"mode": "delta", "excluded": []},
+        "verdict": "pass",
+        "features": [{"name": "x", "status": "pass", "evidence": "did it"}],
+    }
 )
-assert report["kind"] == "throttled", report
+assert parse_check_report(_pass_json)["kind"] == "pass"
+_fail_json = _json.dumps(
+    {
+        "scope": {"mode": "full", "excluded": []},
+        "verdict": "fail",
+        "features": [{"name": "x", "status": "fail", "evidence": "broken"}],
+    }
+)
+assert parse_check_report(_fail_json)["kind"] == "defects"
+# Throttle is decided in run_walk_verify from status + the runner's OWN abort
+# sentinel (a control string, not the model's prose); the abort string is not
+# a verdict, so parsing it as one is unparseable.
+assert _LLM_ABORT_SENTINEL in "(sub-agent aborted — LLM unavailable: rate limit)"
 assert (
-    parse_check_report("VERDICT: PASS\nFEATURES:\n- x — PASS — did it")["kind"]
-    == "pass"
-), "throttle detection must not shadow real verdicts"
+    parse_check_report("(sub-agent aborted — LLM unavailable: x)")["kind"]
+    == "unparseable"
+)
 
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "agent_app"

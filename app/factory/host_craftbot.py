@@ -380,23 +380,10 @@ class FactoryHost:
             last_at = None
         return {"last_at": last_at, "last_error": state.get("last_error") or None}
 
-    # The staging record is the single source of truth for "a dev environment
-    # of this app exists": actions redirect to it, the reaper kills from it,
-    # and clearing it is what ends dev mode. (Key name "staging" is
-    # historical — kept so records from older versions stay readable.)
-    def get_staging_record(self, project_id: str) -> Optional[Dict[str, Any]]:
-        record = self._sidecar_read(project_id).get("staging")
-        return record if isinstance(record, dict) else None
-
-    def set_staging_record(self, project_id: str, record: Dict[str, Any]) -> None:
-        side = self._sidecar_read(project_id)
-        side["staging"] = record
-        self._sidecar_write(project_id, side)
-
-    def clear_staging_record(self, project_id: str) -> None:
-        side = self._sidecar_read(project_id)
-        if side.pop("staging", None) is not None:
-            self._sidecar_write(project_id, side)
+    # "A dev environment of this app exists" is now the shadow Instance in the
+    # InstanceRegistry (app.agent_app.instances) — a running-process fact, not
+    # a sidecar record that could outlive its process. The redirects, the era
+    # gate, the log-dir picker and the reaper all resolve it from there.
 
     # ── arc lifecycle (opened at INTENT, never at first success) ───────────
     def open_arc(self, project_id: str, kind: str) -> None:
@@ -841,12 +828,11 @@ class FactoryHost:
         # dir when one is up, the project's own logs otherwise. CLI commands
         # always take the PROJECT path — while a shadow exists they route to
         # it automatically (.lui/shadow.json).
-        _dev_rec = self.get_staging_record(project.id)
-        log_dir = (
-            str(_dev_rec.get("dir"))
-            if _dev_rec and _dev_rec.get("dir")
-            else str(project.path)
-        )
+        from app.agent_app.instances import get_instance_registry
+
+        _registry = get_instance_registry()
+        _dev = _registry.shadow(project.id) if _registry is not None else None
+        log_dir = str(_dev.dir) if (_dev is not None and _dev.dir) else str(project.path)
         return f"""FIX MISSION {n} for Agent App '{project.name}' ({project.id}).
 
 The independent verifier drove the app in a real browser. Each DEFECT below
@@ -1002,7 +988,19 @@ the user is informed automatically."""
     ) -> None:
         # Plain, user-facing outcome only. No URL (the user is already in the
         # CraftBot interface), no feature counts, no scope/verifier internals.
-        text = "✅ Your change is live." if modify else "✅ Your app is ready."
+        # Name the app so the message reads about THEIR app, not a generic one.
+        project = self._project(project_id)
+        name = (getattr(project, "name", "") or "").strip()
+        if modify:
+            text = (
+                f'✅ Your change to "{name}" is live.'
+                if name
+                else "✅ Your change is live."
+            )
+        else:
+            text = (
+                f'✅ Your app "{name}" is ready.' if name else "✅ Your app is ready."
+            )
         if caveat:
             text += f"\n⚠️ {caveat}"
         self._emit_chat(project_id, text)

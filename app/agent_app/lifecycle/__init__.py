@@ -31,23 +31,17 @@ live_db_exists(), which cannot go stale the way the sidecar flag did.
 """
 
 from app.agent_app.lifecycle.backups import BackupEntry, BackupService, BackupStore
-from app.agent_app.lifecycle.environment import (
-    ShadowInstance,
-    has_live_env,
-    live_db_exists,
-)
+from app.agent_app.lifecycle.environment import has_live_env, live_db_exists
 from app.agent_app.lifecycle.lifecycle import AppLifecycle
 from app.agent_app.lifecycle.promoter import Promoter
-from app.agent_app.lifecycle.provisioner import SHADOW_PORT_RANGE, ShadowProvisioner
+from app.agent_app.lifecycle.provisioner import ShadowProvisioner
 
 __all__ = [
     "AppLifecycle",
     "BackupEntry",
     "BackupService",
     "BackupStore",
-    "ShadowInstance",
     "ShadowProvisioner",
-    "SHADOW_PORT_RANGE",
     "Promoter",
     "has_live_env",
     "live_db_exists",

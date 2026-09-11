@@ -33,9 +33,12 @@ BeforeLiveBoot = Callable[[Any], None]
 
 
 class Promoter:
-    def __init__(self, provisioner: ShadowProvisioner, launch_live: LaunchLive) -> None:
+    def __init__(
+        self, provisioner: ShadowProvisioner, launch_live: LaunchLive, registry
+    ) -> None:
         self._provisioner = provisioner
         self._launch_live = launch_live
+        self._registry = registry
         self._before_live_boot: List[BeforeLiveBoot] = []
 
     def add_before_live_boot_hook(self, hook: BeforeLiveBoot) -> None:
@@ -86,14 +89,14 @@ class Promoter:
             result = await self._launch_live(project.id)
             if result.get("status") != "success":
                 return result
+            shadow = self._registry.shadow(project.id)
             try:
-                self._provisioner.destroy(
-                    project.id, host.get_staging_record(project.id)
-                )
+                self._provisioner.destroy(project.id, shadow)
             finally:
-                host.clear_staging_record(project.id)
                 # Agent traffic goes back to the live app the moment the
-                # shadow record is gone — including the lui CLI's routing.
+                # shadow instance is gone — including the lui CLI's routing.
+                if shadow is not None:
+                    self._registry.remove(shadow.instance_id)
                 self._provisioner.unroute_cli(Path(project.path))
 
         result["first"] = first

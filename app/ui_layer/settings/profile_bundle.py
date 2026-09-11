@@ -932,10 +932,10 @@ def _register_agent_app_via_manager(
             )
             continue
         manager.projects[project_obj.id] = project_obj
+        # Reserve the imported project's sticky live port so the allocator
+        # never re-hands it. (backend_port is vestigial and no longer bound.)
         if project_obj.port:
-            manager._used_ports.add(project_obj.port)
-        if project_obj.backend_port:
-            manager._used_ports.add(project_obj.backend_port)
+            manager.ports.reserve_known(project_obj.port)
     try:
         manager._save_projects()
     except Exception:
@@ -975,7 +975,9 @@ def _wipe_agent_app_state(
     """
     if manager is not None:
         manager.projects.clear()
-        manager._used_ports.clear()
+        # Drop all running-instance records + every port reservation.
+        manager.instances.reset()
+        manager.ports.clear()
         try:
             manager._save_projects()
         except Exception:

@@ -136,8 +136,8 @@ real, but most of the budget went to infrastructure.
   what users see, and it was genuinely broken/flaky). CLI-op success is not
   UI-path success, and the current guidance ("re-verify; if it comes back
   the same, treat as broken") ping-pongs for rounds before that lands. The
-  dispute path should require reproducing through the UI (browser_probe),
-  not the CLI, for UI-observed defects.
+  dispute path should require reproducing through the UI (walk_verify's
+  Playwright MCP browser), not the CLI, for UI-observed defects.
 
 - [ ] **The stuck report shows a raw fingerprint hash to the user**
   ("Most persistent failure: 96bf2132126b (2×)"). Should render the feature
@@ -155,13 +155,31 @@ real, but most of the budget went to infrastructure.
   SSRF-blocked repeatedly (16:19, 16:21) before remembering
   `agent_app_http`; the block message could name the right action.
 
-## Resolved by the probe pool + pre-walk self-check (2026-09-09)
+## walk_verify Playwright MCP ref-click fixed (2026-09-10)
 
-- [x] Cold browser start per probe (~15-20s × N) — ProbePool keeps one
-  `lui probe-server` per app port; measured live: cold 8.1s → warm 0.2s,
-  page state preserved between probes. Boot smoke and the walker inherit
-  the warm session. Invalidation rides the lifecycle chokepoints
-  (_kill_process_on_port, shadow kill, stop_project).
+- [x] Every verifier click died with `Unknown engine "ref"`, aborting the whole
+  walk before it judged anything. Proven empirically (scratch harness driving
+  the MCP end-to-end): @playwright/mcp `browser_click` takes `target`, which
+  accepts EITHER a snapshot ref OR a Playwright selector. The walk_verify agent
+  was passing the ref WITH its `ref=` prefix (copying the snapshot's `[ref=e2]`
+  marker), so `target="ref=e2"` was parsed as a selector → unknown engine. Fix:
+  walk_verify instructions now require the BARE ref token (`e2`, never `ref=e2`).
+  Verified: `target="e2"` clicks OK on 0.0.80; `target="ref=e2"` reproduces the
+  error. Also pinned `@playwright/mcp@latest` → `@playwright/mcp@0.0.80` (the
+  verified-good version) so it cannot silently float into a breaking release.
+
+## Custom browser probe RETIRED (2026-09-10)
+
+- [x] The custom `browser_probe` action, the `ProbePool` warm-session
+  infrastructure, the `lui probe`/`probe-server` CLI, and the in-process
+  boot smoke were removed. They reimplemented, thinly, what Playwright MCP
+  already does: the DSL had no `select`/`press`/`force`, so it could not
+  drive native `<select>` dropdowns or transformed-canvas controls and kept
+  forcing agents to mutilate generated apps to fit the probe. walk_verify
+  now drives the app solely via Playwright MCP (accessibility-tree refs,
+  `browser_select_option`, `browser_press_key`), which is the configured
+  primary browser tool. The probe-first mandate (a `probed_at` gate on the
+  main agent) is gone with it.
 - [x] Walk #1 discovering the obvious bug (2+ min + fix-mission ceremony) —
   two floors now run first: the pipeline auto-invokes the CHANGED server
   ops (structural selection: route-symbol/ops.json diff vs baseline; never

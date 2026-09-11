@@ -49,12 +49,15 @@ BROWSER RULES (violating these blinds you):
 - An interaction result (click/type) may end with a snapshot FILE link
   ("[Snapshot](.playwright-mcp/…yml)") — you CANNOT read that file. To see
   what the interaction did, take a bare browser_snapshot as your next action.
-- The snapshot is an accessibility tree with element refs — use those refs for
-  browser_click / browser_type targets.
-- If the mcp_playwright browser tools are unavailable in this environment
-  (the runner tells you an action is "not installed"), fall back to
-  browser_probe (scripted steps: goto/click/type/read/screenshot with CSS
-  selectors) plus agent_app_http for API checks.
+- Element refs appear as `[ref=e12]`; pass the BARE token (`e12`) as `target`,
+  never `ref=e12` (Playwright treats that as a selector: "Unknown engine ref").
+  A ref is valid only for the latest snapshot.
+- Native <select> dropdowns: use browser_select_option (never try to click an
+  <option>, which no browser can do). Keyboard flows: browser_press_key. Use
+  agent_app_http for pure API/endpoint checks alongside the browser.
+- If the mcp_playwright browser tools are genuinely unavailable (the runner
+  tells you an action is "not installed"), say so in your verdict and verify
+  what you can via agent_app_http and grep_files — do not invent a pass.
 
 YOUR WALK:
 1. SCOPE — read the requirements and the CHANGED SINCE LAST PROMOTE block,
@@ -75,14 +78,13 @@ YOUR WALK:
      FULL), or a diff you cannot read → SCOPE: FULL, every feature.
    - DEFECTS TO RE-CHECK are always included. A BUILDER'S HINT is a claim,
      not evidence.
-   State the decision as the FIRST section of your final result (the SCOPE
-   block in OUTPUT below). Features you exclude do not appear in FEATURES.
+   Put this decision in your final JSON `scope` (mode + excluded, each with a
+   reason). Excluded features do not appear in `features`.
    For included features a browser cannot exercise (scheduled emails, cron
    jobs, exports you can't download): grep_files the project's hooks for
    their implementation (a mailer call, a cronAdd for the schedule):
-   implementation present → '— NOT REACHED (code present, not exercisable
-   in browser)'; NO implementing code at all → FAIL — the feature was not
-   built.
+   implementation present → status "not_reached", unreached_reason
+   "code_present"; NO implementing code at all → status "fail" (not built).
 2. Open the app: browser_navigate to the app URL, then browser_snapshot. If
    the page is blank, an error boundary, or only skeletons, that is a FAIL for
    everything — the app doesn't run. This first-paint check is part of EVERY
@@ -156,10 +158,10 @@ V2. A feature you could not exercise because of the APP (control missing/
     unreachable, flow blocked, placeholder / "coming soon" / dead button)
     = FAIL, with what you observed. But a feature YOUR TOOLS cannot perform
     (drag-and-drop is browser_drag — use it; anything genuinely absent from
-    your action list) is NOT the app's fault: mark it
-    '— NOT REACHED (tooling: <what you lack>)', never FAIL — a FAIL here
-    dispatches engineers to fix a feature that may be fine (observed live
-    2026-08-06: drag-and-drop failed every walk on "no drag tool").
+    your action list) is NOT the app's fault: status "not_reached",
+    unreached_reason "tooling", never fail — a fail here dispatches engineers
+    to fix a feature that may be fine (observed live 2026-08-06: drag-and-drop
+    failed every walk on "no drag tool").
 V3. No minor category: one console error during normal use = FAIL; a feature
     that "mostly" works = FAIL.
 V3b. JUDGE THE VALUES LIKE A HUMAN USER, not just the rendering. Data that
@@ -176,49 +178,48 @@ V3c. A 404 from a route DECLARED in ops.pb.js means the handler THREW (in
     proves registration works.
 V4. FAIL means YOU SAW THE APP MISBEHAVE. If you could not exercise the app at
     all — the browser tools error out, the MCP connection is lost, the URL is
-    unreachable — that is NOT the app's fault and NOT a FAIL: end with
-    VERDICT: BLOCKED and say what stopped you. Reporting "all features FAIL —
-    could not connect" sends engineers to fix features that may be fine.
+    unreachable — that is NOT the app's fault and NOT a fail: verdict
+    "blocked" with blocked_reason. Marking every feature "fail — could not
+    connect" sends engineers to fix features that may be fine.
 V5. BUDGET: every turn's prompt begins with a TURN BUDGET line. Use what
     your scope needs — a narrow DELTA walk legitimately ends early; a FULL
     walk of a large app legitimately uses most of the budget. Conclude when
     every INCLUDED feature has real evidence, not before: a feature you
-    chose to include and then left '— NOT REACHED' with no (code present…)
-    or (tooling…) qualifier is a walk you did not finish, and it is
-    rejected while turns remain. When the TURN BUDGET line shows the cap is
-    near, deliver what you verified and mark the rest '— NOT REACHED'
-    (never FAIL): honest partial coverage beats a walk that dies at the cap
-    reporting nothing.
+    chose to include and then left "not_reached" with no unreached_reason is
+    a walk you did not finish, and it is rejected while turns remain. When
+    the TURN BUDGET line shows the cap is near, deliver what you verified and
+    mark the rest "not_reached" (never fail): honest partial coverage beats a
+    walk that dies at the cap reporting nothing.
 
-OUTPUT — end with ONE sub_task_end call, status="completed", and this in
-`result` (plain text, NOT JSON):
-```
-SCOPE: DELTA | FULL
-INCLUDED: <feature name>, <feature name>, …          (names, not numbers)
-EXCLUDED:
-- <feature name> — <why the diff cannot reach it>
-- <feature name> — <reason>
-(DELTA: name what you skipped — one blanket bullet is fine, e.g.
- "- all other features (boards, labels, checklists, …) — only Header.tsx
- changed and none of them run through it". FULL, or a DELTA where the diff
- reaches every feature: write exactly "EXCLUDED: none")
-VERDICT: PASS | FAIL | BLOCKED
-FEATURES:
-- <feature> — PASS — <the flow you ran and what you saw>
-- <feature> — FAIL — <the flow you ran and what you saw; include the exact
-  failing route/URL when one was involved> | expected: <what a passing app
-  would have shown/done>
-- <feature> — NOT REACHED (code present, not exercisable in browser)
-FAILURES (only if any FAIL):
-- <feature>: <what you did, what you observed, what a correct app would do>
-BLOCKED BY (only if BLOCKED):
-- <what stopped you from exercising the app at all>
-```
-VERDICT is PASS only if EVERY included feature passed (NOT REACHED entries
-mean the walk is incomplete). Use FAIL only for behaviour you observed; use
-BLOCKED when you never got to observe any. There is NO "INCOMPLETE" or
-"PARTIAL" verdict — an unfinished walk is FAIL with '— NOT REACHED' entries
-for whatever you did not exercise.
+OUTPUT — end with ONE sub_task_end call, status="completed", and `result` set
+to a SINGLE JSON object (no prose, no code fence, nothing before or after):
+
+{{
+  "scope": {{
+    "mode": "delta" | "full",
+    "excluded": [{{"feature": "<name>", "reason": "<why the diff cannot reach it>"}}]
+  }},
+  "verdict": "pass" | "fail" | "blocked",
+  "blocked_reason": "<what stopped you>",
+  "features": [
+    {{"name": "<feature>", "status": "pass",
+      "evidence": "the flow you ran and the state CHANGE you observed"}},
+    {{"name": "<feature>", "status": "fail",
+      "evidence": "the flow you ran and what you saw; name the exact failing route/URL and what a passing app would have done"}},
+    {{"name": "<feature>", "status": "not_reached",
+      "unreached_reason": "code_present" | "tooling",
+      "evidence": "code present but not browser-exercisable, or the tool you lack"}}
+  ]
+}}
+
+- `features` holds ONLY the features you INCLUDED. Excluded features go in
+  scope.excluded (each with a reason), never in `features`.
+- verdict "pass" ONLY if every included feature is status "pass". Any "fail"
+  makes verdict "fail". If you never observed the app at all (browser/MCP
+  dead, URL unreachable), verdict "blocked", set blocked_reason, features [].
+- Every "not_reached" needs an unreached_reason. There is no
+  "incomplete"/"partial" verdict — an unfinished feature is "not_reached".
+- Omit blocked_reason unless verdict is "blocked".
 """
 
 
@@ -231,244 +232,83 @@ _MAX_ITERATIONS = 50
 _EARLY_END_FRACTION = 0.7
 
 
-def _guard_quality(result: str):
-    """Verdict-quality gates that apply at ANY turn (a bad verdict is bad at
-    turn 49 too; the model can always comply immediately by fixing it)."""
-    import re as _re
+def _early_end_guard(sub, parameters):
+    """Veto a premature or malformed final verdict (runner hook, see registry).
 
-    # Cosmetic-evidence PASS: the UI's existence or promises are not
-    # evidence (observed live: 9/9 features passed on "nav present" /
-    # "described in overview" while the core feature had no implementation).
-    cosmetic = _re.search(
-        r"^-\s[^\n]*—\s*PASS\s*—[^\n]*"
-        r"\b(nav present|ui ready|described in|button visible|"
-        r"present in (the )?(ui|sidebar|nav)|no errors\b[^\n]*$)",
-        result,
-        _re.MULTILINE | _re.IGNORECASE,
-    )
-    if cosmetic:
+    Purely STRUCTURAL: it validates the JSON verdict's shape and the turn
+    budget, never the wording of the evidence. Whether a feature works is the
+    verifier's own judgement — argued downstream via the builder's dispute
+    path, never overruled by a regex blocklist here (the old evidence-phrasing
+    guards were exactly the 'blocklist-validation of an LLM reply' species of
+    rule that caused the 2026-09-02 false-FAIL incident)."""
+    from app.agent_app.walk_verify import VERDICT_SCHEMA, load_verdict, valid_verdict
+
+    if str(parameters.get("status") or "") != "completed":
+        return None
+
+    obj = load_verdict(str(parameters.get("result") or ""))
+    if obj is None or not valid_verdict(obj):
         return (
-            "Verdict REJECTED — cosmetic evidence: a PASS line cites the "
-            f"UI's existence, not a flow you ran ('{cosmetic.group(0)[:120]}"
-            "'). Per V1, PASS needs an action you ran and the state change "
-            "you observed (data read back after the interaction). Exercise "
-            "those features now, or mark them NOT REACHED / FAIL honestly."
+            "Verdict REJECTED — `result` must be ONE JSON object (no prose, no "
+            "code fence) of this shape:\n" + VERDICT_SCHEMA + "\nRe-send only "
+            "that JSON with every included feature carrying a status."
         )
 
-    # A PASS whose OWN evidence describes the broken state.
-    #
-    # Observed live 2026-09-01 (newsletter_tool 3f6013ce), verbatim:
-    #   "- Settings — PASS — ...the integration badges showed AI writer
-    #    connected and Gmail send not connected..."
-    # That was the exact defect the user had reported. The verifier looked
-    # straight at it, wrote it down, and passed the feature — because the
-    # checklist only asked whether the page RENDERS. It then passed the same
-    # app again 14 minutes later, and the system announced it ready twice
-    # while the user was saying it was broken.
-    contradiction = _re.search(
-        r"^-\s[^\n]*—\s*PASS\s*—[^\n]*?"
-        r"\b(not connected|disconnected|not enabled|not configured|"
-        r"unavailable|failed to|is missing|still shows|shows as not)"
-        r"\b[^\n]*",
-        result,
-        _re.MULTILINE | _re.IGNORECASE,
-    )
-    # Escape hatch: a negative state can be the CORRECT one (nothing is
-    # connected, so "not connected" is right). The verifier must be able to
-    # say so and move on — an unsatisfiable guard just recreates the
-    # reject -> BLOCKED -> bad-routing loop this file is trying to prevent.
-    if contradiction and _re.search(
-        r"is correct|correct display|is expected|expected because|by design|"
-        r"matches the (backend|server|api|account)",
-        contradiction.group(0),
-        _re.IGNORECASE,
-    ):
-        contradiction = None
-    if contradiction:
-        return (
-            "Verdict REJECTED — self-contradicting PASS: this line marks a "
-            "feature PASS while its own evidence reports a broken or "
-            f"negative state ('{contradiction.group(0)[:140]}'). If you "
-            "OBSERVED that state, the feature is FAIL — say so. If that "
-            "state is genuinely correct here, keep PASS but say why in the "
-            "same line (e.g. 'no account is connected, so \"not connected\" "
-            "is the correct display')."
-        )
-    # Live/external/scheduled/AI features: the browser cannot see a
-    # server-side fetch, so a PASS whose report never mentions one anywhere
-    # suggests the verifier judged it on rendered pixels alone.
-    #
-    # The TRIGGER is unchanged from the original guard. The MESSAGE is not:
-    # it used to end "QUOTE the line in your verdict", and on 2026-09-02 a
-    # verifier satisfied that by DOWNGRADING a feature it had watched work to
-    # FAIL — a verdict that promotes nothing, so a working change never
-    # shipped. A guard must not be satisfiable by breaking the thing it
-    # guards, so this one now says what to do in both directions.
-    live_pass = _re.search(
-        r"^-\s[^\n]*\b(pull|sync|fetch|live|real-?time|bridge|external|"
-        r"scheduled|refresh|ai|llm)\b[^\n]*—\s*PASS\b",
-        result,
-        _re.MULTILINE | _re.IGNORECASE,
-    )
-    if live_pass and not _re.search(
-        r"\$http\.send|callIntegration|callLLM|callAction|cronAdd", result
-    ):
-        return (
-            "Verdict REJECTED — a live/external/scheduled/AI-generated "
-            f"feature is marked PASS ('{live_pass.group(0)[:120]}') and "
-            "nothing in your report shows the app fetches or generates "
-            "anything server-side. Per step 6, grep_files pb/pb_hooks/*.js "
-            "(excluding _*.js) and settle it: if a real call is reachable "
-            "from the code serving that feature, KEEP the PASS and say what "
-            "you found; if there is none, FAIL it and say that. Do NOT fail "
-            "a feature you watched work in order to clear this check."
-        )
-    return None
-
-
-def _guard_scope(sub, result: str):
-    """The SCOPE block must exist and be honest in SHAPE: a mode, reasons for
-    every exclusion, DELTA only when the evidence allowed it, and evidence
-    for every included feature. Its CONTENT (which features) is the
-    verifier's judgment and is never second-guessed here."""
-    import re as _re
-
-    from app.agent_app.verify_scope import feature_verdicts, parse_scope
+    if str(obj.get("verdict")).lower() == "blocked":
+        return None  # a genuine block may conclude whenever it happens
 
     query = str(getattr(sub, "query", "") or "")
-    scope = parse_scope(result)
-    if scope is None:
-        return (
-            "Verdict REJECTED — no SCOPE block. Your result must OPEN with "
-            "'SCOPE: DELTA' or 'SCOPE: FULL', then 'INCLUDED:' (the feature "
-            "names you exercised) and 'EXCLUDED:' (each skipped feature with "
-            "the reason the diff cannot reach it, or 'none'). Re-send the "
-            "same verdict with that block on top."
-        )
-    must_be_full = (
+    scope = obj.get("scope") if isinstance(obj.get("scope"), dict) else {}
+    mode = str(scope.get("mode") or "").lower()
+    must_full = (
         "NO BASELINE" in query
         or "VERIFY MODE: FULL" in query
         or "treat as NO BASELINE" in query
     )
-    if scope["mode"] == "DELTA" and must_be_full:
+    if mode == "delta" and must_full:
         return (
-            "Verdict REJECTED — SCOPE: DELTA is not available for this walk: "
-            "the query says NO BASELINE or VERIFY MODE: FULL, so every "
-            "feature is in scope. Exercise the features you skipped and "
-            "resubmit with SCOPE: FULL."
+            "Verdict REJECTED — this walk must be FULL (the query says NO "
+            'BASELINE or VERIFY MODE: FULL). Set scope.mode to "full" and '
+            "exercise every feature."
         )
-    if scope["excluded_without_reason"]:
-        bare = "; ".join(scope["excluded_without_reason"][:4])
+
+    bad_excl = [
+        str(e.get("feature") or "")
+        for e in (scope.get("excluded") or [])
+        if isinstance(e, dict) and not str(e.get("reason") or "").strip()
+    ]
+    bad_excl = [x for x in bad_excl if x]
+    if bad_excl:
         return (
-            "Verdict REJECTED — EXCLUDED entries without a reason: "
-            f"'{bare}'. Every excluded feature needs one line saying why the "
-            "diff cannot reach it ('<feature> — <reason>'), one bullet per "
-            "feature. If you excluded nothing, write exactly 'EXCLUDED: none'. "
-            "Fix the block and resubmit the same verdict."
+            "Verdict REJECTED — excluded features without a reason: "
+            f"{bad_excl[:4]}. Give each a reason (why the diff cannot reach "
+            "it), or drop it from scope.excluded."
         )
-    if scope["mode"] == "DELTA":
-        verdicts = feature_verdicts(result)
-        lowered = {k.lower(): v for k, v in verdicts.items()}
-        missing = []
-        for name in scope["included"]:
-            key = name.lower()
-            if any(key in k or k in key for k in lowered):
-                continue
-            missing.append(name)
-        if missing:
+
+    # A not_reached WITHOUT an unreached_reason is an unfinished feature.
+    unqualified = [
+        str(f.get("name") or "")
+        for f in (obj.get("features") or [])
+        if str(f.get("status") or "").lower() == "not_reached"
+        and str(f.get("unreached_reason") or "").lower()
+        not in ("code_present", "tooling")
+    ]
+    unqualified = [x for x in unqualified if x]
+    if unqualified:
+        floor = (
+            int(_MAX_ITERATIONS * _EARLY_END_FRACTION)
+            if mode != "delta"
+            else _MAX_ITERATIONS - 3
+        )
+        if sub.iterations < floor:
+            remaining = _MAX_ITERATIONS - sub.iterations
             return (
-                "Verdict REJECTED — INCLUDED features with no FEATURES line: "
-                f"{', '.join(missing[:5])}. You chose to include them, so "
-                "each needs a PASS / FAIL / NOT REACHED(qualified) line with "
-                "evidence. Exercise them now, or move them to EXCLUDED with a "
-                "reason."
-            )
-        # A DELTA walk has no turn floor — but an included feature left
-        # bare NOT REACHED while turns remain is an unfinished walk.
-        bare_nr = [
-            k
-            for k, v in verdicts.items()
-            if v == "NOT REACHED"
-            and not _re.search(
-                rf"^-\s+{_re.escape(k)}\s*(?:—|–|:|-)\s*NOT REACHED\s*\((?:code present|tooling)",
-                result,
-                _re.MULTILINE | _re.IGNORECASE,
-            )
-        ]
-        if bare_nr and sub.iterations < _MAX_ITERATIONS - 3:
-            return (
-                "Verdict REJECTED — included feature(s) left NOT REACHED "
-                f"without a (code present…) or (tooling…) qualifier: "
-                f"{', '.join(bare_nr[:5])}. Turns remain ({_MAX_ITERATIONS - sub.iterations}) "
-                "— exercise them now, one flow per turn, then resubmit."
+                'Verdict REJECTED — feature(s) left not_reached without an '
+                'unreached_reason ("code_present" or "tooling"): '
+                f"{unqualified[:5]}. {remaining} turns remain — exercise them "
+                "now, one flow per turn, or set an unreached_reason."
             )
     return None
-
-
-def _early_end_guard(sub, parameters):
-    """Veto a premature or malformed verdict (runner hook, see registry).
-
-    Allowed to end at ANY turn: failed status (missing inputs), genuine
-    tooling blockage (browser markers), a DELTA walk whose included features
-    all carry evidence, and a FULL walk that is complete. A FULL walk with
-    bare NOT REACHED entries before 70% of the budget is premature (the
-    guard's original purpose); a DELTA walk with a missing or shapeless
-    SCOPE block is rejected regardless of turn.
-    """
-    import re as _re
-
-    if str(parameters.get("status") or "") != "completed":
-        return None
-    result = str(parameters.get("result") or "")
-
-    rejection = _guard_quality(result)
-    if rejection:
-        return rejection
-
-    # Genuine tooling blockage may conclude whenever it occurs.
-    from app.agent_app.walk_verify import _reads_as_blocked
-
-    if _reads_as_blocked(result):
-        return None
-
-    try:
-        rejection = _guard_scope(sub, result)
-    except Exception:
-        rejection = None  # never trap the verifier on a guard bug
-    if rejection:
-        return rejection
-
-    # FULL walks keep the premature-conclusion floor.
-    try:
-        from app.agent_app.verify_scope import parse_scope
-
-        mode = (parse_scope(result) or {}).get("mode", "FULL")
-    except Exception:
-        mode = "FULL"
-    if mode == "DELTA":
-        return None
-    if sub.iterations >= int(_MAX_ITERATIONS * _EARLY_END_FRACTION):
-        return None
-
-    # Premature = a bare NOT REACHED (one WITHOUT the code-present
-    # qualifier), or a BLOCKED verdict with no tooling evidence.
-    bare_not_reached = _re.search(
-        r"NOT REACHED(?!\s*\((?:code present|tooling))", result, _re.IGNORECASE
-    )
-    fake_blocked = _re.search(r"VERDICT:\s*BLOCKED", result, _re.IGNORECASE)
-    if not (bare_not_reached or fake_blocked):
-        return None
-
-    remaining = _MAX_ITERATIONS - sub.iterations
-    return (
-        f"Early conclusion REJECTED: you are on turn {sub.iterations} of "
-        f"{_MAX_ITERATIONS} — {remaining} turns remain, which is plenty. "
-        "The budget concern in your report is unfounded (see the TURN "
-        "BUDGET line each turn). Continue the walk NOW: exercise every "
-        "feature currently marked NOT REACHED, one flow per turn. Conclude "
-        "only when every feature has real evidence, or when the TURN "
-        "BUDGET line shows the cap is actually near."
-    )
 
 
 register_subagent(
@@ -488,12 +328,13 @@ register_subagent(
         "mcp_playwright-mcp_browser_fill_form",
         "mcp_playwright-mcp_browser_press_key",
         "mcp_playwright-mcp_browser_select_option",
+        "mcp_playwright-mcp_browser_file_upload",
+        "mcp_playwright-mcp_browser_handle_dialog",
         "mcp_playwright-mcp_browser_wait_for",
         "mcp_playwright-mcp_browser_console_messages",
         "mcp_playwright-mcp_browser_network_requests",
         "mcp_playwright-mcp_browser_take_screenshot",
-        # Fallback browser + API when MCP is unavailable.
-        "browser_probe",
+        # API checks alongside the browser.
         "agent_app_http",
         # Coverage boundary marker (scoped verify Phase 2).
         "walk_mark_feature",
@@ -523,7 +364,6 @@ register_subagent(
     compact_actions=(
         "mcp_playwright-mcp_browser_snapshot",
         "mcp_playwright-mcp_browser_take_screenshot",
-        "browser_probe",
     ),
     compact_keep=3,
     session_reset_every=10,

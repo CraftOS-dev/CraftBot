@@ -246,10 +246,24 @@ class AgentAppManager:
         """
         self.workspace_root = Path(workspace_root)
         self.projects: Dict[str, AgentAppProject] = {}
-        self._next_port = 3100
-        self._port_range = (3100, 3199)
-        self._used_ports: set = set()
         self._projects_file = self.workspace_root / "agent_app_projects.json"
+
+        # Ports and running instances: ONE allocator over both pools (live
+        # 3100-3199, shadow 3900-3999) and ONE registry that is the single
+        # source of truth for what is running and where traffic routes. Live
+        # ports are sticky (reserved for the project's lifetime); shadow ports
+        # are reserved per boot. Identity is the instance id, never the port.
+        from app.agent_app.instances import (
+            LIVE_RANGE,
+            InstanceRegistry,
+            PortAllocator,
+        )
+
+        self._port_range = LIVE_RANGE  # retained for the range-scan reconciler
+        self.ports = PortAllocator()
+        self.instances = InstanceRegistry(
+            self.workspace_root / "agent_app_instances.json", self.ports
+        )
 
         # Session and trigger management (set via bind_session_manager)
         self._session_manager: Optional["SessionManager"] = None
@@ -288,6 +302,7 @@ class AgentAppManager:
             self.runner,
             self._run_launch_pipeline,
             self.launch_and_verify,
+            self.instances,
         )
 
         # Backups of live pb_data (spec docs/plans/agent-app-backups-plan.md).
@@ -682,13 +697,35 @@ class AgentAppManager:
                     if _res.get("status") != "success":
                         return False
                     project.process = _res.pop("process")
+                    self.instances.register_live(
+                        project.id,
+                        project.port,
+                        pid=getattr(project.process, "pid", None),
+                        token=project.bridge_token or "",
+                        dir=str(project.path),
+                    )
                     return True
+                # A crashed process can leave a zombie holding our OWN port on
+                # Windows; clear it before rebinding (the native restart used
+                # to skip this and burn the whole retry ladder on a squatted
+                # port).
+                if project.port and self._is_port_in_use(project.port):
+                    self._kill_process_on_port(project.port)
                 project.process = await self.runner.start(
                     Path(project.path),
                     project.port,
                     bridge_token=project.bridge_token,
                 )
-                return await self.runner.wait_healthy(project.port)
+                healthy = await self.runner.wait_healthy(project.port)
+                if healthy:
+                    self.instances.register_live(
+                        project.id,
+                        project.port,
+                        pid=getattr(project.process, "pid", None),
+                        token=project.bridge_token or "",
+                        dir=str(project.path),
+                    )
+                return healthy
             except Exception as e:
                 logger.error(
                     f"[AGENT_APP:WATCHDOG] restart failed for {project.id}: {e}"
@@ -936,11 +973,11 @@ UI in {project.path}/frontend/src/app/."""
                                 # longer reaches it.
                                 self._publish_tunnel_origin(project, None)
                         self.projects[project.id] = project
-                        # Track both frontend and backend ports
+                        # The live port is sticky: reserved for the project's
+                        # whole lifetime, not a single boot, so the allocator
+                        # never re-hands it while the app is merely stopped.
                         if project.port:
-                            self._used_ports.add(project.port)
-                        if project.backend_port:
-                            self._used_ports.add(project.backend_port)
+                            self.ports.reserve_known(project.port)
                 logger.info(f"[AGENT_APP] Loaded {len(self.projects)} projects")
             except Exception as e:
                 logger.error(f"[AGENT_APP] Failed to load projects: {e}")
@@ -968,31 +1005,14 @@ UI in {project.path}/frontend/src/app/."""
             logger.error(f"[AGENT_APP] Failed to save projects: {e}")
 
     def _allocate_port(self) -> int:
-        """Allocate a free port for a Agent App project.
+        """Reserve a live (3100-3199) port via the shared allocator.
 
-        Checks both the internal tracking set AND actual system port usage
-        to avoid conflicts with orphan processes.
-        """
-        for port in range(self._port_range[0], self._port_range[1] + 1):
-            # Skip if tracked as used
-            if port in self._used_ports:
-                continue
-            # Skip if actually in use on the system
-            if self._is_port_in_use(port):
-                logger.warning(
-                    f"[AGENT_APP] Port {port} in use by external process, skipping"
-                )
-                continue
-            # connect_ex only sees a LISTENER, and nothing binds this port
-            # until much later in the pipeline. Bind-probe too, the way
-            # DevProvisioner._free_port already does, so two launches racing
-            # through that window are not handed the same "free" port.
-            if not self._can_bind(port):
-                logger.warning(f"[AGENT_APP] Port {port} not bindable, skipping")
-                continue
-            self._used_ports.add(port)
-            return port
-        raise RuntimeError("No available ports in the Agent App port range")
+        Reserve-before-return with one lock over both pools: two launches
+        racing through the pre-bind window can never be handed the same port
+        (raises PortPoolExhausted, a RuntimeError, when the pool is full)."""
+        from app.agent_app.instances import ROLE_LIVE
+
+        return self.ports.reserve(ROLE_LIVE)
 
     def _launch_lock(self, project_id: str) -> asyncio.Lock:
         """The per-project launch lock, created on first use.
@@ -1031,8 +1051,9 @@ UI in {project.path}/frontend/src/app/."""
         return False
 
     def _release_port(self, port: int) -> None:
-        """Release a port back to the pool."""
-        self._used_ports.discard(port)
+        """Release a live port back to the pool (project delete only — the
+        port is sticky across stop/start)."""
+        self.ports.release(port)
 
     @staticmethod
     def _can_bind(port: int) -> bool:
@@ -1049,6 +1070,20 @@ UI in {project.path}/frontend/src/app/."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5)
             return s.connect_ex(("localhost", port)) == 0
+
+    def _port_is_ours(self, port: int, ports_to_check: Optional[Set[int]]) -> bool:
+        """True when `port` is one we should consider for reaping: either it is
+        in the explicit owned set, or (when no set is given) it falls in EITHER
+        Agent App pool (live 3100-3199 or shadow 3900-3999). Ownership is
+        structural — a port range and our own records — never a match on a
+        process command line."""
+        if ports_to_check is not None:
+            return port in ports_to_check
+        from app.agent_app.instances import LIVE_RANGE, SHADOW_RANGE
+
+        return (LIVE_RANGE[0] <= port <= LIVE_RANGE[1]) or (
+            SHADOW_RANGE[0] <= port <= SHADOW_RANGE[1]
+        )
 
     def _get_pids_on_ports(
         self, ports_to_check: Optional[Set[int]] = None
@@ -1088,17 +1123,8 @@ UI in {project.path}/frontend/src/app/."""
                             if ":" in addr:
                                 try:
                                     port = int(addr.split(":")[-1])
-                                    # Check if port is in range and optionally in the filter set
-                                    if (
-                                        self._port_range[0]
-                                        <= port
-                                        <= self._port_range[1]
-                                    ):
-                                        if (
-                                            ports_to_check is None
-                                            or port in ports_to_check
-                                        ):
-                                            port_pids[port] = pid
+                                    if self._port_is_ours(port, ports_to_check):
+                                        port_pids[port] = pid
                                 except ValueError:
                                     pass
             except Exception as e:
@@ -1123,17 +1149,9 @@ UI in {project.path}/frontend/src/app/."""
                                 if ":" in part:
                                     try:
                                         port = int(part.split(":")[-1])
-                                        if (
-                                            self._port_range[0]
-                                            <= port
-                                            <= self._port_range[1]
-                                        ):
-                                            if (
-                                                ports_to_check is None
-                                                or port in ports_to_check
-                                            ):
-                                                port_pids[port] = pid
-                                                break
+                                        if self._port_is_ours(port, ports_to_check):
+                                            port_pids[port] = pid
+                                            break
                                     except ValueError:
                                         pass
             except Exception as e:
@@ -1223,7 +1241,7 @@ UI in {project.path}/frontend/src/app/."""
         """The native launch pipeline against ONE code tree:
         install → validation gate → serve → health → hook-load scan → smoke.
 
-        `shadow` (a ShadowInstance) redirects the boot's three inputs —
+        `shadow` (a registry Instance) redirects the boot's three inputs —
         hidden port, fresh data dir, content-addressed build artifact — and
         the same tree serves both environments. One definition means fix
         missions get identical evidence quality (boot-log excerpts,
@@ -1279,7 +1297,8 @@ UI in {project.path}/frontend/src/app/."""
                     "validation",
                     ["gate produced no build artifact for the shadow boot"],
                 )
-            shadow.public_dir = gate.artifact
+            # Stored on the registry Instance (persisted JSON) — keep it a str.
+            shadow.public_dir = str(gate.artifact)
 
         # pocketbase.log is append-mode across launches: remember where THIS
         # boot starts so failures below can quote only their own boot's lines.
@@ -1354,20 +1373,12 @@ UI in {project.path}/frontend/src/app/."""
                 ],
             )
 
-        # Walk-verify smoke pass (headless, invisible): app must mount with
-        # zero console errors. 'skipped' (no browser) never blocks a launch.
-        url = f"http://127.0.0.1:{port}"
-        verify_status, verify_detail = await self.runner.verify(project_dir, url)
-        if verify_status == "fail":
-            self._terminate_process(process)
-            # The browser sees only status codes; the CAUSE (hook exception,
-            # bad query) is server-side. Ship this boot's log lines so the
-            # agent debugs evidence instead of inventing explanations.
-            errors = [verify_detail]
-            boot_log = _pb_log_since_boot()
-            if boot_log:
-                errors.append("pocketbase.log (this boot):\n" + boot_log)
-            return _fail("verify", errors)
+        # Frontend render is verified by walk_verify (Playwright MCP), which
+        # opens the app and FAILs on a blank/error first paint. The launch
+        # pipeline's own gates are the server-side ones above (health +
+        # hook-load) plus the changed-op smoke below; there is no separate
+        # in-process browser probe.
+
         # Changed-op smoke (shadow only): invoke the server ops this change
         # touched and carry any failure out as EVIDENCE — the fixing agent
         # gets the status + response body one turn earlier than a walk
@@ -1392,16 +1403,6 @@ UI in {project.path}/frontend/src/app/."""
                 {"name": r.name, "ok": r.ok, "status": r.status, "detail": r.detail}
                 for r in op_smoke_results
             ]
-        if verify_status == "skipped":
-            logger.warning(
-                f"[AGENT_APP] verify skipped for {project_dir.name}: {verify_detail}"
-            )
-            # A skip is not a pass. Carried out of the pipeline so the caller
-            # can say so: the launch message otherwise claims "gate, health
-            # and smoke checks passed" when the smoke walk never ran (it was
-            # skipped on every launch in the 2026-09-02 session — "playwright
-            # not installed" — and nobody downstream ever heard about it).
-            envelope["verify_skipped"] = verify_detail or "browser not installed"
         return envelope
 
     def _external_config(self, project_dir: Path) -> Dict[str, Any]:
@@ -1742,6 +1743,17 @@ UI in {project.path}/frontend/src/app/."""
 
         project.process = result.pop("process")
 
+        # Register the LIVE instance (identity + pid) so routing, liveness and
+        # the startup reconciler resolve it by instance id, never by scanning
+        # ports. The live port is sticky, so this does not re-reserve it.
+        self.instances.register_live(
+            project.id,
+            project.port,
+            pid=getattr(project.process, "pid", None),
+            token=project.bridge_token or "",
+            dir=str(project.path),
+        )
+
         project.status = "running"
         project.url = f"http://127.0.0.1:{project.port}"
         project.backend_url = project.url
@@ -1773,16 +1785,14 @@ UI in {project.path}/frontend/src/app/."""
             "backend_url": project.url,
             "port": project.port,
         }
-        if result.get("verify_skipped"):
-            envelope["verify_skipped"] = result["verify_skipped"]
         return envelope
 
     async def _record_verify_baseline(self, project: AgentAppProject) -> None:
         """Best-effort, off the event loop; never fails a launch."""
         try:
-            from app.factory.host_craftbot import get_factory_host
-
-            if get_factory_host().get_staging_record(project.id):
+            # A shadow up means dev-in-progress: the baseline belongs to the
+            # promoted tree, not a mid-change one.
+            if self.instances.shadow(project.id) is not None:
                 return
             from app.agent_app.verify_scope import ensure_baseline, verify_store_dir
 
@@ -2302,15 +2312,6 @@ UI in {project.path}/frontend/src/app/."""
         Returns:
             True if a process was killed, False otherwise
         """
-        # Whatever served this port is going away — any warm probe page that
-        # rendered it is now showing a dead build. Every boot and stop path
-        # funnels through here, which makes it THE invalidation chokepoint.
-        try:
-            from app.agent_app.probe_pool import get_probe_pool
-
-            get_probe_pool().drop(port)
-        except Exception:
-            pass
         if os.name != "nt":
             # Linux/Mac: use lsof and kill
             try:
@@ -2383,53 +2384,45 @@ UI in {project.path}/frontend/src/app/."""
         """
         logger.info("[AGENT_APP] Running startup cleanup...")
 
-        # 1. Kill orphan processes - on both frontend and backend ports
+        # Nothing of ours is legitimately running yet: every app process died
+        # with the previous CraftBot. Reconcile against the OS by the ports WE
+        # OWN — every project's sticky LIVE port (persisted) plus every port a
+        # prior registry instance (live or shadow) claimed. Snapshotting and
+        # clearing the registry first releases the shadow reservations; the
+        # live ports were re-reserved from the project list at load.
+        #
+        # We kill only listeners sitting on ports WE own, by pid. Ownership is
+        # structural (our port ranges and our own records), so a foreign
+        # process on a port we never claimed is never touched, and there is no
+        # command-line/string matching to decide "is this ours".
+        prior = self.instances.reset()
+        owned_ports = {p.port for p in self.projects.values() if p.port}
+        owned_ports |= {i.port for i in prior}
+
         killed_count = 0
-        tracked_ports = set()
-        for p in self.projects.values():
-            if p.port:
-                tracked_ports.add(p.port)
-            if p.backend_port:
-                tracked_ports.add(p.backend_port)
-
-        if tracked_ports:
-            # Get all port -> PID mappings with a single system call
-            port_pids = self._get_pids_on_ports(tracked_ports)
-
-            # Kill processes on tracked ports
-            for port, pid in port_pids.items():
+        if owned_ports:
+            for port, pid in self._get_pids_on_ports(owned_ports).items():
                 if self._kill_process_by_pid(pid):
                     killed_count += 1
-                    logger.info(f"[AGENT_APP] Killed process {pid} on port {port}")
-
+                    logger.info(
+                        f"[AGENT_APP] reclaimed owned port {port} (pid {pid})"
+                    )
         if killed_count > 0:
-            logger.info(f"[AGENT_APP] Killed {killed_count} orphan process(es)")
+            logger.info(f"[AGENT_APP] reclaimed {killed_count} leftover process(es)")
 
-        # 2. Log orphan project folders (do NOT delete — deleting them at boot
-        # has destroyed real user projects; logging is the safe behavior).
+        # Log orphan project folders (do NOT delete — deleting them at boot has
+        # destroyed real user projects; logging is the safe behavior).
         orphan_count = self._log_orphan_folders()
         if orphan_count > 0:
             logger.info(
                 f"[AGENT_APP] Found {orphan_count} orphan folder(s) (left in place)"
             )
 
-        # 2b. Reap dev environments. None is legitimately alive at boot
-        # (their build/modify missions died with the previous process), but
-        # their PocketBase instances outlive us — kill by recorded pid,
-        # delete the copies, clear the records so nothing redirects to a
-        # dead port.
+        # Sweep dev-env leftover directories. Process kills were handled above
+        # by owned-port reclaim across BOTH ranges (the shadow range included),
+        # so a deleted-project shadow can no longer leak an untracked process.
         try:
-            from app.factory.host_craftbot import get_factory_host
-
-            host = get_factory_host()
-            records = {}
-            for pid_ in list(self.projects):
-                record = host.get_staging_record(pid_)
-                if record:
-                    records[pid_] = record
-            reaped = self.lifecycle.reap_dev(records)
-            for pid_ in records:
-                host.clear_staging_record(pid_)
+            reaped = self.lifecycle.reap_dirs()
             if reaped:
                 logger.info(f"[AGENT_APP] Reaped {reaped} dev-env leftover(s)")
         except Exception as e:
@@ -3676,14 +3669,15 @@ UI in {project.path}/frontend/src/app/."""
                     ),
                 }
 
-            # Ports: an adopted project keeps its scaffold ports (the tab and
-            # session already reference them); fresh installs allocate.
+            # Ports: an adopted project keeps its scaffold port (the tab and
+            # session already reference it); fresh installs allocate one. One
+            # PocketBase process serves API + frontend, so the {{BACKEND_PORT}}
+            # template placeholder is the SAME port — no second allocation.
             if adopting and existing.port:
                 frontend_port = existing.port
-                backend_port = existing.backend_port or existing.port
             else:
                 frontend_port = self._allocate_port()
-                backend_port = self._allocate_port()
+            backend_port = frontend_port
 
             # Replace placeholders (marketplace apps use the same template placeholders)
             # Build replacements — system placeholders + custom fields
@@ -4368,14 +4362,7 @@ UI in {project.path}/frontend/src/app/."""
             logger.error(f"[AGENT_APP] Project not found: {project_id}")
             return False
 
-        # The app on this port is going down — invalidate its warm probe page.
-        if project.port:
-            try:
-                from app.agent_app.probe_pool import get_probe_pool
-
-                get_probe_pool().drop(project.port)
-            except Exception:
-                pass
+        live = self.instances.live(project_id)
 
         # External teardown FIRST: the in-process A2App proxy holds the
         # project port — a kill-by-port on that listener would be killing
@@ -4401,9 +4388,17 @@ UI in {project.path}/frontend/src/app/."""
             self._terminate_process(project.process)
             project.process = None
 
-        # Also kill by port in case process reference is stale
+        # Also kill by port in case process reference is stale (the project's
+        # OWN sticky port — not a cross-project lookup).
         if project.port and self._is_port_in_use(project.port):
             self._kill_process_on_port(project.port)
+
+        # Drop the live instance from the registry. The sticky live port stays
+        # reserved (the project keeps its address across stop/start); a shadow
+        # dev boot, if any, is left running — stopping the live app does not
+        # end a modify in progress.
+        if live is not None:
+            self.instances.remove(live.instance_id)
 
         project.url = None
 
@@ -4470,11 +4465,21 @@ UI in {project.path}/frontend/src/app/."""
                     f"{project_id}: {e} — deleting without a final backup"
                 )
 
-        # Release ports
+        # Tear down every running instance of this project. The live app was
+        # already stopped above; a shadow dev boot is killed and swept HERE so
+        # delete can never leak an orphan process holding a shadow port (the
+        # old delete-while-shadow-up leak). clear_project releases the shadow
+        # ports; the sticky live port is released explicitly below.
+        from app.agent_app.instances import ROLE_SHADOW
+
+        for inst in self.instances.for_project(project_id):
+            if inst.role == ROLE_SHADOW:
+                self.lifecycle.provisioner.destroy(project_id, inst)
+        self.instances.clear_project(project_id)
+
+        # Release the sticky live port back to the pool.
         if project.port:
             self._release_port(project.port)
-        if project.backend_port:
-            self._release_port(project.backend_port)
 
         # Delete project directory. SAFETY: only ever delete inside the
         # Agent App workspace. A never-adopted placeholder has path "" and
@@ -4623,18 +4628,15 @@ UI in {project.path}/frontend/src/app/."""
 
     @staticmethod
     def _serving_port(project: AgentAppProject) -> Optional[int]:
-        """The port the app ACTUALLY listens on.
+        """The port the app ACTUALLY listens on: always `project.port`.
 
-        `port` — never `backend_port`. Under the unified lifecycle the app is
-        one PocketBase process serving API and frontend together, launched as
-        `runner.start(project_dir, project.port)`; for an external app the
-        A2App proxy holds `project.port` in front of the foreign process.
-        `backend_port` is a survivor of the old vite+backend split: it is still
-        allocated and persisted, but NOTHING binds it. Sharing preferred it and
-        so pointed cloudflared at a port that answered every connection with
-        "connection refused" — the app was up on :3100 the whole time.
-        """
-        return project.port or project.backend_port
+        Under the unified lifecycle the app is one PocketBase process serving
+        API and frontend together (`runner.start(project_dir, project.port)`);
+        for an external app the A2App proxy holds `project.port` in front of
+        the foreign process. `backend_port` was the old vite+backend split's
+        second port — nothing binds it, so nothing is allocated for it or
+        served from it any more."""
+        return project.port
 
     def get_lan_url(self, project_id: str) -> Optional[str]:
         """Get the LAN-accessible URL for a running project.

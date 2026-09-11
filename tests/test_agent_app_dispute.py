@@ -215,7 +215,8 @@ class TestTheFixBrief:
         arc.record_disputed([DISPUTE])
 
         host = get_factory_host()
-        monkeypatch.setattr(host, "get_staging_record", lambda _pid: None)
+        # "A dev env exists" now lives in the InstanceRegistry; with no manager
+        # wired in this unit test the log-dir picker falls back to project.path.
         monkeypatch.setattr(host, "_select_cookbooks", lambda _text: [])
         card = types.SimpleNamespace(
             render=lambda: (
