@@ -9,7 +9,6 @@ import type {
   AgentAppProject, AgentAppCreateRequest, AgentAppStatusUpdate, AgentAppStateUpdate,
 } from '../types'
 import { QUESTION_DISMISSED } from '../types'
-import { scheduleRefreshIframe } from '../pages/AgentApp/iframePool'
 import i18n from '../i18n/config'
 import { getSocketClient } from '../store/socket/socketInstance'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
@@ -296,13 +295,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       }
 
       // Almost all message handling lives in slices via the registry.
-      // The two cases below are the residue: one needs the iframe pool
-      // (a non-state side effect), the other needs react-router's navigate.
-      case 'agent_app_data_changed': {
-        const { projectId } = msg.data as { projectId: string }
-        if (projectId) scheduleRefreshIframe(projectId)
-        break
-      }
+      // The case below is the residue: it needs react-router's navigate.
 
       case 'navigate': {
         const { path } = (msg.data || {}) as { path?: string }

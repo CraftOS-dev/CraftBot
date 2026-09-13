@@ -2012,13 +2012,6 @@ UI in {project.path}/frontend/src/app/."""
                     ],
                 }
 
-            # Open tabs still paint pre-restore rows through the restart.
-            try:
-                from app.agent_app.broadcast import dispatch_agent_app_data_changed
-
-                dispatch_agent_app_data_changed(project_id)
-            except Exception:
-                pass
             logger.info(
                 f"[AGENT_APP:BACKUP] {project_id} restored from {filename}"
                 + (

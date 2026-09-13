@@ -795,7 +795,6 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_ready=self.broadcast_agent_app_ready,
             broadcast_progress=self.broadcast_agent_app_progress,
             broadcast_todos=self.broadcast_agent_app_todos,
-            broadcast_data_changed=self.broadcast_agent_app_data_changed,
             broadcast_created=self.broadcast_agent_app_created,
             broadcast_build_event=self.broadcast_agent_app_build_event,
             broadcast_wizard_open=self.broadcast_agent_app_wizard_open,
@@ -3948,16 +3947,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "projectId": project_id,
                     "event": event,
                 },
-            }
-        )
-
-    async def broadcast_agent_app_data_changed(self, project_id: str) -> None:
-        """Tell the browser that a Agent App's backend data was just modified
-        by the agent, so it should refresh the iframe to display new state."""
-        await self._broadcast(
-            {
-                "type": "agent_app_data_changed",
-                "data": {"projectId": project_id},
             }
         )
 

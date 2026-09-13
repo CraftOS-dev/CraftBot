@@ -194,7 +194,6 @@ export type WSMessageType =
   | 'agent_app_stop'
   | 'agent_app_delete'
   | 'agent_app_state_update'
-  | 'agent_app_data_changed'
   | 'agent_app_build_event'
   | 'agent_app_build_events_replay'
   | 'agent_app_error'

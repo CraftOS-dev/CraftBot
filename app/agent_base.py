@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import shutil
 import traceback
 import time
@@ -318,7 +317,6 @@ class AgentBase:
         # A2APP claim gate (spec A2APP-PLAN Phase 1 B10): what this run has
         # actually written to a Agent App, and how many messages have been
         # withheld for misreporting it. Both reset when the run ends.
-        self._lui_run_writes: Dict[str, list] = {}
 
         # action layer
         self.action_library = ActionLibrary(self.llm, db_interface=self.db_interface)
@@ -1190,10 +1188,6 @@ class AgentBase:
             is_running_task=True,
         )
 
-        # A2APP: when the agent writes to a Agent App, the SYSTEM reports what
-        # actually landed. See spec/A2APP-PLAN.md Phase 1 B10/B11.
-        self._report_agent_app_writes(session_id, actions_with_input, results)
-
         return self._merge_action_outputs(results)
 
     async def _warn_if_undeployed(self, session) -> None:
@@ -1275,132 +1269,6 @@ class AgentBase:
             "\n".join(f"{p}:{now.get(p, '-')}" for p in differing).encode()
         ).hexdigest()[:16]
 
-    # Recognises a WRITE through the lui CLI. Reads (list/get) are ignored:
-    # they change nothing and need no receipt.
-    _LUI_WRITE = re.compile(
-        r"cli\.ts\s+(?:data\s+\S+\s+(?P<collection>\S+)\s+(?P<verb>create|update|delete)"
-        r"|run\s+\S+\s+(?P<op>[\w.\-]+))"
-    )
-
-    def _report_agent_app_writes(
-        self, session_id: str, actions_with_input: list, results: list
-    ) -> None:
-        """Track what a turn changed and refresh the app. No chat bubble.
-
-        The per-write summary is recorded for the run's claim gate and used to
-        decide whether the app needs a refresh, but it is NOT shown to the
-        user. Data-write receipts were noise; the user hears about a change
-        from the agent's own reply, if the agent judges it worth saying.
-
-        This is also the only place `dispatch_agent_app_data_changed` fires on
-        the CLI path (previously it fired solely from the deprecated
-        `agent_app_http` action, so agent writes never refreshed the iframe).
-        """
-        try:
-            session = self.session_manager.get(session_id)
-        except Exception:
-            session = None
-        project_id = getattr(session, "agent_app_project_id", None) if session else None
-        if not project_id:
-            return
-
-        summaries = []
-        for (action, params), result in zip(actions_with_input, results):
-            try:
-                if getattr(action, "name", None) != "run_shell":
-                    continue
-                command = str((params or {}).get("command") or "")
-                match = self._LUI_WRITE.search(command)
-                if match is None:
-                    continue
-                # Trigger-plane bookkeeping is not user data: claim/done
-                # updates on agent_requests already have their user-facing
-                # output — the ⚡ fired event and the agent's final message.
-                # Receipting them produced three noise bubbles per fire
-                # ("claimed by craftbot… status claimed", then "…status
-                # done") between the ⚡ and the actual answer (observed live
-                # 2026-08-06, user: "bad UX to get so many status messages").
-                if match.group("collection") == "agent_requests":
-                    continue
-                summary = self._describe_write(session_id, project_id, match, result)
-                if summary:
-                    summaries.append(summary)
-            except Exception as e:  # a receipt must never break the turn
-                logger.debug(f"[A2APP] receipt skipped: {e}")
-
-        if not summaries:
-            return
-
-        # Data-write receipts are no longer shown to the user (they were
-        # noise). The summaries above still feed the run claim gate and gate
-        # the refresh below; the user hears about changes from the agent.
-        try:
-            from app.agent_app import dispatch_agent_app_data_changed
-
-            dispatch_agent_app_data_changed(project_id)
-        except Exception as e:
-            logger.debug(f"[A2APP] data-changed dispatch skipped: {e}")
-
-    def _describe_write(
-        self, session_id: str, project_id: str, match, result: dict
-    ) -> Optional[str]:
-        """One CLI write result -> one plain sentence, or None if there is
-        nothing the user needs to read."""
-        import json as _json
-
-        collection = match.group("collection")
-        verb = match.group("verb")
-        target = match.group("op") or f"{collection}.{verb}"
-        stdout = str((result or {}).get("stdout") or "")
-        stderr = str((result or {}).get("stderr") or "")
-        failed = (result or {}).get("status") == "error" or (result or {}).get(
-            "return_code"
-        ) not in (0, None)
-
-        # A failure the agent goes on to recover from is NOT an event in the
-        # user's world — it is an internal retry, and putting it in the chat
-        # reads like the assistant arguing with itself. The agent still sees it
-        # (action_end carries the full stderr) and so does anyone who opens the
-        # actions detail; the conversation stays about what the user asked for.
-        if failed:
-            logger.info(
-                f"[A2APP] {target} rejected: {(stderr or stdout).strip()[:200]}"
-            )
-            return None
-
-        record = None
-        try:
-            parsed = _json.loads(stdout)
-            if isinstance(parsed, dict) and "id" in parsed:
-                record = parsed
-        except Exception:
-            record = None
-
-        summary = f"{target} ok"
-        if record is not None and collection:
-            try:
-                from app.agent_app import get_agent_app_manager
-                from app.agent_app.agent_view import humanise_write
-
-                mgr = get_agent_app_manager()
-                proj = mgr.get_project(project_id) if mgr else None
-                base = (proj.backend_url or proj.url) if proj else None
-                if base:
-                    summary = humanise_write(
-                        base.rstrip("/"), collection, verb or "create", record
-                    )
-            except Exception as e:
-                logger.debug(f"[A2APP] could not humanise receipt: {e}")
-
-        self._lui_run_writes.setdefault(session_id, []).append(
-            {
-                "collection": collection,
-                "verb": verb,
-                "record": record,
-                "summary": summary,
-            }
-        )
-        return summary
 
     def _merge_action_outputs(self, outputs: list) -> dict:
         """
@@ -1456,9 +1324,6 @@ class AgentBase:
         run_ends = bool(action_output.get("run_ends", False))
 
         if run_ends:
-            # The claim gate is scoped to a run: what was written for THIS
-            # request says nothing about the next one.
-            self._lui_run_writes.pop(session.id, None)
             # Files edited but never deployed: the user hears it from the
             # system, not from an agent that believes "written" means "live".
             await self._warn_if_undeployed(session)
@@ -1620,7 +1485,6 @@ class AgentBase:
         Called by the session runtime after the turn task is cancelled and
         queued continuations are purged.
         """
-        self._lui_run_writes.pop(session_id, None)
 
         # FACTORY: the stop is recorded as INTENT. A paused arc never
         # auto-resumes — without this, the machine later read the phantom

@@ -26,7 +26,6 @@ def agent():
     it is involved in deciding whether a run left un-deployed edits behind.
     """
     a = AgentBase.__new__(AgentBase)
-    a._lui_run_writes = {}
     return a
 
 

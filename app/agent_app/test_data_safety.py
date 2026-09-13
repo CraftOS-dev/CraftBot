@@ -536,9 +536,6 @@ def _wire(project, host):
     agent_app_mod.get_agent_app_manager = lambda: stub
     agent_app_mod.broadcast_agent_app_ready = _b_ready
     agent_app_mod.broadcast_agent_app_progress = _b_progress
-    agent_app_mod.dispatch_agent_app_data_changed = lambda pid: EVENTS.append(
-        "data_changed"
-    )
     wv_mod.run_walk_verify = _walk_stub
     host.report_launch_success = lambda pid: None
     host.report_verify = lambda *a, **k: types.SimpleNamespace(
@@ -713,12 +710,8 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         assert out["status"] == "success"
         assert HTTP[-1][1].startswith(_http_inst.url), "write must hit the SHADOW"
-        assert "data_changed" not in EVENTS, (
-            "dev writes must not reload the user's iframe"
-        )
 
-        # arc closed, no dev env → live writes are USER data and flow to
-        # the real app + data_changed dispatch.
+        # arc closed, no dev env → live writes are USER data and hit the real app.
         stub.instances.clear_project("acthttp01")
         host.arc_for("acthttp01").close()
         EVENTS.clear()
@@ -729,7 +722,6 @@ with tempfile.TemporaryDirectory() as tmp:
         assert out["status"] == "success" and HTTP[-1][1].startswith(
             "http://127.0.0.1:3134"
         )
-        assert "data_changed" in EVENTS
     finally:
         _requests.request = _orig_request
     print("§8 agent_app_http redirect/refusal: OK")

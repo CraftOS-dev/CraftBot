@@ -331,5 +331,3 @@ register('agent_app_error', (data, dispatch) => {
   dispatch(markError(data as { projectId: string; error: string }))
 })
 
-// `agent_app_data_changed` has no state — it just nudges the iframe pool to
-// reload. Handled in WebSocketContext where scheduleRefreshIframe is imported.

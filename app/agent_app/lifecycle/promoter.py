@@ -125,15 +125,6 @@ class Promoter:
         except Exception as e:
             logger.warning(f"[AGENT_APP:PROMOTE] trigger approval failed: {e}")
 
-        # A tab still showing the pre-promote app must refetch (realtime
-        # keeps old rows painted through a server restart).
-        try:
-            from app.agent_app.broadcast import dispatch_agent_app_data_changed
-
-            dispatch_agent_app_data_changed(project.id)
-        except Exception:
-            pass
-
         logger.info(
             f"[AGENT_APP:PROMOTE] {project.id} promoted "
             f"({'first delivery' if first else 'update'})"

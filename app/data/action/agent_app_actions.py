@@ -2096,23 +2096,6 @@ def agent_app_http(input_data: dict) -> dict:
         if parsed_json is not None:
             out["response_json"] = parsed_json
 
-        # If the agent just mutated the Agent App's data, tell the browser so the
-        # iframe reloads to show fresh state. The frontend debounces these so a
-        # burst of writes only triggers one reload. Dev-env writes hit the
-        # disposable copy — the user's iframe shows the LIVE app, so a reload
-        # would be noise about data it can't even see.
-        if (
-            resp.ok
-            and method in {"POST", "PUT", "PATCH", "DELETE"}
-            and _dev_url is None
-        ):
-            try:
-                from app.agent_app import dispatch_agent_app_data_changed
-
-                dispatch_agent_app_data_changed(project_id)
-            except Exception:
-                pass
-
         return out
     except Exception as e:
         return {
