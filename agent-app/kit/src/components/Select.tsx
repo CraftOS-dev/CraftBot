@@ -45,7 +45,7 @@ export function Select({
           id={selectId}
           aria-invalid={error !== undefined || undefined}
           className={cn(
-            'h-9 w-full appearance-none rounded-[var(--lui-radius)] border border-[var(--lui-border)] bg-[var(--lui-surface)] px-3 pr-8 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--lui-accent)]',
+            'h-9 w-full appearance-none rounded-[var(--lui-radius)] border border-[var(--lui-border)] bg-[var(--lui-surface-2)] px-3 pr-8 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--lui-ring)]',
             error !== undefined && 'border-red-500',
             className,
           )}

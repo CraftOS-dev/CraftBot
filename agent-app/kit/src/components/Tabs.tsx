@@ -70,7 +70,7 @@ export function TabsList({
     <div
       role="tablist"
       className={cn(
-        'inline-flex w-fit items-center gap-1 rounded-[var(--lui-radius)] bg-[var(--lui-border)]/40 p-1',
+        'inline-flex w-fit items-center gap-1 rounded-[var(--lui-radius)] bg-[var(--lui-surface-2)] p-1',
         className,
       )}
       {...props}

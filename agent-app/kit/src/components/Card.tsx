@@ -22,7 +22,7 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>): R
   return (
     <div
       className={cn(
-        'rounded-xl border border-[var(--lui-border)] bg-[var(--lui-surface)] shadow-sm',
+        'rounded-[var(--lui-radius)] border border-[var(--lui-border)] bg-[var(--lui-surface)] shadow-sm',
         className,
       )}
       {...props}

@@ -72,7 +72,10 @@ export function Shell({ children }: { children: ReactNode }): React.JSX.Element 
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-[var(--lui-bg)] text-[var(--lui-text)] antialiased">
+      <div
+        className="min-h-screen bg-[var(--lui-bg)] text-[var(--lui-text)] antialiased"
+        style={{ fontFamily: 'var(--lui-font)' }}
+      >
         {children}
       </div>
       <Toaster />

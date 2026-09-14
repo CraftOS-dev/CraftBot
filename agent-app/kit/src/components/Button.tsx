@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes } from 'react';
 import { cn } from '../lib/cn.ts';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 rounded-[var(--lui-radius)] text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lui-accent)]',
+  'inline-flex items-center justify-center gap-2 rounded-[var(--lui-radius)] text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lui-ring)]',
   {
     variants: {
       // Both vocabularies are accepted: the kit's original names and the
@@ -12,12 +12,12 @@ const buttonVariants = cva(
         primary: 'bg-[var(--lui-accent)] text-[var(--lui-accent-contrast)] hover:opacity-90',
         default: 'bg-[var(--lui-accent)] text-[var(--lui-accent-contrast)] hover:opacity-90',
         secondary:
-          'border border-[var(--lui-border)] bg-[var(--lui-surface)] hover:bg-[var(--lui-border)]/40',
+          'border border-[var(--lui-border)] bg-[var(--lui-surface)] hover:bg-[var(--lui-hover)]',
         outline:
-          'border border-[var(--lui-border)] bg-transparent hover:bg-[var(--lui-border)]/40',
+          'border border-[var(--lui-border)] bg-transparent hover:bg-[var(--lui-hover)]',
         danger: 'bg-red-600 text-white hover:bg-red-700',
         destructive: 'bg-red-600 text-white hover:bg-red-700',
-        ghost: 'hover:bg-[var(--lui-border)]/40',
+        ghost: 'hover:bg-[var(--lui-hover)]',
         link: 'text-[var(--lui-accent)] underline-offset-4 hover:underline',
       },
       size: {
