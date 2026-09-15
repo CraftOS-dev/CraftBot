@@ -7,7 +7,7 @@ import styles from './widgets.module.css'
 export function TokenUsageWidget() {
   const { t } = useTranslation(['dashboard'])
   const { dashboardMetrics } = useWebSocket()
-  const { period, onChange, filteredData } = useMetricsPeriod()
+  const { period, onChange, filteredData } = useMetricsPeriod('tokenUsage')
 
   const rawInputTokens = filteredData?.token.input ?? (dashboardMetrics?.token.input ?? 0)
   const outputTokens = filteredData?.token.output ?? (dashboardMetrics?.token.output ?? 0)

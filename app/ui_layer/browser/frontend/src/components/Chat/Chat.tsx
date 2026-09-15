@@ -5,6 +5,7 @@ import i18n from '../../i18n/config'
 import { formatDate } from '../../i18n/format'
 import { Send, Square, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen, Reply } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { useStore } from 'react-redux'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
 import { SlashCommandAutocomplete, AttachmentPreviewModal, PlaybookModal } from '../ui'
@@ -14,6 +15,11 @@ import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
 import { ReasoningBlock, ActionBlock, ChunkHeaderRow } from '../activity/ActivityBlocks'
 import { normalizeActionName } from '../activity/actionNames'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import type { RootState } from '../../store'
+import { selectUiState } from '../../store/selectors/ui'
+import { setUiState } from '../../store/slices/uiSlice'
+import { UI_STATE } from '../../store/uiState'
+import { usePersistedSet, usePersistedState } from '../../hooks'
 import { selectPendingPrefill, selectDraftText } from '../../store/selectors/chatInput'
 import {
   clearPendingPrefill,
@@ -49,6 +55,9 @@ interface PendingAttachment {
   url?: string              // server URL returned with serverPath (for preview)
   uploadStatus?: 'uploading' | 'ready' | 'error'
 }
+
+// Sent inputs remembered for ↑/↓ recall (per browser session).
+const INPUT_HISTORY_LIMIT = 50
 
 interface ChatProps {
   /** Session whose timeline this chat renders and whose id outgoing messages carry. */
@@ -241,26 +250,26 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     return entries
   }, [messages, activity])
 
-  // Chunk collapse state, keyed by the chunk's first item id. Chunks are
+  // Chunk collapse state: the ids (each chunk's first item id) of EXPANDED
+  // chunks, persisted per session so it survives navigation. Chunks are
   // COLLAPSED by default: a slim header row stands in for the whole
   // reasoning+actions block. While the run is appending to the tail chunk
   // the collapsed header shows the working animation + elapsed time; once
   // settled it reads "Action steps · N" with no time. Clicking toggles.
-  const [expandedChunks, setExpandedChunks] = useState<Record<string, boolean>>({})
+  const store = useStore<RootState>()
+  const [expandedChunks, , toggleExpandedChunk] = usePersistedSet(UI_STATE.chat.expandedChunks(sessionId))
   const toggleChunk = useCallback((chunkId: string) => {
-    setExpandedChunks(prev => {
-      const opening = !prev[chunkId]
-      if (opening) {
-        // Expanding inserts rows below the header. Release the bottom pin
-        // so BOTH auto-scroll paths (new-row and content-growth) stay
-        // quiet and the view remains anchored where the user clicked —
-        // no jump to the bottom. Collapsing keeps the pin (content only
-        // shrinks; the scroll position clamps naturally).
-        stickToBottomRef.current = false
-      }
-      return { ...prev, [chunkId]: opening }
-    })
-  }, [])
+    const opening = !selectUiState(store.getState(), UI_STATE.chat.expandedChunks(sessionId)).includes(chunkId)
+    if (opening) {
+      // Expanding inserts rows below the header. Release the bottom pin
+      // so BOTH auto-scroll paths (new-row and content-growth) stay
+      // quiet and the view remains anchored where the user clicked —
+      // no jump to the bottom. Collapsing keeps the pin (content only
+      // shrinks; the scroll position clamps naturally).
+      stickToBottomRef.current = false
+    }
+    toggleExpandedChunk(chunkId)
+  }, [store, sessionId, toggleExpandedChunk])
 
   const { displayRows, tailChunk } = useMemo(() => {
     type TailChunkInfo = { chunkId: string; expanded: boolean; startTs: number }
@@ -286,7 +295,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       if (actionCount === 0) return
 
       const chunkId = visible[0].id
-      const expanded = !!expandedChunks[chunkId]
+      const expanded = expandedChunks.has(chunkId)
       const startTs = visible[0].createdAt ?? 0
       rows.push({
         kind: 'chunkHeader',
@@ -366,10 +375,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // Reply-to-bubble: set from an agent bubble's hover Reply action. The
   // next send carries the quoted original so the event stream records
   // which message the user replied to. No routing — session is explicit.
-  const [replyTarget, setReplyTarget] = useState<{
-    displayName: string
-    originalContent: string
-  } | null>(null)
+  // Persisted per session, alongside the draft it belongs to.
+  const [replyTarget, setReplyTarget] = usePersistedState(UI_STATE.chat.replyTarget(sessionId))
   const pendingPrefill = useAppSelector(selectPendingPrefill)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -383,10 +390,10 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const [isListening, setIsListening] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null)
-  const [micLang, setMicLang] = useState(() => {
-    const browserLang = navigator.language || 'en-US'
-    return MIC_LANGUAGES.some(l => l.code === browserLang) ? browserLang : 'en-US'
-  })
+  // The saved choice wins; until the user picks one, follow the browser.
+  const [savedMicLang, setMicLang] = usePersistedState(UI_STATE.chat.micLanguage)
+  const micLang = [savedMicLang, navigator.language]
+    .find(code => MIC_LANGUAGES.some(l => l.code === code)) ?? 'en-US'
   const [langOpen, setLangOpen] = useState(false)
   const langDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -402,8 +409,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const [suggestedPlaybooks, setSuggestedPlaybooks] = useState<SuggestedPlaybook[]>([])
   const [playbookOpen, setPlaybookOpen] = useState(false)
 
-  // Input history (terminal-style up/down arrow navigation)
-  const inputHistoryRef = useRef<string[]>([])
+  // Input history (terminal-style up/down arrow navigation), kept for the
+  // browser session.
+  const [inputHistory, setInputHistory] = usePersistedState(UI_STATE.chat.inputHistory)
   const historyIndexRef = useRef(-1)
   const parentRef = useRef<HTMLDivElement>(null)
   // Stick-to-bottom INTENT: true means "keep me pinned to the newest
@@ -593,8 +601,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     // Composer draft is intentionally NOT reset here — it's persisted per
     // session in Redux (see `input`/`setInput` above) and should still be
     // there when the user switches back to this session.
-    setReplyTarget(null)
-    setExpandedChunks({})
+    // Reply target and expanded chunks are persisted per session, so they
+    // already follow the switch.
     setPendingAttachments([])
     setAttachmentError(null)
     setIsDragOver(false)
@@ -700,6 +708,19 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
 
     let pointerHeld = false
 
+    // Remember where the user is in this conversation (null = following the
+    // newest content), at most once per frame. Skipped until the initial
+    // placement has run, so a half-loaded timeline never overwrites it.
+    let saveFrame = 0
+    const saveScrollOffset = () => {
+      if (!hasInitialScrolled.current) return
+      cancelAnimationFrame(saveFrame)
+      saveFrame = requestAnimationFrame(() => {
+        const offset = stickToBottomRef.current ? null : Math.round(container.scrollTop)
+        dispatch(setUiState(UI_STATE.chat.scrollOffset(sessionId), offset))
+      })
+    }
+
     const handleScroll = () => {
       const scrollTop = container.scrollTop
       const distFromBottom = container.scrollHeight - scrollTop - container.clientHeight
@@ -713,6 +734,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
         stickToBottomRef.current = false
       }
       setShowScrollToBottom(!nearBottom && !stickToBottomRef.current)
+      saveScrollOffset()
 
       if (!isDraft && scrollTop < 100 && hasMoreMessages && !loadingOlderMessages && oldestMessageTimestamp !== undefined) {
         requestChatHistory(sessionId, oldestMessageTimestamp, 50)
@@ -750,6 +772,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     container.addEventListener('pointerdown', handlePointerDown)
     window.addEventListener('pointerup', handlePointerUp)
     return () => {
+      cancelAnimationFrame(saveFrame)
       container.removeEventListener('scroll', handleScroll)
       container.removeEventListener('wheel', handleWheel)
       container.removeEventListener('touchstart', handleTouchStart)
@@ -757,7 +780,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       container.removeEventListener('pointerdown', handlePointerDown)
       window.removeEventListener('pointerup', handlePointerUp)
     }
-  }, [hasMoreMessages, loadingOlderMessages, oldestMessageTimestamp, requestChatHistory, sessionId, isDraft])
+  }, [hasMoreMessages, loadingOlderMessages, oldestMessageTimestamp, requestChatHistory, sessionId, isDraft, dispatch])
 
   // Instant jump to the true bottom (now + next frame, so post-commit
   // re-measures by the virtualizer are covered too). No smooth animation:
@@ -780,8 +803,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     setShowScrollToBottom(false)
   }, [rowCount, pinToBottom])
 
-  // Scroll to unread on mount; while stick-to-bottom is engaged, follow
-  // new rows. rowCount includes the live status row.
+  // Initial placement on mount: the first unread message, else where the user
+  // left this conversation, else the bottom. While stick-to-bottom is
+  // engaged, follow new rows. rowCount includes the live status row.
   useEffect(() => {
     if (rowCount === 0) return
 
@@ -796,10 +820,14 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       if (!isDraft && historyStatus !== 'fetched') return
       hasInitialScrolled.current = true
       const firstUnreadIdx = getFirstUnreadIndex()
+      const savedOffset = selectUiState(store.getState(), UI_STATE.chat.scrollOffset(sessionId))
       setTimeout(() => {
         if (firstUnreadIdx !== -1) {
           stickToBottomRef.current = false
           virtualizer.scrollToIndex(firstUnreadIdx, { align: 'start', behavior: 'auto' })
+        } else if (savedOffset !== null) {
+          stickToBottomRef.current = false
+          virtualizer.scrollToOffset(savedOffset, { behavior: 'auto' })
         } else {
           stickToBottomRef.current = true
           pinToBottom()
@@ -810,7 +838,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       pinToBottom()
       if (!isDraft) markSessionSeen(sessionId)
     }
-  }, [rowCount, historyStatus, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId, isDraft, pinToBottom])
+  }, [rowCount, historyStatus, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId, isDraft, pinToBottom, store])
 
   // Follow content that grows IN PLACE — streaming reasoning text makes an
   // existing row taller and pushes the live status row below the fold
@@ -930,7 +958,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // input so the user can type straight away.
   const handleChatReply = useCallback((displayName: string, originalContent: string) => {
     setReplyTarget({ displayName, originalContent })
-  }, [])
+  }, [setReplyTarget])
 
   useEffect(() => {
     if (replyTarget) inputRef.current?.focus()
@@ -999,7 +1027,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     if (input.trim() || pendingAttachments.length > 0) {
       // Save to input history
       if (input.trim()) {
-        inputHistoryRef.current.push(input.trim())
+        setInputHistory(prev => [...prev, input.trim()].slice(-INPUT_HISTORY_LIMIT))
       }
       historyIndexRef.current = -1
 
@@ -1084,7 +1112,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       }
       handleSend()
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      const history = inputHistoryRef.current
+      const history = inputHistory
       if (history.length === 0) return
       if (historyIndexRef.current === -1 && input.trim() !== '') return
 
@@ -1435,7 +1463,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       <div className={styles.inputArea}>
         {/* Pinned agent question — above the composer, outside the scrolling
             timeline, so it stays put while the agent keeps working and the
-            chat updates. Keyed by messageId so the free-text draft resets
+            chat updates. Keyed by messageId so per-question state resets
             when the queue advances to the next question. */}
         {pendingQuestions.length > 0 && (
           <QuestionBox

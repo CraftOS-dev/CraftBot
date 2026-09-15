@@ -1,15 +1,16 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Box, CheckCircle } from 'lucide-react'
+import { usePersistedState } from '../../../hooks'
 import { useAppSelector } from '../../../store/hooks'
 import { selectAgentAppProjects } from '../../../store/selectors/agentApp'
+import { UI_STATE } from '../../../store/uiState'
 import { formatNumber } from '../../../i18n/format'
 import styles from './widgets.module.css'
 
 export function AgentAppWidget() {
   const { t } = useTranslation(['dashboard', 'common'])
   const projects = useAppSelector(selectAgentAppProjects)
-  const [showAll, setShowAll] = useState(false)
+  const [showAll, setShowAll] = usePersistedState(UI_STATE.dashboard.showAll('agentApp'))
 
   const runningCount = projects.filter(p => p.status === 'running').length
 

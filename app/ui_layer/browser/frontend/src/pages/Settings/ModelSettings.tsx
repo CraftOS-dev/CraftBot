@@ -7,9 +7,11 @@ import {
 import { useTranslation } from 'react-i18next'
 import { Button, Badge } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
+import { usePersistedState } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { UI_STATE } from '../../store/uiState'
 import {
   setProvider as setModelProvider,
   setCurrentLlmModel,
@@ -94,8 +96,9 @@ export function ModelSettings() {
   const [pastebackInput, setPastebackInput] = useState<Record<string, string>>({})
   // When subscription is connected, the API-key block collapses under a
   // subtle "Use API key instead" toggle so it's clear only one method is
-  // needed. This tracks per-provider user intent to expand it manually.
-  const [apiKeyExpandedByUser, setApiKeyExpandedByUser] = useState<Record<string, boolean>>({})
+  // needed. This tracks per-provider user intent to expand it manually
+  // (a persisted preference).
+  const [apiKeyExpandedByUser, setApiKeyExpandedByUser] = usePersistedState(UI_STATE.settings.modelApiKeyExpanded)
   const isLoading = !hasLoadedProviders
   const isLoadingSlowMode = !hasLoadedSlowMode
 
@@ -590,6 +593,7 @@ export function ModelSettings() {
                   error={orCatalog.error}
                   onRefresh={orCatalog.refresh}
                   label={t('settings:model.llmModel')}
+                  stateKey="llm"
                   value={newLlmModel || currentLlmModel || ''}
                   onChange={(v) => { setNewLlmModel(v); setHasChanges(true) }}
                 />
@@ -794,6 +798,7 @@ export function ModelSettings() {
                     error={orCatalog.error}
                     onRefresh={orCatalog.refresh}
                     label={t('settings:model.vlmModel')}
+                    stateKey="vlm"
                     requireVision
                     value={newVlmModel || currentVlmModel || ''}
                     onChange={(v) => { setNewVlmModel(v); setHasChanges(true) }}

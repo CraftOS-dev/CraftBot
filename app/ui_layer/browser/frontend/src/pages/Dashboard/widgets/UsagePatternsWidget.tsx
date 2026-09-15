@@ -7,7 +7,7 @@ import styles from './widgets.module.css'
 export function UsagePatternsWidget() {
   const { t } = useTranslation(['dashboard'])
   const { dashboardMetrics } = useWebSocket()
-  const { period, onChange, filteredData } = useMetricsPeriod()
+  const { period, onChange, filteredData } = useMetricsPeriod('usagePatterns')
 
   const peakHour = filteredData?.usage.peakHour ?? (dashboardMetrics?.usage.peakHour ?? 0)
   const hourlyDistribution = filteredData?.usage.hourlyDistribution ?? (dashboardMetrics?.usage.hourlyDistribution ?? Array(24).fill(0))

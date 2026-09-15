@@ -1,14 +1,15 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Activity, CheckCircle } from 'lucide-react'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { usePersistedState } from '../../../hooks'
 import { formatNumber } from '../../../i18n/format'
+import { UI_STATE } from '../../../store/uiState'
 import styles from './widgets.module.css'
 
 export function SkillsWidget() {
   const { t } = useTranslation(['dashboard', 'common'])
   const { dashboardMetrics } = useWebSocket()
-  const [showAll, setShowAll] = useState(false)
+  const [showAll, setShowAll] = usePersistedState(UI_STATE.dashboard.showAll('skills'))
 
   const skillEnabled = dashboardMetrics?.skill?.enabledSkills ?? 0
   const skillTotalInvocations = dashboardMetrics?.skill?.totalInvocations ?? 0

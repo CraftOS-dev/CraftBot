@@ -30,7 +30,7 @@ import { useTranslation, Trans } from 'react-i18next'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTour } from '../../tour'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedState } from '../../hooks'
 import i18n, { setUiLanguage } from '../../i18n/config'
 import { SUPPORTED_LANGUAGES, resolveSupportedLanguage } from '../../i18n/languages'
 import { formatList } from '../../i18n/format'
@@ -38,6 +38,7 @@ import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
 import { resetUpdateCheck } from '../../store/slices/generalSettingsSlice'
+import { UI_STATE, type ThemePreference } from '../../store/uiState'
 import {
   selectUserMd,
   selectAgentMd,
@@ -51,27 +52,6 @@ import {
   selectUpdateBranch,
 } from '../../store/selectors/generalSettings'
 import { selectVersion } from '../../store/selectors/connection'
-
-// Theme application helper
-function applyTheme(theme: string) {
-  const root = document.documentElement
-
-  if (theme === 'system') {
-    // Check system preference
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    root.setAttribute('data-theme', prefersDark ? 'dark' : 'light')
-  } else {
-    root.setAttribute('data-theme', theme)
-  }
-
-  // Persist to localStorage
-  localStorage.setItem('craftbot-theme', theme)
-}
-
-// Get initial theme from localStorage or default
-function getInitialTheme(): string {
-  return localStorage.getItem('craftbot-theme') || 'dark'
-}
 
 // Get initial agent name from localStorage or default
 function getInitialAgentName(): string {
@@ -90,11 +70,13 @@ export function GeneralSettings() {
   const { startTour } = useTour()
   const version = useAppSelector(selectVersion)
   const dispatch = useAppDispatch()
-  const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
+  // The theme is owned by ThemeContext (persisted UI state). This form edits a
+  // draft of the preference and applies it on Save.
+  const { preference: themePreference, setTheme: setThemePreference } = useTheme()
   const [agentName, setAgentName] = useState(getInitialAgentName)
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
-  const [theme, setTheme] = useState(getInitialTheme)
-  const [initialTheme, setInitialTheme] = useState(getInitialTheme)
+  const [theme, setTheme] = useState<string>(themePreference)
+  const [initialTheme, setInitialTheme] = useState<string>(themePreference)
   const [language, setLanguage] = useState(getInitialLanguage)
   const [initialLanguage, setInitialLanguage] = useState(getInitialLanguage)
   const [isResetting, setIsResetting] = useState(false)
@@ -186,7 +168,7 @@ export function GeneralSettings() {
   const [userMdSaveStatus, setUserMdSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [agentMdSaveStatus, setAgentMdSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [soulMdSaveStatus, setSoulMdSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showAdvanced, setShowAdvanced] = usePersistedState(UI_STATE.settings.generalShowAdvanced)
 
   // Update state: result is cached in slice; in-progress flow is local.
   const updateAvailable = useAppSelector(selectUpdateAvailable)
@@ -211,31 +193,11 @@ export function GeneralSettings() {
   const isGeneralSettingsDirty =
     agentName !== initialAgentName || theme !== initialTheme || language !== initialLanguage
 
-  // Sync local theme when global theme changes (e.g., from TopBar button)
+  // Follow theme changes made elsewhere (the TopBar toggle, another tab).
   useEffect(() => {
-    // Only sync if current theme is not 'system' (system theme should stay as 'system')
-    if (initialTheme !== 'system' && globalTheme !== initialTheme) {
-      setTheme(globalTheme)
-      setInitialTheme(globalTheme)
-      applyTheme(globalTheme)
-    }
-  }, [globalTheme, initialTheme])
-
-  // Apply theme on mount and when saved (initialTheme changes after save)
-  useEffect(() => {
-    applyTheme(initialTheme)
-  }, [initialTheme])
-
-  // Listen for system theme changes when using 'system' theme
-  useEffect(() => {
-    if (initialTheme !== 'system') return
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = () => applyTheme('system')
-
-    mediaQuery.addEventListener('change', handleChange)
-    return () => mediaQuery.removeEventListener('change', handleChange)
-  }, [initialTheme])
+    setTheme(themePreference)
+    setInitialTheme(themePreference)
+  }, [themePreference])
 
   // Load initial settings and files
   useEffect(() => {
@@ -402,20 +364,13 @@ export function GeneralSettings() {
     // Persist agent name to localStorage
     localStorage.setItem('craftbot-agent-name', agentName)
 
-    // Sync the global theme context (for TopBar)
-    // Resolve 'system' to actual theme for the context
-    if (theme === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      setGlobalTheme(prefersDark ? 'dark' : 'light')
-    } else {
-      setGlobalTheme(theme as 'dark' | 'light')
-    }
+    // ThemeContext applies (and resolves 'system') and persists the choice.
+    setThemePreference(theme as ThemePreference)
 
     // Language is applied live on selection; persist the choice on save.
     setUiLanguage(language)
 
     // Update the initial values to mark as not dirty
-    // This triggers the useEffect that applies the theme
     setInitialAgentName(agentName)
     setInitialTheme(theme)
     setInitialLanguage(language)

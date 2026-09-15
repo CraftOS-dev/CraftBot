@@ -12,7 +12,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedState } from '../../hooks'
 import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
@@ -28,6 +28,7 @@ import {
   selectEnabledSkills,
   selectSkillsHasLoaded,
 } from '../../store/selectors/skillsSettings'
+import { UI_STATE } from '../../store/uiState'
 
 interface SkillInfo extends SkillConfig {
   argument_hint?: string
@@ -50,7 +51,7 @@ export function SkillsSettings() {
   const isLoading = !hasLoaded
 
   // Search
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState(UI_STATE.settings.skillsSearch)
 
   // Install modal state
   const [showInstallModal, setShowInstallModal] = useState(false)

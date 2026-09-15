@@ -118,8 +118,12 @@ export function normalizeLayout(layout: NamedLayout): NamedLayout {
   const layouts = BREAKPOINT_KEYS.reduce((acc, bp) => {
     const bpItems = normalizeBreakpoint(stored[bp], widgetIds, bp)
     const introIndex = bpItems.findIndex(item => item.i === 'craftBotIntro')
+    // Only an intro widget that wasn't stored on this breakpoint goes to the
+    // top-left. Pinning one the user had already placed undid every move that
+    // displaced it, so the dashboard appeared to reset on reload.
+    const introWasStored = (stored[bp] ?? []).some(item => item?.i === 'craftBotIntro')
     if (introIndex !== -1) {
-      bpItems[introIndex] = { ...bpItems[introIndex], x: 0, y: 0 }
+      if (!introWasStored) bpItems[introIndex] = { ...bpItems[introIndex], x: 0, y: 0 }
     } else {
       const bounds = boundsFor(bp, 'craftBotIntro')
       bpItems.unshift({ i: 'craftBotIntro', x: 0, y: 0, w: 1, h: 1, ...bounds })

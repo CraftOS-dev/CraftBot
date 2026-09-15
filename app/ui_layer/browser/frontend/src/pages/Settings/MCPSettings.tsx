@@ -10,7 +10,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedState } from '../../hooks'
 import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
@@ -26,6 +26,7 @@ import {
   selectMcpIsLoading,
   selectMcpHasLoaded,
 } from '../../store/selectors/mcpSettings'
+import { UI_STATE } from '../../store/uiState'
 
 interface MCPItem {
   name: string
@@ -49,7 +50,7 @@ export function MCPSettings() {
   const isLoading = useAppSelector(selectMcpIsLoading) || !hasLoaded
 
   // Search and reload
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState(UI_STATE.settings.mcpSearch)
   const [isReloading, setIsReloading] = useState(false)
 
   // Add custom server modal state

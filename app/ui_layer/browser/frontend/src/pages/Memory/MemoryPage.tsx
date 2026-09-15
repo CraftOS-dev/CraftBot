@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Waypoints,
   RefreshCw,
@@ -27,9 +27,10 @@ import { Button, ConfirmModal } from '../../components/ui'
 import { useTranslation, Trans } from 'react-i18next'
 import { formatNumber, formatDate, formatDateTime, formatList } from '../../i18n/format'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedSet, usePersistedState, useScrollRestoration } from '../../hooks'
 import { useSettingsWebSocket } from '../Settings/useSettingsWebSocket'
 import { useAppSelector } from '../../store/hooks'
+import { UI_STATE } from '../../store/uiState'
 import {
   selectMemoryEnabled,
   selectMemoryItems,
@@ -170,27 +171,38 @@ export function MemoryPage() {
   const indexedFiles = useAppSelector(selectMemoryIndexedFiles)
   const candidates = useAppSelector(selectMemoryIndexCandidates)
 
-  const [selected, setSelected] = useState<MemoryGraphNode | null>(null)
-  const [search, setSearch] = useState('')
+  // The selection is persisted by node id and resolved against the current
+  // graph, so it survives navigation and always shows the latest node data.
+  const [selectedId, setSelectedId] = usePersistedState(UI_STATE.memory.selectedNodeId)
+  const selected = useMemo(
+    () => (selectedId ? graph?.nodes.find(n => n.id === selectedId) ?? null : null),
+    [graph, selectedId],
+  )
+  const setSelected = useCallback(
+    (node: MemoryGraphNode | null) => setSelectedId(node?.id ?? null),
+    [setSelectedId],
+  )
+  const [search, setSearch] = usePersistedState(UI_STATE.memory.search)
   const [showItemForm, setShowItemForm] = useState(false)
   const [editingItem, setEditingItem] = useState<MemoryItem | null>(null)
   const [fitNonce, setFitNonce] = useState(0)
   const [refreshNonce, setRefreshNonce] = useState(0)
   // Hide the default (core) indexed files and their chunk memories from
   // the graph — MEMORY.md's items and ENTITIES.md stay visible.
-  const [hideCoreFiles, setHideCoreFiles] = useState(false)
+  // The filters and the sidebar width below are persisted preferences.
+  const [hideCoreFiles, setHideCoreFiles] = usePersistedState(UI_STATE.memory.hideCoreFiles)
   // Header stat chips double as visibility toggles for the graph.
-  const [showMemories, setShowMemories] = useState(true)
-  const [showEntities, setShowEntities] = useState(true)
-  const [showFiles, setShowFiles] = useState(true)
+  const [showMemories, setShowMemories] = usePersistedState(UI_STATE.memory.showMemories)
+  const [showEntities, setShowEntities] = usePersistedState(UI_STATE.memory.showEntities)
+  const [showFiles, setShowFiles] = usePersistedState(UI_STATE.memory.showFiles)
   // Two link kinds toggle independently: memory→entity ("entity links") and
   // memory→file ("file links", the radial branch lines). Render-only.
-  const [showEntityLinks, setShowEntityLinks] = useState(true)
-  const [showFileLinks, setShowFileLinks] = useState(true)
+  const [showEntityLinks, setShowEntityLinks] = usePersistedState(UI_STATE.memory.showEntityLinks)
+  const [showFileLinks, setShowFileLinks] = usePersistedState(UI_STATE.memory.showFileLinks)
 
   // Sidebar resize (same pointer-drag pattern as the Agent App chat panel).
   const pageRef = useRef<HTMLDivElement>(null)
-  const [panelWidth, setPanelWidth] = useState(340)
+  const [panelWidth, setPanelWidth] = usePersistedState(UI_STATE.memory.panelWidth)
   const [isResizing, setIsResizing] = useState(false)
 
   const handleResizeStart = (e: React.PointerEvent) => {
@@ -444,18 +456,12 @@ export function MemoryPage() {
   }, [indexedFiles, candidates, t])
 
   // Folders are collapsed by default; only paths in this set render expanded.
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
+  const [expandedFolders, , toggleFolder] = usePersistedSet(UI_STATE.memory.expandedFolders)
+  const treeRef = useRef<HTMLDivElement>(null)
+  useScrollRestoration(UI_STATE.memory.fileTreeScrollTop, treeRef)
   // Files whose index/unindex request is in flight — their tree rows show
   // a spinner until the backend confirms (memory_indexed_files_set).
   const [pendingPaths, setPendingPaths] = useState<Set<string>>(new Set())
-  const toggleFolder = (path: string) => {
-    setExpandedFolders(prev => {
-      const next = new Set(prev)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
-  }
 
   const renderFolder = (folder: TreeFolder, depth: number): React.ReactNode => {
     const isRoot = folder.path === ''
@@ -921,7 +927,7 @@ export function MemoryPage() {
               </span>
             </span>
           </div>
-          <div className={styles.tree}>
+          <div ref={treeRef} className={styles.tree}>
             {renderFolder(fileTree, 0)}
           </div>
           <span className={styles.hint}>

@@ -16,8 +16,10 @@ import { getOrCreateIframe, showIframe, hideIframe, removeIframe, postMessageToI
 import { ConstructionDock } from './ConstructionDock'
 import { AgentAppThemeModal, DEFAULT_CUSTOM_COLORS } from './AgentAppThemeModal'
 import type { AgentAppThemeId, AgentAppCustomColors } from './AgentAppThemeModal'
+import { usePersistedState } from '../../hooks'
 import { useAppSelector } from '../../store/hooks'
 import { selectAgentAppBuildEvents, selectAgentAppSnapshots } from '../../store/selectors/agentApp'
+import { UI_STATE } from '../../store/uiState'
 import type { AgentAppBuildEvent } from '../../types'
 import styles from './AgentAppPage.module.css'
 
@@ -85,9 +87,11 @@ export function AgentAppPage() {
   const [agentAppCustomColors, setAgentAppCustomColors] = useState<AgentAppCustomColors>(
     () => (projectId ? loadAgentAppCustomColors(projectId) : { ...DEFAULT_CUSTOM_COLORS })
   )
-  const [showChat, setShowChat] = useState(true)
-  const [panelWidth, setPanelWidth] = useState(350)
-  const [mobileChatRatio, setMobileChatRatio] = useState(0.4)
+  // Chat panel layout: persisted preferences shared by every Agent App, so
+  // they survive navigation, switching apps and reloads.
+  const [showChat, setShowChat] = usePersistedState(UI_STATE.agentApp.chatPanelOpen)
+  const [panelWidth, setPanelWidth] = usePersistedState(UI_STATE.agentApp.chatPanelWidth)
+  const [mobileChatRatio, setMobileChatRatio] = usePersistedState(UI_STATE.agentApp.chatPanelMobileRatio)
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.innerWidth <= 768
   )

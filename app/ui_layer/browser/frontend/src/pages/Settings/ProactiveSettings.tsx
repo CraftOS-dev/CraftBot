@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedState } from '../../hooks'
 import i18n from '../../i18n/config'
 import { formatNumber, formatDate, formatTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
@@ -28,6 +28,7 @@ import {
   selectProactiveHasLoadedConfig,
   selectProactiveHasLoadedTasks,
 } from '../../store/selectors/proactiveSettings'
+import { UI_STATE } from '../../store/uiState'
 
 // Convert cron expression to human-readable format. Uses the i18n instance
 // directly (module scope, no hook available); components re-render on language
@@ -400,7 +401,7 @@ export function ProactiveSettings() {
   }
 
   // Search state for proactive tasks
-  const [taskSearchQuery, setTaskSearchQuery] = useState('')
+  const [taskSearchQuery, setTaskSearchQuery] = usePersistedState(UI_STATE.settings.proactiveTaskSearch)
 
   const filteredTasks = taskSearchQuery
     ? tasks.filter(t =>

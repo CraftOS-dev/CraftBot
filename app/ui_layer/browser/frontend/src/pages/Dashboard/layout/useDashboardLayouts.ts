@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import i18n from '../../../i18n/config'
-import { STORAGE_KEY_ACTIVE_ID, STORAGE_KEY_LAYOUTS, STORAGE_VERSION } from './constants'
+import { usePersistedState } from '../../../hooks/usePersistedState'
+import { UI_STATE } from '../../../store/uiState'
+import { STORAGE_VERSION } from './constants'
 import { createDefaultLayout } from './defaultLayout'
 import { boundsFor, normalizeLayouts, seedItem } from './normalizeLayouts'
 import type { Breakpoint, BreakpointLayouts, DashboardLayoutsStorage, NamedLayout } from './types'
@@ -15,51 +17,17 @@ function isValidStorage(value: unknown): value is DashboardLayoutsStorage {
   )
 }
 
-function readLayouts(): NamedLayout[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_LAYOUTS)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      // One schema, the current one. A version mismatch means the stored
-      // numbers describe a grid that no longer exists — discard and reseed.
-      // normalizeLayouts then re-applies sizing constraints, which live in
-      // the constants and not in storage.
-      if (isValidStorage(parsed) && parsed.version === STORAGE_VERSION) {
-        const normalized = normalizeLayouts(parsed.layouts)
-        if (normalized.length > 0) return normalized
-      }
-    }
-  } catch {
-    // Corrupt/unavailable storage — fall through to a fresh seed layout.
+function resolveLayouts(stored: DashboardLayoutsStorage | null): NamedLayout[] {
+  // One schema, the current one. A version mismatch means the stored
+  // numbers describe a grid that no longer exists — discard and reseed.
+  // normalizeLayouts then re-applies sizing constraints, which live in
+  // the constants and not in storage. Cloned because store values are
+  // frozen and react-grid-layout expects plain objects.
+  if (isValidStorage(stored) && stored.version === STORAGE_VERSION) {
+    const normalized = normalizeLayouts(structuredClone(stored.layouts))
+    if (normalized.length > 0) return normalized
   }
   return [createDefaultLayout()]
-}
-
-function readActiveId(layouts: NamedLayout[]): string {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY_ACTIVE_ID)
-    if (stored && layouts.some(l => l.id === stored)) return stored
-  } catch {
-    // ignore
-  }
-  return layouts[0].id
-}
-
-function writeLayouts(layouts: NamedLayout[]) {
-  try {
-    const payload: DashboardLayoutsStorage = { version: STORAGE_VERSION, layouts }
-    localStorage.setItem(STORAGE_KEY_LAYOUTS, JSON.stringify(payload))
-  } catch {
-    // localStorage unavailable/full — layout just won't persist this session.
-  }
-}
-
-function writeActiveId(id: string) {
-  try {
-    localStorage.setItem(STORAGE_KEY_ACTIVE_ID, id)
-  } catch {
-    // ignore
-  }
 }
 
 function makeLayoutId(): string {
@@ -75,29 +43,20 @@ function emptyItemFor(widgetId: string, bp: Breakpoint) {
 }
 
 export function useDashboardLayouts() {
-  const [layouts, setLayouts] = useState<NamedLayout[]>(() => readLayouts())
-  const [activeLayoutId, setActiveLayoutIdState] = useState<string>(() => readActiveId(layouts))
+  const [storedLayouts, setStoredLayouts] = usePersistedState(UI_STATE.dashboard.layouts)
+  const [storedActiveId, setActiveLayoutId] = usePersistedState(UI_STATE.dashboard.activeLayoutId)
 
-  // Debounce localStorage writes so continuous drag/resize ticks don't spam
-  // storage (mirrors trading-view's 500ms layout-change debounce).
-  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Working copy for the grid, resolved from persisted UI state once on
+  // mount and mirrored back on every change. The store updates immediately
+  // (so a drag right before navigating away is never lost); the persistence
+  // middleware throttles the actual storage writes during drag/resize.
+  const [layouts, setLayouts] = useState<NamedLayout[]>(() => resolveLayouts(storedLayouts))
   useEffect(() => {
-    if (persistTimer.current) clearTimeout(persistTimer.current)
-    persistTimer.current = setTimeout(() => writeLayouts(layouts), 500)
-    return () => {
-      if (persistTimer.current) clearTimeout(persistTimer.current)
-    }
-  }, [layouts])
+    setStoredLayouts({ version: STORAGE_VERSION, layouts: structuredClone(layouts) })
+  }, [layouts, setStoredLayouts])
 
-  useEffect(() => {
-    writeActiveId(activeLayoutId)
-  }, [activeLayoutId])
-
+  const activeLayoutId = layouts.some(l => l.id === storedActiveId) ? storedActiveId : layouts[0].id
   const activeLayout = layouts.find(l => l.id === activeLayoutId) ?? layouts[0]
-
-  const setActiveLayoutId = useCallback((id: string) => {
-    setActiveLayoutIdState(id)
-  }, [])
 
   const updateActiveGridLayouts = useCallback((next: BreakpointLayouts) => {
     setLayouts(prev => prev.map(l => (
@@ -172,8 +131,8 @@ export function useDashboardLayouts() {
       updatedAt: now,
     }
     setLayouts(prev => [...prev, newLayout])
-    setActiveLayoutIdState(newLayout.id)
-  }, [])
+    setActiveLayoutId(newLayout.id)
+  }, [setActiveLayoutId])
 
   const renameLayout = useCallback((id: string, name: string) => {
     const trimmed = name.trim()
@@ -186,9 +145,9 @@ export function useDashboardLayouts() {
     const next = layouts.filter(l => l.id !== id)
     setLayouts(next)
     if (activeLayoutId === id) {
-      setActiveLayoutIdState(next[0].id)
+      setActiveLayoutId(next[0].id)
     }
-  }, [layouts, activeLayoutId])
+  }, [layouts, activeLayoutId, setActiveLayoutId])
 
   return {
     layouts,

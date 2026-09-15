@@ -162,18 +162,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [dispatch, sendOperation])
 
+  // Reloads as many rows as are already loaded (`offset`), so refreshing — on
+  // returning to the page or the periodic tick — keeps "Load more" pages and
+  // with them the scroll position.
   const refresh = useCallback(async () => {
     dispatch(startRefresh())
     try {
       await sendOperation<FileListResponse>(
         'file_list',
-        { directory: currentDirectory, offset: 0, limit: FILE_PAGE_SIZE, search },
+        { directory: currentDirectory, offset: 0, limit: Math.max(FILE_PAGE_SIZE, offset), search },
         'file_list',
       )
     } catch (e) {
       dispatch(setWorkspaceError(e instanceof Error ? e.message : i18n.t('nav:workspace.failedToRefresh')))
     }
-  }, [dispatch, sendOperation, currentDirectory, search])
+  }, [dispatch, sendOperation, currentDirectory, offset, search])
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMore) return

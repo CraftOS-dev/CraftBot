@@ -19,7 +19,9 @@ import generalSettingsReducer from './slices/generalSettingsSlice'
 import modelSettingsReducer from './slices/modelSettingsSlice'
 import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
 import chatInputReducer from './slices/chatInputSlice'
+import uiReducer from './slices/uiSlice'
 import { socketMiddleware } from './socket/socketMiddleware'
+import { createUiPersistenceMiddleware, loadPersistedUiState } from './uiState'
 
 export const store = configureStore({
   reducer: {
@@ -43,8 +45,12 @@ export const store = configureStore({
     modelSettings: modelSettingsReducer,
     integrationsSettings: integrationsSettingsReducer,
     chatInput: chatInputReducer,
+    ui: uiReducer,
   },
-  middleware: (getDefault) => getDefault().concat(socketMiddleware),
+  // Remembered UI state (panel sizes, filters, scroll…) is restored before
+  // the first render, so nothing flashes from its default.
+  preloadedState: { ui: loadPersistedUiState() },
+  middleware: (getDefault) => getDefault().concat(socketMiddleware, createUiPersistenceMiddleware()),
 })
 
 export type RootState = ReturnType<typeof store.getState>

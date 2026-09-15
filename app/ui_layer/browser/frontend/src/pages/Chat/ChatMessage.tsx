@@ -4,6 +4,8 @@ import { Copy, Check, Reply, ChevronRight } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { usePersistedState } from '../../hooks'
+import { UI_STATE } from '../../store/uiState'
 import { getErrorCategoryStyle } from '../../constants/errorCategories'
 import { formatTime } from '../../i18n/format'
 import styles from './ChatPage.module.css'
@@ -43,8 +45,12 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   const [isHovered, setIsHovered] = useState(false)
   const [copied, setCopied] = useState(false)
   // Disclosure for message.details (e.g. the raw body of an incoming
-  // integration message behind the "📩 Incoming …" stub).
-  const [detailsExpanded, setDetailsExpanded] = useState(false)
+  // integration message behind the "📩 Incoming …" stub). Persisted per
+  // message: rows unmount on navigation and when scrolled out of the
+  // virtualized list.
+  const [detailsExpanded, setDetailsExpanded] = usePersistedState(
+    UI_STATE.chat.messageDetailsExpanded(message.messageId),
+  )
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
   // The selection is owned by the message prop (the single source of truth).
   // The ref is a one-shot guard to suppress double-dispatch between the click

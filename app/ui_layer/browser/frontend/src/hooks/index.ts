@@ -1,5 +1,8 @@
 export { useConfirmModal } from './useConfirmModal'
 export type { ConfirmModalState, ConfirmOptions } from './useConfirmModal'
 export { useDerivedAgentStatus } from './useDerivedAgentStatus'
+export { usePersistedSet } from './usePersistedSet'
+export { usePersistedState } from './usePersistedState'
+export { useScrollRestoration } from './useScrollRestoration'
 export { useSkillCreator } from './useSkillCreator'
 export type { SkillCreatorStatus } from './useSkillCreator'

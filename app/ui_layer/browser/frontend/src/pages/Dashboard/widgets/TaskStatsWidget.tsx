@@ -9,7 +9,7 @@ import styles from './widgets.module.css'
 export function TaskStatsWidget() {
   const { t } = useTranslation(['dashboard'])
   const { dashboardMetrics } = useWebSocket()
-  const { period, onChange, filteredData } = useMetricsPeriod()
+  const { period, onChange, filteredData } = useMetricsPeriod('taskStats')
 
   const taskCompleted = filteredData?.task.completed ?? (dashboardMetrics?.task.completed ?? 0)
   const taskFailed = filteredData?.task.failed ?? (dashboardMetrics?.task.failed ?? 0)

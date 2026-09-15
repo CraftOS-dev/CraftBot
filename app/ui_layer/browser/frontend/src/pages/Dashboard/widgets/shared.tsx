@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MetricsTimePeriod } from '../../../types'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { usePersistedState } from '../../../hooks'
+import { UI_STATE } from '../../../store/uiState'
 import i18n from '../../../i18n/config'
 import { formatNumber, formatTime } from '../../../i18n/format'
 import styles from './widgets.module.css'
@@ -82,12 +84,13 @@ export function getChartLabels(period: MetricsTimePeriod): { title: string; desc
   }
 }
 
-// Each time-period-filterable widget owns its own period selection and
-// requests+caches that period's metrics on demand (the cache is shared
-// app-wide via Redux, so switching back to an already-seen period is free).
-export function useMetricsPeriod(initial: MetricsTimePeriod = 'total') {
+// Each time-period-filterable widget owns its own period selection
+// (remembered per widget id) and requests+caches that period's metrics on
+// demand (the cache is shared app-wide via Redux, so switching back to an
+// already-seen period is free).
+export function useMetricsPeriod(widgetId: string) {
   const { connected, filteredMetricsCache, requestFilteredMetrics } = useWebSocket()
-  const [period, setPeriod] = useState<MetricsTimePeriod>(initial)
+  const [period, setPeriod] = usePersistedState(UI_STATE.dashboard.metricsPeriod(widgetId))
 
   const onChange = useCallback((next: MetricsTimePeriod) => {
     setPeriod(next)

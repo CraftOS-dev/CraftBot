@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { Menu, X } from 'lucide-react'
 import { NavBar } from './NavBar'
 import { useTourEnvAction } from '../../tour'
+import { usePersistedState } from '../../hooks'
+import { UI_STATE } from '../../store/uiState'
 import styles from './Layout.module.css'
 
 // Matches the mobile breakpoint in Layout.module.css, where the sidebar
@@ -14,22 +16,15 @@ interface LayoutProps {
   children: ReactNode
 }
 
-const COLLAPSED_KEY = 'craftbot.sidebar.collapsed'
-
-function readCollapsedFromStorage(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return window.localStorage.getItem(COLLAPSED_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
 export function Layout({ children }: LayoutProps) {
   const { t } = useTranslation(['nav', 'common'])
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState<boolean>(readCollapsedFromStorage)
+  const [collapsedPreference, setCollapsedPreference] = usePersistedState(UI_STATE.sidebar.collapsed)
+  // Set when the guided tour reveals the sidebar. It overrides the saved
+  // preference on screen without overwriting it, until the user toggles.
+  const [revealedByTour, setRevealedByTour] = useState(false)
+  const collapsed = collapsedPreference && !revealedByTour
 
   // Close the mobile drawer on route change so navigating doesn't leave
   // the overlay covering the content.
@@ -48,22 +43,13 @@ export function Layout({ children }: LayoutProps) {
   }, [mobileOpen])
 
   const toggleCollapsed = () => {
-    setCollapsed(prev => {
-      const next = !prev
-      try {
-        window.localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0')
-      } catch {
-        /* storage unavailable — fall through */
-      }
-      return next
-    })
+    setRevealedByTour(false)
+    setCollapsedPreference(!collapsed)
   }
 
   // Let the guided tour reveal the sidebar before highlighting a nav item.
-  // Expanding it in memory only (not persisting COLLAPSED_KEY) keeps the user's
-  // saved preference intact for their next session.
   useTourEnvAction('ensureSidebarVisible', () => {
-    setCollapsed(false)
+    setRevealedByTour(true)
     if (window.matchMedia(MOBILE_QUERY).matches) {
       setMobileOpen(true)
     }

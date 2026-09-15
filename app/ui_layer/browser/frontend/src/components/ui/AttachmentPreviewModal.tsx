@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { usePersistedState } from '../../hooks/usePersistedState'
+import { UI_STATE } from '../../store/uiState'
 import { Modal } from './Modal'
 import { MarkdownContent } from './MarkdownContent'
 import styles from './AttachmentPreviewModal.module.css'
@@ -81,10 +83,10 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
   const [textContent, setTextContent] = useState<string | null>(null)
   const [textLoading, setTextLoading] = useState(false)
   const [textError, setTextError] = useState<string | null>(null)
-  const [mdView, setMdView] = useState<'preview' | 'source'>('preview')
+  // Preview vs. source is a remembered preference, not reset per attachment.
+  const [mdView, setMdView] = usePersistedState(UI_STATE.attachments.markdownView)
 
   useEffect(() => {
-    setMdView('preview')
     if (!attachment || !kind?.isText) {
       setTextContent(null)
       setTextLoading(false)
