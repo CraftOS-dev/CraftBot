@@ -51,7 +51,9 @@
   },
   "connection": {
     "disconnectedReconnecting": "Terputus. Menyambungkan kembali...",
-    "notConnectedRetry": "Tidak tersambung. Mohon tunggu sebentar lalu coba lagi."
+    "notConnectedRetry": "Tidak tersambung. Mohon tunggu sebentar lalu coba lagi.",
+    "actionsNotSent_other": "Tidak dapat terhubung ke CraftBot — {{count}} tindakan tidak terkirim.",
+    "backendBusy": "CraftBot sedang sibuk — pembaruan akan dilanjutkan secara otomatis"
   },
   "agentStatus": {
     "waiting": "Agen menunggu balasan Anda",

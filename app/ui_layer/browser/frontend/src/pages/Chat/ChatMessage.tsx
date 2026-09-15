@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { Copy, Check, Reply, ChevronRight } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
-import { useWebSocket } from '../../contexts/WebSocketContext'
 import { usePersistedState } from '../../hooks'
+import { useAppSelector } from '../../store/hooks'
+import { selectAgentProfilePictureUrl } from '../../store/selectors/agent'
 import { UI_STATE } from '../../store/uiState'
 import { getErrorCategoryStyle } from '../../constants/errorCategories'
 import { formatTime } from '../../i18n/format'
@@ -61,7 +62,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   useEffect(() => {
     dispatchLockRef.current = !!selected
   }, [selected])
-  const { agentProfilePictureUrl } = useWebSocket()
+  const agentProfilePictureUrl = useAppSelector(selectAgentProfilePictureUrl)
 
   const canCopy = message.style === 'user' || message.style === 'agent'
 

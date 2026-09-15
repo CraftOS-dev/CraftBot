@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "已在其他地方更改",
+    "loadLatest": "加载最新内容"
+  },
   "general": {
     "title": "常规设置",
     "subtitle": "配置智能体的基本设置和偏好",

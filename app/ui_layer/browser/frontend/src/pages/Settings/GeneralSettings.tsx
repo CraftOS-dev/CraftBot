@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ComponentProps } from 'react'
 import {
   ChevronRight,
   RotateCcw,
@@ -28,18 +28,25 @@ import {
 } from '../../components/ui'
 import { useTranslation, Trans } from 'react-i18next'
 import { useTheme } from '../../contexts/ThemeContext'
-import { useWebSocket } from '../../contexts/WebSocketContext'
+import {
+  selectAgentProfilePictureHasCustom,
+  selectAgentProfilePictureUrl,
+} from '../../store/selectors/agent'
 import { useTour } from '../../tour'
-import { useConfirmModal, usePersistedState } from '../../hooks'
+import { useConfirmModal, usePersistedState, useServerDraft } from '../../hooks'
 import i18n, { setUiLanguage } from '../../i18n/config'
 import { SUPPORTED_LANGUAGES, resolveSupportedLanguage } from '../../i18n/languages'
 import { formatList } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { RemoteChangeHint } from './RemoteChangeHint'
+import type { RootState } from '../../store'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
 import { resetUpdateCheck } from '../../store/slices/generalSettingsSlice'
 import { UI_STATE, type ThemePreference } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 import {
+  selectGeneralSettingsValues,
   selectUserMd,
   selectAgentMd,
   selectSoulMd,
@@ -63,27 +70,42 @@ function getInitialLanguage(): string {
   return i18n.language || 'en'
 }
 
+type ConfirmFn = ReturnType<typeof useConfirmModal>['confirm']
+
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
-  const { agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
+  const agentProfilePictureUrl = useAppSelector(selectAgentProfilePictureUrl)
+  const agentProfilePictureHasCustom = useAppSelector(selectAgentProfilePictureHasCustom)
   const { startTour } = useTour()
   const version = useAppSelector(selectVersion)
   const dispatch = useAppDispatch()
   // The theme is owned by ThemeContext (persisted UI state). This form edits a
   // draft of the preference and applies it on Save.
   const { preference: themePreference, setTheme: setThemePreference } = useTheme()
-  const [agentName, setAgentName] = useState(getInitialAgentName)
-  const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
-  const [theme, setTheme] = useState<string>(themePreference)
-  const [initialTheme, setInitialTheme] = useState<string>(themePreference)
-  const [language, setLanguage] = useState(getInitialLanguage)
-  const [initialLanguage, setInitialLanguage] = useState(getInitialLanguage)
+
+  // Saved name + language, cached in generalSettingsSlice and kept fresh by
+  // ResourceSync. The form fields are drafts over them: untouched fields
+  // follow changes made elsewhere (another tab, the TopBar theme toggle);
+  // edited ones keep the edit and show a "changed elsewhere" hint.
+  const savedSettings = useAppSelector(selectGeneralSettingsValues)
+  useResource(RESOURCES.generalSettings)
+  // Server value is authoritative; normalize to a supported UI language.
+  const savedLanguage = savedSettings?.language
+    ? resolveSupportedLanguage(savedSettings.language) ?? 'en'
+    : null
+  const agentNameDraft = useServerDraft(savedSettings?.agentName || getInitialAgentName())
+  const themeDraft = useServerDraft<string>(themePreference)
+  const languageDraft = useServerDraft(savedLanguage ?? getInitialLanguage())
+  const { reset: settleAgentName } = agentNameDraft
   const [isResetting, setIsResetting] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [showResetModal, setShowResetModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  // Set while this tab's settings_update is in flight; only its reply
+  // settles the drafts and shows the result.
+  const savingSettingsRef = useRef(false)
 
   // Agent profile picture
   const [profilePictureUrl, setProfilePictureUrl] = useState<string>(agentProfilePictureUrl)
@@ -113,61 +135,6 @@ export function GeneralSettings() {
     setHasCustomPicture(agentProfilePictureHasCustom)
   }, [agentProfilePictureHasCustom])
 
-  // Agent files: server-canonical "original" content lives in
-  // generalSettingsSlice (cached across tab remounts). The in-progress
-  // editor draft stays local so typing doesn't dispatch on every keystroke.
-  const sliceUserMd = useAppSelector(selectUserMd)
-  const sliceAgentMd = useAppSelector(selectAgentMd)
-  const sliceSoulMd = useAppSelector(selectSoulMd)
-  const hasLoadedUserMd = useAppSelector(selectHasLoadedUserMd)
-  const hasLoadedAgentMd = useAppSelector(selectHasLoadedAgentMd)
-  const hasLoadedSoulMd = useAppSelector(selectHasLoadedSoulMd)
-  const [userMdContent, setUserMdContent] = useState('')
-  const [originalUserMdContent, setOriginalUserMdContent] = useState('')
-  const [agentMdContent, setAgentMdContent] = useState('')
-  const [originalAgentMdContent, setOriginalAgentMdContent] = useState('')
-  const [soulMdContent, setSoulMdContent] = useState('')
-  const [originalSoulMdContent, setOriginalSoulMdContent] = useState('')
-
-  // Hydrate local drafts from slice on first load (and any time the slice
-  // refreshes, e.g. after restore-from-default).
-  useEffect(() => {
-    if (hasLoadedUserMd) {
-      setUserMdContent(sliceUserMd)
-      setOriginalUserMdContent(sliceUserMd)
-    }
-  }, [hasLoadedUserMd, sliceUserMd])
-  useEffect(() => {
-    if (hasLoadedAgentMd) {
-      setAgentMdContent(sliceAgentMd)
-      setOriginalAgentMdContent(sliceAgentMd)
-    }
-  }, [hasLoadedAgentMd, sliceAgentMd])
-  useEffect(() => {
-    if (hasLoadedSoulMd) {
-      setSoulMdContent(sliceSoulMd)
-      setOriginalSoulMdContent(sliceSoulMd)
-    }
-  }, [hasLoadedSoulMd, sliceSoulMd])
-  // Refs to track current content for closure-safe callbacks
-  const userMdContentRef = useRef(userMdContent)
-  const agentMdContentRef = useRef(agentMdContent)
-  const soulMdContentRef = useRef(soulMdContent)
-  userMdContentRef.current = userMdContent
-  agentMdContentRef.current = agentMdContent
-  soulMdContentRef.current = soulMdContent
-  const [isLoadingUserMd, setIsLoadingUserMd] = useState(false)
-  const [isLoadingAgentMd, setIsLoadingAgentMd] = useState(false)
-  const [isLoadingSoulMd, setIsLoadingSoulMd] = useState(false)
-  const [isSavingUserMd, setIsSavingUserMd] = useState(false)
-  const [isSavingAgentMd, setIsSavingAgentMd] = useState(false)
-  const [isSavingSoulMd, setIsSavingSoulMd] = useState(false)
-  const [isRestoringUserMd, setIsRestoringUserMd] = useState(false)
-  const [isRestoringAgentMd, setIsRestoringAgentMd] = useState(false)
-  const [isRestoringSoulMd, setIsRestoringSoulMd] = useState(false)
-  const [userMdSaveStatus, setUserMdSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [agentMdSaveStatus, setAgentMdSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [soulMdSaveStatus, setSoulMdSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [showAdvanced, setShowAdvanced] = usePersistedState(UI_STATE.settings.generalShowAdvanced)
 
   // Update state: result is cached in slice; in-progress flow is local.
@@ -186,54 +153,19 @@ export function GeneralSettings() {
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Computed dirty states
-  const isUserMdDirty = userMdContent !== originalUserMdContent
-  const isAgentMdDirty = agentMdContent !== originalAgentMdContent
-  const isSoulMdDirty = soulMdContent !== originalSoulMdContent
-  const isGeneralSettingsDirty =
-    agentName !== initialAgentName || theme !== initialTheme || language !== initialLanguage
+  const isGeneralSettingsDirty = agentNameDraft.isDirty || themeDraft.isDirty || languageDraft.isDirty
+  const generalRemoteChanged =
+    agentNameDraft.remoteChanged || themeDraft.remoteChanged || languageDraft.remoteChanged
+  const { reset: settleLanguage } = languageDraft
 
-  // Follow theme changes made elsewhere (the TopBar toggle, another tab).
+  // The saved language drives the UI language.
   useEffect(() => {
-    setTheme(themePreference)
-    setInitialTheme(themePreference)
-  }, [themePreference])
+    if (savedLanguage) setUiLanguage(savedLanguage)
+  }, [savedLanguage])
 
-  // Load initial settings and files
+  // Results of this view's own requests.
   useEffect(() => {
-    if (!isConnected) return
-
-    // Set up message handlers
     const cleanups = [
-      onMessage('settings_get', (data: unknown) => {
-        const d = data as {
-          success: boolean
-          settings?: {
-            agentName: string
-            theme: string
-            language?: string
-            agentProfilePictureUrl?: string
-            agentProfilePictureHasCustom?: boolean
-          }
-        }
-        if (d.success && d.settings) {
-          setAgentName(d.settings.agentName)
-          setTheme(d.settings.theme)
-          if (d.settings.language) {
-            // Server value is authoritative; normalize to a supported UI language.
-            const resolved = resolveSupportedLanguage(d.settings.language) ?? 'en'
-            setLanguage(resolved)
-            setInitialLanguage(resolved)
-            setUiLanguage(resolved)
-          }
-          if (d.settings.agentProfilePictureUrl) {
-            setProfilePictureUrl(d.settings.agentProfilePictureUrl)
-          }
-          if (typeof d.settings.agentProfilePictureHasCustom === 'boolean') {
-            setHasCustomPicture(d.settings.agentProfilePictureHasCustom)
-          }
-        }
-      }),
       onMessage('agent_profile_picture_upload', (data: unknown) => {
         const d = data as { success: boolean; url?: string; has_custom?: boolean; error?: string }
         setIsUploadingPicture(false)
@@ -256,11 +188,16 @@ export function GeneralSettings() {
         }
       }),
       onMessage('settings_update', (data: unknown) => {
+        if (!savingSettingsRef.current) return
+        savingSettingsRef.current = false
         const d = data as { success: boolean }
         setIsSaving(false)
         if (d.success) {
-          // Settings saved
+          settleAgentName()
+          settleLanguage()
         }
+        setSaveStatus(d.success ? 'success' : 'error')
+        setTimeout(() => setSaveStatus('idle'), 3000)
       }),
       onMessage('reset', (data: unknown) => {
         const d = data as { success: boolean }
@@ -268,120 +205,49 @@ export function GeneralSettings() {
         setResetStatus(d.success ? 'success' : 'error')
         setTimeout(() => setResetStatus('idle'), 3000)
       }),
-      onMessage('agent_file_read', (data: unknown) => {
-        // Content goes to the slice; we only need to flip the per-file
-        // loading flag locally.
-        const d = data as { filename: string; success: boolean }
-        if (d.filename === 'USER.md') setIsLoadingUserMd(false)
-        else if (d.filename === 'AGENT.md') setIsLoadingAgentMd(false)
-        else if (d.filename === 'SOUL.md') setIsLoadingSoulMd(false)
-      }),
-      onMessage('agent_file_write', (data: unknown) => {
-        const d = data as { filename: string; success: boolean }
-        if (d.filename === 'USER.md') {
-          setIsSavingUserMd(false)
-          if (d.success) {
-            setOriginalUserMdContent(userMdContentRef.current)
-          }
-          setUserMdSaveStatus(d.success ? 'success' : 'error')
-          setTimeout(() => setUserMdSaveStatus('idle'), 3000)
-        } else if (d.filename === 'AGENT.md') {
-          setIsSavingAgentMd(false)
-          if (d.success) {
-            setOriginalAgentMdContent(agentMdContentRef.current)
-          }
-          setAgentMdSaveStatus(d.success ? 'success' : 'error')
-          setTimeout(() => setAgentMdSaveStatus('idle'), 3000)
-        } else if (d.filename === 'SOUL.md') {
-          setIsSavingSoulMd(false)
-          if (d.success) {
-            setOriginalSoulMdContent(soulMdContentRef.current)
-          }
-          setSoulMdSaveStatus(d.success ? 'success' : 'error')
-          setTimeout(() => setSoulMdSaveStatus('idle'), 3000)
-        }
-      }),
       // update_check_result is handled by generalSettingsSlice via the registry.
       onMessage('update_progress', (data: unknown) => {
         const d = data as { message: string }
         setUpdateMessages(prev => [...prev, d.message])
       }),
-      onMessage('agent_file_restore', (data: unknown) => {
-        // Content goes to the slice; we only flip local flags + show toast.
-        const d = data as { filename: string; success: boolean }
-        if (d.filename === 'USER.md') {
-          setIsRestoringUserMd(false)
-          if (d.success) {
-            setUserMdSaveStatus('success')
-            setTimeout(() => setUserMdSaveStatus('idle'), 3000)
-          }
-        } else if (d.filename === 'AGENT.md') {
-          setIsRestoringAgentMd(false)
-          if (d.success) {
-            setAgentMdSaveStatus('success')
-            setTimeout(() => setAgentMdSaveStatus('idle'), 3000)
-          }
-        } else if (d.filename === 'SOUL.md') {
-          setIsRestoringSoulMd(false)
-          if (d.success) {
-            setSoulMdSaveStatus('success')
-            setTimeout(() => setSoulMdSaveStatus('idle'), 3000)
-          }
-        }
-      }),
     ]
-
-    // Request initial data
-    send('settings_get')
-    // Auto-check for updates (only on first mount of this session)
-    if (!updateCheckDone) send('check_update')
 
     return () => {
       cleanups.forEach(cleanup => cleanup())
     }
-  }, [isConnected, send, onMessage])
+  }, [onMessage, settleAgentName, settleLanguage])
 
-  // Load advanced files when section is opened (cached after first load).
+  // Auto-check for updates (only on first mount of this session)
   useEffect(() => {
-    if (!showAdvanced || !isConnected) return
-    if (!hasLoadedUserMd) {
-      setIsLoadingUserMd(true)
-      send('agent_file_read', { filename: 'USER.md' })
-    }
-    if (!hasLoadedAgentMd) {
-      setIsLoadingAgentMd(true)
-      send('agent_file_read', { filename: 'AGENT.md' })
-    }
-    if (!hasLoadedSoulMd) {
-      setIsLoadingSoulMd(true)
-      send('agent_file_read', { filename: 'SOUL.md' })
-    }
-  }, [showAdvanced, isConnected, send, hasLoadedUserMd, hasLoadedAgentMd, hasLoadedSoulMd])
+    if (isConnected && !updateCheckDone) send('check_update')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, send])
 
   const handleSaveSettings = () => {
     setIsSaving(true)
+    const agentName = agentNameDraft.value
+    const theme = themeDraft.value
+    const language = languageDraft.value
 
     // Persist agent name to localStorage
     localStorage.setItem('craftbot-agent-name', agentName)
 
     // ThemeContext applies (and resolves 'system') and persists the choice.
     setThemePreference(theme as ThemePreference)
+    themeDraft.reset()
 
     // Language is applied live on selection; persist the choice on save.
     setUiLanguage(language)
 
-    // Update the initial values to mark as not dirty
-    setInitialAgentName(agentName)
-    setInitialTheme(theme)
-    setInitialLanguage(language)
-
-    // Send to backend (for potential server-side persistence)
+    // Send to backend; its reply settles the name and language drafts.
+    savingSettingsRef.current = true
     send('settings_update', { settings: { agentName, theme, language } })
+  }
 
-    // Show success feedback
-    setIsSaving(false)
-    setSaveStatus('success')
-    setTimeout(() => setSaveStatus('idle'), 3000)
+  const loadLatestGeneralSettings = () => {
+    agentNameDraft.acceptRemote()
+    themeDraft.acceptRemote()
+    languageDraft.acceptRemote()
   }
 
   const handlePictureSelect = () => {
@@ -430,45 +296,6 @@ export function GeneralSettings() {
     send('reset', { components })
   }
 
-  const handleSaveUserMd = () => {
-    setIsSavingUserMd(true)
-    send('agent_file_write', { filename: 'USER.md', content: userMdContent })
-  }
-
-  const handleSaveAgentMd = () => {
-    setIsSavingAgentMd(true)
-    send('agent_file_write', { filename: 'AGENT.md', content: agentMdContent })
-  }
-
-  const handleRestoreUserMd = () => {
-    confirm({
-      title: t('settings:general.advanced.restoreConfirmTitle', { file: 'USER.md' }),
-      message: t('settings:general.advanced.restoreConfirmMessage', { file: 'USER.md' }),
-      confirmText: t('common:actions.restore'),
-      variant: 'danger',
-    }, () => {
-      setIsRestoringUserMd(true)
-      send('agent_file_restore', { filename: 'USER.md' })
-    })
-  }
-
-  const handleRestoreAgentMd = () => {
-    confirm({
-      title: t('settings:general.advanced.restoreConfirmTitle', { file: 'AGENT.md' }),
-      message: t('settings:general.advanced.restoreConfirmMessage', { file: 'AGENT.md' }),
-      confirmText: t('common:actions.restore'),
-      variant: 'danger',
-    }, () => {
-      setIsRestoringAgentMd(true)
-      send('agent_file_restore', { filename: 'AGENT.md' })
-    })
-  }
-
-  const handleSaveSoulMd = () => {
-    setIsSavingSoulMd(true)
-    send('agent_file_write', { filename: 'SOUL.md', content: soulMdContent })
-  }
-
   const handleCheckUpdate = () => {
     dispatch(resetUpdateCheck())
     setUpdateMessages([])
@@ -487,18 +314,6 @@ export function GeneralSettings() {
       setIsUpdating(true)
       setUpdateMessages([])
       send('do_update')
-    })
-  }
-
-  const handleRestoreSoulMd = () => {
-    confirm({
-      title: t('settings:general.advanced.restoreConfirmTitle', { file: 'SOUL.md' }),
-      message: t('settings:general.advanced.restoreConfirmMessageSoul'),
-      confirmText: t('common:actions.restore'),
-      variant: 'danger',
-    }, () => {
-      setIsRestoringSoulMd(true)
-      send('agent_file_restore', { filename: 'SOUL.md' })
     })
   }
 
@@ -696,8 +511,8 @@ export function GeneralSettings() {
           <label>{t('settings:general.agentName.label')}</label>
           <input
             type="text"
-            value={agentName}
-            onChange={(e) => setAgentName(e.target.value)}
+            value={agentNameDraft.value}
+            onChange={(e) => agentNameDraft.set(e.target.value)}
             placeholder={t('settings:general.agentName.placeholder')}
           />
           <span className={styles.hint}>{t('settings:general.agentName.hint')}</span>
@@ -705,7 +520,7 @@ export function GeneralSettings() {
 
         <div className={styles.formGroup}>
           <label>{t('settings:general.theme.label')}</label>
-          <select value={theme} onChange={(e) => setTheme(e.target.value)}>
+          <select value={themeDraft.value} onChange={(e) => themeDraft.set(e.target.value)}>
             <option value="dark">{t('settings:general.theme.dark')}</option>
             <option value="light">{t('settings:general.theme.light')}</option>
             <option value="system">{t('settings:general.theme.system')}</option>
@@ -715,8 +530,8 @@ export function GeneralSettings() {
         <div className={styles.formGroup}>
           <label>{t('settings:general.language.label')}</label>
           <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
+            value={languageDraft.value}
+            onChange={(e) => languageDraft.set(e.target.value)}
           >
             {SUPPORTED_LANGUAGES.map(l => (
               <option key={l.code} value={l.code}>{l.label}</option>
@@ -760,6 +575,9 @@ export function GeneralSettings() {
           <span className={styles.statusError}>
             <X size={14} /> {t('common:status.saveFailed')}
           </span>
+        )}
+        {saveStatus === 'idle' && generalRemoteChanged && (
+          <RemoteChangeHint onLoadLatest={loadLatestGeneralSettings} />
         )}
       </div>
 
@@ -941,198 +759,7 @@ export function GeneralSettings() {
           />
         </button>
 
-        {showAdvanced && (
-          <div className={styles.advancedContent}>
-            {/* USER.md Editor */}
-            <div className={styles.fileEditorCard}>
-              <div className={styles.fileEditorHeader}>
-                <div className={styles.fileEditorTitle}>
-                  <h4>USER.md</h4>
-                  <Badge variant="info">{t('settings:general.advanced.badgeUserProfile')}</Badge>
-                </div>
-                <p className={styles.fileEditorDescription}>
-                  {t('settings:general.advanced.userDescription')}
-                </p>
-              </div>
-              <div className={styles.fileEditorContent}>
-                {isLoadingUserMd ? (
-                  <div className={styles.fileLoading}>
-                    <Loader2 size={20} className={styles.spinning} />
-                    <span>{t('settings:general.advanced.loading', { file: 'USER.md' })}</span>
-                  </div>
-                ) : (
-                  <textarea
-                    className={styles.fileTextarea}
-                    value={userMdContent}
-                    onChange={(e) => setUserMdContent(e.target.value)}
-                    placeholder={t('common:status.loading')}
-                    spellCheck={false}
-                  />
-                )}
-              </div>
-              <div className={styles.fileEditorActions}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleRestoreUserMd}
-                  disabled={isRestoringUserMd || isLoadingUserMd}
-                  icon={isRestoringUserMd ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
-                >
-                  {isRestoringUserMd ? t('common:status.restoring') : t('common:actions.restoreDefault')}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSaveUserMd}
-                  disabled={isSavingUserMd || isLoadingUserMd || !isUserMdDirty}
-                >
-                  {isSavingUserMd ? t('common:status.saving') : t('common:actions.save')}
-                </Button>
-                {userMdSaveStatus === 'success' && (
-                  <span className={styles.statusSuccess}>
-                    <Check size={14} /> {t('common:status.saved')}
-                  </span>
-                )}
-                {userMdSaveStatus === 'error' && (
-                  <span className={styles.statusError}>
-                    <X size={14} /> {t('common:status.saveFailed')}
-                  </span>
-                )}
-                {isUserMdDirty && userMdSaveStatus === 'idle' && (
-                  <span className={styles.statusWarning}>
-                    {t('common:status.unsavedChanges')}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* SOUL.md Editor */}
-            <div className={styles.fileEditorCard}>
-              <div className={styles.fileEditorHeader}>
-                <div className={styles.fileEditorTitle}>
-                  <h4>SOUL.md</h4>
-                  <Badge variant="success">{t('settings:general.advanced.badgePersonality')}</Badge>
-                </div>
-                <p className={styles.fileEditorDescription}>
-                  {t('settings:general.advanced.soulDescription')}
-                </p>
-              </div>
-              <div className={styles.fileEditorContent}>
-                {isLoadingSoulMd ? (
-                  <div className={styles.fileLoading}>
-                    <Loader2 size={20} className={styles.spinning} />
-                    <span>{t('settings:general.advanced.loading', { file: 'SOUL.md' })}</span>
-                  </div>
-                ) : (
-                  <textarea
-                    className={styles.fileTextarea}
-                    value={soulMdContent}
-                    onChange={(e) => setSoulMdContent(e.target.value)}
-                    placeholder={t('common:status.loading')}
-                    spellCheck={false}
-                  />
-                )}
-              </div>
-              <div className={styles.fileEditorActions}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleRestoreSoulMd}
-                  disabled={isRestoringSoulMd || isLoadingSoulMd}
-                  icon={isRestoringSoulMd ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
-                >
-                  {isRestoringSoulMd ? t('common:status.restoring') : t('common:actions.restoreDefault')}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSaveSoulMd}
-                  disabled={isSavingSoulMd || isLoadingSoulMd || !isSoulMdDirty}
-                >
-                  {isSavingSoulMd ? t('common:status.saving') : t('common:actions.save')}
-                </Button>
-                {soulMdSaveStatus === 'success' && (
-                  <span className={styles.statusSuccess}>
-                    <Check size={14} /> {t('common:status.saved')}
-                  </span>
-                )}
-                {soulMdSaveStatus === 'error' && (
-                  <span className={styles.statusError}>
-                    <X size={14} /> {t('common:status.saveFailed')}
-                  </span>
-                )}
-                {isSoulMdDirty && soulMdSaveStatus === 'idle' && (
-                  <span className={styles.statusWarning}>
-                    {t('common:status.unsavedChanges')}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* AGENT.md Editor */}
-            <div className={styles.fileEditorCard}>
-              <div className={styles.fileEditorHeader}>
-                <div className={styles.fileEditorTitle}>
-                  <h4>AGENT.md</h4>
-                  <Badge variant="warning">{t('settings:general.advanced.badgeAgentManual')}</Badge>
-                </div>
-                <p className={styles.fileEditorDescription}>
-                  {t('settings:general.advanced.agentDescription')}
-                </p>
-              </div>
-              <div className={styles.fileEditorContent}>
-                {isLoadingAgentMd ? (
-                  <div className={styles.fileLoading}>
-                    <Loader2 size={20} className={styles.spinning} />
-                    <span>{t('settings:general.advanced.loading', { file: 'AGENT.md' })}</span>
-                  </div>
-                ) : (
-                  <textarea
-                    className={styles.fileTextarea}
-                    value={agentMdContent}
-                    onChange={(e) => setAgentMdContent(e.target.value)}
-                    placeholder={t('common:status.loading')}
-                    spellCheck={false}
-                  />
-                )}
-              </div>
-              <div className={styles.fileEditorActions}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleRestoreAgentMd}
-                  disabled={isRestoringAgentMd || isLoadingAgentMd}
-                  icon={isRestoringAgentMd ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
-                >
-                  {isRestoringAgentMd ? t('common:status.restoring') : t('common:actions.restoreDefault')}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSaveAgentMd}
-                  disabled={isSavingAgentMd || isLoadingAgentMd || !isAgentMdDirty}
-                >
-                  {isSavingAgentMd ? t('common:status.saving') : t('common:actions.save')}
-                </Button>
-                {agentMdSaveStatus === 'success' && (
-                  <span className={styles.statusSuccess}>
-                    <Check size={14} /> {t('common:status.saved')}
-                  </span>
-                )}
-                {agentMdSaveStatus === 'error' && (
-                  <span className={styles.statusError}>
-                    <X size={14} /> {t('common:status.saveFailed')}
-                  </span>
-                )}
-                {isAgentMdDirty && agentMdSaveStatus === 'idle' && (
-                  <span className={styles.statusWarning}>
-                    {t('common:status.unsavedChanges')}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {showAdvanced && <AgentFilesSection confirm={confirm} />}
       </div>
 
       {/* Confirm Modal */}
@@ -1155,6 +782,210 @@ export function GeneralSettings() {
         onCancel={handleImportCancel}
         onApply={handleImportApply}
       />
+    </div>
+  )
+}
+
+// ── Agent files (Advanced) ─────────────────────────────────────────
+
+/** The USER.md / SOUL.md / AGENT.md editors; loads the files while shown. */
+function AgentFilesSection({ confirm }: { confirm: ConfirmFn }) {
+  const { t } = useTranslation(['settings', 'common'])
+  // Cached in generalSettingsSlice; fetched on first open and refetched when
+  // a file is saved or restored from any tab.
+  useResource(RESOURCES.agentFiles)
+
+  return (
+    <div className={styles.advancedContent}>
+      <AgentFileEditor
+        filename="USER.md"
+        badge={t('settings:general.advanced.badgeUserProfile')}
+        badgeVariant="info"
+        description={t('settings:general.advanced.userDescription')}
+        restoreMessage={t('settings:general.advanced.restoreConfirmMessage', { file: 'USER.md' })}
+        confirm={confirm}
+      />
+      <AgentFileEditor
+        filename="SOUL.md"
+        badge={t('settings:general.advanced.badgePersonality')}
+        badgeVariant="success"
+        description={t('settings:general.advanced.soulDescription')}
+        restoreMessage={t('settings:general.advanced.restoreConfirmMessageSoul')}
+        confirm={confirm}
+      />
+      <AgentFileEditor
+        filename="AGENT.md"
+        badge={t('settings:general.advanced.badgeAgentManual')}
+        badgeVariant="warning"
+        description={t('settings:general.advanced.agentDescription')}
+        restoreMessage={t('settings:general.advanced.restoreConfirmMessage', { file: 'AGENT.md' })}
+        confirm={confirm}
+      />
+    </div>
+  )
+}
+
+type AgentFileName = 'USER.md' | 'AGENT.md' | 'SOUL.md'
+
+const AGENT_FILE_SELECTORS: Record<
+  AgentFileName,
+  { content: (state: RootState) => string; hasLoaded: (state: RootState) => boolean }
+> = {
+  'USER.md': { content: selectUserMd, hasLoaded: selectHasLoadedUserMd },
+  'AGENT.md': { content: selectAgentMd, hasLoaded: selectHasLoadedAgentMd },
+  'SOUL.md': { content: selectSoulMd, hasLoaded: selectHasLoadedSoulMd },
+}
+
+interface AgentFileEditorProps {
+  filename: AgentFileName
+  badge: string
+  badgeVariant: ComponentProps<typeof Badge>['variant']
+  description: string
+  restoreMessage: string
+  confirm: ConfirmFn
+}
+
+function AgentFileEditor({ filename, badge, badgeVariant, description, restoreMessage, confirm }: AgentFileEditorProps) {
+  const { t } = useTranslation(['settings', 'common'])
+  const { send, onMessage } = useSettingsWebSocket()
+
+  const savedContent = useAppSelector(AGENT_FILE_SELECTORS[filename].content)
+  const hasLoaded = useAppSelector(AGENT_FILE_SELECTORS[filename].hasLoaded)
+  // A draft over the saved file: a save no longer looks reverted after
+  // switching tabs, and a load or save in another tab can't clobber an edit.
+  const draft = useServerDraft(savedContent)
+  const { reset: settleDraft, acceptRemote: loadLatest } = draft
+  const draftValueRef = useRef(draft.value)
+  draftValueRef.current = draft.value
+
+  const [readFailed, setReadFailed] = useState(false)
+  const isLoading = !hasLoaded && !readFailed
+  const [isSaving, setIsSaving] = useState(false)
+  const [isRestoring, setIsRestoring] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  // This tab's in-flight requests: the content it saved, and whether it
+  // restored. Replies to other tabs' requests only update data.
+  const savingContentRef = useRef<string | null>(null)
+  const restoringRef = useRef(false)
+
+  useEffect(() => {
+    const flashStatus = (status: 'success' | 'error') => {
+      setSaveStatus(status)
+      setTimeout(() => setSaveStatus('idle'), 3000)
+    }
+    const cleanups = [
+      onMessage('agent_file_read', (data: unknown) => {
+        // Content goes to the slice; a failed read just stops the spinner.
+        const d = data as { filename: string; success: boolean }
+        if (d.filename === filename && !d.success) setReadFailed(true)
+      }),
+      onMessage('agent_file_write', (data: unknown) => {
+        const d = data as { filename: string; success: boolean }
+        const sent = savingContentRef.current
+        if (d.filename !== filename || sent === null) return
+        savingContentRef.current = null
+        setIsSaving(false)
+        // Typing that continued during the save stays an unsaved edit.
+        if (d.success && draftValueRef.current === sent) settleDraft()
+        flashStatus(d.success ? 'success' : 'error')
+      }),
+      onMessage('agent_file_restore', (data: unknown) => {
+        // Content goes to the slice; this tab drops its edit for the default.
+        const d = data as { filename: string; success: boolean }
+        if (d.filename !== filename || !restoringRef.current) return
+        restoringRef.current = false
+        setIsRestoring(false)
+        if (d.success) {
+          loadLatest()
+          flashStatus('success')
+        }
+      }),
+    ]
+    return () => cleanups.forEach(c => c())
+  }, [filename, onMessage, settleDraft, loadLatest])
+
+  const handleSave = () => {
+    savingContentRef.current = draft.value
+    setIsSaving(true)
+    send('agent_file_write', { filename, content: draft.value })
+  }
+
+  const handleRestore = () => {
+    confirm({
+      title: t('settings:general.advanced.restoreConfirmTitle', { file: filename }),
+      message: restoreMessage,
+      confirmText: t('common:actions.restore'),
+      variant: 'danger',
+    }, () => {
+      restoringRef.current = true
+      setIsRestoring(true)
+      send('agent_file_restore', { filename })
+    })
+  }
+
+  return (
+    <div className={styles.fileEditorCard}>
+      <div className={styles.fileEditorHeader}>
+        <div className={styles.fileEditorTitle}>
+          <h4>{filename}</h4>
+          <Badge variant={badgeVariant}>{badge}</Badge>
+        </div>
+        <p className={styles.fileEditorDescription}>
+          {description}
+        </p>
+      </div>
+      <div className={styles.fileEditorContent}>
+        {isLoading ? (
+          <div className={styles.fileLoading}>
+            <Loader2 size={20} className={styles.spinning} />
+            <span>{t('settings:general.advanced.loading', { file: filename })}</span>
+          </div>
+        ) : (
+          <textarea
+            className={styles.fileTextarea}
+            value={draft.value}
+            onChange={(e) => draft.set(e.target.value)}
+            placeholder={t('common:status.loading')}
+            spellCheck={false}
+          />
+        )}
+      </div>
+      <div className={styles.fileEditorActions}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleRestore}
+          disabled={isRestoring || isLoading}
+          icon={isRestoring ? <Loader2 size={14} className={styles.spinning} /> : <RotateCcw size={14} />}
+        >
+          {isRestoring ? t('common:status.restoring') : t('common:actions.restoreDefault')}
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={handleSave}
+          disabled={isSaving || isLoading || !draft.isDirty}
+        >
+          {isSaving ? t('common:status.saving') : t('common:actions.save')}
+        </Button>
+        {saveStatus === 'success' && (
+          <span className={styles.statusSuccess}>
+            <Check size={14} /> {t('common:status.saved')}
+          </span>
+        )}
+        {saveStatus === 'error' && (
+          <span className={styles.statusError}>
+            <X size={14} /> {t('common:status.saveFailed')}
+          </span>
+        )}
+        {saveStatus === 'idle' && (draft.remoteChanged ? (
+          <RemoteChangeHint onLoadLatest={loadLatest} />
+        ) : draft.isDirty && (
+          <span className={styles.statusWarning}>
+            {t('common:status.unsavedChanges')}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

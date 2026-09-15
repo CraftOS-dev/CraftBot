@@ -1083,6 +1083,22 @@
   font-style: italic;
 }
 
+/* "Load latest" action inside a RemoteChangeHint. */
+.draftLoadLatest {
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-style: normal;
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+.draftLoadLatest:hover {
+  color: var(--text-primary);
+}
+
 /* Spinning Animation */
 .spinning {
   animation: spin 1s linear infinite;

@@ -55,6 +55,7 @@ const LEGACY_RULES: LegacyRule[] = [
   exactKey('craftbot.dashboard.layouts', UI_STATE.dashboard.layouts, json),
   exactKey('craftbot.dashboard.activeLayoutId', UI_STATE.dashboard.activeLayoutId, asIs),
   keyPrefix('craftbot.tour.completed.', UI_STATE.tour.completed, flag),
+  exactKey('lastSeenMessageIdBySession', UI_STATE.chat.lastSeenMessageIds, json),
 ]
 
 export function migrateLegacyUiStorage(

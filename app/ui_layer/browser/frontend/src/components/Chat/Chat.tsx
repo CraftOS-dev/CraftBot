@@ -29,6 +29,7 @@ import {
   clearDraftText,
 } from '../../store/slices/chatInputSlice'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
+import { RESOURCES, useResource } from '../../store/resources'
 import { DraftMascot, DRAFT_MASCOT_EXIT_MS } from '@mascot'
 import {
   selectSessionMessages,
@@ -39,8 +40,10 @@ import {
   selectPendingQuestions,
 } from '../../store/selectors/messages'
 import { QuestionBox } from './QuestionBox'
+import { mergeTimeline, type TimelineEntry } from './timeline'
 import { selectSessionActivity } from '../../store/selectors/activity'
 import { selectSessionBusy, selectSessionRunState } from '../../store/selectors/agent'
+import { selectConnected } from '../../store/selectors/connection'
 import type { ActionItem, ChatMessage } from '../../types'
 import { tourAnchorProps } from '../../tour'
 import styles from './Chat.module.css'
@@ -65,12 +68,6 @@ interface ChatProps {
   /** Optional placeholder text for the input */
   placeholder?: string
 }
-
-// One row of the linear session timeline: a chat message or an inline
-// activity item (action / reasoning block), merged by timestamp.
-type TimelineEntry =
-  | { kind: 'message'; ts: number; message: ChatMessage }
-  | { kind: 'activity'; ts: number; item: ActionItem }
 
 // One RENDERED row. Activity entries are grouped into chunks (consecutive
 // items between chat bubbles); each chunk renders a clickable header row
@@ -171,7 +168,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const { t } = useTranslation(['chat', 'common'])
   const navigate = useNavigate()
   const {
-    connected,
     sendMessage,
     sendCommand,
     stopSession,
@@ -179,13 +175,14 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     sendQuestionAnswer,
     openFile,
     openFolder,
-    lastSeenBySession,
     markSessionSeen,
     requestChatHistory,
     enhancedPrompt,
     enhancePrompt,
     clearEnhancedPrompt,
   } = useWebSocket()
+  const connected = useAppSelector(selectConnected)
+  const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
 
   // Draft view (/session/new): renders an empty timeline with the normal
   // input. No history requests and no seen/unread bookkeeping — the real
@@ -233,22 +230,15 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const { showToast } = useToast()
 
   // ONE linear timeline: chat messages + inline activity (reasoning blocks,
-  // action blocks) merged by timestamp. Message timestamps are epoch
-  // seconds; activity createdAt is epoch ms — normalize to ms.
+  // action blocks) merged by timestamp — a linear merge, since both buckets
+  // arrive already ordered (see timeline.ts).
   // Chat-send items stay in the timeline HERE so chunking can tell a
   // "reply-only" chunk apart from real work — they are dropped from the
   // rendered rows in the chunking pass below.
-  const timeline = useMemo<TimelineEntry[]>(() => {
-    const entries: TimelineEntry[] = []
-    for (const message of messages) {
-      entries.push({ kind: 'message', ts: message.timestamp * 1000, message })
-    }
-    for (const item of activity) {
-      entries.push({ kind: 'activity', ts: item.createdAt ?? 0, item })
-    }
-    entries.sort((a, b) => a.ts - b.ts)
-    return entries
-  }, [messages, activity])
+  const timeline = useMemo<TimelineEntry[]>(
+    () => mergeTimeline(messages, activity),
+    [messages, activity],
+  )
 
   // Chunk collapse state: the ids (each chunk's first item id) of EXPANDED
   // chunks, persisted per session so it survives navigation. Chunks are
@@ -404,7 +394,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // Playbook suggestion chips under the input + the full playbook browser.
   // The full list is cached; the displayed chips are a RANDOM sample,
   // re-rolled every time the draft hero is entered.
-  const { send: sendSettings, onMessage: onSettingsMessage, isConnected: settingsConnected } = useSettingsWebSocket()
+  const { onMessage: onSettingsMessage } = useSettingsWebSocket()
   const [allPlaybooks, setAllPlaybooks] = useState<SuggestedPlaybook[]>([])
   const [suggestedPlaybooks, setSuggestedPlaybooks] = useState<SuggestedPlaybook[]>([])
   const [playbookOpen, setPlaybookOpen] = useState(false)
@@ -427,17 +417,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const prevRowCountRef = useRef(0)
   const hasInitialScrolled = useRef(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
-
-  // Ticker so live durations keep updating — running action rows AND the
-  // collapsed tail chunk's "Working… <elapsed>" header (which ticks for
-  // the whole run, even while only reasoning is streaming).
-  const [, forceTick] = useState(0)
-  useEffect(() => {
-    const hasRunning = activity.some(a => a.status === 'running' || a.status === 'waiting')
-    if (!hasRunning && !busy) return
-    const interval = setInterval(() => forceTick(t => t + 1), 100)
-    return () => clearInterval(interval)
-  }, [activity, busy])
 
   const attachmentValidation = useMemo(() => {
     const totalSize = pendingAttachments.reduce((sum, att) => sum + att.size, 0)
@@ -676,10 +655,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     })
   }, [onSettingsMessage])
 
-  useEffect(() => {
-    if (!settingsConnected || allPlaybooks.length > 0) return
-    sendSettings('playbook_list')
-  }, [settingsConnected, allPlaybooks.length, sendSettings])
+  // Fetched on first use and again after a reconnect (the catalog can change
+  // with a backend update).
+  useResource(RESOURCES.playbooks)
 
   // Re-roll the displayed chips (Fisher–Yates sample) each time the user
   // lands on the draft hero, so New Chat surfaces different playbooks
@@ -1418,11 +1396,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                         count={entry.count}
                         expanded={entry.expanded}
                         working={entry.tail && showLiveRow}
-                        elapsedMs={
-                          entry.tail && showLiveRow
-                            ? Math.max(0, Date.now() - entry.startTs)
-                            : undefined
-                        }
+                        startedAt={entry.tail && showLiveRow ? entry.startTs : undefined}
                         onToggle={() => toggleChunk(entry.chunkId)}
                       />
                     ) : entry.item.itemType === 'reasoning' ? (

@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "別の場所で変更されました",
+    "loadLatest": "最新を読み込む"
+  },
   "general": {
     "title": "一般設定",
     "subtitle": "エージェントの基本設定と環境設定を構成します",

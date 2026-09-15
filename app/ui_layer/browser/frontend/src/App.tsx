@@ -11,6 +11,8 @@ import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { AgentAppPage } from './pages/AgentApp'
 import { useWebSocket } from './contexts/WebSocketContext'
+import { useAppSelector } from './store/hooks'
+import { selectNeedsHardOnboarding } from './store/selectors/onboarding'
 import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
 import { AgentAppImportToast } from './components/ui/AgentAppImportToast'
@@ -34,7 +36,8 @@ function SessionChatRoute() {
 
 function App() {
   const { t } = useTranslation(['nav', 'common'])
-  const { initReceived, needsHardOnboarding } = useWebSocket()
+  const { initReceived } = useWebSocket()
+  const needsHardOnboarding = useAppSelector(selectNeedsHardOnboarding)
 
   // Fade the main interface in once, right after the onboarding outro hands off
   // (the wizard sets this flag just before completing). One-shot via

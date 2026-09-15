@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "다른 곳에서 변경됨",
+    "loadLatest": "최신 내용 불러오기"
+  },
   "general": {
     "title": "일반 설정",
     "subtitle": "기본 에이전트 설정과 환경설정을 구성합니다",

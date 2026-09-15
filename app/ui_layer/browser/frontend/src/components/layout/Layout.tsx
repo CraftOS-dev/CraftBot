@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Menu, X } from 'lucide-react'
 import { NavBar } from './NavBar'
+import { BusyBanner } from './BusyBanner'
 import { useTourEnvAction } from '../../tour'
 import { usePersistedState } from '../../hooks'
 import { UI_STATE } from '../../store/uiState'
@@ -57,6 +58,7 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className={styles.layout}>
+      <BusyBanner />
       <button
         type="button"
         className={styles.menuButton}

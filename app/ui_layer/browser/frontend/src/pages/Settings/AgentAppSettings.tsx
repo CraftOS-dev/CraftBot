@@ -30,10 +30,11 @@ import {
   selectAgentAppSettingsHasLoadedProjects,
 } from '../../store/selectors/agentAppSettings'
 import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 
 export function AgentAppSettings() {
   const { t } = useTranslation(['settings', 'common'])
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { send, onMessage } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
@@ -47,36 +48,20 @@ export function AgentAppSettings() {
   // Which project cards are open: a persisted preference.
   const [expandedProjects, , toggleProject] = usePersistedSet(UI_STATE.settings.agentAppExpandedProjects)
 
-  // Fire-once fetch. Slice owns the data; we just trigger the request when
-  // not yet loaded.
-  useEffect(() => {
-    if (!isConnected) return
-    if (!hasLoadedProjects) send('agent_app_settings_get')
-  }, [isConnected, send, hasLoadedProjects])
+  // The slice caches the list; ResourceSync fetches it when unloaded or stale
+  // and refetches whenever any tab, the agent or a status event changes apps.
+  useResource(RESOURCES.agentAppSettings)
 
+  // Clear the card spinner when the action this view started finishes.
   useEffect(() => {
-    const handleActionComplete = (data: unknown) => {
-      const d = data as { success: boolean }
-      setActionInProgress(null)
-      if (d.success) send('agent_app_settings_get')
-    }
+    const clearInProgress = () => setActionInProgress(null)
     const cleanups = [
-      onMessage('agent_app_launch', handleActionComplete),
-      onMessage('agent_app_stop', handleActionComplete),
-      onMessage('agent_app_delete', handleActionComplete),
+      onMessage('agent_app_launch', clearInProgress),
+      onMessage('agent_app_stop', clearInProgress),
+      onMessage('agent_app_delete', clearInProgress),
     ]
     return () => cleanups.forEach(c => c())
-  }, [send, onMessage])
-
-  useEffect(() => {
-    const cleanup = onMessage('agent_app_project_setting_update', (data: unknown) => {
-      const d = data as { success: boolean }
-      // Refetch to reconcile with authoritative state (response doesn't
-      // carry the updated project payload).
-      if (d.success) send('agent_app_settings_get')
-    })
-    return cleanup
-  }, [send, onMessage])
+  }, [onMessage])
 
   const handleLaunch = (projectId: string) => {
     setActionInProgress(projectId)

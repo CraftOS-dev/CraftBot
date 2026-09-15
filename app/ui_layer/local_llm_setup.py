@@ -304,8 +304,9 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
                 await proc.wait()
 
                 # Verify actual install regardless of exit code — winget can return non-zero on success
-                if get_ollama_status()["installed"]:
-                    subprocess.run(
+                if (await asyncio.to_thread(get_ollama_status))["installed"]:
+                    await asyncio.to_thread(
+                        subprocess.run,
                         ["taskkill", "/F", "/IM", "ollama app.exe", "/T"],
                         capture_output=True,
                     )
@@ -361,8 +362,9 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
                 stderr=asyncio.subprocess.PIPE,
             )
             await run_proc.communicate()
-            if get_ollama_status()["installed"]:
-                subprocess.run(
+            if (await asyncio.to_thread(get_ollama_status))["installed"]:
+                await asyncio.to_thread(
+                    subprocess.run,
                     ["taskkill", "/F", "/IM", "ollama app.exe", "/T"],
                     capture_output=True,
                 )
@@ -424,7 +426,7 @@ async def start_ollama() -> Dict[str, Any]:
         # Poll until ready (max 15 seconds)
         for _ in range(15):
             await asyncio.sleep(1)
-            if check_port_open("localhost", 11434):
+            if await asyncio.to_thread(check_port_open, "localhost", 11434):
                 return {"success": True, "message": "Ollama started successfully"}
 
         return {

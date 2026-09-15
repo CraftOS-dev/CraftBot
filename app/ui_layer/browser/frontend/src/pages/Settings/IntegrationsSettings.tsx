@@ -37,6 +37,7 @@ import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal, usePersistedState } from '../../hooks'
 import { useTheme } from '../../contexts/ThemeContext'
 import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
@@ -330,9 +331,14 @@ const ConfigFields = ({
 
 export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const { t } = useTranslation(['settings', 'common'])
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { send, onMessage } = useSettingsWebSocket()
   const { showToast } = useToast()
   const dispatch = useAppDispatch()
+
+  // The slice caches the list; ResourceSync fetches it when unloaded or stale
+  // and refetches it whenever integrations change (connect, disconnect,
+  // account or config edits from any tab).
+  useResource(RESOURCES.integrations)
 
   // Slice-backed: list state cached across remounts.
   const integrations = useAppSelector(selectIntegrations)
@@ -363,9 +369,16 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     selectedIntegrationRef.current = selectedIntegration
   }, [selectedIntegration])
 
-  // Manage modal state
+  // Manage modal state. The modal opens with the integration_info snapshot,
+  // then reads the integration from the slice by id, so a refreshed list
+  // (another tab, the agent) keeps it current instead of a stale copy.
   const [showManageModal, setShowManageModal] = useState(false)
-  const [managingIntegration, setManagingIntegration] = useState<Integration | null>(null)
+  const [managingSnapshot, setManagingIntegration] = useState<Integration | null>(null)
+  const managingIntegration = React.useMemo(() => {
+    if (!managingSnapshot) return null
+    const listed = integrations.find(i => i.id === managingSnapshot.id)
+    return listed ? { ...managingSnapshot, ...listed } : managingSnapshot
+  }, [managingSnapshot, integrations])
   // Mirrors ``managingIntegration`` for the WebSocket handlers (same reason
   // as ``selectedIntegrationRef`` above — the subscription effect doesn't
   // re-run on state changes, so direct reads would be stale).
@@ -521,8 +534,6 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // Subscribe to side-effect messages (toasts, modal close). The integrations
   // list itself is updated by the slice via the registry.
   useEffect(() => {
-    if (!isConnected) return
-
     const cleanups = [
       // The slice handles populating the list. Here we only handle the
       // reload-success toast and error reporting.
@@ -564,7 +575,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         setPendingOp(prev => (prev && d.id && prev.id === d.id) ? null : prev)
         if (d.success) {
           showToast('success', d.message || t('settings:integrations.toast.disconnected'))
-          closeManageModal()
+          // Only a disconnect of the integration on screen closes the modal.
+          if (d.id && d.id === managingIntegrationRef.current?.id) closeManageModal()
         } else {
           showToast('error', d.error || t('settings:integrations.toast.disconnectFailed'))
         }
@@ -675,6 +687,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           schema?: ConfigField[]; values?: Record<string, any>
           error?: string
         }
+        // Another integration's config must not replace the open form.
+        if (d.id !== managingIntegrationRef.current?.id) return
         setConfigLoading(false)
         if (d.success) {
           const loaded = d.values || {}
@@ -689,6 +703,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           id: string; success: boolean
           message?: string; values?: Record<string, any>; error?: string
         }
+        if (d.id !== managingIntegrationRef.current?.id) return
         setConfigSaving(false)
         if (d.success) {
           showToast('success', d.message || t('settings:integrations.toast.settingsSaved'))
@@ -764,13 +779,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
       }),
     ]
 
-    // Fetch list only on first mount (cached across re-mounts thereafter).
-    if (!hasLoaded) {
-      send('integration_list')
-    }
-
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoaded, showToast, closeManageModal, pruneStagedFor, refreshManagedAccounts])
+  }, [send, onMessage, showToast, closeManageModal, pruneStagedFor, refreshManagedAccounts])
 
   // Poll while a link flow is live (QR pending, scanned, or promoting).
   useEffect(() => {

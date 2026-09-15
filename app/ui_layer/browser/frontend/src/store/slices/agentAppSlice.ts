@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import { createSlice, current, isDraft, PayloadAction } from '@reduxjs/toolkit'
 import type {
   AgentAppProject,
   AgentAppStatusUpdate,
@@ -12,6 +12,7 @@ import type {
 } from '../../types'
 import { register } from '../socket/messageRegistry'
 import { getSocketClient } from '../socket/socketInstance'
+import { findIndexInDraft } from './draftSearch'
 
 // Local types — these aren't in src/types but the backend sends them.
 // Shape mirrors the agent's todo tool: content is the imperative label,
@@ -66,14 +67,18 @@ const agentAppSlice = createSlice({
     addProject(state, action: PayloadAction<AgentAppProject>) {
       // Upsert by id: the import/marketplace flows first add a "creating"
       // placeholder, then re-broadcast the same id with real data once the
-      // import completes. Replacing in place keeps a single tab. Never
-      // downgrade a project that's already running.
+      // import completes. Replacing in place keeps a single tab. A running
+      // project keeps its live status and address (never downgraded by a late
+      // event) but still takes renames, icon changes and other fields.
       const incoming = action.payload
-      const idx = state.projects.findIndex(p => p.id === incoming.id)
+      const idx = findIndexInDraft(state.projects, p => p.id === incoming.id)
       if (idx === -1) {
         state.projects.push(incoming)
-      } else if (state.projects[idx].status !== 'running') {
-        state.projects[idx] = incoming
+      } else {
+        const existing = state.projects[idx]
+        state.projects[idx] = existing.status === 'running'
+          ? { ...incoming, status: existing.status, url: existing.url, port: existing.port, readyAt: existing.readyAt }
+          : incoming
       }
     },
     applyStatus(state, action: PayloadAction<AgentAppStatusUpdate>) {
@@ -180,7 +185,9 @@ const agentAppSlice = createSlice({
       // Persist the authoritative snapshot the moment it arrives, so the chips
       // survive event eviction/pacing (they read this, not the feed).
       if (event.snapshot) state.snapshots[projectId] = event.snapshot
-      const list = state.buildEvents[projectId] ?? []
+      const stored = state.buildEvents[projectId]
+      // Plain array, so the dedupe scan and copy don't proxy every event.
+      const list = stored ? (isDraft(stored) ? current(stored) : stored) : []
       if (list.some(e => e.id === event.id)) return
       const next = [...list, event]
       state.buildEvents[projectId] =

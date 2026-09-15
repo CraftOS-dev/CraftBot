@@ -134,26 +134,49 @@ function coalesce(events: AgentAppBuildEvent[]): FeedRow[] {
 
 // ── code peek ───────────────────────────────────────────────────────────────
 
-function CodePeek({ file, snippet }: { file: string; snippet: string }) {
-  const [chars, setChars] = useState(0)
-  const preRef = useRef<HTMLPreElement>(null)
+// Typing speed: 4 characters every 16ms.
+const TYPE_CHARS = 4
+const TYPE_STEP_MS = 16
 
-  useEffect(() => setChars(0), [snippet])
+function CodePeek({ file, snippet }: { file: string; snippet: string }) {
+  const preRef = useRef<HTMLPreElement>(null)
+  const textRef = useRef<HTMLSpanElement>(null)
+  const cursorRef = useRef<HTMLSpanElement>(null)
+
+  // The typing animation writes straight to the DOM once per animation frame
+  // instead of setting React state every 16ms, so nothing re-renders while
+  // it types. Restarts from empty whenever the snippet changes.
   useEffect(() => {
-    if (chars >= snippet.length) return
-    const t = setTimeout(() => setChars(c => Math.min(c + 4, snippet.length)), 16)
-    return () => clearTimeout(t)
-  }, [chars, snippet])
-  useEffect(() => {
-    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
-  }, [chars])
+    const pre = preRef.current
+    const text = textRef.current
+    const cursor = cursorRef.current
+    if (!pre || !text || !cursor) return
+    let raf = 0
+    let shown = -1
+    const start = performance.now()
+    const frame = (now: number) => {
+      const chars = Math.min(
+        snippet.length,
+        Math.floor((now - start) / TYPE_STEP_MS) * TYPE_CHARS,
+      )
+      if (chars !== shown) {
+        shown = chars
+        text.textContent = snippet.slice(0, chars)
+        cursor.hidden = chars >= snippet.length
+        pre.scrollTop = pre.scrollHeight
+      }
+      if (chars < snippet.length) raf = requestAnimationFrame(frame)
+    }
+    frame(start)
+    return () => cancelAnimationFrame(raf)
+  }, [snippet])
 
   return (
     <div className={styles.codePeek}>
       <div className={styles.codePeekFile}>{file}</div>
       <pre ref={preRef} className={styles.codePeekBody}>
-        {snippet.slice(0, chars)}
-        {chars < snippet.length && <span className={styles.codePeekCursor}>▌</span>}
+        <span ref={textRef} />
+        <span ref={cursorRef} className={styles.codePeekCursor}>▌</span>
       </pre>
     </div>
   )

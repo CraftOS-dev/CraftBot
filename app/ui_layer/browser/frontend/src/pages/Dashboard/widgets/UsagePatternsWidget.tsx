@@ -1,12 +1,13 @@
 import { useTranslation } from 'react-i18next'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
 import { formatNumber } from '../../../i18n/format'
 import { TimePeriodSelector, formatHour, getChartLabels, useMetricsPeriod } from './shared'
 import styles from './widgets.module.css'
 
 export function UsagePatternsWidget() {
   const { t } = useTranslation(['dashboard'])
-  const { dashboardMetrics } = useWebSocket()
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   const { period, onChange, filteredData } = useMetricsPeriod('usagePatterns')
 
   const peakHour = filteredData?.usage.peakHour ?? (dashboardMetrics?.usage.peakHour ?? 0)

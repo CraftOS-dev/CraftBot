@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useScrollRestoration } from '../../hooks'
+import { useAppSelector } from '../../store/hooks'
+import { selectConnected } from '../../store/selectors/connection'
 import { UI_STATE } from '../../store/uiState'
 import { DashboardGrid } from './layout/DashboardGrid'
 import { DashboardHeader } from './layout/DashboardHeader'
@@ -8,7 +10,8 @@ import { useDashboardLayouts } from './layout/useDashboardLayouts'
 import styles from './DashboardPage.module.css'
 
 export function DashboardPage() {
-  const { connected, requestFilteredMetrics, subscribeDashboardMetrics, unsubscribeDashboardMetrics } = useWebSocket()
+  const { requestFilteredMetrics, subscribeDashboardMetrics, unsubscribeDashboardMetrics } = useWebSocket()
+  const connected = useAppSelector(selectConnected)
 
   const {
     layouts, activeLayout, activeLayoutId, setActiveLayoutId,

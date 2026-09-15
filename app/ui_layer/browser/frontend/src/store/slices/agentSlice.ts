@@ -120,6 +120,12 @@ register('init', (data, dispatch) => {
   dispatch(seedBusySessions((d as { busySessions?: string[] }).busySessions || []))
 })
 
+// A rename saved from any tab reaches the sidebar and chat right away.
+register('settings_update', (data, dispatch) => {
+  const d = data as { success?: boolean; settings?: { agentName?: string } }
+  if (d.success && d.settings?.agentName) dispatch(setName(d.settings.agentName))
+})
+
 register('session_busy', (data, dispatch) => {
   const d = data as { sessionId?: string; busy?: boolean; state?: SessionRunState }
   if (d.sessionId) {

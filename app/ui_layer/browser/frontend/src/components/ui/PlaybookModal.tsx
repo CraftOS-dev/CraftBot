@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   ArrowLeft,
   BookOpen,
@@ -65,10 +65,18 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
   const TAG_COLLAPSE_LIMIT = 8
 
   // Fetch on first open (and whenever the connection comes online while open).
+  // The catalog is cached for the modal's lifetime, but a disconnect (e.g. a
+  // backend update) makes the next open refetch it.
+  const staleRef = useRef(false)
   useEffect(() => {
-    if (!isOpen || !isConnected) return
-    if (playbooks.length > 0) return
-    setLoading(true)
+    if (!isConnected) {
+      staleRef.current = true
+      return
+    }
+    if (!isOpen) return
+    if (playbooks.length > 0 && !staleRef.current) return
+    staleRef.current = false
+    setLoading(playbooks.length === 0)
     setError(null)
     send('playbook_list')
   }, [isOpen, isConnected, playbooks.length, send])

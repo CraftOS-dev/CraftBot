@@ -29,6 +29,7 @@ import {
   selectSkillsHasLoaded,
 } from '../../store/selectors/skillsSettings'
 import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 
 interface SkillInfo extends SkillConfig {
   argument_hint?: string
@@ -38,7 +39,7 @@ interface SkillInfo extends SkillConfig {
 
 export function SkillsSettings() {
   const { t } = useTranslation(['settings', 'common'])
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { send, onMessage } = useSettingsWebSocket()
   const { showToast } = useToast()
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
@@ -76,10 +77,12 @@ export function SkillsSettings() {
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Load data when connected
-  useEffect(() => {
-    if (!isConnected) return
+  // The slice caches the list; ResourceSync fetches it when unloaded or stale
+  // and refetches it whenever skills change (any tab, a reload).
+  useResource(RESOURCES.skills)
 
+  // Toasts and modal results for this view's own actions.
+  useEffect(() => {
     const cleanups = [
       // skill_list is handled by skillsSettingsSlice via the registry. We
       // only listen for the error toast here.
@@ -164,10 +167,8 @@ export function SkillsSettings() {
       }),
     ]
 
-    if (!hasLoaded) send('skill_list')
-
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoaded, showToast])
+  }, [onMessage, showToast])
 
   // Handlers
   const handleToggleSkill = (name: string, enabled: boolean) => {

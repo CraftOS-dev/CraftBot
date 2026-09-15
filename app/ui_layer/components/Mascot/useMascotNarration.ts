@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useWebSocket } from '../../browser/frontend/src/contexts/WebSocketContext'
+import { useAppSelector } from '../../browser/frontend/src/store/hooks'
+import { selectAllActivity } from '../../browser/frontend/src/store/selectors/activity'
 import { parseDict } from '../../browser/frontend/src/components/activity/parse'
 import {
   getMascotFormatter,
@@ -195,7 +196,7 @@ interface NarrationOptions {
 }
 
 export function useMascotNarration({ mascotState }: NarrationOptions): NarrationSnapshot {
-  const { actions } = useWebSocket()
+  const actions = useAppSelector(selectAllActivity)
   const [internal, setInternal] = useState<InternalState>(INITIAL)
   const narratedRef = useRef<Set<string>>(new Set())
   // Mirror actions into a ref so timer callbacks see the latest list

@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "Modificado en otro lugar",
+    "loadLatest": "Cargar lo más reciente"
+  },
   "general": {
     "title": "Ajustes generales",
     "subtitle": "Configura los ajustes y preferencias básicos del agente",

@@ -77,6 +77,8 @@ export const UI_STATE = {
     messageDetailsExpanded: defineUiStateFamily('chat.messageDetailsExpanded', false, 'session'),
     /** By question message id: the typed free-text answer. */
     questionAnswerDraft: defineUiStateFamily('chat.questionAnswerDraft', '', 'session'),
+    /** Newest message id seen per session (unread dots); synced across tabs. */
+    lastSeenMessageIds: defineUiState<Record<string, string>>('chat.lastSeenMessageIds', {}, 'preference'),
   },
 
   agentApp: {

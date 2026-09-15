@@ -1,12 +1,13 @@
 import { useTranslation } from 'react-i18next'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
 import { Badge } from '../../../components/ui'
 import { TimePeriodSelector, formatTokenCount, useMetricsPeriod } from './shared'
 import styles from './widgets.module.css'
 
 export function TokenUsageWidget() {
   const { t } = useTranslation(['dashboard'])
-  const { dashboardMetrics } = useWebSocket()
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   const { period, onChange, filteredData } = useMetricsPeriod('tokenUsage')
 
   const rawInputTokens = filteredData?.token.input ?? (dashboardMetrics?.token.input ?? 0)
@@ -77,7 +78,7 @@ export function TokenUsageWidget() {
 // selected period.
 export function TokenUsageHeaderBadge() {
   const { t } = useTranslation(['dashboard'])
-  const { dashboardMetrics } = useWebSocket()
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   // Derived rather than read from `token.total`, which is rawInput + output and
   // so double-counts cache reads. Counts new tokens only, matching the tiles.
   const rawInput = dashboardMetrics?.token.input ?? 0

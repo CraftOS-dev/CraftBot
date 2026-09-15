@@ -21,7 +21,21 @@ import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
 import chatInputReducer from './slices/chatInputSlice'
 import uiReducer from './slices/uiSlice'
 import { socketMiddleware } from './socket/socketMiddleware'
+import './socket/versionWatch'
 import { createUiPersistenceMiddleware, loadPersistedUiState } from './uiState'
+
+// Redux Toolkit's development-only safety checks walk the state on every
+// dispatch. These subtrees are large and change on almost every socket
+// message, so checking them dominated development builds; skip them.
+const LARGE_STATE_PATHS = [
+  'messages',
+  'activity',
+  'agentApp',
+  'dashboard',
+  'memorySettings',
+  'workspace',
+  'ui',
+]
 
 export const store = configureStore({
   reducer: {
@@ -50,7 +64,10 @@ export const store = configureStore({
   // Remembered UI state (panel sizes, filters, scroll…) is restored before
   // the first render, so nothing flashes from its default.
   preloadedState: { ui: loadPersistedUiState() },
-  middleware: (getDefault) => getDefault().concat(socketMiddleware, createUiPersistenceMiddleware()),
+  middleware: (getDefault) => getDefault({
+    immutableCheck: { ignoredPaths: LARGE_STATE_PATHS },
+    serializableCheck: { ignoredPaths: LARGE_STATE_PATHS },
+  }).concat(socketMiddleware, createUiPersistenceMiddleware()),
 })
 
 export type RootState = ReturnType<typeof store.getState>

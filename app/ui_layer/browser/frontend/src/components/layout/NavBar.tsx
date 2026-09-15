@@ -38,6 +38,8 @@ import { AgentAppIcon } from '../ui/AgentAppIcon'
 import type { SessionInfo } from '../../types'
 import { useAppSelector } from '../../store/hooks'
 import { UI_STATE } from '../../store/uiState'
+import { selectAgentAppProjects } from '../../store/selectors/agentApp'
+import { selectSkillMeta } from '../../store/selectors/agent'
 import { selectMainSession, selectChatSessions } from '../../store/selectors/sessions'
 import { selectLastMessageIdBySession } from '../../store/selectors/messages'
 import { TopBar } from './TopBar'
@@ -126,16 +128,16 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     [t],
   )
   const {
-    agentAppProjects,
     launchAgentApp,
     stopAgentApp,
     deleteAgentApp,
     deleteSession,
     renameSession,
     clearSession,
-    lastSeenBySession,
-    skillMeta,
   } = useWebSocket()
+  const agentAppProjects = useAppSelector(selectAgentAppProjects)
+  const skillMeta = useAppSelector(selectSkillMeta)
+  const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
   const { theme } = useTheme()
   const [showCreateModal, setShowCreateModal] = useState(false)
   // Which Agent App row's "…" menu is open, and the app queued for a delete

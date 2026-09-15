@@ -31,6 +31,7 @@ import { useConfirmModal, usePersistedSet, usePersistedState, useScrollRestorati
 import { useSettingsWebSocket } from '../Settings/useSettingsWebSocket'
 import { useAppSelector } from '../../store/hooks'
 import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, resourceSync, useResource } from '../../store/resources'
 import {
   selectMemoryEnabled,
   selectMemoryItems,
@@ -229,26 +230,17 @@ export function MemoryPage() {
     }
   }, [isResizing])
 
-  const refreshAll = () => {
-    send('memory_graph_get')
-    send('memory_items_get')
-    send('memory_indexed_files_get')
-    send('memory_mode_get')
-  }
+  // The slice caches graph, items, indexed files and mode. ResourceSync
+  // fetches them when unloaded or stale and refetches them whenever memory
+  // changes: item edits from any tab, a reset, the mode toggle (the backend
+  // re-indexes synchronously before broadcasting, so the refetch is fresh).
+  useResource(RESOURCES.memoryGraph)
+  useResource(RESOURCES.memoryItems)
+  useResource(RESOURCES.memoryIndexedFiles)
+  useResource(RESOURCES.memoryMode)
 
-  useEffect(() => {
-    refreshAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Any mutation re-syncs the graph and item list (the backend re-indexes
-  // synchronously before broadcasting, so an immediate refetch is fresh).
   useEffect(() => {
     const unsubs = [
-      onMessage('memory_item_add', () => { send('memory_items_get'); send('memory_graph_get') }),
-      onMessage('memory_item_update', () => { send('memory_items_get'); send('memory_graph_get') }),
-      onMessage('memory_item_remove', () => { send('memory_items_get'); send('memory_graph_get') }),
-      onMessage('memory_reset', () => refreshAll()),
       // Per-file add/remove completion: clear ONLY the finished file's
       // spinner so other still-pending files keep spinning. (The old full
       // replace cleared every spinner on the first response, masking the
@@ -658,7 +650,8 @@ export function MemoryPage() {
             <button
               className={styles.iconButton}
               onClick={() => {
-                send('memory_graph_get')
+                // Refetch everything this page shows, not only the graph.
+                resourceSync.handleChanged('memory')
                 setRefreshNonce(n => n + 1)
               }}
               title={t('memory:toggle.refreshGraph')}
