@@ -120,7 +120,6 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
     **dict.fromkeys(
         (
             "agent_app_create",
-            "agent_app_status",
             "agent_app_ready",
             "agent_app_error",
             "agent_app_launch",
