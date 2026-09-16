@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "已在其他地方變更",
+    "loadLatest": "載入最新內容"
+  },
   "general": {
     "title": "一般設定",
     "subtitle": "設定代理的基本設定與偏好",

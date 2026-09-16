@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { usePersistedState } from '../../hooks'
+import { UI_STATE } from '../../store/uiState'
 import { HelpCircle, X, Send } from 'lucide-react'
 import { MarkdownContent } from '../ui'
 import type { ChatMessage } from '../../types'
@@ -22,12 +24,13 @@ interface QuestionBoxProps {
  * Stays fixed while the timeline scrolls, so a question survives the agent
  * continuing to work in the background. Only ONE question shows at a time
  * (oldest first); the rest of the queue is communicated via the counter and
- * surfaces here as each one is resolved. Mount with key={question.messageId}
- * so the free-text draft resets when the queue advances.
+ * surfaces here as each one is resolved. Mount with key={question.messageId}.
+ * The typed free-text answer is kept per question (it survives navigating
+ * away before answering) and cleared once the question is resolved.
  */
 export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: QuestionBoxProps) {
   const { t } = useTranslation(['chat', 'common'])
-  const [text, setText] = useState('')
+  const [text, setText] = usePersistedState(UI_STATE.chat.questionAnswerDraft(question.messageId))
   // One-shot guard against double-submit between click and the store update
   // that unmounts the box (mirrors the bubble chips' dispatch lock).
   const [submitted, setSubmitted] = useState(false)
@@ -37,6 +40,7 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
     const trimmed = value.trim()
     if (!trimmed || submitted) return
     setSubmitted(true)
+    setText('')
     onAnswer(trimmed)
   }
 
@@ -51,7 +55,7 @@ export function QuestionBox({ question, queueTotal, onAnswer, onDismiss }: Quest
         <button
           type="button"
           className={styles.dismiss}
-          onClick={() => { if (!submitted) { setSubmitted(true); onDismiss() } }}
+          onClick={() => { if (!submitted) { setSubmitted(true); setText(''); onDismiss() } }}
           title={t('chat:question.dismissHint')}
           aria-label={t('chat:question.dismissAria')}
         >

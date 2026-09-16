@@ -251,12 +251,14 @@ def _parse_skill_name_from_file(skill_md_path: Path) -> Optional[str]:
         return None
 
 
-def install_skill_from_path(source_path: str) -> Tuple[bool, str]:
+def install_skill_from_path(source_path: str, reload: bool = True) -> Tuple[bool, str]:
     """
     Install a skill from a local directory path.
 
     Args:
         source_path: Path to skill directory containing SKILL.md.
+        reload: Reload the skill registry afterwards. Pass False when running
+            in a worker thread and reload on the event loop instead.
 
     Returns:
         Tuple of (success, message).
@@ -307,14 +309,15 @@ def install_skill_from_path(source_path: str) -> Tuple[bool, str]:
         logger.info(f"Installed skill '{skill_name}' from {source}")
 
         # Reload skills
-        reload_skills()
+        if reload:
+            reload_skills()
 
         return True, f"Installed skill '{skill_name}' to {target}"
     except Exception as e:
         return False, f"Failed to install skill: {e}"
 
 
-def install_skill_from_git(url: str) -> Tuple[bool, str]:
+def install_skill_from_git(url: str, reload: bool = True) -> Tuple[bool, str]:
     """
     Install a skill from a Git repository.
 
@@ -325,6 +328,7 @@ def install_skill_from_git(url: str) -> Tuple[bool, str]:
 
     Args:
         url: Git repository URL.
+        reload: See install_skill_from_path.
 
     Returns:
         Tuple of (success, message).
@@ -388,7 +392,7 @@ def install_skill_from_git(url: str) -> Tuple[bool, str]:
                 return False, "No SKILL.md found in repository"
 
             # Install from the found path
-            return install_skill_from_path(str(skill_dir))
+            return install_skill_from_path(str(skill_dir), reload=reload)
 
         except subprocess.TimeoutExpired:
             return False, "Git clone timed out"

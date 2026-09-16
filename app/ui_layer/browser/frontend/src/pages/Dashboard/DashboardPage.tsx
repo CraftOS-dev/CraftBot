@@ -1,18 +1,26 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { useScrollRestoration } from '../../hooks'
+import { useAppSelector } from '../../store/hooks'
+import { selectConnected } from '../../store/selectors/connection'
+import { UI_STATE } from '../../store/uiState'
 import { DashboardGrid } from './layout/DashboardGrid'
 import { DashboardHeader } from './layout/DashboardHeader'
 import { useDashboardLayouts } from './layout/useDashboardLayouts'
 import styles from './DashboardPage.module.css'
 
 export function DashboardPage() {
-  const { connected, requestFilteredMetrics, subscribeDashboardMetrics, unsubscribeDashboardMetrics } = useWebSocket()
+  const { requestFilteredMetrics, subscribeDashboardMetrics, unsubscribeDashboardMetrics } = useWebSocket()
+  const connected = useAppSelector(selectConnected)
 
   const {
     layouts, activeLayout, activeLayoutId, setActiveLayoutId,
     updateActiveGridLayouts, addWidget, removeWidget, resetLayout,
     createLayout, renameLayout, deleteLayout,
   } = useDashboardLayouts()
+
+  const gridAreaRef = useRef<HTMLDivElement>(null)
+  useScrollRestoration(UI_STATE.dashboard.scrollTop, gridAreaRef)
 
   // Subscribe to live metrics while on this page, unsubscribe on leave.
   // Must depend on `connected`: the subscribe call is a no-op when the socket
@@ -50,7 +58,7 @@ export function DashboardPage() {
       />
 
       {/* The header stays put; only the grid scrolls. */}
-      <div className={styles.gridArea}>
+      <div ref={gridAreaRef} className={styles.gridArea}>
         <DashboardGrid
           activeLayout={activeLayout}
           onLayoutsChange={updateActiveGridLayouts}

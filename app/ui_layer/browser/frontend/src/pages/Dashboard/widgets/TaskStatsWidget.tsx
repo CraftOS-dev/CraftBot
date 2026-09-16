@@ -1,6 +1,7 @@
 import { CheckCircle, PlayCircle, TrendingUp, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
 import { Badge } from '../../../components/ui'
 import { formatNumber } from '../../../i18n/format'
 import { TimePeriodSelector, useMetricsPeriod } from './shared'
@@ -8,8 +9,8 @@ import styles from './widgets.module.css'
 
 export function TaskStatsWidget() {
   const { t } = useTranslation(['dashboard'])
-  const { dashboardMetrics } = useWebSocket()
-  const { period, onChange, filteredData } = useMetricsPeriod()
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
+  const { period, onChange, filteredData } = useMetricsPeriod('taskStats')
 
   const taskCompleted = filteredData?.task.completed ?? (dashboardMetrics?.task.completed ?? 0)
   const taskFailed = filteredData?.task.failed ?? (dashboardMetrics?.task.failed ?? 0)
@@ -59,7 +60,7 @@ export function TaskStatsWidget() {
 // are separate React subtrees with no shared local state.
 export function TaskStatsHeaderBadge() {
   const { t } = useTranslation(['dashboard'])
-  const { dashboardMetrics } = useWebSocket()
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   const total = dashboardMetrics?.task.total ?? 0
   return <Badge variant="default">{t('dashboard:widgets.taskStats.total', { total: formatNumber(total) })}</Badge>
 }

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button, ConfirmModal } from '../../components/ui'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedSet, usePersistedState } from '../../hooks'
 import i18n from '../../i18n/config'
 import { formatNumber, formatDateTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
@@ -29,10 +29,12 @@ import {
   selectAgentAppSettingsProjects,
   selectAgentAppSettingsHasLoadedProjects,
 } from '../../store/selectors/agentAppSettings'
+import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 
 export function AgentAppSettings() {
   const { t } = useTranslation(['settings', 'common'])
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { send, onMessage } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
@@ -43,38 +45,23 @@ export function AgentAppSettings() {
 
   // Transient UI state.
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
+  // Which project cards are open: a persisted preference.
+  const [expandedProjects, , toggleProject] = usePersistedSet(UI_STATE.settings.agentAppExpandedProjects)
 
-  // Fire-once fetch. Slice owns the data; we just trigger the request when
-  // not yet loaded.
-  useEffect(() => {
-    if (!isConnected) return
-    if (!hasLoadedProjects) send('agent_app_settings_get')
-  }, [isConnected, send, hasLoadedProjects])
+  // The slice caches the list; ResourceSync fetches it when unloaded or stale
+  // and refetches whenever any tab, the agent or a status event changes apps.
+  useResource(RESOURCES.agentAppSettings)
 
+  // Clear the card spinner when the action this view started finishes.
   useEffect(() => {
-    const handleActionComplete = (data: unknown) => {
-      const d = data as { success: boolean }
-      setActionInProgress(null)
-      if (d.success) send('agent_app_settings_get')
-    }
+    const clearInProgress = () => setActionInProgress(null)
     const cleanups = [
-      onMessage('agent_app_launch', handleActionComplete),
-      onMessage('agent_app_stop', handleActionComplete),
-      onMessage('agent_app_delete', handleActionComplete),
+      onMessage('agent_app_launch', clearInProgress),
+      onMessage('agent_app_stop', clearInProgress),
+      onMessage('agent_app_delete', clearInProgress),
     ]
     return () => cleanups.forEach(c => c())
-  }, [send, onMessage])
-
-  useEffect(() => {
-    const cleanup = onMessage('agent_app_project_setting_update', (data: unknown) => {
-      const d = data as { success: boolean }
-      // Refetch to reconcile with authoritative state (response doesn't
-      // carry the updated project payload).
-      if (d.success) send('agent_app_settings_get')
-    })
-    return cleanup
-  }, [send, onMessage])
+  }, [onMessage])
 
   const handleLaunch = (projectId: string) => {
     setActionInProgress(projectId)
@@ -84,15 +71,6 @@ export function AgentAppSettings() {
   const handleStop = (projectId: string) => {
     setActionInProgress(projectId)
     send('agent_app_stop', { projectId })
-  }
-
-  const toggleProject = (id: string) => {
-    setExpandedProjects(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
   }
 
   const handleDelete = (project: AgentAppProject) => {
@@ -668,10 +646,15 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
   const { t } = useTranslation(['settings', 'common'])
   const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = usePersistedState(UI_STATE.settings.agentAppOrphanBackupsExpanded(orphan.id))
   const backups = useAppSelector(
     s => s.agentAppSettings.backupsByProject[orphan.id],
   )
+  // A row remembered as expanded still needs its archive list on mount.
+  useEffect(() => {
+    if (expanded && backups === undefined) send('agent_app_backups_list', { projectId: orphan.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Only native apps have pb_data to restore into.
   const targets = projects.filter(p => (p.projectType || 'native') !== 'external')
   const [targetId, setTargetId] = useState('')

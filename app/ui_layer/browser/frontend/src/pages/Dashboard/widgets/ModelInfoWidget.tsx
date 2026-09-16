@@ -1,11 +1,12 @@
 import { Building2, Cpu, Hash } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
 import styles from './widgets.module.css'
 
 export function ModelInfoWidget() {
   const { t } = useTranslation(['dashboard'])
-  const { dashboardMetrics } = useWebSocket()
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
 
   const modelProvider = dashboardMetrics?.model?.provider ?? ''
   const modelId = dashboardMetrics?.model?.modelId ?? ''

@@ -3,7 +3,11 @@ import { useTranslation } from 'react-i18next'
 import { ChevronDown, Pencil, Plus, RotateCcw, Timer, Trash2 } from 'lucide-react'
 import { Button, ConfirmModal, IconButton, StatusIndicator } from '../../../components/ui'
 import { useConfirmModal, useDerivedAgentStatus } from '../../../hooks'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectActivityOverview } from '../../../store/selectors/activity'
+import { selectConnected } from '../../../store/selectors/connection'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
+import { selectLatestMessage } from '../../../store/selectors/messages'
 import { formatUptime } from '../widgets/shared'
 import { AddWidgetModal } from './AddWidgetModal'
 import { LayoutNameModal } from './LayoutNameModal'
@@ -40,8 +44,11 @@ export function DashboardHeader({
 
   // The header pulls its own data, the way every widget does — nothing about
   // agent status belongs in DashboardPage's props.
-  const { connected, actions, messages, dashboardMetrics } = useWebSocket()
-  const status = useDerivedAgentStatus({ actions, messages, connected })
+  const connected = useAppSelector(selectConnected)
+  const activity = useAppSelector(selectActivityOverview)
+  const lastMessage = useAppSelector(selectLatestMessage)
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
+  const status = useDerivedAgentStatus({ activity, lastMessage, connected })
   const uptime = formatUptime(dashboardMetrics?.uptimeSeconds ?? 0)
 
   const handleDelete = () => {

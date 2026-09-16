@@ -51,7 +51,9 @@
   },
   "connection": {
     "disconnectedReconnecting": "연결이 끊어졌습니다. 다시 연결하는 중...",
-    "notConnectedRetry": "연결되지 않았습니다. 잠시 후 다시 시도해 주세요."
+    "notConnectedRetry": "연결되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+    "actionsNotSent_other": "CraftBot에 연결할 수 없습니다. 작업 {{count}}개가 전송되지 않았습니다.",
+    "backendBusy": "CraftBot이 작업 중입니다. 업데이트가 자동으로 다시 시작됩니다"
   },
   "agentStatus": {
     "waiting": "에이전트가 답변을 기다리고 있습니다",

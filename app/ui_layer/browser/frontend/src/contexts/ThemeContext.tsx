@@ -1,7 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 import { broadcastThemeToIframes } from '../pages/AgentApp/iframePool'
+import { usePersistedState } from '../hooks/usePersistedState'
+import { UI_STATE, type ThemePreference } from '../store/uiState'
 
 type Theme = 'dark' | 'light'
+
+const DARK_SCHEME_QUERY = '(prefers-color-scheme: dark)'
 
 // Collect resolved CSS variable values from the main document
 function collectCSSVars(): Record<string, string> {
@@ -25,50 +29,45 @@ function collectCSSVars(): Record<string, string> {
 }
 
 interface ThemeContextType {
+  /** The theme actually applied: 'system' resolved against the OS setting. */
   theme: Theme
+  /** What the user chose (persisted), possibly 'system'. */
+  preference: ThemePreference
   toggleTheme: () => void
-  setTheme: (theme: Theme) => void
+  setTheme: (preference: ThemePreference) => void
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
-const STORAGE_KEY = 'craftbot-theme'
+/** The OS color scheme, kept current while the page is open. */
+function useSystemTheme(): Theme {
+  const [systemTheme, setSystemTheme] = useState<Theme>(
+    () => (window.matchMedia(DARK_SCHEME_QUERY).matches ? 'dark' : 'light'),
+  )
+
+  useEffect(() => {
+    const query = window.matchMedia(DARK_SCHEME_QUERY)
+    const handleChange = () => setSystemTheme(query.matches ? 'dark' : 'light')
+    query.addEventListener('change', handleChange)
+    return () => query.removeEventListener('change', handleChange)
+  }, [])
+
+  return systemTheme
+}
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark') {
-      return stored
-    }
-    return 'dark'
-  })
+  // Persisted UI state: survives reloads and syncs across open tabs.
+  const [preference, setPreference] = usePersistedState(UI_STATE.theme)
+  const systemTheme = useSystemTheme()
+  const theme: Theme = preference === 'system' ? systemTheme : preference
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem(STORAGE_KEY, theme)
     // Give browser one frame to resolve CSS variables, then broadcast to iframes
     requestAnimationFrame(() => {
       broadcastThemeToIframes(theme, collectCSSVars())
     })
   }, [theme])
-
-  // Listen for localStorage changes from Settings page
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY && e.newValue) {
-        // Resolve 'system' to actual theme
-        if (e.newValue === 'system') {
-          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-          setThemeState(prefersDark ? 'dark' : 'light')
-        } else if (e.newValue === 'dark' || e.newValue === 'light') {
-          setThemeState(e.newValue)
-        }
-      }
-    }
-
-    window.addEventListener('storage', handleStorageChange)
-    return () => window.removeEventListener('storage', handleStorageChange)
-  }, [])
 
   // Respond to theme-request messages from iframe children on load
   useEffect(() => {
@@ -86,16 +85,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('message', handleMessage)
   }, [theme])
 
-  const setTheme = useCallback((newTheme: Theme) => {
-    setThemeState(newTheme)
-  }, [])
-
+  // Toggling picks the opposite of what is on screen, leaving 'system' behind.
   const toggleTheme = useCallback(() => {
-    setThemeState(prev => prev === 'dark' ? 'light' : 'dark')
-  }, [])
+    setPreference(theme === 'dark' ? 'light' : 'dark')
+  }, [theme, setPreference])
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
+    <ThemeContext.Provider value={{ theme, preference, toggleTheme, setTheme: setPreference }}>
       {children}
     </ThemeContext.Provider>
   )

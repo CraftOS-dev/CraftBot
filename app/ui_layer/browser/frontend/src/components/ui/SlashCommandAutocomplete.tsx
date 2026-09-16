@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSettingsWebSocket } from '@/pages/Settings/useSettingsWebSocket';
 import { ActivitySquare, Terminal } from 'lucide-react'
 import styles from './SlashCommandAutocomplete.module.css';
 import { useAppSelector } from '../../store/hooks';
-import {
-  selectSkillsHasLoaded,
-  selectEnabledSkillNames,
-} from '../../store/selectors/skillsSettings'
-import {
-  selectCommandNames,
-  selectCommandsHasLoaded,
-} from '../../store/selectors/commandsSettings'
+import { selectEnabledSkillNames } from '../../store/selectors/skillsSettings'
+import { selectCommandNames } from '../../store/selectors/commandsSettings'
+import { RESOURCES, useResource } from '../../store/resources'
 
 type ItemKind = 'command' | 'skill'
 
@@ -46,18 +40,12 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
     const itemRefs = useRef<(HTMLLIElement | null)[]>([])
 
     const skills = useAppSelector(selectEnabledSkillNames);
-    const skillsHasLoaded = useAppSelector(selectSkillsHasLoaded);
-    
     const commands = useAppSelector(selectCommandNames);
-    const commandsHasLoaded = useAppSelector(selectCommandsHasLoaded);
-    const { send, isConnected } = useSettingsWebSocket()
 
-  // Fetch only if no one else has loaded the data yet this session.
-  useEffect(() => {
-    if (!isConnected) return
-    if (!skillsHasLoaded) send('skill_list')
-    if (!commandsHasLoaded) send('command_list')
-    }, [isConnected, skillsHasLoaded, commandsHasLoaded, send])
+    // Fetched on first use and refetched when skills change (any tab, a
+    // reload) or after a reconnect.
+    useResource(RESOURCES.skills)
+    useResource(RESOURCES.commands)
 
     const query = input[0] === '/' ? input.slice(1).toLowerCase() : null
 

@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "Changed elsewhere",
+    "loadLatest": "Load latest"
+  },
   "general": {
     "title": "General Settings",
     "subtitle": "Configure basic agent settings and preferences",

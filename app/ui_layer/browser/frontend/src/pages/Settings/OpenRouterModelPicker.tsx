@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, RefreshCw, Eye, Wrench, Database, ExternalLink } from 'lucide-react'
+import { usePersistedState } from '../../hooks'
 import { formatNumber } from '../../i18n/format'
+import { UI_STATE, type OpenRouterFilters } from '../../store/uiState'
 import styles from './SettingsPage.module.css'
 
 export interface OpenRouterModel {
@@ -278,7 +280,11 @@ interface PickerProps {
   onRefresh: () => void
   requireVision?: boolean
   label: string
+  /** Remembers this picker's search and filters separately, e.g. 'llm' / 'vlm'. */
+  stateKey: string
 }
+
+type ToggleFilter = Exclude<keyof OpenRouterFilters, 'upstream'>
 
 export function OpenRouterModelPicker({
   models,
@@ -289,19 +295,15 @@ export function OpenRouterModelPicker({
   onRefresh,
   requireVision = false,
   label,
+  stateKey,
 }: PickerProps) {
   const { t } = useTranslation(['settings', 'common'])
-  const [search, setSearch] = useState('')
-  const [filterFree, setFilterFree] = useState(false)
-  const [filterVision, setFilterVision] = useState(requireVision)
-  const [filterTools, setFilterTools] = useState(false)
-  const [filterCache, setFilterCache] = useState(false)
-  const [upstream, setUpstream] = useState<string>('')
-
-  // VLM picker should keep the vision filter pinned on
-  useEffect(() => {
-    if (requireVision) setFilterVision(true)
-  }, [requireVision])
+  const [search, setSearch] = usePersistedState(UI_STATE.settings.openRouterSearch(stateKey))
+  const [filters, setFilters] = usePersistedState(UI_STATE.settings.openRouterFilters(stateKey))
+  const { free: filterFree, tools: filterTools, cache: filterCache, upstream } = filters
+  // VLM picker keeps the vision filter pinned on
+  const filterVision = requireVision || filters.vision
+  const toggleFilter = (name: ToggleFilter) => setFilters(prev => ({ ...prev, [name]: !prev[name] }))
 
   const upstreams = useMemo(() => {
     const set = new Set<string>()
@@ -354,7 +356,7 @@ export function OpenRouterModelPicker({
           <button
             type="button"
             className={`${styles.orPickerChip} ${filterFree ? styles.orPickerChipActive : ''}`}
-            onClick={() => setFilterFree(v => !v)}
+            onClick={() => toggleFilter('free')}
             aria-pressed={filterFree}
           >
             {t('settings:model.orPicker.freeOnly')}
@@ -362,7 +364,7 @@ export function OpenRouterModelPicker({
           <button
             type="button"
             className={`${styles.orPickerChip} ${filterVision ? styles.orPickerChipActive : ''}`}
-            onClick={() => !requireVision && setFilterVision(v => !v)}
+            onClick={() => !requireVision && toggleFilter('vision')}
             aria-pressed={filterVision}
             disabled={requireVision}
             title={requireVision ? t('settings:model.orPicker.visionRequired') : undefined}
@@ -372,7 +374,7 @@ export function OpenRouterModelPicker({
           <button
             type="button"
             className={`${styles.orPickerChip} ${filterTools ? styles.orPickerChipActive : ''}`}
-            onClick={() => setFilterTools(v => !v)}
+            onClick={() => toggleFilter('tools')}
             aria-pressed={filterTools}
           >
             {t('settings:model.orPicker.tools')}
@@ -380,7 +382,7 @@ export function OpenRouterModelPicker({
           <button
             type="button"
             className={`${styles.orPickerChip} ${filterCache ? styles.orPickerChipActive : ''}`}
-            onClick={() => setFilterCache(v => !v)}
+            onClick={() => toggleFilter('cache')}
             aria-pressed={filterCache}
           >
             {t('settings:model.orPicker.caching')}
@@ -388,7 +390,7 @@ export function OpenRouterModelPicker({
           <select
             className={styles.orPickerUpstream}
             value={upstream}
-            onChange={(e) => setUpstream(e.target.value)}
+            onChange={(e) => setFilters(prev => ({ ...prev, upstream: e.target.value }))}
           >
             <option value="">{t('settings:model.orPicker.anyUpstream')}</option>
             {upstreams.map(u => (

@@ -7,11 +7,14 @@ import {
 import { useTranslation } from 'react-i18next'
 import { Button, Badge } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
+import { usePersistedState, useServerDraft } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { RemoteChangeHint } from './RemoteChangeHint'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 import {
-  setProvider as setModelProvider,
   setCurrentLlmModel,
   setCurrentVlmModel,
   setSlowModeEnabled,
@@ -31,6 +34,7 @@ import {
   selectOllamaAvailable,
   selectAwsCredentials,
   selectModelHasLoadedProviders,
+  selectModelHasLoadedSettings,
   selectModelHasLoadedSlowMode,
   selectImageGenProvider,
   selectCurrentImageGenModel,
@@ -67,11 +71,9 @@ export function ModelSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
   const dispatch = useAppDispatch()
-  const hasInitialized = useRef(false)
-
   // Slice-backed (modelSettingsSlice) — cached across tab remounts.
   const providers = useAppSelector(selectModelProviders)
-  const provider = useAppSelector(selectModelProvider)
+  const savedProvider = useAppSelector(selectModelProvider)
   const apiKeys = useAppSelector(selectApiKeys)
   const baseUrls = useAppSelector(selectBaseUrls)
   const currentLlmModel = useAppSelector(selectCurrentLlmModelSel)
@@ -94,19 +96,33 @@ export function ModelSettings() {
   const [pastebackInput, setPastebackInput] = useState<Record<string, string>>({})
   // When subscription is connected, the API-key block collapses under a
   // subtle "Use API key instead" toggle so it's clear only one method is
-  // needed. This tracks per-provider user intent to expand it manually.
-  const [apiKeyExpandedByUser, setApiKeyExpandedByUser] = useState<Record<string, boolean>>({})
+  // needed. This tracks per-provider user intent to expand it manually
+  // (a persisted preference).
+  const [apiKeyExpandedByUser, setApiKeyExpandedByUser] = usePersistedState(UI_STATE.settings.modelApiKeyExpanded)
   const isLoading = !hasLoadedProviders
   const isLoadingSlowMode = !hasLoadedSlowMode
 
-  // Local setters (write-through to slice for any code that used to call setX directly).
-  const setProvider = (p: string) => dispatch(setModelProvider(p))
+  const hasLoadedSettings = useAppSelector(selectModelHasLoadedSettings)
+
+  // Provider and model fields are drafts over the saved settings: choosing a
+  // provider doesn't touch shared state before Save, another tab's save
+  // doesn't wipe this form, and a change made elsewhere is flagged.
+  const providerDraft = useServerDraft(savedProvider)
+  const llmModelDraft = useServerDraft(currentLlmModel)
+  const vlmModelDraft = useServerDraft(currentVlmModel)
+  const provider = providerDraft.value
+  const llmModel = llmModelDraft.value
+  const vlmModel = vlmModelDraft.value
+  const { set: setProvider, reset: settleProvider } = providerDraft
+  const { set: setLlmModel, reset: settleLlmModel } = llmModelDraft
+  const { set: setVlmModel, reset: settleVlmModel } = vlmModelDraft
+  // Which save this tab has in flight. model_settings_update replies to other
+  // tabs' saves only update the slice, never this form.
+  const savingSectionRef = useRef<'llm' | 'image' | 'video' | null>(null)
 
   // Form state (transient — local).
   const [newApiKey, setNewApiKey] = useState('')
   const [newBaseUrl, setNewBaseUrl] = useState('')
-  const [newLlmModel, setNewLlmModel] = useState('')
-  const [newVlmModel, setNewVlmModel] = useState('')
 
   // Bedrock-specific form state — AWS credentials don't fit the api_key shape
   // (multiple fields). All four are blank until the user fills them in;
@@ -182,38 +198,38 @@ export function ModelSettings() {
     if (!isConnected) return
 
     const cleanups = [
-      onMessage('model_settings_get', () => {
-        if (!hasInitialized.current) {
-          setNewLlmModel('')
-          setNewVlmModel('')
-          setNewVideoGenProvider('')
-          setNewVideoGenModel('')
-          hasInitialized.current = true
-        }
-      }),
       onMessage('model_settings_update', (data: unknown) => {
+        // Every tab receives every save; only the tab that saved resets its form.
+        const section = savingSectionRef.current
+        if (!section) return
+        savingSectionRef.current = null
         const d = data as { success: boolean; error?: string }
         setIsSaving(false)
         setIsImageGenSaving(false)
         setIsVideoGenSaving(false)
         if (d.success) {
-          setNewApiKey('')
-          setNewBaseUrl('')
-          setNewLlmModel('')
-          setNewVlmModel('')
-          setNewAwsAccessKeyId('')
-          setNewAwsSecretAccessKey('')
-          setNewAwsSessionToken('')
-          setNewAwsRegion('')
-          setHasChanges(false)
-          setNewImageGenProvider('')
-          setNewImageGenModel('')
-          setNewImageGenApiKey('')
-          setImageGenHasChanges(false)
-          setNewVideoGenProvider('')
-          setNewVideoGenModel('')
-          setNewVideoGenApiKey('')
-          setVideoGenHasChanges(false)
+          if (section === 'llm') {
+            setNewApiKey('')
+            setNewBaseUrl('')
+            setNewAwsAccessKeyId('')
+            setNewAwsSecretAccessKey('')
+            setNewAwsSessionToken('')
+            setNewAwsRegion('')
+            setHasChanges(false)
+            settleProvider()
+            settleLlmModel()
+            settleVlmModel()
+          } else if (section === 'image') {
+            setNewImageGenProvider('')
+            setNewImageGenModel('')
+            setNewImageGenApiKey('')
+            setImageGenHasChanges(false)
+          } else {
+            setNewVideoGenProvider('')
+            setNewVideoGenModel('')
+            setNewVideoGenApiKey('')
+            setVideoGenHasChanges(false)
+          }
           showToast('success', t('settings:model.toast.saved'))
         } else {
           showToast('error', d.error || t('settings:model.toast.saveFailed'))
@@ -232,12 +248,13 @@ export function ModelSettings() {
         if (testBeforeSave && d.success) {
           setTestBeforeSave(false)
           setIsSaving(true)
+          savingSectionRef.current = 'llm'
           const awsCreds = buildAwsCredentialsPayload()
           send('model_settings_update', {
             llmProvider: provider,
             vlmProvider: provider,
-            llmModel: newLlmModel || currentLlmModel || undefined,
-            vlmModel: newVlmModel || currentVlmModel || undefined,
+            llmModel: llmModel || undefined,
+            vlmModel: vlmModel || undefined,
             apiKey: newApiKey || undefined,
             providerForKey: newApiKey ? provider : undefined,
             baseUrl: newBaseUrl || undefined,
@@ -252,23 +269,10 @@ export function ModelSettings() {
         const d = data as { success: boolean; models: string[] }
         setOllamaModelsLoading(false)
         if (d.success && d.models && d.models.length > 0) {
-          // Auto-select first available model if current selection isn't installed
-          setNewLlmModel(prev => {
-            const effective = prev || currentLlmModel
-            if (!d.models.includes(effective)) {
-              setHasChanges(true)
-              return d.models[0]
-            }
-            return prev
-          })
-          setNewVlmModel(prev => {
-            const effective = prev || currentVlmModel
-            if (!d.models.includes(effective)) {
-              setHasChanges(true)
-              return d.models[0]
-            }
-            return prev
-          })
+          // Auto-select first available model if current selection isn't
+          // installed (the draft turns dirty, enabling Save).
+          setLlmModel(prev => (d.models.includes(prev) ? prev : d.models[0]))
+          setVlmModel(prev => (d.models.includes(prev) ? prev : d.models[0]))
         }
       }),
       onMessage('local_llm_suggested_models', (data: unknown) => {
@@ -289,11 +293,7 @@ export function ModelSettings() {
         // selection isn't offered, auto-select the first discovered id so
         // the field reflects what the server actually has.
         if (models.length > 0) {
-          setNewLlmModel(prev => {
-            const eff = prev || currentLlmModel
-            if (!eff || !models.includes(eff)) { setHasChanges(true); return models[0] }
-            return prev
-          })
+          setLlmModel(prev => (prev && models.includes(prev) ? prev : models[0]))
         }
       }),
       onMessage('local_llm_pull_progress', (data: unknown) => {
@@ -313,9 +313,10 @@ export function ModelSettings() {
           send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
           // Auto-switch to remote provider with the pulled model and save immediately
           // so chat/tasks start using the local model without requiring manual save
-          dispatch(setModelProvider('remote'))
-          setNewLlmModel(pulledModel)
+          setProvider('remote')
+          setLlmModel(pulledModel)
           setIsSaving(true)
+          savingSectionRef.current = 'llm'
           send('model_settings_update', {
             llmProvider: 'remote',
             vlmProvider: 'remote',
@@ -357,20 +358,15 @@ export function ModelSettings() {
     ]
 
     return () => cleanups.forEach(cleanup => cleanup())
-  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, currentLlmModel, currentVlmModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, newLlmModel, newVlmModel])
+  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, llmModel, vlmModel, setProvider, setLlmModel, setVlmModel, settleProvider, settleLlmModel, settleVlmModel])
 
-  // Load initial data when connected. Providers/slow-mode are cached across
-  // remounts, but settings are ALWAYS refetched: the page must show what's
-  // actually saved. With the old load-once cache, a tab that outlived a
-  // backend restart (the socket reconnects without a page reload) kept
-  // rendering stale Redux state, so the model field showed the registry
-  // default instead of the user's saved model.
-  useEffect(() => {
-    if (!isConnected) return
-    if (!hasLoadedProviders) send('model_providers_get')
-    send('model_settings_get')
-    if (!hasLoadedSlowMode) send('slow_mode_get')
-  }, [isConnected, send, hasLoadedProviders, hasLoadedSlowMode])
+  // Cached in the slice. Providers only change with a backend update; settings
+  // and slow mode are refetched whenever they change (a save in any tab, a
+  // subscription sign-in) and after every reconnect, so a tab that outlived
+  // a backend restart still shows what's actually saved.
+  useResource(RESOURCES.modelProviders)
+  useResource(RESOURCES.modelSettings)
+  useResource(RESOURCES.slowMode)
 
   // Fetch Ollama models whenever the active provider is 'remote'
   useEffect(() => {
@@ -417,27 +413,24 @@ export function ModelSettings() {
         : discoveredModels
   const modelsLoading = provider === 'remote' ? ollamaModelsLoading : discoveredLoading
 
-  // Update models when provider changes — only before settings have loaded (fallback to
-  // registry defaults for the initial render).  After hasInitialized is true, provider
-  // changes are handled explicitly in handleProviderChange so we don't race against
-  // the model_settings_get response overwriting the saved model.
+  // Before the saved settings arrive, fall back to registry defaults for the
+  // initial render. After that, provider changes set the model drafts
+  // explicitly in handleProviderChange.
   useEffect(() => {
-    if (hasInitialized.current) return
+    if (hasLoadedSettings) return
     const selectedProvider = providers.find(p => p.id === provider)
-    if (selectedProvider && !newLlmModel && !currentLlmModel) {
+    if (selectedProvider && !llmModel) {
       dispatch(setCurrentLlmModel(selectedProvider.llm_model || ''))
     }
-    if (selectedProvider && !newVlmModel && !currentVlmModel) {
+    if (selectedProvider && !vlmModel) {
       dispatch(setCurrentVlmModel(selectedProvider.vlm_model || ''))
     }
-  }, [provider, providers, newLlmModel, newVlmModel, currentLlmModel, currentVlmModel, dispatch])
+  }, [hasLoadedSettings, provider, providers, llmModel, vlmModel, dispatch])
 
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider)
     setNewApiKey('')
     setNewBaseUrl('')
-    setNewLlmModel('')
-    setNewVlmModel('')
     setNewAwsAccessKeyId('')
     setNewAwsSecretAccessKey('')
     setNewAwsSessionToken('')
@@ -447,11 +440,11 @@ export function ModelSettings() {
     setOllamaInstallPhase('idle')
     setOllamaInstallLog([])
     setOllamaInstallError('')
-    // Immediately set model to registry default for new provider so the field
-    // shows a sensible value before the user types anything.
+    // Show the new provider's registry default models right away. These are
+    // drafts: nothing shared changes until Save.
     const selectedProvider = providers.find(p => p.id === newProvider)
-    dispatch(setCurrentLlmModel(selectedProvider?.llm_model || ''))
-    dispatch(setCurrentVlmModel(selectedProvider?.vlm_model || ''))
+    setLlmModel(selectedProvider?.llm_model || '')
+    setVlmModel(selectedProvider?.vlm_model || '')
   }
 
   // Bedrock helper: pack the form's AWS credential fields into the shape the
@@ -482,7 +475,7 @@ export function ModelSettings() {
       provider,
       apiKey: newApiKey || undefined,
       baseUrl: newBaseUrl || baseUrls[provider],
-      model: newLlmModel || currentLlmModel || undefined,
+      model: llmModel || undefined,
       awsCredentials: buildAwsCredentialsPayload(),
     })
   }
@@ -500,22 +493,24 @@ export function ModelSettings() {
         provider,
         apiKey: newApiKey || undefined,
         baseUrl: newBaseUrl || baseUrls[provider],
-        model: newLlmModel || currentLlmModel || undefined,
+        model: llmModel || undefined,
         awsCredentials: awsCreds,
       })
     } else {
       setIsSaving(true)
+      savingSectionRef.current = 'llm'
       send('model_settings_update', {
         llmProvider: provider,
         vlmProvider: provider,
-        llmModel: newLlmModel || currentLlmModel || undefined,
-        vlmModel: newVlmModel || currentVlmModel || undefined,
+        llmModel: llmModel || undefined,
+        vlmModel: vlmModel || undefined,
       })
     }
   }
 
   const handleImageGenSave = () => {
     setIsImageGenSaving(true)
+    savingSectionRef.current = 'image'
     const effectiveProvider = newImageGenProvider || imageGenProvider
     send('model_settings_update', {
       imageGenProvider: effectiveProvider,
@@ -529,6 +524,7 @@ export function ModelSettings() {
 
   const handleVideoGenSave = () => {
     setIsVideoGenSaving(true)
+    savingSectionRef.current = 'video'
     const effectiveProvider = newVideoGenProvider || videoGenProvider
     send('model_settings_update', {
       videoGenProvider: effectiveProvider,
@@ -590,22 +586,22 @@ export function ModelSettings() {
                   error={orCatalog.error}
                   onRefresh={orCatalog.refresh}
                   label={t('settings:model.llmModel')}
-                  value={newLlmModel || currentLlmModel || ''}
-                  onChange={(v) => { setNewLlmModel(v); setHasChanges(true) }}
+                  stateKey="llm"
+                  value={llmModel}
+                  onChange={(v) => setLlmModel(v)}
                 />
               ) : (
                 <div className={styles.formGroup}>
                   <label>{t('settings:model.llmModel')}</label>
                   {modelOptions.length > 0 ? (
                     <select
-                      value={newLlmModel || currentLlmModel || ''}
-                      onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
+                      value={llmModel}
+                      onChange={(e) => setLlmModel(e.target.value)}
                     >
                       {/* keep the saved value visible even if not in the list */}
-                      {(newLlmModel || currentLlmModel) &&
-                        !modelOptions.includes(newLlmModel || currentLlmModel) && (
-                        <option value={newLlmModel || currentLlmModel}>
-                          {newLlmModel || currentLlmModel}
+                      {llmModel && !modelOptions.includes(llmModel) && (
+                        <option value={llmModel}>
+                          {llmModel}
                         </option>
                       )}
                       {modelOptions.map(m => <option key={m} value={m}>{m}</option>)}
@@ -613,8 +609,8 @@ export function ModelSettings() {
                   ) : (
                     <input
                       type="text"
-                      value={newLlmModel || currentLlmModel || ''}
-                      onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
+                      value={llmModel}
+                      onChange={(e) => setLlmModel(e.target.value)}
                       placeholder={
                         modelsLoading
                           ? t('settings:model.loadingModels')
@@ -794,9 +790,10 @@ export function ModelSettings() {
                     error={orCatalog.error}
                     onRefresh={orCatalog.refresh}
                     label={t('settings:model.vlmModel')}
+                    stateKey="vlm"
                     requireVision
-                    value={newVlmModel || currentVlmModel || ''}
-                    onChange={(v) => { setNewVlmModel(v); setHasChanges(true) }}
+                    value={vlmModel}
+                    onChange={(v) => setVlmModel(v)}
                   />
                 ) : (
                 <div className={styles.formGroup}>
@@ -816,13 +813,12 @@ export function ModelSettings() {
                       : modelOptions
                     return vlmOptions.length > 0 ? (
                       <select
-                        value={newVlmModel || currentVlmModel || ''}
-                        onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
+                        value={vlmModel}
+                        onChange={(e) => setVlmModel(e.target.value)}
                       >
-                        {(newVlmModel || currentVlmModel) &&
-                          !vlmOptions.includes(newVlmModel || currentVlmModel) && (
-                          <option value={newVlmModel || currentVlmModel}>
-                            {newVlmModel || currentVlmModel}
+                        {vlmModel && !vlmOptions.includes(vlmModel) && (
+                          <option value={vlmModel}>
+                            {vlmModel}
                           </option>
                         )}
                         {vlmOptions.map(m => <option key={m} value={m}>{m}</option>)}
@@ -830,8 +826,8 @@ export function ModelSettings() {
                     ) : (
                       <input
                         type="text"
-                        value={newVlmModel || currentVlmModel || ''}
-                        onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
+                        value={vlmModel}
+                        onChange={(e) => setVlmModel(e.target.value)}
                         placeholder={
                           modelsLoading
                             ? t('settings:model.loadingModels')
@@ -1175,7 +1171,11 @@ export function ModelSettings() {
             <Button
               variant="primary"
               onClick={handleSave}
-              disabled={isSaving || isTesting || !hasChanges}
+              disabled={
+                isSaving ||
+                isTesting ||
+                !(hasChanges || providerDraft.isDirty || llmModelDraft.isDirty || vlmModelDraft.isDirty)
+              }
             >
               {isSaving ? (
                 <>
@@ -1191,6 +1191,15 @@ export function ModelSettings() {
                 t('common:actions.save')
               )}
             </Button>
+            {(providerDraft.remoteChanged || llmModelDraft.remoteChanged || vlmModelDraft.remoteChanged) && (
+              <RemoteChangeHint
+                onLoadLatest={() => {
+                  providerDraft.acceptRemote()
+                  llmModelDraft.acceptRemote()
+                  vlmModelDraft.acceptRemote()
+                }}
+              />
+            )}
           </div>
 
           {/* Image Generation */}

@@ -8,8 +8,11 @@ import { WorkspaceProvider } from './contexts/WorkspaceContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { store } from './store'
+import { startPerfMonitor } from './utils/perfMonitor'
 import './i18n/config'
 import './styles/global.css'
+
+startPerfMonitor()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

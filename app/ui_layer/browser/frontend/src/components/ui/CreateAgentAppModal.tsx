@@ -127,6 +127,18 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
     setImporting(false)
   }
 
+  // The catalog is cached for the modal's lifetime, but a disconnect (e.g. a
+  // backend update) makes the next marketplace view refetch it.
+  const catalogStaleRef = useRef(false)
+  useEffect(() => {
+    if (!isConnected) catalogStaleRef.current = true
+  }, [isConnected])
+  const fetchCatalogIfNeeded = () => {
+    if (apps.length > 0 && !catalogStaleRef.current) return
+    catalogStaleRef.current = false
+    fetchMarketplace()
+  }
+
   // Reset form fields on open — intentionally NOT resetting installingIds/completedIds
   // so ongoing installs remain visible when user closes and reopens the modal
   useEffect(() => {
@@ -135,16 +147,16 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
       setCustomValues({})
       setSearchQuery('')
       setSelectedTags(new Set())
-      if (activeTab === 'marketplace' && apps.length === 0) {
-        fetchMarketplace()
+      if (activeTab === 'marketplace') {
+        fetchCatalogIfNeeded()
       }
     }
   }, [isOpen])
 
   // Fetch marketplace when tab changes
   useEffect(() => {
-    if (isOpen && activeTab === 'marketplace' && apps.length === 0 && isConnected) {
-      fetchMarketplace()
+    if (isOpen && activeTab === 'marketplace' && isConnected) {
+      fetchCatalogIfNeeded()
     }
   }, [activeTab, isConnected])
 

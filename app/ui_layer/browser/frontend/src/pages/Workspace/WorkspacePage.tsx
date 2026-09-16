@@ -30,8 +30,9 @@ import { useTranslation } from 'react-i18next'
 import { IconButton, Button, Badge, ConfirmModal, Modal, ModalBody, ModalFooter } from '../../components/ui'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedSet, usePersistedState, useScrollRestoration } from '../../hooks'
 import { formatNumber, formatDateTime } from '../../i18n/format'
+import { UI_STATE } from '../../store/uiState'
 import type { FileItem } from '../../types'
 import styles from './WorkspacePage.module.css'
 
@@ -126,8 +127,8 @@ export function WorkspacePage() {
   const { showToast } = useToast()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Selection state
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+  // Selection state (checked paths are remembered for the browser session)
+  const [selectedFiles, setSelectedFiles] = usePersistedSet(UI_STATE.workspace.selectedPaths)
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(-1)
 
   // Upload progress: filename → 0–100
@@ -144,13 +145,17 @@ export function WorkspacePage() {
   const [clipboard, setClipboard] = useState<{ action: 'copy' | 'cut'; paths: string[] } | null>(null)
   const [showPreviewContent, setShowPreviewContent] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
-  const [mobileShowPreview, setMobileShowPreview] = useState(false)
+  const [mobileShowPreview, setMobileShowPreview] = usePersistedState(UI_STATE.workspace.mobileShowPreview)
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
   const searchDebounceRef = useRef<number | null>(null)
+  const fileListBodyRef = useRef<HTMLDivElement>(null)
+
+  // Scroll position per directory, restored once the list has (re)loaded.
+  useScrollRestoration(UI_STATE.workspace.fileListScrollTop(currentDirectory), fileListBodyRef, !loading)
 
   // Search handler with debounce
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -190,11 +195,26 @@ export function WorkspacePage() {
     }
   }, [editingFile])
 
-  // Clear selection when directory changes
+  // Clear selection when the directory changes — but not on mount, where a
+  // restored selection belongs to the directory still being shown.
+  const shownDirectoryRef = useRef(currentDirectory)
   useEffect(() => {
+    if (shownDirectoryRef.current === currentDirectory) return
+    shownDirectoryRef.current = currentDirectory
     setSelectedFiles(new Set())
     setLastSelectedIndex(-1)
-  }, [currentDirectory])
+  }, [currentDirectory, setSelectedFiles])
+
+  // Bulk actions must only ever touch files the user can see. Once the list
+  // has loaded, drop remembered checks for paths it doesn't contain — e.g. a
+  // reload reset the folder to the root, or a file was removed elsewhere.
+  // Skipped while searching, where checked non-matches are hidden on purpose.
+  useEffect(() => {
+    if (loading || search) return
+    const listed = new Set(files.map(f => f.path))
+    const kept = Array.from(selectedFiles).filter(path => listed.has(path))
+    if (kept.length !== selectedFiles.size) setSelectedFiles(new Set(kept))
+  }, [files, loading, search, selectedFiles, setSelectedFiles])
 
   // Load file content when selected
   useEffect(() => {
@@ -1096,7 +1116,10 @@ export function WorkspacePage() {
           {/* Search bar */}
           <div className={styles.fileSearchBar}>
             <Search size={14} />
+            {/* Uncontrolled for the debounce. Keyed by directory: navigating
+                clears the search in the store, and the box must follow. */}
             <input
+              key={currentDirectory}
               type="text"
               placeholder={t('workspace:files.searchPlaceholder')}
               defaultValue={search}
@@ -1128,7 +1151,7 @@ export function WorkspacePage() {
             <span className={styles.colModified}>{t('workspace:files.columnModified')}</span>
             <span className={styles.colActions}></span>
           </div>
-          <div className={styles.fileListBody} onContextMenu={handleEmptySpaceContextMenu}>
+          <div ref={fileListBodyRef} className={styles.fileListBody} onContextMenu={handleEmptySpaceContextMenu}>
             {loading && files.length === 0 ? (
               <div className={styles.loadingState}>
                 <Loader2 size={24} className={styles.spinner} />

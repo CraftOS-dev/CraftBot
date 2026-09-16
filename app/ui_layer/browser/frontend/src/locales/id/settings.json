@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "Diubah di tempat lain",
+    "loadLatest": "Muat yang terbaru"
+  },
   "general": {
     "title": "Pengaturan Umum",
     "subtitle": "Konfigurasikan pengaturan dan preferensi dasar agen",

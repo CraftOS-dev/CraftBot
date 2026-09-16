@@ -9,3 +9,6 @@ export const selectMemoryGraphLoading = (state: RootState) => state.memorySettin
 export const selectMemoryIndexedFiles = (state: RootState) => state.memorySettings.indexedFiles
 export const selectMemoryIndexCandidates = (state: RootState) => state.memorySettings.indexCandidates
 export const selectMemoryHasLoadedFiles = (state: RootState) => state.memorySettings.hasLoadedFiles
+export const selectMemorySchedule = (state: RootState) => state.memorySettings.schedule
+export const selectMemoryThresholdMax = (state: RootState) => state.memorySettings.thresholdMax
+export const selectMemoryUnprocessedEvents = (state: RootState) => state.memorySettings.unprocessedEvents

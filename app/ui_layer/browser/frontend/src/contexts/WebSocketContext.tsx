@@ -1,17 +1,18 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useStore } from 'react-redux'
 import type {
-  ChatMessage, ActionItem, AgentStatus, SessionInfo, WSMessage, DashboardMetrics,
-  FilteredDashboardMetrics, MetricsTimePeriod, OnboardingStep,
-  LocalLLMState,
-  SkillMeta,
-  // Agent App types
-  AgentAppProject, AgentAppCreateRequest, AgentAppStatusUpdate, AgentAppStateUpdate,
+  ChatMessage, SessionInfo, WSMessage, MetricsTimePeriod,
+  AgentAppCreateRequest,
 } from '../types'
 import { QUESTION_DISMISSED } from '../types'
 import i18n from '../i18n/config'
+import { useToast } from './ToastContext'
+import type { AppDispatch, RootState } from '../store'
 import { getSocketClient } from '../store/socket/socketInstance'
-import { useAppDispatch, useAppSelector } from '../store/hooks'
+import { onInboundMessage } from '../store/socket/socketMiddleware'
+import type { OutboundEnvelope } from '../store/socket/types'
+import { useAppDispatch } from '../store/hooks'
 import {
   addOptimistic as messagesAddOptimistic,
   setLoadingOlder as messagesSetLoadingOlder,
@@ -20,25 +21,8 @@ import {
   transferSession as messagesTransferSession,
 } from '../store/slices/messagesSlice'
 import { transferDraft as chatInputTransferDraft } from '../store/slices/chatInputSlice'
-import {
-  selectAllMessages,
-  selectLastMessageIdBySession,
-} from '../store/selectors/messages'
-import { selectAllActivity } from '../store/selectors/activity'
-import { selectSessions } from '../store/selectors/sessions'
-import {
-  selectDashboardMetrics,
-  selectFilteredMetricsCache,
-} from '../store/selectors/dashboard'
-import {
-  setLoading as onboardingSetLoading,
-} from '../store/slices/onboardingSlice'
-import {
-  selectOnboardingStep,
-  selectOnboardingError,
-  selectOnboardingLoading,
-  selectNeedsHardOnboarding,
-} from '../store/selectors/onboarding'
+import { selectLastMessageIdBySession } from '../store/selectors/messages'
+import { setLoading as onboardingSetLoading } from '../store/slices/onboardingSlice'
 import {
   markChecking as localLlmMarkChecking,
   markInstalling as localLlmMarkInstalling,
@@ -46,34 +30,25 @@ import {
   markStarting as localLlmMarkStarting,
   markPullingModel as localLlmMarkPullingModel,
 } from '../store/slices/localLlmSlice'
-import { selectLocalLlm } from '../store/selectors/localLlm'
 import {
   setActiveId as agentAppSetActiveId,
   markLaunching as agentAppMarkLaunching,
   markStopping as agentAppMarkStopping,
-  type AgentAppTodo,
 } from '../store/slices/agentAppSlice'
-import {
-  selectAgentAppProjects,
-  selectAgentAppCreating,
-  selectAgentAppTodos,
-  selectActiveAgentAppId,
-  selectAgentAppStates,
-} from '../store/selectors/agentApp'
-import {
-  selectAgentName,
-  selectAgentProfilePictureUrl,
-  selectAgentProfilePictureHasCustom,
-  selectAgentStatus,
-  selectGuiMode,
-  selectFootageUrl,
-  selectSkillMeta,
-} from '../store/selectors/agent'
 import { setStatus, setSessionRunState } from '../store/slices/agentSlice'
+import { setUiState } from '../store/slices/uiSlice'
+import { selectUiState } from '../store/selectors/ui'
+import { UI_STATE } from '../store/uiState'
 
-// Module-level reference to the shared SocketClient. The transport (connect,
-// reconnect, outbox, message dispatch) lives there; this context now only
-// owns the React-side state shape that consumers depend on.
+// This context exposes the app's *actions* that talk to the backend, plus two
+// rarely-changing local values. Server data (messages, sessions, metrics, …)
+// lives in Redux and components read it with selectors: when the provider
+// re-exposed every slice, each socket message re-rendered the whole app
+// (docs/plans/ui-data-freshness-plan.md, RS-2.1). The context value is
+// memoized and changes only when `initReceived` or `enhancedPrompt` does.
+
+// Module-level reference to the shared SocketClient (transport, reconnect,
+// outbox and dispatch live there).
 const client = getSocketClient()
 
 // Pending attachment type for upload
@@ -94,77 +69,37 @@ const newClientId = (): string =>
     ? crypto.randomUUID()
     : `cid-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-// Per-session "last seen message" map, persisted so unread dots survive
-// reloads. Key: sessionId → messageId of the newest message seen.
-const LAST_SEEN_STORAGE_KEY = 'lastSeenMessageIdBySession'
-
-const loadLastSeenBySession = (): Record<string, string> => {
-  try {
-    const raw = localStorage.getItem(LAST_SEEN_STORAGE_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed === 'object') return parsed as Record<string, string>
-  } catch {
-    // localStorage may be unavailable or corrupted
+// Undo optimistic UI for queued actions that expired before the connection
+// came back (see SocketClient outbox TTL). Everything else is repaired by the
+// reconnect resync (`init`, `agent_app_list`).
+const rollbackExpiredSend = (envelope: OutboundEnvelope, dispatch: AppDispatch) => {
+  switch (envelope.type) {
+    case 'message':
+    case 'question_response':
+    case 'session_stop':
+      if (typeof envelope.sessionId === 'string') {
+        dispatch(setSessionRunState({ sessionId: envelope.sessionId, state: 'idle' }))
+      }
+      break
+    case 'onboarding_step_submit':
+    case 'onboarding_skip':
+    case 'onboarding_back':
+      dispatch(onboardingSetLoading(false))
+      break
+    case 'local_llm_install':
+      dispatch(localLlmMarkInstallFailed(i18n.t('nav:connection.notConnectedRetry')))
+      break
   }
-  return {}
 }
 
-const persistLastSeenBySession = (map: Record<string, string>) => {
-  try {
-    localStorage.setItem(LAST_SEEN_STORAGE_KEY, JSON.stringify(map))
-  } catch {
-    // localStorage may be unavailable
-  }
-}
-
-// Local-only React state. Slice-backed fields (messages, activity, sessions,
-// agent app, ...) live in redux and are injected into the context value by
-// the provider via useAppSelector.
 interface WebSocketState {
-  connected: boolean
-  version: string
   // Whether the initial 'init' message has been received from the backend
   initReceived: boolean
-  // Per-session unread tracking
-  lastSeenBySession: Record<string, string>
   // Enhanced prompt result from backend LLM
   enhancedPrompt: string | null
 }
 
 interface WebSocketContextType extends WebSocketState {
-  // Slice-backed (messagesSlice/activitySlice) aggregates across every
-  // session — for global consumers (mascot, dashboard status). Per-session
-  // timelines are read via selectors with a sessionId.
-  messages: ChatMessage[]
-  actions: ActionItem[]
-  // Slice-backed (sessionsSlice).
-  sessions: SessionInfo[]
-  // Slice-backed (dashboardSlice).
-  dashboardMetrics: DashboardMetrics | null
-  filteredMetricsCache: Record<MetricsTimePeriod, FilteredDashboardMetrics | null>
-  // Slice-backed (onboardingSlice).
-  onboardingStep: OnboardingStep | null
-  onboardingError: string | null
-  onboardingLoading: boolean
-  needsHardOnboarding: boolean
-  // Slice-backed (localLlmSlice).
-  localLLM: LocalLLMState
-  // Slice-backed (agentAppSlice).
-  agentAppProjects: AgentAppProject[]
-  agentAppCreating: AgentAppStatusUpdate | null
-  agentAppTodos: Record<string, AgentAppTodo[]>
-  activeAgentAppId: string | null
-  agentAppStates: Record<string, AgentAppStateUpdate['state']>
-  // Slice-backed (agentSlice).
-  agentName: string
-  agentProfilePictureUrl: string
-  agentProfilePictureHasCustom: boolean
-  status: AgentStatus
-  guiMode: boolean
-  footageUrl: string | null
-  skillMeta: SkillMeta
-
   sendMessage: (
     content: string,
     attachments: PendingAttachment[] | undefined,
@@ -180,7 +115,7 @@ interface WebSocketContextType extends WebSocketState {
   renameSession: (sessionId: string, title: string) => void
   clearSession: (sessionId: string) => void
   requestChatHistory: (sessionId: string, beforeTimestamp?: number, limit?: number) => void
-  // Per-session unread tracking
+  // Per-session unread tracking (read with UI_STATE.chat.lastSeenMessageIds)
   markSessionSeen: (sessionId: string) => void
   openFile: (path: string) => void
   openFolder: (path: string) => void
@@ -225,52 +160,17 @@ interface WebSocketContextType extends WebSocketState {
   ) => void
 }
 
-const defaultState: WebSocketState = {
-  connected: false,
-  version: '',
-  initReceived: false,
-  lastSeenBySession: loadLastSeenBySession(),
-  enhancedPrompt: null,
-}
-
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<WebSocketState>(defaultState)
+  const [state, setState] = useState<WebSocketState>({ initReceived: false, enhancedPrompt: null })
   const navigate = useNavigate()
   const navigateRef = useRef(navigate)
   navigateRef.current = navigate
 
-  // Slice-backed fields. Source of truth lives in redux; the provider
-  // re-exposes them on the context so consumers keep a single hook.
   const dispatch = useAppDispatch()
-  const messages = useAppSelector(selectAllMessages)
-  const actions = useAppSelector(selectAllActivity)
-  const sessions = useAppSelector(selectSessions)
-  const lastMessageIdBySession = useAppSelector(selectLastMessageIdBySession)
-  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
-  const filteredMetricsCache = useAppSelector(selectFilteredMetricsCache)
-  const onboardingStep = useAppSelector(selectOnboardingStep)
-  const onboardingError = useAppSelector(selectOnboardingError)
-  const onboardingLoading = useAppSelector(selectOnboardingLoading)
-  const needsHardOnboarding = useAppSelector(selectNeedsHardOnboarding)
-  const localLLM = useAppSelector(selectLocalLlm)
-  const agentAppProjects = useAppSelector(selectAgentAppProjects)
-  const agentAppCreating = useAppSelector(selectAgentAppCreating)
-  const agentAppTodos = useAppSelector(selectAgentAppTodos)
-  const activeAgentAppId = useAppSelector(selectActiveAgentAppId)
-  const agentAppStates = useAppSelector(selectAgentAppStates)
-  const agentName = useAppSelector(selectAgentName)
-  const agentProfilePictureUrl = useAppSelector(selectAgentProfilePictureUrl)
-  const agentProfilePictureHasCustom = useAppSelector(selectAgentProfilePictureHasCustom)
-  const status = useAppSelector(selectAgentStatus)
-  const guiMode = useAppSelector(selectGuiMode)
-  const footageUrl = useAppSelector(selectFootageUrl)
-  const skillMeta = useAppSelector(selectSkillMeta)
-
-  // Ref mirror so markSessionSeen doesn't need the map in its dep list.
-  const lastMessageIdBySessionRef = useRef(lastMessageIdBySession)
-  lastMessageIdBySessionRef.current = lastMessageIdBySession
+  const store = useStore<RootState>()
+  const { showToast } = useToast()
 
   // clientIds of messages sent from the draft view (sessionId "new") that
   // are still waiting for the backend to create their session. When a
@@ -279,7 +179,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const pendingDraftClientIdsRef = useRef<Set<string>>(new Set())
 
   // Send-or-queue: delegate to the shared SocketClient which owns the
-  // outbox and reconnect lifecycle.
+  // outbox and reconnect lifecycle. User actions (send, delete, launch,
+  // onboarding steps, …) go through here so a click during a reconnect runs
+  // once the connection is back (or expires with a toast, see below).
+  // Sync requests (history pages, metric filters, subscriptions, lists,
+  // status checks) stay connected-only: the views re-issue them on
+  // reconnect, so queueing them would only duplicate work.
   const sendOrQueue = useCallback((payloadStr: string) => {
     client.sendString(payloadStr)
   }, [])
@@ -290,7 +195,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         // All init payload fields flow through slice handlers in
         // messageRegistry. The context only needs to flip the "we've seen
         // init" gate that App.tsx uses to unblock rendering.
-        setState(prev => ({ ...prev, initReceived: true }))
+        setState(prev => (prev.initReceived ? prev : { ...prev, initReceived: true }))
         break
       }
 
@@ -349,36 +254,32 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [dispatch])
 
   useEffect(() => {
-    const unsubOpen = client.onOpen(() => {
-      setState(prev => ({ ...prev, connected: true }))
-      // Backend expects an initial Agent App list request on every connect.
-      client.sendString(JSON.stringify({ type: 'agent_app_list' }))
-    })
+    // The backend pushes the Agent App list on every connect, and
+    // ResourceSync refetches it on changes (store/resources).
     const unsubClose = client.onClose(() => {
-      setState(prev => ({ ...prev, connected: false }))
-      // Connection-status surface lives in agentSlice now.
+      // Connection-status surface lives in agentSlice.
       dispatch(setStatus({ message: i18n.t('nav:connection.disconnectedReconnecting'), loading: false }))
     })
-    const unsubMsg = client.onAnyMessage((msg) => handleMessage(msg as WSMessage))
+    // Delivered after the store has applied each message.
+    const unsubMsg = onInboundMessage((msg) => handleMessage(msg as WSMessage))
 
     // Middleware already called connect() during store bootstrap; this is
     // a no-op when the connection is alive, but covers the edge case where
     // the provider mounts before the middleware has run.
     client.connect()
 
-    // If the singleton already opened before we subscribed (common: middleware
-    // boots earlier than React mounting), sync the initial state now.
-    if (client.isConnected) {
-      setState(prev => ({ ...prev, connected: true }))
-      client.sendString(JSON.stringify({ type: 'agent_app_list' }))
-    }
-
     return () => {
-      unsubOpen()
       unsubClose()
       unsubMsg()
     }
-  }, [handleMessage])
+  }, [handleMessage, dispatch])
+
+  // Queued actions that waited too long for the connection were dropped:
+  // tell the user once per batch and undo their optimistic UI.
+  useEffect(() => client.onOutboxExpired((expired) => {
+    showToast('error', i18n.t('nav:connection.actionsNotSent', { count: expired.length }))
+    for (const envelope of expired) rollbackExpiredSend(envelope, dispatch)
+  }), [dispatch, showToast])
 
   const sendMessage = useCallback((
     content: string,
@@ -495,17 +396,16 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }))
   }, [dispatch])
 
-  // Mark a session's newest message as seen (unread-dot bookkeeping).
+  // Mark a session's newest message as seen (unread-dot bookkeeping). Stored
+  // as persisted UI state, so it survives reloads and syncs across tabs.
   const markSessionSeen = useCallback((sessionId: string) => {
-    const lastId = lastMessageIdBySessionRef.current[sessionId]
+    const current = store.getState()
+    const lastId = selectLastMessageIdBySession(current)[sessionId]
     if (!lastId) return
-    setState(prev => {
-      if (prev.lastSeenBySession[sessionId] === lastId) return prev
-      const next = { ...prev.lastSeenBySession, [sessionId]: lastId }
-      persistLastSeenBySession(next)
-      return { ...prev, lastSeenBySession: next }
-    })
-  }, [])
+    const seen = selectUiState(current, UI_STATE.chat.lastSeenMessageIds)
+    if (seen[sessionId] === lastId) return
+    dispatch(setUiState(UI_STATE.chat.lastSeenMessageIds, { ...seen, [sessionId]: lastId }))
+  }, [dispatch, store])
 
   const enhancePrompt = useCallback((content: string) => {
     sendOrQueue(JSON.stringify({ type: 'enhance_prompt', content }))
@@ -520,10 +420,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     // survives virtualizer remounts, WS reconnects, and parent re-renders
     // without waiting for a backend round-trip or page refresh.
     dispatch(messagesMarkOptionSelected({ sessionId, messageId, value }))
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'option_click', messageId, value, sessionId }))
-    }
-  }, [dispatch])
+    sendOrQueue(JSON.stringify({ type: 'option_click', messageId, value, sessionId }))
+  }, [sendOrQueue, dispatch])
 
   // Answer (or dismiss) a pinned agent question. Optimistically records the
   // selection — which un-pins the box instantly — then round-trips through
@@ -550,35 +448,27 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   const uploadAgentProfilePicture = useCallback(
     (name: string, mimeType: string, contentBase64: string) => {
-      if (client.isConnected) {
-        client.sendString(JSON.stringify({
-          type: 'agent_profile_picture_upload',
-          name,
-          mimeType,
-          content: contentBase64,
-        }))
-      }
+      sendOrQueue(JSON.stringify({
+        type: 'agent_profile_picture_upload',
+        name,
+        mimeType,
+        content: contentBase64,
+      }))
     },
-    []
+    [sendOrQueue]
   )
 
   const removeAgentProfilePicture = useCallback(() => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'agent_profile_picture_remove' }))
-    }
-  }, [])
+    sendOrQueue(JSON.stringify({ type: 'agent_profile_picture_remove' }))
+  }, [sendOrQueue])
 
   const openFile = useCallback((path: string) => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'open_file', path }))
-    }
-  }, [])
+    sendOrQueue(JSON.stringify({ type: 'open_file', path }))
+  }, [sendOrQueue])
 
   const openFolder = useCallback((path: string) => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'open_folder', path }))
-    }
-  }, [])
+    sendOrQueue(JSON.stringify({ type: 'open_folder', path }))
+  }, [sendOrQueue])
 
   const requestFilteredMetrics = useCallback((period: MetricsTimePeriod) => {
     if (client.isConnected) {
@@ -610,25 +500,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [dispatch])
 
   const submitOnboardingStep = useCallback((value: string | string[] | Record<string, unknown>) => {
-    if (client.isConnected) {
-      dispatch(onboardingSetLoading(true))
-      client.sendString(JSON.stringify({ type: 'onboarding_step_submit', value }))
-    }
-  }, [dispatch])
+    dispatch(onboardingSetLoading(true))
+    sendOrQueue(JSON.stringify({ type: 'onboarding_step_submit', value }))
+  }, [sendOrQueue, dispatch])
 
   const skipOnboardingStep = useCallback(() => {
-    if (client.isConnected) {
-      dispatch(onboardingSetLoading(true))
-      client.sendString(JSON.stringify({ type: 'onboarding_skip' }))
-    }
-  }, [dispatch])
+    dispatch(onboardingSetLoading(true))
+    sendOrQueue(JSON.stringify({ type: 'onboarding_skip' }))
+  }, [sendOrQueue, dispatch])
 
   const goBackOnboardingStep = useCallback(() => {
-    if (client.isConnected) {
-      dispatch(onboardingSetLoading(true))
-      client.sendString(JSON.stringify({ type: 'onboarding_back' }))
-    }
-  }, [dispatch])
+    dispatch(onboardingSetLoading(true))
+    sendOrQueue(JSON.stringify({ type: 'onboarding_back' }))
+  }, [sendOrQueue, dispatch])
 
   // Local LLM (Ollama) methods. All state lives in localLlmSlice; these are
   // just send-helpers that also dispatch the optimistic pre-send transition.
@@ -639,26 +523,18 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [dispatch])
 
   const testLocalLLMConnection = useCallback((url: string) => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'local_llm_test', url }))
-    }
-  }, [])
+    sendOrQueue(JSON.stringify({ type: 'local_llm_test', url }))
+  }, [sendOrQueue])
 
   const installLocalLLM = useCallback(() => {
-    if (client.isConnected) {
-      dispatch(localLlmMarkInstalling())
-      client.sendString(JSON.stringify({ type: 'local_llm_install' }))
-    } else {
-      dispatch(localLlmMarkInstallFailed(i18n.t('nav:connection.notConnectedRetry')))
-    }
-  }, [dispatch])
+    dispatch(localLlmMarkInstalling())
+    sendOrQueue(JSON.stringify({ type: 'local_llm_install' }))
+  }, [sendOrQueue, dispatch])
 
   const startLocalLLM = useCallback(() => {
-    if (client.isConnected) {
-      dispatch(localLlmMarkStarting())
-      client.sendString(JSON.stringify({ type: 'local_llm_start' }))
-    }
-  }, [dispatch])
+    dispatch(localLlmMarkStarting())
+    sendOrQueue(JSON.stringify({ type: 'local_llm_start' }))
+  }, [sendOrQueue, dispatch])
 
   const requestSuggestedModels = useCallback(() => {
     if (client.isConnected) {
@@ -667,21 +543,17 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const pullOllamaModel = useCallback((model: string) => {
-    if (client.isConnected) {
-      dispatch(localLlmMarkPullingModel())
-      client.sendString(JSON.stringify({ type: 'local_llm_pull_model', model }))
-    }
-  }, [dispatch])
+    dispatch(localLlmMarkPullingModel())
+    sendOrQueue(JSON.stringify({ type: 'local_llm_pull_model', model }))
+  }, [sendOrQueue, dispatch])
 
   // Agent App methods
   const createAgentApp = useCallback((data: AgentAppCreateRequest) => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({
-        type: 'agent_app_create',
-        ...data,
-      }))
-    }
-  }, [])
+    sendOrQueue(JSON.stringify({
+      type: 'agent_app_create',
+      ...data,
+    }))
+  }, [sendOrQueue])
 
   const requestAgentAppList = useCallback(() => {
     if (client.isConnected) {
@@ -690,39 +562,33 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const launchAgentApp = useCallback((projectId: string) => {
-    if (client.isConnected) {
-      // Optimistically flip to 'launching' so the button shows a spinner and
-      // the content swaps to the launching screen immediately — launch can
-      // take many seconds (install/build/start). The backend response
-      // (agent_app_launch) resolves it to running or error.
-      dispatch(agentAppMarkLaunching({ projectId }))
-      client.sendString(JSON.stringify({
-        type: 'agent_app_launch',
-        projectId,
-      }))
-    }
-  }, [dispatch])
+    // Optimistically flip to 'launching' so the button shows a spinner and
+    // the content swaps to the launching screen immediately — launch can
+    // take many seconds (install/build/start). The backend response
+    // (agent_app_launch) resolves it to running or error.
+    dispatch(agentAppMarkLaunching({ projectId }))
+    sendOrQueue(JSON.stringify({
+      type: 'agent_app_launch',
+      projectId,
+    }))
+  }, [sendOrQueue, dispatch])
 
   const stopAgentApp = useCallback((projectId: string) => {
-    if (client.isConnected) {
-      // Optimistically flip to 'stopping' for immediate feedback; the backend
-      // response (agent_app_stop) resolves it to stopped (or reverts on error).
-      dispatch(agentAppMarkStopping({ projectId }))
-      client.sendString(JSON.stringify({
-        type: 'agent_app_stop',
-        projectId,
-      }))
-    }
-  }, [dispatch])
+    // Optimistically flip to 'stopping' for immediate feedback; the backend
+    // response (agent_app_stop) resolves it to stopped (or reverts on error).
+    dispatch(agentAppMarkStopping({ projectId }))
+    sendOrQueue(JSON.stringify({
+      type: 'agent_app_stop',
+      projectId,
+    }))
+  }, [sendOrQueue, dispatch])
 
   const deleteAgentApp = useCallback((projectId: string) => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({
-        type: 'agent_app_delete',
-        projectId,
-      }))
-    }
-  }, [])
+    sendOrQueue(JSON.stringify({
+      type: 'agent_app_delete',
+      projectId,
+    }))
+  }, [sendOrQueue])
 
   const setActiveAgentApp = useCallback((projectId: string | null) => {
     dispatch(agentAppSetActiveId(projectId))
@@ -735,82 +601,64 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       customColors?: { bg: string; surface: string; text: string; accent: string }
     },
   ) => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({
-        type: 'agent_app_theme_update',
-        projectId,
-        theme,
-      }))
-    }
-  }, [])
+    sendOrQueue(JSON.stringify({
+      type: 'agent_app_theme_update',
+      projectId,
+      theme,
+    }))
+  }, [sendOrQueue])
+
+  const value = useMemo<WebSocketContextType>(() => ({
+    ...state,
+    sendMessage,
+    sendCommand,
+    stopSession,
+    deleteSession,
+    renameSession,
+    clearSession,
+    requestChatHistory,
+    markSessionSeen,
+    openFile,
+    openFolder,
+    requestFilteredMetrics,
+    subscribeDashboardMetrics,
+    unsubscribeDashboardMetrics,
+    requestOnboardingStep,
+    submitOnboardingStep,
+    skipOnboardingStep,
+    goBackOnboardingStep,
+    checkLocalLLM,
+    testLocalLLMConnection,
+    installLocalLLM,
+    startLocalLLM,
+    requestSuggestedModels,
+    pullOllamaModel,
+    enhancePrompt,
+    clearEnhancedPrompt,
+    sendOptionClick,
+    sendQuestionAnswer,
+    uploadAgentProfilePicture,
+    removeAgentProfilePicture,
+    createAgentApp,
+    requestAgentAppList,
+    launchAgentApp,
+    stopAgentApp,
+    deleteAgentApp,
+    setActiveAgentApp,
+    updateAgentAppTheme,
+  }), [
+    state, sendMessage, sendCommand, stopSession, deleteSession, renameSession, clearSession,
+    requestChatHistory, markSessionSeen, openFile, openFolder, requestFilteredMetrics,
+    subscribeDashboardMetrics, unsubscribeDashboardMetrics, requestOnboardingStep,
+    submitOnboardingStep, skipOnboardingStep, goBackOnboardingStep, checkLocalLLM,
+    testLocalLLMConnection, installLocalLLM, startLocalLLM, requestSuggestedModels, pullOllamaModel,
+    enhancePrompt, clearEnhancedPrompt, sendOptionClick, sendQuestionAnswer,
+    uploadAgentProfilePicture, removeAgentProfilePicture, createAgentApp, requestAgentAppList,
+    launchAgentApp, stopAgentApp, deleteAgentApp, setActiveAgentApp, updateAgentAppTheme,
+  ])
 
   return (
-    <WebSocketContext.Provider
-      value={{
-        ...state,
-        // Slice-backed fields injected here so consumers use a single hook.
-        messages,
-        actions,
-        sessions,
-        dashboardMetrics,
-        filteredMetricsCache,
-        onboardingStep,
-        onboardingError,
-        onboardingLoading,
-        needsHardOnboarding,
-        localLLM,
-        agentAppProjects,
-        agentAppCreating,
-        agentAppTodos,
-        activeAgentAppId,
-        agentAppStates,
-        agentName,
-        agentProfilePictureUrl,
-        agentProfilePictureHasCustom,
-        status,
-        guiMode,
-        footageUrl,
-        skillMeta,
-        sendMessage,
-        sendCommand,
-        stopSession,
-        deleteSession,
-        renameSession,
-        clearSession,
-        requestChatHistory,
-        markSessionSeen,
-        openFile,
-        openFolder,
-        requestFilteredMetrics,
-        subscribeDashboardMetrics,
-        unsubscribeDashboardMetrics,
-        requestOnboardingStep,
-        submitOnboardingStep,
-        skipOnboardingStep,
-        goBackOnboardingStep,
-        checkLocalLLM,
-        testLocalLLMConnection,
-        installLocalLLM,
-        startLocalLLM,
-        requestSuggestedModels,
-        pullOllamaModel,
-        enhancedPrompt: state.enhancedPrompt,
-        enhancePrompt,
-        clearEnhancedPrompt,
-        sendOptionClick,
-        sendQuestionAnswer,
-        uploadAgentProfilePicture,
-        removeAgentProfilePicture,
-        // Agent App methods
-        createAgentApp,
-        requestAgentAppList,
-        launchAgentApp,
-        stopAgentApp,
-        deleteAgentApp,
-        setActiveAgentApp,
-        updateAgentAppTheme,
-      }}
-    >
+    <WebSocketContext.Provider value={value}>
       {children}
     </WebSocketContext.Provider>
   )

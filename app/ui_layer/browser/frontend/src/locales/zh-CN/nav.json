@@ -51,7 +51,9 @@
   },
   "connection": {
     "disconnectedReconnecting": "已断开连接。正在重新连接…",
-    "notConnectedRetry": "未连接。请稍候片刻再重试。"
+    "notConnectedRetry": "未连接。请稍候片刻再重试。",
+    "actionsNotSent_other": "无法连接到 CraftBot，{{count}} 个操作未发送。",
+    "backendBusy": "CraftBot 正忙，更新将自动恢复"
   },
   "agentStatus": {
     "waiting": "智能体正在等待你的回复",

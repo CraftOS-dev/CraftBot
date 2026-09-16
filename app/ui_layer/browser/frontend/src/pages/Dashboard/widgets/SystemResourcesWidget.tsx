@@ -1,12 +1,13 @@
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
 import { formatBytes } from './shared'
 import styles from './widgets.module.css'
 
 export function SystemResourcesWidget() {
   const { t } = useTranslation(['dashboard'])
-  const { dashboardMetrics } = useWebSocket()
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
 
   const cpuPercent = dashboardMetrics?.system.cpuPercent ?? 0
   const memoryPercent = dashboardMetrics?.system.memoryPercent ?? 0

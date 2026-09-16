@@ -12,6 +12,9 @@ interface DashboardState {
   // and the most recent response is kept here so the UI doesn't refetch on
   // every remount.
   filteredCache: Record<MetricsTimePeriod, FilteredDashboardMetrics | null>
+  // When each period's cache entry arrived (ms), so open widgets can refresh
+  // entries that have aged instead of showing them forever.
+  filteredReceivedAt: Partial<Record<MetricsTimePeriod, number>>
 }
 
 const initialState: DashboardState = {
@@ -23,6 +26,7 @@ const initialState: DashboardState = {
     '1m': null,
     'total': null,
   },
+  filteredReceivedAt: {},
 }
 
 const dashboardSlice = createSlice({
@@ -34,6 +38,7 @@ const dashboardSlice = createSlice({
     },
     setFilteredMetrics(state, action: PayloadAction<FilteredDashboardMetrics>) {
       state.filteredCache[action.payload.period] = action.payload
+      state.filteredReceivedAt[action.payload.period] = Date.now()
     },
   },
 })

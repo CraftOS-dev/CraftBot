@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppSelector } from '../../../store/hooks'
-import { selectAllActivity } from '../../../store/selectors/activity'
+import { selectRecentActivity } from '../../../store/selectors/activity'
 import { ActionBlock, ReasoningBlock } from '../../../components/activity/ActivityBlocks'
 import i18n from '../../../i18n/config'
 import { formatNumber } from '../../../i18n/format'
@@ -20,13 +20,13 @@ function formatRelativeTime(ms?: number): string {
 
 export function RecentActivityWidget() {
   const { t } = useTranslation(['dashboard'])
-  const activity = useAppSelector(selectAllActivity)
-  const recent = activity.slice(-MAX_ITEMS).reverse()
+  // Bounded selector: only the newest MAX_ITEMS items are ever gathered.
+  const latest = useAppSelector(state => selectRecentActivity(state, MAX_ITEMS))
+  const recent = latest.slice().reverse()
 
   // Tick once a second while anything visible is still running/waiting, so
-  // the live elapsed timers (inside ActionBlock) and the relative "time
-  // ago" labels below stay fresh. Coarser than Chat's 100ms ticker — not
-  // needed at dashboard-widget granularity.
+  // the relative "time ago" labels below stay fresh. The live elapsed timers
+  // inside ActionBlock tick on their own.
   const [, forceTick] = useState(0)
   const hasLive = recent.some(item => item.status === 'running' || item.status === 'waiting')
   useEffect(() => {

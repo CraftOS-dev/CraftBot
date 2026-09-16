@@ -10,39 +10,56 @@ import {
 import { useTranslation } from 'react-i18next'
 import { Button, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, useServerDraft } from '../../hooks'
 import { formatNumber, formatTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { RemoteChangeHint } from './RemoteChangeHint'
 import { useAppSelector } from '../../store/hooks'
 import {
   selectMemoryEnabled,
   selectMemoryHasLoadedMode,
+  selectMemorySchedule,
+  selectMemoryThresholdMax,
+  selectMemoryUnprocessedEvents,
 } from '../../store/selectors/memorySettings'
+import type { MemorySchedule } from '../../store/slices/memorySettingsSlice'
+import { RESOURCES, useResource } from '../../store/resources'
+
+const DEFAULT_SCHEDULE: MemorySchedule = { time: '03:00', threshold: 25 }
 
 export function MemorySettings() {
   const { t } = useTranslation(['settings', 'common'])
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
 
-  // Slice-backed: cached across remounts.
+  // Slice-backed: cached across remounts, refreshed by ResourceSync.
   const memoryEnabled = useAppSelector(selectMemoryEnabled)
   const hasLoadedMode = useAppSelector(selectMemoryHasLoadedMode)
   const isLoadingMode = !hasLoadedMode
+  const savedSchedule = useAppSelector(selectMemorySchedule)
+  const thresholdMax = useAppSelector(selectMemoryThresholdMax)
+  const unprocessed = useAppSelector(selectMemoryUnprocessedEvents)
+  const hasLoadedSchedule = savedSchedule !== null
+  useResource(RESOURCES.memoryMode)
+  useResource(RESOURCES.memorySchedule)
 
   // UI state (transient)
   const [isResetting, setIsResetting] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
 
-  // Daily auto-processing time + threshold (loaded from the scheduler).
-  const [autoTime, setAutoTime] = useState('03:00')
-  const [threshold, setThreshold] = useState(25)
-  const [thresholdMax, setThresholdMax] = useState(100)
-  const [unprocessed, setUnprocessed] = useState(0)
-  const [hasLoadedSchedule, setHasLoadedSchedule] = useState(false)
-  // Auto-save: remember the last-applied values so the initial load isn't
-  // echoed straight back, and debounce rapid edits.
-  const lastSavedRef = useRef<{ time: string; threshold: number } | null>(null)
+  // Daily auto-processing time + threshold: a draft over the saved schedule,
+  // so a change made elsewhere shows up here unless this form is mid-edit.
+  const schedule = useServerDraft(savedSchedule ?? DEFAULT_SCHEDULE)
+  const { time: autoTime, threshold } = schedule.value
+  const setAutoTime = (time: string) => schedule.set(s => ({ ...s, time }))
+  const setThreshold = (value: number) => schedule.set(s => ({ ...s, threshold: value }))
+  const resetSchedule = schedule.reset
+  // The value this tab's auto-save sent, until its reply arrives. The draft
+  // settles only if it still holds that value (the user may have kept editing).
+  const savingScheduleRef = useRef<MemorySchedule | null>(null)
+  const scheduleValueRef = useRef(schedule.value)
+  scheduleValueRef.current = schedule.value
   const saveTimerRef = useRef<number | undefined>(undefined)
   // Custom threshold slider (drag the picker along the track).
   const gateBarRef = useRef<HTMLDivElement>(null)
@@ -51,12 +68,10 @@ export function MemorySettings() {
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Side-effect handlers (toasts). Enabled state itself is owned by
-  // memorySettingsSlice via the registry. Memory items are managed in the
-  // dedicated Memory panel, not here.
+  // Side-effect handlers (toasts, this tab's save result). Enabled state and
+  // the schedule are owned by memorySettingsSlice via the registry. Memory
+  // items are managed in the dedicated Memory panel, not here.
   useEffect(() => {
-    if (!isConnected) return
-
     const cleanups = [
       onMessage('memory_mode_set', (data: unknown) => {
         const d = data as { success: boolean; enabled: boolean; error?: string }
@@ -75,39 +90,21 @@ export function MemorySettings() {
         if (d.success) showToast('success', d.message || t('settings:memory.toast.processStarted'))
         else showToast('error', d.error || t('settings:memory.toast.processFailed'))
       }),
-      onMessage('memory_schedule_get', (data: unknown) => {
-        const d = data as {
-          success: boolean
-          schedule?: { hour: number; minute: number }
-          threshold?: number
-          threshold_max?: number
-          unprocessed?: number
-        }
-        if (!d.success || !d.schedule) return
-        if (typeof d.threshold_max === 'number') setThresholdMax(d.threshold_max)
-        if (typeof d.unprocessed === 'number') setUnprocessed(d.unprocessed)
-        // Adopt the saved time/threshold only on the FIRST load; later polls
-        // (for the live event count) must not clobber an in-progress edit.
-        if (!hasLoadedSchedule) {
-          const time = `${String(d.schedule.hour).padStart(2, '0')}:${String(d.schedule.minute).padStart(2, '0')}`
-          const thr = d.threshold ?? 25
-          setAutoTime(time)
-          setThreshold(thr)
-          lastSavedRef.current = { time, threshold: thr }
-          setHasLoadedSchedule(true)
-        }
-      }),
       onMessage('memory_schedule_set', (data: unknown) => {
+        const sent = savingScheduleRef.current
+        if (!sent) return
+        savingScheduleRef.current = null
         const d = data as { success: boolean; error?: string }
-        if (!d.success) showToast('error', d.error || t('settings:memory.toast.scheduleFailed'))
+        if (!d.success) {
+          showToast('error', d.error || t('settings:memory.toast.scheduleFailed'))
+          return
+        }
+        const current = scheduleValueRef.current
+        if (current.time === sent.time && current.threshold === sent.threshold) resetSchedule()
       }),
     ]
-
-    if (!hasLoadedMode) send('memory_mode_get')
-    if (!hasLoadedSchedule) send('memory_schedule_get')
-
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoadedMode, hasLoadedSchedule, showToast])
+  }, [onMessage, showToast, resetSchedule])
 
   const handleToggleMemory = (enabled: boolean) => {
     send('memory_mode_set', { enabled })
@@ -160,23 +157,23 @@ export function MemorySettings() {
     }
   }
 
-  // Auto-save the daily time / threshold whenever they change (debounced),
-  // skipping the values just loaded from the scheduler.
+  // Auto-save the daily time / threshold while they're edited (debounced).
+  // A clean draft is the saved value, so loads and remote changes aren't
+  // echoed back.
   useEffect(() => {
-    if (!hasLoadedSchedule) return
-    const last = lastSavedRef.current
-    if (last && last.time === autoTime && last.threshold === threshold) return
+    if (!schedule.isDirty) return
     window.clearTimeout(saveTimerRef.current)
     saveTimerRef.current = window.setTimeout(() => {
       const [h, m] = autoTime.split(':').map(n => parseInt(n, 10) || 0)
+      savingScheduleRef.current = { time: autoTime, threshold }
       send('memory_schedule_set', { hour: h, minute: m, threshold })
-      lastSavedRef.current = { time: autoTime, threshold }
     }, 500)
     return () => window.clearTimeout(saveTimerRef.current)
-  }, [autoTime, threshold, hasLoadedSchedule, send])
+  }, [autoTime, threshold, schedule.isDirty, send])
 
-  // Keep the live "events waiting" count current while the panel is open,
-  // without needing a manual refresh.
+  // Keep the live "events waiting" count current while the panel is open.
+  // The count grows as the agent works and nothing announces it, so this
+  // stays a poll (the schedule itself is refreshed by resource changes).
   useEffect(() => {
     if (!isConnected) return
     const id = window.setInterval(() => send('memory_schedule_get'), 4000)
@@ -262,6 +259,7 @@ export function MemorySettings() {
                   onChange={e => setAutoTime(e.target.value)}
                   disabled={!memoryEnabled}
                 />
+                {schedule.remoteChanged && <RemoteChangeHint onLoadLatest={schedule.acceptRemote} />}
               </div>
 
               <div className={styles.formGroup}>

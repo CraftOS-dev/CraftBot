@@ -16,8 +16,15 @@ import { getOrCreateIframe, showIframe, hideIframe, removeIframe, postMessageToI
 import { ConstructionDock } from './ConstructionDock'
 import { AgentAppThemeModal, DEFAULT_CUSTOM_COLORS } from './AgentAppThemeModal'
 import type { AgentAppThemeId, AgentAppCustomColors } from './AgentAppThemeModal'
+import { usePersistedState } from '../../hooks'
 import { useAppSelector } from '../../store/hooks'
-import { selectAgentAppBuildEvents, selectAgentAppSnapshots } from '../../store/selectors/agentApp'
+import {
+  selectAgentAppBuildEvents,
+  selectAgentAppProjects,
+  selectAgentAppSnapshots,
+  selectAgentAppTodos,
+} from '../../store/selectors/agentApp'
+import { UI_STATE } from '../../store/uiState'
 import type { AgentAppBuildEvent } from '../../types'
 import styles from './AgentAppPage.module.css'
 
@@ -66,13 +73,13 @@ export function AgentAppPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const {
-    agentAppProjects,
-    agentAppTodos,
     launchAgentApp,
     deleteAgentApp,
     setActiveAgentApp,
     updateAgentAppTheme,
   } = useWebSocket()
+  const agentAppProjects = useAppSelector(selectAgentAppProjects)
+  const agentAppTodos = useAppSelector(selectAgentAppTodos)
   const { theme: appTheme } = useTheme()
   const buildEventsMap = useAppSelector(selectAgentAppBuildEvents)
   const snapshotMap = useAppSelector(selectAgentAppSnapshots)
@@ -85,9 +92,11 @@ export function AgentAppPage() {
   const [agentAppCustomColors, setAgentAppCustomColors] = useState<AgentAppCustomColors>(
     () => (projectId ? loadAgentAppCustomColors(projectId) : { ...DEFAULT_CUSTOM_COLORS })
   )
-  const [showChat, setShowChat] = useState(true)
-  const [panelWidth, setPanelWidth] = useState(350)
-  const [mobileChatRatio, setMobileChatRatio] = useState(0.4)
+  // Chat panel layout: persisted preferences shared by every Agent App, so
+  // they survive navigation, switching apps and reloads.
+  const [showChat, setShowChat] = usePersistedState(UI_STATE.agentApp.chatPanelOpen)
+  const [panelWidth, setPanelWidth] = usePersistedState(UI_STATE.agentApp.chatPanelWidth)
+  const [mobileChatRatio, setMobileChatRatio] = usePersistedState(UI_STATE.agentApp.chatPanelMobileRatio)
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.innerWidth <= 768
   )
@@ -121,24 +130,30 @@ export function AgentAppPage() {
   // Find the current project
   const project = agentAppProjects.find(p => p.id === projectId)
 
-  // Server-persisted theme (wizard pick or another browser's selection):
-  // adopt it when the user has no local override — survives frontend
-  // rebuilds and cleared localStorage. Legacy projects fall back to the
-  // scaffold-time stylePack.
+  // The server-persisted theme is authoritative: a pick made in any tab or
+  // browser (or by the wizard) reaches this page when the project list
+  // refetches. localStorage only paints the first frame before the list
+  // arrives. Legacy projects with no saved theme fall back to the
+  // scaffold-time stylePack unless the user picked one locally.
   useEffect(() => {
     if (!projectId) return
     try {
-      if (localStorage.getItem(`agentapp-theme-${projectId}`)) return
-      const serverTheme = project?.uiTheme?.themeId || project?.stylePack
-      if (serverTheme && serverTheme !== 'craftbot') {
-        setAgentAppTheme(serverTheme as AgentAppThemeId)
-        const colors = project?.uiTheme?.customColors
-        if (serverTheme === 'custom' && colors?.bg && colors?.surface && colors?.text && colors?.accent) {
-          setAgentAppCustomColors({
-            bg: colors.bg, surface: colors.surface, text: colors.text, accent: colors.accent,
-          })
+      const saved = project?.uiTheme
+      if (saved?.themeId) {
+        const themeId = saved.themeId as AgentAppThemeId
+        setAgentAppTheme(themeId)
+        saveAgentAppTheme(projectId, themeId)
+        const colors = saved.customColors
+        if (themeId === 'custom' && colors?.bg && colors?.surface && colors?.text && colors?.accent) {
+          const custom = { bg: colors.bg, surface: colors.surface, text: colors.text, accent: colors.accent }
+          setAgentAppCustomColors(custom)
+          saveAgentAppCustomColors(projectId, custom)
         }
+        return
       }
+      if (localStorage.getItem(`agentapp-theme-${projectId}`)) return
+      const stylePack = project?.stylePack
+      if (stylePack && stylePack !== 'craftbot') setAgentAppTheme(stylePack as AgentAppThemeId)
     } catch { /* cosmetic only */ }
   }, [projectId, project?.uiTheme, project?.stylePack])
 

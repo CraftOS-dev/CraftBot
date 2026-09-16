@@ -31,12 +31,15 @@ import { useTheme } from '../../contexts/ThemeContext'
 import { removeIframe } from '../../pages/AgentApp/iframePool'
 import { ConfirmModal } from '../ui/ConfirmModal'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
-import { useSkillCreator } from '../../hooks'
+import { usePersistedState, useSkillCreator } from '../../hooks'
 import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
 import { AgentAppIcon } from '../ui/AgentAppIcon'
 import type { SessionInfo } from '../../types'
 import { useAppSelector } from '../../store/hooks'
+import { UI_STATE } from '../../store/uiState'
+import { selectAgentAppProjects } from '../../store/selectors/agentApp'
+import { selectSkillMeta } from '../../store/selectors/agent'
 import { selectMainSession, selectChatSessions } from '../../store/selectors/sessions'
 import { selectLastMessageIdBySession } from '../../store/selectors/messages'
 import { TopBar } from './TopBar'
@@ -102,39 +105,12 @@ interface SessionMenuState {
   sessionId: string
 }
 
-// Collapsed/expanded state of the sidebar groups, persisted so collapsing
-// a group survives reloads. Only the COLLAPSED state is stored ("1");
-// absence of the key means expanded (the default).
-const GROUP_COLLAPSED_KEY_PREFIX = 'sidebarGroupCollapsed.'
-
 // How many Agent App items show before the "Show more" row takes over.
 const GROUP_PREVIEW_COUNT = 5
 
 // Chats never truncate behind a "Show more" — the full list is always
 // reachable. Rows mount in pages of this size as the sidebar scrolls.
 const CHAT_PAGE_SIZE = 30
-
-type SidebarGroup = 'agentapp' | 'chats'
-
-const loadGroupExpanded = (group: SidebarGroup): boolean => {
-  try {
-    return localStorage.getItem(GROUP_COLLAPSED_KEY_PREFIX + group) !== '1'
-  } catch {
-    return true
-  }
-}
-
-const persistGroupExpanded = (group: SidebarGroup, expanded: boolean) => {
-  try {
-    if (expanded) {
-      localStorage.removeItem(GROUP_COLLAPSED_KEY_PREFIX + group)
-    } else {
-      localStorage.setItem(GROUP_COLLAPSED_KEY_PREFIX + group, '1')
-    }
-  } catch {
-    // localStorage may be unavailable
-  }
-}
 
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const { t } = useTranslation(['nav', 'common', 'agentapp'])
@@ -152,16 +128,16 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     [t],
   )
   const {
-    agentAppProjects,
     launchAgentApp,
     stopAgentApp,
     deleteAgentApp,
     deleteSession,
     renameSession,
     clearSession,
-    lastSeenBySession,
-    skillMeta,
   } = useWebSocket()
+  const agentAppProjects = useAppSelector(selectAgentAppProjects)
+  const skillMeta = useAppSelector(selectSkillMeta)
+  const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
   const { theme } = useTheme()
   const [showCreateModal, setShowCreateModal] = useState(false)
   // Which Agent App row's "…" menu is open, and the app queued for a delete
@@ -174,8 +150,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const lastMessageIdBySession = useAppSelector(selectLastMessageIdBySession)
   const runStateBySession = useAppSelector(state => state.agent.runStateBySession)
 
-  const [chatsExpanded, setChatsExpanded] = useState(() => loadGroupExpanded('chats'))
-  const [agentAppExpanded, setAgentAppExpanded] = useState(() => loadGroupExpanded('agentapp'))
+  // Sidebar group open/closed: persisted preferences, so they survive reloads.
+  const [chatsExpanded, setChatsExpanded] = usePersistedState(UI_STATE.nav.chatsExpanded)
+  const [agentAppExpanded, setAgentAppExpanded] = usePersistedState(UI_STATE.nav.agentAppExpanded)
   // Agent App "Show more" state: only the first GROUP_PREVIEW_COUNT items
   // render until expanded. Not persisted — collapses back to 5 on reload.
   const [showAllAgentApp, setShowAllAgentApp] = useState(false)
@@ -230,13 +207,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     if (!collapsed) setFlyout(null)
   }, [collapsed])
 
-  useEffect(() => {
-    persistGroupExpanded('chats', chatsExpanded)
-  }, [chatsExpanded])
-
-  useEffect(() => {
-    persistGroupExpanded('agentapp', agentAppExpanded)
-  }, [agentAppExpanded])
   const [menu, setMenu] = useState<SessionMenuState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')

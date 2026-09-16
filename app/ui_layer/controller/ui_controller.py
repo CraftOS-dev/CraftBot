@@ -10,6 +10,7 @@ from agent_core.utils.logger import logger
 from app.ui_layer.events.event_bus import EventBus
 from app.ui_layer.events.event_types import UIEvent, UIEventType
 from app.ui_layer.events.transformer import EventTransformer
+from app.ui_layer.controller.event_cursor import EventStreamCursors
 from app.ui_layer.state.store import UIStateStore
 from app.ui_layer.state.ui_state import AgentStateType
 from app.ui_layer.commands.registry import CommandRegistry
@@ -427,9 +428,12 @@ class UIController:
         # from previous sessions are not emitted as new UI messages.
         # State-updating events (action_start/action_end) are still processed
         # to rebuild UI state (e.g., show a restored in-flight action).
+        # Each tick reads only events added since the previous one; the
+        # stream is never modified (event_cursor.py).
+        cursors = EventStreamCursors()
         streams = self._agent.event_stream_manager.get_all_streams_with_ids()
         for task_id, stream in streams:
-            for event in stream.as_list():
+            for event in cursors.new_events(task_id, stream):
                 key = (task_id, event.iso_ts, event.kind, event.message)
                 self._state_store.dispatch("MARK_EVENT_SEEN", key)
                 # Rebuild UI state from restored events without emitting to UI
@@ -441,9 +445,10 @@ class UIController:
             try:
                 # Get all event streams
                 streams = self._agent.event_stream_manager.get_all_streams_with_ids()
+                cursors.retain(task_id for task_id, _ in streams)
 
                 for task_id, stream in streams:
-                    for event in stream.as_list():
+                    for event in cursors.new_events(task_id, stream):
                         # Create deduplication key. task_id (the session id)
                         # must be part of the key: iso_ts is seconds-precision,
                         # so two sessions emitting a generic event in the same

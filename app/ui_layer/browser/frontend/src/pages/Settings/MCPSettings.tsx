@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Loader2,
   Plus,
@@ -10,13 +10,12 @@ import {
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedState } from '../../hooks'
 import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
-  setLoading as setMcpLoading,
   setEnabled as setMcpEnabled,
   removeServer as removeMcpServer,
   type MCPServerConfig,
@@ -26,6 +25,8 @@ import {
   selectMcpIsLoading,
   selectMcpHasLoaded,
 } from '../../store/selectors/mcpSettings'
+import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 
 interface MCPItem {
   name: string
@@ -39,7 +40,7 @@ interface MCPItem {
 
 export function MCPSettings() {
   const { t } = useTranslation(['settings', 'common'])
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { send, onMessage } = useSettingsWebSocket()
   const { showToast } = useToast()
   const dispatch = useAppDispatch()
 
@@ -49,8 +50,9 @@ export function MCPSettings() {
   const isLoading = useAppSelector(selectMcpIsLoading) || !hasLoaded
 
   // Search and reload
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState(UI_STATE.settings.mcpSearch)
   const [isReloading, setIsReloading] = useState(false)
+  const isReloadingRef = useRef(false)
 
   // Add custom server modal state
   const [showAddModal, setShowAddModal] = useState(false)
@@ -66,12 +68,23 @@ export function MCPSettings() {
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Subscribe to side-effect messages (toasts, modal close). The list state
-  // itself is updated by the slice via the registry.
-  useEffect(() => {
-    if (!isConnected) return
+  // The slice caches the list; ResourceSync fetches it when unloaded or stale
+  // and refetches it whenever servers change. Mutations are also followed by
+  // a fresh mcp_list from the backend, so nothing here re-requests it.
+  useResource(RESOURCES.mcpServers)
 
+  // Side-effect messages (toasts, modal close) for this view's own actions.
+  useEffect(() => {
     const cleanups = [
+      onMessage('mcp_list', (data: unknown) => {
+        // Only the Reload button waits for the list.
+        if (!isReloadingRef.current) return
+        const d = data as { success: boolean; error?: string }
+        isReloadingRef.current = false
+        setIsReloading(false)
+        if (d.success) showToast('success', t('settings:mcp.toast.reloaded'))
+        else if (d.error) showToast('error', d.error)
+      }),
       onMessage('mcp_enable', (data: unknown) => {
         const d = data as { success: boolean; error?: string }
         if (!d.success) showToast('error', d.error || t('settings:mcp.toast.enableFailed'))
@@ -84,7 +97,6 @@ export function MCPSettings() {
         const d = data as { success: boolean; message?: string; error?: string }
         if (d.success) {
           showToast('success', d.message || t('settings:mcp.toast.removed'))
-          send('mcp_list')
         } else {
           showToast('error', d.error || t('settings:mcp.toast.removeFailed'))
         }
@@ -97,7 +109,6 @@ export function MCPSettings() {
           setShowAddModal(false)
           setCustomJsonConfig('')
           setAddError('')
-          send('mcp_list')
         } else {
           setAddError(d.error || t('settings:mcp.toast.addFailed'))
         }
@@ -112,21 +123,14 @@ export function MCPSettings() {
         if (d.success) {
           showToast('success', d.message || t('settings:mcp.toast.configSaved'))
           setConfigServer(null)
-          send('mcp_list')
         } else {
           showToast('error', d.error || t('settings:mcp.toast.configFailed'))
         }
       }),
     ]
 
-    // Fetch list only on first mount (cached across re-mounts thereafter).
-    if (!hasLoaded) {
-      dispatch(setMcpLoading(true))
-      send('mcp_list')
-    }
-
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoaded, dispatch, showToast])
+  }, [onMessage, showToast])
 
   // Build MCP list
   const mcpList: MCPItem[] = servers
@@ -151,12 +155,10 @@ export function MCPSettings() {
 
   // Handlers
   const handleReloadServers = () => {
+    // The mcp_list listener above clears the spinner and shows the toast.
     setIsReloading(true)
+    isReloadingRef.current = true
     send('mcp_list')
-    setTimeout(() => {
-      setIsReloading(false)
-      showToast('success', t('settings:mcp.toast.reloaded'))
-    }, 500)
   }
 
   const handleToggleServer = (name: string, enabled: boolean) => {
