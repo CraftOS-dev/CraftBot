@@ -155,6 +155,57 @@ real, but most of the budget went to infrastructure.
   SSRF-blocked repeatedly (16:19, 16:21) before remembering
   `agent_app_http`; the block message could name the right action.
 
+## Changed-op smoke could never pass a POST op — FIXED (2026-09-16)
+
+- [x] **op_smoke omitted `X-LUI-Token`, so the system gate 401'd every
+  origin-less mutating op by construction.** The blueprint gate
+  (`_system.pb.js`) rejects origin-less POST/PATCH/PUT/DELETE to
+  `/api/ops/*` unless `X-LUI-Token` matches `<project>/.agent-token`;
+  `op_smoke._invoke` sent only the superuser `Authorization` header, which
+  the gate never reads. Observed live 2026-09-15 (Clock App build,
+  `logs/20260915143639/lui_b20dc20c`): "7 of 7 changed operation(s)
+  FAILED ... 401 agent token required", 3 wasted gate cycles — and the
+  build agent escaped by MOVING its ops to `/api/public/*`, i.e. the broken
+  gate taught it to bypass the security layer (that app shipped that way).
+  Fix: `run_op_smoke` now builds headers via `_smoke_headers` — reads the
+  project's `.agent-token` (same pattern as `ops_verify`), sends
+  `X-LUI-Token` when provisioned plus `X-LUI-Agent: op-smoke`; token file
+  absent → header omitted (the gate fails open). Covered by §26 in
+  `app/agent_app/test_data_safety.py` (header build + wire round-trip
+  against a gate-shaped server).
+
+## From the Clock App build (2026-09-15, lui_b20dc20c, ~27 min, delivered)
+
+Full analysis in session logs; the non-fixed items beyond the smoke-token
+defect above:
+
+- [ ] **Large file bodies inside the action-decision JSON truncate.** Four
+  75-95s generations of a single-file App.tsx died as "unterminated
+  string" parse failures (~7 min); the agent then smuggled the file in via
+  PowerShell here-strings. File content needs a raw channel (or the
+  creator skill must mandate multi-file decomposition).
+
+- [ ] **One console-noise root cause fanned out into 9 FAIL features.**
+  Walk round 1 failed nine working features on the same evidence line
+  (500s on an agent-invented `/api/agent-token` route). Dedupe defect
+  cards by evidence, and classify "feature works but console errors" as
+  one platform-health defect, not N feature failures.
+
+- [ ] **Unverifiable requirements burn walk rounds.** "Alarm plays audible
+  tone" cannot be observed by browser automation; two rounds were spent
+  until the agent added a "Playing" indicator solely to satisfy the
+  walker. Tag features as browser-verifiable at spec time.
+
+- [ ] **Smoke invokes data-dependent ops against a fresh DB and counts
+  clean 400/404s as failures** (`compute_next_trigger` → "sql: no rows"),
+  pushing the agent to make ops swallow missing-row errors. Seed a
+  fixture, use manifest sample ids, or treat clean not-found answers as
+  pass.
+
+- [ ] **Dropped non-parallel siblings recurred** (write_file discarded
+  next to notify_ready at 15:09) — same defect as the Clock-weather item
+  above; still costs a turn each time.
+
 ## walk_verify Playwright MCP ref-click fixed (2026-09-10)
 
 - [x] Every verifier click died with `Unknown engine "ref"`, aborting the whole

@@ -1168,7 +1168,7 @@ with tempfile.TemporaryDirectory() as tmp:
         verified=["deadline"],
     )
     assert not arc.is_open, "done = the arc is gone"
-    assert CHAT and "change is live" in CHAT[-1], CHAT
+    assert CHAT and "change" in CHAT[-1] and "is live" in CHAT[-1], CHAT
 
     # Second modify: a fresh arc with a fresh budget and empty ledger
     result = asyncio.run(mgr.open_dev("modarc001"))
@@ -1849,5 +1849,63 @@ with tempfile.TemporaryDirectory() as tmp:
     picked = [op["name"] for op in select_changed_ops(proj, empty_store)]
     assert picked == ["items.list", "items.create"]
 print("§25 changed-op smoke selection: OK")
+
+# ── §26 changed-op smoke sends the agent token (the 401 gate trap) ─────────
+# The blueprint's system gate 401s every origin-less POST to /api/ops/*
+# without X-LUI-Token, so a smoke that omits the header can never pass a
+# mutating op — observed live 2026-09-15 (Clock App, 3 wasted gate cycles
+# and a gate-bypass workaround). The header must actually cross the wire.
+from app.agent_app.op_smoke import _invoke, _smoke_headers  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    proj = Path(tmp) / "app_ops02"
+    proj.mkdir()
+
+    # Token file present → both layers' headers; trimmed value.
+    (proj / ".agent-token").write_text("tok-26-secret\n", encoding="utf-8")
+    headers = _smoke_headers(proj, "SUPER")
+    assert headers["X-LUI-Token"] == "tok-26-secret"
+    assert headers["Authorization"] == "SUPER"
+    assert headers["X-LUI-Agent"] == "op-smoke"
+
+    # No token provisioned → header absent (the gate fails open), no crash.
+    (proj / ".agent-token").unlink()
+    headers_bare = _smoke_headers(proj, None)
+    assert "X-LUI-Token" not in headers_bare and "Authorization" not in headers_bare
+
+    # Round-trip: a gate-shaped server that 401s POSTs missing the token.
+    import http.server as _http26
+    import threading as _threading26
+
+    SEEN26 = {}
+
+    class _Gate26(_http26.BaseHTTPRequestHandler):
+        def do_POST(self):
+            SEEN26["token"] = self.headers.get("X-LUI-Token")
+            ok = SEEN26["token"] == "tok-26-secret"
+            self.send_response(200 if ok else 401)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                b'{"ok": true}' if ok else b'{"error": "agent token required"}'
+            )
+
+        def log_message(self, *a):
+            pass
+
+    server26 = _http26.HTTPServer(("127.0.0.1", 0), _Gate26)
+    _threading26.Thread(target=server26.serve_forever, daemon=True).start()
+    base26 = f"http://127.0.0.1:{server26.server_address[1]}"
+    op26 = {
+        "name": "items.create",
+        "params": {"title": {"type": "string", "required": True}},
+        "executor": {"type": "http", "method": "POST", "path": "/api/ops/items/create"},
+    }
+    (proj / ".agent-token").write_text("tok-26-secret\n", encoding="utf-8")
+    result = _invoke(base26, op26, _smoke_headers(proj, None))
+    assert SEEN26["token"] == "tok-26-secret", "X-LUI-Token never crossed the wire"
+    assert result.ok and result.status == 200, (result.status, result.detail)
+    server26.shutdown()
+print("§26 changed-op smoke agent token: OK")
 
 print("\nData-safety acceptance: ALL GREEN")

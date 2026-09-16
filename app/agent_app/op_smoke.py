@@ -159,10 +159,33 @@ def select_changed_ops(project_path: Path, store_dir: Path) -> List[Dict[str, An
             if old_ops_by_name.get(str(op.get("name"))) != op:
                 changed_routes.add(_executor_route(op) or "")
 
-    selected = [
-        op for op in eligible if _executor_route(op) in changed_routes
-    ]
+    selected = [op for op in eligible if _executor_route(op) in changed_routes]
     return selected[:_MAX_OPS]
+
+
+def _agent_token(project_path: Path) -> str:
+    try:
+        return (Path(project_path) / ".agent-token").read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _smoke_headers(
+    project_path: Path, superuser_token: Optional[str]
+) -> Dict[str, str]:
+    """Request headers for op invocation.
+
+    X-LUI-Token is mandatory when provisioned: the blueprint's system gate
+    rejects origin-less writes to /api/ops/* without it (401), so a smoke
+    that omits it can never pass a POST op. Authorization (superuser) is a
+    separate layer — PocketBase auth rules inside the handlers."""
+    headers = {"Content-Type": "application/json", "X-LUI-Agent": "op-smoke"}
+    token = _agent_token(project_path)
+    if token:
+        headers["X-LUI-Token"] = token
+    if superuser_token:
+        headers["Authorization"] = superuser_token
+    return headers
 
 
 def _superuser_token(project_path: Path, base_url: str) -> Optional[str]:
@@ -188,7 +211,7 @@ def _superuser_token(project_path: Path, base_url: str) -> Optional[str]:
 
 
 def _invoke(
-    base_url: str, op: Dict[str, Any], token: Optional[str]
+    base_url: str, op: Dict[str, Any], headers: Dict[str, str]
 ) -> OpSmokeResult:
     name = str(op.get("name") or "?")
     executor = op.get("executor") or {}
@@ -200,9 +223,6 @@ def _invoke(
         for key, spec in params.items()
         if isinstance(spec, dict) and spec.get("required")
     }
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = token
     url = f"{base_url}{path}"
     data: Optional[bytes] = None
     if method in ("POST", "PUT", "PATCH"):
@@ -237,11 +257,11 @@ def run_op_smoke(
         if not ops:
             return []
         token = _superuser_token(Path(project_path), base_url)
-        results = [_invoke(base_url, op, token) for op in ops]
+        headers = _smoke_headers(Path(project_path), token)
+        results = [_invoke(base_url, op, headers) for op in ops]
         failed = [r for r in results if not r.ok]
         logger.info(
-            f"[OP_SMOKE] {len(results)} changed op(s) invoked, "
-            f"{len(failed)} failed"
+            f"[OP_SMOKE] {len(results)} changed op(s) invoked, {len(failed)} failed"
         )
         return results
     except Exception as e:
