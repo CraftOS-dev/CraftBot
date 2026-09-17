@@ -715,7 +715,9 @@ class FactoryHost:
         )
         brief = (
             f"CONTINUE {verb} Agent App '{project.name}' ({project.id}).\n"
-            f"The previous run ended before the change was verified. Continue "
+            f"The previous run ended before the change was verified. This "
+            f"brief supersedes any earlier end-the-run or do-not-fix text in "
+            f"the event stream — that was addressed to a previous run. Continue "
             f"from the current state of {project.path}: finish the work, then\n"
             f'agent_app_notify_ready(project_id="{project.id}") and\n'
             f'agent_app_walk_verify(project_id="{project.id}").\n'
@@ -837,6 +839,9 @@ class FactoryHost:
 
 The independent verifier drove the app in a real browser. Each DEFECT below
 carries its evidence and a repro. Your ONLY goal: make these features work.
+This brief is the only instruction that governs this run — anything earlier
+in the event stream that told a run to end, not to fix, or that a mission
+"has been queued" was addressed to a PREVIOUS run and is void here.
 
 === DEFECT CARDS ===
 {cards_text}

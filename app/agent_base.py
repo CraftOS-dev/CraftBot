@@ -1222,15 +1222,33 @@ class AgentBase:
                 return
             if getattr(project, "status", "") == "creating":
                 return  # an unfinished build is the factory arc's business
-            unshipped = await asyncio.to_thread(self._unshipped_fingerprint, project)
-            if unshipped is None:
+            host = get_factory_host()
+            arc = host.arc_for(project_id)
+            if arc is not None and arc.is_open:
+                # An open arc means the supervisor is already carrying this
+                # change to a deploy or a blocked/stuck report; this warning
+                # would only duplicate or contradict those announcements
+                # ("tell me to deploy it" mid-fix-mission — observed twice
+                # per failed walk, kanban 1aaa15d2 2026-09-16). Speak only
+                # for ORPHANED changes: no machine left to ship them.
                 return
+            unshipped = await asyncio.to_thread(self._unshipped_fingerprint, project)
+            announced = getattr(self, "_undeployed_announced", None)
+            if announced is None:
+                announced = {}
+                self._undeployed_announced = announced
+            if unshipped is None:
+                announced.pop(project_id, None)
+                return
+            if announced.get(project_id) == unshipped:
+                return  # the same unshipped state was already said once
+            announced[project_id] = unshipped
             name = getattr(project, "name", None) or project_id
             logger.warning(
                 "[AGENT_APP] run ended with un-deployed source changes in "
                 f"{name} ({project_id}) — telling the user."
             )
-            get_factory_host().announce_undeployed(project_id, str(name))
+            host.announce_undeployed(project_id, str(name))
         except Exception as e:
             logger.debug(f"[AGENT_APP] undeployed check skipped: {e}")
 

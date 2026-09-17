@@ -112,44 +112,83 @@ class TestUnshippedDetection:
 
 
 class TestUndeployedWarning:
-    def _capture(self, monkeypatch, project, differs):
+    def _capture(self, monkeypatch, project, differs, arc_open=False):
+        """Returns (said, digest): mutate digest["v"] to simulate more edits
+        or a ship between run-ends."""
         said = []
+        arc = types.SimpleNamespace(is_open=arc_open)
         host = types.SimpleNamespace(
-            announce_undeployed=lambda pid, name: said.append((pid, name))
+            announce_undeployed=lambda pid, name: said.append((pid, name)),
+            arc_for=lambda _pid: arc,
         )
         monkeypatch.setattr("app.factory.host_craftbot.get_factory_host", lambda: host)
+        digest = {"v": "abc123" if differs else None}
         monkeypatch.setattr(
             AgentBase,
             "_unshipped_fingerprint",
-            staticmethod(lambda _p: "abc123" if differs else None),
+            staticmethod(lambda _p: digest["v"]),
         )
-        return said
+        return said, digest
 
     def test_a_run_ending_with_unshipped_work_names_the_app(self, wired, monkeypatch):
         agent, session, project = wired
-        said = self._capture(monkeypatch, project, differs=True)
+        said, _ = self._capture(monkeypatch, project, differs=True)
         asyncio.run(agent._warn_if_undeployed(session))
         assert said == [(project.id, "Brainstorm Graph")]
 
     def test_a_shipped_run_says_nothing(self, wired, monkeypatch):
         agent, session, project = wired
-        said = self._capture(monkeypatch, project, differs=False)
+        said, _ = self._capture(monkeypatch, project, differs=False)
         asyncio.run(agent._warn_if_undeployed(session))
         assert said == []
 
     def test_a_session_with_no_project_says_nothing(self, wired, monkeypatch):
         agent, session, project = wired
-        said = self._capture(monkeypatch, project, differs=True)
+        said, _ = self._capture(monkeypatch, project, differs=True)
         session.agent_app_project_id = None
         asyncio.run(agent._warn_if_undeployed(session))
         assert said == []
 
     def test_an_unfinished_build_is_left_to_the_factory(self, wired, monkeypatch):
         agent, session, project = wired
-        said = self._capture(monkeypatch, project, differs=True)
+        said, _ = self._capture(monkeypatch, project, differs=True)
         project.status = "creating"
         asyncio.run(agent._warn_if_undeployed(session))
         assert said == []
+
+    def test_an_open_arc_owns_the_messaging(self, wired, monkeypatch):
+        # Mid-arc the supervisor is already driving the change to a deploy
+        # (or a blocked/stuck report); this warning duplicated it twice per
+        # failed walk (kanban 1aaa15d2, 2026-09-16).
+        agent, session, project = wired
+        said, _ = self._capture(monkeypatch, project, differs=True, arc_open=True)
+        asyncio.run(agent._warn_if_undeployed(session))
+        assert said == []
+
+    def test_the_same_unshipped_state_is_said_once(self, wired, monkeypatch):
+        agent, session, project = wired
+        said, _ = self._capture(monkeypatch, project, differs=True)
+        asyncio.run(agent._warn_if_undeployed(session))
+        asyncio.run(agent._warn_if_undeployed(session))
+        assert said == [(project.id, "Brainstorm Graph")]
+
+    def test_new_unshipped_work_is_announced_again(self, wired, monkeypatch):
+        agent, session, project = wired
+        said, digest = self._capture(monkeypatch, project, differs=True)
+        asyncio.run(agent._warn_if_undeployed(session))
+        digest["v"] = "def456"  # something new on top
+        asyncio.run(agent._warn_if_undeployed(session))
+        assert len(said) == 2
+
+    def test_shipping_clears_the_said_once_memory(self, wired, monkeypatch):
+        agent, session, project = wired
+        said, digest = self._capture(monkeypatch, project, differs=True)
+        asyncio.run(agent._warn_if_undeployed(session))
+        digest["v"] = None  # promoted — tree matches the baseline again
+        asyncio.run(agent._warn_if_undeployed(session))
+        digest["v"] = "abc123"  # the same diff reappears after the ship
+        asyncio.run(agent._warn_if_undeployed(session))
+        assert len(said) == 2
 
 
 class TestTheContextNote:

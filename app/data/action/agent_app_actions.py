@@ -1023,9 +1023,10 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                 }
             return {
                 "status": "error",
+                "end_turn": True,
                 "message": (
-                    f"{_what} — twice. The system has reported the build as "
-                    "stuck to the user. End the run."
+                    f"{_what} — twice. This run ended with status: stuck; "
+                    "the system has reported the build as stuck to the user."
                 ),
             }
 
@@ -1194,26 +1195,39 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                     ),
                     "test_errors": defects[:10] or [raw],
                 }
+            # Both terminal verdicts below end the run STRUCTURALLY
+            # (`end_turn` in an action output is honored by
+            # _merge_action_outputs) instead of instructing the agent to end
+            # it. The old imperative ("do NOT fix in this run ... End the run
+            # now") outlived its run in the event stream and was obeyed by
+            # the very fix mission it preceded — observed 2026-09-16 (kanban
+            # 1aaa15d2): missions 1 and 4 ended on wake, ~60s supervisor
+            # re-dispatch each. Messages state what the walk observed and how
+            # the run ended; run control is never delegated to a later reader.
             if decision.next_state == "stuck":
                 return {
                     "status": "error",
+                    "end_turn": True,
                     "message": (
-                        f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
-                        "NOT working — and the mission budget for this build is "
-                        "spent. The system has reported the build as stuck to the "
-                        "user, with the full history and what was ruled out. Do "
-                        "NOT retry and do NOT send a status message. End the run."
+                        f"Walk-verify observed {len(defects) or 'some'} "
+                        "feature(s) NOT working — details in test_errors — "
+                        "and the mission budget for this build is spent. This "
+                        "run ended with status: stuck; the system has "
+                        "reported the build as stuck to the user (full "
+                        "history, with what was ruled out). Nothing further "
+                        "is queued."
                     ),
                     "test_errors": defects[:10] or [raw],
                 }
             return {
                 "status": "error",
+                "end_turn": True,
                 "message": (
-                    f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
-                    f"observed NOT working. {_stopped_note}A FRESH fix "
-                    "mission carrying the full evidence has been queued by the "
-                    "system — do NOT fix in this run and do NOT send a status "
-                    "message. End the run now."
+                    f"Walk-verify observed {len(defects) or 'some'} "
+                    f"feature(s) NOT working — details in test_errors. "
+                    f"{_stopped_note}This run ended with status: "
+                    "defects-found; the system queued a FIX MISSION carrying "
+                    "the full evidence, arriving as this session's next wake."
                 ),
                 "test_errors": defects[:10] or [raw],
             }
