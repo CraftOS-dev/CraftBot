@@ -1,6 +1,8 @@
 import { createSlice, current, isDraft, PayloadAction } from '@reduxjs/toolkit'
+import { setConnected } from './connectionSlice'
 import type {
   AgentAppProject,
+  AgentAppStatus,
   AgentAppStatusUpdate,
   AgentAppStateUpdate,
   AgentAppListResponse,
@@ -45,9 +47,22 @@ interface AgentAppState {
   snapshots: Record<string, AgentAppSnapshot>
   activeId: string | null
   states: Record<string, AgentAppStateUpdate['state']>
+  // True until the first project list after a (re)connect replaces the
+  // projects wholesale (see setProjects).
+  listIsAuthoritative: boolean
+}
+
+// Statuses the browser learns from live events, not from the saved list.
+const IN_FLIGHT_STATUSES = new Set<AgentAppStatus>(['creating', 'launching', 'stopping'])
+
+// Whether the saved server status ends an in-flight one.
+function settlesInFlight(inFlight: AgentAppStatus, server: AgentAppStatus): boolean {
+  if (server === 'error') return true
+  return inFlight === 'stopping' ? server === 'stopped' : server === 'running'
 }
 
 const initialState: AgentAppState = {
+  listIsAuthoritative: true,
   projects: [],
   creating: null,
   todos: {},
@@ -62,7 +77,25 @@ const agentAppSlice = createSlice({
   initialState,
   reducers: {
     setProjects(state, action: PayloadAction<AgentAppProject[]>) {
-      state.projects = action.payload
+      // The list is the server's saved state, which says "stopped" until a
+      // build or launch actually finishes; the in-flight state is only known
+      // from live events. A refetch mid-launch (any tab's change triggers
+      // one) must not flip the page to "not running", so in-flight states
+      // stay until their own event (ready, error, launch/stop reply) settles
+      // them. The first list after a (re)connect is taken as-is: events may
+      // have been missed while disconnected.
+      if (state.listIsAuthoritative) {
+        state.projects = action.payload
+        state.listIsAuthoritative = false
+        return
+      }
+      const inFlight = new Map(
+        state.projects.filter(p => IN_FLIGHT_STATUSES.has(p.status)).map(p => [p.id, p.status]),
+      )
+      state.projects = action.payload.map(p => {
+        const live = inFlight.get(p.id)
+        return live && !settlesInFlight(live, p.status) ? { ...p, status: live } : p
+      })
     },
     addProject(state, action: PayloadAction<AgentAppProject>) {
       // Upsert by id: the import/marketplace flows first add a "creating"
@@ -223,6 +256,12 @@ const agentAppSlice = createSlice({
         p.id === projectId ? { ...p, status: 'error', error } : p,
       )
     },
+  },
+  extraReducers: (builder) => {
+    // Events may be missed while disconnected; trust the next list fully.
+    builder.addCase(setConnected, (state, action) => {
+      if (!action.payload) state.listIsAuthoritative = true
+    })
   },
 })
 

@@ -106,7 +106,9 @@ def test_message_mapping():
     assert resource_change_for_message(
         {"type": "agent_app_create", "data": {"project": {"id": "p2"}}}
     ) == (Resource.AGENT_APPS, ["p2"])
-    assert resource_change_for_message({"type": "agent_app_status", "data": {}}) == (Resource.AGENT_APPS, [])
+    # Build/launch progress changes nothing in the saved list; refetching on it
+    # overwrote the in-flight status an import's page was showing.
+    assert resource_change_for_message({"type": "agent_app_status", "data": {}}) is None
     # Data-only replies must not report changes, or refetches would loop.
     assert resource_change_for_message({"type": "agent_app_settings_get", "data": {}}) is None
     assert resource_change_for_message({"type": "agent_app_list", "data": {}}) is None
