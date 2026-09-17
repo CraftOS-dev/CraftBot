@@ -17,6 +17,26 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Tuple
 
 
+def event_dedup_key(stream_id: str, event: Any) -> tuple:
+    """Identity of an event for the pump's seen-set.
+
+    Stable across re-reads of the same record (a fold/clear re-reads a whole
+    stream), distinct for different events. ``iso_ts`` is only
+    seconds-precision, so ``action_id`` must be part of the key: parallel
+    calls of the same action that return identical output within one second
+    (e.g. six ``search_gmail`` calls all failing with the same error) have
+    identical kind + message. Without it every ACTION_END after the first was
+    dropped as a duplicate and those actions showed "in progress" forever.
+    """
+    return (
+        stream_id,
+        event.iso_ts,
+        event.kind,
+        event.message,
+        getattr(event, "action_id", None),
+    )
+
+
 class EventStreamCursors:
     """Per-stream read positions for the UI event pump."""
 

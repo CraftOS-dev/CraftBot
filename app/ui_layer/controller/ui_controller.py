@@ -10,7 +10,10 @@ from agent_core.utils.logger import logger
 from app.ui_layer.events.event_bus import EventBus
 from app.ui_layer.events.event_types import UIEvent, UIEventType
 from app.ui_layer.events.transformer import EventTransformer
-from app.ui_layer.controller.event_cursor import EventStreamCursors
+from app.ui_layer.controller.event_cursor import (
+    EventStreamCursors,
+    event_dedup_key,
+)
 from app.ui_layer.state.store import UIStateStore
 from app.ui_layer.state.ui_state import AgentStateType
 from app.ui_layer.commands.registry import CommandRegistry
@@ -434,7 +437,7 @@ class UIController:
         streams = self._agent.event_stream_manager.get_all_streams_with_ids()
         for task_id, stream in streams:
             for event in cursors.new_events(task_id, stream):
-                key = (task_id, event.iso_ts, event.kind, event.message)
+                key = event_dedup_key(task_id, event)
                 self._state_store.dispatch("MARK_EVENT_SEEN", key)
                 # Rebuild UI state from restored events without emitting to UI
                 ui_event = EventTransformer.transform(event, task_id)
@@ -449,12 +452,9 @@ class UIController:
 
                 for task_id, stream in streams:
                     for event in cursors.new_events(task_id, stream):
-                        # Create deduplication key. task_id (the session id)
-                        # must be part of the key: iso_ts is seconds-precision,
-                        # so two sessions emitting a generic event in the same
-                        # second would otherwise collide and the second event
-                        # would be dropped.
-                        key = (task_id, event.iso_ts, event.kind, event.message)
+                        # Dedup key includes the session id and action_id —
+                        # see event_dedup_key for why both are required.
+                        key = event_dedup_key(task_id, event)
 
                         # Skip if already seen
                         if key in self._state_store.state.seen_event_keys:
