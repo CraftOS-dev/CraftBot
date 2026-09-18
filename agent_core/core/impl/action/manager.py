@@ -689,6 +689,31 @@ class ActionManager:
         return processed
 
     # ------------------------------------------------------------------
+    # In-flight inspection
+    # ------------------------------------------------------------------
+    def inflight_ids(self, session_id: Optional[str] = None) -> set:
+        """Run ids of actions currently executing.
+
+        The UI mirrors action state by replaying event-stream records, so a
+        single dropped ``action_end`` leaves a row spinning forever. This is
+        the authoritative answer to "is that action still running?", used by
+        the UI's end-of-run reconciliation to settle rows whose end event
+        never arrived. Snapshotted into a set because the dict is mutated
+        from the action tasks while the caller iterates.
+
+        Args:
+            session_id: Restrict to one session; ``None`` means every session.
+        """
+        entries = list(self._inflight.items())
+        if session_id is None:
+            return {run_id for run_id, _ in entries}
+        return {
+            run_id
+            for run_id, entry in entries
+            if entry.get("session_id") == session_id
+        }
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
     def _log_event_stream(

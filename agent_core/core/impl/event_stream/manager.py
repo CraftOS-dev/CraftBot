@@ -17,7 +17,7 @@ timestamp order (see app/memory/unprocessed_queue.py).
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 import threading
 
 from agent_core.core.impl.event_stream.event_stream import EventStream
@@ -107,6 +107,11 @@ class EventStreamManager:
         self._on_stream_persist = on_stream_persist
         self._on_stream_remove_persist = on_stream_remove_persist
 
+        # Called with (session_id, stream) just BEFORE a stream is dropped,
+        # so pollers can drain whatever they have not read yet. See
+        # add_removal_listener.
+        self._removal_listeners: List[Callable[[str, "EventStream"], None]] = []
+
     # ───────────────────────────── lifecycle ─────────────────────────────
 
     @property
@@ -143,6 +148,19 @@ class EventStreamManager:
         logger.debug(f"[EventStreamManager] Created stream for session {session_id}")
         return stream
 
+    def add_removal_listener(
+        self, listener: Callable[[str, "EventStream"], None]
+    ) -> None:
+        """Register a callback invoked just BEFORE a stream is removed.
+
+        The UI reads event streams by polling, so anything logged in the
+        window between the last poll and the stream being dropped would
+        otherwise never be seen — a sub-agent's final `action_end` is the
+        common case, and it leaves that action rendered as "running"
+        forever. Listeners get one last synchronous chance to drain.
+        """
+        self._removal_listeners.append(listener)
+
     def remove_stream(self, session_id: str) -> None:
         """Remove a session's event stream on session deletion."""
         if session_id == MAIN_SESSION_ID:
@@ -150,6 +168,17 @@ class EventStreamManager:
                 "[EventStreamManager] Refusing to remove the main session's stream"
             )
             return
+        stream = self._streams.get(session_id)
+        if stream is not None:
+            # Last chance for pollers to read what they have not seen.
+            for listener in list(self._removal_listeners):
+                try:
+                    listener(session_id, stream)
+                except Exception:
+                    logger.exception(
+                        "[EventStreamManager] Removal listener failed for "
+                        f"session {session_id}"
+                    )
         removed = self._streams.pop(session_id, None)
         if removed:
             logger.debug(
@@ -189,12 +218,12 @@ class EventStreamManager:
         Returns:
             List of (session_id, stream) tuples, main session first.
         """
+        # Snapshot first: streams are created and removed from the agent's
+        # tasks while the UI iterates, and a dict mutated mid-iteration
+        # raises RuntimeError straight into the UI's event pump.
+        streams = list(self._streams.items())
         result = [(MAIN_SESSION_ID, self._streams[MAIN_SESSION_ID])]
-        result.extend(
-            (sid, stream)
-            for sid, stream in self._streams.items()
-            if sid != MAIN_SESSION_ID
-        )
+        result.extend((sid, stream) for sid, stream in streams if sid != MAIN_SESSION_ID)
         return result
 
     def clear_all(self) -> None:
