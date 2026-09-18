@@ -119,7 +119,7 @@ class TestTheSupervisorRespectsTheDecision:
         arc._d["last_activity_at"] = 0.0  # hours idle — still the user's move
         arc.save()
         project = types.SimpleNamespace(
-            id="4fa24e8b", name="Brainstorm Graph", path=".", session_id="lui_x"
+            id="4fa24e8b", name="Brainstorm Graph", path=".", session_id="agentapp_x"
         )
         assert h._tick_project("4fa24e8b", project) is False
 
@@ -148,7 +148,7 @@ class TestTheSupervisorRespectsTheDecision:
         arc._d["last_activity_at"] = 0.0
         arc.save()
         project = types.SimpleNamespace(
-            id="4fa24e8b", name="Brainstorm Graph", path=".", session_id="lui_x"
+            id="4fa24e8b", name="Brainstorm Graph", path=".", session_id="agentapp_x"
         )
         assert h._tick_project("4fa24e8b", project) is False, (
             "the stop button is a stop, not a deferral"

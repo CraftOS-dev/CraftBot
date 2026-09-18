@@ -50,7 +50,7 @@ def project(tmp_path):
 def wired(monkeypatch, agent, project):
     """agent + a session bound to `project` + a stubbed app manager."""
     session = types.SimpleNamespace(
-        id="lui_f1eb1c85", agent_app_project_id=project.id, selected_skills=[]
+        id="agentapp_f1eb1c85", agent_app_project_id=project.id, selected_skills=[]
     )
     agent.session_manager = types.SimpleNamespace(get=lambda _sid: session)
     manager = types.SimpleNamespace(

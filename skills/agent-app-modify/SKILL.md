@@ -89,9 +89,9 @@ to the real data at its boot) and announces it.
   visible, either seed it in a migration (survives promote) or create test
   records through the app/API after `notify_ready` (shadow-only,
   disposable).
-- **While a shadow is up, `lui ops/run/data <project_path>` target IT
+- **While a shadow is up, `agent-app ops/run/data <project_path>` target IT
   automatically** — you never pass the hidden port yourself.
-- **Never run `lui validate` (without --outRoot) or `lui dev` against the
+- **Never run `agent-app validate` (without --outRoot) or `agent-app dev` against the
   real project dir of a RUNNING app** — the in-place build overwrites the
   served frontend. `notify_ready` gates safely for you.
 - **Never write test data to the live app** (its DB is the user's real

@@ -7,13 +7,13 @@ import { defineConfig, type PluginOption } from 'vite';
 
 /**
  * Coverage instrumentation for DEV builds only (scoped walk-verify,
- * docs/design/scoped-walk-verify.md). The host sets LUI_COVERAGE=1 when it
+ * docs/design/scoped-walk-verify.md). The host sets AGENT_APP_COVERAGE=1 when it
  * gates a dev copy; live builds never see the flag and stay byte-identical.
  * The plugin is optional: a project whose package.json predates it simply
  * builds uninstrumented (the verifier then records no coverage).
  */
 async function coveragePlugins(): Promise<PluginOption[]> {
-  if (process.env['LUI_COVERAGE'] !== '1') return [];
+  if (process.env['AGENT_APP_COVERAGE'] !== '1') return [];
   try {
     const spec = 'vite-plugin-istanbul';
     const mod = (await import(/* @vite-ignore */ spec)) as {
@@ -39,7 +39,7 @@ export default defineConfig(async () => ({
     emptyOutDir: true,
   },
   server: {
-    port: Number(process.env['LUI_DEV_PORT'] ?? 5173),
+    port: Number(process.env['AGENT_APP_DEV_PORT'] ?? 5173),
     strictPort: false,
   },
 }));

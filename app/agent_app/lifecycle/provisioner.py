@@ -109,16 +109,16 @@ class ShadowProvisioner:
         elif previous is not None and previous.pid:
             self._kill(pid=int(previous.pid))
 
-    # ── CLI routing (.lui/shadow.json) ─────────────────────────────────────
-    # While a shadow is up, ALL agent-facing traffic belongs to it: the lui
-    # CLI reads this file to pick its port, mirroring the redirect the host
-    # applies to its own HTTP action. Deleted at promote/teardown.
+    # ── CLI routing (.agent-app/shadow.json) ───────────────────────────────
+    # While a shadow is up, ALL agent-facing traffic belongs to it: the
+    # agent-app CLI reads this file to pick its port, mirroring the redirect
+    # the host applies to its own HTTP action. Deleted at promote/teardown.
     @staticmethod
     def route_cli(project_path: Path, port: int) -> None:
         try:
-            lui = Path(project_path) / ".lui"
-            lui.mkdir(parents=True, exist_ok=True)
-            (lui / "shadow.json").write_text(
+            agent_app = Path(project_path) / ".agent-app"
+            agent_app.mkdir(parents=True, exist_ok=True)
+            (agent_app / "shadow.json").write_text(
                 json.dumps({"port": port}) + "\n", encoding="utf-8"
             )
         except Exception as e:
@@ -127,7 +127,7 @@ class ShadowProvisioner:
     @staticmethod
     def unroute_cli(project_path: Path) -> None:
         try:
-            (Path(project_path) / ".lui" / "shadow.json").unlink(missing_ok=True)
+            (Path(project_path) / ".agent-app" / "shadow.json").unlink(missing_ok=True)
         except Exception as e:
             logger.warning(f"[AGENT_APP:SHADOW] could not remove CLI route: {e}")
 

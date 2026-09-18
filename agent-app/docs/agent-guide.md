@@ -37,7 +37,7 @@ export function DueBadge({ overdue }: { overdue: boolean }) { /* … */ }
 2. Schema first: add a migration in `pb/pb_migrations/` (see §3).
 3. Custom verbs (if any): hook route + `operations.json` entry (see §4).
 4. UI: build in `frontend/src/app/` from kit parts (see §5).
-5. Run the gate: `lui validate <project>` — fix, repeat. The gate is:
+5. Run the gate: `agent-app validate <project>` — fix, repeat. The gate is:
    types → build → migrations-on-fresh-db → ops structure/routing → ownership.
 6. Frontend runtime errors land in `logs/frontend_console.log` (console.error/
    warn + uncaught errors are relayed automatically). Read it when the UI
@@ -137,7 +137,7 @@ UI's offline/empty state — never generated stand-in data.
   toast automatically; add `{ silent: true }` only when you handle them.
 - Auth: in `multi-user` projects the shell already wraps your app in
   `LoginGate`; use `useAuth()` for the current user and logout.
-- Styling: Tailwind utilities + kit tokens (`var(--lui-*)`). Never hardcode
+- Styling: Tailwind utilities + kit tokens (`var(--agent-app-*)`). Never hardcode
   colors — theming is host-owned and must keep working when the host switches
   style packs or dark mode.
 - Presets (kit 0.5.0) collapse the common surfaces — reach for these before
@@ -160,10 +160,10 @@ UI's offline/empty state — never generated stand-in data.
 ## 6. Commands you'll use
 
 ```
-lui validate <project>   # the gate — run after every meaningful change
-lui dev <project>        # PocketBase + Vite HMR (development)
-lui kit-sync <project>   # re-vendor the kit (only when instructed)
-lui pb path              # the pinned PocketBase binary
+agent-app validate <project>   # the gate — run after every meaningful change
+agent-app dev <project>        # PocketBase + Vite HMR (development)
+agent-app kit-sync <project>   # re-vendor the kit (only when instructed)
+agent-app pb path              # the pinned PocketBase binary
 ```
 
 You never start production servers yourself — hosts use `manifest.json`'s
@@ -174,15 +174,15 @@ pipeline (`install` / `build` / `start` / `health`).
 Use the CLI — it resolves the port, authenticates, and validates params:
 
 ```
-lui ops  <project>                       # what can this app do?
-lui run  <project> <op> --param value    # execute a declared op
-lui data <project> <collection> list --filter '...' --limit 20
-lui data <project> <collection> create --json '{...}'
+agent-app ops  <project>                       # what can this app do?
+agent-app run  <project> <op> --param value    # execute a declared op
+agent-app data <project> <collection> list --filter '...' --limit 20
+agent-app data <project> <collection> create --json '{...}'
 ```
 
-1. `lui ops` (or `GET /api/_ops`) → discover the verb surface.
-2. Declared op exists → `lui run` it (DESTRUCTIVE ops: confirm first).
-3. No op → `lui data` for plain CRUD; read freely, write only what the app's
+1. `agent-app ops` (or `GET /api/_ops`) → discover the verb surface.
+2. Declared op exists → `agent-app run` it (DESTRUCTIVE ops: confirm first).
+3. No op → `agent-app data` for plain CRUD; read freely, write only what the app's
    own UI offers.
 4. Would require new code → that's a *modification*, not an operation. Say so.
 

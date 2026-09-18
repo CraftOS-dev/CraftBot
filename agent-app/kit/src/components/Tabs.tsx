@@ -70,7 +70,7 @@ export function TabsList({
     <div
       role="tablist"
       className={cn(
-        'inline-flex w-fit items-center gap-1 rounded-[var(--lui-radius)] bg-[var(--lui-surface-2)] p-1',
+        'inline-flex w-fit items-center gap-1 rounded-[var(--agent-app-radius)] bg-[var(--agent-app-surface-2)] p-1',
         className,
       )}
       {...props}
@@ -96,10 +96,10 @@ export function TabsTrigger({
       aria-selected={active}
       onClick={() => ctx.setValue(value)}
       className={cn(
-        'rounded-[calc(var(--lui-radius)-2px)] px-3 py-1.5 text-sm font-medium transition-colors',
+        'rounded-[calc(var(--agent-app-radius)-2px)] px-3 py-1.5 text-sm font-medium transition-colors',
         active
-          ? 'bg-[var(--lui-surface)] text-[var(--lui-text)] shadow-sm'
-          : 'text-[var(--lui-muted)] hover:text-[var(--lui-text)]',
+          ? 'bg-[var(--agent-app-surface)] text-[var(--agent-app-text)] shadow-sm'
+          : 'text-[var(--agent-app-muted)] hover:text-[var(--agent-app-text)]',
         className,
       )}
       {...props}

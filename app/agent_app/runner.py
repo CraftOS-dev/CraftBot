@@ -29,7 +29,7 @@ GATE_TIMEOUT_S = 600
 INSTALL_TIMEOUT_S = 600
 HEALTH_TIMEOUT_S = 30
 
-# Node resolution: app/node_runtime.py. The lui CLI is the strictest
+# Node resolution: app/node_runtime.py. The agent-app CLI is the strictest
 # consumer — TypeScript run by native type stripping, >= 24 or
 # ERR_UNKNOWN_FILE_EXTENSION (observed 2026-08-19, system Node 22.14).
 
@@ -98,7 +98,7 @@ class AgentAppRunner:
                 path_version = node_runtime.probe_version(path_node)
                 hint = (
                     f" (PATH has {path_version or 'an unprobeable node'} at "
-                    f"{path_node}, which the lui CLI — TypeScript run by "
+                    f"{path_node}, which the agent-app CLI — TypeScript run by "
                     "Node's native type stripping — cannot load; it is left "
                     "untouched)"
                 )
@@ -185,7 +185,7 @@ class AgentAppRunner:
         folder: Optional[str] = None,
         style: Optional[str] = None,
     ) -> V2ScaffoldResult:
-        """Scaffold via `lui create --json` (copies blueprint, vendors kit,
+        """Scaffold via `agent-app create --json` (copies blueprint, vendors kit,
         substitutes placeholders, bootstraps superuser, canonizes hashes)."""
         self.ensure_available()
         args = [
@@ -257,7 +257,7 @@ class AgentAppRunner:
         SHADOW gates pass `out_root`: the frontend builds into a
         content-addressed artifact under it (reused when inputs are
         unchanged) and pb/pb_public is never written — the served live
-        build only changes at promote. `coverage` builds with LUI_COVERAGE=1
+        build only changes at promote. `coverage` builds with AGENT_APP_COVERAGE=1
         so walk-verify can record which code each feature runs through
         (scoped verify); live builds never see the flag, bundles stay
         identical."""
@@ -268,7 +268,11 @@ class AgentAppRunner:
         code, out = await self._run(
             self._cli(*args),
             timeout=GATE_TIMEOUT_S,
-            env_extra={"LUI_COVERAGE": "1"} if coverage else None,
+            # TODO(lui-compat): older apps' vite.config reads LUI_COVERAGE; set
+            # both until every app is rebuilt against AGENT_APP_COVERAGE.
+            env_extra=(
+                {"AGENT_APP_COVERAGE": "1", "LUI_COVERAGE": "1"} if coverage else None
+            ),
         )
         artifact: Optional[Path] = None
         for line in out.splitlines():
@@ -332,7 +336,7 @@ class AgentAppRunner:
 
         Without one, PocketBase treats the first `serve` as an install and
         POPS OPEN ITS SETUP/LOGIN PAGE IN THE USER'S BROWSER — jarring, and
-        it exposes an admin console the user never asked for. `lui create`
+        it exposes an admin console the user never asked for. `agent-app create`
         bootstraps this for scaffolded projects, but marketplace installs
         and ZIP imports skip that path, and a wiped pb_data loses it, so
         (re)assert it on every launch. `superuser upsert` is idempotent.
@@ -348,7 +352,7 @@ class AgentAppRunner:
         cred_file = project_dir / ".superuser"
 
         creds = read_superuser_creds(project_dir)
-        email = creds[0] if creds else "agent@lui.local"
+        email = creds[0] if creds else "agent@agent-app.local"
         password = creds[1] if creds else secrets.token_urlsafe(18)
 
         code, out = await self._run(
@@ -391,7 +395,7 @@ class AgentAppRunner:
     def ensure_agent_token(self, project_dir: Path) -> str:
         """Guarantee the project has an agent token, and return it.
 
-        This is the credential a NON-BROWSER client presents to write: the lui
+        This is the credential a NON-BROWSER client presents to write: the agent-app
         CLI, CraftBot, or a third-party agent (spec A2APP-PLAN Phase 2 C4).
 
         Threat model, stated plainly: the file is 0600 but any local process

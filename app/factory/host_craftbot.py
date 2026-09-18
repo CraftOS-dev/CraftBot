@@ -54,7 +54,7 @@ _TICK_S = 60.0  # supervisor heartbeat between kicks
 
 
 def _cli() -> str:
-    """The lui CLI invocation, absolute and quoted so a pasted repro runs from
+    """The agent-app CLI invocation, absolute and quoted so a pasted repro runs from
     any cwd and survives a space in the path. Imported inside the call: this
     module is imported during app startup and app.config pulls settings."""
     from app.config import PROJECT_ROOT
@@ -670,7 +670,7 @@ class FactoryHost:
     def _session_active(self, project) -> bool:
         if self._runtime is None:
             return False  # no runtime bound — backoff alone paces dispatch
-        session_id = getattr(project, "session_id", None) or f"lui_{project.id}"
+        session_id = getattr(project, "session_id", None) or f"agentapp_{project.id}"
         try:
             return bool(self._runtime.is_session_active(session_id))
         except Exception:
@@ -829,7 +829,7 @@ class FactoryHost:
         # Logs live with the RUNNING instance: the shadow's per-boot state
         # dir when one is up, the project's own logs otherwise. CLI commands
         # always take the PROJECT path — while a shadow exists they route to
-        # it automatically (.lui/shadow.json).
+        # it automatically (.agent-app/shadow.json).
         from app.agent_app.instances import get_instance_registry
 
         _registry = get_instance_registry()

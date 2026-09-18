@@ -313,7 +313,7 @@ docs, CRM, chat, repo, ...)                      list_available_integrations. If
                                                  around it.
 
 sounds like something an app of yours already    Agent App. agent_app_list_projects; on a match,
-does                                             agent_app_usage + the lui CLI/ops to read its data
+does                                             agent_app_usage + the agent-app CLI/ops to read its data
                                                  or perform the operation instead of redoing the
                                                  work by hand.
 ```
@@ -1201,7 +1201,7 @@ DO NOT silently change FORMAT.md. The user owns their style guide.
 ```
 agent_app_scaffold(name, description, ...)  Create a project: copies the blueprint, allocates ports,
                                             runs the requirements interview, then dispatches the build
-                                            to the project's own dedicated session (lui_<id>). After
+                                            to the project's own dedicated session (agentapp_<id>). After
                                             scaffold, do NOT write project files or call notify_ready
                                             yourself — the build session owns that.
 agent_app_list_projects()                   {id, name, description, status, url, path, delivered}.
@@ -1236,9 +1236,9 @@ agent_app_report_finding(project_id,        Inside a factory FIX round. ruled_ou
                                             that is not connected, a credential). Never use it to
                                             escape a hard bug — a bug is yours while budget remains.
 agent_app_usage(project_id)                 Returns the project's operating manual: path, live data
-                                            schema, exact lui CLI commands. Call this FIRST when
+                                            schema, exact agent-app CLI commands. Call this FIRST when
                                             working on an existing project.
-agent_app_http(project_id, method, path)    FALLBACK HTTP access — prefer the lui CLI. PocketBase
+agent_app_http(project_id, method, path)    FALLBACK HTTP access — prefer the agent-app CLI. PocketBase
                                             admin endpoints (/api/collections) are superuser-only;
                                             use /api/collections/<name>/records.
 agent_app_marketplace_list() /
@@ -1252,8 +1252,8 @@ agent_app_import(source)                    Import a Agent App project from ZIP 
                                             Non-Agent-App sources register as external apps: craftbot.json
                                             (install/build/start/health verbs) + an operations.json that
                                             maps declared ops onto the app's own endpoints via an A2App
-                                            adapter on the assigned port. lui ops / lui run (and raw HTTP
-                                            with the project's .agent-token) work against them; lui data
+                                            adapter on the assigned port. agent-app ops / agent-app run (and raw HTTP
+                                            with the project's .agent-token) work against them; agent-app data
                                             does not. If the app has no server API, leave operations
                                             empty — never invent verbs or map direct DB writes.
 agent_app_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operations.json against the
@@ -1271,9 +1271,9 @@ agent_app_convert(source, ...)              Rebuild a foreign app as a Agent App
                                             supervised build dispatched. Non-Agent-App sources register as external apps (craftbot.json).
 ```
 
-### Data and ops: the lui CLI
+### Data and ops: the agent-app CLI
 
-Read/write a project's live data with the lui CLI via `run_shell` (absolute paths required):
+Read/write a project's live data with the agent-app CLI via `run_shell` (absolute paths required):
 
 ```
 node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> schema
@@ -1333,8 +1333,8 @@ When a project misbehaves: grep `logs/pocketbase.log` (server side) and `logs/fr
 - Editing `frontend/src/kit/` or system-managed pb_hooks. They are re-vendored and your edits are lost.
 - Skipping the `reference/requirements.md` update on modify. walk_verify then verifies against a stale spec.
 - Renaming a project directory by hand. `manifest.json` (project root) is the source of truth for identity and ports.
-- Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the lui CLI.
-- Using `agent_app_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the lui CLI.
+- Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the agent-app CLI.
+- Using `agent_app_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the agent-app CLI.
 - Putting project-specific design changes in GLOBAL_AGENT_APP.md instead of the project's AGENT_APP.md.
 
 ---
@@ -4640,7 +4640,7 @@ AGENT_APP.md              per-project doc inside a Agent App project            
 Agent App                 generated React + PocketBase apps served from CraftBot           ## Agent App
 LLM                       large language model used for text generation                    ## Models
 LLMConsecutiveFailureError  circuit-breaker on repeated LLM failures                       ## Errors / ## Models
-lui CLI                   node CLI for Agent App data/ops (agent-app/tools)             ## Agent App
+agent-app CLI                   node CLI for Agent App data/ops (agent-app/tools)             ## Agent App
 manage_integration_account  account admin action: set_primary / set_alias / set_listening  ## Integrations
 MCP                       Model Context Protocol; external tool servers                    ## MCP
 mcp_<server_name>         action set name registered when an MCP server connects           ## MCP / ## Action Sets

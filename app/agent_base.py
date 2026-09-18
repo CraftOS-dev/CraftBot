@@ -1350,12 +1350,12 @@ class AgentBase:
             # the machine redispatches a fresh mission. The agent surrendering
             # is no longer a terminal event — the system carries the arc.
             try:
-                lui_project = getattr(session, "agent_app_project_id", None)
-                if lui_project:
+                agent_app_project = getattr(session, "agent_app_project_id", None)
+                if agent_app_project:
                     from app.factory.host_craftbot import get_factory_host
 
                     get_factory_host().on_run_end(
-                        lui_project,
+                        agent_app_project,
                         (trigger.payload or {}) if trigger else {},
                         awaiting_answer=bool(action_output.get("awaiting_answer")),
                     )
@@ -1510,11 +1510,11 @@ class AgentBase:
         # user killed (the stop button was a deferral, not a stop).
         try:
             session = self.session_manager.get(session_id)
-            lui_project = getattr(session, "agent_app_project_id", None)
-            if lui_project:
+            agent_app_project = getattr(session, "agent_app_project_id", None)
+            if agent_app_project:
                 from app.factory.host_craftbot import get_factory_host
 
-                get_factory_host().pause_by_user(str(lui_project))
+                get_factory_host().pause_by_user(str(agent_app_project))
         except Exception as e:
             logger.debug(f"[FACTORY] stop-pause failed: {e}")
 
@@ -2192,13 +2192,13 @@ class AgentBase:
 
             from app.config import PROJECT_ROOT
 
-            _lui_cli = f"{PROJECT_ROOT}/agent-app/tools/src/cli.ts"
+            _agent_app_cli = f"{PROJECT_ROOT}/agent-app/tools/src/cli.ts"
             mgr = get_agent_app_manager()
             if mgr:
                 proj = mgr.get_project(agent_app_project_id)
                 if proj and getattr(proj, "project_type", "native") == "external":
                     # EXTERNAL app: foreign code running as-is in its own
-                    # runtime — none of the Agent App tooling below (lui CLI, PB
+                    # runtime — none of the Agent App tooling below (agent-app CLI, PB
                     # schema, bridge grants) applies to it.
                     return (
                         f"[Agent App context] This chat belongs to the "
@@ -2221,7 +2221,7 @@ class AgentBase:
                 if proj:
                     # The DATA MODEL goes in the prompt, not behind a pointer.
                     # Twice now the agent has ignored "Read AGENT_APP.md", never
-                    # run `lui ops`, and guessed collection names instead
+                    # run `agent-app ops`, and guessed collection names instead
                     # (`items`, then `tasks`) — and once invented an enum value
                     # (`priority: "normal"`) it could not have known was wrong.
                     # Advisory text does not work on a weak model; context does.
@@ -2238,7 +2238,7 @@ class AgentBase:
                     model = (
                         f"Data model (field(type), * = required):\n{schema}\n"
                         if schema
-                        else f"Data model: run  node {_lui_cli} data {proj.path} schema\n"
+                        else f"Data model: run  node {_agent_app_cli} data {proj.path} schema\n"
                     )
                     # Same principle as the schema: capabilities go IN the
                     # prompt. Three builds stubbed the user's email feature
@@ -2260,13 +2260,13 @@ class AgentBase:
                         f"{caps}"
                         f"Values: dates as ISO or 'tomorrow'/'next monday' (the CLI resolves them);\n"
                         f'references by name, e.g. --list "To Do". \n'
-                        f"To OPERATE the app, use the lui CLI via run_shell with ABSOLUTE paths\n"
+                        f"To OPERATE the app, use the agent-app CLI via run_shell with ABSOLUTE paths\n"
                         f"(the shell's cwd is NOT the repo root):\n"
-                        f'  node {_lui_cli} data {proj.path} <collection> create --field "value"\n'
+                        f'  node {_agent_app_cli} data {proj.path} <collection> create --field "value"\n'
                         f"  ALWAYS quote values — an unquoted # starts a shell comment and\n"
                         f"  silently drops the rest of the command.\n"
-                        f"  node {_lui_cli} data {proj.path} <collection> list --limit 20\n"
-                        f"  node {_lui_cli} run {proj.path} <op-name> --param value\n"
+                        f"  node {_agent_app_cli} data {proj.path} <collection> list --limit 20\n"
+                        f"  node {_agent_app_cli} run {proj.path} <op-name> --param value\n"
                         f"If debugging, read {proj.path}/logs/pocketbase.log and logs/frontend_console.log.\n"
                         f"Using the app needs no skill. To CHANGE its code, or import/diagnose one,\n"
                         f"load the right Agent App skill first (use_skill); list_skills shows all skills.\n"
@@ -3890,9 +3890,9 @@ class AgentBase:
             try:
                 from app.agent_app import get_agent_app_manager
 
-                lui_mgr = get_agent_app_manager()
-                if lui_mgr:
-                    await lui_mgr.stop_all_projects()
+                agent_app_mgr = get_agent_app_manager()
+                if agent_app_mgr:
+                    await agent_app_mgr.stop_all_projects()
             except Exception as e:
                 logger.warning(f"[SHUTDOWN] Agent App cleanup error: {e}")
             # Gracefully shutdown MCP connections

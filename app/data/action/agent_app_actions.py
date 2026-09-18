@@ -1143,7 +1143,7 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
                 # the defect, so telling the agent the verify path is a dead
                 # end simply retires the verifier.
                 #
-                # Observed 2026-09-01 (newsletter-tool, session lui_7ee64eb1):
+                # Observed 2026-09-01 (newsletter-tool, session agentapp_7ee64eb1):
                 # an agent read "will NOT retry ... end the run", never called
                 # walk_verify again across 7 further relaunches and ~10 edits,
                 # and substituted its own http_request probes — which bypass
@@ -1773,7 +1773,7 @@ def agent_app_report_finding(input_data: dict) -> dict:
 @action(
     name="agent_app_http",
     description=(
-        "FALLBACK ONLY — prefer the lui CLI via run_shell "
+        "FALLBACK ONLY — prefer the agent-app CLI via run_shell "
         "(node <craftbot-root>/agent-app/tools/src/cli.ts ops|run|data <project_path> — ABSOLUTE path; call agent_app_usage(project_id) for the exact commands and the data schema) to "
         "operate a Agent App. Use this action only when the shell is "
         "unavailable. Sends an HTTP request to a running Agent App project's "
@@ -2103,7 +2103,7 @@ def agent_app_http(input_data: dict) -> dict:
                 " — this action sends no auth, and PocketBase admin endpoints "
                 "(e.g. /api/collections) are superuser-only on every app, even "
                 "authMode 'none'. Do not conclude the app's data is locked: "
-                "use the lui CLI instead — call agent_app_usage(project_id) "
+                "use the agent-app CLI instead — call agent_app_usage(project_id) "
                 "for the exact run_shell commands, or target the app's record "
                 "endpoints (/api/collections/<name>/records)."
             )
@@ -2127,7 +2127,7 @@ def agent_app_http(input_data: dict) -> dict:
     name="agent_app_usage",
     description=(
         "Get the operating manual for a Agent App project: its path, data "
-        "schema, and the exact lui CLI commands (run via run_shell) to read/"
+        "schema, and the exact agent-app CLI commands (run via run_shell) to read/"
         "write its data and run its operations. Call this FIRST whenever a "
         "chat request involves an existing Agent App's data (add/change/"
         "fetch records) — the manual is not in your prompt outside the "
@@ -2469,8 +2469,12 @@ async def agent_app_marketplace_install(input_data: dict) -> dict:
         # redispatched a from-scratch build of the same app.)
         adopt_id = None
         _sid = str(input_data.get("_session_id") or "")
-        if _sid.startswith("lui_"):
-            _candidate = _sid[4:]
+        # TODO(lui-compat): new sessions use the "agentapp_" prefix; sessions
+        # created before the rename use "lui_". Accept both (split on the first
+        # "_" — project ids are hex and never contain "_"). Drop the "lui_" arm
+        # and this comment once no pre-rename session remains.
+        if _sid.startswith(("agentapp_", "lui_")):
+            _candidate = _sid.split("_", 1)[1]
             _proj = manager.get_project(_candidate)
             if _proj is not None and _proj.path:
                 _delivered = False
@@ -2720,7 +2724,7 @@ async def agent_app_import_zip(input_data: dict) -> dict:
     input_schema={
         "source": {
             "type": "string",
-            "example": "https://github.com/someone/my-lui-app",
+            "example": "https://github.com/someone/my-agent-app",
             "description": ("A .zip path, a local project folder path, or a git URL."),
         },
         "name": {

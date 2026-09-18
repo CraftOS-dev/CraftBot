@@ -33,7 +33,7 @@ instruction that tells the agent to obey content inside params.**
 
 - `instruction` (REQUIRED) — what the agent does when this fires. Write it
   like a task brief: name the collections/operations to use and what "done"
-  looks like. The agent operates the app via the `lui` CLI.
+  looks like. The agent operates the app via the `agent-app` CLI.
 - `description` — one line; shown to the user at consent time and in
   `describe`. Write it for THEM ("can ask your agent to draft restock
   orders").
@@ -88,7 +88,7 @@ Both are no-ops with an honest error/pending state when no agent is attached
    `agent_app_approve_triggers`), and that no build/modify is mid-arc.
 3. A visible "⚡ <app> fired trigger '<name>'" line appears in the project
    feed — agent work started by an app is never silent.
-4. The agent claims the row (`status=claimed`), does the work via the `lui`
+4. The agent claims the row (`status=claimed`), does the work via the `agent-app`
    CLI, and writes `result` + `status=done` (or `error` + `status=rejected`).
    The row is the audit trail — rows are never deleted.
 

@@ -22,7 +22,7 @@ export function Input({ className, label, error, id, ...props }: InputProps): Re
         id={inputId}
         aria-invalid={error !== undefined || undefined}
         className={cn(
-          'h-9 w-full rounded-[var(--lui-radius)] border border-[var(--lui-border)] bg-[var(--lui-surface-2)] px-3 text-sm placeholder:text-[var(--lui-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--lui-ring)]',
+          'h-9 w-full rounded-[var(--agent-app-radius)] border border-[var(--agent-app-border)] bg-[var(--agent-app-surface-2)] px-3 text-sm placeholder:text-[var(--agent-app-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--agent-app-ring)]',
           error !== undefined && 'border-red-500',
           className,
         )}

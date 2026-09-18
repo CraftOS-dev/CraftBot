@@ -94,7 +94,7 @@ class Promoter:
                 self._provisioner.destroy(project.id, shadow)
             finally:
                 # Agent traffic goes back to the live app the moment the
-                # shadow instance is gone — including the lui CLI's routing.
+                # shadow instance is gone — including the agent-app CLI's routing.
                 if shadow is not None:
                     self._registry.remove(shadow.instance_id)
                 self._provisioner.unroute_cli(Path(project.path))

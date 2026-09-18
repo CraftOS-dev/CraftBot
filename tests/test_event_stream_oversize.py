@@ -2,7 +2,7 @@
 """
 Oversized retrieval results must not waste summarization passes.
 
-Observed 2026-08-26 in session lui_11e12617: one `grep_files` result of 171,818
+Observed 2026-08-26 in session agentapp_11e12617: one `grep_files` result of 171,818
 chars (~77k tokens) entered the tail verbatim — grep_files/read_file are exempt
 from log-time externalization because they ARE the retrieval path for
 externalized content. MIN_KEEP_RECENT_EVENTS pinned it, and folds that could

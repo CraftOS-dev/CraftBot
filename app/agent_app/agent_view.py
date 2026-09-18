@@ -5,7 +5,7 @@ What the agent and the user each SEE of a Agent App.
 `schema_block()` and `capability_block()` inline the app's data model and its
 callable operations into the agent's prompt. Advisory pointers do not work on
 weak models: across two recorded incidents the agent ignored "Read
-AGENT_APP.md", never ran `lui ops`, and guessed collection names instead
+AGENT_APP.md", never ran `agent-app ops`, and guessed collection names instead
 (`items`, `tasks`). It cannot ignore what is already in its context. They read
 the app's own A2APP `describe` surface, so neither can drift from what the app
 actually is.

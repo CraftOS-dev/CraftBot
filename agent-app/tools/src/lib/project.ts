@@ -10,21 +10,28 @@ export interface ProjectRef {
   baseUrl: string;
 }
 
-/** While a SHADOW environment is up, the host writes `.lui/shadow.json`
+/** While a SHADOW environment is up, the host writes `.agent-app/shadow.json`
  *  ({"port": n}) into the project and removes it at promote/teardown. All
  *  agent-facing CLI traffic (ops/run/data) then targets the shadow instance
  *  — the same routing rule the host applies to its own HTTP action. Without
  *  this, CLI calls during a build/modify would hit the LIVE app and write
  *  test records into real user data. */
 function shadowPort(dir: string): number | null {
-  try {
-    const raw = JSON.parse(readFileSync(join(dir, '.lui', 'shadow.json'), 'utf8')) as {
-      port?: number;
-    };
-    return typeof raw.port === 'number' ? raw.port : null;
-  } catch {
-    return null;
+  // TODO(lui-compat): the host now writes .agent-app/shadow.json; shadows
+  // created before the rename wrote .lui/shadow.json. Read the new path first,
+  // fall back to the legacy one. Remove the fallback once no live shadow
+  // predates the rename.
+  for (const metaDir of ['.agent-app', '.lui']) {
+    try {
+      const raw = JSON.parse(readFileSync(join(dir, metaDir, 'shadow.json'), 'utf8')) as {
+        port?: number;
+      };
+      if (typeof raw.port === 'number') return raw.port;
+    } catch {
+      /* try next location */
+    }
   }
+  return null;
 }
 
 export function loadProject(projectDir: string): ProjectRef {
@@ -47,8 +54,8 @@ export function loadProject(projectDir: string): ProjectRef {
   }
   // EXTERNAL (adopted third-party) projects have no manifest.json — the
   // CraftBot config lives in craftbot.json, and the A2App proxy on `port`
-  // serves the same ops surface, so `lui ops` / `lui run` work unchanged.
-  // (`lui data` does not apply: external describe carries no entities.)
+  // serves the same ops surface, so `agent-app ops` / `agent-app run` work unchanged.
+  // (`agent-app data` does not apply: external describe carries no entities.)
   const craftbotPath = join(dir, 'craftbot.json');
   if (existsSync(craftbotPath)) {
     const cfg = JSON.parse(readFileSync(craftbotPath, 'utf8')) as {
@@ -120,15 +127,25 @@ export async function request(
   // Attribution: the app records this against every write (spec Phase 1 B6).
   // Self-asserted and worthless against malice — exactly right against
   // confusion, which is the real problem when several agents share one app.
+  // TODO(lui-compat): honour the legacy LUI_AGENT env and emit the legacy
+  // X-LUI-Agent header so apps not yet re-vendored still attribute the write.
+  // Remove the LUI_AGENT read and the X-LUI-Agent header once every app speaks
+  // the X-A2App-* signature.
+  const agentId = process.env['A2APP_AGENT'] ?? process.env['LUI_AGENT'] ?? 'a2app-cli';
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'X-LUI-Agent': process.env['LUI_AGENT'] ?? 'lui-cli',
+    'X-A2App-Agent': agentId,
+    'X-LUI-Agent': agentId,
   };
   // Agent token (spec Phase 2 C4): the credential a non-browser client presents
   // to write. Absent on projects that predate it — the app then does not
   // require one, so this stays backwards compatible.
   const agentToken = readAgentToken(project);
-  if (agentToken !== null) headers['X-LUI-Token'] = agentToken;
+  if (agentToken !== null) {
+    headers['X-A2App-Token'] = agentToken;
+    // TODO(lui-compat): mirror onto the legacy header for un-re-vendored apps.
+    headers['X-LUI-Token'] = agentToken;
+  }
   const token = await authToken(project);
   if (token !== null) headers['Authorization'] = token;
   if (extraHeaders !== undefined) Object.assign(headers, extraHeaders);

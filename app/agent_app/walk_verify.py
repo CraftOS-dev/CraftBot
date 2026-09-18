@@ -67,7 +67,7 @@ def _builder_hints(project_path: Path) -> List[str]:
 
 
 def _exact_symbols_factory(manager, store_dir: Path):
-    """symbols_for(rel, text) backed by `lui symbols` (the project's own
+    """symbols_for(rel, text) backed by `agent-app symbols` (the project's own
     TypeScript when reachable). Returns None on any failure so attribution
     falls back to the heuristic parser. Synchronous and short: one node
     process per changed code file, 20 s cap each."""
@@ -353,7 +353,7 @@ async def run_walk_verify(
         manager = None
 
     # Evidence building hashes the watched tree and may shell out to
-    # `lui symbols` per changed code file — off the event loop.
+    # `agent-app symbols` per changed code file — off the event loop.
     import asyncio as _asyncio
 
     evidence = await _asyncio.get_running_loop().run_in_executor(

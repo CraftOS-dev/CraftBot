@@ -355,7 +355,7 @@ def _block_end(lines: Sequence[str], start_idx: int) -> int:
 def ts_symbols(text: str) -> List[Symbol]:
     """Heuristic symbol table for TS/TSX/JS: every named declaration with its
     brace-matched range and nesting depth. Good enough to say "which
-    function did this hunk land in"; the exact `lui symbols` path replaces it
+    function did this hunk land in"; the exact `agent-app symbols` path replaces it
     when the project's TypeScript is reachable (see node_symbols)."""
     blanked = _blank_strings(text).splitlines()
     raw = text.splitlines()
@@ -724,7 +724,7 @@ def attribute_changes(
     symbols_for: Optional[Callable[[str, str], Optional[List[Symbol]]]] = None,
 ) -> None:
     """Fill changed/unchanged symbols + notes on every FileChange, in place.
-    `symbols_for(rel, text)` may return an exact symbol table (lui symbols)
+    `symbols_for(rel, text)` may return an exact symbol table (agent-app symbols)
     or None to fall back to the heuristic."""
     project_path = Path(project_path)
     for fc in changes:

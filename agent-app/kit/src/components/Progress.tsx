@@ -16,13 +16,13 @@ export function Progress({ value, className, ...props }: ProgressProps): React.J
       aria-valuemax={100}
       aria-valuenow={clamped}
       className={cn(
-        'h-2 w-full overflow-hidden rounded-full bg-[var(--lui-border)]/60',
+        'h-2 w-full overflow-hidden rounded-full bg-[var(--agent-app-border)]/60',
         className,
       )}
       {...props}
     >
       <div
-        className="h-full rounded-full bg-[var(--lui-accent)] transition-all"
+        className="h-full rounded-full bg-[var(--agent-app-accent)] transition-all"
         style={{ width: `${clamped}%` }}
       />
     </div>

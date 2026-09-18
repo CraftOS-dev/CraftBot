@@ -1,10 +1,10 @@
 """The ONE Node.js runtime every CraftBot component uses.
 
 CraftBot spawns Node from several places — the browser frontend dev server,
-the WhatsApp bridge, Agent App's lui CLI, npm installs, and Agent App app
+the WhatsApp bridge, Agent App's agent-app CLI, npm installs, and Agent App app
 pipeline steps. They must all agree on a single binary: deployments run
 multiple Nodes side by side (a VPC pins its default to 20.x for other
-services while local apps use 24.x), and the lui CLI needs >= 24 (it is
+services while local apps use 24.x), and the agent-app CLI needs >= 24 (it is
 TypeScript executed through Node's native type stripping — older majors
 throw ERR_UNKNOWN_FILE_EXTENSION).
 

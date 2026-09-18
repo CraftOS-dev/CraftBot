@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * lui — Agent App workspace CLI.
+ * agent-app — Agent App workspace CLI.
  *
  * Thin dispatcher: each command is a module in ./commands exporting
  * { summary, run }. Composition over a framework (spec W4).
@@ -70,16 +70,16 @@ async function main(): Promise<number> {
   const [, , name, ...args] = process.argv;
 
   if (!name || name === 'help' || name === '--help') {
-    log.raw('lui — Agent App workspace CLI\n');
+    log.raw('agent-app — Agent App workspace CLI\n');
     for (const [cmd, meta] of Object.entries(COMMANDS)) {
-      log.raw(`  lui ${cmd.padEnd(10)} ${meta.summary}`);
+      log.raw(`  agent-app ${cmd.padEnd(10)} ${meta.summary}`);
     }
     return 0;
   }
 
   if (!(name in COMMANDS)) {
     log.error(`Unknown command: ${name}`);
-    log.raw(`Try: lui help`);
+    log.raw(`Try: agent-app help`);
     return 1;
   }
 

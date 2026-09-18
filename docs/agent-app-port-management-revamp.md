@@ -54,7 +54,7 @@ be allocated under one discipline, and there must be one source of truth for
 | R11 | Vestigial `backend_port` still allocated + persisted; marketplace burns 2 ports/app | `manager.py:3685-3686,4624-4637` |
 | R12 | External `internal_port` drawn from live pool, not persisted => invisible survivors | `manager.py:196,1470` |
 | R13 | `open_dev`/shadow boot takes no per-project lock => same-project double-boot drops a pid (leak); cross-project shadow alloc races | `lifecycle.py:51-148` |
-| R14 | Two independent shadow-routing stores must agree: `.lui/shadow.json` (CLI) vs staging-record url (HTTP action) | `provisioner.py:128-144`, `agent_app_actions.py:2040-2048` |
+| R14 | Two independent shadow-routing stores must agree: `.agent-app/shadow.json` (CLI) vs staging-record url (HTTP action) | `provisioner.py:128-144`, `agent_app_actions.py:2040-2048` |
 | R15 | Dead state `_next_port` never used; misleading | `manager.py:249` |
 | R16 | `taskkill /F` without `/T` in one killer, `/T` in another => orphaned child trees | `manager.py:1157` vs `2354` |
 
@@ -80,7 +80,7 @@ revamp makes the token/id the identity everywhere.
    pid, then kill that pid tree.
 5. **One routing truth.** The instance registry is the only place that answers
    "where does traffic for project X go right now" (live url or shadow url).
-   `.lui/shadow.json` and the HTTP-action redirect both derive from it.
+   `.agent-app/shadow.json` and the HTTP-action redirect both derive from it.
 6. **No migration shims.** Per the project rule, on this schema change the new
    code is the standard: at first startup we reconcile against the OS, kill
    real orphans, and discard old staging/`_staging` records. Live `project.port`
@@ -181,7 +181,7 @@ trivial. The per-project `.factory/host.json` keeps its non-instance data
 - Persisted and authoritative: `project.port` (live address of the app; user
   facing) and the instance registry file.
 - Ephemeral, rebuilt at startup: port reservations, pids, shadow instances,
-  `.lui/shadow.json`, HTTP redirect targets. All derived from the registry after
+  `.agent-app/shadow.json`, HTTP redirect targets. All derived from the registry after
   reconciliation.
 - Removed: `backend_port` (R11), `_next_port` (R15). External `internal_port`
   becomes a real shadow-style instance with an id and gets tracked (R12).
@@ -198,7 +198,7 @@ trivial. The per-project `.factory/host.json` keeps its non-instance data
 | watchdog liveness | `is_port_in_use(project.port)` | `registry.live(project_id)` pid alive AND owns port (R4) |
 | stop / adopt / relaunch kill | `_kill_process_on_port(port)` | resolve instance, kill its pid-tree (`/F /T`), then release its port (R3, R16) |
 | shadow teardown drop | `probe_pool.drop(record["port"])` | `probe_pool.drop(instance_id)` (R2) |
-| CLI route / HTTP redirect | `.lui/shadow.json` + staging url, written separately | both derived from `registry.route(project_id)`; `.lui/shadow.json` written from the shadow instance and removed when the shadow instance is removed (R14) |
+| CLI route / HTTP redirect | `.agent-app/shadow.json` + staging url, written separately | both derived from `registry.route(project_id)`; `.agent-app/shadow.json` written from the shadow instance and removed when the shadow instance is removed (R14) |
 | http_request SSRF allowlist | port-set membership | membership set built from `registry` live ports (unchanged semantics, single source) |
 
 The bridge-token path (`validate_bridge_token`) is kept as-is; the instance
@@ -217,7 +217,7 @@ Legend: A=allocate, B=bind, R=register instance, X=release, K=kill.
 - **notify_ready (boot shadow)** (`open_dev`): take the per-project launch lock
   (closes R13). A shadow port via the unified allocator. Create a shadow
   Instance (id, token=live token, pid=None) and `registry.upsert` BEFORE boot.
-  Write `.lui/shadow.json` from the instance. B PocketBase. On success set pid,
+  Write `.agent-app/shadow.json` from the instance. B PocketBase. On success set pid,
   upsert again (same instance_id, so `probed_at` is preserved across the second
   write, closing the per-boot-flag loss). On failure, remove the instance and X
   the port.
@@ -227,14 +227,14 @@ Legend: A=allocate, B=bind, R=register instance, X=release, K=kill.
 - **walk_verify + promote**: verify against `registry.shadow(project).url`; the
   probe-first gate checks `probed_at` on that shadow instance. On pass, boot the
   live instance (A/B/R live), then remove the shadow instance (K its pid-tree, X
-  its port, delete `.lui/shadow.json`). On promote failure, keep the shadow
+  its port, delete `.agent-app/shadow.json`). On promote failure, keep the shadow
   instance (unchanged policy) but it is now a first-class registry entry, so it
   cannot become an untracked orphan.
 - **stop**: resolve the live instance, K its pid-tree, remove instance. Keep
   `project.port` reserved (project keeps its address across stop/start), or
   release it and re-reserve on next launch (see Open Question OQ1).
 - **delete**: stop first (removes live instance), ALSO remove any shadow
-  instance (K its pid, X its shadow port, delete shadow dir + `.lui/shadow.json`)
+  instance (K its pid, X its shadow port, delete shadow dir + `.agent-app/shadow.json`)
   BEFORE `rmtree`. Closes R8 (no more leaked shadow on delete).
 - **modify / evolve**: same as notify_ready + verify + promote; each boot is a
   new shadow instance id, DB rebuilt from migrations (unchanged).
@@ -288,7 +288,7 @@ signature" safe instead of "kill whatever holds the port."
 Both routing consumers derive from `registry.route(project_id)`:
 - HTTP action redirect (`agent_app_actions.py:2035-2095`): read the shadow/live
   instance url from the registry instead of the sidecar staging key.
-- `.lui/shadow.json`: still written (the CLI is a separate process and reads a
+- `.agent-app/shadow.json`: still written (the CLI is a separate process and reads a
   file), but it is written from the shadow instance at boot and deleted the
   moment the shadow instance is removed (promote, stop, delete). Because both the
   file and the HTTP redirect now come from one registry event, they cannot

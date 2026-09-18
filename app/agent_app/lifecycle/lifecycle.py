@@ -115,7 +115,7 @@ class AppLifecycle:
 
         # Register the shadow instance BEFORE booting (reserves its port and
         # evicts any prior shadow): a pipeline failure must still leave the
-        # instance so agent traffic (HTTP action, lui CLI) targets the shadow
+        # instance so agent traffic (HTTP action, agent-app CLI) targets the shadow
         # and startup reconciliation can find and reclaim its port.
         instance = self.registry.create_shadow(
             project.id,

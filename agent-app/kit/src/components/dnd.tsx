@@ -92,7 +92,7 @@ export function SortableList<T extends { id: string }>({
             overId === item.id &&
               dragId !== null &&
               dragId !== item.id &&
-              'rounded-[var(--lui-radius)] outline outline-1 outline-[var(--lui-accent)]',
+              'rounded-[var(--agent-app-radius)] outline outline-1 outline-[var(--agent-app-accent)]',
           )}
         >
           {renderItem(item)}

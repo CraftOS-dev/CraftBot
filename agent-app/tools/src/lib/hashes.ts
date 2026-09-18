@@ -7,7 +7,22 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-const HASH_FILE = join('.lui', 'system-hashes.json');
+const HASH_FILE = join('.agent-app', 'system-hashes.json');
+
+// TODO(lui-compat): the canon now lives at .agent-app/system-hashes.json;
+// projects scaffolded before the rename have it at .lui/system-hashes.json.
+// Writers always use the new path; readers resolve to whichever exists so an
+// un-migrated project's gate still finds its canon. A kit-sync rewrites it to
+// the new path. Remove this resolver (and LEGACY_HASH_FILE) once no pre-rename
+// project remains.
+const LEGACY_HASH_FILE = join('.lui', 'system-hashes.json');
+function hashFileFor(projectDir: string): string {
+  const primary = join(projectDir, HASH_FILE);
+  if (existsSync(primary)) return primary;
+  const legacy = join(projectDir, LEGACY_HASH_FILE);
+  if (existsSync(legacy)) return legacy;
+  return primary;
+}
 
 /** System-managed paths, relative to the project root (files or directories).
  *  Exported because this list is also the delivery manifest: `kit-sync`
@@ -55,7 +70,7 @@ export function computeSystemHashes(projectDir: string): Record<string, string> 
 
 /** Record the current state as canonical (called by create and kit-sync). */
 export function writeSystemHashes(projectDir: string): void {
-  mkdirSync(join(projectDir, '.lui'), { recursive: true });
+  mkdirSync(join(projectDir, '.agent-app'), { recursive: true });
   const hashes = computeSystemHashes(projectDir);
   writeFileSync(join(projectDir, HASH_FILE), JSON.stringify(hashes, null, 2) + '\n');
 }
@@ -64,7 +79,7 @@ export function writeSystemHashes(projectDir: string): void {
  *  true = clean, false = drifted, null = no canon recorded (fresh scaffold
  *  mid-flight, or a path outside the canon). */
 export function fileMatchesCanon(projectDir: string, relPath: string): boolean | null {
-  const file = join(projectDir, HASH_FILE);
+  const file = hashFileFor(projectDir);
   if (!existsSync(file)) return null;
   const recorded = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
   const want = recorded[toPosix(relPath)];
@@ -78,7 +93,7 @@ export function fileMatchesCanon(projectDir: string, relPath: string): boolean |
  *  (e.g. the gate refreshing manifest.json's derived `capabilities`).
  *  Never call this for agent-editable paths — it would canonize the edit. */
 export function recordFileHash(projectDir: string, relPath: string): void {
-  const file = join(projectDir, HASH_FILE);
+  const file = hashFileFor(projectDir);
   if (!existsSync(file)) return; // no canon yet — create/kit-sync records it
   const recorded = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
   recorded[toPosix(relPath)] = sha256(join(projectDir, relPath));
@@ -93,7 +108,7 @@ export interface OwnershipDrift {
 
 /** Compare current state to the recorded canon. */
 export function verifySystemHashes(projectDir: string): OwnershipDrift {
-  const file = join(projectDir, HASH_FILE);
+  const file = hashFileFor(projectDir);
   if (!existsSync(file)) {
     throw new Error(`missing ${HASH_FILE} — run kit-sync to (re)establish system-file canon`);
   }

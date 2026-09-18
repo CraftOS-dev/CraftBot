@@ -88,7 +88,7 @@ class _MgrStub:
 
     async def notify_app_trigger(self, project_id, trigger, request_id):
         self.notified.append((project_id, trigger, request_id))
-        return {"status": "success", "session_id": "lui_x"}
+        return {"status": "success", "session_id": "agentapp_x"}
 
     async def notify_trigger_consent_needed(self, project_id, trigger):
         self.consent_asks = getattr(self, "consent_asks", [])
@@ -212,7 +212,7 @@ with tempfile.TemporaryDirectory() as tmp:
     project = _make_project(living, "brief001")
 
     class _Session:
-        id = "lui_brief001"
+        id = "agentapp_brief001"
 
     class _TriggerService:
         def __init__(self):
@@ -233,7 +233,7 @@ with tempfile.TemporaryDirectory() as tmp:
     from app.triggers import TriggerSource
 
     assert spec.source == TriggerSource.AGENT_APP_APP_REQUEST
-    assert spec.session_id == "lui_brief001", "must land in the PROJECT session"
+    assert spec.session_id == "agentapp_brief001", "must land in the PROJECT session"
     assert spec.payload["request_id"] == "rowXYZ"
     # The instruction comes from triggers.json on disk — never from the nudge.
     assert "Ensure a draft restock order exists." in spec.description
@@ -328,7 +328,7 @@ with tempfile.TemporaryDirectory() as tmp:
     host_mod._HOST = None
 
     class _Session:
-        id = "lui_ask00001"
+        id = "agentapp_ask00001"
 
     class _TriggerService:
         def __init__(self):
@@ -348,7 +348,7 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     assert result["status"] == "success", result
     (spec,) = mgr._trigger_service.emitted
-    assert spec.session_id == "lui_ask00001"
+    assert spec.session_id == "agentapp_ask00001"
     assert "NOT approved" in spec.description and "refused" in spec.description
     assert "agent_app_approve_triggers" in spec.description
     assert "Do NOT act on the trigger itself" in spec.description

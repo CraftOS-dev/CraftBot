@@ -103,10 +103,10 @@ export function FileUpload({
           void handle(e.dataTransfer.files.item(0));
         }}
         className={
-          'flex cursor-pointer items-center justify-center gap-2 rounded-[var(--lui-radius)] border border-dashed px-4 py-6 text-sm text-[var(--lui-muted)] transition-colors ' +
+          'flex cursor-pointer items-center justify-center gap-2 rounded-[var(--agent-app-radius)] border border-dashed px-4 py-6 text-sm text-[var(--agent-app-muted)] transition-colors ' +
           (dragOver
-            ? 'border-[var(--lui-accent)] bg-[var(--lui-accent)]/5'
-            : 'border-[var(--lui-border)] bg-[var(--lui-surface)]')
+            ? 'border-[var(--agent-app-accent)] bg-[var(--agent-app-accent)]/5'
+            : 'border-[var(--agent-app-border)] bg-[var(--agent-app-surface)]')
         }
       >
         {busy ? <Spinner size={14} /> : <UploadIcon size={14} />}
@@ -154,7 +154,7 @@ export function ImageInput({
             src={value}
             alt={label ?? 'Uploaded image'}
             style={{ maxHeight: height }}
-            className="block max-w-full rounded-[var(--lui-radius)] border border-[var(--lui-border)]"
+            className="block max-w-full rounded-[var(--agent-app-radius)] border border-[var(--agent-app-border)]"
           />
           <button
             type="button"

@@ -1,5 +1,5 @@
 /**
- * lui validate <project> — the validation gate (spec §11, D7 scope for M1):
+ * agent-app validate <project> — the validation gate (spec §11, D7 scope for M1):
  *   1. tsc --noEmit        (types)
  *   2. vite build          (build; lands in pb/pb_public)
  *   3. migrations apply    (against a FRESH temp pb_data)
@@ -45,7 +45,7 @@ const BASELINE_DEV_DEPS = new Set([
   'tailwindcss',
   'typescript',
   'vite',
-  'vite-plugin-istanbul', // dev-build coverage for scoped walk-verify (LUI_COVERAGE=1)
+  'vite-plugin-istanbul', // dev-build coverage for scoped walk-verify (AGENT_APP_COVERAGE=1)
 ]);
 
 const BASELINE_SCRIPTS: Record<string, string> = {
@@ -192,7 +192,7 @@ function checkTransactionHandles(projectDir: string): void {
  * Egress scan (spec EXTERNAL-DATA-PLAN §4): derive the app's outbound surface.
  *
  * `capabilities.external_hosts` in manifest.json is written by the GATE, never
- * declared by the agent — same lifecycle as `.lui/system-hashes.json`. One
+ * declared by the agent — same lifecycle as `.agent-app/system-hashes.json`. One
  * JSON field answers "what does this app talk to?" for build output, users,
  * and (later) marketplace review. Born from the weather-tracker incident,
  * where an app whose requirements promised live API data shipped
@@ -736,7 +736,7 @@ function validateOps(projectDir: string): void {
 // written after a clean build, never after a failed one).
 // ---------------------------------------------------------------------------
 
-const BUILD_FP_FILE = join('.lui', 'build-fingerprint.txt');
+const BUILD_FP_FILE = join('.agent-app', 'build-fingerprint.txt');
 const BUILD_INPUT_IGNORE = new Set(['node_modules', 'dist', '.vite', '.turbo', '.cache']);
 
 /** SHA-256 over every build input under frontend/ (src, package.json, the
@@ -764,7 +764,7 @@ function computeBuildFingerprint(frontendDir: string): string | null {
     const h = createHash('sha256');
     // A coverage-instrumented (dev) build is a different artifact from a
     // plain one — the flag is a build input.
-    h.update(`LUI_COVERAGE=${process.env['LUI_COVERAGE'] ?? ''}\0`);
+    h.update(`AGENT_APP_COVERAGE=${process.env['AGENT_APP_COVERAGE'] ?? ''}\0`);
     for (const rel of files) {
       h.update(rel);
       h.update('\0');
@@ -787,7 +787,7 @@ function readBuildFingerprint(projectDir: string): string | null {
 
 function writeBuildFingerprint(projectDir: string, fp: string): void {
   try {
-    mkdirSync(join(projectDir, '.lui'), { recursive: true });
+    mkdirSync(join(projectDir, '.agent-app'), { recursive: true });
     writeFileSync(join(projectDir, BUILD_FP_FILE), fp + '\n');
   } catch (err) {
     log.warn(
@@ -800,7 +800,7 @@ export async function run(args: string[]): Promise<number> {
   const projectDir = args[0];
   if (projectDir === undefined || !existsSync(join(projectDir, 'manifest.json'))) {
     log.error(
-      'Usage: lui validate <project-dir> [--outRoot <dir>]   (must contain manifest.json)',
+      'Usage: agent-app validate <project-dir> [--outRoot <dir>]   (must contain manifest.json)',
     );
     return 1;
   }
@@ -846,7 +846,7 @@ export async function run(args: string[]): Promise<number> {
   //
   // Two destinations, chosen by the caller:
   // - LIVE (no --outRoot): in-place into pb/pb_public, currency recorded in
-  //   .lui/build-fingerprint.txt. Used when the platform is (re)booting the
+  //   .agent-app/build-fingerprint.txt. Used when the platform is (re)booting the
   //   live process — nothing serves pb_public at that moment.
   // - SHADOW (--outRoot): into <outRoot>/<fp>/ — content-addressed, so a
   //   boot whose inputs match an earlier artifact skips both steps by
@@ -901,7 +901,7 @@ export async function run(args: string[]): Promise<number> {
 
   const pbBin = await ensurePbBinary();
   await runStepAsync(errors, 'migrations (fresh pb_data)', async () => {
-    const tempData = mkdtempSync(join(tmpdir(), 'lui-migrate-'));
+    const tempData = mkdtempSync(join(tmpdir(), 'agent-app-migrate-'));
     try {
       // NOTE: `pocketbase migrate up` exits 0 even when a migration fails —
       // it only PRINTS the error. Scan output; never trust the exit code.

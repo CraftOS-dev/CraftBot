@@ -146,9 +146,9 @@ Changes to a running external app apply LIVE (no staging): edit →
 ## Notes
 
 - Imported/installed projects are ordinary Agent App projects afterwards:
-  operate them via the lui CLI (`ops` / `run` / `data`), modify them via
+  operate them via the agent-app CLI (`ops` / `run` / `data`), modify them via
   the agent-app-modify workflow. External apps speak the same ops surface
-  through their adapter — `lui ops` / `lui run` (and raw HTTP with the
+  through their adapter — `agent-app ops` / `agent-app run` (and raw HTTP with the
   project's `.agent-token`) work against them too; only the `data` verbs
   don't apply (external apps expose operations only, no protocol
   entities — the app's own API passes

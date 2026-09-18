@@ -33,7 +33,7 @@
  * - empty states get an icon, one headline, one line, one action
  *
  * Icons are always ReactNode (the kit ships no icon dependency): pass an emoji,
- * an inline <svg>, or your app's own icon component. Everything reads --lui-*
+ * an inline <svg>, or your app's own icon component. Everything reads --agent-app-*
  * tokens, so light/dark and every style pack keep working.
  */
 import type { ReactNode } from 'react';
@@ -51,8 +51,8 @@ const TONE_TEXT: Record<Tone, string> = {
   warn: 'text-amber-700 dark:text-amber-400',
   bad: 'text-red-700 dark:text-red-400',
   info: 'text-sky-700 dark:text-sky-400',
-  accent: 'text-[var(--lui-accent)]',
-  neutral: 'text-[var(--lui-muted)]',
+  accent: 'text-[var(--agent-app-accent)]',
+  neutral: 'text-[var(--agent-app-muted)]',
 };
 
 const TONE_BG: Record<Tone, string> = {
@@ -60,8 +60,8 @@ const TONE_BG: Record<Tone, string> = {
   warn: 'bg-amber-500/10',
   bad: 'bg-red-500/10',
   info: 'bg-sky-500/10',
-  accent: 'bg-[var(--lui-accent)]/10',
-  neutral: 'bg-[var(--lui-border)]/40',
+  accent: 'bg-[var(--agent-app-accent)]/10',
+  neutral: 'bg-[var(--agent-app-border)]/40',
 };
 
 const TONE_DOT: Record<Tone, string> = {
@@ -69,8 +69,8 @@ const TONE_DOT: Record<Tone, string> = {
   warn: 'bg-amber-500',
   bad: 'bg-red-500',
   info: 'bg-sky-500',
-  accent: 'bg-[var(--lui-accent)]',
-  neutral: 'bg-[var(--lui-muted)]',
+  accent: 'bg-[var(--agent-app-accent)]',
+  neutral: 'bg-[var(--agent-app-muted)]',
 };
 
 export function Dot({ tone, className }: { tone: Tone; className?: string | undefined }): React.JSX.Element {
@@ -144,7 +144,7 @@ export function IdentityChip({
       className={cn(
         'flex shrink-0 select-none items-center justify-center font-semibold',
         size === 'sm' ? 'size-5 text-[9px]' : 'size-7 text-[11px]',
-        square ? 'rounded-[var(--lui-radius)]' : 'rounded-full',
+        square ? 'rounded-[var(--agent-app-radius)]' : 'rounded-full',
         hue,
         className,
       )}
@@ -178,7 +178,7 @@ export function MoneyAmount({
       className={cn(
         'whitespace-nowrap text-right tabular-nums',
         kind === 'in' && 'font-medium text-emerald-700 dark:text-emerald-400',
-        kind === 'out' && 'text-[var(--lui-text)]',
+        kind === 'out' && 'text-[var(--agent-app-text)]',
         className,
       )}
     >
@@ -209,12 +209,12 @@ export function relDay(isoDate: string): { label: string; overdue: boolean; days
 /** Future-facing relative date; overdue dates go red. */
 export function RelDate({ iso, className }: { iso: string; className?: string | undefined }): React.JSX.Element {
   const { label, overdue } = relDay(iso);
-  if (label === '') return <span className={cn('text-xs text-[var(--lui-muted)]', className)}>-</span>;
+  if (label === '') return <span className={cn('text-xs text-[var(--agent-app-muted)]', className)}>-</span>;
   return (
     <span
       className={cn(
         'whitespace-nowrap text-xs tabular-nums',
-        overdue ? 'font-medium text-red-600 dark:text-red-400' : 'text-[var(--lui-muted)]',
+        overdue ? 'font-medium text-red-600 dark:text-red-400' : 'text-[var(--agent-app-muted)]',
         className,
       )}
     >
@@ -242,13 +242,13 @@ export function ProgressRing({
   const v = Math.max(0, Math.min(1, value));
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={cn('shrink-0 -rotate-90', className)} aria-hidden>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--lui-border)" strokeWidth={2} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--agent-app-border)" strokeWidth={2} />
       <circle
         cx={size / 2}
         cy={size / 2}
         r={r}
         fill="none"
-        stroke={v >= 1 ? 'rgb(16 185 129)' : 'var(--lui-accent)'}
+        stroke={v >= 1 ? 'rgb(16 185 129)' : 'var(--agent-app-accent)'}
         strokeWidth={2}
         strokeDasharray={`${c * v} ${c}`}
       />
@@ -272,7 +272,7 @@ export interface AppShellProps {
 /** Full-height sidebar + scrolling content frame. The spine of every real app. */
 export function AppShell({ sidebar, children, maxWidth = 'max-w-6xl', className }: AppShellProps): React.JSX.Element {
   return (
-    <div className={cn('flex min-h-screen bg-[var(--lui-bg)] text-[var(--lui-text)]', className)}>
+    <div className={cn('flex min-h-screen bg-[var(--agent-app-bg)] text-[var(--agent-app-text)]', className)}>
       {sidebar}
       <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
         <div className={cn('mx-auto', maxWidth)}>{children}</div>
@@ -318,12 +318,12 @@ export function SidebarNav({
   return (
     <aside
       className={cn(
-        'flex w-60 shrink-0 flex-col border-r border-[var(--lui-border)] bg-[var(--lui-surface)]',
+        'flex w-60 shrink-0 flex-col border-r border-[var(--agent-app-border)] bg-[var(--agent-app-surface)]',
         className,
       )}
     >
       {brand !== undefined && (
-        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--lui-border)] px-4">
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--agent-app-border)] px-4">
           {brand}
         </div>
       )}
@@ -331,7 +331,7 @@ export function SidebarNav({
         {sections.map((section, i) => (
           <div key={i} className={cn(i > 0 && 'mt-4')}>
             {section.label !== undefined && (
-              <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--lui-muted)]">
+              <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--agent-app-muted)]">
                 {section.label}
               </p>
             )}
@@ -344,17 +344,17 @@ export function SidebarNav({
                   onClick={() => onSelect(item.key)}
                   aria-current={isActive ? 'page' : undefined}
                   className={cn(
-                    'flex w-full items-center gap-2.5 rounded-[var(--lui-radius)] px-2.5 py-1.5 text-sm transition-colors',
+                    'flex w-full items-center gap-2.5 rounded-[var(--agent-app-radius)] px-2.5 py-1.5 text-sm transition-colors',
                     isActive
-                      ? 'bg-[var(--lui-selected)] font-medium text-[var(--lui-accent)]'
-                      : 'text-[var(--lui-text)] hover:bg-[var(--lui-hover)]',
+                      ? 'bg-[var(--agent-app-selected)] font-medium text-[var(--agent-app-accent)]'
+                      : 'text-[var(--agent-app-text)] hover:bg-[var(--agent-app-hover)]',
                   )}
                 >
                   {item.icon !== undefined && (
                     <span
                       className={cn(
                         'flex size-4 shrink-0 items-center justify-center',
-                        isActive ? 'text-[var(--lui-accent)]' : 'text-[var(--lui-muted)]',
+                        isActive ? 'text-[var(--agent-app-accent)]' : 'text-[var(--agent-app-muted)]',
                       )}
                     >
                       {item.icon}
@@ -362,7 +362,7 @@ export function SidebarNav({
                   )}
                   <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
                   {item.badge !== undefined && (
-                    <span className="shrink-0 text-xs tabular-nums text-[var(--lui-muted)]">{item.badge}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-[var(--agent-app-muted)]">{item.badge}</span>
                   )}
                 </button>
               );
@@ -371,7 +371,7 @@ export function SidebarNav({
         ))}
       </nav>
       {footer !== undefined && (
-        <div className="shrink-0 border-t border-[var(--lui-border)] p-3">{footer}</div>
+        <div className="shrink-0 border-t border-[var(--agent-app-border)] p-3">{footer}</div>
       )}
     </aside>
   );
@@ -400,10 +400,10 @@ export function PageHeader({
       <div className="min-w-0">
         <div className="flex items-baseline gap-2.5">
           <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-          {meta !== undefined && <span className="text-sm tabular-nums text-[var(--lui-muted)]">{meta}</span>}
+          {meta !== undefined && <span className="text-sm tabular-nums text-[var(--agent-app-muted)]">{meta}</span>}
         </div>
         {subtitle !== undefined && (
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[var(--lui-muted)]">{subtitle}</p>
+          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[var(--agent-app-muted)]">{subtitle}</p>
         )}
       </div>
       {actions !== undefined && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
@@ -430,10 +430,10 @@ export function Section({
 }): React.JSX.Element {
   return (
     <Card className={cn('overflow-hidden', className)}>
-      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-[var(--lui-border)] px-4 py-2">
+      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-[var(--agent-app-border)] px-4 py-2">
         <div className="flex items-baseline gap-2">
           <h2 className="text-[13px] font-semibold">{title}</h2>
-          {meta !== undefined && <span className="text-xs tabular-nums text-[var(--lui-muted)]">{meta}</span>}
+          {meta !== undefined && <span className="text-xs tabular-nums text-[var(--agent-app-muted)]">{meta}</span>}
         </div>
         {actions !== undefined && <div className="flex items-center gap-1.5">{actions}</div>}
       </div>
@@ -453,8 +453,8 @@ export function GroupHeader({
   right?: ReactNode | undefined;
 }): React.JSX.Element {
   return (
-    <div className="flex items-center justify-between bg-[var(--lui-hover)] px-4 py-1.5">
-      <span className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--lui-muted)]">
+    <div className="flex items-center justify-between bg-[var(--agent-app-hover)] px-4 py-1.5">
+      <span className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--agent-app-muted)]">
         {label}
         {count !== undefined && <span className="font-normal tabular-nums">{count}</span>}
       </span>
@@ -487,8 +487,8 @@ export function ListRow({
   return (
     <div
       className={cn(
-        'group flex min-h-11 items-center gap-3 border-b border-[var(--lui-border)] px-4 py-2 transition-colors last:border-0',
-        onClick !== undefined && 'cursor-pointer hover:bg-[var(--lui-hover)]',
+        'group flex min-h-11 items-center gap-3 border-b border-[var(--agent-app-border)] px-4 py-2 transition-colors last:border-0',
+        onClick !== undefined && 'cursor-pointer hover:bg-[var(--agent-app-hover)]',
         className,
       )}
       onClick={onClick}
@@ -505,7 +505,7 @@ export function ListRow({
       {leading}
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{primary}</div>
-        {secondary !== undefined && <div className="truncate text-xs text-[var(--lui-muted)]">{secondary}</div>}
+        {secondary !== undefined && <div className="truncate text-xs text-[var(--agent-app-muted)]">{secondary}</div>}
       </div>
       {trailing !== undefined && <div className="flex shrink-0 items-center gap-3">{trailing}</div>}
       {hoverActions !== undefined && (
@@ -545,7 +545,7 @@ export function Stat({
     <Card>
       <CardContent className="flex items-end justify-between gap-2 px-4 py-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--lui-muted)]">{label}</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--agent-app-muted)]">{label}</p>
           <p
             className={cn(
               'mt-1 whitespace-nowrap font-semibold tabular-nums tracking-tight',
@@ -555,7 +555,7 @@ export function Stat({
           >
             {value}
           </p>
-          {sub !== undefined && <div className="mt-0.5 text-xs text-[var(--lui-muted)]">{sub}</div>}
+          {sub !== undefined && <div className="mt-0.5 text-xs text-[var(--agent-app-muted)]">{sub}</div>}
         </div>
         {spark !== undefined && <div className="shrink-0 pb-1 opacity-80">{spark}</div>}
       </CardContent>
@@ -617,13 +617,13 @@ export function EmptyState({
   return (
     <div className={cn('flex flex-col items-center gap-2 px-6 py-14 text-center', className)}>
       {icon !== undefined && (
-        <span className="mb-1 flex size-10 items-center justify-center rounded-[var(--lui-radius)] bg-[var(--lui-surface-2)] text-[var(--lui-muted)]">
+        <span className="mb-1 flex size-10 items-center justify-center rounded-[var(--agent-app-radius)] bg-[var(--agent-app-surface-2)] text-[var(--agent-app-muted)]">
           {icon}
         </span>
       )}
       <p className="text-sm font-semibold">{title}</p>
       {message !== undefined && (
-        <p className="max-w-sm text-[13px] leading-relaxed text-[var(--lui-muted)]">{message}</p>
+        <p className="max-w-sm text-[13px] leading-relaxed text-[var(--agent-app-muted)]">{message}</p>
       )}
       {action !== undefined && <div className="mt-3">{action}</div>}
     </div>

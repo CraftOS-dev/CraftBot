@@ -27,7 +27,7 @@
  * Design rules: hierarchy from weight + muted grays (not size); the accent is
  * for interaction and the current thing only; other color means STATE (Pill
  * tones); numbers are tabular and right-aligned; every empty view uses
- * <EmptyState>. Never hardcode colors: read var(--lui-*) so dark mode and
+ * <EmptyState>. Never hardcode colors: read var(--agent-app-*) so dark mode and
  * every host style pack keep working.
  * ─────────────────────────────────────────────────────────────────────────
  */

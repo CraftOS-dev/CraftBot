@@ -242,7 +242,7 @@ cronAdd('weatherSync', '*/15 * * * *', () => {
   — failures toast automatically.
 - Components: `Button, Input, Card/CardHeader/CardBody, Dialog, Table, LoginGate`,
   plus `toast` for feedback and `useAuth()` in multi-user apps.
-- Style with Tailwind utilities + kit tokens (`var(--lui-*)`). Never hardcode
+- Style with Tailwind utilities + kit tokens (`var(--agent-app-*)`). Never hardcode
   colors — theming is host-owned (style packs + dark mode must keep working).
 - Required UX: empty states with an action, loading states, confirmation
   dialogs for destructive actions, toasts on CRUD, responsive layout.

@@ -211,7 +211,7 @@ class TestTheFixBrief:
         )
         arc = Arc(tmp_path / "arc.json")
         arc.open(ARC_BUILD)
-        arc.record_ruled_out(["the collection exists - lui data list shows it"])
+        arc.record_ruled_out(["the collection exists - agent-app data list shows it"])
         arc.record_disputed([DISPUTE])
 
         host = get_factory_host()

@@ -33,7 +33,8 @@ code()  { curl -s -m 8 -o /dev/null -w '%{http_code}' "$@"; }
 body()  { curl -s -m 8 "$@"; }
 
 W=(-H 'Content-Type: application/json')
-[ -n "$TOKEN" ] && W+=(-H "X-LUI-Token: $TOKEN")
+# TODO(lui-compat): also send the legacy X-LUI-Token for un-re-vendored apps.
+[ -n "$TOKEN" ] && W+=(-H "X-A2App-Token: $TOKEN" -H "X-LUI-Token: $TOKEN")
 
 head "0. Reachability"
 check "app responds"                 '200' "$(code "$BASE/api/health")"

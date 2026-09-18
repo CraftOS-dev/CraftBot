@@ -248,7 +248,10 @@ routerUse((e) => {
 
   var presented = '';
   try {
-    presented = String(e.request.header.get('X-LUI-Token') || '').trim();
+    // TODO(lui-compat): also accept the legacy X-LUI-Token from older clients.
+    presented = String(
+      e.request.header.get('X-A2App-Token') || e.request.header.get('X-LUI-Token') || '',
+    ).trim();
   } catch {
     presented = '';
   }
@@ -256,7 +259,7 @@ routerUse((e) => {
     return e.json(401, {
       ok: false,
       error: 'agent token required',
-      hint: 'Send X-LUI-Token: <contents of the project .agent-token file> on writes.',
+      hint: 'Send X-A2App-Token: <contents of the project .agent-token file> on writes.',
     });
   }
   return e.next();
@@ -356,7 +359,7 @@ routerAdd('POST', '/api/_console', (e) => {
 
 /**
  * COVERAGE TIMELINE (scoped walk-verify, docs/design/scoped-walk-verify.md).
- * The DEV build (LUI_COVERAGE=1) is istanbul-instrumented; the kit's
+ * The DEV build (AGENT_APP_COVERAGE=1) is istanbul-instrumented; the kit's
  * CoverageRelay posts function-hit DELTAS here every 2s, and the verifier
  * posts a feature MARK before exercising each feature. Interleaved, the two
  * make logs/coverage.jsonl a timeline the host folds into feature → executed

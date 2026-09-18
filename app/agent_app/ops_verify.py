@@ -55,8 +55,11 @@ async def verify_external_ops(
         token = (project_dir / ".agent-token").read_text(encoding="utf-8").strip()
     except Exception:
         pass
-    headers = {"X-LUI-Agent": "ops-verify"}
+    # TODO(lui-compat): mirror the legacy X-LUI-* headers so apps not yet
+    # re-vendored still accept these writes. Remove once all apps are updated.
+    headers = {"X-A2App-Agent": "ops-verify", "X-LUI-Agent": "ops-verify"}
     if token:
+        headers["X-A2App-Token"] = token
         headers["X-LUI-Token"] = token
 
     results: List[Dict[str, Any]] = []

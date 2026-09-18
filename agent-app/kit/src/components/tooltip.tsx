@@ -32,7 +32,7 @@ export function Tooltip({ content, children, side = 'top' }: TooltipProps): Reac
         <span
           role="tooltip"
           className={cn(
-            'pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-[calc(var(--lui-radius)-2px)] border border-[var(--lui-border)] bg-[var(--lui-surface)] px-2 py-1 text-xs text-[var(--lui-text)] shadow-md',
+            'pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-[calc(var(--agent-app-radius)-2px)] border border-[var(--agent-app-border)] bg-[var(--agent-app-surface)] px-2 py-1 text-xs text-[var(--agent-app-text)] shadow-md',
             side === 'top' ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]',
           )}
         >

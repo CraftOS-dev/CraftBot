@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Agent App workspace CLI — create, dev, validate, pb, kit-sync, pack",
   "bin": {
-    "lui": "./src/cli.ts"
+    "agent-app": "./src/cli.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ."

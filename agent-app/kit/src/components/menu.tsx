@@ -73,7 +73,7 @@ export function DropdownMenu({
         <div
           role="menu"
           className={cn(
-            'absolute top-full z-50 mt-1 min-w-[10rem] rounded-[var(--lui-radius)] border border-[var(--lui-border)] bg-[var(--lui-surface)] p-1 shadow-md',
+            'absolute top-full z-50 mt-1 min-w-[10rem] rounded-[var(--agent-app-radius)] border border-[var(--agent-app-border)] bg-[var(--agent-app-surface)] p-1 shadow-md',
             align === 'left' ? 'left-0' : 'right-0',
           )}
         >
@@ -89,9 +89,9 @@ export function DropdownMenu({
                 item.onSelect();
               }}
               className={cn(
-                'flex w-full items-center gap-2 whitespace-nowrap rounded-[calc(var(--lui-radius)-2px)] px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-                item.danger === true ? 'text-red-600' : 'text-[var(--lui-text)]',
-                'hover:bg-[var(--lui-border)]/40',
+                'flex w-full items-center gap-2 whitespace-nowrap rounded-[calc(var(--agent-app-radius)-2px)] px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                item.danger === true ? 'text-red-600' : 'text-[var(--agent-app-text)]',
+                'hover:bg-[var(--agent-app-border)]/40',
               )}
             >
               {item.icon !== undefined && item.icon !== null && (

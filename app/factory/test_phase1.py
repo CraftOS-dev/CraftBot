@@ -21,7 +21,7 @@ CHAT = []  # captured machine-composed chat lines
 
 
 class _Session:
-    id = "lui_test"
+    id = "agentapp_test"
 
 
 class _TriggerService:
@@ -34,7 +34,7 @@ class _Project:
         self.id = "testproj"
         self.name = "Test App"
         self.path = str(path)
-        self.session_id = "lui_test"
+        self.session_id = "agentapp_test"
 
 
 class _Manager:

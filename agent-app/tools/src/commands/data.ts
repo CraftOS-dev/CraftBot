@@ -1,5 +1,5 @@
 /**
- * lui data <project-dir> <collection> [list|get <id>|create|update <id>|delete <id>]
+ * agent-app data <project-dir> <collection> [list|get <id>|create|update <id>|delete <id>]
  *          [--field value ...] [--json '{...}'] [--filter '...'] [--sort '...'] [--limit N]
  *
  * Generic collection access against the RUNNING app (superuser-authed when
@@ -89,7 +89,7 @@ export async function run(args: string[]): Promise<number> {
   const [dirArg, collection, verb = 'list', id] = positional;
   if (dirArg === undefined || collection === undefined) {
     log.error(
-      "Usage: lui data <project-dir> <collection> [list|get <id>|create|update <id>|delete <id>] [--field value ...] [--json '{...}'] [--filter '...'] [--sort '...'] [--limit N]",
+      "Usage: agent-app data <project-dir> <collection> [list|get <id>|create|update <id>|delete <id>] [--field value ...] [--json '{...}'] [--filter '...'] [--sort '...'] [--limit N]",
     );
     return 1;
   }

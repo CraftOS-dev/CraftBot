@@ -35,7 +35,7 @@ export function Table<T>({
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center gap-1 px-6 py-10 text-center">
-        <p className="text-sm text-[var(--lui-muted)]">{emptyMessage}</p>
+        <p className="text-sm text-[var(--agent-app-muted)]">{emptyMessage}</p>
       </div>
     );
   }
@@ -44,12 +44,12 @@ export function Table<T>({
     <div className={cn('w-full overflow-x-auto', className)}>
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-[var(--lui-border)]">
+          <tr className="border-b border-[var(--agent-app-border)]">
             {columns.map((col) => (
               <th
                 key={col.key}
                 className={cn(
-                  'px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--lui-muted)]',
+                  'px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--agent-app-muted)]',
                   alignClass(col.align),
                   col.className,
                 )}
@@ -63,7 +63,7 @@ export function Table<T>({
           {rows.map((row) => (
             <tr
               key={rowKey(row)}
-              className="border-b border-[var(--lui-border)] last:border-0 transition-colors hover:bg-[var(--lui-hover)]"
+              className="border-b border-[var(--agent-app-border)] last:border-0 transition-colors hover:bg-[var(--agent-app-hover)]"
             >
               {columns.map((col) => (
                 <td key={col.key} className={cn('px-4 py-2.5', alignClass(col.align), col.className)}>

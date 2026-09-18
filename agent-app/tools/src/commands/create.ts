@@ -1,5 +1,5 @@
 /**
- * lui create <name> [--description "…"] [--dir <parent>] [--port <n>]
+ * agent-app create <name> [--description "…"] [--dir <parent>] [--port <n>]
  * Scaffold a project from the blueprint: copy, vendor kit, substitute
  * placeholders (spec P4/D6).
  */
@@ -21,7 +21,7 @@ import { ensurePbBinary } from './pb.ts';
 async function bootstrapSuperuser(projectDir: string): Promise<void> {
   const pbBin = await ensurePbBinary();
   const pbDir = join(projectDir, 'pb');
-  const email = 'agent@lui.local';
+  const email = 'agent@agent-app.local';
   const password = randomBytes(18).toString('base64url');
 
   execFileSync(
@@ -63,7 +63,7 @@ export async function run(args: string[]): Promise<number> {
   const name = args.find((a) => !a.startsWith('--'));
   if (name === undefined) {
     log.error(
-      'Usage: lui create <name> [--description "…"] [--dir <parent>] [--port <n>] [--auth none|multi-user]',
+      'Usage: agent-app create <name> [--description "…"] [--dir <parent>] [--port <n>] [--auth none|multi-user]',
     );
     return 1;
   }
@@ -145,7 +145,7 @@ export async function run(args: string[]): Promise<number> {
   // Unique package name so npm workspaces don't collide.
   const pkgPath = join(projectDir, 'frontend', 'package.json');
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { name: string };
-  pkg.name = `lui-app-${slug}`;
+  pkg.name = `agent-app-${slug}`;
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
   // Pre-create the log files agents read while debugging — an empty file

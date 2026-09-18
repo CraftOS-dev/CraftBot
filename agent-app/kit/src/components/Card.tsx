@@ -22,7 +22,7 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>): R
   return (
     <div
       className={cn(
-        'rounded-[var(--lui-radius)] border border-[var(--lui-border)] bg-[var(--lui-surface)] shadow-sm',
+        'rounded-[var(--agent-app-radius)] border border-[var(--agent-app-border)] bg-[var(--agent-app-surface)] shadow-sm',
         className,
       )}
       {...props}
@@ -48,7 +48,7 @@ export function CardHeader({
     return (
       <div
         className={cn(
-          'flex items-center justify-between border-b border-[var(--lui-border)] px-5 py-4',
+          'flex items-center justify-between border-b border-[var(--agent-app-border)] px-5 py-4',
           className,
         )}
         {...props}
@@ -77,7 +77,7 @@ export function CardDescription({
   className,
   ...props
 }: HTMLAttributes<HTMLParagraphElement>): React.JSX.Element {
-  return <p className={cn('text-sm text-[var(--lui-muted)]', className)} {...props} />;
+  return <p className={cn('text-sm text-[var(--agent-app-muted)]', className)} {...props} />;
 }
 
 export function CardContent({
@@ -94,7 +94,7 @@ export function CardFooter({
   return (
     <div
       className={cn(
-        'flex items-center gap-2 border-t border-[var(--lui-border)] px-5 py-4',
+        'flex items-center gap-2 border-t border-[var(--agent-app-border)] px-5 py-4',
         className,
       )}
       {...props}

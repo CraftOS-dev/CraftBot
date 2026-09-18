@@ -1,5 +1,5 @@
 /**
- * lui trigger <project-dir> <name> [--param value ...]
+ * agent-app trigger <project-dir> <name> [--param value ...]
  *
  * Fire a declared trigger of the RUNNING app — the same path the app itself
  * uses (a POST into agent_requests through the in-app guard), not a side
@@ -37,7 +37,7 @@ function loadDeclared(dir: string): Record<string, TriggerDef> {
 
 /** --key value pairs → params, coerced by the DECLARED type (the client owns
  *  coercion in this architecture — the app only validates). A valueless
- *  --flag errors rather than becoming `true`, same rule as `lui data`. */
+ *  --flag errors rather than becoming `true`, same rule as `agent-app data`. */
 function parseParams(
   args: string[],
   spec: Record<string, TriggerParamSpec>,
@@ -73,7 +73,7 @@ export async function run(args: string[]): Promise<number> {
   const projectDir = args[0];
   const name = args[1];
   if (projectDir === undefined || name === undefined || name.startsWith('--')) {
-    log.error('Usage: lui trigger <project-dir> <name> [--param value ...]');
+    log.error('Usage: agent-app trigger <project-dir> <name> [--param value ...]');
     return 1;
   }
   const project = loadProject(projectDir);

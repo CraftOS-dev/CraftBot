@@ -78,7 +78,7 @@ def _make_project_dir(living: Path, pid: str, port: int) -> Path:
         "pb/pb_public",
         "frontend/src",
         "frontend/node_modules/somepkg",
-        ".lui",
+        ".agent-app",
         "reference",
         "logs",
     ):
@@ -103,7 +103,7 @@ def _make_project_dir(living: Path, pid: str, port: int) -> Path:
     (proj / "frontend" / "src" / "App.tsx").write_text("export const A = 1\n")
     (proj / "pb" / "pb_hooks" / "ops.pb.js").write_text("// ops\n")
     (proj / "pb" / "pb_public" / "index.html").write_text("<html>built</html>")
-    (proj / ".lui" / "system-hashes.json").write_text("{}")
+    (proj / ".agent-app" / "system-hashes.json").write_text("{}")
     (proj / "reference" / "requirements.md").write_text("- feature one\n")
     _mkdb(proj / "pb" / "pb_data" / "data.db", rows=2)
     _mkdb(proj / "pb" / "pb_data" / "auxiliary.db", rows=0, table="aux")
@@ -230,9 +230,9 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # CLI routing: while a shadow is up, project-path CLI calls target it.
     sup.route_cli(proj, inst.port)
-    assert _json.loads((proj / ".lui" / "shadow.json").read_text())["port"] == inst.port
+    assert _json.loads((proj / ".agent-app" / "shadow.json").read_text())["port"] == inst.port
     sup.unroute_cli(proj)
-    assert not (proj / ".lui" / "shadow.json").exists()
+    assert not (proj / ".agent-app" / "shadow.json").exists()
 
     # THE regression the copy era died of: booting again while the previous
     # shadow still holds its files (Windows lock). prepare() never deletes
@@ -386,7 +386,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert _shadow_inst is not None and Path(_shadow_inst.dir) == sdir
     assert result.get("dir") == str(sdir), "agents need the boot dir for logs"
     assert not (sdir / "pb_data").exists(), "shadow DB is born at boot, empty"
-    assert _json.loads((proj_dir / ".lui" / "shadow.json").read_text())[
+    assert _json.loads((proj_dir / ".agent-app" / "shadow.json").read_text())[
         "port"
     ] == inst.port, "CLI routing follows the shadow"
     # Never delivered (no promote yet) → this is (still) a BUILD arc, even
@@ -414,7 +414,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert up["first"] is False, "live DB existed — this is an UPDATE promote"
     assert not sdir2.exists(), "promote must sweep the shadow state"
     assert mgr.instances.shadow("mgrtest01") is None
-    assert not (proj_dir / ".lui" / "shadow.json").exists(), (
+    assert not (proj_dir / ".agent-app" / "shadow.json").exists(), (
         "promote must route the CLI back to the live app"
     )
     assert host.delivered_at("mgrtest01") is not None, "promote stamps delivery"
@@ -1022,7 +1022,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # a) session project, never delivered, as-is → adopt + machine completes
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "kanban-board", "_session_id": "lui_adopt0001"},
+        {"app_id": "kanban-board", "_session_id": "agentapp_adopt0001"},
     )
     assert out["status"] == "success" and out["project_id"] == "adopt0001"
     assert INSTALLS[-1] == "adopt0001", "install must ADOPT the session project"
@@ -1035,7 +1035,7 @@ with tempfile.TemporaryDirectory() as tmp:
     VERDICTS.clear()
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "kanban-board", "_session_id": "lui_adopt0001", "will_adapt": True},
+        {"app_id": "kanban-board", "_session_id": "agentapp_adopt0001", "will_adapt": True},
     )
     assert INSTALLS[-1] == "adopt0001" and not VERDICTS
     assert "notify_ready" in out["message"] and "adaptations" in out["message"].lower()
@@ -1050,7 +1050,7 @@ with tempfile.TemporaryDirectory() as tmp:
     _n_installs = len(INSTALLS)
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "kanban-board", "_session_id": "lui_adopt0001"},
+        {"app_id": "kanban-board", "_session_id": "agentapp_adopt0001"},
     )
     assert out["status"] == "success" and out.get("already_installed") is True
     assert len(INSTALLS) == _n_installs, "already-installed must not reinstall"
@@ -1059,7 +1059,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # c2) delivered session project, DIFFERENT app → separate fresh install
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "crm-system", "_session_id": "lui_adopt0001"},
+        {"app_id": "crm-system", "_session_id": "agentapp_adopt0001"},
     )
     assert INSTALLS[-1] is None, "a delivered session project means a NEW separate app"
     assert out["project_id"] == "fresh999"
@@ -1319,7 +1319,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     async def _sdr(pid, **kwargs):
         DISPATCHES.append((pid, kwargs))
-        return "lui_impact0001"
+        return "agentapp_impact0001"
 
     stub.import_project_source = _imp_source
     stub.start_development_run = _sdr
@@ -1480,7 +1480,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     async def _sdr2(pid, **kwargs):
         DISPATCHES2.append((pid, kwargs))
-        return "lui_convact001"
+        return "agentapp_convact001"
 
     stub.convert_foreign_source = _convert
     stub.start_development_run = _sdr2
@@ -1852,7 +1852,7 @@ print("§25 changed-op smoke selection: OK")
 
 # ── §26 changed-op smoke sends the agent token (the 401 gate trap) ─────────
 # The blueprint's system gate 401s every origin-less POST to /api/ops/*
-# without X-LUI-Token, so a smoke that omits the header can never pass a
+# without X-A2App-Token, so a smoke that omits the header can never pass a
 # mutating op — observed live 2026-09-15 (Clock App, 3 wasted gate cycles
 # and a gate-bypass workaround). The header must actually cross the wire.
 from app.agent_app.op_smoke import _invoke, _smoke_headers  # noqa: E402
@@ -1864,14 +1864,14 @@ with tempfile.TemporaryDirectory() as tmp:
     # Token file present → both layers' headers; trimmed value.
     (proj / ".agent-token").write_text("tok-26-secret\n", encoding="utf-8")
     headers = _smoke_headers(proj, "SUPER")
-    assert headers["X-LUI-Token"] == "tok-26-secret"
+    assert headers["X-A2App-Token"] == "tok-26-secret"
     assert headers["Authorization"] == "SUPER"
-    assert headers["X-LUI-Agent"] == "op-smoke"
+    assert headers["X-A2App-Agent"] == "op-smoke"
 
     # No token provisioned → header absent (the gate fails open), no crash.
     (proj / ".agent-token").unlink()
     headers_bare = _smoke_headers(proj, None)
-    assert "X-LUI-Token" not in headers_bare and "Authorization" not in headers_bare
+    assert "X-A2App-Token" not in headers_bare and "Authorization" not in headers_bare
 
     # Round-trip: a gate-shaped server that 401s POSTs missing the token.
     import http.server as _http26
@@ -1881,7 +1881,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     class _Gate26(_http26.BaseHTTPRequestHandler):
         def do_POST(self):
-            SEEN26["token"] = self.headers.get("X-LUI-Token")
+            SEEN26["token"] = self.headers.get("X-A2App-Token")
             ok = SEEN26["token"] == "tok-26-secret"
             self.send_response(200 if ok else 401)
             self.send_header("Content-Type", "application/json")
@@ -1903,7 +1903,7 @@ with tempfile.TemporaryDirectory() as tmp:
     }
     (proj / ".agent-token").write_text("tok-26-secret\n", encoding="utf-8")
     result = _invoke(base26, op26, _smoke_headers(proj, None))
-    assert SEEN26["token"] == "tok-26-secret", "X-LUI-Token never crossed the wire"
+    assert SEEN26["token"] == "tok-26-secret", "X-A2App-Token never crossed the wire"
     assert result.ok and result.status == 200, (result.status, result.detail)
     server26.shutdown()
 print("§26 changed-op smoke agent token: OK")

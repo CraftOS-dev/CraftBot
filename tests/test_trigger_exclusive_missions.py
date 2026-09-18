@@ -30,7 +30,7 @@ def trig(desc, source, *, payload=None, fire_at=None):
         fire_at=fire_at if fire_at is not None else time.time() - 1,
         priority=50,
         next_action_description=desc,
-        session_id="lui_f1eb1c85",
+        session_id="agentapp_f1eb1c85",
         source=source,
         payload=payload or {},
     )
@@ -63,7 +63,7 @@ class TestExclusiveSources:
 
     def test_it_is_not_drained_into_another_trigger_s_turn(self):
         async def scenario():
-            q = SessionTriggerQueue("lui_f1eb1c85")
+            q = SessionTriggerQueue("agentapp_f1eb1c85")
             await q.put(user_msg())
             await q.put(fix_mission())
             await q.put(trig("continue", TriggerSource.RUN_CONTINUATION.value))
@@ -81,7 +81,7 @@ class TestExclusiveSources:
         # Holding a source out of someone else's turn must not reorder it:
         # two missions come back in the order they were queued.
         async def scenario():
-            q = SessionTriggerQueue("lui_f1eb1c85")
+            q = SessionTriggerQueue("agentapp_f1eb1c85")
             base = time.time() - 10
             await q.put(user_msg(fire_at=base))
             await q.put(trig("first mission", CRASH_FIX, fire_at=base + 1))
@@ -103,7 +103,7 @@ class TestExclusiveSources:
     def test_without_the_exclusion_everything_still_aggregates(self):
         # The default stays "one turn for everything due" — this is opt-in.
         async def scenario():
-            q = SessionTriggerQueue("lui_f1eb1c85")
+            q = SessionTriggerQueue("agentapp_f1eb1c85")
             await q.put(user_msg())
             await q.put(fix_mission())
             await asyncio.wait_for(q.get(), timeout=2)

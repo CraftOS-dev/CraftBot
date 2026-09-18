@@ -242,7 +242,7 @@ async def _proxy_suite(tmp: Path) -> None:
     )
     await proxy.start()
     base = f"http://127.0.0.1:{PROXY_PORT}"
-    auth = {"X-LUI-Token": TOKEN, "X-LUI-Agent": "test-suite"}
+    auth = {"X-A2App-Token": TOKEN, "X-A2App-Agent": "test-suite"}
 
     async with aiohttp.ClientSession() as http:
         # identity: the structural probe

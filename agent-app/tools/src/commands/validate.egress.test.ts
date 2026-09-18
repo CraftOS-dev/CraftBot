@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import { collectEgressHosts } from './validate.ts';
 
 function project(files: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), 'lui-egress-'));
+  const dir = mkdtempSync(join(tmpdir(), 'agent-app-egress-'));
   mkdirSync(join(dir, 'pb', 'pb_hooks'), { recursive: true });
   for (const [name, content] of Object.entries(files)) {
     writeFileSync(join(dir, 'pb', 'pb_hooks', name), content);

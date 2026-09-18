@@ -3,7 +3,7 @@
 Findings from real session logs, ordered by impact. Each item is a concrete,
 verified defect in how CraftBot builds/modifies apps, not in any one app.
 
-## From the Clock weather modify (2026-09-08, lui_72371f3d, 25 turns / ~11 min)
+## From the Clock weather modify (2026-09-08, agentapp_72371f3d, 25 turns / ~11 min)
 
 - [ ] **Cookbooks are not injected into `notify_ready` error responses.**
   The run burned 3 of its 5 failed gate cycles rediscovering PocketBase JSVM
@@ -37,7 +37,7 @@ verified defect in how CraftBot builds/modifies apps, not in any one app.
   read. By design (spec discipline), but worth knowing when judging run
   length: ~9 turns is the realistic floor for a supervised modify.
 
-## From the Receipt Record build (2026-09-08, lui_1dbb9b85, 37+ min, undelivered)
+## From the Receipt Record build (2026-09-08, agentapp_1dbb9b85, 37+ min, undelivered)
 
 User asked: "upload or take picture of a receipt, then it automatically scan,
 and store in a database". Delivered state: parked on a question, manual-entry
@@ -101,7 +101,7 @@ app, no scanning.
   min).** Same knowledge-delivery gap as the Clock cookbook item above; no
   cookbook covers `formFile`/`fileFromMultipart` at all.
 
-## From the Brainstorm Graph failed evolve (2026-09-08, lui_70f26c25, ~92 min, STUCK at 12/12 missions)
+## From the Brainstorm Graph failed evolve (2026-09-08, agentapp_70f26c25, ~92 min, STUCK at 12/12 missions)
 
 A modify of the AI-research-suggestions feature that died on the mission
 budget at 16:48 after ~92 minutes and 5+ fix missions. The defect churn was
@@ -121,7 +121,7 @@ real, but most of the budget went to infrastructure.
   path adopts any dir with a manifest.json, so the broken copy is reused
   until an agent manually deletes it (observed: "staging is missing the
   entire frontend/ directory"). Reuse must check structural completeness
-  (frontend/package.json + .lui) or recreate.
+  (frontend/package.json + .agent-app) or recreate.
 
 - [ ] **Infrastructure failures spend the same mission budget as real fix
   work.** The arc died at 12/12 missions with a large share consumed by
@@ -131,7 +131,7 @@ real, but most of the budget went to infrastructure.
   attempts" from "environment failures" so the user sees the truth.
 
 - [ ] **The dispute loop has no tie-breaker.** The builder disputed the
-  verdict with CLI evidence (op returns 200 via `lui run`); the verifier
+  verdict with CLI evidence (op returns 200 via `agent-app run`); the verifier
   kept failing the same feature (UI shows an error toast — the UI path is
   what users see, and it was genuinely broken/flaky). CLI-op success is not
   UI-path success, and the current guidance ("re-verify; if it comes back
@@ -157,24 +157,24 @@ real, but most of the budget went to infrastructure.
 
 ## Changed-op smoke could never pass a POST op — FIXED (2026-09-16)
 
-- [x] **op_smoke omitted `X-LUI-Token`, so the system gate 401'd every
+- [x] **op_smoke omitted `X-A2App-Token`, so the system gate 401'd every
   origin-less mutating op by construction.** The blueprint gate
   (`_system.pb.js`) rejects origin-less POST/PATCH/PUT/DELETE to
-  `/api/ops/*` unless `X-LUI-Token` matches `<project>/.agent-token`;
+  `/api/ops/*` unless `X-A2App-Token` matches `<project>/.agent-token`;
   `op_smoke._invoke` sent only the superuser `Authorization` header, which
   the gate never reads. Observed live 2026-09-15 (Clock App build,
-  `logs/20260915143639/lui_b20dc20c`): "7 of 7 changed operation(s)
+  `logs/20260915143639/agentapp_b20dc20c`): "7 of 7 changed operation(s)
   FAILED ... 401 agent token required", 3 wasted gate cycles — and the
   build agent escaped by MOVING its ops to `/api/public/*`, i.e. the broken
   gate taught it to bypass the security layer (that app shipped that way).
   Fix: `run_op_smoke` now builds headers via `_smoke_headers` — reads the
   project's `.agent-token` (same pattern as `ops_verify`), sends
-  `X-LUI-Token` when provisioned plus `X-LUI-Agent: op-smoke`; token file
+  `X-A2App-Token` when provisioned plus `X-A2App-Agent: op-smoke`; token file
   absent → header omitted (the gate fails open). Covered by §26 in
   `app/agent_app/test_data_safety.py` (header build + wire round-trip
   against a gate-shaped server).
 
-## From the Clock App build (2026-09-15, lui_b20dc20c, ~27 min, delivered)
+## From the Clock App build (2026-09-15, agentapp_b20dc20c, ~27 min, delivered)
 
 Full analysis in session logs; the non-fixed items beyond the smoke-token
 defect above:
@@ -222,7 +222,7 @@ defect above:
 ## Custom browser probe RETIRED (2026-09-10)
 
 - [x] The custom `browser_probe` action, the `ProbePool` warm-session
-  infrastructure, the `lui probe`/`probe-server` CLI, and the in-process
+  infrastructure, the `agent-app probe`/`probe-server` CLI, and the in-process
   boot smoke were removed. They reimplemented, thinly, what Playwright MCP
   already does: the DSL had no `select`/`press`/`force`, so it could not
   drive native `<select>` dropdowns or transformed-canvas controls and kept
@@ -251,7 +251,7 @@ artifact). Nothing is copied; nothing is deleted in place on the hot path.
 - [x] 71s dev-copy creation — no copy; node_modules used in place.
 - [x] Port squatting by zombie dev processes — new port per boot.
 - [x] Edit-here-run-there confusion — one tree; "your edits ARE the
-  candidate"; lui CLI auto-routes to the shadow via .lui/shadow.json.
+  candidate"; agent-app CLI auto-routes to the shadow via .agent-app/shadow.json.
 - [x] First build misclassified as MODIFY arc — kind now keyed on
   delivered_at, not on the scaffold's bootstrap pb_data.
 - [x] Gate build blanking the live UI — shadow gates build to

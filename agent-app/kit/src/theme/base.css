@@ -5,25 +5,25 @@
  * @layer base so component/utility classes always win and never fight the kit
  * components; the scrollbar/selection rules target pseudo-elements only.
  *
- * Everything reads --lui-* tokens, so light/dark and every style pack keep
+ * Everything reads --agent-app-* tokens, so light/dark and every style pack keep
  * working with no per-theme rules here.
  */
 
 @layer base {
   body {
-    font-family: var(--lui-font, system-ui, -apple-system, sans-serif);
+    font-family: var(--agent-app-font, system-ui, -apple-system, sans-serif);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 }
 
 ::selection {
-  background-color: color-mix(in srgb, var(--lui-accent) 26%, transparent);
+  background-color: color-mix(in srgb, var(--agent-app-accent) 26%, transparent);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--lui-border) transparent;
+  scrollbar-color: var(--agent-app-border) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -36,12 +36,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--lui-border);
+  background-color: var(--agent-app-border);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--lui-muted);
+  background-color: var(--agent-app-muted);
 }

@@ -17,7 +17,7 @@ Served surface (mirrors the native pb_hooks adapter):
   *   anything else          transparent passthrough (HTTP + WebSocket)
 
 Auth mirrors _system.pb.js: browser writes are constrained to loopback
-origins; programmatic writes (no Origin) present X-LUI-Token from the
+origins; programmatic writes (no Origin) present X-A2App-Token from the
 project's .agent-token; foreign-origin mutations are refused outright.
 Ops are (re)read from operations.json on every request, like the native
 describe, so the surface can never drift from the file on disk.
@@ -96,7 +96,7 @@ EXTERNAL_CONVENTIONS = {
         "irreversibly. Confirm with the user before running it."
     ),
     "agent": (
-        "Send X-LUI-Agent: <your agent id> on writes; it is recorded in the "
+        "Send X-A2App-Agent: <your agent id> on writes; it is recorded in the "
         "app's action log."
     ),
     "errors": (
@@ -379,7 +379,14 @@ class ExternalA2AppProxy:
 
     async def _invoke(self, request):
         origin = request.headers.get("Origin", "")
-        agent = request.headers.get("X-LUI-Agent", "unknown")[:120]
+        # TODO(lui-compat): older clients/CLIs send the X-LUI-* header. Accept
+        # either signature; drop the X-LUI-* fallback once every deployed app
+        # and client speaks X-A2App-*.
+        agent = (
+            request.headers.get("X-A2App-Agent")
+            or request.headers.get("X-LUI-Agent")
+            or "unknown"
+        )[:120]
 
         # Check 1 (browser): mutations from foreign origins are refused
         # outright; loopback origins are the app's own UI and pass free, as
@@ -401,7 +408,12 @@ class ExternalA2AppProxy:
         # token provisioned is never locked out (native parity).
         elif not origin and request.method in MUTATING:
             expected = self._agent_token()
-            presented = request.headers.get("X-LUI-Token", "").strip()
+            # TODO(lui-compat): accept the legacy token header too.
+            presented = (
+                request.headers.get("X-A2App-Token")
+                or request.headers.get("X-LUI-Token")
+                or ""
+            ).strip()
             if expected and presented != expected:
                 return self._json(
                     request,
@@ -412,7 +424,7 @@ class ExternalA2AppProxy:
                         "code": "unauthorized",
                         "message": "agent token required",
                         "hint": (
-                            "Send X-LUI-Token: <contents of the project "
+                            "Send X-A2App-Token: <contents of the project "
                             ".agent-token file> on writes."
                         ),
                     },

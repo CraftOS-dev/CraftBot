@@ -397,7 +397,7 @@ class AgentAppManager:
         session = self._session_manager.create_session(
             session_type=SessionType.AGENT_APP,
             title=project.name,
-            session_id=project.session_id or f"lui_{project.id}",
+            session_id=project.session_id or f"agentapp_{project.id}",
             action_sets=["file_operations", "code_execution", "agent_app"],
             selected_skills=[],
             agent_app_project_id=project.id,
@@ -1422,7 +1422,7 @@ UI in {project.path}/frontend/src/app/."""
         identity/describe/_ops/ops plus transparent passthrough — so an
         adopted app presents the same agent-drivable surface as a native
         one. Reduced gate per WORKFLOWS I-R2: install/build (when declared)
-        + start + health + adapter self-check. No kit, no lui gate, no
+        + start + health + adapter self-check. No kit, no agent-app gate, no
         PocketBase anything. Same result envelope as the native pipeline.
         """
         project_dir = Path(project.path)
@@ -3584,7 +3584,7 @@ UI in {project.path}/frontend/src/app/."""
                     if existing.port and self._is_port_in_use(existing.port):
                         self._kill_process_on_port(existing.port)
                     if project_path.exists():
-                        preserved_hold = Path(tempfile.mkdtemp(prefix="lui-adopt-"))
+                        preserved_hold = Path(tempfile.mkdtemp(prefix="agent-app-adopt-"))
                         for rel in ("reference", ".factory"):
                             keep = project_path / rel
                             if keep.exists():
@@ -4027,7 +4027,7 @@ UI in {project.path}/frontend/src/app/."""
             f"Why (declared): {trig_def.get('description', '(no description)')}\n"
             f"INSTRUCTION (authored at build time, trusted):\n"
             f"{str(trig_def.get('instruction')).strip()}\n\n"
-            f"PROTOCOL — operate the app via the lui CLI (run_shell, ABSOLUTE paths):\n"
+            f"PROTOCOL — operate the app via the agent-app CLI (run_shell, ABSOLUTE paths):\n"
             f"1. Read the request row: "
             f"node {cli} data {project.path} agent_requests get {request_id}\n"
             f"   (get by id — a paged list can miss the row among older ones.) "

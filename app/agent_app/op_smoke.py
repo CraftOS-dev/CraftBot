@@ -175,13 +175,20 @@ def _smoke_headers(
 ) -> Dict[str, str]:
     """Request headers for op invocation.
 
-    X-LUI-Token is mandatory when provisioned: the blueprint's system gate
+    X-A2App-Token is mandatory when provisioned: the blueprint's system gate
     rejects origin-less writes to /api/ops/* without it (401), so a smoke
     that omits it can never pass a POST op. Authorization (superuser) is a
     separate layer — PocketBase auth rules inside the handlers."""
-    headers = {"Content-Type": "application/json", "X-LUI-Agent": "op-smoke"}
+    # TODO(lui-compat): mirror the legacy X-LUI-* headers so apps not yet
+    # re-vendored still accept the smoke's writes. Remove once all apps updated.
+    headers = {
+        "Content-Type": "application/json",
+        "X-A2App-Agent": "op-smoke",
+        "X-LUI-Agent": "op-smoke",
+    }
     token = _agent_token(project_path)
     if token:
+        headers["X-A2App-Token"] = token
         headers["X-LUI-Token"] = token
     if superuser_token:
         headers["Authorization"] = superuser_token
