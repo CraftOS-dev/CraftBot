@@ -21,6 +21,8 @@ import { setUiState } from '../../store/slices/uiSlice'
 import { UI_STATE } from '../../store/uiState'
 import { usePersistedSet, usePersistedState } from '../../hooks'
 import { selectPendingPrefill, selectDraftText } from '../../store/selectors/chatInput'
+import { selectPlaybooks } from '../../store/selectors/playbooks'
+import type { Playbook } from '../../store/slices/playbooksSlice'
 import {
   clearPendingPrefill,
   setPendingPrefill,
@@ -28,7 +30,6 @@ import {
   appendDraftText,
   clearDraftText,
 } from '../../store/slices/chatInputSlice'
-import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import { RESOURCES, useResource } from '../../store/resources'
 import { DraftMascot, DRAFT_MASCOT_EXIT_MS } from '@mascot'
 import {
@@ -86,15 +87,6 @@ type DisplayRow =
       startTs: number
     }
   | { kind: 'activity'; ts: number; item: ActionItem }
-
-// Slim view of a playbook for the suggestion chips under the input.
-interface SuggestedPlaybook {
-  id: string
-  name: string
-  emoji?: string
-  description?: string
-  prompt: string
-}
 
 const SUGGESTED_PLAYBOOK_COUNT = 3
 const ENHANCE_TIMEOUT_MS = 30000
@@ -394,9 +386,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // Playbook suggestion chips under the input + the full playbook browser.
   // The full list is cached; the displayed chips are a RANDOM sample,
   // re-rolled every time the draft hero is entered.
-  const { onMessage: onSettingsMessage } = useSettingsWebSocket()
-  const [allPlaybooks, setAllPlaybooks] = useState<SuggestedPlaybook[]>([])
-  const [suggestedPlaybooks, setSuggestedPlaybooks] = useState<SuggestedPlaybook[]>([])
+  const allPlaybooks = useAppSelector(selectPlaybooks)
+  const [suggestedPlaybooks, setSuggestedPlaybooks] = useState<Playbook[]>([])
   const [playbookOpen, setPlaybookOpen] = useState(false)
 
   // Input history (terminal-style up/down arrow navigation), kept for the
@@ -644,19 +635,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     return () => document.removeEventListener('mousedown', handler)
   }, [plusOpen])
 
-  // Load the playbook catalog for the suggestion chips (same playbook_list
-  // channel the modal uses; extra broadcasts are harmless).
-  useEffect(() => {
-    return onSettingsMessage('playbook_list', (data: unknown) => {
-      const d = data as { success?: boolean; playbooks?: SuggestedPlaybook[] }
-      if (d?.success && Array.isArray(d.playbooks)) {
-        setAllPlaybooks(d.playbooks)
-      }
-    })
-  }, [onSettingsMessage])
-
-  // Fetched on first use and again after a reconnect (the catalog can change
-  // with a backend update).
+  // The catalog itself lives in the store (playbooksSlice), so it survives
+  // this component remounting; fetched on first use and again after a
+  // reconnect (the catalog can change with a backend update).
   useResource(RESOURCES.playbooks)
 
   // Re-roll the displayed chips (Fisher–Yates sample) each time the user

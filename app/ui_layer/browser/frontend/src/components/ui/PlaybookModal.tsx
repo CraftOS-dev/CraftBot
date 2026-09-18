@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   ArrowLeft,
   BookOpen,
@@ -16,10 +16,16 @@ import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { MarkdownContent } from './MarkdownContent'
-import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { setPendingPrefill } from '../../store/slices/chatInputSlice'
 import { selectEnabledSkillNames } from '../../store/selectors/skillsSettings'
+import {
+  selectPlaybooks,
+  selectPlaybooksError,
+  selectPlaybooksHasLoaded,
+} from '../../store/selectors/playbooks'
+import { resetPlaybooks, type Playbook } from '../../store/slices/playbooksSlice'
+import { RESOURCES, resourceSync, useResource } from '../../store/resources'
 import styles from './PlaybookModal.module.css'
 
 export interface PlaybookModalProps {
@@ -27,73 +33,31 @@ export interface PlaybookModalProps {
   onClose: () => void
 }
 
-interface PlaybookWorksBestWith {
-  agent_profile?: string
-  skills?: string[]
-  mcp_servers?: string[]
-  agent_app_apps?: string[]
-}
-
-interface Playbook {
-  id: string
-  name: string
-  category?: string
-  tags?: string[]
-  emoji?: string
-  description?: string
-  works_best_with?: PlaybookWorksBestWith
-  steps?: string[]
-  prompt: string
-}
-
 const DEFAULT_EMOJI = '📖'
 
 export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
   const { t } = useTranslation(['components', 'common'])
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
   const enabledSkills = useAppSelector(selectEnabledSkillNames)
 
-  const [playbooks, setPlaybooks] = useState<Playbook[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // The catalogue lives in the store, so it is still there when the modal is
+  // reopened or remounted; ResourceSync asks for it when it is missing or
+  // went stale (first use, reconnect).
+  const playbooks = useAppSelector(selectPlaybooks)
+  const hasLoaded = useAppSelector(selectPlaybooksHasLoaded)
+  const loadError = useAppSelector(selectPlaybooksError)
+  useResource(isOpen ? RESOURCES.playbooks : null)
+  const loading = isOpen && !hasLoaded
+  const error = hasLoaded && loadError !== null
+    ? (loadError || t('components:playbookModal.loadFailed'))
+    : null
+
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
   const [tagsExpanded, setTagsExpanded] = useState(false)
   const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null)
 
   const TAG_COLLAPSE_LIMIT = 8
-
-  // Fetch on first open (and whenever the connection comes online while open).
-  // The catalog is cached for the modal's lifetime, but a disconnect (e.g. a
-  // backend update) makes the next open refetch it.
-  const staleRef = useRef(false)
-  useEffect(() => {
-    if (!isConnected) {
-      staleRef.current = true
-      return
-    }
-    if (!isOpen) return
-    if (playbooks.length > 0 && !staleRef.current) return
-    staleRef.current = false
-    setLoading(playbooks.length === 0)
-    setError(null)
-    send('playbook_list')
-  }, [isOpen, isConnected, playbooks.length, send])
-
-  // Subscribe to playbook_list responses for as long as the modal is mounted.
-  useEffect(() => {
-    return onMessage('playbook_list', (data: unknown) => {
-      const d = data as { success: boolean; playbooks?: Playbook[]; error?: string }
-      setLoading(false)
-      if (d.success && d.playbooks) {
-        setPlaybooks(d.playbooks)
-        setError(null)
-      } else {
-        setError(d.error || t('components:playbookModal.loadFailed'))
-      }
-    })
-  }, [onMessage])
 
   // Reset search + detail view whenever the modal closes so reopening starts clean.
   useEffect(() => {
@@ -349,9 +313,8 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                 size="sm"
                 variant="secondary"
                 onClick={() => {
-                  setLoading(true)
-                  setError(null)
-                  send('playbook_list')
+                  dispatch(resetPlaybooks())
+                  resourceSync.refresh(RESOURCES.playbooks)
                 }}
               >
                 {t('common:actions.retry')}

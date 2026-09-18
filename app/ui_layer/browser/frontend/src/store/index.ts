@@ -19,6 +19,7 @@ import generalSettingsReducer from './slices/generalSettingsSlice'
 import modelSettingsReducer from './slices/modelSettingsSlice'
 import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
 import chatInputReducer from './slices/chatInputSlice'
+import playbooksReducer from './slices/playbooksSlice'
 import uiReducer from './slices/uiSlice'
 import { socketMiddleware } from './socket/socketMiddleware'
 import './socket/versionWatch'
@@ -59,6 +60,7 @@ export const store = configureStore({
     modelSettings: modelSettingsReducer,
     integrationsSettings: integrationsSettingsReducer,
     chatInput: chatInputReducer,
+    playbooks: playbooksReducer,
     ui: uiReducer,
   },
   // Remembered UI state (panel sizes, filters, scroll…) is restored before

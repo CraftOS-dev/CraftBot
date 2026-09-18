@@ -93,6 +93,11 @@ export class ResourceSync {
     }
   }
 
+  /** Ask for `descriptor` again right now (a user-triggered retry). */
+  refresh(descriptor: ResourceDescriptor): void {
+    this.refetch(descriptor)
+  }
+
   /** The backend reported a change to `resource`. */
   handleChanged(resource: string): void {
     for (const descriptor of this.descriptors) {
