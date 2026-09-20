@@ -114,7 +114,8 @@ def list_available_integrations(input_data: dict) -> dict:
             "type": "string",
             "description": (
                 "The integration to connect, using its exact id. Valid values: slack, "
-                "discord, telegram, whatsapp, whatsapp_business, notion, linkedin, and "
+                "discord, telegram, whatsapp, whatsapp_business, notion, linkedin, "
+                "posthog, and "
                 "the Google Workspace apps as SEPARATE ids — gmail, google_drive, "
                 "google_docs, google_calendar, google_youtube (there is no single "
                 "'google' integration). Call list_available_integrations if unsure."
@@ -129,7 +130,9 @@ def list_available_integrations(input_data: dict) -> dict:
                 "discord: {bot_token}, "
                 "telegram: {bot_token}, "
                 "whatsapp_business: {access_token, phone_number_id}, "
-                "notion: {token}. "
+                "notion: {token}, "
+                "posthog: {api_key, host(optional: 'us'/'eu'/self-hosted URL), "
+                "project_id(optional)}. "
                 "Leave empty for OAuth or interactive (QR code) flows."
             ),
             "example": {"bot_token": "123456:ABC-DEF"},

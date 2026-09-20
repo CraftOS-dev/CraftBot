@@ -30,6 +30,7 @@ import {
   GoogleDrive,
   YouTube,
   MicrosoftOutlook,
+  PostHog,
 } from '@ridemountainpig/svgl-react'
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
@@ -96,6 +97,7 @@ const SVGL_BY_ID: Record<string, SvglIcon> = {
   google_drive: GoogleDrive,
   google_youtube: YouTube,
   outlook: MicrosoftOutlook,
+  posthog: PostHog,
 }
 
 // Integration icon component. Lookup order:
