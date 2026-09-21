@@ -3939,14 +3939,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_agent_app_sharing_info(self, project_id: str) -> None:
         """Return sharing info (LAN URL, tunnel URL)."""
         lan_url = self._agent_app_manager.get_lan_url(project_id)
-        project = self._agent_app_manager.get_project(project_id)
         await self._broadcast(
             {
                 "type": "agent_app_sharing_info",
                 "data": {
                     "projectId": project_id,
                     "lanUrl": lan_url,
-                    "tunnelUrl": project.tunnel_url if project else None,
+                    # The share link (tunnel URL + secret): the bare tunnel
+                    # URL admits nobody.
+                    "tunnelUrl": self._agent_app_manager.get_tunnel_share_url(
+                        project_id
+                    ),
                 },
             }
         )

@@ -230,6 +230,152 @@ class _Project:
         self.project_type = "external"
 
 
+SHARED = "https://shared-demo.trycloudflare.com"
+# What cloudflared delivers: Cloudflare's stamps plus the public Host.
+VIA_TUNNEL = {
+    "Host": "shared-demo.trycloudflare.com",
+    "Cf-Ray": "8c0ffee-LHR",
+    "Cf-Connecting-Ip": "203.0.113.9",
+    "X-Forwarded-For": "203.0.113.9",
+}
+
+
+def _set_cookie(resp) -> "tuple[str, str]":
+    """(name, value) from the response's A2App session Set-Cookie."""
+    for raw in resp.headers.getall("Set-Cookie", []):
+        pair = raw.split(";", 1)[0]
+        if pair.startswith("a2app_s_"):
+            name, _, value = pair.partition("=")
+            return name, value
+    raise AssertionError("no a2app session cookie issued")
+
+
+async def _auth_matrix(http, base: str, tmp: Path, seen) -> None:
+    """The auth bypass (allowed Origin skipped the token check) and the
+    browser-session design that replaced it. Origin and caller are
+    independent: an allowed Origin never authenticates anything."""
+    create = f"{base}/api/ops/todos/create"
+    loopback = {"Origin": f"http://127.0.0.1:{PROXY_PORT}"}
+    before = len(seen["todos"])
+
+    async def post(headers, cookie=None, title="x"):
+        h = dict(headers)
+        if cookie:
+            h["Cookie"] = f"{cookie[0]}={cookie[1]}"
+        async with http.post(create, json={"title": title}, headers=h) as r:
+            return r.status, await r.json()
+
+    # ── refused ──
+    status, body = await post({"Origin": "https://evil.example"})
+    assert status == 403 and body["code"] == "forbidden_origin", body
+    status, _ = await post({"Origin": "https://evil.example", **{"X-A2App-Token": TOKEN}})
+    assert status == 403, "a token does not launder a foreign origin"
+    for label, headers in (
+        ("no Origin, no token", {}),
+        ("no Origin, wrong token", {"X-A2App-Token": "nope"}),
+        ("loopback Origin, no token", loopback),
+        ("other loopback port, no token", {"Origin": "http://localhost:1"}),
+        ("loopback Origin, wrong token", {**loopback, "X-A2App-Token": "nope"}),
+        ("token prefix", {"X-A2App-Token": TOKEN[:-1]}),
+    ):
+        status, body = await post(headers)
+        assert status == 401 and body["code"] == "unauthorized", (label, status)
+    (tmp / ".tunnel-origin").write_text(SHARED, encoding="utf-8")
+    status, _ = await post({"Origin": SHARED})
+    assert status == 401, "shared Origin alone must not authenticate"
+    status, _ = await post({"Origin": SHARED, "X-A2App-Token": "nope"})
+    assert status == 401
+    assert len(seen["todos"]) == before, "a refused write reached the app"
+
+    # reads stay open locally
+    async with http.get(f"{base}/api/ops/todos/list") as r:
+        assert r.status == 200
+
+    # ── the agent: token, with or without an Origin ──
+    status, _ = await post({"X-A2App-Token": TOKEN}, title="agent")
+    assert status == 200
+    status, _ = await post({**loopback, "X-A2App-Token": TOKEN}, title="agent+origin")
+    assert status == 200
+    status, _ = await post({"X-LUI-Token": TOKEN}, title="legacy")
+    assert status == 200, "legacy header still accepted"
+
+    # ── the app's own UI, locally: the page that boots it issues the session
+    async with http.get(f"{base}/") as r:
+        assert r.status == 200 and (await r.text()) == "UPSTREAM OK"
+        local = _set_cookie(r)
+        raw = r.headers.getall("Set-Cookie")[0]
+        assert "HttpOnly" in raw and "SameSite=Lax" in raw and "Secure" not in raw
+    async with http.get(f"{base}/", headers={"Cookie": f"{local[0]}={local[1]}"}) as r:
+        assert "Set-Cookie" not in r.headers, "a valid session is not re-issued"
+    async with http.get(f"{base}/api/todos") as r:  # JSON: no session minted
+        assert "Set-Cookie" not in r.headers
+    status, _ = await post(loopback, cookie=local, title="ui")
+    assert status == 200
+    status, _ = await post(loopback, cookie=(local[0], local[1][:-1] + "0"))
+    assert status == 401, "a tampered session is no session"
+
+    # ── through the tunnel ──
+    async with http.get(f"{base}/api/_a2app", headers=VIA_TUNNEL) as r:
+        body = await r.json()
+        assert r.status == 401 and body["code"] == "share_session_required"
+    # Either signal alone marks the tunnel: a public Host, or a Cloudflare
+    # stamp on a loopback Host.
+    for only in ({"Host": VIA_TUNNEL["Host"]}, {"Cf-Ray": VIA_TUNNEL["Cf-Ray"]}):
+        async with http.get(f"{base}/api/_a2app", headers=only) as r:
+            assert r.status == 401, only
+    status, _ = await post({**VIA_TUNNEL, **loopback})
+    assert status == 401, "a forged loopback Origin through the tunnel"
+    status, _ = await post({**VIA_TUNNEL, "Origin": SHARED}, cookie=local)
+    assert status == 401, "a local session is never a tunnel credential"
+    async with http.get(f"{base}/", headers=VIA_TUNNEL) as r:
+        assert "Set-Cookie" not in r.headers, "tunnel sessions only via the share link"
+
+    secret = "share-secret-for-tests-0123456789abcdef"
+    (tmp / ".tunnel-secret").write_text(secret, encoding="utf-8")
+    async with http.get(
+        f"{base}/?a2app_share=wrong", headers=VIA_TUNNEL, allow_redirects=False
+    ) as r:
+        assert r.status == 403 and (await r.json())["code"] == "share_link_invalid"
+    async with http.get(
+        f"{base}/?a2app_share={secret}&tab=2",
+        headers=VIA_TUNNEL,
+        allow_redirects=False,
+    ) as r:
+        assert r.status == 302, r.status
+        assert r.headers["Location"] == "/?tab=2", "secret must leave the URL"
+        shared = _set_cookie(r)
+        assert "Secure" in r.headers["Set-Cookie"]
+    async with http.get(
+        f"{base}/?a2app_share={secret}", allow_redirects=False
+    ) as r:
+        assert r.status == 200, "locally the parameter means nothing"
+
+    status, _ = await post({**VIA_TUNNEL, "Origin": SHARED}, cookie=shared, title="visitor")
+    assert status == 200
+    async with http.get(
+        f"{base}/api/_a2app",
+        headers={**VIA_TUNNEL, "Cookie": f"{shared[0]}={shared[1]}"},
+    ) as r:
+        assert r.status == 200
+    status, _ = await post(loopback, cookie=shared)
+    assert status == 401, "a tunnel session is not a local credential"
+    status, _ = await post({**VIA_TUNNEL, "X-A2App-Token": TOKEN}, title="remote agent")
+    assert status == 200
+    async with http.post(
+        create, json={"title": "evil"}, headers={**VIA_TUNNEL, "Origin": "https://evil.example",
+                                                 "Cookie": f"{shared[0]}={shared[1]}"}
+    ) as r:
+        assert r.status == 403, "a session does not launder a foreign origin"
+
+    # stopping the tunnel ends every shared session at once
+    (tmp / ".tunnel-secret").unlink()
+    (tmp / ".tunnel-origin").unlink()
+    status, _ = await post({**VIA_TUNNEL, "Origin": SHARED}, cookie=shared)
+    assert status in (401, 403)
+    titles = [t["title"] for t in seen["todos"][before:]]
+    assert titles == ["agent", "agent+origin", "legacy", "ui", "visitor", "remote agent"], titles
+
+
 async def _proxy_suite(tmp: Path) -> None:
     import aiohttp
 
@@ -244,7 +390,8 @@ async def _proxy_suite(tmp: Path) -> None:
     base = f"http://127.0.0.1:{PROXY_PORT}"
     auth = {"X-A2App-Token": TOKEN, "X-A2App-Agent": "test-suite"}
 
-    async with aiohttp.ClientSession() as http:
+    # No cookie jar: every cookie in this suite is sent deliberately.
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar()) as http:
         # identity: the structural probe
         async with http.get(f"{base}/api/_a2app") as r:
             ident = await r.json()
@@ -301,28 +448,7 @@ async def _proxy_suite(tmp: Path) -> None:
         async with http.get(f"{base}/api/ops/todos/get", params={"id": "1"}) as r:
             assert r.status == 200 and (await r.json())["title"] == "call John"
 
-        # auth: mutation without token -> 401; GET needs none
-        async with http.post(f"{base}/api/ops/todos/create", json={"title": "x"}) as r:
-            assert r.status == 401 and (await r.json())["code"] == "unauthorized"
-        async with http.get(f"{base}/api/ops/todos/list") as r:
-            assert r.status == 200
-
-        # origin guard: foreign-origin mutation refused outright; loopback ok
-        async with http.post(
-            f"{base}/api/ops/todos/create",
-            json={"title": "evil"},
-            headers={"Origin": "https://evil.example"},
-        ) as r:
-            assert r.status == 403 and (await r.json())["code"] == "forbidden_origin"
-        async with http.post(
-            f"{base}/api/ops/todos/create",
-            json={"title": "ui"},
-            headers={"Origin": f"http://127.0.0.1:{PROXY_PORT}"},
-        ) as r:
-            assert r.status == 200
-            assert r.headers["Access-Control-Allow-Origin"] == (
-                f"http://127.0.0.1:{PROXY_PORT}"
-            )
+        await _auth_matrix(http, base, tmp, seen)
 
         # unknown op -> 404 envelope, never a silent passthrough
         async with http.post(f"{base}/api/ops/nope", json={}, headers=auth) as r:
@@ -339,7 +465,7 @@ async def _proxy_suite(tmp: Path) -> None:
         async with http.get(f"{base}/") as r:
             assert r.status == 200 and (await r.text()) == "UPSTREAM OK"
         async with http.get(f"{base}/api/todos") as r:
-            assert r.status == 200 and len(await r.json()) == 2
+            assert r.status == 200 and len(await r.json()) == len(seen["todos"])
 
         # ops_verify drives the real surface: boom must fail the verdict,
         # wipe must be skipped (destructive), the rest pass
