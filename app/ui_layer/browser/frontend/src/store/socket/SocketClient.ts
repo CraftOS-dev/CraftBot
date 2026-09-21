@@ -48,6 +48,7 @@ export class SocketClient {
   private readonly outboxTtlMs: number
   private readonly livenessIntervalMs: number
   private readonly livenessTimeoutMs: number
+  private readonly getProtocols?: () => Promise<string[]>
 
   private ws: WebSocket | null = null
   private connecting = false
@@ -78,6 +79,7 @@ export class SocketClient {
     this.outboxTtlMs = opts.outboxTtlMs ?? 60000
     this.livenessIntervalMs = opts.livenessIntervalMs ?? 5000
     this.livenessTimeoutMs = opts.livenessTimeoutMs ?? 3000
+    this.getProtocols = opts.getProtocols
 
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => this.reconnectNow())
@@ -108,12 +110,28 @@ export class SocketClient {
       this.ws = null
     }
 
+    if (!this.getProtocols) {
+      this.open([])
+      return
+    }
+    this.getProtocols().then(
+      protocols => this.open(protocols),
+      err => {
+        // Backend down or restarting: retry with the usual backoff.
+        console.warn('[SocketClient] could not get session token:', err)
+        this.connecting = false
+        this.scheduleReconnect()
+      },
+    )
+  }
+
+  private open(protocols: string[]): void {
     const attemptId = newClientId()
     const url = `${this.url}${this.url.includes('?') ? '&' : '?'}attempt=${attemptId}`
 
     let ws: WebSocket
     try {
-      ws = new WebSocket(url)
+      ws = new WebSocket(url, protocols)
     } catch (err) {
       console.error('[SocketClient] failed to construct WebSocket:', err)
       this.connecting = false
