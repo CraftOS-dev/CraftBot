@@ -100,6 +100,9 @@ routerUse((e) => {
     (reqPath === '/' || reqPath.indexOf('.') === -1 || /\.html?$/i.test(reqPath))
   ) {
     headers.set('Cache-Control', 'no-store');
+    // The page that boots the UI hands it its session (local ingress only);
+    // see CALLER AUTH below.
+    require(`${__hooks}/_a2app_lib.js`).issueLocalSession(e);
   }
 
   if (origin === '') return e.next(); // not a browser cross-origin request
@@ -202,66 +205,27 @@ routerUse((e) => {
 });
 
 /**
- * AGENT TOKEN (spec A2APP-PLAN Phase 2 C4).
+ * CALLER AUTH (spec A2APP-PLAN Phase 2 C4) — logic in _a2app_lib.js
+ * (authorizeCaller), shared rule-for-rule with CraftBot's external-app proxy.
  *
- * A non-browser client that writes must present the project's agent token.
- * The app's own frontend does not need it: browsers always send `Origin` on a
- * write, and a loopback `Origin` is already trusted by the guard above. So the
- * rule is precisely "programmatic callers carry a credential", which is what
- * makes handing access to a third-party agent a deliberate act.
+ * Every write carries a credential, whatever its Origin: the agent token
+ * (programs), the UI session cookie (the app's own frontend — issued with the
+ * page locally, and only for the share link's secret through a tunnel), or a
+ * signed-in principal. The origin guard above is a SEPARATE check: it decides
+ * which pages may talk to the app, never who the caller is. Trusting a
+ * loopback `Origin` as a credential was a bypass — tunnel traffic arrives
+ * over loopback and can send any Origin it likes.
  *
  * Not a defence against local processes — anything running as this user can
- * read the 0600 file. That is the correct model for a loopback app (Home
- * Assistant and Obsidian's local API work the same way); what it buys is a
- * real credential to hand out, and the precondition for tightening collection
- * rules and for remote access later.
+ * read the 0600 token file. That is the correct model for a loopback app
+ * (Home Assistant and Obsidian's local API work the same way); what it buys is
+ * a real credential to hand out, and a tunnel that only admits link holders.
  */
 routerUse((e) => {
-  var method = '';
-  var path = '';
-  var origin = '';
-  try {
-    method = String(e.request.method || '').toUpperCase();
-    path = String((e.request.url && e.request.url.path) || '');
-    origin = String(e.request.header.get('Origin') || '');
-  } catch {
-    return e.next();
-  }
-  if (method !== 'POST' && method !== 'PATCH' && method !== 'PUT' && method !== 'DELETE') {
-    return e.next();
-  }
-  if (path.indexOf('/api/collections/') !== 0 && path.indexOf('/api/ops/') !== 0) {
-    return e.next();
-  }
-  // Browser traffic: already constrained to loopback origins by the guard.
-  if (origin !== '') return e.next();
-  // PocketBase's own auth flows must stay reachable (sign-in, refresh).
-  if (path.indexOf('/auth-') > 0 || path.indexOf('/request-') > 0) return e.next();
-
-  var expected = '';
-  try {
-    expected = toString($os.readFile($filepath.join(__hooks, '..', '..', '.agent-token'))).trim();
-  } catch {
-    expected = '';
-  }
-  if (expected === '') return e.next(); // no token provisioned — do not lock the app out
-
-  var presented = '';
-  try {
-    // TODO(lui-compat): also accept the legacy X-LUI-Token from older clients.
-    presented = String(
-      e.request.header.get('X-A2App-Token') || e.request.header.get('X-LUI-Token') || '',
-    ).trim();
-  } catch {
-    presented = '';
-  }
-  if (presented !== expected) {
-    return e.json(401, {
-      ok: false,
-      error: 'agent token required',
-      hint: 'Send X-A2App-Token: <contents of the project .agent-token file> on writes.',
-    });
-  }
+  const a2 = require(`${__hooks}/_a2app_lib.js`);
+  if (a2.handleShareExchange(e)) return;
+  const denied = a2.authorizeCaller(e);
+  if (denied) return e.json(denied.status, denied.body);
   return e.next();
 });
 

@@ -954,12 +954,20 @@ UI in {project.path}/frontend/src/app/."""
                         saved_tunnel = project_data.get("tunnelUrl")
                         if saved_tunnel:
                             try:
+                                import urllib.error
                                 import urllib.request
 
                                 req = urllib.request.Request(
                                     saved_tunnel, method="HEAD"
                                 )
-                                urllib.request.urlopen(req, timeout=3)
+                                try:
+                                    urllib.request.urlopen(req, timeout=3)
+                                except urllib.error.HTTPError as he:
+                                    # 401 is the app's own answer to a
+                                    # visitor without a share session: the
+                                    # tunnel is up. Anything else is dead.
+                                    if he.code != 401:
+                                        raise
                                 project.tunnel_url = saved_tunnel
                                 logger.info(
                                     f"[AGENT_APP] Tunnel still active for '{project.name}': {saved_tunnel}"
@@ -3158,6 +3166,7 @@ UI in {project.path}/frontend/src/app/."""
         "token.json",
         ".superuser",
         ".agent-token",
+        ".tunnel-secret",
         ".jwt_secret",
         ".npmrc",
         ".netrc",
@@ -3330,6 +3339,7 @@ UI in {project.path}/frontend/src/app/."""
         # Never trust shipped credentials or runtime state.
         (dest / ".superuser").unlink(missing_ok=True)
         (dest / ".tunnel-origin").unlink(missing_ok=True)
+        (dest / ".tunnel-secret").unlink(missing_ok=True)
 
         # Rewrite identity + port (pipeline start command embeds the port).
         old_port = manifest.get("port")
@@ -4574,6 +4584,7 @@ UI in {project.path}/frontend/src/app/."""
             # Host-local, tunnel-lifetime state: an exported app must not
             # arrive somewhere else already trusting a foreign origin.
             ".tunnel-origin",
+            ".tunnel-secret",
         }
 
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -4816,7 +4827,8 @@ UI in {project.path}/frontend/src/app/."""
             self._publish_tunnel_origin(project, url)
             self._save_projects()
             logger.info(f"[AGENT_APP] Tunnel started for {project.name}: {url}")
-            return url
+            # Hand back the SHARE link: the bare tunnel URL admits nobody.
+            return self.get_tunnel_share_url(project_id)
         else:
             self._terminate_process(proc)
             self._close_tunnel_log(log_handle)
@@ -4917,6 +4929,51 @@ UI in {project.path}/frontend/src/app/."""
                 logger.info(f"[AGENT_APP] Shared origin revoked for {project.name}")
         except Exception as e:
             logger.warning(f"[AGENT_APP] Could not update {path.name}: {e}")
+        self._publish_tunnel_secret(project, bool(url))
+
+    @staticmethod
+    def _tunnel_secret_file(project: AgentAppProject) -> Path:
+        return Path(project.path) / ".tunnel-secret"
+
+    def _publish_tunnel_secret(self, project: AgentAppProject, on: bool) -> None:
+        """Mint (on) or revoke (off) the share link's secret.
+
+        Through a tunnel the origin grant above authenticates nobody — every
+        request needs a credential, and a visitor's browser only gets one by
+        trading this secret (?a2app_share=, see a2app_proxy.guard_request and
+        _a2app_lib.js authorizeCaller). Fresh per tunnel start; deleting it
+        ends every shared session at once. An existing secret is kept when
+        the same tunnel is re-published, so links already sent keep working.
+        """
+        path = self._tunnel_secret_file(project)
+        try:
+            if on:
+                if not path.exists() or not path.read_text(encoding="utf-8").strip():
+                    path.write_text(secrets.token_urlsafe(32), encoding="utf-8")
+                    try:
+                        os.chmod(path, 0o600)
+                    except Exception:
+                        pass
+            elif path.exists():
+                path.unlink()
+        except Exception as e:
+            logger.warning(f"[AGENT_APP] Could not update {path.name}: {e}")
+
+    def get_tunnel_share_url(self, project_id: str) -> Optional[str]:
+        """The link to hand out: the tunnel URL plus the share secret. The
+        bare tunnel URL alone admits nobody."""
+        project = self.projects.get(project_id)
+        if not project or not project.tunnel_url:
+            return None
+        try:
+            secret = (
+                self._tunnel_secret_file(project).read_text(encoding="utf-8").strip()
+            )
+        except Exception:
+            secret = ""
+        if not secret:
+            return project.tunnel_url
+        return f"{project.tunnel_url.rstrip('/')}/?a2app_share={secret}"
 
     async def _parse_cloudflare_url(
         self,

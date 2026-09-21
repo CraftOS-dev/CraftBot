@@ -505,8 +505,216 @@ function schemaVersion(app) {
   return 'sv_' + h.toString(16);
 }
 
+/* ------------------------------------------------------ caller auth
+ * Mirrors guard_request in CraftBot's app/agent_app/a2app_proxy.py — same
+ * rules, same derived values ($security.hs256(text, secret) is the same
+ * HMAC-SHA256-hex the proxy computes). Two INDEPENDENT checks: the origin
+ * guard in _system.pb.js decides which browser pages may talk to the app;
+ * this decides who the caller is. An allowed Origin is never a credential —
+ * tunnel traffic arrives over loopback and can claim any Origin it likes.
+ *
+ * Credentials: the agent token (programs), the UI session cookie (the app's
+ * own frontend; issued on the page load locally, and ONLY in exchange for
+ * the share link's secret through the tunnel), or a signed-in PocketBase
+ * principal. Through the tunnel every request needs one, reads included.
+ */
+
+var TUNNEL_MARKER_HEADERS = [
+  'Cf-Ray',
+  'Cf-Connecting-Ip',
+  'Cf-Visitor',
+  'Cdn-Loop',
+  'X-Forwarded-For',
+  'X-Forwarded-Host',
+  'Forwarded',
+];
+var LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
+var SHARE_PARAM = 'a2app_share';
+
+function readProjectSecret(name) {
+  try {
+    return toString($os.readFile($filepath.join(__hooks, '..', '..', name))).trim();
+  } catch {
+    return '';
+  }
+}
+
+function headerOf(e, name) {
+  try {
+    return String(e.request.header.get(name) || '');
+  } catch {
+    return '';
+  }
+}
+
+/** Cloudflare stamps every forwarded request with headers a remote caller
+ *  cannot strip; a local caller faking one only demotes itself. Go keeps the
+ *  Host header in request.host, not in the header map. */
+function isTunnelRequest(e) {
+  for (var i = 0; i < TUNNEL_MARKER_HEADERS.length; i++) {
+    if (headerOf(e, TUNNEL_MARKER_HEADERS[i]) !== '') return true;
+  }
+  var host = '';
+  try {
+    host = String(e.request.host || '');
+  } catch {
+    host = '';
+  }
+  return !LOOPBACK_HOST.test(host.trim());
+}
+
+// Per-app name: every app on 127.0.0.1 shares one cookie jar (ports ignored).
+function sessionCookieName(token) {
+  return 'a2app_s_' + $security.hs256('a2app-ui:cookie-name:v1', token).slice(0, 12);
+}
+
+// Stateless: rotating the agent token ends every session; the tunnel value
+// folds in .tunnel-secret, which stop_tunnel deletes.
+function sessionValue(token, tunnel) {
+  if (token === '') return '';
+  if (!tunnel) return $security.hs256('a2app-ui:local:v1', token);
+  var secret = readProjectSecret('.tunnel-secret');
+  if (secret === '') return '';
+  return $security.hs256('a2app-ui:share:v1:' + secret, token);
+}
+
+// Lax, not Strict: a share link opened from chat is a cross-site navigation,
+// and Strict would withhold the cookie on the redirect after the exchange.
+function sessionCookieHeader(name, value, tunnel) {
+  return name + '=' + value + '; Path=/; HttpOnly; SameSite=Lax' + (tunnel ? '; Secure' : '');
+}
+
+function cookieOf(e, name) {
+  var raw = headerOf(e, 'Cookie');
+  var parts = raw.split(';');
+  for (var i = 0; i < parts.length; i++) {
+    var kv = parts[i].trim();
+    var eq = kv.indexOf('=');
+    if (eq > 0 && kv.slice(0, eq) === name) return kv.slice(eq + 1);
+  }
+  return '';
+}
+
+function hasPrincipal(e) {
+  try {
+    if (e.auth) return true;
+  } catch {
+    /* fall through */
+  }
+  return false;
+}
+
+/**
+ * THE caller guard. Returns null to proceed, else {status, body}.
+ * Local mutations on /api/collections/ and /api/ops/ need a credential
+ * (PocketBase's own sign-in flows stay open); through the tunnel, every
+ * request does. The origin half lives in _system.pb.js's first routerUse.
+ */
+function authorizeCaller(e) {
+  var method = '';
+  var path = '';
+  try {
+    method = String(e.request.method || '').toUpperCase();
+    path = String((e.request.url && e.request.url.path) || '');
+  } catch {
+    return { status: 400, body: { ok: false, error: 'unreadable request' } };
+  }
+  if (method === 'OPTIONS') return null; // preflights never carry credentials
+  var tunnel = isTunnelRequest(e);
+  var mutating = method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE';
+  if (!tunnel) {
+    if (!mutating) return null;
+    if (path.indexOf('/api/collections/') !== 0 && path.indexOf('/api/ops/') !== 0) return null;
+    if (path.indexOf('/auth-') > 0 || path.indexOf('/request-') > 0) return null;
+  }
+
+  var token = readProjectSecret('.agent-token');
+  if (token === '') return null; // no token provisioned — do not lock the app out
+
+  // TODO(lui-compat): also accept the legacy X-LUI-Token from older clients.
+  var presented = (headerOf(e, 'X-A2App-Token') || headerOf(e, 'X-LUI-Token')).trim();
+  if (presented !== '' && $security.equal(presented, token)) return null;
+  var session = sessionValue(token, tunnel);
+  var cookie = cookieOf(e, sessionCookieName(token));
+  if (session !== '' && cookie !== '' && $security.equal(cookie, session)) return null;
+  if (hasPrincipal(e)) return null;
+
+  if (tunnel) {
+    return {
+      status: 401,
+      body: {
+        ok: false,
+        code: 'share_session_required',
+        error: 'This app is shared by link. Open the full share link you were given (it carries ?a2app_share=...).',
+      },
+    };
+  }
+  return {
+    status: 401,
+    body: {
+      ok: false,
+      code: 'unauthorized',
+      error: 'agent token required',
+      hint: 'Send X-A2App-Token: <contents of the project .agent-token file> on writes.',
+    },
+  };
+}
+
+/**
+ * Share-link exchange: GET <any path>?a2app_share=<secret> through the tunnel
+ * trades the secret for the tunnel UI session and redirects to the same URL
+ * without it. Returns true when it answered the request.
+ */
+function handleShareExchange(e) {
+  var method = '';
+  var presented = '';
+  try {
+    method = String(e.request.method || '').toUpperCase();
+    presented = String(e.request.url.query().get(SHARE_PARAM) || '');
+  } catch {
+    return false;
+  }
+  if (method !== 'GET' || presented === '' || !isTunnelRequest(e)) return false;
+
+  var secret = readProjectSecret('.tunnel-secret');
+  if (secret === '' || !$security.equal(presented, secret)) {
+    e.json(403, {
+      ok: false,
+      code: 'share_link_invalid',
+      error: 'This share link is invalid or has expired. Ask the owner for a fresh one.',
+    });
+    return true;
+  }
+  var headers = e.response.header();
+  var token = readProjectSecret('.agent-token');
+  var value = sessionValue(token, true);
+  if (value !== '') headers.add('Set-Cookie', sessionCookieHeader(sessionCookieName(token), value, true));
+  headers.set('Cache-Control', 'no-store');
+  var q = e.request.url.query();
+  q.del(SHARE_PARAM);
+  var rest = q.encode();
+  e.redirect(302, String(e.request.url.path || '/') + (rest ? '?' + rest : ''));
+  return true;
+}
+
+/** Local ingress only: hand the app's own UI its session with the page that
+ *  boots it (the kit's same-origin fetches then carry it). Anyone who can
+ *  reach loopback gets one — everyone who could already read .agent-token. */
+function issueLocalSession(e) {
+  if (isTunnelRequest(e)) return;
+  var token = readProjectSecret('.agent-token');
+  var value = sessionValue(token, false);
+  if (value === '') return;
+  var name = sessionCookieName(token);
+  if (cookieOf(e, name) === value) return;
+  e.response.header().add('Set-Cookie', sessionCookieHeader(name, value, false));
+}
+
 module.exports = {
   ADAPTER_VERSION: ADAPTER_VERSION,
+  authorizeCaller: authorizeCaller,
+  handleShareExchange: handleShareExchange,
+  issueLocalSession: issueLocalSession,
   describeApp: describeApp,
   fieldsOf: fieldsOf,
   protocolType: protocolType,

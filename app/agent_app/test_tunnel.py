@@ -133,12 +133,29 @@ def _check_origin_grant(tmp: Path) -> None:
     mgr._publish_tunnel_origin(project, URL + "/")
     assert origin_file.read_text(encoding="utf-8").strip() == URL, "bad origin file"
 
+    # The origin grant authenticates nobody; the share secret does. It is
+    # minted with the grant, survives a re-publish of the same tunnel (links
+    # already sent keep working), and dies with it.
+    secret_file = tmp / ".tunnel-secret"
+    secret = secret_file.read_text(encoding="utf-8").strip()
+    assert len(secret) >= 32, "share secret must be minted with the grant"
+    mgr._publish_tunnel_origin(project, URL)
+    assert secret_file.read_text(encoding="utf-8").strip() == secret
+    mgr.projects = {project.id: project}
+    project.tunnel_url = URL
+    assert mgr.get_tunnel_share_url(project.id) == f"{URL}/?a2app_share={secret}"
+
     mgr._publish_tunnel_origin(project, None)
     assert not origin_file.exists(), "stopping the tunnel must revoke the grant"
+    assert not secret_file.exists(), "stopping the tunnel must end every session"
     mgr._publish_tunnel_origin(project, None)  # idempotent: stop_tunnel runs often
 
+    # A new tunnel is a new secret: old links must not reopen it.
+    mgr._publish_tunnel_origin(project, URL)
+    assert secret_file.read_text(encoding="utf-8").strip() != secret
 
-print_origin = "§3 shared origin published and revoked: OK"
+
+print_origin = "§3 shared origin + share secret published and revoked: OK"
 
 
 def _check_serving_port(tmp: Path) -> None:

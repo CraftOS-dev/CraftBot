@@ -16,18 +16,25 @@ Served surface (mirrors the native pb_hooks adapter):
   *   /api/ops/{name}        guarded invocation, mapped onto the app's API
   *   anything else          transparent passthrough (HTTP + WebSocket)
 
-Auth mirrors _system.pb.js: browser writes are constrained to loopback
-origins; programmatic writes (no Origin) present X-A2App-Token from the
-project's .agent-token; foreign-origin mutations are refused outright.
+Auth mirrors _system.pb.js (see `guard_request`). Two independent checks:
+the ORIGIN check refuses foreign-origin mutations outright, and the CALLER
+check requires every mutation to carry a credential — X-A2App-Token from the
+project's .agent-token (programs, the agent), or the UI session cookie the
+app's own browser UI is issued. An allowed Origin is never a credential:
+tunnel traffic arrives over loopback and can claim any Origin it likes.
+Through a tunnel, every request needs the credential, reads included; the
+UI session there is only issued in exchange for the share link's secret.
 Ops are (re)read from operations.json on every request, like the native
 describe, so the surface can never drift from the file on disk.
 """
 
+import hashlib
+import hmac
 import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from urllib.parse import quote, urlencode
 
 try:
@@ -59,6 +66,170 @@ HOP_HEADERS = {
 }
 UPSTREAM_BODY_CAP = 10 * 1024 * 1024  # ops responses are read whole; cap them
 EXCERPT = 2000
+
+# ── caller authentication (shared with the native guard in _a2app_lib.js) ──
+#
+# Local vs tunnel cannot be told apart by Origin (a tunnelled caller can send
+# a loopback one) nor by peer address (cloudflared connects from loopback).
+# It CAN be told apart by what Cloudflare adds to every request it forwards —
+# headers a remote caller cannot strip. The test is fail-safe: a local caller
+# that fakes one only demotes itself to tunnel rules.
+TUNNEL_MARKER_HEADERS = (
+    "cf-ray",
+    "cf-connecting-ip",
+    "cf-visitor",
+    "cdn-loop",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "forwarded",
+)
+LOOPBACK_HOST = re.compile(r"^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$", re.I)
+SHARE_PARAM = "a2app_share"
+TOKEN_HEADERS = ("X-A2App-Token", "X-LUI-Token")  # TODO(lui-compat): legacy
+
+
+def _hs256(secret: str, text: str) -> str:
+    """HMAC-SHA256 hex — the same construction as PocketBase's
+    $security.hs256(text, secret), so both adapters derive identical values."""
+    return hmac.new(secret.encode(), text.encode(), hashlib.sha256).hexdigest()
+
+
+def _read_secret(project_dir: Path, name: str) -> str:
+    try:
+        return (Path(project_dir) / name).read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def origin_allowed(project_dir: Path, origin: str) -> bool:
+    """Loopback, or the one public origin the host is currently sharing.
+
+    AgentAppManager.start_tunnel writes `.tunnel-origin` and stop_tunnel
+    deletes it, so the grant lasts exactly as long as the tunnel. Read per
+    request for the same reason the native guard does: sharing starts and
+    stops without restarting anything. Loopback-only was not a safe default
+    for a shared app, it was a broken one — browsers send `Origin` on
+    same-origin writes too, so through a tunnel every write was refused.
+    This decides which browser pages may TALK to the app; it authenticates
+    nobody (see guard_request).
+    """
+    if LOOPBACK_ORIGIN.match(origin):
+        return True
+    shared = _read_secret(project_dir, ".tunnel-origin")
+    return bool(shared) and origin.lower() == shared.lower()
+
+
+def is_tunnel_request(headers: Mapping[str, str]) -> bool:
+    """True when the request came in through the share tunnel (or cannot be
+    proven local). Local = no forwarding marker AND a loopback Host."""
+    lowered = {k.lower() for k in headers.keys()}
+    if any(h in lowered for h in TUNNEL_MARKER_HEADERS):
+        return True
+    host = next((v for k, v in headers.items() if k.lower() == "host"), "")
+    return not LOOPBACK_HOST.match(host.strip())
+
+
+def session_cookie_name(agent_token: str) -> str:
+    """Per-app name: every app on 127.0.0.1 shares ONE cookie jar (cookies
+    ignore ports), so a fixed name would have apps overwrite each other."""
+    return "a2app_s_" + _hs256(agent_token, "a2app-ui:cookie-name:v1")[:12]
+
+
+def session_value(project_dir: Path, agent_token: str, tunnel: bool) -> str:
+    """The UI session credential for this ingress, or "" if none can exist.
+
+    Stateless (derived, never stored): rotating the agent token ends every
+    session. Local and tunnel values differ, so a local cookie is never a
+    tunnel credential; the tunnel value folds in `.tunnel-secret`, which
+    stop_tunnel deletes — every shared session dies with the tunnel."""
+    if not agent_token:
+        return ""
+    if not tunnel:
+        return _hs256(agent_token, "a2app-ui:local:v1")
+    secret = _read_secret(project_dir, ".tunnel-secret")
+    if not secret:
+        return ""
+    return _hs256(agent_token, "a2app-ui:share:v1:" + secret)
+
+
+def session_cookie_header(name: str, value: str, tunnel: bool) -> str:
+    # Lax, not Strict: a share link opened from chat is a cross-site
+    # navigation, and Strict would withhold the cookie on the redirect that
+    # follows the exchange. Writes do not lean on SameSite — the origin check
+    # and the per-ingress value do that work.
+    return (
+        f"{name}={value}; Path=/; HttpOnly; SameSite=Lax"
+        + ("; Secure" if tunnel else "")
+    )
+
+
+def guard_request(
+    project_dir: Path,
+    method: str,
+    headers: Mapping[str, str],
+    cookies: Mapping[str, str],
+) -> Optional[Tuple[int, Dict[str, Any]]]:
+    """THE caller guard: None to proceed, else (status, error envelope).
+
+    Two independent checks, in order:
+      1. Origin — a foreign Origin on a mutation is refused (403). Reads pass:
+         for those, withholding the CORS grant is the browser-side defence.
+      2. Caller — a mutation, or ANY request through the tunnel, must carry
+         a credential: the agent token (constant-time compare) or this
+         ingress's UI session cookie. The Origin plays no part here.
+    A project with no agent token provisioned is never locked out (native
+    parity: the token is minted at launch, so this is a pre-launch edge).
+    """
+    method = method.upper()
+    mutating = method in MUTATING
+    origin = next((v for k, v in headers.items() if k.lower() == "origin"), "")
+    if origin and mutating and not origin_allowed(project_dir, origin):
+        return 403, {
+            "a2app": True,
+            "ok": False,
+            "code": "forbidden_origin",
+            "message": "Cross-origin writes are not allowed.",
+        }
+
+    tunnel = is_tunnel_request(headers)
+    # Preflights never carry credentials (browsers strip them by spec).
+    if method == "OPTIONS" or not (mutating or tunnel):
+        return None
+    expected = _read_secret(project_dir, ".agent-token")
+    if not expected:
+        return None
+
+    lowered = {k.lower(): v for k, v in headers.items()}
+    presented = next(
+        (lowered[h.lower()] for h in TOKEN_HEADERS if lowered.get(h.lower())), ""
+    ).strip()
+    if presented and hmac.compare_digest(presented.encode(), expected.encode()):
+        return None
+    session = session_value(project_dir, expected, tunnel)
+    cookie = cookies.get(session_cookie_name(expected), "")
+    if session and cookie and hmac.compare_digest(cookie.encode(), session.encode()):
+        return None
+
+    if tunnel:
+        return 401, {
+            "a2app": True,
+            "ok": False,
+            "code": "share_session_required",
+            "message": (
+                "This app is shared by link. Open the full share link you "
+                "were given (it carries ?a2app_share=...)."
+            ),
+        }
+    return 401, {
+        "a2app": True,
+        "ok": False,
+        "code": "unauthorized",
+        "message": "agent token required",
+        "hint": (
+            "Send X-A2App-Token: <contents of the project .agent-token "
+            "file> on writes."
+        ),
+    }
 
 
 def _server_now() -> str:
@@ -252,35 +423,17 @@ class ExternalA2AppProxy:
         except Exception:
             return b"{}"
 
-    def _agent_token(self) -> str:
-        try:
-            return (
-                (self.project_dir / ".agent-token").read_text(encoding="utf-8").strip()
-            )
-        except Exception:
-            return ""
-
     def _origin_allowed(self, origin: str) -> bool:
-        """Loopback, or the one public origin the host is currently sharing.
+        return origin_allowed(self.project_dir, origin)
 
-        AgentAppManager.start_tunnel writes `.tunnel-origin` and stop_tunnel
-        deletes it, so the grant lasts exactly as long as the tunnel. Read per
-        request for the same reason the native guard does: sharing starts and
-        stops without restarting anything. Loopback-only was not a safe
-        default for a shared app, it was a broken one — browsers send `Origin`
-        on same-origin writes too, so through a tunnel every write was refused.
-        """
-        if LOOPBACK_ORIGIN.match(origin):
-            return True
-        try:
-            shared = (
-                (self.project_dir / ".tunnel-origin")
-                .read_text(encoding="utf-8")
-                .strip()
-            )
-        except Exception:
-            return False  # no file = not sharing = loopback only
-        return bool(shared) and origin.lower() == shared.lower()
+    def _deny(self, request):
+        """guard_request as a response: None to proceed, else the refusal."""
+        denied = guard_request(
+            self.project_dir, request.method, request.headers, request.cookies
+        )
+        if denied is None:
+            return None
+        return self._json(request, denied[0], denied[1])
 
     def _json(self, request, status: int, payload: Dict[str, Any]):
         from aiohttp import web
@@ -311,15 +464,84 @@ class ExternalA2AppProxy:
 
     async def _handle(self, request):
         path = request.path
+        if (
+            request.method == "GET"
+            and SHARE_PARAM in request.query
+            and is_tunnel_request(request.headers)
+        ):
+            return self._share_exchange(request)
+        own = (
+            request.method == "GET"
+            and path in ("/api/_a2app", "/api/_a2app/describe", "/api/_ops")
+        ) or path == "/api/ops" or path.startswith("/api/ops/")
+        if own:
+            denied = self._deny(request)
+            if denied is not None:
+                return denied
         if request.method == "GET" and path == "/api/_a2app":
             return self._identity(request)
         if request.method == "GET" and path == "/api/_a2app/describe":
             return self._describe(request)
         if request.method == "GET" and path == "/api/_ops":
             return self._ops_manifest(request)
-        if path == "/api/ops" or path.startswith("/api/ops/"):
+        if own:
             return await self._invoke(request)
+        # TODO(passthrough-auth): the app's own surface is not guarded yet;
+        # the follow-up applies guard_request here too.
         return await self._passthrough(request)
+
+    def _share_exchange(self, request):
+        """Trade the share link's secret for the tunnel UI session, then
+        redirect to the same URL without it (out of the address bar, history
+        and anything the visitor copies onward)."""
+        from aiohttp import web
+
+        secret = _read_secret(self.project_dir, ".tunnel-secret")
+        presented = request.query.get(SHARE_PARAM, "")
+        if not (
+            secret
+            and presented
+            and hmac.compare_digest(presented.encode(), secret.encode())
+        ):
+            return self._json(
+                request,
+                403,
+                {
+                    "a2app": True,
+                    "ok": False,
+                    "code": "share_link_invalid",
+                    "message": (
+                        "This share link is invalid or has expired. Ask the "
+                        "owner for a fresh one."
+                    ),
+                },
+            )
+        rest = [(k, v) for k, v in request.query.items() if k != SHARE_PARAM]
+        resp = web.HTTPFound(str(request.rel_url.with_query(rest)))
+        token = _read_secret(self.project_dir, ".agent-token")
+        value = session_value(self.project_dir, token, tunnel=True)
+        if value:
+            resp.headers["Set-Cookie"] = session_cookie_header(
+                session_cookie_name(token), value, tunnel=True
+            )
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    def _local_session_cookie(self, request) -> Optional[str]:
+        """Set-Cookie for the app's own UI on local ingress, when it lacks a
+        valid session. Anyone who can reach loopback gets one — which is
+        everyone who could already read .agent-token, so it grants nothing
+        new; what it replaces is trusting a forgeable Origin header."""
+        if is_tunnel_request(request.headers):
+            return None
+        token = _read_secret(self.project_dir, ".agent-token")
+        value = session_value(self.project_dir, token, tunnel=False)
+        if not value:
+            return None
+        name = session_cookie_name(token)
+        if request.cookies.get(name) == value:
+            return None
+        return session_cookie_header(name, value, tunnel=False)
 
     # ── A2App endpoints ────────────────────────────────────────────────────
 
@@ -378,7 +600,7 @@ class ExternalA2AppProxy:
     # ── operation invocation ───────────────────────────────────────────────
 
     async def _invoke(self, request):
-        origin = request.headers.get("Origin", "")
+        # Caller already cleared guard_request in _handle.
         # TODO(lui-compat): older clients/CLIs send the X-LUI-* header. Accept
         # either signature; drop the X-LUI-* fallback once every deployed app
         # and client speaks X-A2App-*.
@@ -387,48 +609,6 @@ class ExternalA2AppProxy:
             or request.headers.get("X-LUI-Agent")
             or "unknown"
         )[:120]
-
-        # Check 1 (browser): mutations from foreign origins are refused
-        # outright; loopback origins are the app's own UI and pass free, as
-        # does the shared origin while the user is tunnelling this app.
-        if origin and not self._origin_allowed(origin):
-            if request.method in MUTATING:
-                return self._json(
-                    request,
-                    403,
-                    {
-                        "a2app": True,
-                        "ok": False,
-                        "code": "forbidden_origin",
-                        "message": "Cross-origin writes are not allowed.",
-                    },
-                )
-        # Check 2 (programs): no Origin means a programmatic caller — a
-        # mutation must present the project's agent token. A project with no
-        # token provisioned is never locked out (native parity).
-        elif not origin and request.method in MUTATING:
-            expected = self._agent_token()
-            # TODO(lui-compat): accept the legacy token header too.
-            presented = (
-                request.headers.get("X-A2App-Token")
-                or request.headers.get("X-LUI-Token")
-                or ""
-            ).strip()
-            if expected and presented != expected:
-                return self._json(
-                    request,
-                    401,
-                    {
-                        "a2app": True,
-                        "ok": False,
-                        "code": "unauthorized",
-                        "message": "agent token required",
-                        "hint": (
-                            "Send X-A2App-Token: <contents of the project "
-                            ".agent-token file> on writes."
-                        ),
-                    },
-                )
 
         manifest, problems = load_external_manifest(self.project_dir)
         if problems:
@@ -644,6 +824,14 @@ class ExternalA2AppProxy:
                 for k, v in up.headers.items():
                     if k.lower() not in HOP_HEADERS:
                         resp.headers[k] = v
+                # The app's own UI gets its session with the page that boots
+                # it; its same-origin fetches then carry it automatically.
+                if request.method == "GET" and (up.content_type or "").startswith(
+                    "text/html"
+                ):
+                    cookie = self._local_session_cookie(request)
+                    if cookie:
+                        resp.headers.add("Set-Cookie", cookie)
                 await resp.prepare(request)
                 async for chunk in up.content.iter_chunked(64 * 1024):
                     await resp.write(chunk)
