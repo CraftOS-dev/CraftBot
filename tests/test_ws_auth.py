@@ -191,3 +191,155 @@ def test_fetched_token_opens_socket():
         )
 
     assert _run(go) == ("open", "init", "craftbot")
+
+
+# ------------------------------------------------ /api/* over plain HTTP
+#
+# The same cross-site threat as /ws: a multipart POST is a CORS "simple"
+# request, so any page can send one without a preflight and the write
+# happens even though the response is unreadable.
+
+
+def test_api_request_checks():
+    auth = WsAuth(7926, token=TOKEN)
+    ui = {"Host": "localhost:7925", "Origin": "http://localhost:7925"}
+    assert auth.check_api_request("POST", ui) is None
+    assert auth.check_api_request("POST", {"Host": "localhost:7926"}) is None, (
+        "no Origin = non-browser caller (the agent-app bridge)"
+    )
+    for method in ("POST", "PUT", "PATCH", "DELETE"):
+        assert auth.check_api_request(
+            method, {**ui, "Origin": "https://evil.example"}
+        ) == "origin", method
+    assert auth.check_api_request("POST", {**ui, "Origin": "null"}) == "origin"
+    assert auth.check_api_request("POST", {**ui, "Origin": "http://127.0.0.1:3100"}) == (
+        "origin"
+    ), "an Agent App page is not the CraftBot UI"
+    # reads: Origin is the browser's business (no CORS grant), Host is ours
+    assert auth.check_api_request("GET", {**ui, "Origin": "https://evil.example"}) is None
+    assert auth.check_api_request("GET", {"Host": "evil.example:7926"}) == "host"
+    assert auth.check_api_request("POST", {"Host": "evil.example:7925"}) == "host"
+
+
+async def _with_upload_server(fn, workspace):
+    import app.ui_layer.adapters.browser_adapter as ba
+
+    adapter = _stub_adapter()
+    broadcasts = []
+
+    async def _broadcast(msg):
+        broadcasts.append(msg)
+
+    adapter._broadcast = _broadcast
+    app = web.Application(middlewares=[adapter._api_guard()])
+    app.router.add_post("/api/workspace/upload", adapter._workspace_upload_handler)
+    app.router.add_post(
+        "/api/chat-attachments/upload", adapter._chat_attachment_upload_handler
+    )
+    app.router.add_get("/api/workspace/{path:.*}", adapter._workspace_file_handler)
+    server = TestServer(app, host="127.0.0.1")
+    await server.start_server()
+    adapter._ws_auth = WsAuth(server.port, token=TOKEN)
+    old_root = ba.AGENT_WORKSPACE_ROOT
+    ba.AGENT_WORKSPACE_ROOT = str(workspace)
+    try:
+        async with aiohttp.ClientSession() as session:
+            return await fn(session, server.port)
+    finally:
+        ba.AGENT_WORKSPACE_ROOT = old_root
+        await server.close()
+
+
+def _upload_form(payload=b"pwned"):
+    form = aiohttp.FormData()
+    form.add_field("file", payload, filename="f.txt")
+    return form
+
+
+def test_upload_foreign_origin_refused(tmp_path):
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+
+    async def go(s, port):
+        results = {}
+        for label, headers in (
+            ("evil", {"Origin": "https://evil.example"}),
+            ("rebind", {"Host": "evil.example:7926"}),
+            ("ui", {"Origin": f"http://localhost:{port}"}),
+        ):
+            async with s.post(
+                f"http://127.0.0.1:{port}/api/workspace/upload?path={label}.txt",
+                data=_upload_form(),
+                headers=headers,
+            ) as r:
+                results[label] = r.status
+        return results
+
+    assert asyncio.run(_with_upload_server(go, ws)) == {
+        "evil": 403,
+        "rebind": 403,
+        "ui": 200,
+    }
+    assert sorted(p.name for p in ws.iterdir()) == ["ui.txt"], "a refused upload wrote"
+
+
+def test_upload_cannot_escape_workspace(tmp_path):
+    """`startswith` passed "../workspace_x/..." (a sibling sharing the prefix),
+    and mkdir(parents=True) then created the escape directory itself."""
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    (ws / "keep.txt").write_text("original")
+
+    async def go(s, port):
+        statuses = []
+        for path in (
+            "../workspace_x/payload",
+            "../workspace/../outside.txt",
+            "../../outside.txt",
+            "/../outside.txt",
+        ):
+            async with s.post(
+                f"http://127.0.0.1:{port}/api/workspace/upload",
+                params={"path": path},
+                data=_upload_form(),
+                headers={"Origin": f"http://localhost:{port}"},
+            ) as r:
+                statuses.append(r.status)
+        async with s.post(
+            f"http://127.0.0.1:{port}/api/workspace/upload",
+            params={"path": "sub/dir/ok.txt"},
+            data=_upload_form(b"fine"),
+            headers={"Origin": f"http://localhost:{port}"},
+        ) as r:
+            statuses.append(r.status)
+        return statuses
+
+    assert asyncio.run(_with_upload_server(go, ws)) == [400, 400, 400, 400, 200]
+    assert not (tmp_path / "workspace_x").exists(), "escape dir was created"
+    assert not (tmp_path / "outside.txt").exists()
+    assert (ws / "sub" / "dir" / "ok.txt").read_bytes() == b"fine"
+    assert (ws / "keep.txt").read_text() == "original"
+
+
+def test_attachment_name_is_not_a_path(tmp_path):
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+
+    async def go(s, port):
+        names = []
+        for name in ("../../../escaped.txt", r"..\..\escaped2.txt", "..", "ok.txt"):
+            async with s.post(
+                f"http://127.0.0.1:{port}/api/chat-attachments/upload",
+                params={"name": name},
+                data=_upload_form(),
+                headers={"Origin": f"http://localhost:{port}"},
+            ) as r:
+                assert r.status == 200, (name, r.status)
+                names.append((await r.json())["name"])
+        return names
+
+    names = asyncio.run(_with_upload_server(go, ws))
+    assert names == ["escaped.txt", "escaped2.txt", "attachment", "ok.txt"]
+    written = sorted(p.name.split("_", 1)[1] for p in (ws / "download").iterdir())
+    assert written == ["attachment", "escaped.txt", "escaped2.txt", "ok.txt"]
+    assert not list(tmp_path.glob("escaped*")), "attachment escaped the workspace"

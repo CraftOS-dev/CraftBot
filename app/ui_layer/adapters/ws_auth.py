@@ -1,4 +1,4 @@
-"""Handshake guard for the browser UI's /ws WebSocket.
+"""Request guards for the browser UI backend: the /ws handshake and /api/*.
 
 Browsers apply no CORS to WebSocket handshakes, so without a check any page
 the user opens could drive the agent through /ws. Two independent checks:
@@ -9,6 +9,10 @@ the user opens could drive the agent through /ws. Two independent checks:
    GET /api/session-token (same-origin only: no CORS headers, so a foreign
    page can't read the response) and sends it in Sec-WebSocket-Protocol, which
    keeps it out of URLs and access logs.
+
+/api/* gets the Host check plus an Origin check on writes (check_api_request):
+the same cross-site threat over plain HTTP, where multipart/text-plain POSTs
+need no preflight.
 
 Legitimate UI origins: the frontend port (Vite dev server, or run.py's static
 server) and the backend port (aiohttp serving the built UI itself), each as
@@ -30,6 +34,7 @@ WS_TOKEN_PROTOCOL_PREFIX = "craftbot-auth."
 
 _LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "[::1]")
 _DEFAULT_FRONTEND_PORT = 7925
+_MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
 def _ui_ports(backend_port: int) -> Set[int]:
@@ -88,6 +93,28 @@ class WsAuth:
             self.token_from_protocols(headers.get("Sec-WebSocket-Protocol"))
         ):
             return "token"
+        return None
+
+    def check_api_request(
+        self, method: str, headers: Mapping[str, str]
+    ) -> Optional[str]:
+        """Return None if an /api/* request may proceed, else the reason.
+
+        The same threat as /ws, over plain HTTP: a multipart or text/plain
+        POST is a CORS "simple" request, so any page can SEND one with no
+        preflight — the side effect happens even though the response is
+        unreadable. So: every request must be addressed by a loopback Host
+        (defeats DNS rebinding, which would also make responses readable),
+        and a write carrying a foreign Origin is refused. Browsers always
+        send Origin on a cross-origin write; no Origin means a non-browser
+        caller (the agent-app bridge, scripts), which CSRF cannot forge.
+        """
+        if not self.host_ok(headers.get("Host")):
+            return "host"
+        if method.upper() in _MUTATING:
+            origin = headers.get("Origin")
+            if origin is not None and not self.origin_ok(origin):
+                return "origin"
         return None
 
     def check_token_request(self, headers: Mapping[str, str]) -> Optional[str]:

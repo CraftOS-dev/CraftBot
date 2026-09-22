@@ -1040,7 +1040,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             self._chat._messages.insert(0, welcome_message)
 
-        self._app = web.Application()
+        self._app = web.Application(middlewares=[self._api_guard()])
 
         # API and WebSocket routes (must be registered first)
         self._app.router.add_get("/ws", self._websocket_handler)
@@ -3702,9 +3702,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
 
         try:
-            name = (
-                request.rel_url.query.get("name", "attachment").strip() or "attachment"
-            )
+            # A display name, never a path: keep only the final component, or
+            # "../../x" walks out of download/ (Windows collapses ".." without
+            # the intermediate directory existing).
+            name = Path(
+                request.rel_url.query.get("name", "").strip().replace("\\", "/")
+            ).name
+            if name in ("", ".", ".."):
+                name = "attachment"
             file_type = (
                 request.rel_url.query.get("type", "application/octet-stream").strip()
                 or "application/octet-stream"
@@ -8576,8 +8581,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             target = workspace / file_path
         target = target.resolve()
 
-        # Security check - ensure path is within workspace
-        if not str(target).startswith(str(workspace)):
+        # Security check - ensure path is within workspace. Containment by
+        # path components, never by string prefix: "../workspace_x/f" resolves
+        # to a SIBLING whose string starts with the workspace's.
+        if not target.is_relative_to(workspace):
             raise ValueError(f"Path '{file_path}' is outside workspace")
 
         return target
@@ -9753,6 +9760,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         html = self._get_index_html()
         return web.Response(text=html, content_type="text/html")
+
+    def _api_guard(self):
+        """Middleware: /api/* refuses rebinding Hosts and foreign-origin writes
+        (ws_auth.check_api_request). /ws guards its own handshake."""
+        from aiohttp import web
+
+        @web.middleware
+        async def api_guard(request, handler):
+            if request.path == "/api" or request.path.startswith("/api/"):
+                rejected = self._ws_auth.check_api_request(
+                    request.method, request.headers
+                )
+                if rejected:
+                    logger.warning(
+                        f"[BROWSER ADAPTER] Refused {request.method} {request.path} "
+                        f"({rejected}): origin={request.headers.get('Origin')!r} "
+                        f"host={request.headers.get('Host')!r}"
+                    )
+                    raise web.HTTPForbidden(reason="Request not allowed")
+            return await handler(request)
+
+        return api_guard
 
     async def _session_token_handler(self, request: "web.Request") -> "web.Response":
         """Hand the /ws session token to CraftBot's own UI.
