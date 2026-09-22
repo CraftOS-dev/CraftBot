@@ -220,6 +220,64 @@ def _suite(base: str, proj: Path, superuser) -> None:
         token_file.write_text(TOKEN, encoding="utf-8")
 
 
+def _lan_suite(base: str, proj: Path) -> None:
+    """The private LAN link, through a real LanRelay in front of PocketBase:
+    the relay's X-Forwarded-For stamp puts every LAN visitor under remote
+    rules, and `.lan-origin`/`.lan-secret` are honoured exactly like the
+    tunnel's (origin guard, CORS, /api/_console, share exchange)."""
+    import asyncio
+
+    from app.agent_app.sharing import LanRelay, ShareGrant
+
+    port = int(base.rsplit(":", 1)[1])
+    relay = LanRelay("127.0.0.1", 0, port)
+    lan = f"http://127.0.0.1:{asyncio.run(relay.start())}"
+    lan_origin = "http://192.168.1.50:3101"
+    create = "/api/collections/items/records"
+    grant = ShareGrant("lan")
+    try:
+        # switched off: nothing, however the visitor dresses up as local
+        for headers in ({}, {"Host": "127.0.0.1"}, {"X-Forwarded-For": "127.0.0.1"}):
+            status, _, body = _req(lan, "GET", create, headers)
+            assert status == 401 and body["code"] == "share_session_required", headers
+        assert _req(lan, "GET", "/")[0] == 401, "the UI itself is gated"
+        assert _req(lan, "GET", "/?a2app_share=anything")[0] == 403
+
+        # switched on
+        grant.publish(proj, lan_origin)
+        secret = (proj / ".lan-secret").read_text(encoding="utf-8").strip()
+        status, headers, _ = _req(lan, "GET", f"/?a2app_share={secret}&tab=2")
+        assert status == 302 and headers["Location"] == "/?tab=2", status
+        session = _session_cookie(headers)
+        assert session and "Secure" not in session[2], "http LAN needs a plain cookie"
+        session = session[:2]
+
+        assert _req(lan, "GET", "/", cookie=session)[0] == 200
+        status, headers, _ = _req(lan, "GET", create, {"Origin": lan_origin}, cookie=session)
+        assert status == 200
+        assert headers["Access-Control-Allow-Origin"] == lan_origin, "CORS grant for the LAN origin"
+        origin = {"Origin": lan_origin}
+        assert _req(lan, "POST", create, origin, {"title": "lan"}, session)[0] == 200
+        assert _req(lan, "POST", create, origin, {"title": "x"})[0] == 401, "origin is no credential"
+        assert _req(
+            lan, "POST", create, {"Origin": "https://evil.example"}, {"title": "x"}, session
+        )[0] == 403
+        assert _req(
+            lan, "POST", "/api/_console", origin, {"entries": []}, session
+        )[0] == 200, "console relay accepts the LAN origin"
+        assert _req(base, "POST", create, {"Origin": base}, {"title": "x"}, session)[0] == 401, (
+            "a LAN session is not a local credential"
+        )
+
+        # switched off: every LAN session ends at once
+        grant.revoke(proj)
+        assert _req(lan, "GET", create, cookie=session)[0] == 401
+        assert _req(lan, "POST", "/api/_console", origin, {"entries": []}, session)[0] in (401, 403)
+    finally:
+        grant.revoke(proj)
+        asyncio.run(relay.stop())
+
+
 def main() -> None:
     pb = _pinned_pb_binary()
     if not pb.exists():
@@ -280,6 +338,7 @@ def main() -> None:
             else:
                 raise AssertionError("PocketBase never became healthy")
             _suite(base, proj, superuser)
+            _lan_suite(base, proj)
         finally:
             proc.terminate()
             try:

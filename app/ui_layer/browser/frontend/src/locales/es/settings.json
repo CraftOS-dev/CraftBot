@@ -683,7 +683,9 @@
     "deleteBackupMessage": "¿Eliminar permanentemente la copia de seguridad del {{date}}?",
     "lan": "LAN",
     "public": "Público",
-    "notShared": "No compartido",
+    "lanHint": "Dispositivos de tu red, con el enlace",
+    "publicHint": "Cualquiera en internet, con el enlace",
+    "createLanLink": "Crear enlace LAN",
     "starting": "Iniciando...",
     "createTunnel": "Crear túnel"
   }

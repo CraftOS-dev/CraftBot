@@ -25,14 +25,15 @@
  * preflight for a destructive route is no longer approved. Direct clients
  * (curl, the CLI, an agent) are unaffected — they were never the threat.
  *
- * Policy: loopback origins, PLUS the one public origin the host publishes in
- * `<project>/.tunnel-origin` while the user is deliberately sharing this app
- * (AgentAppManager.start_tunnel writes it, stop_tunnel deletes it). Loopback
- * alone did not make sharing safe, it made it impossible: browsers send
- * `Origin` on same-origin writes too, so through a tunnel the app LOADED (a
- * GET carries no Origin) and then answered 403 to every save. The file is read
- * per request, so the grant lasts exactly as long as the tunnel does and needs
- * no app restart at either end — and with no tunnel up, the policy is
+ * Policy: loopback origins, PLUS the origin of each channel the host is
+ * deliberately sharing this app on — `<project>/.tunnel-origin` (public link)
+ * and `<project>/.lan-origin` (private LAN link), written when the channel
+ * opens and deleted when it closes (CraftBot's sharing.py). Loopback alone
+ * did not make sharing safe, it made it impossible: browsers send `Origin` on
+ * same-origin writes too, so through a share the app LOADED (a GET carries no
+ * Origin) and then answered 403 to every save. The files are read per
+ * request, so a grant lasts exactly as long as its channel and needs no app
+ * restart at either end — and with nothing shared, the policy is
  * loopback-only, exactly as before.
  *
  * NOTE FOR EDITORS: hook callbacks run in isolated VMs that CANNOT see this
@@ -42,19 +43,9 @@
  */
 
 routerUse((e) => {
-  // Inlined per the NOTE above — callbacks cannot see this file's scope, and
-  // cannot see each other's either, so this lives once per callback that needs
-  // it. Called late, so only a NON-loopback origin ever costs a file read.
+  // Called late, so only a NON-loopback origin ever costs the share-file reads.
   function isSharedOrigin(candidate) {
-    var shared = '';
-    try {
-      shared = toString(
-        $os.readFile($filepath.join(__hooks, '..', '..', '.tunnel-origin'))
-      ).trim();
-    } catch {
-      return false; // no file = not sharing = loopback only
-    }
-    return shared !== '' && candidate.toLowerCase() === shared.toLowerCase();
+    return require(`${__hooks}/_a2app_lib.js`).isSharedOrigin(candidate);
   }
 
   // Must run BEFORE e.next(): headers are flushed with the first body byte, so
@@ -137,8 +128,8 @@ routerUse((e) => {
       ok: false,
       error: 'forbidden origin: ' + origin,
       hint:
-        'This app accepts writes from loopback origins, and from the shared ' +
-        'origin in .tunnel-origin while sharing is switched on.',
+        'This app accepts writes from loopback origins, and from the origin ' +
+        'of each share link (public or LAN) while that link is switched on.',
     });
   }
   return e.next();
@@ -282,16 +273,8 @@ routerAdd('POST', '/api/_console', (e) => {
     origin = '';
   }
   if (origin !== '' && !ALLOWED_ORIGIN.test(origin)) {
-    // Read late: only a NON-loopback origin ever costs a file read.
-    let sharedOrigin = '';
-    try {
-      sharedOrigin = toString(
-        $os.readFile($filepath.join(__hooks, '..', '..', '.tunnel-origin'))
-      ).trim();
-    } catch {
-      sharedOrigin = '';
-    }
-    if (sharedOrigin === '' || origin.toLowerCase() !== sharedOrigin.toLowerCase()) {
+    // Checked late: only a NON-loopback origin ever costs the share-file reads.
+    if (!require(`${__hooks}/_a2app_lib.js`).isSharedOrigin(origin)) {
       return e.json(403, { ok: false, error: 'forbidden origin' });
     }
   }

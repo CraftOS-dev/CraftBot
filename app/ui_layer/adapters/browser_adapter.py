@@ -162,6 +162,7 @@ from app.agent_app import (
     register_broadcast_callbacks,
     make_todo_broadcast_hook,
 )
+from app.agent_app.sharing import ShareError
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -2108,14 +2109,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "agent_app_state_update":
             await self._handle_agent_app_state_update(data)
 
-        elif msg_type == "agent_app_tunnel_start":
-            project_id = data.get("projectId", "")
-            provider = data.get("provider", "cloudflared")
-            await self._handle_agent_app_tunnel_start(project_id, provider)
+        elif msg_type == "agent_app_share_open":
+            await self._handle_agent_app_share(
+                data.get("projectId", ""), data.get("channel", ""), open_it=True
+            )
 
-        elif msg_type == "agent_app_tunnel_stop":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_tunnel_stop(project_id)
+        elif msg_type == "agent_app_share_close":
+            await self._handle_agent_app_share(
+                data.get("projectId", ""), data.get("channel", ""), open_it=False
+            )
 
         elif msg_type == "agent_app_sharing_info":
             project_id = data.get("projectId", "")
@@ -3936,71 +3938,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(f"[AGENT_APP] Error handling state update: {e}")
 
-    async def _handle_agent_app_sharing_info(self, project_id: str) -> None:
-        """Return sharing info (LAN URL, tunnel URL)."""
-        lan_url = self._agent_app_manager.get_lan_url(project_id)
+    async def _handle_agent_app_sharing_info(
+        self, project_id: str, error: Optional[Dict[str, str]] = None
+    ) -> None:
+        """Broadcast the project's share links: {channel: link | None}. A
+        link carries its secret — the bare URL admits nobody."""
         await self._broadcast(
             {
                 "type": "agent_app_sharing_info",
                 "data": {
                     "projectId": project_id,
-                    "lanUrl": lan_url,
-                    # The share link (tunnel URL + secret): the bare tunnel
-                    # URL admits nobody.
-                    "tunnelUrl": self._agent_app_manager.get_tunnel_share_url(
-                        project_id
-                    ),
+                    "links": self._agent_app_manager.share_links(project_id),
+                    "error": error,
                 },
             }
         )
 
-    async def _handle_agent_app_tunnel_start(
-        self, project_id: str, provider: str
+    async def _handle_agent_app_share(
+        self, project_id: str, channel: str, open_it: bool
     ) -> None:
-        """Start a tunnel for a Agent App project."""
-        logger.info(
-            f"[AGENT_APP] Tunnel start requested: project={project_id}, provider={provider}"
-        )
+        """Open or close one share channel ("lan" | "tunnel"), then answer
+        with the current links (and why, if opening failed)."""
+        error = None
         try:
-            url = await self._agent_app_manager.start_tunnel(project_id, provider)
-            await self._broadcast(
-                {
-                    "type": "agent_app_tunnel_status",
-                    "data": {
-                        "projectId": project_id,
-                        "tunnelUrl": url,
-                        "success": url is not None,
-                        "error": None if url else f"Failed to start {provider} tunnel",
-                    },
-                }
-            )
+            if open_it:
+                await self._agent_app_manager.open_share(project_id, channel)
+            else:
+                await self._agent_app_manager.close_share(project_id, channel)
         except Exception as e:
-            logger.error(f"[AGENT_APP] Tunnel start error: {e}", exc_info=True)
-            await self._broadcast(
-                {
-                    "type": "agent_app_tunnel_status",
-                    "data": {
-                        "projectId": project_id,
-                        "tunnelUrl": None,
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
+            logger.error(
+                f"[AGENT_APP] Share {channel} {'open' if open_it else 'close'} "
+                f"failed for {project_id}: {e}",
+                exc_info=not isinstance(e, ShareError),
             )
-
-    async def _handle_agent_app_tunnel_stop(self, project_id: str) -> None:
-        """Stop a tunnel for a Agent App project."""
-        await self._agent_app_manager.stop_tunnel(project_id)
-        await self._broadcast(
-            {
-                "type": "agent_app_tunnel_status",
-                "data": {
-                    "projectId": project_id,
-                    "tunnelUrl": None,
-                    "success": True,
-                },
-            }
-        )
+            error = {"channel": channel, "message": str(e)}
+        await self._handle_agent_app_sharing_info(project_id, error)
 
     async def broadcast_agent_app_ready(
         self, project_id: str, url: str, port: int

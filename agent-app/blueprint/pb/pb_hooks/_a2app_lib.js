@@ -511,15 +511,17 @@ function schemaVersion(app) {
  * HMAC-SHA256-hex the proxy computes). Two INDEPENDENT checks: the origin
  * guard in _system.pb.js decides which browser pages may talk to the app;
  * this decides who the caller is. An allowed Origin is never a credential —
- * tunnel traffic arrives over loopback and can claim any Origin it likes.
+ * shared traffic arrives over loopback and can claim any Origin it likes.
  *
  * Credentials: the agent token (programs), the UI session cookie (the app's
- * own frontend; issued on the page load locally, and ONLY in exchange for
- * the share link's secret through the tunnel), or a signed-in PocketBase
- * principal. Through the tunnel every request needs one, reads included.
+ * own frontend; issued on the page load locally, and ONLY in exchange for a
+ * share link's secret through a share channel), or a signed-in PocketBase
+ * principal. Through a share channel every request needs one, reads included.
  */
 
-var TUNNEL_MARKER_HEADERS = [
+// Each relay stamps what it forwards: Cloudflare's headers through the
+// tunnel, X-Forwarded-For through CraftBot's LAN relay.
+var REMOTE_MARKER_HEADERS = [
   'Cf-Ray',
   'Cf-Connecting-Ip',
   'Cf-Visitor',
@@ -530,6 +532,9 @@ var TUNNEL_MARKER_HEADERS = [
 ];
 var LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
 var SHARE_PARAM = 'a2app_share';
+// While open, every share channel (CraftBot's sharing.py) publishes
+// .<name>-origin and .<name>-secret. Mirrors a2app_proxy.SHARE_CHANNELS.
+var SHARE_CHANNELS = ['tunnel', 'lan'];
 
 function readProjectSecret(name) {
   try {
@@ -547,12 +552,34 @@ function headerOf(e, name) {
   }
 }
 
-/** Cloudflare stamps every forwarded request with headers a remote caller
+/** The grants published right now: [{origin, secret}], read per request so
+ *  closing a channel (deleting its files) takes effect at once. */
+function openShares() {
+  var shares = [];
+  for (var i = 0; i < SHARE_CHANNELS.length; i++) {
+    var origin = readProjectSecret('.' + SHARE_CHANNELS[i] + '-origin');
+    var secret = readProjectSecret('.' + SHARE_CHANNELS[i] + '-secret');
+    if (origin !== '' || secret !== '') shares.push({ origin: origin, secret: secret });
+  }
+  return shares;
+}
+
+/** A NON-loopback origin the app is currently shared on (the origin guard
+ *  in _system.pb.js checks loopback itself, before paying for file reads). */
+function isSharedOrigin(origin) {
+  var shares = openShares();
+  for (var i = 0; i < shares.length; i++) {
+    if (shares[i].origin !== '' && origin.toLowerCase() === shares[i].origin.toLowerCase()) return true;
+  }
+  return false;
+}
+
+/** A relay stamps every forwarded request with headers a remote caller
  *  cannot strip; a local caller faking one only demotes itself. Go keeps the
  *  Host header in request.host, not in the header map. */
-function isTunnelRequest(e) {
-  for (var i = 0; i < TUNNEL_MARKER_HEADERS.length; i++) {
-    if (headerOf(e, TUNNEL_MARKER_HEADERS[i]) !== '') return true;
+function isRemoteRequest(e) {
+  for (var i = 0; i < REMOTE_MARKER_HEADERS.length; i++) {
+    if (headerOf(e, REMOTE_MARKER_HEADERS[i]) !== '') return true;
   }
   var host = '';
   try {
@@ -568,20 +595,22 @@ function sessionCookieName(token) {
   return 'a2app_s_' + $security.hs256('a2app-ui:cookie-name:v1', token).slice(0, 12);
 }
 
-// Stateless: rotating the agent token ends every session; the tunnel value
-// folds in .tunnel-secret, which stop_tunnel deletes.
-function sessionValue(token, tunnel) {
-  if (token === '') return '';
-  if (!tunnel) return $security.hs256('a2app-ui:local:v1', token);
-  var secret = readProjectSecret('.tunnel-secret');
-  if (secret === '') return '';
+// Stateless: rotating the agent token ends every session; a shared value
+// folds in its channel's secret, which closing the channel deletes.
+function localSessionValue(token) {
+  return token === '' ? '' : $security.hs256('a2app-ui:local:v1', token);
+}
+
+function shareSessionValue(token, secret) {
+  if (token === '' || secret === '') return '';
   return $security.hs256('a2app-ui:share:v1:' + secret, token);
 }
 
 // Lax, not Strict: a share link opened from chat is a cross-site navigation,
 // and Strict would withhold the cookie on the redirect after the exchange.
-function sessionCookieHeader(name, value, tunnel) {
-  return name + '=' + value + '; Path=/; HttpOnly; SameSite=Lax' + (tunnel ? '; Secure' : '');
+// Secure only over https: the LAN relay is plain http.
+function sessionCookieHeader(name, value, secure) {
+  return name + '=' + value + '; Path=/; HttpOnly; SameSite=Lax' + (secure ? '; Secure' : '');
 }
 
 function cookieOf(e, name) {
@@ -607,7 +636,7 @@ function hasPrincipal(e) {
 /**
  * THE caller guard. Returns null to proceed, else {status, body}.
  * Local mutations on /api/collections/ and /api/ops/ need a credential
- * (PocketBase's own sign-in flows stay open); through the tunnel, every
+ * (PocketBase's own sign-in flows stay open); through a share channel, every
  * request does. The origin half lives in _system.pb.js's first routerUse.
  */
 function authorizeCaller(e) {
@@ -620,9 +649,9 @@ function authorizeCaller(e) {
     return { status: 400, body: { ok: false, error: 'unreadable request' } };
   }
   if (method === 'OPTIONS') return null; // preflights never carry credentials
-  var tunnel = isTunnelRequest(e);
+  var remote = isRemoteRequest(e);
   var mutating = method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE';
-  if (!tunnel) {
+  if (!remote) {
     if (!mutating) return null;
     if (path.indexOf('/api/collections/') !== 0 && path.indexOf('/api/ops/') !== 0) return null;
     if (path.indexOf('/auth-') > 0 || path.indexOf('/request-') > 0) return null;
@@ -631,10 +660,10 @@ function authorizeCaller(e) {
   var token = readProjectSecret('.agent-token');
   if (token === '') {
     // Locally, a missing token must not lock the app out (it is minted at
-    // launch). Through the tunnel it FAILS CLOSED: no token means no
-    // credential can be checked, and "allow" would make a shared app
-    // publicly writable. Mirrors a2app_proxy.guard_request.
-    if (!tunnel) return null;
+    // launch). Remotely it FAILS CLOSED: no token means no credential can be
+    // checked, and "allow" would make a shared app publicly writable.
+    // Mirrors a2app_proxy.guard_request.
+    if (!remote) return null;
     return {
       status: 503,
       body: {
@@ -648,12 +677,22 @@ function authorizeCaller(e) {
   // TODO(lui-compat): also accept the legacy X-LUI-Token from older clients.
   var presented = (headerOf(e, 'X-A2App-Token') || headerOf(e, 'X-LUI-Token')).trim();
   if (presented !== '' && $security.equal(presented, token)) return null;
-  var session = sessionValue(token, tunnel);
   var cookie = cookieOf(e, sessionCookieName(token));
-  if (session !== '' && cookie !== '' && $security.equal(cookie, session)) return null;
+  if (cookie !== '') {
+    var sessions = [];
+    if (remote) {
+      var shares = openShares();
+      for (var i = 0; i < shares.length; i++) sessions.push(shareSessionValue(token, shares[i].secret));
+    } else {
+      sessions.push(localSessionValue(token));
+    }
+    for (var j = 0; j < sessions.length; j++) {
+      if (sessions[j] !== '' && $security.equal(cookie, sessions[j])) return null;
+    }
+  }
   if (hasPrincipal(e)) return null;
 
-  if (tunnel) {
+  if (remote) {
     return {
       status: 401,
       body: {
@@ -675,9 +714,9 @@ function authorizeCaller(e) {
 }
 
 /**
- * Share-link exchange: GET <any path>?a2app_share=<secret> through the tunnel
- * trades the secret for the tunnel UI session and redirects to the same URL
- * without it. Returns true when it answered the request.
+ * Share-link exchange: GET <any path>?a2app_share=<secret> through a share
+ * channel trades that channel's secret for its UI session and redirects to
+ * the same URL without it. Returns true when it answered the request.
  */
 function handleShareExchange(e) {
   var method = '';
@@ -688,10 +727,17 @@ function handleShareExchange(e) {
   } catch {
     return false;
   }
-  if (method !== 'GET' || presented === '' || !isTunnelRequest(e)) return false;
+  if (method !== 'GET' || presented === '' || !isRemoteRequest(e)) return false;
 
-  var secret = readProjectSecret('.tunnel-secret');
-  if (secret === '' || !$security.equal(presented, secret)) {
+  var share = null;
+  var shares = openShares();
+  for (var i = 0; i < shares.length; i++) {
+    if (shares[i].secret !== '' && $security.equal(presented, shares[i].secret)) {
+      share = shares[i];
+      break;
+    }
+  }
+  if (share === null) {
     e.json(403, {
       ok: false,
       code: 'share_link_invalid',
@@ -701,8 +747,9 @@ function handleShareExchange(e) {
   }
   var headers = e.response.header();
   var token = readProjectSecret('.agent-token');
-  var value = sessionValue(token, true);
-  if (value !== '') headers.add('Set-Cookie', sessionCookieHeader(sessionCookieName(token), value, true));
+  var value = shareSessionValue(token, share.secret);
+  var secure = share.origin.toLowerCase().indexOf('https://') === 0;
+  if (value !== '') headers.add('Set-Cookie', sessionCookieHeader(sessionCookieName(token), value, secure));
   headers.set('Cache-Control', 'no-store');
   var q = e.request.url.query();
   q.del(SHARE_PARAM);
@@ -715,9 +762,9 @@ function handleShareExchange(e) {
  *  boots it (the kit's same-origin fetches then carry it). Anyone who can
  *  reach loopback gets one — everyone who could already read .agent-token. */
 function issueLocalSession(e) {
-  if (isTunnelRequest(e)) return;
+  if (isRemoteRequest(e)) return;
   var token = readProjectSecret('.agent-token');
-  var value = sessionValue(token, false);
+  var value = localSessionValue(token);
   if (value === '') return;
   var name = sessionCookieName(token);
   if (cookieOf(e, name) === value) return;
@@ -729,6 +776,7 @@ module.exports = {
   authorizeCaller: authorizeCaller,
   handleShareExchange: handleShareExchange,
   issueLocalSession: issueLocalSession,
+  isSharedOrigin: isSharedOrigin,
   describeApp: describeApp,
   fieldsOf: fieldsOf,
   protocolType: protocolType,

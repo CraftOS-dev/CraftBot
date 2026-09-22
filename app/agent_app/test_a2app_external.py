@@ -32,6 +32,7 @@ from app.agent_app.ops_verify import verify_external_ops
 
 PROXY_PORT = 18471
 UPSTREAM_PORT = 18472
+LAN_PORT = 18473
 TOKEN = "test-agent-token"
 
 
@@ -419,6 +420,78 @@ async def _no_token_matrix(http, base: str, tmp: Path) -> None:
         token_file.write_text(TOKEN, encoding="utf-8")
 
 
+async def _lan_matrix(http, tmp: Path, seen) -> None:
+    """The private LAN link, end to end: a real LanRelay in front of the
+    proxy. The relay stamps X-Forwarded-For on everything, so the guard sees
+    LAN visitors as remote — no link, no access — whatever they send."""
+    from app.agent_app.sharing import LanRelay, ShareGrant
+
+    relay = LanRelay("127.0.0.1", LAN_PORT, PROXY_PORT)
+    bound = await relay.start()
+    assert bound == LAN_PORT, bound
+    base = f"http://127.0.0.1:{bound}"
+    create = f"{base}/api/ops/todos/create"
+    lan_origin = "http://192.168.1.50:3101"
+    before = len(seen["todos"])
+    grant = ShareGrant("lan")
+    try:
+        async def post(headers, cookie=None, title="x"):
+            h = dict(headers)
+            if cookie:
+                h["Cookie"] = f"{cookie[0]}={cookie[1]}"
+            async with http.post(create, json={"title": title}, headers=h) as r:
+                return r.status
+
+        # LAN link switched off: nothing gets through, however it asks —
+        # including a visitor claiming to be local (the relay overwrites it).
+        for headers in ({}, {"Host": f"127.0.0.1:{PROXY_PORT}"}, {"X-Forwarded-For": "127.0.0.1"}):
+            async with http.get(f"{base}/api/_a2app", headers=headers) as r:
+                assert r.status == 401, (headers, r.status)
+                assert (await r.json())["code"] == "share_session_required"
+        async with http.get(f"{base}/") as r:
+            assert "Set-Cookie" not in r.headers, "no local session over the LAN"
+        async with http.get(f"{base}/?a2app_share=anything", allow_redirects=False) as r:
+            assert r.status == 403
+
+        # switched on: the link's secret buys a (non-Secure: plain http) session
+        grant.publish(tmp, lan_origin)
+        secret = (tmp / ".lan-secret").read_text(encoding="utf-8").strip()
+        async with http.get(
+            f"{base}/?a2app_share={secret}&tab=2", allow_redirects=False
+        ) as r:
+            assert r.status == 302 and r.headers["Location"] == "/?tab=2"
+            lan = _set_cookie(r)
+            assert "Secure" not in r.headers["Set-Cookie"], "http LAN needs a plain cookie"
+        async with http.get(
+            f"{base}/api/_a2app", headers={"Cookie": f"{lan[0]}={lan[1]}"}
+        ) as r:
+            assert r.status == 200
+        assert await post({"Origin": lan_origin}, cookie=lan, title="lan visitor") == 200
+        assert await post({"Origin": lan_origin}) == 401, "the LAN origin authenticates nobody"
+        assert await post({"Origin": "https://evil.example"}, cookie=lan) == 403
+        assert await post({"X-A2App-Token": TOKEN}, title="lan agent") == 200
+
+        # a local session is never a LAN credential, nor the reverse
+        async with http.get(f"http://127.0.0.1:{PROXY_PORT}/") as r:
+            local = _set_cookie(r)
+        assert await post({"Origin": lan_origin}, cookie=local) == 401
+        async with http.post(
+            f"http://127.0.0.1:{PROXY_PORT}/api/ops/todos/create",
+            json={"title": "x"},
+            headers={"Cookie": f"{lan[0]}={lan[1]}"},
+        ) as r:
+            assert r.status == 401, "a LAN session is not a local credential"
+
+        # switched off: every LAN session ends at once
+        grant.revoke(tmp)
+        assert await post({"Origin": lan_origin}, cookie=lan) in (401, 403)
+        titles = [t["title"] for t in seen["todos"][before:]]
+        assert titles == ["lan visitor", "lan agent"], titles
+    finally:
+        grant.revoke(tmp)
+        await relay.stop()
+
+
 async def _proxy_suite(tmp: Path) -> None:
     import aiohttp
 
@@ -493,6 +566,7 @@ async def _proxy_suite(tmp: Path) -> None:
 
         await _auth_matrix(http, base, tmp, seen)
         await _no_token_matrix(http, base, tmp)
+        await _lan_matrix(http, tmp, seen)
 
         # unknown op -> 404 envelope, never a silent passthrough
         async with http.post(f"{base}/api/ops/nope", json={}, headers=auth) as r:
