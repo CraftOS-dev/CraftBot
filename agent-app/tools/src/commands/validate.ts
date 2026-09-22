@@ -112,6 +112,7 @@ interface Operation {
   name?: unknown;
   description?: unknown;
   system?: unknown;
+  destructive?: unknown;
   params?: unknown;
   executor?: {
     type?: unknown;
