@@ -203,6 +203,38 @@ def _check_external_guard(tmp: Path) -> None:
 print_external = "§4 external-app proxy honours the same grant: OK"
 
 
+async def _check_tunnel_needs_token(tmp: Path) -> None:
+    """A failed token mint (launch only warns) + "share this app" used to be
+    a publicly writable app. start_tunnel refuses, before touching anything."""
+    mgr, project, _ = _fixture(tmp)
+    project.status = "running"
+    mgr.projects = {project.id: project}
+    stopped = []
+
+    async def _stop(pid):
+        stopped.append(pid)
+
+    mgr.stop_tunnel = _stop
+    token_file = tmp / ".agent-token"
+    for content in (None, "", "  \n"):
+        if content is None:
+            token_file.unlink(missing_ok=True)
+        else:
+            token_file.write_text(content, encoding="utf-8")
+        try:
+            await mgr.start_tunnel(project.id)
+        except RuntimeError as e:
+            assert "access token" in str(e), e
+        else:
+            raise AssertionError(f"shared without a token ({content!r})")
+    assert not stopped, "refused before touching any existing tunnel"
+    assert not (tmp / ".tunnel-secret").exists()
+    assert not (tmp / ".tunnel-origin").exists()
+
+
+print_needs_token = "§4b tunnel refuses to share an app with no agent token: OK"
+
+
 with tempfile.TemporaryDirectory() as _tmp:
     asyncio.run(_check_sink(Path(_tmp)))
     print(print_sink)
@@ -218,6 +250,10 @@ with tempfile.TemporaryDirectory() as _tmp:
 with tempfile.TemporaryDirectory() as _tmp:
     _check_external_guard(Path(_tmp))
     print(print_external)
+
+with tempfile.TemporaryDirectory() as _tmp:
+    asyncio.run(_check_tunnel_needs_token(Path(_tmp)))
+    print(print_needs_token)
 
 with tempfile.TemporaryDirectory() as _tmp:
     _check_serving_port(Path(_tmp))

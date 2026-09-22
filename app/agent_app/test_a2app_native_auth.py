@@ -206,6 +206,19 @@ def _suite(base: str, proj: Path, superuser) -> None:
     assert post({**VIA_TUNNEL, "Origin": SHARED}, cookie=shared) in (401, 403)
     assert _req(base, "GET", create, VIA_TUNNEL, cookie=shared)[0] == 401
 
+    # ── no agent token on disk: the tunnel fails CLOSED, local stays usable ──
+    # (a failed mint at launch + "share this app" must never be public writes)
+    token_file = proj / ".agent-token"
+    token_file.write_text("", encoding="utf-8")
+    try:
+        status, _, body = _req(base, "POST", create, VIA_TUNNEL, {"title": "open?"})
+        assert status == 503 and body["code"] == "share_unavailable", (status, body)
+        assert _req(base, "DELETE", create + "/anything", VIA_TUNNEL)[0] == 503
+        assert _req(base, "GET", create, VIA_TUNNEL)[0] == 503
+        assert post(loopback, title="owner") == 200, "a missing token never locks the owner out"
+    finally:
+        token_file.write_text(TOKEN, encoding="utf-8")
+
 
 def main() -> None:
     pb = _pinned_pb_binary()

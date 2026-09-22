@@ -166,6 +166,27 @@ def validate_external_manifest(manifest: Any) -> List[str]:
     return problems
 
 
+def manifest_warnings(manifest: Any) -> List[str]:
+    """Non-fatal findings. A `destructive` op declared as GET: local reads
+    carry no credential by design (guard_request), so a GET op is invocable
+    cross-site by a plain link or top-level navigation. Declare it POST so
+    the caller check applies."""
+    warnings: List[str] = []
+    ops = manifest.get("operations") if isinstance(manifest, dict) else None
+    for op in ops if isinstance(ops, list) else []:
+        if not isinstance(op, dict) or op.get("destructive") is not True:
+            continue
+        executor = op.get("executor")
+        method = executor.get("method") if isinstance(executor, dict) else None
+        if isinstance(method, str) and method.upper() == "GET":
+            warnings.append(
+                f"operations[{op.get('name')!r}]: destructive op declared as GET "
+                "— any page can trigger it with a link (reads carry no "
+                "credential); declare it POST"
+            )
+    return warnings
+
+
 def load_external_manifest(project_dir: Path) -> Tuple[Dict[str, Any], List[str]]:
     """Read + validate <project>/operations.json. Returns (manifest, problems);
     an unreadable or unparseable file returns ({}, [reason])."""

@@ -4742,6 +4742,26 @@ UI in {project.path}/frontend/src/app/."""
             )
             return None
 
+        # No agent token = no credential the guards can check. They fail
+        # closed through the tunnel anyway (guard_request / authorizeCaller),
+        # but refuse here so the owner is told why instead of handed a link
+        # that only ever answers 503. The token is minted at launch; a failed
+        # mint (runner/manager only warn) must never end up shared.
+        token_file = Path(project.path) / ".agent-token"
+        try:
+            has_token = bool(token_file.read_text(encoding="utf-8").strip())
+        except Exception:
+            has_token = False
+        if not has_token:
+            logger.error(
+                f"[AGENT_APP] Refusing to share {project.name}: no agent token "
+                f"at {token_file}"
+            )
+            raise RuntimeError(
+                "This app has no access token, so it can't be shared safely. "
+                "Restart the app and try again."
+            )
+
         logger.info("[AGENT_APP] Stopping any existing tunnel...")
         await self.stop_tunnel(project_id)
 

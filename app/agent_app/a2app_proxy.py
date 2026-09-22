@@ -177,8 +177,9 @@ def guard_request(
       2. Caller — a mutation, or ANY request through the tunnel, must carry
          a credential: the agent token (constant-time compare) or this
          ingress's UI session cookie. The Origin plays no part here.
-    A project with no agent token provisioned is never locked out (native
-    parity: the token is minted at launch, so this is a pre-launch edge).
+    With no agent token on disk: local requests pass (the token is minted at
+    launch; a missing one must not lock the owner out), tunnel requests are
+    refused (503 share_unavailable) — fail closed, never publicly writable.
     """
     method = method.upper()
     mutating = method in MUTATING
@@ -197,7 +198,21 @@ def guard_request(
         return None
     expected = _read_secret(project_dir, ".agent-token")
     if not expected:
-        return None
+        # Locally a missing token must not lock the app out (it is minted at
+        # launch). Through the tunnel it FAILS CLOSED: with no token nothing
+        # can be checked, and "allow" would make a shared app publicly
+        # writable. start_tunnel refuses to share without one, too.
+        if not tunnel:
+            return None
+        return 503, {
+            "a2app": True,
+            "ok": False,
+            "code": "share_unavailable",
+            "message": (
+                "This app has no access token, so it cannot be shared. "
+                "Restart it from CraftBot."
+            ),
+        }
 
     lowered = {k.lower(): v for k, v in headers.items()}
     presented = next(
@@ -493,7 +508,13 @@ class ExternalA2AppProxy:
     def _share_exchange(self, request):
         """Trade the share link's secret for the tunnel UI session, then
         redirect to the same URL without it (out of the address bar, history
-        and anything the visitor copies onward)."""
+        and anything the visitor copies onward).
+
+        Residual exposure, accepted: the first request still carries the
+        secret in its URL, so it can reach Cloudflare's edge logs and the
+        tunnel log. It is scoped to one tunnel's lifetime (stop_tunnel
+        revokes it); moving it into the URL fragment would need a client-side
+        exchange step the app's own UI does not have."""
         from aiohttp import web
 
         secret = _read_secret(self.project_dir, ".tunnel-secret")

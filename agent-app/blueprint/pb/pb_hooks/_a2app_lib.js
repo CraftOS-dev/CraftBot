@@ -629,7 +629,21 @@ function authorizeCaller(e) {
   }
 
   var token = readProjectSecret('.agent-token');
-  if (token === '') return null; // no token provisioned — do not lock the app out
+  if (token === '') {
+    // Locally, a missing token must not lock the app out (it is minted at
+    // launch). Through the tunnel it FAILS CLOSED: no token means no
+    // credential can be checked, and "allow" would make a shared app
+    // publicly writable. Mirrors a2app_proxy.guard_request.
+    if (!tunnel) return null;
+    return {
+      status: 503,
+      body: {
+        ok: false,
+        code: 'share_unavailable',
+        error: 'This app has no access token, so it cannot be shared. Restart it from CraftBot.',
+      },
+    };
+  }
 
   // TODO(lui-compat): also accept the legacy X-LUI-Token from older clients.
   var presented = (headerOf(e, 'X-A2App-Token') || headerOf(e, 'X-LUI-Token')).trim();

@@ -23,6 +23,7 @@ from app.agent_app.a2app_proxy import (
     _validate_params,
 )
 from app.agent_app.ops_manifest import (
+    manifest_warnings,
     op_route,
     synthesize_params,
     validate_external_manifest,
@@ -139,6 +140,19 @@ def test_validator() -> None:
     assert any(
         "names no declared param" in p for p in validate_external_manifest(ghost)
     )
+    # destructive GET: a warning (reads carry no credential), not an error
+    risky = {
+        "opsVersion": 1,
+        "operations": [
+            _op("a.wipe", method="GET", destructive=True,
+                upstream={"method": "DELETE", "path": "/x"}),
+            _op("a.list", method="GET", upstream={"method": "GET", "path": "/x"}),
+            _op("a.del", destructive=True, upstream={"method": "DELETE", "path": "/x"}),
+        ],
+    }
+    assert validate_external_manifest(risky) == []
+    warned = manifest_warnings(risky)
+    assert len(warned) == 1 and "'a.wipe'" in warned[0] and "POST" in warned[0], warned
     print("validator: OK")
 
 
@@ -376,6 +390,35 @@ async def _auth_matrix(http, base: str, tmp: Path, seen) -> None:
     assert titles == ["agent", "agent+origin", "legacy", "ui", "visitor", "remote agent"], titles
 
 
+async def _no_token_matrix(http, base: str, tmp: Path) -> None:
+    """No agent token on disk: locally the owner is never locked out, but
+    through the tunnel the guard FAILS CLOSED — "allow" made a shared app
+    publicly writable whenever the launch-time mint had failed."""
+    create = f"{base}/api/ops/todos/create"
+    token_file = tmp / ".agent-token"
+    token_file.write_text("", encoding="utf-8")
+    try:
+        for method in ("POST", "DELETE"):
+            async with http.request(
+                method, create, json={"title": "open?"}, headers=VIA_TUNNEL
+            ) as r:
+                body = await r.json()
+                assert r.status == 503 and body["code"] == "share_unavailable", (
+                    method,
+                    r.status,
+                )
+        async with http.get(f"{base}/api/_a2app", headers=VIA_TUNNEL) as r:
+            assert r.status == 503
+        async with http.post(
+            create,
+            json={"title": "owner"},
+            headers={"Origin": f"http://127.0.0.1:{PROXY_PORT}"},
+        ) as r:
+            assert r.status == 200, "locally a missing token never locks the owner out"
+    finally:
+        token_file.write_text(TOKEN, encoding="utf-8")
+
+
 async def _proxy_suite(tmp: Path) -> None:
     import aiohttp
 
@@ -449,6 +492,7 @@ async def _proxy_suite(tmp: Path) -> None:
             assert r.status == 200 and (await r.json())["title"] == "call John"
 
         await _auth_matrix(http, base, tmp, seen)
+        await _no_token_matrix(http, base, tmp)
 
         # unknown op -> 404 envelope, never a silent passthrough
         async with http.post(f"{base}/api/ops/nope", json={}, headers=auth) as r:

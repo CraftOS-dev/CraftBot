@@ -702,6 +702,14 @@ function validateOps(projectDir: string): void {
       throw new Error(`${op.name}: http/job executor needs method + /api/... path`);
     }
 
+    // A destructive GET op: local reads carry no credential (authorizeCaller),
+    // so any page can trigger it with a link or top-level navigation.
+    if (op.destructive === true && method.toUpperCase() === 'GET') {
+      log.warn(
+        `${op.name}: destructive op declared as GET — any page can trigger it with a link (reads carry no credential); declare it POST`,
+      );
+    }
+
     // O3 structural check: non-system ops must resolve to a declared hook route.
     // System entries may point at PB built-ins (e.g. /api/health).
     const key = `${method} ${path}`;
