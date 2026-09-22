@@ -349,59 +349,68 @@ def cleanup_background_processes():
 atexit.register(cleanup_background_processes)
 
 
-def _kill_stale_port_process(port: int) -> bool:
-    """Kill any process listening on the given port (stale leftovers from previous runs).
-
-    Returns True if a stale process was found and killed.
-    """
-    if sys.platform != "win32":
-        try:
-            result = subprocess.run(
-                ["lsof", "-ti", f":{port}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            for pid_str in result.stdout.strip().split():
-                pid = int(pid_str)
-                if pid != os.getpid():
-                    subprocess.run(["kill", "-9", str(pid)], timeout=5)
-                    return True
-        except Exception:
-            pass
-        return False
-
-    # Windows: parse netstat to find the PID, then taskkill it
+def _launcher_ledger():
+    """Processes this launcher started (frontend, agent backend), recorded by
+    pid + start time so a later run can free our ports without touching
+    anything else. None if the ledger cannot load — then nothing is killed."""
     try:
-        result = subprocess.run(
-            ["netstat", "-ano"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        for line in result.stdout.splitlines():
-            # Match LISTENING lines for our port on any address
-            if f":{port}" in line and "LISTENING" in line:
-                parts = line.split()
-                pid = int(parts[-1])
-                if pid and pid != os.getpid():
-                    subprocess.run(
-                        ["taskkill", "/PID", str(pid), "/F"],
-                        capture_output=True,
-                        timeout=10,
-                    )
-                    return True
+        from app.process_ledger import get_ledger
+
+        return get_ledger("launcher")
     except Exception:
-        pass
-    return False
+        return None
+
+
+def _record_launched(process, label: str) -> None:
+    ledger = _launcher_ledger()
+    pid = getattr(process, "pid", None)
+    if ledger is not None and pid:
+        from app.process_ledger import ROLE_LAUNCHER
+
+        ledger.register(pid, ROLE_LAUNCHER, label=label)
+
+
+def _adopt_port_listeners(*ports: int) -> None:
+    """Record the servers on our ports once they are up — only ones descended
+    from a process we launched, plus this launcher itself (it serves the
+    static frontend in-process, and in frozen mode the agent too). That is what lets the NEXT run
+    free a port a crashed run left bound, without ever adopting a foreign
+    service that happened to answer on it."""
+    ledger = _launcher_ledger()
+    if ledger is None:
+        return
+    from app.process_ledger import ROLE_LAUNCHER
+
+    for port in ports:
+        ledger.adopt_listeners(
+            port,
+            ROLE_LAUNCHER,
+            label=f"listener :{port}",
+            # This process serves the static frontend in-process (and, when
+            # frozen, the agent too), so it is itself a port holder.
+            include_self=True,
+        )
 
 
 def _free_ports(*ports: int) -> None:
-    """Kill stale processes on the given ports before startup."""
+    """Free our ports of leftovers from a previous run — only processes that
+    run recorded starting. Anything else on the port is reported, not killed."""
+    ledger = _launcher_ledger()
+    if ledger is None:
+        return
+    from app.process_ledger import listening_pids
+
     for port in ports:
-        if _kill_stale_port_process(port):
+        if ledger.kill_port_listeners(port):
             # Give the OS a moment to release the socket
             time.sleep(0.5)
+        foreign = [p for p in listening_pids(port) if p != os.getpid()]
+        if foreign:
+            print(
+                f"Warning: port {port} is in use by PID {', '.join(map(str, foreign))}, "
+                f"which CraftBot did not start. Close it or pick another port "
+                f"(--frontend-port / --backend-port)."
+            )
 
 
 def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
@@ -807,6 +816,7 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             )
         process = subprocess.Popen(cmd, **popen_kwargs)
         _background_processes.append(process)
+        _record_launched(process, "frontend dev server")
         return process
     except FileNotFoundError:
         if not silent:
@@ -1100,6 +1110,7 @@ def launch_agent_background(
             stderr=sys.stderr,
         )
         _background_processes.append(process)
+        _record_launched(process, "agent backend")
         return process
     except Exception as e:
         if not silent:
@@ -1486,6 +1497,11 @@ if __name__ == "__main__":
             except Exception:
                 pass
             time.sleep(0.5)
+
+        _adopt_port_listeners(
+            *([FRONTEND_PORT] if frontend_ready else []),
+            *([BACKEND_PORT] if backend_ready else []),
+        )
 
         # Small delay to ensure agent's stdout is flushed before we print
         # The agent prints steps 3-8, and we want them to appear before the ready banner
