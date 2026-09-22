@@ -14,7 +14,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from aiohttp.client_exceptions import ClientConnectionResetError
@@ -166,6 +166,39 @@ from app.agent_app import (
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
     from aiohttp import web
+
+
+def _make_static_or_spa(dist: Path):
+    """Build the catch-all handler: serve a file from dist/, else index.html.
+
+    Every request path is resolved and must land inside the resolved dist/
+    (symlinks included); anything else is a 404, never a file from elsewhere.
+    """
+    from aiohttp import web
+
+    dist_root = dist.resolve()
+    index_path = dist_root / "index.html"
+
+    async def _static_or_spa(request: web.Request) -> web.StreamResponse:
+        req_path = request.match_info.get("path", "")
+        if not req_path:
+            return web.FileResponse(index_path)
+        # Refuse drive/root/UNC paths before touching the filesystem: joining
+        # an absolute path replaces dist/ outright, and resolving //host/share
+        # makes Windows authenticate to that host.
+        if PureWindowsPath(req_path).anchor or PurePosixPath(req_path).anchor:
+            raise web.HTTPNotFound()
+        try:
+            file_path = (dist_root / req_path).resolve()
+        except (OSError, ValueError):
+            raise web.HTTPNotFound()
+        if not file_path.is_relative_to(dist_root):
+            raise web.HTTPNotFound()
+        if file_path.is_file():
+            return web.FileResponse(file_path)
+        return web.FileResponse(index_path)
+
+    return _static_or_spa
 
 
 class BrowserThemeAdapter(ThemeAdapter):
@@ -1096,19 +1129,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Serve static files from dist/ (public/ files copied by Vite build)
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
-            _dist = frontend_dist  # capture for closure
-
-            async def _static_or_spa(request: web.Request) -> web.StreamResponse:
-                """Serve static file from dist/ if it exists, otherwise index.html for SPA routing."""
-                req_path = request.match_info.get("path", "")
-                if req_path:
-                    file_path = _dist / req_path
-                    if file_path.is_file():
-                        return web.FileResponse(file_path)
-                return web.FileResponse(_dist / "index.html")
-
             self._app.router.add_get("/", self._spa_handler)
-            self._app.router.add_get("/{path:.*}", _static_or_spa)
+            self._app.router.add_get(
+                "/{path:.*}", _make_static_or_spa(frontend_dist)
+            )
         else:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
