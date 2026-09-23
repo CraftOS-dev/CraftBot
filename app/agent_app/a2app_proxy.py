@@ -4,8 +4,8 @@ Spec: docs/design/external-app-a2app-adapter.md. A foreign codebase runs
 AS-IS and cannot host the PocketBase adapter hooks, so the A2App surface
 sits in FRONT of it: the app binds a hidden internal loopback port, this
 proxy binds the project's assigned port, answers the protocol endpoints
-itself, and passes every other request through untouched (the app's own UI
-keeps working). Because the proxy is system code running inside CraftBot,
+itself, and passes every other request through to the app (the app's own
+UI keeps working). Because the proxy is system code running inside CraftBot,
 "adapter stamped at every launch" holds for externals with no sync step.
 
 Served surface (mirrors the native pb_hooks adapter):
@@ -13,18 +13,30 @@ Served surface (mirrors the native pb_hooks adapter):
   GET /api/_a2app/describe   operations + conventions (entities: {} — the
                              foreign data model is not mapped; ops only)
   GET /api/_ops              operations.json verbatim
-  *   /api/ops/{name}        guarded invocation, mapped onto the app's API
-  *   anything else          transparent passthrough (HTTP + WebSocket)
+  *   /api/ops/{name}        invocation, mapped onto the app's API
+  *   anything else          passthrough to the app (HTTP + WebSocket)
 
-Auth mirrors _system.pb.js (see `guard_request`). Two independent checks:
-the ORIGIN check refuses foreign-origin mutations outright, and the CALLER
-check requires every mutation to carry a credential — X-A2App-Token from the
-project's .agent-token (programs, the agent), or the UI session cookie the
-app's own browser UI is issued. An allowed Origin is never a credential:
-shared traffic arrives over loopback and can claim any Origin it likes.
-Through a share channel (sharing.py: the public tunnel or the private LAN
-relay), every request needs the credential, reads included; the UI session
-there is only issued in exchange for that channel's share-link secret.
+EVERY route, passthrough included, sits behind one guard (`guard_request`,
+mirroring _system.pb.js). Two independent checks: the ORIGIN check refuses
+foreign-origin mutations outright, and the CALLER check requires every
+mutation to carry a credential — X-A2App-Token from the project's
+.agent-token (programs, the agent), or the UI session cookie the app's own
+browser UI is issued with the HTML page that boots it. An allowed Origin is
+never a credential: shared traffic arrives over loopback and can claim any
+Origin it likes. Locally, reads are open; through a share channel
+(sharing.py: the public tunnel or the private LAN relay), every request
+needs the credential, reads included, and the UI session there is only
+issued in exchange for that channel's share-link secret. A WebSocket
+handshake is judged as a mutation (it opens a write channel, and browsers
+apply no CORS to it) and refused before upgrading. Declared ops are the
+SHAPED write path (typed params, audit log); the app's native API is not a
+way around the guard.
+
+CORS is the proxy's policy, not the app's: upstream Access-Control-* headers
+are stripped, the grant is reflected only to loopback / a shared origin
+(`origin_allowed`), and a foreign origin gets none, so the browser withholds
+every response from it.
+
 Ops are (re)read from operations.json on every request, like the native
 describe, so the surface can never drift from the file on disk.
 """
@@ -54,6 +66,16 @@ from app.agent_app.ops_manifest import (
 EXTERNAL_ADAPTER_VERSION = "0.1.0"
 LOOPBACK_ORIGIN = re.compile(r"^https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$")
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+# Upstream Access-Control-* kept for ALLOWED origins only (see
+# _passthrough_cors); Allow-Origin itself is always the proxy's.
+UPSTREAM_CORS_SHAPE = {
+    "access-control-allow-methods",
+    "access-control-allow-headers",
+    "access-control-expose-headers",
+    "access-control-max-age",
+    "access-control-allow-credentials",
+    "access-control-allow-private-network",
+}
 # Hop-by-hop headers never forwarded in either direction (RFC 9110 §7.6.1).
 HOP_HEADERS = {
     "connection",
@@ -237,8 +259,15 @@ def guard_request(
         }
 
     remote = is_remote_request(headers)
-    # Preflights never carry credentials (browsers strip them by spec).
-    if method == "OPTIONS" or not (mutating or remote):
+    # A browser strips credentials from a preflight by spec, so requiring one
+    # would break every legitimate cross-origin call the app's own UI makes —
+    # locally, OPTIONS is therefore let through. Through a share channel it is
+    # NOT: the app's own UI is same-origin there (same host, same port) and so
+    # never preflights, while an uncredentialed OPTIONS that reached the app
+    # would carry its body upstream and return its response — every native
+    # route readable and drivable by anyone holding the bare share origin,
+    # which is the one thing the channel guard exists to prevent.
+    if (method == "OPTIONS" and not remote) or not (mutating or remote):
         return None
     expected = _read_secret(project_dir, ".agent-token")
     if not expected:
@@ -492,10 +521,15 @@ class ExternalA2AppProxy:
     def _origin_allowed(self, origin: str) -> bool:
         return origin_allowed(self.project_dir, origin)
 
-    def _deny(self, request):
-        """guard_request as a response: None to proceed, else the refusal."""
+    def _deny(self, request, method: Optional[str] = None):
+        """guard_request as a response: None to proceed, else the refusal.
+        `method` overrides the request's (a WebSocket handshake is a GET that
+        opens a write channel, so it is judged as one)."""
         denied = guard_request(
-            self.project_dir, request.method, request.headers, request.cookies
+            self.project_dir,
+            method or request.method,
+            request.headers,
+            request.cookies,
         )
         if denied is None:
             return None
@@ -515,7 +549,24 @@ class ExternalA2AppProxy:
         origin = request.headers.get("Origin", "")
         if origin and self._origin_allowed(origin):
             resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Vary"] = "Origin"
+            vary = resp.headers.get("Vary", "")
+            if "origin" not in {v.strip().lower() for v in vary.split(",")}:
+                resp.headers["Vary"] = f"{vary}, Origin" if vary else "Origin"
+
+    def _passthrough_cors(self, request, resp, upstream_headers) -> None:
+        """The proxy's CORS policy over the app's own responses. WHO may read
+        is the proxy's call (_reflect_cors), never the app's — an app sending
+        `Access-Control-Allow-Origin: *` would otherwise hand its data to any
+        site. HOW (methods, headers, max-age, credentials) describes the
+        app's API, so an allowed origin still gets the app's answer to that;
+        a foreign origin gets no Access-Control-* at all."""
+        origin = request.headers.get("Origin", "")
+        if not (origin and self._origin_allowed(origin)):
+            return
+        self._reflect_cors(request, resp)
+        for k, v in upstream_headers.items():
+            if k.lower() in UPSTREAM_CORS_SHAPE:
+                resp.headers[k] = v
 
     def _log_action(self, entry: Dict[str, Any]) -> None:
         try:
@@ -552,8 +603,14 @@ class ExternalA2AppProxy:
             return self._ops_manifest(request)
         if own:
             return await self._invoke(request)
-        # TODO(passthrough-auth): the app's own surface is not guarded yet;
-        # the follow-up applies guard_request here too.
+        # The app's own surface sits under the same guard: declared ops are
+        # not a guarded write path if the native API beside them is open.
+        # A WebSocket handshake is refused BEFORE upgrading — browsers apply
+        # no CORS to it, so this is the only cross-site defence it has.
+        websocket = request.headers.get("Upgrade", "").lower() == "websocket"
+        denied = self._deny(request, method="POST" if websocket else None)
+        if denied is not None:
+            return denied
         return await self._passthrough(request)
 
     def _share_exchange(self, request):
@@ -888,9 +945,12 @@ class ExternalA2AppProxy:
                 allow_redirects=False,
             ) as up:
                 resp = web.StreamResponse(status=up.status)
+                # add(), not assignment: an app may send several Set-Cookie.
                 for k, v in up.headers.items():
-                    if k.lower() not in HOP_HEADERS:
-                        resp.headers[k] = v
+                    lk = k.lower()
+                    if lk not in HOP_HEADERS and not lk.startswith("access-control-"):
+                        resp.headers.add(k, v)
+                self._passthrough_cors(request, resp, up.headers)
                 # The app's own UI gets its session with the page that boots
                 # it; its same-origin fetches then carry it automatically.
                 if request.method == "GET" and (up.content_type or "").startswith(
@@ -922,6 +982,8 @@ class ExternalA2AppProxy:
             )
 
     async def _ws_passthrough(self, request):
+        # Caller already cleared guard_request (as a mutation) in _handle;
+        # nothing here may upgrade a request that did not pass through it.
         import asyncio
 
         import aiohttp
