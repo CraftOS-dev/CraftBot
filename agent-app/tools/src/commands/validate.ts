@@ -15,7 +15,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileMatchesCanon, recordFileHash, verifySystemHashes } from '../lib/hashes.ts';
+import { fileMatchesCanon, recordFileHash } from '../lib/hashes.ts';
 import { log } from '../lib/log.ts';
 import { ensurePbBinary } from './pb.ts';
 
@@ -112,6 +112,7 @@ interface Operation {
   name?: unknown;
   description?: unknown;
   system?: unknown;
+  destructive?: unknown;
   params?: unknown;
   executor?: {
     type?: unknown;
@@ -700,6 +701,14 @@ function validateOps(projectDir: string): void {
     const path = op.executor?.path;
     if (typeof method !== 'string' || typeof path !== 'string' || !path.startsWith('/api/')) {
       throw new Error(`${op.name}: http/job executor needs method + /api/... path`);
+    }
+
+    // A destructive GET op: local reads carry no credential (authorizeCaller),
+    // so any page can trigger it with a link or top-level navigation.
+    if (op.destructive === true && method.toUpperCase() === 'GET') {
+      log.warn(
+        `${op.name}: destructive op declared as GET — any page can trigger it with a link (reads carry no credential); declare it POST`,
+      );
     }
 
     // O3 structural check: non-system ops must resolve to a declared hook route.

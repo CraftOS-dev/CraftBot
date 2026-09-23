@@ -12,7 +12,7 @@ import { useTheme } from '../../contexts/ThemeContext'
 import { Button } from '../../components/ui/Button'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { Chat } from '../../components/Chat'
-import { getOrCreateIframe, showIframe, hideIframe, removeIframe, postMessageToIframe, ownsProjectWindow } from './iframePool'
+import { getOrCreateIframe, showIframe, hideIframe, removeIframe, postMessageToIframe, ownsProjectWindow, frameUrl } from './iframePool'
 import { ConstructionDock } from './ConstructionDock'
 import { AgentAppThemeModal, DEFAULT_CUSTOM_COLORS } from './AgentAppThemeModal'
 import type { AgentAppThemeId, AgentAppCustomColors } from './AgentAppThemeModal'
@@ -183,9 +183,10 @@ export function AgentAppPage() {
     // Version-stamped src: a new deploy broadcasts ready → new readyAt →
     // the pool navigates the frame past the browser's HTTP cache. Without
     // this, the iframe kept rendering the pre-deploy build.
+    const base = frameUrl(project.url)
     const versionedSrc = project.readyAt
-      ? `${project.url}${project.url.includes('?') ? '&' : '?'}v=${project.readyAt}`
-      : project.url
+      ? `${base}${base.includes('?') ? '&' : '?'}v=${project.readyAt}`
+      : base
     getOrCreateIframe(projectId, versionedSrc)
 
     const updatePosition = () => {

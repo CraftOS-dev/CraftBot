@@ -23,6 +23,7 @@ from app.agent_app.a2app_proxy import (
     _validate_params,
 )
 from app.agent_app.ops_manifest import (
+    manifest_warnings,
     op_route,
     synthesize_params,
     validate_external_manifest,
@@ -31,6 +32,7 @@ from app.agent_app.ops_verify import verify_external_ops
 
 PROXY_PORT = 18471
 UPSTREAM_PORT = 18472
+LAN_PORT = 18473
 TOKEN = "test-agent-token"
 
 
@@ -139,6 +141,19 @@ def test_validator() -> None:
     assert any(
         "names no declared param" in p for p in validate_external_manifest(ghost)
     )
+    # destructive GET: a warning (reads carry no credential), not an error
+    risky = {
+        "opsVersion": 1,
+        "operations": [
+            _op("a.wipe", method="GET", destructive=True,
+                upstream={"method": "DELETE", "path": "/x"}),
+            _op("a.list", method="GET", upstream={"method": "GET", "path": "/x"}),
+            _op("a.del", destructive=True, upstream={"method": "DELETE", "path": "/x"}),
+        ],
+    }
+    assert validate_external_manifest(risky) == []
+    warned = manifest_warnings(risky)
+    assert len(warned) == 1 and "'a.wipe'" in warned[0] and "POST" in warned[0], warned
     print("validator: OK")
 
 
@@ -230,6 +245,253 @@ class _Project:
         self.project_type = "external"
 
 
+SHARED = "https://shared-demo.trycloudflare.com"
+# What cloudflared delivers: Cloudflare's stamps plus the public Host.
+VIA_TUNNEL = {
+    "Host": "shared-demo.trycloudflare.com",
+    "Cf-Ray": "8c0ffee-LHR",
+    "Cf-Connecting-Ip": "203.0.113.9",
+    "X-Forwarded-For": "203.0.113.9",
+}
+
+
+def _set_cookie(resp) -> "tuple[str, str]":
+    """(name, value) from the response's A2App session Set-Cookie."""
+    for raw in resp.headers.getall("Set-Cookie", []):
+        pair = raw.split(";", 1)[0]
+        if pair.startswith("a2app_s_"):
+            name, _, value = pair.partition("=")
+            return name, value
+    raise AssertionError("no a2app session cookie issued")
+
+
+async def _auth_matrix(http, base: str, tmp: Path, seen) -> None:
+    """The auth bypass (allowed Origin skipped the token check) and the
+    browser-session design that replaced it. Origin and caller are
+    independent: an allowed Origin never authenticates anything."""
+    create = f"{base}/api/ops/todos/create"
+    loopback = {"Origin": f"http://127.0.0.1:{PROXY_PORT}"}
+    before = len(seen["todos"])
+
+    async def post(headers, cookie=None, title="x"):
+        h = dict(headers)
+        if cookie:
+            h["Cookie"] = f"{cookie[0]}={cookie[1]}"
+        async with http.post(create, json={"title": title}, headers=h) as r:
+            return r.status, await r.json()
+
+    # ── refused ──
+    status, body = await post({"Origin": "https://evil.example"})
+    assert status == 403 and body["code"] == "forbidden_origin", body
+    status, _ = await post({"Origin": "https://evil.example", **{"X-A2App-Token": TOKEN}})
+    assert status == 403, "a token does not launder a foreign origin"
+    for label, headers in (
+        ("no Origin, no token", {}),
+        ("no Origin, wrong token", {"X-A2App-Token": "nope"}),
+        ("loopback Origin, no token", loopback),
+        ("other loopback port, no token", {"Origin": "http://localhost:1"}),
+        ("loopback Origin, wrong token", {**loopback, "X-A2App-Token": "nope"}),
+        ("token prefix", {"X-A2App-Token": TOKEN[:-1]}),
+    ):
+        status, body = await post(headers)
+        assert status == 401 and body["code"] == "unauthorized", (label, status)
+    (tmp / ".tunnel-origin").write_text(SHARED, encoding="utf-8")
+    status, _ = await post({"Origin": SHARED})
+    assert status == 401, "shared Origin alone must not authenticate"
+    status, _ = await post({"Origin": SHARED, "X-A2App-Token": "nope"})
+    assert status == 401
+    assert len(seen["todos"]) == before, "a refused write reached the app"
+
+    # reads stay open locally
+    async with http.get(f"{base}/api/ops/todos/list") as r:
+        assert r.status == 200
+
+    # ── the agent: token, with or without an Origin ──
+    status, _ = await post({"X-A2App-Token": TOKEN}, title="agent")
+    assert status == 200
+    status, _ = await post({**loopback, "X-A2App-Token": TOKEN}, title="agent+origin")
+    assert status == 200
+    status, _ = await post({"X-LUI-Token": TOKEN}, title="legacy")
+    assert status == 200, "legacy header still accepted"
+
+    # ── the app's own UI, locally: the page that boots it issues the session
+    async with http.get(f"{base}/") as r:
+        assert r.status == 200 and (await r.text()) == "UPSTREAM OK"
+        local = _set_cookie(r)
+        raw = r.headers.getall("Set-Cookie")[0]
+        assert "HttpOnly" in raw and "SameSite=Lax" in raw and "Secure" not in raw
+    async with http.get(f"{base}/", headers={"Cookie": f"{local[0]}={local[1]}"}) as r:
+        assert "Set-Cookie" not in r.headers, "a valid session is not re-issued"
+    async with http.get(f"{base}/api/todos") as r:  # JSON: no session minted
+        assert "Set-Cookie" not in r.headers
+    status, _ = await post(loopback, cookie=local, title="ui")
+    assert status == 200
+    status, _ = await post(loopback, cookie=(local[0], local[1][:-1] + "0"))
+    assert status == 401, "a tampered session is no session"
+
+    # ── through the tunnel ──
+    async with http.get(f"{base}/api/_a2app", headers=VIA_TUNNEL) as r:
+        body = await r.json()
+        assert r.status == 401 and body["code"] == "share_session_required"
+    # Either signal alone marks the tunnel: a public Host, or a Cloudflare
+    # stamp on a loopback Host.
+    for only in ({"Host": VIA_TUNNEL["Host"]}, {"Cf-Ray": VIA_TUNNEL["Cf-Ray"]}):
+        async with http.get(f"{base}/api/_a2app", headers=only) as r:
+            assert r.status == 401, only
+    status, _ = await post({**VIA_TUNNEL, **loopback})
+    assert status == 401, "a forged loopback Origin through the tunnel"
+    status, _ = await post({**VIA_TUNNEL, "Origin": SHARED}, cookie=local)
+    assert status == 401, "a local session is never a tunnel credential"
+    async with http.get(f"{base}/", headers=VIA_TUNNEL) as r:
+        assert "Set-Cookie" not in r.headers, "tunnel sessions only via the share link"
+
+    secret = "share-secret-for-tests-0123456789abcdef"
+    (tmp / ".tunnel-secret").write_text(secret, encoding="utf-8")
+    async with http.get(
+        f"{base}/?a2app_share=wrong", headers=VIA_TUNNEL, allow_redirects=False
+    ) as r:
+        assert r.status == 403 and (await r.json())["code"] == "share_link_invalid"
+    async with http.get(
+        f"{base}/?a2app_share={secret}&tab=2",
+        headers=VIA_TUNNEL,
+        allow_redirects=False,
+    ) as r:
+        assert r.status == 302, r.status
+        assert r.headers["Location"] == "/?tab=2", "secret must leave the URL"
+        shared = _set_cookie(r)
+        assert "Secure" in r.headers["Set-Cookie"]
+    async with http.get(
+        f"{base}/?a2app_share={secret}", allow_redirects=False
+    ) as r:
+        assert r.status == 200, "locally the parameter means nothing"
+
+    status, _ = await post({**VIA_TUNNEL, "Origin": SHARED}, cookie=shared, title="visitor")
+    assert status == 200
+    async with http.get(
+        f"{base}/api/_a2app",
+        headers={**VIA_TUNNEL, "Cookie": f"{shared[0]}={shared[1]}"},
+    ) as r:
+        assert r.status == 200
+    status, _ = await post(loopback, cookie=shared)
+    assert status == 401, "a tunnel session is not a local credential"
+    status, _ = await post({**VIA_TUNNEL, "X-A2App-Token": TOKEN}, title="remote agent")
+    assert status == 200
+    async with http.post(
+        create, json={"title": "evil"}, headers={**VIA_TUNNEL, "Origin": "https://evil.example",
+                                                 "Cookie": f"{shared[0]}={shared[1]}"}
+    ) as r:
+        assert r.status == 403, "a session does not launder a foreign origin"
+
+    # stopping the tunnel ends every shared session at once
+    (tmp / ".tunnel-secret").unlink()
+    (tmp / ".tunnel-origin").unlink()
+    status, _ = await post({**VIA_TUNNEL, "Origin": SHARED}, cookie=shared)
+    assert status in (401, 403)
+    titles = [t["title"] for t in seen["todos"][before:]]
+    assert titles == ["agent", "agent+origin", "legacy", "ui", "visitor", "remote agent"], titles
+
+
+async def _no_token_matrix(http, base: str, tmp: Path) -> None:
+    """No agent token on disk: locally the owner is never locked out, but
+    through the tunnel the guard FAILS CLOSED — "allow" made a shared app
+    publicly writable whenever the launch-time mint had failed."""
+    create = f"{base}/api/ops/todos/create"
+    token_file = tmp / ".agent-token"
+    token_file.write_text("", encoding="utf-8")
+    try:
+        for method in ("POST", "DELETE"):
+            async with http.request(
+                method, create, json={"title": "open?"}, headers=VIA_TUNNEL
+            ) as r:
+                body = await r.json()
+                assert r.status == 503 and body["code"] == "share_unavailable", (
+                    method,
+                    r.status,
+                )
+        async with http.get(f"{base}/api/_a2app", headers=VIA_TUNNEL) as r:
+            assert r.status == 503
+        async with http.post(
+            create,
+            json={"title": "owner"},
+            headers={"Origin": f"http://127.0.0.1:{PROXY_PORT}"},
+        ) as r:
+            assert r.status == 200, "locally a missing token never locks the owner out"
+    finally:
+        token_file.write_text(TOKEN, encoding="utf-8")
+
+
+async def _lan_matrix(http, tmp: Path, seen) -> None:
+    """The private LAN link, end to end: a real LanRelay in front of the
+    proxy. The relay stamps X-Forwarded-For on everything, so the guard sees
+    LAN visitors as remote — no link, no access — whatever they send."""
+    from app.agent_app.sharing import LanRelay, ShareGrant
+
+    relay = LanRelay("127.0.0.1", LAN_PORT, PROXY_PORT)
+    bound = await relay.start()
+    assert bound == LAN_PORT, bound
+    base = f"http://127.0.0.1:{bound}"
+    create = f"{base}/api/ops/todos/create"
+    lan_origin = "http://192.168.1.50:3101"
+    before = len(seen["todos"])
+    grant = ShareGrant("lan")
+    try:
+        async def post(headers, cookie=None, title="x"):
+            h = dict(headers)
+            if cookie:
+                h["Cookie"] = f"{cookie[0]}={cookie[1]}"
+            async with http.post(create, json={"title": title}, headers=h) as r:
+                return r.status
+
+        # LAN link switched off: nothing gets through, however it asks —
+        # including a visitor claiming to be local (the relay overwrites it).
+        for headers in ({}, {"Host": f"127.0.0.1:{PROXY_PORT}"}, {"X-Forwarded-For": "127.0.0.1"}):
+            async with http.get(f"{base}/api/_a2app", headers=headers) as r:
+                assert r.status == 401, (headers, r.status)
+                assert (await r.json())["code"] == "share_session_required"
+        async with http.get(f"{base}/") as r:
+            assert "Set-Cookie" not in r.headers, "no local session over the LAN"
+        async with http.get(f"{base}/?a2app_share=anything", allow_redirects=False) as r:
+            assert r.status == 403
+
+        # switched on: the link's secret buys a (non-Secure: plain http) session
+        grant.publish(tmp, lan_origin)
+        secret = (tmp / ".lan-secret").read_text(encoding="utf-8").strip()
+        async with http.get(
+            f"{base}/?a2app_share={secret}&tab=2", allow_redirects=False
+        ) as r:
+            assert r.status == 302 and r.headers["Location"] == "/?tab=2"
+            lan = _set_cookie(r)
+            assert "Secure" not in r.headers["Set-Cookie"], "http LAN needs a plain cookie"
+        async with http.get(
+            f"{base}/api/_a2app", headers={"Cookie": f"{lan[0]}={lan[1]}"}
+        ) as r:
+            assert r.status == 200
+        assert await post({"Origin": lan_origin}, cookie=lan, title="lan visitor") == 200
+        assert await post({"Origin": lan_origin}) == 401, "the LAN origin authenticates nobody"
+        assert await post({"Origin": "https://evil.example"}, cookie=lan) == 403
+        assert await post({"X-A2App-Token": TOKEN}, title="lan agent") == 200
+
+        # a local session is never a LAN credential, nor the reverse
+        async with http.get(f"http://127.0.0.1:{PROXY_PORT}/") as r:
+            local = _set_cookie(r)
+        assert await post({"Origin": lan_origin}, cookie=local) == 401
+        async with http.post(
+            f"http://127.0.0.1:{PROXY_PORT}/api/ops/todos/create",
+            json={"title": "x"},
+            headers={"Cookie": f"{lan[0]}={lan[1]}"},
+        ) as r:
+            assert r.status == 401, "a LAN session is not a local credential"
+
+        # switched off: every LAN session ends at once
+        grant.revoke(tmp)
+        assert await post({"Origin": lan_origin}, cookie=lan) in (401, 403)
+        titles = [t["title"] for t in seen["todos"][before:]]
+        assert titles == ["lan visitor", "lan agent"], titles
+    finally:
+        grant.revoke(tmp)
+        await relay.stop()
+
+
 async def _proxy_suite(tmp: Path) -> None:
     import aiohttp
 
@@ -244,7 +506,8 @@ async def _proxy_suite(tmp: Path) -> None:
     base = f"http://127.0.0.1:{PROXY_PORT}"
     auth = {"X-A2App-Token": TOKEN, "X-A2App-Agent": "test-suite"}
 
-    async with aiohttp.ClientSession() as http:
+    # No cookie jar: every cookie in this suite is sent deliberately.
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar()) as http:
         # identity: the structural probe
         async with http.get(f"{base}/api/_a2app") as r:
             ident = await r.json()
@@ -301,28 +564,9 @@ async def _proxy_suite(tmp: Path) -> None:
         async with http.get(f"{base}/api/ops/todos/get", params={"id": "1"}) as r:
             assert r.status == 200 and (await r.json())["title"] == "call John"
 
-        # auth: mutation without token -> 401; GET needs none
-        async with http.post(f"{base}/api/ops/todos/create", json={"title": "x"}) as r:
-            assert r.status == 401 and (await r.json())["code"] == "unauthorized"
-        async with http.get(f"{base}/api/ops/todos/list") as r:
-            assert r.status == 200
-
-        # origin guard: foreign-origin mutation refused outright; loopback ok
-        async with http.post(
-            f"{base}/api/ops/todos/create",
-            json={"title": "evil"},
-            headers={"Origin": "https://evil.example"},
-        ) as r:
-            assert r.status == 403 and (await r.json())["code"] == "forbidden_origin"
-        async with http.post(
-            f"{base}/api/ops/todos/create",
-            json={"title": "ui"},
-            headers={"Origin": f"http://127.0.0.1:{PROXY_PORT}"},
-        ) as r:
-            assert r.status == 200
-            assert r.headers["Access-Control-Allow-Origin"] == (
-                f"http://127.0.0.1:{PROXY_PORT}"
-            )
+        await _auth_matrix(http, base, tmp, seen)
+        await _no_token_matrix(http, base, tmp)
+        await _lan_matrix(http, tmp, seen)
 
         # unknown op -> 404 envelope, never a silent passthrough
         async with http.post(f"{base}/api/ops/nope", json={}, headers=auth) as r:
@@ -339,7 +583,7 @@ async def _proxy_suite(tmp: Path) -> None:
         async with http.get(f"{base}/") as r:
             assert r.status == 200 and (await r.text()) == "UPSTREAM OK"
         async with http.get(f"{base}/api/todos") as r:
-            assert r.status == 200 and len(await r.json()) == 2
+            assert r.status == 200 and len(await r.json()) == len(seen["todos"])
 
         # ops_verify drives the real surface: boom must fail the verdict,
         # wipe must be skipped (destructive), the rest pass

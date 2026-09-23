@@ -683,7 +683,9 @@
     "deleteBackupMessage": "要永久刪除 {{date}} 的備份嗎？",
     "lan": "區域網路",
     "public": "公開",
-    "notShared": "未分享",
+    "lanHint": "同一網路中的裝置(需憑連結)",
+    "publicHint": "網際網路上的任何人(需憑連結)",
+    "createLanLink": "建立區域網路連結",
     "starting": "啟動中…",
     "createTunnel": "建立通道"
   }

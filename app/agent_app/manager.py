@@ -31,6 +31,7 @@ from typing import Dict, List, Optional, Any, Set, Tuple, TYPE_CHECKING
 
 from app import node_runtime
 from app.agent_app import marketplace_source
+from app.agent_app.sharing import SHARE_STATE_FILES, ShareError, SharingService
 
 try:
     from loguru import logger
@@ -194,11 +195,6 @@ class AgentAppProject:
     # binds; the A2App proxy holds `port` in front of it (NOT serialized —
     # reallocated at every launch).
     internal_port: Optional[int] = None
-    tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
-    tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
-    # Open file object the tunnel process writes into (NOT serialized). Held
-    # so it can be closed when the tunnel stops — see start_tunnel.
-    tunnel_log: Optional[Any] = None
     process: Optional[subprocess.Popen] = None  # Frontend process
 
     def to_dict(self) -> Dict[str, Any]:
@@ -230,7 +226,6 @@ class AgentAppProject:
             "appRuntime": self.app_runtime,
             "craftbotVersion": self.craftbot_version,
             "agentAppVersion": 2,
-            "tunnelUrl": self.tunnel_url,
         }
 
 
@@ -278,6 +273,10 @@ class AgentAppManager:
         # external-app-a2app-adapter.md). The proxy holds the project PORT,
         # so every kill-by-port on a project port must stop the proxy first.
         self._external_proxies: Dict[str, Any] = {}
+
+        # Share channels (private LAN link, public tunnel link): every way a
+        # running app is reached from off this machine. See sharing.py.
+        self.sharing = SharingService(self._terminate_process)
 
         # Ensure workspace directory exists
         self.agent_app_dir = self.workspace_root / "agent_app"
@@ -950,28 +949,9 @@ UI in {project.path}/frontend/src/app/."""
                             app_runtime=project_data.get("appRuntime"),
                             craftbot_version=project_data.get("craftbotVersion"),
                         )
-                        # Check if saved tunnel URL is still reachable
-                        saved_tunnel = project_data.get("tunnelUrl")
-                        if saved_tunnel:
-                            try:
-                                import urllib.request
-
-                                req = urllib.request.Request(
-                                    saved_tunnel, method="HEAD"
-                                )
-                                urllib.request.urlopen(req, timeout=3)
-                                project.tunnel_url = saved_tunnel
-                                logger.info(
-                                    f"[AGENT_APP] Tunnel still active for '{project.name}': {saved_tunnel}"
-                                )
-                            except Exception:
-                                logger.info(
-                                    f"[AGENT_APP] Tunnel expired for '{project.name}', clearing"
-                                )
-                                project.tunnel_url = None
-                                # The app must stop trusting an origin that no
-                                # longer reaches it.
-                                self._publish_tunnel_origin(project, None)
+                        # Share channels: keep a grant whose transport
+                        # survived the restart, revoke the rest.
+                        self.sharing.restore(project)
                         self.projects[project.id] = project
                         # The live port is sticky: reserved for the project's
                         # whole lifetime, not a single boot, so the allocator
@@ -3158,6 +3138,7 @@ UI in {project.path}/frontend/src/app/."""
         "token.json",
         ".superuser",
         ".agent-token",
+        *SHARE_STATE_FILES,
         ".jwt_secret",
         ".npmrc",
         ".netrc",
@@ -3329,7 +3310,8 @@ UI in {project.path}/frontend/src/app/."""
 
         # Never trust shipped credentials or runtime state.
         (dest / ".superuser").unlink(missing_ok=True)
-        (dest / ".tunnel-origin").unlink(missing_ok=True)
+        for name in SHARE_STATE_FILES:
+            (dest / name).unlink(missing_ok=True)
 
         # Rewrite identity + port (pipeline start command embeds the port).
         old_port = manifest.get("port")
@@ -4429,8 +4411,8 @@ UI in {project.path}/frontend/src/app/."""
                     f"[AGENT_APP:BACKUP] backup cleanup failed for {project_id}: {e}"
                 )
 
-        # Stop tunnel if active
-        await self.stop_tunnel(project_id)
+        # Close every share link
+        await self.sharing.close_all(project)
 
         # Stop if running
         if project.status == "running":
@@ -4571,9 +4553,9 @@ UI in {project.path}/frontend/src/app/."""
             "credentials.json",
             "token.json",
             ".jwt_secret",
-            # Host-local, tunnel-lifetime state: an exported app must not
+            # Host-local, share-lifetime state: an exported app must not
             # arrive somewhere else already trusting a foreign origin.
-            ".tunnel-origin",
+            *SHARE_STATE_FILES,
         }
 
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -4599,25 +4581,8 @@ UI in {project.path}/frontend/src/app/."""
         return None
 
     # ------------------------------------------------------------------
-    # LAN & Tunnel sharing
+    # Sharing (private LAN link / public tunnel link) — see sharing.py
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def get_lan_ip() -> Optional[str]:
-        """Get the machine's LAN IP address."""
-        try:
-            # Connect to a public IP to determine the right interface
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(1)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            try:
-                return socket.gethostbyname(socket.gethostname())
-            except Exception:
-                return None
 
     @staticmethod
     def _serving_port(project: AgentAppProject) -> Optional[int]:
@@ -4631,345 +4596,28 @@ UI in {project.path}/frontend/src/app/."""
         served from it any more."""
         return project.port
 
-    def get_lan_url(self, project_id: str) -> Optional[str]:
-        """Get the LAN-accessible URL for a running project.
-
-        One port for everything: the app serves its API and its frontend
-        static files from the same listener.
-        """
+    async def open_share(self, project_id: str, channel: str) -> str:
+        """Open a share channel ("lan" | "tunnel") for a running project and
+        return its share link. Raises ShareError with an owner-facing reason."""
         project = self.projects.get(project_id)
         if not project or project.status != "running":
-            return None
+            raise ShareError("Start the app before sharing it.")
         port = self._serving_port(project)
         if not port:
-            return None
-        ip = self.get_lan_ip()
-        if not ip or ip.startswith("127."):
-            return None
-        return f"http://{ip}:{port}"
+            raise ShareError("The app has no port to share.")
+        return await self.sharing.open(project, channel, port)
 
-    # Cloudflared binary download URLs per platform
-    _CLOUDFLARED_URLS = {
-        "win32": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        "darwin": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz",
-        "linux": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
-    }
-
-    def _get_cloudflared_path(self) -> Optional[str]:
-        """Find cloudflared — check PATH first, then our local bin directory."""
-        system_path = shutil.which("cloudflared")
-        if system_path:
-            return system_path
-        # Check our local bin
-        import sys
-
-        ext = ".exe" if sys.platform == "win32" else ""
-        local_bin = Path(__file__).parent.parent / "bin" / f"cloudflared{ext}"
-        if local_bin.exists():
-            return str(local_bin)
-        return None
-
-    async def _ensure_cloudflared(self) -> Optional[str]:
-        """Find cloudflared or auto-install it. Returns the binary path or None."""
-        path = self._get_cloudflared_path()
-        if path:
-            return path
-
-        logger.info("[AGENT_APP] cloudflared not found, auto-installing...")
-        import sys
-        import urllib.request
-
-        platform_key = sys.platform
-        if platform_key not in self._CLOUDFLARED_URLS:
-            logger.error(f"[AGENT_APP] Unsupported platform: {platform_key}")
-            return None
-
-        bin_dir = Path(__file__).parent.parent / "bin"
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        ext = ".exe" if platform_key == "win32" else ""
-        target = bin_dir / f"cloudflared{ext}"
-
-        try:
-            url = self._CLOUDFLARED_URLS[platform_key]
-            req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
-            resp = urllib.request.urlopen(req, timeout=60)
-
-            if platform_key == "darwin":
-                import tarfile
-                import io
-
-                with tarfile.open(fileobj=io.BytesIO(resp.read()), mode="r:gz") as tar:
-                    for member in tar.getmembers():
-                        if "cloudflared" in member.name:
-                            f = tar.extractfile(member)
-                            if f:
-                                target.write_bytes(f.read())
-                                break
-            else:
-                target.write_bytes(resp.read())
-
-            if platform_key != "win32":
-                target.chmod(0o755)
-
-            logger.info(f"[AGENT_APP] cloudflared installed at {target}")
-            return str(target)
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Failed to download cloudflared: {e}")
-            if target.exists():
-                target.unlink()
-            return None
-
-    async def start_tunnel(
-        self, project_id: str, provider: str = "cloudflared"
-    ) -> Optional[str]:
-        """Start a cloudflare tunnel for remote access. Returns the public URL."""
-        logger.info(f"[AGENT_APP] start_tunnel called for {project_id}")
+    async def close_share(self, project_id: str, channel: str) -> None:
         project = self.projects.get(project_id)
-        if not project or project.status != "running":
-            logger.warning(
-                f"[AGENT_APP] Cannot start tunnel: project={project is not None}, status={project.status if project else 'N/A'}"
-            )
-            return None
+        if project:
+            await self.sharing.close(project, channel)
 
-        logger.info("[AGENT_APP] Stopping any existing tunnel...")
-        await self.stop_tunnel(project_id)
-
-        # Only kill orphans on first tunnel start (no other tunnels active)
-        other_tunnels = any(
-            p.tunnel_process is not None and p.id != project_id
-            for p in self.projects.values()
-        )
-        if not other_tunnels:
-            logger.info(
-                "[AGENT_APP] No other tunnels active, cleaning orphan cloudflared processes..."
-            )
-            try:
-                if os.name == "nt":
-                    subprocess.run(
-                        [
-                            "powershell",
-                            "-Command",
-                            "Stop-Process -Name cloudflared -Force -ErrorAction SilentlyContinue",
-                        ],
-                        capture_output=True,
-                        timeout=5,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                        if hasattr(subprocess, "CREATE_NO_WINDOW")
-                        else 0,
-                    )
-                else:
-                    subprocess.run(["pkill", "-f", "cloudflared"], capture_output=True)
-                await asyncio.sleep(1)
-            except Exception:
-                pass
-
-        port = self._serving_port(project)
-        if not port:
-            return None
-
-        cloudflared = await self._ensure_cloudflared()
-        if not cloudflared:
-            logger.error("[AGENT_APP] cloudflared binary not found")
-            return None
-
-        # cloudflared writes to stderr for the WHOLE life of the tunnel, not
-        # just at startup. Piping that into this process and then not draining
-        # it — which is what "find the URL, return from the reader thread"
-        # did — fills the OS pipe buffer (4 KB by default on Windows) and
-        # cloudflared then BLOCKS forever on its next write. The tunnel stops
-        # proxying while the process still looks perfectly alive, so remote
-        # visitors hang until their client times out, and every byte that would
-        # explain why is stuck unread in that buffer. A file sink has no such
-        # backpressure, and doubles as the log this had no way to produce.
-        log_handle, log_path, log_offset = self._open_tunnel_log(project, port)
-        if log_handle is None:
-            logger.error("[AGENT_APP] No writable location for the cloudflared log")
-            return None
-
-        # 127.0.0.1, NOT localhost: PocketBase binds --http=127.0.0.1:<port>
-        # (runner.start) and the external-app proxy binds the same, so neither
-        # ever listens on ::1. cloudflared resolves 'localhost' to ::1 first on
-        # Windows and got "connectex: No connection could be made" on every
-        # single request — the tunnel came up healthy, announced its URL, and
-        # then refused every visitor.
-        origin_url = f"http://127.0.0.1:{port}"
-        logger.info(
-            f"[AGENT_APP] Starting cloudflared: {cloudflared} tunnel "
-            f"--url {origin_url} (log: {log_path})"
-        )
-        proc = subprocess.Popen(
-            [cloudflared, "tunnel", "--url", origin_url],
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW
-            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-            else 0,
-        )
-        logger.info(f"[AGENT_APP] cloudflared started, PID={proc.pid}, parsing URL...")
-        url = await self._parse_cloudflare_url(proc, log_path, log_offset)
-        logger.info(f"[AGENT_APP] cloudflared URL parse result: {url}")
-
-        if url:
-            project.tunnel_process = proc
-            project.tunnel_log = log_handle
-            project.tunnel_url = url
-            self._publish_tunnel_origin(project, url)
-            self._save_projects()
-            logger.info(f"[AGENT_APP] Tunnel started for {project.name}: {url}")
-            return url
-        else:
-            self._terminate_process(proc)
-            self._close_tunnel_log(log_handle)
-            logger.error(
-                f"[AGENT_APP] Failed to get tunnel URL; cloudflared's own "
-                f"output is in {log_path}"
-            )
-            return None
-
-    async def stop_tunnel(self, project_id: str) -> None:
-        """Stop the tunnel for a project."""
+    def share_links(self, project_id: str) -> Dict[str, Optional[str]]:
+        """{channel: share link, or None while that channel is closed}."""
         project = self.projects.get(project_id)
         if not project:
-            return
-        if project.tunnel_process:
-            self._terminate_process(project.tunnel_process)
-            project.tunnel_process = None
-        self._close_tunnel_log(project.tunnel_log)
-        project.tunnel_log = None
-        project.tunnel_url = None
-        self._publish_tunnel_origin(project, None)
-        self._save_projects()
-        logger.info(f"[AGENT_APP] Tunnel stopped for {project.name}")
-
-    @staticmethod
-    def _tunnel_log_path(project: AgentAppProject) -> Path:
-        return Path(project.path) / "logs" / "cloudflared.log"
-
-    def _open_tunnel_log(
-        self, project: AgentAppProject, port: int
-    ) -> Tuple[Optional[Any], Path, int]:
-        """Open cloudflared's output sink. Returns (handle, path, offset).
-
-        The sink is not optional — it is both the tunnel's only log and the
-        only place the public URL is announced — so an unwritable project
-        directory falls back to the temp dir rather than failing the share.
-        """
-        candidates = [
-            self._tunnel_log_path(project),
-            Path(tempfile.gettempdir()) / f"cloudflared-{project.id}.log",
-        ]
-        for path in candidates:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                # Append across restarts, but never grow without bound: this
-                # file collects everything cloudflared logs while sharing.
-                too_big = path.exists() and path.stat().st_size > 2_000_000
-                handle = open(
-                    path,
-                    "w" if too_big else "a",
-                    encoding="utf-8",
-                    errors="replace",
-                )
-                handle.write(
-                    f"\n=== cloudflared start "
-                    f"{datetime.now().isoformat(timespec='seconds')} "
-                    f"port={port} ===\n"
-                )
-                handle.flush()
-                return handle, path, path.stat().st_size
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Tunnel log unusable at {path}: {e}")
-        return None, candidates[-1], 0
-
-    @staticmethod
-    def _close_tunnel_log(handle: Optional[Any]) -> None:
-        if handle is None:
-            return
-        try:
-            handle.close()
-        except Exception:
-            pass
-
-    @staticmethod
-    def _tunnel_origin_file(project: AgentAppProject) -> Path:
-        return Path(project.path) / ".tunnel-origin"
-
-    def _publish_tunnel_origin(
-        self, project: AgentAppProject, url: Optional[str]
-    ) -> None:
-        """Tell the app which public origin to trust, or that there is none.
-
-        The app's origin guard (pb/pb_hooks/_system.pb.js) allows loopback
-        origins only — right for a loopback app, fatal for a shared one:
-        browsers send `Origin` on same-origin writes too, so through a tunnel
-        the app LOADED (GET carries no Origin) and then 403'd every save. The
-        guard reads this file per request, so the grant appears and disappears
-        with the tunnel, with no app restart in between.
-        """
-        path = self._tunnel_origin_file(project)
-        try:
-            if url:
-                origin = url.rstrip("/")
-                path.write_text(origin + "\n", encoding="utf-8")
-                logger.info(f"[AGENT_APP] Shared origin published: {origin}")
-            elif path.exists():
-                path.unlink()
-                logger.info(f"[AGENT_APP] Shared origin revoked for {project.name}")
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] Could not update {path.name}: {e}")
-
-    async def _parse_cloudflare_url(
-        self,
-        proc: subprocess.Popen,
-        log_path: Path,
-        start_offset: int = 0,
-        timeout: int = 30,
-    ) -> Optional[str]:
-        """Wait for cloudflared to announce its public URL in its log file.
-
-        Tails the file rather than reading the process pipes — see the note in
-        start_tunnel about the pipe-buffer deadlock that cost us the tunnel.
-        """
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
-        deadline = time.time() + timeout
-        offset = start_offset
-        seen = ""
-
-        while True:
-            # Sample liveness BEFORE reading, so a process that dies between
-            # the two still gets its final bytes examined.
-            exited = proc.poll() is not None
-            try:
-                with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
-                    fh.seek(offset)
-                    seen += fh.read()
-                    offset = fh.tell()
-            except FileNotFoundError:
-                pass
-
-            match = pattern.search(seen)
-            if match:
-                logger.info(f"[AGENT_APP] Parsed cloudflare URL: {match.group(0)}")
-                return match.group(0)
-
-            # cloudflared boxes the URL inside an ASCII banner, so it can land
-            # split across two reads: keep a tail long enough to re-match.
-            if len(seen) > 8192:
-                seen = seen[-1024:]
-
-            if exited:
-                logger.error(
-                    f"[AGENT_APP] cloudflared exited (code {proc.returncode}) "
-                    f"before announcing a URL; see {log_path}"
-                )
-                return None
-            if time.time() >= deadline:
-                logger.error(
-                    f"[AGENT_APP] Failed to parse cloudflare URL within "
-                    f"{timeout}s; see {log_path}"
-                )
-                return None
-            await asyncio.sleep(0.3)
+            return {name: None for name in self.sharing.channels}
+        return self.sharing.links(project)
 
     async def auto_launch_projects(self, project_ids: List[str] = None) -> None:
         """Auto-launch projects on startup.
