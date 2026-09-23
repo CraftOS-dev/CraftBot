@@ -1,6 +1,7 @@
 requests
 pyyaml
 loguru
+psutil
 nest-asyncio
 pymongo
 tzlocal

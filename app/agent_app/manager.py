@@ -11,6 +11,7 @@ Manages the lifecycle of Agent App projects:
 """
 
 import asyncio
+import errno
 import json
 import os
 import re
@@ -27,9 +28,16 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 from app import node_runtime
+from app.process_ledger import (
+    ROLE_AGENT_APP,
+    ROLE_TUNNEL,
+    get_ledger,
+    kill_tree,
+    listening_pids,
+)
 from app.agent_app import marketplace_source
 from app.agent_app.sharing import SHARE_STATE_FILES, ShareError, SharingService
 
@@ -1046,125 +1054,22 @@ UI in {project.path}/frontend/src/app/."""
                 return False
 
     def _is_port_in_use(self, port: int) -> bool:
-        """Check if a port is actually in use on the system."""
+        """Check if a port is actually in use on the system.
+
+        A timed-out probe is ambiguous: it is what a listener with a full
+        accept queue (a busy or wedged app) looks like, but on Windows a
+        closed loopback port times out too (SYN retries before the refusal).
+        Reading every timeout as "free" made the watchdog declare a live app
+        dead, so a timeout is settled by the OS listener table instead.
+        """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5)
-            return s.connect_ex(("localhost", port)) == 0
-
-    def _port_is_ours(self, port: int, ports_to_check: Optional[Set[int]]) -> bool:
-        """True when `port` is one we should consider for reaping: either it is
-        in the explicit owned set, or (when no set is given) it falls in EITHER
-        Agent App pool (live 3100-3199 or shadow 3900-3999). Ownership is
-        structural — a port range and our own records — never a match on a
-        process command line."""
-        if ports_to_check is not None:
-            return port in ports_to_check
-        from app.agent_app.instances import LIVE_RANGE, SHADOW_RANGE
-
-        return (LIVE_RANGE[0] <= port <= LIVE_RANGE[1]) or (
-            SHADOW_RANGE[0] <= port <= SHADOW_RANGE[1]
-        )
-
-    def _get_pids_on_ports(
-        self, ports_to_check: Optional[Set[int]] = None
-    ) -> Dict[int, str]:
-        """
-        Get PIDs of processes listening on ports in the Agent App range.
-        Uses a single system call for efficiency.
-
-        Args:
-            ports_to_check: Optional set of specific ports to check.
-                           If None, checks all ports in the Agent App range.
-
-        Returns:
-            Dict mapping port numbers to PIDs
-        """
-        port_pids = {}
-
-        if os.name == "nt":
-            # Windows: run netstat once and parse all results
-            try:
-                result = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True,
-                    text=True,
-                    shell=True,
-                    timeout=5,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-                for line in result.stdout.split("\n"):
-                    if "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            addr = parts[1]
-                            pid = parts[-1]
-                            if ":" in addr:
-                                try:
-                                    port = int(addr.split(":")[-1])
-                                    if self._port_is_ours(port, ports_to_check):
-                                        port_pids[port] = pid
-                                except ValueError:
-                                    pass
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Failed to get ports via netstat: {e}")
-        else:
-            # Linux/Mac: use lsof
-            try:
-                result = subprocess.run(
-                    ["lsof", "-i", "-P", "-n"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                for line in result.stdout.split("\n"):
-                    if "LISTEN" in line:
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            # PID is typically the second column
-                            pid = parts[1]
-                            # Find the port in the line
-                            for part in parts:
-                                if ":" in part:
-                                    try:
-                                        port = int(part.split(":")[-1])
-                                        if self._port_is_ours(port, ports_to_check):
-                                            port_pids[port] = pid
-                                            break
-                                    except ValueError:
-                                        pass
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Failed to get ports via lsof: {e}")
-
-        return port_pids
-
-    def _kill_process_by_pid(self, pid: str) -> bool:
-        """
-        Kill a process by its PID.
-
-        Args:
-            pid: Process ID to kill
-
-        Returns:
-            True if process was killed, False otherwise
-        """
-        try:
-            if os.name == "nt":
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", pid],
-                    capture_output=True,
-                    shell=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-            else:
-                subprocess.run(["kill", "-9", pid], capture_output=True)
+            rc = s.connect_ex(("127.0.0.1", port))
+        if rc == 0:
             return True
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] Failed to kill process {pid}: {e}")
+        if rc == errno.ECONNREFUSED:
             return False
+        return bool(listening_pids(port))
 
     # ========================================================================
     # Manifest-driven launch pipeline
@@ -1240,8 +1145,20 @@ UI in {project.path}/frontend/src/app/."""
         except AgentAppRunnerUnavailable as e:
             return _fail("setup", [str(e)])
 
-        # Clear any stale listener before binding the port.
+        # Clear any stale listener before binding the port. Only our own
+        # leftovers are killed; a program CraftBot did not start keeps the
+        # port, and booting anyway would "pass" health against THAT program.
         self._kill_process_on_port(port)
+        holder = self._foreign_listener(port)
+        if holder is not None:
+            return _fail(
+                "start",
+                [
+                    f"port {port} is in use by another program (pid {holder}) "
+                    f"that CraftBot did not start, so it was left running. "
+                    f"Close it, or move this app to a different port."
+                ],
+            )
 
         # Renamed/deleted APPLIED migrations brick the boot with an error only
         # pocketbase.log ever sees — catch them here, before any process spawns.
@@ -1323,7 +1240,12 @@ UI in {project.path}/frontend/src/app/."""
         except Exception as e:
             return _fail("start", [str(e)])
 
-        if not await self.runner.wait_healthy(port):
+        # Healthy means OUR process answered: a 200 from whoever else holds
+        # the port (PocketBase exited on "address in use") is not a boot.
+        healthy = await self.runner.wait_healthy(port)
+        if healthy and (process.poll() is not None or process.pid not in listening_pids(port)):
+            healthy = False
+        if not healthy:
             self._terminate_process(process)
             # A dead health check with no cause starved the agent before —
             # the boot abort (bad migration, hook panic) is in pocketbase.log
@@ -1436,10 +1358,7 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 pass
         if self._is_port_in_use(port):
-            own_pid = str(os.getpid())
-            holder = self._get_pids_on_ports({port}).get(port)
-            if holder is None or str(holder) != own_pid:
-                self._kill_process_on_port(port)
+            self._kill_process_on_port(port)
 
         # The app itself binds a fresh hidden internal port each launch.
         if project.internal_port:
@@ -1582,6 +1501,12 @@ UI in {project.path}/frontend/src/app/."""
             if boot_log:
                 errors.append("app.log (this boot):\n" + boot_log)
             return _fail("health", errors)
+
+        # The start command runs under a shell; record the server itself too,
+        # so it stays recognisably ours even if that shell dies first.
+        get_ledger().adopt_listeners(
+            internal_port, ROLE_AGENT_APP, owner=project.id, label=f"server :{internal_port}"
+        )
 
         # A2App adapter in front of the healthy app: bind the project port,
         # then structurally self-check the surface (the identity probe is
@@ -2234,6 +2159,12 @@ UI in {project.path}/frontend/src/app/."""
                 stderr=log_handle,
                 shell=True,
             )
+        get_ledger().register(
+            process.pid,
+            ROLE_AGENT_APP,
+            owner=project.id if project else "",
+            label=f"{command[:80]} :{port}" if port else command[:80],
+        )
         return process
 
     def _create_frontend_log(project_path: Path) -> Path:
@@ -2253,93 +2184,45 @@ UI in {project.path}/frontend/src/app/."""
             return "(could not read log)"
 
     def _terminate_process(self, process: subprocess.Popen) -> None:
-        """Terminate a subprocess, killing the entire process tree on Windows."""
+        """Stop a subprocess WE hold the handle of, with its whole tree.
+
+        shell=True puts a cmd.exe / sh between us and the server; stopping
+        only that shell strands the server still bound to its port (and, on
+        POSIX, reparented away from anything the ledger could trace back).
+        """
         try:
-            if os.name == "nt":
-                # On Windows with shell=True, terminate() only kills cmd.exe,
-                # not the child python/uvicorn. Kill the whole tree via taskkill.
-                subprocess.run(
-                    ["taskkill", "/T", "/F", "/PID", str(process.pid)],
-                    capture_output=True,
-                    shell=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-            else:
-                process.terminate()
+            kill_tree(process.pid)
             process.wait(timeout=5)
         except (subprocess.TimeoutExpired, Exception):
             try:
                 process.kill()
             except Exception:
                 pass
+        get_ledger().forget(process.pid)
+
+    @staticmethod
+    def _foreign_listener(port: int) -> Optional[int]:
+        """A pid listening on `port` that CraftBot did not start (and is not
+        CraftBot itself), or None."""
+        ledger = get_ledger()
+        for pid in listening_pids(port):
+            if pid != os.getpid() and ledger.owner_of(pid) is None:
+                return pid
+        return None
 
     def _kill_process_on_port(self, port: int) -> bool:
-        """
-        Kill any process listening on the specified port (Windows-specific).
+        """Free `port` by killing its listener — ONLY if CraftBot started it.
 
-        Args:
-            port: The port to free
-
-        Returns:
-            True if a process was killed, False otherwise
+        The listener is matched on the exact port (never a substring of a
+        netstat line) and must be a process in the owned-process ledger, or a
+        descendant of one. A foreign service on the port is left alone; so is
+        CraftBot's own process (the in-process A2App proxy holds project
+        ports). Returns True if a process was killed.
         """
-        if os.name != "nt":
-            # Linux/Mac: use lsof and kill
-            try:
-                result = subprocess.run(
-                    ["lsof", "-ti", f":{port}"], capture_output=True, text=True
-                )
-                if result.stdout.strip():
-                    pids = result.stdout.strip().split("\n")
-                    for pid in pids:
-                        subprocess.run(["kill", "-9", pid], capture_output=True)
-                    logger.info(f"[AGENT_APP] Killed process(es) on port {port}")
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[AGENT_APP] Failed to kill process on port {port}: {e}"
-                )
-            return False
-        else:
-            # Windows: use netstat and taskkill
-            try:
-                no_window = (
-                    subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0
-                )
-                result = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True,
-                    text=True,
-                    shell=True,
-                    creationflags=no_window,
-                )
-                killed = False
-                for line in result.stdout.split("\n"):
-                    if f":{port}" in line and "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            pid = parts[-1]
-                            # /T kills entire process tree (shell + child processes)
-                            subprocess.run(
-                                ["taskkill", "/T", "/F", "/PID", pid],
-                                capture_output=True,
-                                shell=True,
-                                creationflags=no_window,
-                            )
-                            logger.info(
-                                f"[AGENT_APP] Killed process tree {pid} on port {port}"
-                            )
-                            killed = True
-                if killed:
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[AGENT_APP] Failed to kill process on port {port}: {e}"
-                )
+        try:
+            return get_ledger().kill_port_listeners(port)
+        except Exception as e:
+            logger.warning(f"[AGENT_APP] Failed to free port {port}: {e}")
             return False
 
     def cleanup_on_startup(self) -> None:
@@ -2347,41 +2230,28 @@ UI in {project.path}/frontend/src/app/."""
         Clean up orphan processes and folders on startup.
 
         This should be called after loading projects to:
-        1. Kill any orphan Agent App server processes on tracked ports (frontend + backend)
-        2. Delete project folders not tracked in the registry
-        3. Reset all project statuses to 'stopped'
-
-        Optimized to:
-        - Only check ports that are tracked in projects (not all 100 ports)
-        - Use a single netstat call to get all port info at once
+        1. Kill leftover Agent App servers and tunnels from the previous run —
+           only the ones recorded in the owned-process ledger
+        2. Log project folders not tracked in the registry
+        3. Sweep dev-env leftover directories
         """
         logger.info("[AGENT_APP] Running startup cleanup...")
 
-        # Nothing of ours is legitimately running yet: every app process died
-        # with the previous CraftBot. Reconcile against the OS by the ports WE
-        # OWN — every project's sticky LIVE port (persisted) plus every port a
-        # prior registry instance (live or shadow) claimed. Snapshotting and
-        # clearing the registry first releases the shadow reservations; the
-        # live ports were re-reserved from the project list at load.
-        #
-        # We kill only listeners sitting on ports WE own, by pid. Ownership is
-        # structural (our port ranges and our own records), so a foreign
-        # process on a port we never claimed is never touched, and there is no
-        # command-line/string matching to decide "is this ours".
-        prior = self.instances.reset()
-        owned_ports = {p.port for p in self.projects.values() if p.port}
-        owned_ports |= {i.port for i in prior}
-
-        killed_count = 0
-        if owned_ports:
-            for port, pid in self._get_pids_on_ports(owned_ports).items():
-                if self._kill_process_by_pid(pid):
-                    killed_count += 1
-                    logger.info(
-                        f"[AGENT_APP] reclaimed owned port {port} (pid {pid})"
-                    )
+        # Nothing of ours is legitimately running yet: every app server and
+        # tunnel died with the previous CraftBot, or should have. Reap exactly
+        # the processes the ledger recorded starting — verified by pid AND
+        # creation time, so a recycled pid or a foreign service that happens
+        # to sit on one of our ports is never touched. Snapshotting and
+        # clearing the instance registry releases the shadow reservations;
+        # the live ports were re-reserved from the project list at load.
+        self.instances.reset()
+        try:
+            killed_count = get_ledger().reap()
+        except Exception as e:
+            killed_count = 0
+            logger.warning(f"[AGENT_APP] owned-process reap failed: {e}")
         if killed_count > 0:
-            logger.info(f"[AGENT_APP] reclaimed {killed_count} leftover process(es)")
+            logger.info(f"[AGENT_APP] reaped {killed_count} leftover owned process(es)")
 
         # Log orphan project folders (do NOT delete — deleting them at boot has
         # destroyed real user projects; logging is the safe behavior).
@@ -2392,8 +2262,8 @@ UI in {project.path}/frontend/src/app/."""
             )
 
         # Sweep dev-env leftover directories. Process kills were handled above
-        # by owned-port reclaim across BOTH ranges (the shadow range included),
-        # so a deleted-project shadow can no longer leak an untracked process.
+        # by the ledger reap, which covers shadow boots too (the runner
+        # records every PocketBase it starts, live or shadow).
         try:
             reaped = self.lifecycle.reap_dirs()
             if reaped:

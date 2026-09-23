@@ -43,6 +43,7 @@ except ImportError:  # pragma: no cover
     logger = logging.getLogger(__name__)
 
 from app.agent_app.a2app_proxy import HOP_HEADERS, SHARE_CHANNELS, SHARE_PARAM
+from app.process_ledger import ROLE_TUNNEL, get_ledger
 
 # Host-local, channel-lifetime state: never exported, never trusted on import.
 SHARE_STATE_FILES = tuple(
@@ -444,6 +445,11 @@ class TunnelChannel(ShareChannel):
             if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
             else 0,
         )
+        # Record the exact identity (pid + start time) so a later run can reap
+        # THIS process and nothing else — see _kill_orphans.
+        get_ledger().register(
+            proc.pid, ROLE_TUNNEL, owner=str(getattr(project, "id", "")), label=origin_url
+        )
         url = await self._parse_url(proc, log_path, log_offset)
         if not url:
             self._terminate(proc)
@@ -484,25 +490,22 @@ class TunnelChannel(ShareChannel):
             self.grant.revoke(Path(project.path))
 
     async def _kill_orphans(self) -> None:
-        """Only when no tunnel of ours is running: a cloudflared left over
-        from a previous CraftBot would otherwise pile up."""
-        try:
-            if os.name == "nt":
-                subprocess.run(
-                    [
-                        "powershell",
-                        "-Command",
-                        "Stop-Process -Name cloudflared -Force -ErrorAction SilentlyContinue",
-                    ],
-                    capture_output=True,
-                    timeout=5,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-            else:
-                subprocess.run(["pkill", "-f", "cloudflared"], capture_output=True)
+        """Reap cloudflared processes a previous CraftBot run left behind.
+
+        By recorded identity (pid + start time), never by process name. This
+        used to be `Stop-Process -Name cloudflared` / `pkill -f cloudflared`,
+        which took down EVERY cloudflared on the machine — including a tunnel
+        the user runs for their own production work, which is not ours to
+        kill. Tunnels this run currently holds are skipped."""
+        held = {p.pid for p, _ in self._running.values()}
+        ledger = get_ledger()
+        reaped = 0
+        for entry in ledger.entries(ROLE_TUNNEL):
+            if entry.pid not in held and ledger.kill_entry(entry):
+                reaped += 1
+        if reaped:
+            logger.info(f"[AGENT_APP:SHARE] Reaped {reaped} leftover tunnel(s)")
             await asyncio.sleep(1)
-        except Exception:
-            pass
 
     # ── cloudflared binary ──
 

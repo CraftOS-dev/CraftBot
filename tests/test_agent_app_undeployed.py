@@ -10,6 +10,7 @@ that it had.
 
 import asyncio
 import subprocess
+import sys
 import types
 from pathlib import Path
 
@@ -96,7 +97,10 @@ class TestUnshippedDetection:
         target = Path(project.path) / "frontend" / "src" / "app" / "App.tsx"
         target.write_text("const a = 1\n")
         self._shipped(project)
-        subprocess.run(["sed", "-i", "s/1/2/", str(target)], check=True)
+        # A separate process rewrites it, as run_shell would. Python rather
+        # than `sed -i`, which isn't portable (fails on Windows temp dirs).
+        edit = "import sys,pathlib; p=pathlib.Path(sys.argv[1]); p.write_text(p.read_text().replace('1','2'))"
+        subprocess.run([sys.executable, "-c", edit, str(target)], check=True)
         assert agent._unshipped_fingerprint(project) is not None
 
     def test_shipping_again_clears_it(self, agent, project):

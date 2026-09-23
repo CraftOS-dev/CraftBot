@@ -11,7 +11,7 @@ import socket
 import subprocess
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +260,36 @@ def test_ollama_connection_sync(url: str) -> Dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
+_OLLAMA_TRAY_EXE = "ollama app.exe"
+
+
+def _tray_app_snapshot() -> Set[Tuple[int, float]]:
+    """(pid, start time) of every running Ollama tray app."""
+    try:
+        import psutil
+    except ImportError:
+        return set()
+    found = set()
+    for proc in psutil.process_iter(["name", "create_time"]):
+        name = (proc.info.get("name") or "").lower()
+        if name == _OLLAMA_TRAY_EXE:
+            found.add((proc.pid, proc.info.get("create_time") or 0.0))
+    return found
+
+
+def _stop_tray_apps_started_since(before: Set[Tuple[int, float]]) -> None:
+    """Close only the tray apps that appeared during our install — the one
+    the installer launched. Without psutil nothing can be told apart, so
+    nothing is closed (the tray app is harmless, just redundant)."""
+    from app.process_ledger import kill_tree
+
+    for pid, _ in _tray_app_snapshot() - before:
+        try:
+            kill_tree(pid)
+        except Exception as exc:
+            logger.warning(f"Could not close Ollama tray app {pid}: {exc}")
+
+
 async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
     """Install Ollama for the current platform, streaming progress via callback."""
     system = platform.system()
@@ -268,6 +298,11 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
         if system == "Windows":
             # Try winget first
             await progress_callback("Checking for winget...")
+            # The installer auto-launches the Ollama tray app; we close THAT
+            # one afterwards. Snapshot first so a tray app the user already
+            # had running is never touched (this used to be
+            # `taskkill /IM "ollama app.exe"`, which killed every instance).
+            trays_before = await asyncio.to_thread(_tray_app_snapshot)
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "winget",
@@ -305,11 +340,7 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
 
                 # Verify actual install regardless of exit code — winget can return non-zero on success
                 if (await asyncio.to_thread(get_ollama_status))["installed"]:
-                    await asyncio.to_thread(
-                        subprocess.run,
-                        ["taskkill", "/F", "/IM", "ollama app.exe", "/T"],
-                        capture_output=True,
-                    )
+                    await asyncio.to_thread(_stop_tray_apps_started_since, trays_before)
                     await progress_callback("Ollama installed successfully!")
                     return {"success": True, "message": "Ollama installed via winget"}
                 await progress_callback(
@@ -363,11 +394,7 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
             )
             await run_proc.communicate()
             if (await asyncio.to_thread(get_ollama_status))["installed"]:
-                await asyncio.to_thread(
-                    subprocess.run,
-                    ["taskkill", "/F", "/IM", "ollama app.exe", "/T"],
-                    capture_output=True,
-                )
+                await asyncio.to_thread(_stop_tray_apps_started_since, trays_before)
                 await progress_callback("Ollama installed successfully!")
                 return {"success": True, "message": "Ollama installed"}
             return {
