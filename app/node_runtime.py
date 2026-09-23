@@ -43,7 +43,16 @@ logger = logging.getLogger(__name__)
 MIN_NODE_MAJOR = 24  # keep the nodejs>=24 pin in environment.yml in sync
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SIDECAR_DIR = REPO_ROOT / "runtime" / "node"
+
+# app.paths is the single answer to "where does state live" — in a dev
+# checkout that is the repo (so this is unchanged), and in an install it is
+# the per-user data dir. Before this, SIDECAR_DIR was derived from __file__
+# and so pointed INSIDE the PyInstaller bundle: read-only, wiped between
+# runs, and never populated. An installer-based user therefore had no
+# reachable Node at all, and Living UI could not start.
+# app.paths is stdlib-only, like this module, so the import is safe at the
+# point install.py and run.py import us — before dependencies exist.
+from app.paths import NODE_DIR as SIDECAR_DIR  # noqa: E402
 
 _NODE_VER_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
@@ -239,3 +248,195 @@ def npm_cmd() -> Optional[str]:
     if rt and rt.npm:
         return rt.npm
     return shutil.which("npm")
+
+
+def _platform_suffix():
+    """(suffix, extension) of the Node archive for this machine.
+
+    Windows gets the zip because tar would not preserve anything it needs;
+    unix gets a tarball because zip does not preserve the executable bit.
+    """
+    import platform
+
+    machine = platform.machine().lower()
+    arch = "arm64" if machine in ("arm64", "aarch64") else "x64"
+    if sys.platform == "win32":
+        return f"win-{arch}", "zip"
+    if sys.platform == "darwin":
+        return f"darwin-{arch}", "tar.gz"
+    return f"linux-{arch}", "tar.xz"
+
+
+def latest_download_url(log=None) -> Optional[str]:
+    """URL of the newest Node on the MIN_NODE_MAJOR line for this machine.
+
+    Split out of download_sidecar so the archive can be pre-fetched into a
+    cache without installing it (scripts/prefetch_runtimes.py).
+    """
+    import json
+    import ssl
+    import urllib.request
+
+    say = log or (lambda _m: None)
+
+    try:
+        import certifi
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    suffix, ext = _platform_suffix()
+
+    try:
+        req = urllib.request.Request(
+            "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
+        )
+        index = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
+    except Exception as e:
+        say(f"   Could not reach the Node index: {str(e)[:160]}")
+        return None
+
+    ver = next(
+        (
+            e["version"]
+            for e in index
+            if e.get("version", "").startswith(f"v{MIN_NODE_MAJOR}.")
+        ),
+        None,
+    )
+    if not ver:
+        say(f"   No v{MIN_NODE_MAJOR}.x release found in the Node index")
+        return None
+    return f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
+
+
+def _extract_node(archive_src, ver, suffix, ext, say, url=None):
+    """Put a Node archive into SIDECAR_DIR and return its binary path.
+
+    Shared by the cached and downloaded paths so extraction, layout and the
+    binary probe cannot drift between them.
+    """
+    import tarfile
+    import zipfile
+
+    dest_root = str(SIDECAR_DIR)
+    os.makedirs(dest_root, exist_ok=True)
+    archive = os.path.join(dest_root, f"_download.{ext}")
+    try:
+        if archive_src:
+            say(f"   Using cached {os.path.basename(archive_src)}")
+            shutil.copyfile(archive_src, archive)
+        else:
+            # Streamed with progress: the archive is 30-55MB, and a single
+            # silent blocking copy is indistinguishable from a hung install.
+            from app import downloads
+
+            downloads.download(url, archive, log=say, label=f"Node {ver}")
+        say("   Extracting...")
+        if ext == "zip":
+            zipfile.ZipFile(archive).extractall(dest_root)
+        else:
+            # tar preserves the executable bit; zip does not, which is why
+            # Windows gets the zip and unix the tarball.
+            tarfile.open(archive, mode="r:*").extractall(dest_root)
+    except Exception as e:
+        say(f"   Node setup failed: {str(e)[:200]}")
+        return None
+    finally:
+        try:
+            os.remove(archive)
+        except OSError:
+            pass
+
+    binary = os.path.join(
+        dest_root,
+        f"node-{ver}-{suffix}",
+        "node.exe" if sys.platform == "win32" else os.path.join("bin", "node"),
+    )
+    return binary if os.path.isfile(binary) else None
+
+
+def download_sidecar(log=None) -> Optional[str]:
+    """Download an official Node build into SIDECAR_DIR; return the binary.
+
+    No PATH edits, nothing else touched — plain discovery picks it up on the
+    next resolve(refresh=True). Lives here rather than in install.py because
+    the installer needs it too: installer users never run install.py, so that
+    was the only route by which they could obtain Node, and they had none.
+
+    Stdlib-only (certifi when importable, else the system trust store).
+    """
+    import json
+    import ssl
+    import urllib.request
+
+    say = log or (lambda _m: None)
+
+    try:
+        import certifi
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    suffix, ext = _platform_suffix()
+
+    # Consult the cache BEFORE the network. Resolving the version means
+    # fetching nodejs.org's release index, which on a slow or flaky link is
+    # its own failure point — and failing there while the archive is already
+    # on disk would be a pointless way to lose an install.
+    cached_archive = None
+    ver_from_cache = None
+    try:
+        from app import downloads
+
+        cached_archive = downloads.find_cached(
+            f"node-v{MIN_NODE_MAJOR}.*-{suffix}.{ext}"
+        )
+        if cached_archive:
+            m = _NODE_VER_RE.search(os.path.basename(cached_archive))
+            if m:
+                ver_from_cache = "v" + ".".join(m.groups())
+    except Exception:
+        cached_archive = None
+
+    if cached_archive and ver_from_cache:
+        ver = ver_from_cache
+        url = f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
+        return _extract_node(cached_archive, ver, suffix, ext, say, url)
+
+    try:
+        # Newest release on the MIN_NODE_MAJOR line (the index is newest-first).
+        req = urllib.request.Request(
+            "https://nodejs.org/dist/index.json", headers={"User-Agent": "CraftBot"}
+        )
+        index = json.loads(urllib.request.urlopen(req, timeout=60, context=ctx).read())
+        ver = next(
+            (
+                e["version"]
+                for e in index
+                if e.get("version", "").startswith(f"v{MIN_NODE_MAJOR}.")
+            ),
+            None,
+        )
+        if not ver:
+            say(f"   ⚠ No v{MIN_NODE_MAJOR}.x release found in the Node index")
+            return None
+
+        url = f"https://nodejs.org/dist/{ver}/node-{ver}-{suffix}.{ext}"
+        return _extract_node(None, ver, suffix, ext, say, url)
+    except Exception as e:
+        say(f"   ⚠ Sidecar Node download failed: {str(e)[:200]}")
+        return None
+
+
+def ensure_sidecar(log=None) -> Optional[NodeRuntime]:
+    """Return a usable Node >= MIN_NODE_MAJOR, downloading one if needed.
+    Idempotent: a no-op when a suitable Node already resolves."""
+    rt = resolve()
+    if rt is not None:
+        return rt
+    if download_sidecar(log=log):
+        return resolve(refresh=True)
+    return None
