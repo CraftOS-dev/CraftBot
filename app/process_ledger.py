@@ -220,7 +220,7 @@ def identify_craftbot(pid: int) -> Optional[str]:
 
 
 def describe_pid(pid: int) -> str:
-    """"pid 1234 (node.exe)" — for naming a process we are NOT going to kill.
+    """Name a process we are NOT going to kill: 'pid 1234 (node.exe)'.
 
     A port conflict the user has to resolve themselves is only actionable if
     the message says what to close, so this degrades to the bare pid rather
