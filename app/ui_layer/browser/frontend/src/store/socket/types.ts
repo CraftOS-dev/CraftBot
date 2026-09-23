@@ -27,4 +27,10 @@ export interface SocketClientOptions {
   livenessIntervalMs?: number
   /** How long a ping may go unanswered before the backend counts as busy. */
   livenessTimeoutMs?: number
+  /**
+   * Subprotocols for each connection attempt, resolved fresh every time (the
+   * backend's session token rotates on restart). A rejection counts as a
+   * failed attempt and is retried with backoff.
+   */
+  getProtocols?: () => Promise<string[]>
 }

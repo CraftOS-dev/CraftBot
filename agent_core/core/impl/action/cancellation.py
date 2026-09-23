@@ -19,6 +19,9 @@ Two mechanisms, one kill call:
 - ``mark_subprocess`` / ``unmark_subprocess``: pid marker FILES under the
   system temp dir, used by code running in a DIFFERENT process (the
   sandboxed-action pool worker) where no in-memory registry can be shared.
+  A marker records the pid AND its start time: a marker can outlive its
+  process (crash, reboot), and by then the OS may have handed the pid to an
+  unrelated program. A marker is only acted on while both still match.
 
 ``kill_session_processes(session_id)`` kills both kinds, entire process
 trees included, and is safe to call at any time (missing/exited processes
@@ -28,12 +31,13 @@ thread, not the event loop.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from agent_core.utils.logger import logger
 
@@ -71,6 +75,41 @@ def unregister_process(session_id: str, proc: subprocess.Popen) -> None:
 
 # ─────────────────────── Cross-process pid markers ───────────────────────
 
+# psutil's create_time can wobble by a fraction of a second between reads.
+_START_TIME_TOLERANCE_S = 1.0
+
+
+def _start_time(pid: int) -> Optional[float]:
+    """When `pid` started, or None if it is gone or can't be inspected."""
+    try:
+        import psutil
+
+        return psutil.Process(pid).create_time()
+    except Exception:
+        return None
+
+
+def _marker_still_ours(marker: Path) -> Optional[int]:
+    """The marker's pid if that pid is still the process that was marked."""
+    try:
+        pid = int(marker.stem)
+        raw = marker.read_text(encoding="utf-8").strip()
+        mtime = marker.stat().st_mtime
+    except (ValueError, OSError):
+        return None
+    actual = _start_time(pid)
+    if actual is None:
+        return None
+    try:
+        recorded = float(json.loads(raw).get("started"))
+    except Exception:
+        recorded = None
+    if recorded is not None:
+        return pid if abs(actual - recorded) <= _START_TIME_TOLERANCE_S else None
+    # Legacy marker (bare pid): it was written after the child spawned, so a
+    # process that started after the marker is a recycled pid, not ours.
+    return pid if actual <= mtime + _START_TIME_TOLERANCE_S else None
+
 
 def mark_subprocess(session_id: str, pid: int) -> None:
     """Record a child pid from ANOTHER process (e.g. a pool worker).
@@ -83,7 +122,9 @@ def mark_subprocess(session_id: str, pid: int) -> None:
     try:
         d = _marker_dir(session_id)
         d.mkdir(parents=True, exist_ok=True)
-        (d / f"{pid}.pid").write_text(str(pid), encoding="utf-8")
+        (d / f"{pid}.pid").write_text(
+            json.dumps({"pid": pid, "started": _start_time(pid)}), encoding="utf-8"
+        )
     except Exception:
         pass  # markers are best-effort; never fail the action over them
 
@@ -149,11 +190,10 @@ def kill_session_processes(session_id: str) -> int:
         d = _marker_dir(session_id)
         if d.is_dir():
             for marker in d.glob("*.pid"):
-                try:
-                    _kill_tree(int(marker.stem))
+                pid = _marker_still_ours(marker)
+                if pid is not None:
+                    _kill_tree(pid)
                     killed += 1
-                except ValueError:
-                    pass
                 marker.unlink(missing_ok=True)
     except Exception as e:
         logger.debug(f"[CANCEL] Marker sweep failed for {session_id}: {e}")

@@ -39,6 +39,27 @@ function touchAccess(id: string) {
   }
 }
 
+/**
+ * The URL to FRAME an app at. Apps report http://127.0.0.1:<port>, but the
+ * CraftBot UI usually runs on localhost — and localhost vs 127.0.0.1 are
+ * different SITES. Framed cross-site, the app's SameSite session cookie is
+ * neither set nor sent, so every write the app makes (and its WebSocket) is
+ * refused by the A2App guard. Framing it under the UI's own name keeps it
+ * same-site (cookies ignore ports). Only 127.0.0.1 → localhost is rewritten:
+ * localhost resolves to 127.0.0.1 too, while apps never bind [::1].
+ */
+export function frameUrl(url: string): string {
+  if (typeof window === 'undefined' || window.location.hostname !== 'localhost') return url
+  try {
+    const u = new URL(url)
+    if (u.hostname !== '127.0.0.1') return url
+    u.hostname = 'localhost'
+    return u.toString()
+  } catch {
+    return url
+  }
+}
+
 export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
   let iframe = pool.get(id)
   if (!iframe) {

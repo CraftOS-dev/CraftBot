@@ -73,6 +73,9 @@ def _runtime_import_command(
 ) -> Tuple[List[str], str]:
     script = _runtime_import_script(checks)
     if use_conda and env_name:
+        # `conda run` rejects arguments containing newlines (AssertionError,
+        # then blocks on its "send error report?" prompt) — collapse the
+        # script to a single-line exec() so the probe actually runs.
         return (
             [
                 conda_command,
@@ -81,7 +84,7 @@ def _runtime_import_command(
                 env_name,
                 "python",
                 "-c",
-                script,
+                f"exec({script!r})",
             ],
             f"conda environment '{env_name}'",
         )

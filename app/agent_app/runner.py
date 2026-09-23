@@ -22,6 +22,7 @@ from typing import Optional
 
 from app import node_runtime
 from app.node_runtime import MIN_NODE_MAJOR
+from app.process_ledger import ROLE_AGENT_APP, get_ledger
 
 logger = logging.getLogger(__name__)
 
@@ -504,6 +505,14 @@ class AgentAppRunner:
             stdout=log_file,
             stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        # Recorded so cleanup can later kill exactly this process (and a
+        # restart can reap it) without guessing from the port.
+        get_ledger().register(
+            process.pid,
+            ROLE_AGENT_APP,
+            owner=project_dir.name,
+            label=f"pocketbase {app_env} :{port}",
         )
         logger.info(
             f"[AGENT_APP] started PocketBase pid={process.pid} port={port} "

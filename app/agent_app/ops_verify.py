@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from app.agent_app.ops_manifest import (
     load_external_manifest,
+    manifest_warnings,
     synthesize_params,
 )
 
@@ -135,8 +136,10 @@ async def verify_external_ops(
     failed = [r for r in results if r["outcome"] not in ("pass", "skipped_destructive")]
     passed = [r for r in results if r["outcome"] == "pass"]
     ok = not failed
+    warnings = manifest_warnings(manifest)
     return {
         "status": "success" if ok else "error",
+        "warnings": warnings,
         "identity_ok": True,
         "checked": len(results),
         "passed": len(passed),
@@ -146,6 +149,7 @@ async def verify_external_ops(
             f"A2App surface verified: {len(passed)} op(s) invoked live, "
             f"{len(results) - len(passed) - len(failed)} destructive op(s) "
             "shape-checked."
+            + "".join(f"\nWarning: {w}" for w in warnings)
             if ok
             else (
                 f"{len(failed)} op(s) failed live verification. Per the "

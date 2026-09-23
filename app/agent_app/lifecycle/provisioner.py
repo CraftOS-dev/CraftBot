@@ -25,10 +25,8 @@ just the boot dir and, for teardown, the Instance to kill.
 """
 
 import json
-import os
 import re
 import shutil
-import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -43,6 +41,7 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 from app.agent_app.instances import Instance
+from app.process_ledger import get_ledger, kill_tree
 
 # Content-addressed artifacts to keep per project (the newest is usually the
 # only one that matters; a couple of spares make flip-flopping edits cheap).
@@ -183,9 +182,9 @@ class ShadowProvisioner:
     def reap_dirs(self) -> int:
         """Startup dir sweep: delete every shadow boot dir/build cache and the
         retired dev-copy root (`_staging/project`). Process kills are NOT done
-        here — the manager kills leftovers by the ports it OWNS (both ranges),
-        which is verified against its own records instead of a stored pid that
-        may have been reused. `_staging/wizard` is the wizard's attachment
+        here — the manager reaps leftovers from the owned-process ledger,
+        which verifies pid AND start time, so a pid that may have been reused
+        is never killed. `_staging/wizard` is the wizard's attachment
         staging and is never ours to touch."""
         reaped = 0
         for root in (self.root, self.agent_app_dir / "_staging" / "project"):
@@ -219,32 +218,21 @@ class ShadowProvisioner:
         shutil.rmtree(resolved)
 
     def _kill(self, process=None, pid: Optional[int] = None) -> None:
-        target_pid = pid if pid else (process.pid if process is not None else None)
+        """Stop a shadow PocketBase and its tree (a bare terminate strands
+        grandchildren that keep the port bound). A live handle is ours by
+        construction; a bare pid — all that survives a CraftBot restart — is
+        killed only if the ledger recorded exactly that process, so a pid the
+        OS has since recycled is never touched."""
+        ledger = get_ledger()
         try:
-            if os.name == "nt" and target_pid:
-                # PocketBase (and any node child) is a tree; a bare terminate
-                # strands grandchildren that keep the port bound.
-                subprocess.run(
-                    ["taskkill", "/T", "/F", "/PID", str(target_pid)],
-                    capture_output=True,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                return
             if process is not None:
-                process.terminate()
+                kill_tree(process.pid)
                 try:
                     process.wait(timeout=5)
                 except Exception:
                     process.kill()
+                ledger.forget(process.pid)
             elif pid:
-                os.kill(pid, signal.SIGTERM)
-                time.sleep(0.5)
-                try:
-                    os.kill(pid, 0)
-                except OSError:
-                    return  # already gone
-                os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+                ledger.kill_pid(pid)
         except Exception as e:
             logger.warning(f"[AGENT_APP:SHADOW] kill failed: {e}")

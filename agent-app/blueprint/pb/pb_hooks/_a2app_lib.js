@@ -505,8 +505,278 @@ function schemaVersion(app) {
   return 'sv_' + h.toString(16);
 }
 
+/* ------------------------------------------------------ caller auth
+ * Mirrors guard_request in CraftBot's app/agent_app/a2app_proxy.py — same
+ * rules, same derived values ($security.hs256(text, secret) is the same
+ * HMAC-SHA256-hex the proxy computes). Two INDEPENDENT checks: the origin
+ * guard in _system.pb.js decides which browser pages may talk to the app;
+ * this decides who the caller is. An allowed Origin is never a credential —
+ * shared traffic arrives over loopback and can claim any Origin it likes.
+ *
+ * Credentials: the agent token (programs), the UI session cookie (the app's
+ * own frontend; issued on the page load locally, and ONLY in exchange for a
+ * share link's secret through a share channel), or a signed-in PocketBase
+ * principal. Through a share channel every request needs one, reads included.
+ */
+
+// Each relay stamps what it forwards: Cloudflare's headers through the
+// tunnel, X-Forwarded-For through CraftBot's LAN relay.
+var REMOTE_MARKER_HEADERS = [
+  'Cf-Ray',
+  'Cf-Connecting-Ip',
+  'Cf-Visitor',
+  'Cdn-Loop',
+  'X-Forwarded-For',
+  'X-Forwarded-Host',
+  'Forwarded',
+];
+var LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
+var SHARE_PARAM = 'a2app_share';
+// While open, every share channel (CraftBot's sharing.py) publishes
+// .<name>-origin and .<name>-secret. Mirrors a2app_proxy.SHARE_CHANNELS.
+var SHARE_CHANNELS = ['tunnel', 'lan'];
+
+function readProjectSecret(name) {
+  try {
+    return toString($os.readFile($filepath.join(__hooks, '..', '..', name))).trim();
+  } catch {
+    return '';
+  }
+}
+
+function headerOf(e, name) {
+  try {
+    return String(e.request.header.get(name) || '');
+  } catch {
+    return '';
+  }
+}
+
+/** The grants published right now: [{origin, secret}], read per request so
+ *  closing a channel (deleting its files) takes effect at once. */
+function openShares() {
+  var shares = [];
+  for (var i = 0; i < SHARE_CHANNELS.length; i++) {
+    var origin = readProjectSecret('.' + SHARE_CHANNELS[i] + '-origin');
+    var secret = readProjectSecret('.' + SHARE_CHANNELS[i] + '-secret');
+    if (origin !== '' || secret !== '') shares.push({ origin: origin, secret: secret });
+  }
+  return shares;
+}
+
+/** A NON-loopback origin the app is currently shared on (the origin guard
+ *  in _system.pb.js checks loopback itself, before paying for file reads). */
+function isSharedOrigin(origin) {
+  var shares = openShares();
+  for (var i = 0; i < shares.length; i++) {
+    if (shares[i].origin !== '' && origin.toLowerCase() === shares[i].origin.toLowerCase()) return true;
+  }
+  return false;
+}
+
+/** A relay stamps every forwarded request with headers a remote caller
+ *  cannot strip; a local caller faking one only demotes itself. Go keeps the
+ *  Host header in request.host, not in the header map. */
+function isRemoteRequest(e) {
+  for (var i = 0; i < REMOTE_MARKER_HEADERS.length; i++) {
+    if (headerOf(e, REMOTE_MARKER_HEADERS[i]) !== '') return true;
+  }
+  var host = '';
+  try {
+    host = String(e.request.host || '');
+  } catch {
+    host = '';
+  }
+  return !LOOPBACK_HOST.test(host.trim());
+}
+
+// Per-app name: every app on 127.0.0.1 shares one cookie jar (ports ignored).
+function sessionCookieName(token) {
+  return 'a2app_s_' + $security.hs256('a2app-ui:cookie-name:v1', token).slice(0, 12);
+}
+
+// Stateless: rotating the agent token ends every session; a shared value
+// folds in its channel's secret, which closing the channel deletes.
+function localSessionValue(token) {
+  return token === '' ? '' : $security.hs256('a2app-ui:local:v1', token);
+}
+
+function shareSessionValue(token, secret) {
+  if (token === '' || secret === '') return '';
+  return $security.hs256('a2app-ui:share:v1:' + secret, token);
+}
+
+// Lax, not Strict: a share link opened from chat is a cross-site navigation,
+// and Strict would withhold the cookie on the redirect after the exchange.
+// Secure only over https: the LAN relay is plain http.
+function sessionCookieHeader(name, value, secure) {
+  return name + '=' + value + '; Path=/; HttpOnly; SameSite=Lax' + (secure ? '; Secure' : '');
+}
+
+function cookieOf(e, name) {
+  var raw = headerOf(e, 'Cookie');
+  var parts = raw.split(';');
+  for (var i = 0; i < parts.length; i++) {
+    var kv = parts[i].trim();
+    var eq = kv.indexOf('=');
+    if (eq > 0 && kv.slice(0, eq) === name) return kv.slice(eq + 1);
+  }
+  return '';
+}
+
+function hasPrincipal(e) {
+  try {
+    if (e.auth) return true;
+  } catch {
+    /* fall through */
+  }
+  return false;
+}
+
+/**
+ * THE caller guard. Returns null to proceed, else {status, body}.
+ * Local mutations on /api/collections/ and /api/ops/ need a credential
+ * (PocketBase's own sign-in flows stay open); through a share channel, every
+ * request does. The origin half lives in _system.pb.js's first routerUse.
+ */
+function authorizeCaller(e) {
+  var method = '';
+  var path = '';
+  try {
+    method = String(e.request.method || '').toUpperCase();
+    path = String((e.request.url && e.request.url.path) || '');
+  } catch {
+    return { status: 400, body: { ok: false, error: 'unreadable request' } };
+  }
+  if (method === 'OPTIONS') return null; // preflights never carry credentials
+  var remote = isRemoteRequest(e);
+  var mutating = method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE';
+  if (!remote) {
+    if (!mutating) return null;
+    if (path.indexOf('/api/collections/') !== 0 && path.indexOf('/api/ops/') !== 0) return null;
+    if (path.indexOf('/auth-') > 0 || path.indexOf('/request-') > 0) return null;
+  }
+
+  var token = readProjectSecret('.agent-token');
+  if (token === '') {
+    // Locally, a missing token must not lock the app out (it is minted at
+    // launch). Remotely it FAILS CLOSED: no token means no credential can be
+    // checked, and "allow" would make a shared app publicly writable.
+    // Mirrors a2app_proxy.guard_request.
+    if (!remote) return null;
+    return {
+      status: 503,
+      body: {
+        ok: false,
+        code: 'share_unavailable',
+        error: 'This app has no access token, so it cannot be shared. Restart it from CraftBot.',
+      },
+    };
+  }
+
+  // TODO(lui-compat): also accept the legacy X-LUI-Token from older clients.
+  var presented = (headerOf(e, 'X-A2App-Token') || headerOf(e, 'X-LUI-Token')).trim();
+  if (presented !== '' && $security.equal(presented, token)) return null;
+  var cookie = cookieOf(e, sessionCookieName(token));
+  if (cookie !== '') {
+    var sessions = [];
+    if (remote) {
+      var shares = openShares();
+      for (var i = 0; i < shares.length; i++) sessions.push(shareSessionValue(token, shares[i].secret));
+    } else {
+      sessions.push(localSessionValue(token));
+    }
+    for (var j = 0; j < sessions.length; j++) {
+      if (sessions[j] !== '' && $security.equal(cookie, sessions[j])) return null;
+    }
+  }
+  if (hasPrincipal(e)) return null;
+
+  if (remote) {
+    return {
+      status: 401,
+      body: {
+        ok: false,
+        code: 'share_session_required',
+        error: 'This app is shared by link. Open the full share link you were given (it carries ?a2app_share=...).',
+      },
+    };
+  }
+  return {
+    status: 401,
+    body: {
+      ok: false,
+      code: 'unauthorized',
+      error: 'agent token required',
+      hint: 'Send X-A2App-Token: <contents of the project .agent-token file> on writes.',
+    },
+  };
+}
+
+/**
+ * Share-link exchange: GET <any path>?a2app_share=<secret> through a share
+ * channel trades that channel's secret for its UI session and redirects to
+ * the same URL without it. Returns true when it answered the request.
+ */
+function handleShareExchange(e) {
+  var method = '';
+  var presented = '';
+  try {
+    method = String(e.request.method || '').toUpperCase();
+    presented = String(e.request.url.query().get(SHARE_PARAM) || '');
+  } catch {
+    return false;
+  }
+  if (method !== 'GET' || presented === '' || !isRemoteRequest(e)) return false;
+
+  var share = null;
+  var shares = openShares();
+  for (var i = 0; i < shares.length; i++) {
+    if (shares[i].secret !== '' && $security.equal(presented, shares[i].secret)) {
+      share = shares[i];
+      break;
+    }
+  }
+  if (share === null) {
+    e.json(403, {
+      ok: false,
+      code: 'share_link_invalid',
+      error: 'This share link is invalid or has expired. Ask the owner for a fresh one.',
+    });
+    return true;
+  }
+  var headers = e.response.header();
+  var token = readProjectSecret('.agent-token');
+  var value = shareSessionValue(token, share.secret);
+  var secure = share.origin.toLowerCase().indexOf('https://') === 0;
+  if (value !== '') headers.add('Set-Cookie', sessionCookieHeader(sessionCookieName(token), value, secure));
+  headers.set('Cache-Control', 'no-store');
+  var q = e.request.url.query();
+  q.del(SHARE_PARAM);
+  var rest = q.encode();
+  e.redirect(302, String(e.request.url.path || '/') + (rest ? '?' + rest : ''));
+  return true;
+}
+
+/** Local ingress only: hand the app's own UI its session with the page that
+ *  boots it (the kit's same-origin fetches then carry it). Anyone who can
+ *  reach loopback gets one — everyone who could already read .agent-token. */
+function issueLocalSession(e) {
+  if (isRemoteRequest(e)) return;
+  var token = readProjectSecret('.agent-token');
+  var value = localSessionValue(token);
+  if (value === '') return;
+  var name = sessionCookieName(token);
+  if (cookieOf(e, name) === value) return;
+  e.response.header().add('Set-Cookie', sessionCookieHeader(name, value, false));
+}
+
 module.exports = {
   ADAPTER_VERSION: ADAPTER_VERSION,
+  authorizeCaller: authorizeCaller,
+  handleShareExchange: handleShareExchange,
+  issueLocalSession: issueLocalSession,
+  isSharedOrigin: isSharedOrigin,
   describeApp: describeApp,
   fieldsOf: fieldsOf,
   protocolType: protocolType,

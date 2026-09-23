@@ -683,7 +683,9 @@
     "deleteBackupMessage": "{{date}} のバックアップを完全に削除しますか？",
     "lan": "LAN",
     "public": "公開",
-    "notShared": "未共有",
+    "lanHint": "同じネットワーク上の端末(リンクが必要)",
+    "publicHint": "インターネット上の誰でも(リンクが必要)",
+    "createLanLink": "LANリンクを作成",
     "starting": "起動中...",
     "createTunnel": "トンネルを作成"
   }

@@ -177,7 +177,7 @@ Para una solución de problemas más detallada, consulta [INSTALLATION_FIX.md](I
 ---
 ## 🐳 Ejecutar con un contenedor
 
-La raíz del repositorio incluye una configuración Docker con Python 3.10, los paquetes de sistema clave (incluido Tesseract para OCR) y todas las dependencias de Python definidas en `environment.yml`/`requirements.txt`, de modo que el agente puede ejecutarse de forma consistente en entornos aislados.
+La raíz del repositorio incluye una configuración Docker con Python 3.10, los paquetes de sistema clave (incluido Tesseract para OCR) y todas las dependencias de Python definidas en `requirements.txt`, de modo que el agente puede ejecutarse de forma consistente en entornos aislados.
 
 A continuación tienes las instrucciones para correr nuestro agente con un contenedor.
 
@@ -205,7 +205,7 @@ docker run --rm -it --env-file .env craftbot
 
 Monta con `-v` los directorios que deban persistir fuera del contenedor (por ejemplo carpetas de datos o caché) y ajusta puertos u otros parámetros según tu despliegue. La imagen trae dependencias del sistema para OCR (`tesseract`) y clientes HTTP habituales, de modo que el agente pueda trabajar con archivos y APIs de red dentro del contenedor.
 
-Por defecto, la imagen usa Python 3.10 y empaqueta las dependencias de Python de `environment.yml`/`requirements.txt`, así que `python -m app.main` funciona sin más.
+Por defecto, la imagen usa Python 3.10 y empaqueta las dependencias de Python de `requirements.txt`, así que `python -m app.main` funciona sin más.
 
 ---
 

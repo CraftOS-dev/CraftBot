@@ -683,7 +683,9 @@
     "deleteBackupMessage": "{{date}} 백업을 영구적으로 삭제하시겠습니까?",
     "lan": "LAN",
     "public": "공개",
-    "notShared": "공유되지 않음",
+    "lanHint": "같은 네트워크의 기기 (링크 필요)",
+    "publicHint": "인터넷의 누구나 (링크 필요)",
+    "createLanLink": "LAN 링크 만들기",
     "starting": "시작하는 중...",
     "createTunnel": "터널 만들기"
   }

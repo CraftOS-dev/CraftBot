@@ -20,6 +20,21 @@ export function getWsUrl(): string {
 }
 
 /**
+ * WebSocket subprotocols carrying the backend's per-process session token.
+ *
+ * The token comes from a same-origin fetch (proxied to the backend in dev and
+ * static-server modes); the backend never sends CORS headers for it, so other
+ * sites can't read it. Fetched on every connect: a restarted backend has a
+ * new token.
+ */
+export async function getWsProtocols(): Promise<string[]> {
+  const resp = await fetch('/api/session-token', { cache: 'no-store' })
+  if (!resp.ok) throw new Error(`session token request failed: ${resp.status}`)
+  const { token } = (await resp.json()) as { token: string }
+  return ['craftbot', `craftbot-auth.${token}`]
+}
+
+/**
  * Resolve the base URL for API requests to the backend.
  */
 export function getApiBaseUrl(): string {

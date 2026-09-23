@@ -11,6 +11,7 @@ Manages the lifecycle of Agent App projects:
 """
 
 import asyncio
+import errno
 import json
 import os
 import re
@@ -27,10 +28,18 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 from app import node_runtime
+from app.process_ledger import (
+    ROLE_AGENT_APP,
+    ROLE_TUNNEL,
+    get_ledger,
+    kill_tree,
+    listening_pids,
+)
 from app.agent_app import marketplace_source
+from app.agent_app.sharing import SHARE_STATE_FILES, ShareError, SharingService
 
 try:
     from loguru import logger
@@ -194,11 +203,6 @@ class AgentAppProject:
     # binds; the A2App proxy holds `port` in front of it (NOT serialized —
     # reallocated at every launch).
     internal_port: Optional[int] = None
-    tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
-    tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
-    # Open file object the tunnel process writes into (NOT serialized). Held
-    # so it can be closed when the tunnel stops — see start_tunnel.
-    tunnel_log: Optional[Any] = None
     process: Optional[subprocess.Popen] = None  # Frontend process
 
     def to_dict(self) -> Dict[str, Any]:
@@ -230,7 +234,6 @@ class AgentAppProject:
             "appRuntime": self.app_runtime,
             "craftbotVersion": self.craftbot_version,
             "agentAppVersion": 2,
-            "tunnelUrl": self.tunnel_url,
         }
 
 
@@ -278,6 +281,10 @@ class AgentAppManager:
         # external-app-a2app-adapter.md). The proxy holds the project PORT,
         # so every kill-by-port on a project port must stop the proxy first.
         self._external_proxies: Dict[str, Any] = {}
+
+        # Share channels (private LAN link, public tunnel link): every way a
+        # running app is reached from off this machine. See sharing.py.
+        self.sharing = SharingService(self._terminate_process)
 
         # Ensure workspace directory exists
         self.agent_app_dir = self.workspace_root / "agent_app"
@@ -950,28 +957,9 @@ UI in {project.path}/frontend/src/app/."""
                             app_runtime=project_data.get("appRuntime"),
                             craftbot_version=project_data.get("craftbotVersion"),
                         )
-                        # Check if saved tunnel URL is still reachable
-                        saved_tunnel = project_data.get("tunnelUrl")
-                        if saved_tunnel:
-                            try:
-                                import urllib.request
-
-                                req = urllib.request.Request(
-                                    saved_tunnel, method="HEAD"
-                                )
-                                urllib.request.urlopen(req, timeout=3)
-                                project.tunnel_url = saved_tunnel
-                                logger.info(
-                                    f"[AGENT_APP] Tunnel still active for '{project.name}': {saved_tunnel}"
-                                )
-                            except Exception:
-                                logger.info(
-                                    f"[AGENT_APP] Tunnel expired for '{project.name}', clearing"
-                                )
-                                project.tunnel_url = None
-                                # The app must stop trusting an origin that no
-                                # longer reaches it.
-                                self._publish_tunnel_origin(project, None)
+                        # Share channels: keep a grant whose transport
+                        # survived the restart, revoke the rest.
+                        self.sharing.restore(project)
                         self.projects[project.id] = project
                         # The live port is sticky: reserved for the project's
                         # whole lifetime, not a single boot, so the allocator
@@ -1066,125 +1054,22 @@ UI in {project.path}/frontend/src/app/."""
                 return False
 
     def _is_port_in_use(self, port: int) -> bool:
-        """Check if a port is actually in use on the system."""
+        """Check if a port is actually in use on the system.
+
+        A timed-out probe is ambiguous: it is what a listener with a full
+        accept queue (a busy or wedged app) looks like, but on Windows a
+        closed loopback port times out too (SYN retries before the refusal).
+        Reading every timeout as "free" made the watchdog declare a live app
+        dead, so a timeout is settled by the OS listener table instead.
+        """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5)
-            return s.connect_ex(("localhost", port)) == 0
-
-    def _port_is_ours(self, port: int, ports_to_check: Optional[Set[int]]) -> bool:
-        """True when `port` is one we should consider for reaping: either it is
-        in the explicit owned set, or (when no set is given) it falls in EITHER
-        Agent App pool (live 3100-3199 or shadow 3900-3999). Ownership is
-        structural — a port range and our own records — never a match on a
-        process command line."""
-        if ports_to_check is not None:
-            return port in ports_to_check
-        from app.agent_app.instances import LIVE_RANGE, SHADOW_RANGE
-
-        return (LIVE_RANGE[0] <= port <= LIVE_RANGE[1]) or (
-            SHADOW_RANGE[0] <= port <= SHADOW_RANGE[1]
-        )
-
-    def _get_pids_on_ports(
-        self, ports_to_check: Optional[Set[int]] = None
-    ) -> Dict[int, str]:
-        """
-        Get PIDs of processes listening on ports in the Agent App range.
-        Uses a single system call for efficiency.
-
-        Args:
-            ports_to_check: Optional set of specific ports to check.
-                           If None, checks all ports in the Agent App range.
-
-        Returns:
-            Dict mapping port numbers to PIDs
-        """
-        port_pids = {}
-
-        if os.name == "nt":
-            # Windows: run netstat once and parse all results
-            try:
-                result = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True,
-                    text=True,
-                    shell=True,
-                    timeout=5,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-                for line in result.stdout.split("\n"):
-                    if "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            addr = parts[1]
-                            pid = parts[-1]
-                            if ":" in addr:
-                                try:
-                                    port = int(addr.split(":")[-1])
-                                    if self._port_is_ours(port, ports_to_check):
-                                        port_pids[port] = pid
-                                except ValueError:
-                                    pass
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Failed to get ports via netstat: {e}")
-        else:
-            # Linux/Mac: use lsof
-            try:
-                result = subprocess.run(
-                    ["lsof", "-i", "-P", "-n"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                for line in result.stdout.split("\n"):
-                    if "LISTEN" in line:
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            # PID is typically the second column
-                            pid = parts[1]
-                            # Find the port in the line
-                            for part in parts:
-                                if ":" in part:
-                                    try:
-                                        port = int(part.split(":")[-1])
-                                        if self._port_is_ours(port, ports_to_check):
-                                            port_pids[port] = pid
-                                            break
-                                    except ValueError:
-                                        pass
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Failed to get ports via lsof: {e}")
-
-        return port_pids
-
-    def _kill_process_by_pid(self, pid: str) -> bool:
-        """
-        Kill a process by its PID.
-
-        Args:
-            pid: Process ID to kill
-
-        Returns:
-            True if process was killed, False otherwise
-        """
-        try:
-            if os.name == "nt":
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", pid],
-                    capture_output=True,
-                    shell=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-            else:
-                subprocess.run(["kill", "-9", pid], capture_output=True)
+            rc = s.connect_ex(("127.0.0.1", port))
+        if rc == 0:
             return True
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] Failed to kill process {pid}: {e}")
+        if rc == errno.ECONNREFUSED:
             return False
+        return bool(listening_pids(port))
 
     # ========================================================================
     # Manifest-driven launch pipeline
@@ -1260,8 +1145,20 @@ UI in {project.path}/frontend/src/app/."""
         except AgentAppRunnerUnavailable as e:
             return _fail("setup", [str(e)])
 
-        # Clear any stale listener before binding the port.
+        # Clear any stale listener before binding the port. Only our own
+        # leftovers are killed; a program CraftBot did not start keeps the
+        # port, and booting anyway would "pass" health against THAT program.
         self._kill_process_on_port(port)
+        holder = self._foreign_listener(port)
+        if holder is not None:
+            return _fail(
+                "start",
+                [
+                    f"port {port} is in use by another program (pid {holder}) "
+                    f"that CraftBot did not start, so it was left running. "
+                    f"Close it, or move this app to a different port."
+                ],
+            )
 
         # Renamed/deleted APPLIED migrations brick the boot with an error only
         # pocketbase.log ever sees — catch them here, before any process spawns.
@@ -1343,7 +1240,12 @@ UI in {project.path}/frontend/src/app/."""
         except Exception as e:
             return _fail("start", [str(e)])
 
-        if not await self.runner.wait_healthy(port):
+        # Healthy means OUR process answered: a 200 from whoever else holds
+        # the port (PocketBase exited on "address in use") is not a boot.
+        healthy = await self.runner.wait_healthy(port)
+        if healthy and (process.poll() is not None or process.pid not in listening_pids(port)):
+            healthy = False
+        if not healthy:
             self._terminate_process(process)
             # A dead health check with no cause starved the agent before —
             # the boot abort (bad migration, hook panic) is in pocketbase.log
@@ -1456,10 +1358,7 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 pass
         if self._is_port_in_use(port):
-            own_pid = str(os.getpid())
-            holder = self._get_pids_on_ports({port}).get(port)
-            if holder is None or str(holder) != own_pid:
-                self._kill_process_on_port(port)
+            self._kill_process_on_port(port)
 
         # The app itself binds a fresh hidden internal port each launch.
         if project.internal_port:
@@ -1602,6 +1501,12 @@ UI in {project.path}/frontend/src/app/."""
             if boot_log:
                 errors.append("app.log (this boot):\n" + boot_log)
             return _fail("health", errors)
+
+        # The start command runs under a shell; record the server itself too,
+        # so it stays recognisably ours even if that shell dies first.
+        get_ledger().adopt_listeners(
+            internal_port, ROLE_AGENT_APP, owner=project.id, label=f"server :{internal_port}"
+        )
 
         # A2App adapter in front of the healthy app: bind the project port,
         # then structurally self-check the surface (the identity probe is
@@ -2254,6 +2159,12 @@ UI in {project.path}/frontend/src/app/."""
                 stderr=log_handle,
                 shell=True,
             )
+        get_ledger().register(
+            process.pid,
+            ROLE_AGENT_APP,
+            owner=project.id if project else "",
+            label=f"{command[:80]} :{port}" if port else command[:80],
+        )
         return process
 
     def _create_frontend_log(project_path: Path) -> Path:
@@ -2273,93 +2184,45 @@ UI in {project.path}/frontend/src/app/."""
             return "(could not read log)"
 
     def _terminate_process(self, process: subprocess.Popen) -> None:
-        """Terminate a subprocess, killing the entire process tree on Windows."""
+        """Stop a subprocess WE hold the handle of, with its whole tree.
+
+        shell=True puts a cmd.exe / sh between us and the server; stopping
+        only that shell strands the server still bound to its port (and, on
+        POSIX, reparented away from anything the ledger could trace back).
+        """
         try:
-            if os.name == "nt":
-                # On Windows with shell=True, terminate() only kills cmd.exe,
-                # not the child python/uvicorn. Kill the whole tree via taskkill.
-                subprocess.run(
-                    ["taskkill", "/T", "/F", "/PID", str(process.pid)],
-                    capture_output=True,
-                    shell=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-            else:
-                process.terminate()
+            kill_tree(process.pid)
             process.wait(timeout=5)
         except (subprocess.TimeoutExpired, Exception):
             try:
                 process.kill()
             except Exception:
                 pass
+        get_ledger().forget(process.pid)
+
+    @staticmethod
+    def _foreign_listener(port: int) -> Optional[int]:
+        """A pid listening on `port` that CraftBot did not start (and is not
+        CraftBot itself), or None."""
+        ledger = get_ledger()
+        for pid in listening_pids(port):
+            if pid != os.getpid() and ledger.owner_of(pid) is None:
+                return pid
+        return None
 
     def _kill_process_on_port(self, port: int) -> bool:
-        """
-        Kill any process listening on the specified port (Windows-specific).
+        """Free `port` by killing its listener — ONLY if CraftBot started it.
 
-        Args:
-            port: The port to free
-
-        Returns:
-            True if a process was killed, False otherwise
+        The listener is matched on the exact port (never a substring of a
+        netstat line) and must be a process in the owned-process ledger, or a
+        descendant of one. A foreign service on the port is left alone; so is
+        CraftBot's own process (the in-process A2App proxy holds project
+        ports). Returns True if a process was killed.
         """
-        if os.name != "nt":
-            # Linux/Mac: use lsof and kill
-            try:
-                result = subprocess.run(
-                    ["lsof", "-ti", f":{port}"], capture_output=True, text=True
-                )
-                if result.stdout.strip():
-                    pids = result.stdout.strip().split("\n")
-                    for pid in pids:
-                        subprocess.run(["kill", "-9", pid], capture_output=True)
-                    logger.info(f"[AGENT_APP] Killed process(es) on port {port}")
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[AGENT_APP] Failed to kill process on port {port}: {e}"
-                )
-            return False
-        else:
-            # Windows: use netstat and taskkill
-            try:
-                no_window = (
-                    subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0
-                )
-                result = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True,
-                    text=True,
-                    shell=True,
-                    creationflags=no_window,
-                )
-                killed = False
-                for line in result.stdout.split("\n"):
-                    if f":{port}" in line and "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            pid = parts[-1]
-                            # /T kills entire process tree (shell + child processes)
-                            subprocess.run(
-                                ["taskkill", "/T", "/F", "/PID", pid],
-                                capture_output=True,
-                                shell=True,
-                                creationflags=no_window,
-                            )
-                            logger.info(
-                                f"[AGENT_APP] Killed process tree {pid} on port {port}"
-                            )
-                            killed = True
-                if killed:
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[AGENT_APP] Failed to kill process on port {port}: {e}"
-                )
+        try:
+            return get_ledger().kill_port_listeners(port)
+        except Exception as e:
+            logger.warning(f"[AGENT_APP] Failed to free port {port}: {e}")
             return False
 
     def cleanup_on_startup(self) -> None:
@@ -2367,41 +2230,28 @@ UI in {project.path}/frontend/src/app/."""
         Clean up orphan processes and folders on startup.
 
         This should be called after loading projects to:
-        1. Kill any orphan Agent App server processes on tracked ports (frontend + backend)
-        2. Delete project folders not tracked in the registry
-        3. Reset all project statuses to 'stopped'
-
-        Optimized to:
-        - Only check ports that are tracked in projects (not all 100 ports)
-        - Use a single netstat call to get all port info at once
+        1. Kill leftover Agent App servers and tunnels from the previous run —
+           only the ones recorded in the owned-process ledger
+        2. Log project folders not tracked in the registry
+        3. Sweep dev-env leftover directories
         """
         logger.info("[AGENT_APP] Running startup cleanup...")
 
-        # Nothing of ours is legitimately running yet: every app process died
-        # with the previous CraftBot. Reconcile against the OS by the ports WE
-        # OWN — every project's sticky LIVE port (persisted) plus every port a
-        # prior registry instance (live or shadow) claimed. Snapshotting and
-        # clearing the registry first releases the shadow reservations; the
-        # live ports were re-reserved from the project list at load.
-        #
-        # We kill only listeners sitting on ports WE own, by pid. Ownership is
-        # structural (our port ranges and our own records), so a foreign
-        # process on a port we never claimed is never touched, and there is no
-        # command-line/string matching to decide "is this ours".
-        prior = self.instances.reset()
-        owned_ports = {p.port for p in self.projects.values() if p.port}
-        owned_ports |= {i.port for i in prior}
-
-        killed_count = 0
-        if owned_ports:
-            for port, pid in self._get_pids_on_ports(owned_ports).items():
-                if self._kill_process_by_pid(pid):
-                    killed_count += 1
-                    logger.info(
-                        f"[AGENT_APP] reclaimed owned port {port} (pid {pid})"
-                    )
+        # Nothing of ours is legitimately running yet: every app server and
+        # tunnel died with the previous CraftBot, or should have. Reap exactly
+        # the processes the ledger recorded starting — verified by pid AND
+        # creation time, so a recycled pid or a foreign service that happens
+        # to sit on one of our ports is never touched. Snapshotting and
+        # clearing the instance registry releases the shadow reservations;
+        # the live ports were re-reserved from the project list at load.
+        self.instances.reset()
+        try:
+            killed_count = get_ledger().reap()
+        except Exception as e:
+            killed_count = 0
+            logger.warning(f"[AGENT_APP] owned-process reap failed: {e}")
         if killed_count > 0:
-            logger.info(f"[AGENT_APP] reclaimed {killed_count} leftover process(es)")
+            logger.info(f"[AGENT_APP] reaped {killed_count} leftover owned process(es)")
 
         # Log orphan project folders (do NOT delete — deleting them at boot has
         # destroyed real user projects; logging is the safe behavior).
@@ -2412,8 +2262,8 @@ UI in {project.path}/frontend/src/app/."""
             )
 
         # Sweep dev-env leftover directories. Process kills were handled above
-        # by owned-port reclaim across BOTH ranges (the shadow range included),
-        # so a deleted-project shadow can no longer leak an untracked process.
+        # by the ledger reap, which covers shadow boots too (the runner
+        # records every PocketBase it starts, live or shadow).
         try:
             reaped = self.lifecycle.reap_dirs()
             if reaped:
@@ -3158,6 +3008,7 @@ UI in {project.path}/frontend/src/app/."""
         "token.json",
         ".superuser",
         ".agent-token",
+        *SHARE_STATE_FILES,
         ".jwt_secret",
         ".npmrc",
         ".netrc",
@@ -3329,7 +3180,8 @@ UI in {project.path}/frontend/src/app/."""
 
         # Never trust shipped credentials or runtime state.
         (dest / ".superuser").unlink(missing_ok=True)
-        (dest / ".tunnel-origin").unlink(missing_ok=True)
+        for name in SHARE_STATE_FILES:
+            (dest / name).unlink(missing_ok=True)
 
         # Rewrite identity + port (pipeline start command embeds the port).
         old_port = manifest.get("port")
@@ -4429,8 +4281,8 @@ UI in {project.path}/frontend/src/app/."""
                     f"[AGENT_APP:BACKUP] backup cleanup failed for {project_id}: {e}"
                 )
 
-        # Stop tunnel if active
-        await self.stop_tunnel(project_id)
+        # Close every share link
+        await self.sharing.close_all(project)
 
         # Stop if running
         if project.status == "running":
@@ -4571,9 +4423,9 @@ UI in {project.path}/frontend/src/app/."""
             "credentials.json",
             "token.json",
             ".jwt_secret",
-            # Host-local, tunnel-lifetime state: an exported app must not
+            # Host-local, share-lifetime state: an exported app must not
             # arrive somewhere else already trusting a foreign origin.
-            ".tunnel-origin",
+            *SHARE_STATE_FILES,
         }
 
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -4599,25 +4451,8 @@ UI in {project.path}/frontend/src/app/."""
         return None
 
     # ------------------------------------------------------------------
-    # LAN & Tunnel sharing
+    # Sharing (private LAN link / public tunnel link) — see sharing.py
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def get_lan_ip() -> Optional[str]:
-        """Get the machine's LAN IP address."""
-        try:
-            # Connect to a public IP to determine the right interface
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(1)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            try:
-                return socket.gethostbyname(socket.gethostname())
-            except Exception:
-                return None
 
     @staticmethod
     def _serving_port(project: AgentAppProject) -> Optional[int]:
@@ -4631,345 +4466,28 @@ UI in {project.path}/frontend/src/app/."""
         served from it any more."""
         return project.port
 
-    def get_lan_url(self, project_id: str) -> Optional[str]:
-        """Get the LAN-accessible URL for a running project.
-
-        One port for everything: the app serves its API and its frontend
-        static files from the same listener.
-        """
+    async def open_share(self, project_id: str, channel: str) -> str:
+        """Open a share channel ("lan" | "tunnel") for a running project and
+        return its share link. Raises ShareError with an owner-facing reason."""
         project = self.projects.get(project_id)
         if not project or project.status != "running":
-            return None
+            raise ShareError("Start the app before sharing it.")
         port = self._serving_port(project)
         if not port:
-            return None
-        ip = self.get_lan_ip()
-        if not ip or ip.startswith("127."):
-            return None
-        return f"http://{ip}:{port}"
+            raise ShareError("The app has no port to share.")
+        return await self.sharing.open(project, channel, port)
 
-    # Cloudflared binary download URLs per platform
-    _CLOUDFLARED_URLS = {
-        "win32": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        "darwin": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz",
-        "linux": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
-    }
-
-    def _get_cloudflared_path(self) -> Optional[str]:
-        """Find cloudflared — check PATH first, then our local bin directory."""
-        system_path = shutil.which("cloudflared")
-        if system_path:
-            return system_path
-        # Check our local bin
-        import sys
-
-        ext = ".exe" if sys.platform == "win32" else ""
-        local_bin = Path(__file__).parent.parent / "bin" / f"cloudflared{ext}"
-        if local_bin.exists():
-            return str(local_bin)
-        return None
-
-    async def _ensure_cloudflared(self) -> Optional[str]:
-        """Find cloudflared or auto-install it. Returns the binary path or None."""
-        path = self._get_cloudflared_path()
-        if path:
-            return path
-
-        logger.info("[AGENT_APP] cloudflared not found, auto-installing...")
-        import sys
-        import urllib.request
-
-        platform_key = sys.platform
-        if platform_key not in self._CLOUDFLARED_URLS:
-            logger.error(f"[AGENT_APP] Unsupported platform: {platform_key}")
-            return None
-
-        bin_dir = Path(__file__).parent.parent / "bin"
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        ext = ".exe" if platform_key == "win32" else ""
-        target = bin_dir / f"cloudflared{ext}"
-
-        try:
-            url = self._CLOUDFLARED_URLS[platform_key]
-            req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
-            resp = urllib.request.urlopen(req, timeout=60)
-
-            if platform_key == "darwin":
-                import tarfile
-                import io
-
-                with tarfile.open(fileobj=io.BytesIO(resp.read()), mode="r:gz") as tar:
-                    for member in tar.getmembers():
-                        if "cloudflared" in member.name:
-                            f = tar.extractfile(member)
-                            if f:
-                                target.write_bytes(f.read())
-                                break
-            else:
-                target.write_bytes(resp.read())
-
-            if platform_key != "win32":
-                target.chmod(0o755)
-
-            logger.info(f"[AGENT_APP] cloudflared installed at {target}")
-            return str(target)
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Failed to download cloudflared: {e}")
-            if target.exists():
-                target.unlink()
-            return None
-
-    async def start_tunnel(
-        self, project_id: str, provider: str = "cloudflared"
-    ) -> Optional[str]:
-        """Start a cloudflare tunnel for remote access. Returns the public URL."""
-        logger.info(f"[AGENT_APP] start_tunnel called for {project_id}")
+    async def close_share(self, project_id: str, channel: str) -> None:
         project = self.projects.get(project_id)
-        if not project or project.status != "running":
-            logger.warning(
-                f"[AGENT_APP] Cannot start tunnel: project={project is not None}, status={project.status if project else 'N/A'}"
-            )
-            return None
+        if project:
+            await self.sharing.close(project, channel)
 
-        logger.info("[AGENT_APP] Stopping any existing tunnel...")
-        await self.stop_tunnel(project_id)
-
-        # Only kill orphans on first tunnel start (no other tunnels active)
-        other_tunnels = any(
-            p.tunnel_process is not None and p.id != project_id
-            for p in self.projects.values()
-        )
-        if not other_tunnels:
-            logger.info(
-                "[AGENT_APP] No other tunnels active, cleaning orphan cloudflared processes..."
-            )
-            try:
-                if os.name == "nt":
-                    subprocess.run(
-                        [
-                            "powershell",
-                            "-Command",
-                            "Stop-Process -Name cloudflared -Force -ErrorAction SilentlyContinue",
-                        ],
-                        capture_output=True,
-                        timeout=5,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                        if hasattr(subprocess, "CREATE_NO_WINDOW")
-                        else 0,
-                    )
-                else:
-                    subprocess.run(["pkill", "-f", "cloudflared"], capture_output=True)
-                await asyncio.sleep(1)
-            except Exception:
-                pass
-
-        port = self._serving_port(project)
-        if not port:
-            return None
-
-        cloudflared = await self._ensure_cloudflared()
-        if not cloudflared:
-            logger.error("[AGENT_APP] cloudflared binary not found")
-            return None
-
-        # cloudflared writes to stderr for the WHOLE life of the tunnel, not
-        # just at startup. Piping that into this process and then not draining
-        # it — which is what "find the URL, return from the reader thread"
-        # did — fills the OS pipe buffer (4 KB by default on Windows) and
-        # cloudflared then BLOCKS forever on its next write. The tunnel stops
-        # proxying while the process still looks perfectly alive, so remote
-        # visitors hang until their client times out, and every byte that would
-        # explain why is stuck unread in that buffer. A file sink has no such
-        # backpressure, and doubles as the log this had no way to produce.
-        log_handle, log_path, log_offset = self._open_tunnel_log(project, port)
-        if log_handle is None:
-            logger.error("[AGENT_APP] No writable location for the cloudflared log")
-            return None
-
-        # 127.0.0.1, NOT localhost: PocketBase binds --http=127.0.0.1:<port>
-        # (runner.start) and the external-app proxy binds the same, so neither
-        # ever listens on ::1. cloudflared resolves 'localhost' to ::1 first on
-        # Windows and got "connectex: No connection could be made" on every
-        # single request — the tunnel came up healthy, announced its URL, and
-        # then refused every visitor.
-        origin_url = f"http://127.0.0.1:{port}"
-        logger.info(
-            f"[AGENT_APP] Starting cloudflared: {cloudflared} tunnel "
-            f"--url {origin_url} (log: {log_path})"
-        )
-        proc = subprocess.Popen(
-            [cloudflared, "tunnel", "--url", origin_url],
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW
-            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-            else 0,
-        )
-        logger.info(f"[AGENT_APP] cloudflared started, PID={proc.pid}, parsing URL...")
-        url = await self._parse_cloudflare_url(proc, log_path, log_offset)
-        logger.info(f"[AGENT_APP] cloudflared URL parse result: {url}")
-
-        if url:
-            project.tunnel_process = proc
-            project.tunnel_log = log_handle
-            project.tunnel_url = url
-            self._publish_tunnel_origin(project, url)
-            self._save_projects()
-            logger.info(f"[AGENT_APP] Tunnel started for {project.name}: {url}")
-            return url
-        else:
-            self._terminate_process(proc)
-            self._close_tunnel_log(log_handle)
-            logger.error(
-                f"[AGENT_APP] Failed to get tunnel URL; cloudflared's own "
-                f"output is in {log_path}"
-            )
-            return None
-
-    async def stop_tunnel(self, project_id: str) -> None:
-        """Stop the tunnel for a project."""
+    def share_links(self, project_id: str) -> Dict[str, Optional[str]]:
+        """{channel: share link, or None while that channel is closed}."""
         project = self.projects.get(project_id)
         if not project:
-            return
-        if project.tunnel_process:
-            self._terminate_process(project.tunnel_process)
-            project.tunnel_process = None
-        self._close_tunnel_log(project.tunnel_log)
-        project.tunnel_log = None
-        project.tunnel_url = None
-        self._publish_tunnel_origin(project, None)
-        self._save_projects()
-        logger.info(f"[AGENT_APP] Tunnel stopped for {project.name}")
-
-    @staticmethod
-    def _tunnel_log_path(project: AgentAppProject) -> Path:
-        return Path(project.path) / "logs" / "cloudflared.log"
-
-    def _open_tunnel_log(
-        self, project: AgentAppProject, port: int
-    ) -> Tuple[Optional[Any], Path, int]:
-        """Open cloudflared's output sink. Returns (handle, path, offset).
-
-        The sink is not optional — it is both the tunnel's only log and the
-        only place the public URL is announced — so an unwritable project
-        directory falls back to the temp dir rather than failing the share.
-        """
-        candidates = [
-            self._tunnel_log_path(project),
-            Path(tempfile.gettempdir()) / f"cloudflared-{project.id}.log",
-        ]
-        for path in candidates:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                # Append across restarts, but never grow without bound: this
-                # file collects everything cloudflared logs while sharing.
-                too_big = path.exists() and path.stat().st_size > 2_000_000
-                handle = open(
-                    path,
-                    "w" if too_big else "a",
-                    encoding="utf-8",
-                    errors="replace",
-                )
-                handle.write(
-                    f"\n=== cloudflared start "
-                    f"{datetime.now().isoformat(timespec='seconds')} "
-                    f"port={port} ===\n"
-                )
-                handle.flush()
-                return handle, path, path.stat().st_size
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Tunnel log unusable at {path}: {e}")
-        return None, candidates[-1], 0
-
-    @staticmethod
-    def _close_tunnel_log(handle: Optional[Any]) -> None:
-        if handle is None:
-            return
-        try:
-            handle.close()
-        except Exception:
-            pass
-
-    @staticmethod
-    def _tunnel_origin_file(project: AgentAppProject) -> Path:
-        return Path(project.path) / ".tunnel-origin"
-
-    def _publish_tunnel_origin(
-        self, project: AgentAppProject, url: Optional[str]
-    ) -> None:
-        """Tell the app which public origin to trust, or that there is none.
-
-        The app's origin guard (pb/pb_hooks/_system.pb.js) allows loopback
-        origins only — right for a loopback app, fatal for a shared one:
-        browsers send `Origin` on same-origin writes too, so through a tunnel
-        the app LOADED (GET carries no Origin) and then 403'd every save. The
-        guard reads this file per request, so the grant appears and disappears
-        with the tunnel, with no app restart in between.
-        """
-        path = self._tunnel_origin_file(project)
-        try:
-            if url:
-                origin = url.rstrip("/")
-                path.write_text(origin + "\n", encoding="utf-8")
-                logger.info(f"[AGENT_APP] Shared origin published: {origin}")
-            elif path.exists():
-                path.unlink()
-                logger.info(f"[AGENT_APP] Shared origin revoked for {project.name}")
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] Could not update {path.name}: {e}")
-
-    async def _parse_cloudflare_url(
-        self,
-        proc: subprocess.Popen,
-        log_path: Path,
-        start_offset: int = 0,
-        timeout: int = 30,
-    ) -> Optional[str]:
-        """Wait for cloudflared to announce its public URL in its log file.
-
-        Tails the file rather than reading the process pipes — see the note in
-        start_tunnel about the pipe-buffer deadlock that cost us the tunnel.
-        """
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
-        deadline = time.time() + timeout
-        offset = start_offset
-        seen = ""
-
-        while True:
-            # Sample liveness BEFORE reading, so a process that dies between
-            # the two still gets its final bytes examined.
-            exited = proc.poll() is not None
-            try:
-                with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
-                    fh.seek(offset)
-                    seen += fh.read()
-                    offset = fh.tell()
-            except FileNotFoundError:
-                pass
-
-            match = pattern.search(seen)
-            if match:
-                logger.info(f"[AGENT_APP] Parsed cloudflare URL: {match.group(0)}")
-                return match.group(0)
-
-            # cloudflared boxes the URL inside an ASCII banner, so it can land
-            # split across two reads: keep a tail long enough to re-match.
-            if len(seen) > 8192:
-                seen = seen[-1024:]
-
-            if exited:
-                logger.error(
-                    f"[AGENT_APP] cloudflared exited (code {proc.returncode}) "
-                    f"before announcing a URL; see {log_path}"
-                )
-                return None
-            if time.time() >= deadline:
-                logger.error(
-                    f"[AGENT_APP] Failed to parse cloudflare URL within "
-                    f"{timeout}s; see {log_path}"
-                )
-                return None
-            await asyncio.sleep(0.3)
+            return {name: None for name in self.sharing.channels}
+        return self.sharing.links(project)
 
     async def auto_launch_projects(self, project_ids: List[str] = None) -> None:
         """Auto-launch projects on startup.

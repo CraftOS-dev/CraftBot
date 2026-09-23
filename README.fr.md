@@ -177,7 +177,7 @@ Pour un dépannage plus approfondi, voir [INSTALLATION_FIX.md](INSTALLATION_FIX.
 ---
 ## 🐳 Lancer dans un conteneur
 
-La racine du dépôt contient une configuration Docker avec Python 3.10, les paquets système essentiels (dont Tesseract pour l'OCR) et toutes les dépendances Python définies dans `environment.yml`/`requirements.txt`, afin que l'agent tourne de manière cohérente dans des environnements isolés.
+La racine du dépôt contient une configuration Docker avec Python 3.10, les paquets système essentiels (dont Tesseract pour l'OCR) et toutes les dépendances Python définies dans `requirements.txt`, afin que l'agent tourne de manière cohérente dans des environnements isolés.
 
 Voici les étapes pour lancer notre agent dans un conteneur.
 
@@ -205,7 +205,7 @@ docker run --rm -it --env-file .env craftbot
 
 Montez avec `-v` les répertoires qui doivent persister en dehors du conteneur (par exemple les dossiers de données ou de cache) et ajustez les ports ou les autres flags en fonction de votre déploiement. L'image embarque les dépendances système nécessaires à l'OCR (`tesseract`) et des clients HTTP courants, pour que l'agent puisse manipuler des fichiers et des APIs réseau directement dans le conteneur.
 
-Par défaut, l'image utilise Python 3.10 et embarque les dépendances Python de `environment.yml`/`requirements.txt`, donc `python -m app.main` fonctionne directement.
+Par défaut, l'image utilise Python 3.10 et embarque les dépendances Python de `requirements.txt`, donc `python -m app.main` fonctionne directement.
 
 ---
 

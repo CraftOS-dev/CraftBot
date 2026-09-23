@@ -64,7 +64,7 @@ from agent_core.core.impl.llm.cache import (
     BYTEPLUS_MAX_INPUT_TOKENS,
     GeminiCacheManager,
 )
-from agent_core.core.action import Action, Observe
+from agent_core.core.action import Action
 from agent_core.core.event_stream import Event, EventRecord
 from agent_core.decorators import (
     profile,
@@ -268,7 +268,6 @@ __all__ = [
     "GeminiCacheManager",
     # Action framework
     "Action",
-    "Observe",
     "ActionRegistry",
     "ActionMetadata",
     "RegisteredAction",

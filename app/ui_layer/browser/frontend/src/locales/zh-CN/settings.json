@@ -683,7 +683,9 @@
     "deleteBackupMessage": "永久删除 {{date}} 的备份吗？",
     "lan": "局域网",
     "public": "公开",
-    "notShared": "未分享",
+    "lanHint": "同一网络中的设备(需凭链接)",
+    "publicHint": "互联网上的任何人(需凭链接)",
+    "createLanLink": "创建局域网链接",
     "starting": "启动中…",
     "createTunnel": "创建隧道"
   }

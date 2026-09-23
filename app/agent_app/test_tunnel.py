@@ -1,4 +1,4 @@
-"""Tunnel sharing: the output sink and the shared-origin grant.
+"""Public sharing (TunnelChannel): the output sink and the shared-origin grant.
 
 Four failures this pins down, all observed live on 2026-08-28. Each one alone
 was enough to make a shared app unusable, and the first hid the other three:
@@ -44,6 +44,7 @@ except Exception:
 
 from app.agent_app.a2app_proxy import ExternalA2AppProxy
 from app.agent_app.manager import AgentAppManager, AgentAppProject
+from app.agent_app.sharing import ShareError, ShareGrant, TunnelChannel
 
 # A stand-in for cloudflared: the real banner shape, then far more chatter
 # than any pipe buffer holds. This is the exact shape that used to wedge.
@@ -62,27 +63,26 @@ sys.stderr.write("DONE\n")
 URL = "https://fake-tunnel-for-tests.trycloudflare.com"
 
 
-def _fixture(tmp: Path) -> "tuple[AgentAppManager, AgentAppProject, Path]":
-    """A manager with no state of its own — these paths never touch it."""
+def _fixture(tmp: Path) -> "tuple[TunnelChannel, AgentAppProject, Path]":
     (tmp / "logs").mkdir(exist_ok=True)
     fake = tmp / "fake_cloudflared.py"
     fake.write_text(FAKE_CLOUDFLARED, encoding="utf-8")
-    mgr = AgentAppManager.__new__(AgentAppManager)
+    channel = TunnelChannel(terminate=lambda proc: proc.kill())
     project = AgentAppProject(id="testproj", name="T", description="", path=str(tmp))
-    return mgr, project, fake
+    return channel, project, fake
 
 
 async def _check_sink(tmp: Path) -> None:
-    mgr, project, fake = _fixture(tmp)
+    channel, project, fake = _fixture(tmp)
 
-    handle, log_path, offset = mgr._open_tunnel_log(project, 3101)
+    handle, log_path, offset = channel._open_log(project, 3101)
     assert handle is not None, "no sink means no URL and no log"
     assert log_path == tmp / "logs" / "cloudflared.log", log_path
 
     proc = subprocess.Popen(
         [sys.executable, str(fake)], stdout=handle, stderr=subprocess.STDOUT
     )
-    url = await mgr._parse_cloudflare_url(proc, log_path, offset, timeout=20)
+    url = await channel._parse_url(proc, log_path, offset, timeout=20)
     assert url == URL, url
 
     # THE regression: the child must run to completion, not block on output.
@@ -91,7 +91,7 @@ async def _check_sink(tmp: Path) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         raise AssertionError("cloudflared blocked on its output — deadlock is back")
-    mgr._close_tunnel_log(handle)
+    channel._close_log(handle)
 
     body = log_path.read_text(encoding="utf-8", errors="replace")
     assert "=== cloudflared start" in body, "session header missing"
@@ -103,20 +103,20 @@ print_sink = "§1 cloudflared output is captured, never buffered: OK"
 
 
 async def _check_failure_paths(tmp: Path) -> None:
-    mgr, project, _ = _fixture(tmp)
+    channel, project, _ = _fixture(tmp)
 
     # A cloudflared that dies without announcing must fail fast, not sit out
     # the whole timeout — the launch path is awaiting this.
     dead = subprocess.Popen([sys.executable, "-c", "raise SystemExit(3)"])
     dead.wait()
-    url = await mgr._parse_cloudflare_url(dead, tmp / "absent.log", 0, timeout=30)
+    url = await channel._parse_url(dead, tmp / "absent.log", 0, timeout=30)
     assert url is None, url
 
     # The log is append-mode across restarts, but capped.
-    log_path = mgr._tunnel_log_path(project)
+    log_path = channel.log_path(project)
     log_path.write_text("y" * 2_500_000, encoding="utf-8")
-    handle, _, offset = mgr._open_tunnel_log(project, 3101)
-    mgr._close_tunnel_log(handle)
+    handle, _, offset = channel._open_log(project, 3101)
+    channel._close_log(handle)
     assert offset < 1000, "an oversized log must be rotated, not grown (%d)" % offset
 
 
@@ -124,21 +124,37 @@ print_failures = "§2 dead process fails fast, log stays bounded: OK"
 
 
 def _check_origin_grant(tmp: Path) -> None:
-    mgr, project, _ = _fixture(tmp)
+    grant = ShareGrant("tunnel")
     origin_file = tmp / ".tunnel-origin"
 
     # The guard reads this file per request, so publishing it is the whole
     # grant — no app restart, and the trailing slash must not survive or the
     # string comparison against the browser's Origin header fails.
-    mgr._publish_tunnel_origin(project, URL + "/")
+    grant.publish(tmp, URL + "/")
     assert origin_file.read_text(encoding="utf-8").strip() == URL, "bad origin file"
 
-    mgr._publish_tunnel_origin(project, None)
+    # The origin grant authenticates nobody; the share secret does. It is
+    # minted with the grant, survives a re-publish of the same tunnel (links
+    # already sent keep working), and dies with it.
+    secret_file = tmp / ".tunnel-secret"
+    secret = secret_file.read_text(encoding="utf-8").strip()
+    assert len(secret) >= 32, "share secret must be minted with the grant"
+    grant.publish(tmp, URL)
+    assert secret_file.read_text(encoding="utf-8").strip() == secret
+    assert grant.link(tmp) == f"{URL}/?a2app_share={secret}"
+
+    grant.revoke(tmp)
     assert not origin_file.exists(), "stopping the tunnel must revoke the grant"
-    mgr._publish_tunnel_origin(project, None)  # idempotent: stop_tunnel runs often
+    assert not secret_file.exists(), "stopping the tunnel must end every session"
+    assert grant.link(tmp) is None, "no grant, no link"
+    grant.revoke(tmp)  # idempotent: closing runs often
+
+    # A new tunnel is a new secret: old links must not reopen it.
+    grant.publish(tmp, URL)
+    assert secret_file.read_text(encoding="utf-8").strip() != secret
 
 
-print_origin = "§3 shared origin published and revoked: OK"
+print_origin = "§3 shared origin + share secret published and revoked: OK"
 
 
 def _check_serving_port(tmp: Path) -> None:
@@ -147,17 +163,14 @@ def _check_serving_port(tmp: Path) -> None:
     Live case: port=3100 (PocketBase listening, serving edits), backend_port=
     3101 (allocated, bound by nothing). Sharing preferred backend_port, so the
     tunnel came up healthy and then answered every visitor with a refused
-    connection.
+    connection. Nothing binds backend_port any more, so there is no fallback.
     """
-    mgr, project, _ = _fixture(tmp)
+    project = AgentAppProject(id="p", name="T", description="", path=str(tmp))
     project.port, project.backend_port = 3100, 3101
-    assert mgr._serving_port(project) == 3100, "must follow runner.start's port"
+    assert AgentAppManager._serving_port(project) == 3100, "must follow runner.start's port"
 
     project.port = None
-    assert mgr._serving_port(project) == 3101, "fall back, don't return None"
-
-    project.backend_port = None
-    assert mgr._serving_port(project) is None
+    assert AgentAppManager._serving_port(project) is None, "never the unbound backend_port"
 
 
 print_port = "§5 sharing targets the bound port, not the reserved one: OK"
@@ -186,6 +199,37 @@ def _check_external_guard(tmp: Path) -> None:
 print_external = "§4 external-app proxy honours the same grant: OK"
 
 
+async def _check_tunnel_needs_token(tmp: Path) -> None:
+    """A failed token mint (launch only warns) + "share this app" used to be
+    a publicly writable app. Opening a channel refuses, before touching
+    anything — including a share that is already open."""
+    channel, project, _ = _fixture(tmp)
+    closed = []
+
+    async def _close(p):
+        closed.append(p.id)
+
+    channel.close = _close
+    token_file = tmp / ".agent-token"
+    for content in (None, "", "  \n"):
+        if content is None:
+            token_file.unlink(missing_ok=True)
+        else:
+            token_file.write_text(content, encoding="utf-8")
+        try:
+            await channel.open(project, 3101)
+        except ShareError as e:
+            assert "access token" in str(e), e
+        else:
+            raise AssertionError(f"shared without a token ({content!r})")
+    assert not closed, "refused before touching any existing share"
+    assert not (tmp / ".tunnel-secret").exists()
+    assert not (tmp / ".tunnel-origin").exists()
+
+
+print_needs_token = "§4b tunnel refuses to share an app with no agent token: OK"
+
+
 with tempfile.TemporaryDirectory() as _tmp:
     asyncio.run(_check_sink(Path(_tmp)))
     print(print_sink)
@@ -201,6 +245,10 @@ with tempfile.TemporaryDirectory() as _tmp:
 with tempfile.TemporaryDirectory() as _tmp:
     _check_external_guard(Path(_tmp))
     print(print_external)
+
+with tempfile.TemporaryDirectory() as _tmp:
+    asyncio.run(_check_tunnel_needs_token(Path(_tmp)))
+    print(print_needs_token)
 
 with tempfile.TemporaryDirectory() as _tmp:
     _check_serving_port(Path(_tmp))

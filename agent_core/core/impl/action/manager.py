@@ -9,13 +9,10 @@ like chatserver reporting.
 
 from datetime import datetime
 import platform
-import time
 import json
 import asyncio
 import nest_asyncio
 from typing import Optional, List, Dict, Any, Callable, Tuple
-import io
-import sys
 import re
 import uuid
 
@@ -403,21 +400,6 @@ class ActionManager:
                 logger.debug(
                     f"[OUTPUT DATA] Completed execute_atomic_action: {outputs}"
                 )
-
-                # Observation step
-                if action.observer:
-                    obs_result = await self.run_observe_step(action, outputs)
-                    if not obs_result["success"]:
-                        status = "error"
-                        outputs["observation"] = {
-                            "success": False,
-                            "message": obs_result.get("message"),
-                        }
-                    else:
-                        outputs["observation"] = {
-                            "success": True,
-                            "message": obs_result.get("message"),
-                        }
 
             else:
                 logger.debug(f"Executing divisible action: {action.name}")
@@ -854,56 +836,6 @@ class ActionManager:
                 input_data=input_data if isinstance(input_data, dict) else None,
             )
         return results
-
-    @profile("action_manager_run_observe_step", OperationCategory.ACTION_EXECUTION)
-    async def run_observe_step(
-        self, action: Action, action_output: Dict
-    ) -> Dict[str, Any]:
-        """
-        Executes the observation code with retries, to confirm action outcome.
-        """
-        observe = action.observer
-        if not observe or not observe.code:
-            return {"success": True, "message": "No observation step."}
-
-        input_json = json.dumps(action_output)
-        python_script = f"""import json;output = {input_json};{observe.code}"""
-
-        attempt = 0
-        start_time = time.time()
-        while (
-            attempt < observe.max_retries
-            and (time.time() - start_time) < observe.max_total_time_sec
-        ):
-            stdout_buf = io.StringIO()
-            stderr_buf = io.StringIO()
-
-            sys.stdout = stdout_buf
-            sys.stderr = stderr_buf
-            local_env = {}
-
-            try:
-                exec(python_script, {}, local_env)
-                sys.stdout = sys.__stdout__
-                sys.stderr = sys.__stderr__
-
-                success = local_env.get("success", None)
-                message = local_env.get("message", "")
-
-                if success is True:
-                    return {"success": True, "message": message}
-                elif success is False:
-                    return {"success": False, "message": message}
-
-            except Exception as e:
-                sys.stdout = sys.__stdout__
-                sys.stderr = sys.__stderr__
-                logger.warning(f"[OBSERVE] Error during observation: {e}")
-
-            await asyncio.sleep(observe.retry_interval_sec)
-            attempt += 1
-
-        return {"success": False, "message": "Observation failed or timed out."}
 
     @staticmethod
     def _extract_base64_to_files(data: dict, action_name: str) -> dict:

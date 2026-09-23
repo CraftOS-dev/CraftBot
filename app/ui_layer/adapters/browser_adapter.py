@@ -14,7 +14,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from aiohttp.client_exceptions import ClientConnectionResetError
@@ -129,6 +129,7 @@ from app.ui_layer.metrics import MetricsCollector
 from app.ui_layer.diagnostics import LoopStallMonitor
 from app.ui_layer.adapters.ws_channel import ClientChannel
 from app.ui_layer.adapters.ws_lanes import message_lane
+from app.ui_layer.adapters.ws_auth import WS_PROTOCOL, WsAuth
 from app.ui_layer.adapters.session_buffer import (
     SESSION_BUFFER_LIMIT,
     SESSION_BUFFER_SLACK,
@@ -162,10 +163,44 @@ from app.agent_app import (
     register_broadcast_callbacks,
     make_todo_broadcast_hook,
 )
+from app.agent_app.sharing import ShareError
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
     from aiohttp import web
+
+
+def _make_static_or_spa(dist: Path):
+    """Build the catch-all handler: serve a file from dist/, else index.html.
+
+    Every request path is resolved and must land inside the resolved dist/
+    (symlinks included); anything else is a 404, never a file from elsewhere.
+    """
+    from aiohttp import web
+
+    dist_root = dist.resolve()
+    index_path = dist_root / "index.html"
+
+    async def _static_or_spa(request: web.Request) -> web.StreamResponse:
+        req_path = request.match_info.get("path", "")
+        if not req_path:
+            return web.FileResponse(index_path)
+        # Refuse drive/root/UNC paths before touching the filesystem: joining
+        # an absolute path replaces dist/ outright, and resolving //host/share
+        # makes Windows authenticate to that host.
+        if PureWindowsPath(req_path).anchor or PurePosixPath(req_path).anchor:
+            raise web.HTTPNotFound()
+        try:
+            file_path = (dist_root / req_path).resolve()
+        except (OSError, ValueError):
+            raise web.HTTPNotFound()
+        if not file_path.is_relative_to(dist_root):
+            raise web.HTTPNotFound()
+        if file_path.is_file():
+            return web.FileResponse(file_path)
+        return web.FileResponse(index_path)
+
+    return _static_or_spa
 
 
 class BrowserThemeAdapter(ThemeAdapter):
@@ -838,6 +873,8 @@ class BrowserAdapter(InterfaceAdapter):
         super().__init__(controller, "browser")
         self._host = host
         self._port = int(os.environ.get("BROWSER_PORT", port))
+        # Origin allowlist + per-process session token for /ws (ws_auth.py).
+        self._ws_auth = WsAuth(self._port)
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
@@ -1037,10 +1074,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             self._chat._messages.insert(0, welcome_message)
 
-        self._app = web.Application()
+        self._app = web.Application(middlewares=[self._api_guard()])
 
         # API and WebSocket routes (must be registered first)
         self._app.router.add_get("/ws", self._websocket_handler)
+        self._app.router.add_get("/api/session-token", self._session_token_handler)
         self._app.router.add_get("/api/state", self._state_handler)
         self._app.router.add_get("/api/debug/loop", self._debug_loop_handler)
         if os.getenv("CRAFTBOT_DEBUG_ENDPOINTS") == "1":
@@ -1096,19 +1134,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Serve static files from dist/ (public/ files copied by Vite build)
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
-            _dist = frontend_dist  # capture for closure
-
-            async def _static_or_spa(request: web.Request) -> web.StreamResponse:
-                """Serve static file from dist/ if it exists, otherwise index.html for SPA routing."""
-                req_path = request.match_info.get("path", "")
-                if req_path:
-                    file_path = _dist / req_path
-                    if file_path.is_file():
-                        return web.FileResponse(file_path)
-                return web.FileResponse(_dist / "index.html")
-
             self._app.router.add_get("/", self._spa_handler)
-            self._app.router.add_get("/{path:.*}", _static_or_spa)
+            self._app.router.add_get(
+                "/{path:.*}", _make_static_or_spa(frontend_dist)
+            )
         else:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
@@ -1204,9 +1233,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web, WSMsgType
         import asyncio
 
+        # Reject foreign pages before upgrading (browsers apply no CORS here).
+        rejected = self._ws_auth.check_ws_handshake(request.headers)
+        if rejected:
+            logger.warning(
+                f"[BROWSER ADAPTER] Rejected /ws handshake ({rejected}): "
+                f"origin={request.headers.get('Origin')!r} "
+                f"host={request.headers.get('Host')!r}"
+            )
+            raise web.HTTPForbidden(reason="WebSocket handshake not allowed")
+
         ws = web.WebSocketResponse(
             max_msg_size=100 * 1024 * 1024,
             heartbeat=30.0,  # Send ping every 30s to keep connection alive
+            protocols=(WS_PROTOCOL,),
         )
 
         try:
@@ -2084,14 +2124,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "agent_app_state_update":
             await self._handle_agent_app_state_update(data)
 
-        elif msg_type == "agent_app_tunnel_start":
-            project_id = data.get("projectId", "")
-            provider = data.get("provider", "cloudflared")
-            await self._handle_agent_app_tunnel_start(project_id, provider)
+        elif msg_type == "agent_app_share_open":
+            await self._handle_agent_app_share(
+                data.get("projectId", ""), data.get("channel", ""), open_it=True
+            )
 
-        elif msg_type == "agent_app_tunnel_stop":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_tunnel_stop(project_id)
+        elif msg_type == "agent_app_share_close":
+            await self._handle_agent_app_share(
+                data.get("projectId", ""), data.get("channel", ""), open_it=False
+            )
 
         elif msg_type == "agent_app_sharing_info":
             project_id = data.get("projectId", "")
@@ -3687,9 +3728,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
 
         try:
-            name = (
-                request.rel_url.query.get("name", "attachment").strip() or "attachment"
-            )
+            # A display name, never a path: keep only the final component, or
+            # "../../x" walks out of download/ (Windows collapses ".." without
+            # the intermediate directory existing).
+            name = Path(
+                request.rel_url.query.get("name", "").strip().replace("\\", "/")
+            ).name
+            if name in ("", ".", ".."):
+                name = "attachment"
             file_type = (
                 request.rel_url.query.get("type", "application/octet-stream").strip()
                 or "application/octet-stream"
@@ -3912,68 +3958,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(f"[AGENT_APP] Error handling state update: {e}")
 
-    async def _handle_agent_app_sharing_info(self, project_id: str) -> None:
-        """Return sharing info (LAN URL, tunnel URL)."""
-        lan_url = self._agent_app_manager.get_lan_url(project_id)
-        project = self._agent_app_manager.get_project(project_id)
+    async def _handle_agent_app_sharing_info(
+        self, project_id: str, error: Optional[Dict[str, str]] = None
+    ) -> None:
+        """Broadcast the project's share links: {channel: link | None}. A
+        link carries its secret — the bare URL admits nobody."""
         await self._broadcast(
             {
                 "type": "agent_app_sharing_info",
                 "data": {
                     "projectId": project_id,
-                    "lanUrl": lan_url,
-                    "tunnelUrl": project.tunnel_url if project else None,
+                    "links": self._agent_app_manager.share_links(project_id),
+                    "error": error,
                 },
             }
         )
 
-    async def _handle_agent_app_tunnel_start(
-        self, project_id: str, provider: str
+    async def _handle_agent_app_share(
+        self, project_id: str, channel: str, open_it: bool
     ) -> None:
-        """Start a tunnel for a Agent App project."""
-        logger.info(
-            f"[AGENT_APP] Tunnel start requested: project={project_id}, provider={provider}"
-        )
+        """Open or close one share channel ("lan" | "tunnel"), then answer
+        with the current links (and why, if opening failed)."""
+        error = None
         try:
-            url = await self._agent_app_manager.start_tunnel(project_id, provider)
-            await self._broadcast(
-                {
-                    "type": "agent_app_tunnel_status",
-                    "data": {
-                        "projectId": project_id,
-                        "tunnelUrl": url,
-                        "success": url is not None,
-                        "error": None if url else f"Failed to start {provider} tunnel",
-                    },
-                }
-            )
+            if open_it:
+                await self._agent_app_manager.open_share(project_id, channel)
+            else:
+                await self._agent_app_manager.close_share(project_id, channel)
         except Exception as e:
-            logger.error(f"[AGENT_APP] Tunnel start error: {e}", exc_info=True)
-            await self._broadcast(
-                {
-                    "type": "agent_app_tunnel_status",
-                    "data": {
-                        "projectId": project_id,
-                        "tunnelUrl": None,
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
+            logger.error(
+                f"[AGENT_APP] Share {channel} {'open' if open_it else 'close'} "
+                f"failed for {project_id}: {e}",
+                exc_info=not isinstance(e, ShareError),
             )
-
-    async def _handle_agent_app_tunnel_stop(self, project_id: str) -> None:
-        """Stop a tunnel for a Agent App project."""
-        await self._agent_app_manager.stop_tunnel(project_id)
-        await self._broadcast(
-            {
-                "type": "agent_app_tunnel_status",
-                "data": {
-                    "projectId": project_id,
-                    "tunnelUrl": None,
-                    "success": True,
-                },
-            }
-        )
+            error = {"channel": channel, "message": str(e)}
+        await self._handle_agent_app_sharing_info(project_id, error)
 
     async def broadcast_agent_app_ready(
         self, project_id: str, url: str, port: int
@@ -8561,8 +8580,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             target = workspace / file_path
         target = target.resolve()
 
-        # Security check - ensure path is within workspace
-        if not str(target).startswith(str(workspace)):
+        # Security check - ensure path is within workspace. Containment by
+        # path components, never by string prefix: "../workspace_x/f" resolves
+        # to a SIBLING whose string starts with the workspace's.
+        if not target.is_relative_to(workspace):
             raise ValueError(f"Path '{file_path}' is outside workspace")
 
         return target
@@ -9739,6 +9760,53 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         html = self._get_index_html()
         return web.Response(text=html, content_type="text/html")
 
+    def _api_guard(self):
+        """Middleware: /api/* refuses rebinding Hosts and foreign-origin writes
+        (ws_auth.check_api_request). /ws guards its own handshake."""
+        from aiohttp import web
+
+        @web.middleware
+        async def api_guard(request, handler):
+            if request.path == "/api" or request.path.startswith("/api/"):
+                rejected = self._ws_auth.check_api_request(
+                    request.method, request.headers
+                )
+                if rejected:
+                    logger.warning(
+                        f"[BROWSER ADAPTER] Refused {request.method} {request.path} "
+                        f"({rejected}): origin={request.headers.get('Origin')!r} "
+                        f"host={request.headers.get('Host')!r}"
+                    )
+                    raise web.HTTPForbidden(reason="Request not allowed")
+            return await handler(request)
+
+        return api_guard
+
+    async def _session_token_handler(self, request: "web.Request") -> "web.Response":
+        """Hand the /ws session token to CraftBot's own UI.
+
+        No CORS headers are ever set here, so a cross-origin page can't read
+        the response; ws_auth also refuses rebinding Hosts and cross-site
+        fetches outright.
+        """
+        from aiohttp import web
+
+        rejected = self._ws_auth.check_token_request(request.headers)
+        if rejected:
+            logger.warning(
+                f"[BROWSER ADAPTER] Refused session token ({rejected}): "
+                f"origin={request.headers.get('Origin')!r} "
+                f"host={request.headers.get('Host')!r}"
+            )
+            raise web.HTTPForbidden()
+        return web.json_response(
+            {"token": self._ws_auth.token},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     async def _state_handler(self, request: "web.Request") -> "web.Response":
         """API endpoint for current state."""
         from aiohttp import web
@@ -10057,9 +10125,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         let ws;
         let state = { messages: [], actions: [], status: 'Connecting...' };
 
-        function connect() {
+        async function connect() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws`);
+            let token;
+            try {
+                const resp = await fetch('/api/session-token', { cache: 'no-store' });
+                token = (await resp.json()).token;
+            } catch (err) {
+                setTimeout(connect, 2000);
+                return;
+            }
+            ws = new WebSocket(`${protocol}//${location.host}/ws`, ['craftbot', `craftbot-auth.${token}`]);
 
             ws.onopen = () => {
                 console.log('Connected to CraftBot');
