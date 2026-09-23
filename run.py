@@ -382,25 +382,42 @@ def _adopt_port_listeners(*ports: int) -> None:
         )
 
 
-def _free_ports(*ports: int) -> None:
-    """Free our ports of leftovers from a previous run — only processes that
-    run recorded starting. Anything else on the port is reported, not killed."""
-    ledger = _launcher_ledger()
-    if ledger is None:
-        return
-    from app.process_ledger import listening_pids
+def _free_ports(*ports: int) -> List[str]:
+    """Free our ports of leftovers, and describe whatever still holds one.
 
+    Two kinds of leftover, and they need different evidence:
+
+      * a process THIS install recorded starting — the ledger stops it;
+      * a CraftBot from a PREVIOUS install. Uninstall deleted the ledger that
+        recorded it, so nothing here can vouch for it, and it used to survive
+        every reinstall while squatting :7925 forever. identify_craftbot
+        proves what it is from the process itself; see its docstring for why
+        that is not the port-killing this module exists to prevent.
+
+    What is left after both is genuinely not ours, and is returned rather than
+    killed. The caller refuses to start and says so — previously this printed
+    a Warning and carried on into launch_frontend(), whose readiness probe
+    then got a 200 from the OLD server still on the port, declared the
+    frontend up, and left the user with a splash screen and a log full of
+    'Agent backend crashed'.
+    """
+    from app.process_ledger import craftbot_listeners, describe_pid
+    from app.process_ledger import kill_tree, listening_pids
+
+    ledger = _launcher_ledger()
+    blockers: List[str] = []
     for port in ports:
-        if ledger.kill_port_listeners(port):
-            # Give the OS a moment to release the socket
-            time.sleep(0.5)
-        foreign = [p for p in listening_pids(port) if p != os.getpid()]
-        if foreign:
-            print(
-                f"Warning: port {port} is in use by PID {', '.join(map(str, foreign))}, "
-                f"which CraftBot did not start. Close it or pick another port "
-                f"(--frontend-port / --backend-port)."
-            )
+        freed = ledger.kill_port_listeners(port) if ledger is not None else False
+        for pid, description in craftbot_listeners(port):
+            print(f"  Stopping an older CraftBot on port {port} — {description}")
+            kill_tree(pid)
+            freed = True
+        if freed:
+            time.sleep(0.5)  # let the OS release the socket
+        for pid in listening_pids(port):
+            if pid != os.getpid():
+                blockers.append(f"port {port} is held by {describe_pid(pid)}")
+    return blockers
 
 
 def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
@@ -1544,7 +1561,24 @@ if __name__ == "__main__":
     # Browser mode: start frontend + agent, wait for both, then open browser
     if browser_mode:
         # Kill stale processes from previous runs that may still hold our ports
-        _free_ports(FRONTEND_PORT, BACKEND_PORT)
+        blockers = _free_ports(FRONTEND_PORT, BACKEND_PORT)
+        if blockers:
+            # Stop here rather than launching into a port we cannot bind. The
+            # readiness checks below probe a URL, not our own socket, so a
+            # foreign server on :7925 answers them and the run reports
+            # success for someone else's process — which is exactly how this
+            # failed silently before.
+            print("\n" + "=" * 52)
+            print("ERROR: CraftBot cannot start — its ports are in use.")
+            print("=" * 52)
+            for blocker in blockers:
+                print(f"   {blocker}")
+            print(
+                "\n   Close that program, or choose different ports:"
+                "\n     python run.py --frontend-port 8925 --backend-port 8926"
+            )
+            print("=" * 52 + "\n")
+            sys.exit(1)
 
         # Print browser mode header
         print_browser_header()

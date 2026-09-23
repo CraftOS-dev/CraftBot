@@ -52,7 +52,12 @@ def _no_window_kwargs() -> dict:
 
 
 def _is_interesting(line: str) -> bool:
-    return line.startswith(PROGRESS_PREFIXES) or "ERR!" in line
+    # lstrip first: pip indents the line that says where a distribution came
+    # from ("  Downloading ...", "  Using cached ...") under its unindented
+    # "Collecting" line, so matching the raw line dropped exactly the two
+    # markers that distinguish a slow install from a slow download — which
+    # left launcher.log unable to answer why python-deps took seven minutes.
+    return line.lstrip().startswith(PROGRESS_PREFIXES) or "ERR!" in line
 
 
 def run(

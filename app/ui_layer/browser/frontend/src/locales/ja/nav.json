@@ -47,7 +47,10 @@
     "closeMenu": "メニューを閉じる"
   },
   "app": {
-    "wakingUp": "CraftBot を起動中"
+    "wakingUp": "CraftBot を起動中",
+    "backendUnreachable": "CraftBot のバックエンドが応答していません。",
+    "backendUnreachableHint": "別の CraftBot がまだ起動していて、このポートを使用している可能性があります。終了するか、`craftbot.py stop` を実行してから再起動してください。詳細はログを確認してください。",
+    "retry": "再試行"
   },
   "connection": {
     "disconnectedReconnecting": "切断されました。再接続中...",

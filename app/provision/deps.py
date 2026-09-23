@@ -294,6 +294,29 @@ class PythonDepsStage:
     Installs from requirements/lock-*.txt with --require-hashes, never from
     requirements.txt. That is what makes pip, conda and the installer land on
     the same 239 packages instead of three separate resolutions.
+
+    Two flags here are about TIME, and both follow from what the lock already
+    is. Measured on a Windows dev box, warm pip cache (nothing downloaded,
+    nothing built): 6m59s before, 1m00s after.
+
+    `--no-deps`: the lock is the full transitive closure — generate_lock.py
+    writes pip's own resolved install list, not the 56 lines of
+    requirements.txt. Without this flag pip re-derives that closure from the
+    239 pinned entries' metadata on every install, which is work whose answer
+    is already written in the file it is reading. Worse, it re-resolves any
+    dependency carrying an extra: `jusText` asks for `lxml[html_clean]`, which
+    pip 23.1 treats as a different node from the pinned bare `lxml`, sends to
+    PyPI, and then rejects as unpinned under --require-hashes. That failure
+    cannot happen when the lock is installed as a flat list.
+
+    `--no-compile`: the 6 minutes. pip byte-compiles every installed .py — 36k
+    files, serially, one package at a time, no way to parallelise it from the
+    outside. So it is turned off and done once afterwards across every core
+    (_byte_compile), which is 39s on 24 cores instead of ~6 minutes.
+
+    The safety net --no-deps gives up is pip's "X requires Y, which is not
+    installed" complaint, so _audit_closure runs `pip check` (4s) to get
+    exactly that back.
     """
 
     name = "python-deps"
@@ -359,6 +382,10 @@ class PythonDepsStage:
                 "--progress-bar",
                 "off",
                 "--require-hashes",
+                # See the class docstring: the lock is already the closure, and
+                # byte-compilation is done in parallel below instead.
+                "--no-deps",
+                "--no-compile",
                 "-r",
                 str(lock),
             ]
@@ -368,7 +395,94 @@ class PythonDepsStage:
         )
         if res.returncode != 0:
             return StageResult(Status.FAILED, proc.failure_detail(res, "pip failed"))
+
+        self._byte_compile(py, log)
+        self._audit_closure(py, log)
         return self.check(ctx)
+
+    def _site_packages(self, python: List[str]) -> List[str]:
+        """The directories the lock's packages were installed into.
+
+        Asked of the TARGET interpreter, not this one: the service Python is
+        routinely a downloaded sidecar or a conda env, and this process's own
+        sysconfig would name a different site-packages every time.
+        """
+        probe = (
+            "import json,sysconfig;p=sysconfig.get_paths();"
+            "print(json.dumps(sorted({p['purelib'],p['platlib']})))"
+        )
+        try:
+            res = proc.python(python, probe, timeout=60)
+            if res.returncode != 0:
+                return []
+            import json
+
+            return [d for d in json.loads(res.stdout.strip().splitlines()[-1]) if d]
+        except Exception:
+            return []
+
+    def _byte_compile(self, python: List[str], log: LogFn) -> None:
+        """Write the .pyc files pip was told not to write, using every core.
+
+        Best-effort throughout. A missing .pyc costs a slower first import and
+        nothing else — Python writes it on demand — so nothing here is allowed
+        to fail an install that pip already completed.
+
+        A non-zero exit is expected, not a warning sign: a few shipped files
+        cannot compile under the target Python at all (torch's
+        py312_intrinsics.py, olefile's Python-2 olefile2.py). pip hits the
+        same two and also just carries on.
+
+        What is NOT expected is compileall failing wholesale — a bad -j on an
+        odd build, or no compileall at all. That degrades into an install
+        nobody would notice was slow, since every import silently pays the
+        compile instead. `-q` prints one block per bad file and nothing else,
+        so a handful of lines is the known case and a flood is the other one;
+        say so rather than swallowing it.
+        """
+        targets = self._site_packages(python)
+        if not targets:
+            log("    (could not locate site-packages — skipping byte-compile)")
+            return
+        log("    byte-compiling in parallel")
+        try:
+            res = proc.run(
+                python + ["-m", "compileall", "-j", "0", "-q"] + targets,
+                lambda _m: None,
+                timeout=1800,
+                echo=False,
+            )
+        except Exception as exc:  # OSError, TimeoutExpired — never fatal
+            log(f"    WARNING byte-compile skipped: {exc}")
+            return
+        noise = [ln for ln in (res.stdout or "").splitlines() if ln.startswith("***")]
+        if res.returncode != 0 and len(noise) > 8:
+            log(
+                f"    WARNING byte-compile reported {len(noise)} failures — "
+                "imports will be slower than they should be"
+            )
+
+    def _audit_closure(self, python: List[str], log: LogFn) -> None:
+        """`pip check` — the one thing --no-deps stops pip doing for us.
+
+        Reported, never fatal. It reads installed metadata only, so it cannot
+        tell a genuinely incomplete lock from an upstream package that
+        declares a requirement nothing satisfies on any machine; failing the
+        install over the second would be wrong. A real gap shows up loudly
+        anyway in check()'s import probe.
+        """
+        try:
+            res = proc.run(
+                python + ["-m", "pip", "check"],
+                lambda _m: None,
+                timeout=300,
+                echo=False,
+            )
+        except OSError:
+            return
+        if res.returncode != 0:
+            for line in (res.stdout or "").strip().splitlines()[:5]:
+                log(f"    WARNING pip check: {line[:140]}")
 
 
 class PlaywrightStage:

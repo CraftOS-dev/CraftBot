@@ -47,7 +47,10 @@
     "closeMenu": "關閉選單"
   },
   "app": {
-    "wakingUp": "正在喚醒 CraftBot"
+    "wakingUp": "正在喚醒 CraftBot",
+    "backendUnreachable": "CraftBot 後端沒有回應。",
+    "backendUnreachableHint": "可能還有另一個 CraftBot 正在執行並佔用此連接埠。請關閉它，或執行 `craftbot.py stop` 後重新啟動。記錄檔中有詳細資訊。",
+    "retry": "重試"
   },
   "connection": {
     "disconnectedReconnecting": "已中斷連線。正在重新連線…",

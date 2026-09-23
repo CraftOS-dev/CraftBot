@@ -47,7 +47,10 @@
     "closeMenu": "Close menu"
   },
   "app": {
-    "wakingUp": "Waking up CraftBot"
+    "wakingUp": "Waking up CraftBot",
+    "backendUnreachable": "CraftBot's backend isn't responding.",
+    "backendUnreachableHint": "Another CraftBot may still be running and holding this port. Close it, or run `craftbot.py stop` and start again. The log has the details.",
+    "retry": "Retry"
   },
   "connection": {
     "disconnectedReconnecting": "Disconnected. Reconnecting...",

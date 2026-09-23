@@ -47,7 +47,10 @@
     "closeMenu": "关闭菜单"
   },
   "app": {
-    "wakingUp": "正在唤醒 CraftBot"
+    "wakingUp": "正在唤醒 CraftBot",
+    "backendUnreachable": "CraftBot 后端没有响应。",
+    "backendUnreachableHint": "可能还有另一个 CraftBot 正在运行并占用此端口。请关闭它，或运行 `craftbot.py stop` 后重新启动。日志中有详细信息。",
+    "retry": "重试"
   },
   "connection": {
     "disconnectedReconnecting": "已断开连接。正在重新连接…",

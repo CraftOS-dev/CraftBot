@@ -516,14 +516,68 @@ def _is_running(pid: int) -> bool:
     return _helpers.process_start_time(pid) is not None
 
 
-def _stop_running_agent_if_alive(grace_s: float = 1.0) -> bool:
+def _orphan_listeners(args: Optional[List[str]] = None) -> List[tuple]:
+    """(pid, description) for CraftBots on our ports that no PID file covers.
+
+    Read-only — `status` reports them, `stop` acts on them.
+    """
+    try:
+        from app.process_ledger import craftbot_listeners
+    except Exception:
+        return []  # psutil missing (pre-dependency install) — nothing to say
+    ports = (
+        _parse_port_arg(args or [], "--frontend-port", DEFAULT_FRONTEND_PORT),
+        _parse_port_arg(args or [], "--backend-port", DEFAULT_BACKEND_PORT),
+    )
+    found: List[tuple] = []
+    for port in ports:
+        found.extend(craftbot_listeners(port))
+    return found
+
+
+def _stop_orphan_listeners(args: Optional[List[str]] = None) -> int:
+    """Stop CraftBots on our ports that no PID file accounts for.
+
+    The PID file is the normal way to find the running agent, and it is not
+    enough on its own. It lives in STATE_ROOT, so an uninstall deletes it
+    while the process it described keeps running — after which `stop` says
+    "not running", `uninstall` leaves it alive, and the next install finds
+    :7925 taken by something no CraftBot command can reach. The launcher log
+    shows the other half of it: "could not remove runtime: Access is denied",
+    because the orphan still has the DLLs open.
+
+    Identity still has to be proved (app.process_ledger.identify_craftbot) —
+    this finds candidates by port but only ever kills a process that
+    describes itself as CraftBot.
+    """
+    orphans = _orphan_listeners(args)
+    if not orphans:
+        return 0
+    from app.process_ledger import kill_tree
+
+    stopped = 0
+    for pid, description in orphans:
+        print(
+            f"  {ORANGE}▸{RESET} {WHITE}STOPPING ORPHANED CRAFTBOT{RESET}"
+            f"  {DIM}{description}{RESET}"
+        )
+        try:
+            kill_tree(pid)
+            stopped += 1
+        except Exception as e:
+            print(f"  {DIM}(could not stop pid {pid}: {e}){RESET}")
+    return stopped
+
+
+def _stop_running_agent_if_alive(
+    grace_s: float = 1.0, args: Optional[List[str]] = None
+) -> bool:
     """If an agent is currently running, stop it and pause briefly so the OS
     releases file handles before we try to overwrite the agent EXE. Used by
     install/repair so reinstall over a running agent doesn't fail with
     "Permission denied" on Windows. Returns True if a process was stopped.
     """
-    if _owned_pid():
-        cmd_stop()
+    if cmd_stop(quiet=True, args=args):
         time.sleep(grace_s)
         return True
     return False
@@ -610,8 +664,9 @@ def cmd_start(extra_args: List[str]) -> bool:
     Returns True once the service survives the early startup check; False when
     launch fails before CraftBot can be used.
     """
-    if _owned_pid():
-        cmd_stop()
+    # Unconditional, not `if _owned_pid()`: the thing most likely to be
+    # holding our port is the CraftBot this install has no PID file for.
+    cmd_stop(quiet=True, args=extra_args)
 
     # service_mode=False — don't suppress the browser; we open it ourselves below
     run_args = _build_run_args(extra_args, service_mode=False)
@@ -726,19 +781,46 @@ def cmd_start(extra_args: List[str]) -> bool:
     return True
 
 
-def cmd_stop() -> None:
-    """Stop the running CraftBot service."""
+def cmd_stop(quiet: bool = False, args: Optional[List[str]] = None) -> bool:
+    """Stop the running CraftBot service. True if anything was stopped.
+
+    Two passes, because the PID file only covers a CraftBot that THIS install
+    started. The port sweep covers the one it does not: an agent left running
+    by a previous install, whose PID file went with it. Without that pass
+    `stop` reported "not running" at an agent that was plainly still serving
+    on :7925.
+
+    `quiet` suppresses only the nothing-to-do message, for callers (install,
+    uninstall) where "not running" is the expected case and not news. `args`
+    carries --frontend-port/--backend-port through, so a non-default port is
+    swept too.
+    """
     had_record = _read_pid_record() is not None
     pid = _owned_pid()  # verified by start time; a reused pid is never ours
-    if pid is None:
+    stopped = False
+
+    if pid is not None:
+        stopped = True
+        print(
+            f"  {ORANGE}▸{RESET} {WHITE}STOPPING CRAFTBOT{RESET}  {DIM}PID {pid}{RESET}"
+        )
+        _kill_owned_pid(pid)
+        _remove_pid()
+        print(f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT STOPPED{RESET}")
+
+    if _stop_orphan_listeners(args):
+        stopped = True
+
+    if not stopped and not quiet:
         if had_record:
             print(f"  {DIM}▸ CraftBot not running — cleaned up stale PID file{RESET}")
         else:
             print("CraftBot does not appear to be running (no PID file found).")
-        return
+    return stopped
 
-    print(f"  {ORANGE}▸{RESET} {WHITE}STOPPING CRAFTBOT{RESET}  {DIM}PID {pid}{RESET}")
 
+def _kill_owned_pid(pid: int) -> None:
+    """Terminate a pid already verified as ours, with its whole tree."""
     if _PLATFORM == "win32":
         try:
             subprocess.run(
@@ -765,9 +847,6 @@ def cmd_stop() -> None:
         except Exception as e:
             print(f"Warning: {e}")
 
-    _remove_pid()
-    print(f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT STOPPED{RESET}")
-
 
 def cmd_status() -> None:
     """Print whether CraftBot is currently running and whether auto-start is installed."""
@@ -785,6 +864,20 @@ def cmd_status() -> None:
         print(
             f"{ORANGE}║{RESET}  {RED}▸ NOT RUNNING{RESET}{' ' * (W - 15)}{ORANGE}║{RESET}"
         )
+        # "NOT RUNNING" on its own is a lie when a CraftBot from a previous
+        # install is still serving on our port — which is precisely the state
+        # someone runs `status` to understand.
+        for _pid, _what in _orphan_listeners():
+            _line = f"  ▸ ORPHAN ON OUR PORT: pid {_pid}"[: W - 1]
+            print(
+                f"{ORANGE}║{RESET}{RED}{_line}{RESET}"
+                f"{' ' * max(0, W - len(_line))}{ORANGE}║{RESET}"
+            )
+            _hint = "    run `craftbot.py stop` to clear it"[: W - 1]
+            print(
+                f"{ORANGE}║{RESET}{DIM}{_hint}{RESET}"
+                f"{' ' * max(0, W - len(_hint))}{ORANGE}║{RESET}"
+            )
     print(f"{ORANGE}║{' ' * W}║{RESET}")
     if _is_installed():
         print(
@@ -817,7 +910,7 @@ def cmd_logs(n: int = 50) -> None:
 
 
 def cmd_restart(extra_args: List[str]) -> bool:
-    cmd_stop()
+    cmd_stop(args=extra_args)
     time.sleep(1)
     return cmd_start(extra_args)
 
@@ -1959,7 +2052,7 @@ def main() -> None:
             sys.exit(1)
 
     elif command == "stop":
-        cmd_stop()
+        cmd_stop(args=rest)
 
     elif command == "restart":
         if not cmd_restart(rest):

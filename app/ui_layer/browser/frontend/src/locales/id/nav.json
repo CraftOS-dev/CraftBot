@@ -47,7 +47,10 @@
     "closeMenu": "Tutup menu"
   },
   "app": {
-    "wakingUp": "Membangunkan CraftBot"
+    "wakingUp": "Membangunkan CraftBot",
+    "backendUnreachable": "Backend CraftBot tidak merespons.",
+    "backendUnreachableHint": "Mungkin ada CraftBot lain yang masih berjalan dan menggunakan port ini. Tutup, atau jalankan `craftbot.py stop` lalu mulai lagi. Detailnya ada di log.",
+    "retry": "Coba lagi"
   },
   "connection": {
     "disconnectedReconnecting": "Terputus. Menyambungkan kembali...",

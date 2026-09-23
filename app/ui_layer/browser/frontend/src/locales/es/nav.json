@@ -47,7 +47,10 @@
     "closeMenu": "Cerrar menú"
   },
   "app": {
-    "wakingUp": "Activando CraftBot"
+    "wakingUp": "Activando CraftBot",
+    "backendUnreachable": "El backend de CraftBot no responde.",
+    "backendUnreachableHint": "Puede que otro CraftBot siga ejecutandose y ocupando este puerto. Cierralo, o ejecuta `craftbot.py stop` y vuelve a iniciar. El registro tiene los detalles.",
+    "retry": "Reintentar"
   },
   "connection": {
     "disconnectedReconnecting": "Desconectado. Reconectando...",

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from './components/layout'
@@ -34,10 +34,28 @@ function SessionChatRoute() {
   return <ChatPage sessionId={id} />
 }
 
+// How long the splash waits for the backend's initial state before saying
+// something is wrong. Generous: a first run downloads the embedding model and
+// boots MCP servers, skills, integrations and the scheduler before it sends
+// init, and mistaking a slow boot for a dead one would be its own bug.
+const BACKEND_INIT_TIMEOUT_MS = 90_000
+
 function App() {
   const { t } = useTranslation(['nav', 'common'])
   const { initReceived } = useWebSocket()
   const needsHardOnboarding = useAppSelector(selectNeedsHardOnboarding)
+
+  // The splash used to wait on initReceived forever. When the backend was not
+  // coming — most often because an older CraftBot still held the port, so
+  // these static files were served by an install whose backend had already
+  // exited — "Waking up CraftBot..." was the entire user-visible failure
+  // report, with the real reason sitting in a log file nobody was told about.
+  const [initTimedOut, setInitTimedOut] = useState(false)
+  useEffect(() => {
+    if (initReceived) { setInitTimedOut(false); return }
+    const timer = window.setTimeout(() => setInitTimedOut(true), BACKEND_INIT_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
+  }, [initReceived])
 
   // Fade the main interface in once, right after the onboarding outro hands off
   // (the wizard sets this flag just before completing). One-shot via
@@ -87,9 +105,30 @@ function App() {
             jump beats as the Agent App build view). */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <LoadingMascot size={64} />
-          <p style={{ margin: 0, color: '#8a8a8a', fontSize: '14px' }}>
-            {t('nav:app.wakingUp')}<span className="cb-dots" />
-          </p>
+          {initTimedOut ? (
+            <div style={{ maxWidth: '440px', textAlign: 'center' }}>
+              <p style={{ margin: '0 0 8px', color: '#e0e0e0', fontSize: '15px' }}>
+                {t('nav:app.backendUnreachable')}
+              </p>
+              <p style={{ margin: '0 0 16px', color: '#8a8a8a', fontSize: '13px', lineHeight: 1.6 }}>
+                {t('nav:app.backendUnreachableHint')}
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  background: 'transparent', color: '#8a8a8a', fontSize: '13px',
+                  border: '1px solid #3a3a3a', borderRadius: '6px',
+                  padding: '6px 14px', cursor: 'pointer',
+                }}
+              >
+                {t('nav:app.retry')}
+              </button>
+            </div>
+          ) : (
+            <p style={{ margin: 0, color: '#8a8a8a', fontSize: '14px' }}>
+              {t('nav:app.wakingUp')}<span className="cb-dots" />
+            </p>
+          )}
         </div>
       </div>
     )

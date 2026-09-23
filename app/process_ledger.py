@@ -145,6 +145,117 @@ def listening_pids(port: int) -> List[int]:
     return sorted(pids)
 
 
+#: Scripts a CraftBot process is started from. Seeing one of these in a
+#: command line proves nothing on its own — `run.py` and `main.py` are the two
+#: most common script names there are — so a match only counts when the file
+#: sits in a directory that also holds craftbot.py.
+_CRAFTBOT_SCRIPTS = ("run.py", "main.py", "craftbot.py")
+
+
+def _is_craftbot_tree(directory: str) -> bool:
+    """True if `directory` is the root of a CraftBot source tree."""
+    if not directory:
+        return False
+    try:
+        return os.path.isfile(os.path.join(directory, "craftbot.py"))
+    except OSError:
+        return False
+
+
+def identify_craftbot(pid: int) -> Optional[str]:
+    """Describe `pid` if it is demonstrably a CraftBot process, else None.
+
+    The narrow, deliberate exception to this module's rule that only a
+    recorded process may be killed — and it does NOT weaken it, because
+    identity is still *proved*, just from the process itself rather than from
+    a record kept at spawn time.
+
+    The rule alone cannot cover one real case: a CraftBot from a PREVIOUS
+    install. Uninstall deletes the ledger, so the next run has no record of
+    the process still holding port 7925, cannot stop it, and the user gets a
+    port conflict that no CraftBot command can clear. That is not a foreign
+    service being protected — it is our own process, orphaned by us.
+
+    Evidence accepted, both self-describing and install-independent:
+      * the command line names one of _CRAFTBOT_SCRIPTS sitting next to a
+        craftbot.py (the launcher: `python <root>/run.py`);
+      * the command line is `-m app.main` (or `-m app`) and the working
+        directory is a CraftBot tree (the backend).
+
+    Evidence deliberately NOT accepted: running on CraftBot's bundled
+    interpreter. Agent Apps run on it too, and widening identity to "uses our
+    Python" would put them in range of a port sweep for nothing gained — both
+    real shapes above are already covered.
+
+    Returns a human-readable description, because every caller that kills on
+    this basis has to be able to say WHAT it killed.
+    """
+    if psutil is None or not pid or pid <= 0:
+        return None
+    try:
+        proc = psutil.Process(pid)
+        cmdline = proc.cmdline() or []
+    except Exception:
+        # Gone, or another user's process we may not inspect. Unidentifiable
+        # is not "ours" — the caller reports it instead of killing it.
+        return None
+
+    for token in cmdline:
+        if token.endswith(_CRAFTBOT_SCRIPTS) and _is_craftbot_tree(
+            os.path.dirname(os.path.abspath(token))
+        ):
+            return f"pid {pid}: {os.path.basename(token)} from {os.path.dirname(token)}"
+
+    if "-m" in cmdline:
+        module = cmdline[cmdline.index("-m") + 1 : cmdline.index("-m") + 2]
+        if module and module[0] in ("app.main", "app"):
+            try:
+                cwd = proc.cwd()
+            except Exception:
+                return None
+            if _is_craftbot_tree(cwd):
+                return f"pid {pid}: -m {module[0]} in {cwd}"
+
+    return None
+
+
+def describe_pid(pid: int) -> str:
+    """"pid 1234 (node.exe)" — for naming a process we are NOT going to kill.
+
+    A port conflict the user has to resolve themselves is only actionable if
+    the message says what to close, so this degrades to the bare pid rather
+    than raising when the process cannot be inspected.
+    """
+    if psutil is not None:
+        try:
+            proc = psutil.Process(pid)
+            try:
+                what = proc.exe() or proc.name()
+            except Exception:
+                what = proc.name()
+            return f"pid {pid} ({what})"
+        except Exception:
+            pass
+    return f"pid {pid}"
+
+
+def craftbot_listeners(port: int) -> List[tuple]:
+    """(pid, description) for every listener on `port` provably CraftBot's.
+
+    The port only selects candidates; identify_craftbot decides. Anything on
+    the port that cannot be identified is left out, so the caller can report
+    it as a genuine foreign conflict rather than killing it.
+    """
+    found = []
+    for pid in listening_pids(port):
+        if pid == os.getpid():
+            continue
+        description = identify_craftbot(pid)
+        if description:
+            found.append((pid, description))
+    return found
+
+
 def kill_tree(pid: int, grace: float = 5.0) -> None:
     """Stop a process and every descendant: SIGTERM, then SIGKILL whatever is
     left after `grace` seconds (Windows has no graceful signal for a windowless
@@ -341,10 +452,20 @@ class ProcessLedger:
                 continue  # e.g. the in-process A2App proxy holding the port
             entry = self.owner_of(pid)
             if entry is None:
-                logger.warning(
-                    f"[PROCESS_LEDGER] port {port} is held by pid {pid}, which "
-                    f"CraftBot did not start — leaving it alone"
-                )
+                # An orphaned CraftBot is not a foreign service, and saying so
+                # here would be a log that contradicts itself — the caller's
+                # orphan sweep (craftbot_listeners) stops it moments later.
+                orphan = identify_craftbot(pid)
+                if orphan:
+                    logger.info(
+                        f"[PROCESS_LEDGER] port {port} is held by an unrecorded "
+                        f"CraftBot ({orphan}) — leaving it to the orphan sweep"
+                    )
+                else:
+                    logger.warning(
+                        f"[PROCESS_LEDGER] port {port} is held by pid {pid}, which "
+                        f"CraftBot did not start — leaving it alone"
+                    )
                 continue
             if entry.pid == os.getpid():
                 continue  # a child of THIS process; its owner stops it
