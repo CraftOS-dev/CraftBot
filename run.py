@@ -508,7 +508,9 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             # via SPA fallback) must revalidate so a rebuild shows up at once.
             if not self.path.startswith("/api") and self.command != "OPTIONS":
                 if self.path.startswith("/assets/"):
-                    self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+                    self.send_header(
+                        "Cache-Control", "public, max-age=31536000, immutable"
+                    )
                 else:
                     self.send_header("Cache-Control", "no-cache")
             super().end_headers()

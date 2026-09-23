@@ -38,6 +38,7 @@ try:
 except (AttributeError, ValueError):  # pragma: no cover - non-reconfigurable stream
     pass
 
+
 def _reexec_on_craftbot_interpreter() -> None:
     """Re-run under the interpreter that has CraftBot's dependencies.
 
@@ -168,7 +169,9 @@ async def run(args: argparse.Namespace) -> int:
     print("\n--- read-only ---")
     await check(results, "get_current_user", client.get_current_user())
     await check(results, "get_organization", client.get_organization())
-    await check(results, "list_organization_members", client.list_organization_members())
+    await check(
+        results, "list_organization_members", client.list_organization_members()
+    )
     await check(results, "list_projects", client.list_projects())
     await check(results, "get_project", client.get_project())
 
@@ -196,9 +199,7 @@ async def run(args: argparse.Namespace) -> int:
     query_id = (result_of(started).get("query_status") or {}).get("id")
     if query_id:
         await asyncio.sleep(1.0)
-        await check(
-            results, "get_query_status", client.get_query_status(str(query_id))
-        )
+        await check(results, "get_query_status", client.get_query_status(str(query_id)))
     else:
         results.add(SKIP, "get_query_status", "no query id returned")
 
@@ -212,14 +213,18 @@ async def run(args: argparse.Namespace) -> int:
     else:
         results.add(SKIP, "get_insight", "no insights in this project")
 
-    dashboards = await check(results, "list_dashboards", client.list_dashboards(limit=5))
+    dashboards = await check(
+        results, "list_dashboards", client.list_dashboards(limit=5)
+    )
     dashboard_id = first_id(dashboards)
     if dashboard_id:
         await check(results, "get_dashboard", client.get_dashboard(dashboard_id))
     else:
         results.add(SKIP, "get_dashboard", "no dashboards in this project")
 
-    flags = await check(results, "list_feature_flags", client.list_feature_flags(limit=5))
+    flags = await check(
+        results, "list_feature_flags", client.list_feature_flags(limit=5)
+    )
     flag_id = first_id(flags)
     if flag_id:
         await check(results, "get_feature_flag", client.get_feature_flag(flag_id))
@@ -318,7 +323,9 @@ async def run(args: argparse.Namespace) -> int:
                 client.set_feature_flag_rollout(str(new_flag), 25),
             )
             await check(
-                results, "enable_feature_flag", client.enable_feature_flag(str(new_flag))
+                results,
+                "enable_feature_flag",
+                client.enable_feature_flag(str(new_flag)),
             )
             await check(
                 results,
@@ -361,11 +368,15 @@ async def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--api-key", required=True, help="PostHog personal API key (phx_…)")
+    parser.add_argument(
+        "--api-key", required=True, help="PostHog personal API key (phx_…)"
+    )
     parser.add_argument(
         "--host", default="us", help="'us', 'eu', or a self-hosted URL (default: us)"
     )
-    parser.add_argument("--project-id", default="", help="override the detected project")
+    parser.add_argument(
+        "--project-id", default="", help="override the detected project"
+    )
     parser.add_argument(
         "--write",
         action="store_true",

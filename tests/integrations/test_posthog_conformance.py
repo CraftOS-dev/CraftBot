@@ -161,7 +161,9 @@ def test_verify_token_explicit_project_overrides_the_keys_team(monkeypatch):
 
 
 def test_verify_token_succeeds_without_a_team_but_says_so(monkeypatch):
-    _stub_me(monkeypatch, {"email": "u@e.com", "organization": {"id": "O", "name": "N"}})
+    _stub_me(
+        monkeypatch, {"email": "u@e.com", "organization": {"id": "O", "name": "N"}}
+    )
     ok, message, credential = PostHogProvider().verify_token({"api_key": "phx_good"})
     assert ok
     assert credential["project_id"] == ""
@@ -365,7 +367,7 @@ def test_umbrella_can_delete_whatever_it_can_create():
     for name in umbrella:
         if not name.startswith("create_"):
             continue
-        delete_name = f"delete_{name[len('create_'):]}"
+        delete_name = f"delete_{name[len('create_') :]}"
         if delete_name in every:
             assert delete_name in umbrella, (
                 f"{name} is in the umbrella set but {delete_name} is not — "

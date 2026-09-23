@@ -222,9 +222,8 @@ def session_cookie_header(name: str, value: str, secure: bool) -> str:
     # navigation, and Strict would withhold the cookie on the redirect that
     # follows the exchange. Writes do not lean on SameSite — the origin check
     # and the per-ingress value do that work.
-    return (
-        f"{name}={value}; Path=/; HttpOnly; SameSite=Lax"
-        + ("; Secure" if secure else "")
+    return f"{name}={value}; Path=/; HttpOnly; SameSite=Lax" + (
+        "; Secure" if secure else ""
     )
 
 
@@ -321,8 +320,7 @@ def guard_request(
         "code": "unauthorized",
         "message": "agent token required",
         "hint": (
-            "Send X-A2App-Token: <contents of the project .agent-token "
-            "file> on writes."
+            "Send X-A2App-Token: <contents of the project .agent-token file> on writes."
         ),
     }
 
@@ -588,9 +586,13 @@ class ExternalA2AppProxy:
         ):
             return self._share_exchange(request)
         own = (
-            request.method == "GET"
-            and path in ("/api/_a2app", "/api/_a2app/describe", "/api/_ops")
-        ) or path == "/api/ops" or path.startswith("/api/ops/")
+            (
+                request.method == "GET"
+                and path in ("/api/_a2app", "/api/_a2app/describe", "/api/_ops")
+            )
+            or path == "/api/ops"
+            or path.startswith("/api/ops/")
+        )
         if own:
             denied = self._deny(request)
             if denied is not None:

@@ -140,7 +140,9 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
         ),
         Resource.PROACTIVE,
     ),
-    **dict.fromkeys(("scheduler_config_update", "memory_schedule_set"), Resource.SCHEDULER),
+    **dict.fromkeys(
+        ("scheduler_config_update", "memory_schedule_set"), Resource.SCHEDULER
+    ),
     **dict.fromkeys(
         (
             "memory_mode_set",
@@ -189,7 +191,9 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
         Resource.MODEL_SETTINGS,
     ),
     "settings_update": Resource.GENERAL_SETTINGS,
-    **dict.fromkeys(("agent_file_write", "agent_file_restore", "reset"), Resource.AGENT_FILES),
+    **dict.fromkeys(
+        ("agent_file_write", "agent_file_restore", "reset"), Resource.AGENT_FILES
+    ),
 }
 
 # Messages that change more than their primary resource. A reset restores
@@ -223,7 +227,9 @@ def _changed_ids(resource: Resource, data: Any) -> List[str]:
     return []
 
 
-def resource_changes_for_message(message: Dict[str, Any]) -> List[Tuple[Resource, List[str]]]:
+def resource_changes_for_message(
+    message: Dict[str, Any],
+) -> List[Tuple[Resource, List[str]]]:
     """Every resource (with ids, when known) an outgoing message reports as changed."""
     message_type = message.get("type", "")
     resource = _RESOURCE_BY_MESSAGE_TYPE.get(message_type)
@@ -234,7 +240,9 @@ def resource_changes_for_message(message: Dict[str, Any]) -> List[Tuple[Resource
     return [(r, _changed_ids(r, data)) for r in resources]
 
 
-def resource_change_for_message(message: Dict[str, Any]) -> Optional[Tuple[Resource, List[str]]]:
+def resource_change_for_message(
+    message: Dict[str, Any],
+) -> Optional[Tuple[Resource, List[str]]]:
     """The primary resource (and ids, when known) an outgoing message reports as changed.
 
     Prefer ``resource_changes_for_message``, which also covers messages

@@ -223,7 +223,9 @@ def read_file(input_data: dict) -> dict:
                 f"offset {offset} is at or past end of file ({total_lines} lines)"
             )
         elif lines_above or lines_below:
-            note = f"showing lines {offset + 1}-{offset + lines_returned} of {total_lines}"
+            note = (
+                f"showing lines {offset + 1}-{offset + lines_returned} of {total_lines}"
+            )
             if lines_above:
                 note += f", {lines_above} above"
             if lines_below:

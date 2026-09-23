@@ -135,8 +135,19 @@ class _HtmlText(HTMLParser):
     at block elements, keeps link targets."""
 
     _BLOCK = {
-        "br", "p", "div", "tr", "li", "table", "blockquote",
-        "h1", "h2", "h3", "h4", "h5", "h6",
+        "br",
+        "p",
+        "div",
+        "tr",
+        "li",
+        "table",
+        "blockquote",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
     }
     _SKIP = {"script", "style", "head", "title"}
 

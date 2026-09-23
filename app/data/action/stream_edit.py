@@ -1,5 +1,6 @@
 from agent_core import action
 
+
 @action(
     name="stream_edit",
     description="Performs string replacement in a file. You MUST use read_file first to read the file before editing. The old_string must be unique in the file - if it appears multiple times, use replace_all=True or provide more context to make it unique. Supports regex patterns with regex=True and case-insensitive matching with ignore_case=True.",
@@ -82,7 +83,7 @@ def stream_edit_action(input_data: dict) -> dict:
             "message": "Successfully replaced 1 occurrence(s)",
             "occurrences_replaced": 1,
         }
-    
+
     try:
         file_path = input_data.get("file_path")
         old_string = input_data.get("old_string")

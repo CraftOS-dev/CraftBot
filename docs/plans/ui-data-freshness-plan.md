@@ -167,18 +167,21 @@ class Resource(str, Enum):
     AGENT_APPS = "agent_apps"
     AGENT_APP_BACKUPS = "agent_app_backups"
     SESSIONS = "sessions"
-    SKILLS = "skills"                 # skill list + skill_meta + command list
+    SKILLS = "skills"  # skill list + skill_meta + command list
     MCP_SERVERS = "mcp_servers"
     INTEGRATIONS = "integrations"
-    PROACTIVE = "proactive"           # tasks, planner output, mode
-    SCHEDULER = "scheduler"           # scheduler config, run status, memory schedule
-    MEMORY = "memory"                 # items, graph, indexed files, stats
-    WORKSPACE_FILES = "workspace_files"   # ids = directory paths
-    AGENT_FILES = "agent_files"           # ids = USER.md / AGENT.md / SOUL.md …
+    PROACTIVE = "proactive"  # tasks, planner output, mode
+    SCHEDULER = "scheduler"  # scheduler config, run status, memory schedule
+    MEMORY = "memory"  # items, graph, indexed files, stats
+    WORKSPACE_FILES = "workspace_files"  # ids = directory paths
+    AGENT_FILES = "agent_files"  # ids = USER.md / AGENT.md / SOUL.md …
     GENERAL_SETTINGS = "general_settings"
     MODEL_SETTINGS = "model_settings"
 
-def notify_resource_changed(resource: Resource, ids: Iterable[str] = (), reason: str = "") -> None: ...
+
+def notify_resource_changed(
+    resource: Resource, ids: Iterable[str] = (), reason: str = ""
+) -> None: ...
 ```
 
 Behaviour:

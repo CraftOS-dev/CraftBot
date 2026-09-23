@@ -77,7 +77,12 @@ def server(tmp_path_factory):
     asyncio.run_coroutine_threadsafe(start(), loop)
     assert ready.wait(10)
 
-    yield {"port": state["port"], "root": root, "symlinks": symlinks, "junction": junction}
+    yield {
+        "port": state["port"],
+        "root": root,
+        "symlinks": symlinks,
+        "junction": junction,
+    }
 
     asyncio.run_coroutine_threadsafe(state["runner"].cleanup(), loop).result(10)
     loop.call_soon_threadsafe(loop.stop)
@@ -125,9 +130,7 @@ def test_relative_traversal_refused(server, target):
     _assert_refused(server, target)
 
 
-@pytest.mark.parametrize(
-    "target", ["/..%5c.env", "/..\\.env", "/assets\\..\\..\\.env"]
-)
+@pytest.mark.parametrize("target", ["/..%5c.env", "/..\\.env", "/assets\\..\\..\\.env"])
 def test_backslash_traversal_refused(server, target):
     if sys.platform == "win32":
         _assert_refused(server, target)
@@ -203,7 +206,14 @@ def test_non_ascii_filenames_served(server, target, body):
 
 @pytest.mark.parametrize(
     "target",
-    ["/", "/chat", "/chat/123", "/settings/profile?tab=a", "/assets", "/%E4%B8%AD%E6%96%87"],
+    [
+        "/",
+        "/chat",
+        "/chat/123",
+        "/settings/profile?tab=a",
+        "/assets",
+        "/%E4%B8%AD%E6%96%87",
+    ],
 )
 def test_spa_routes_fall_back_to_index(server, target):
     assert _get(server, target) == (200, INDEX)

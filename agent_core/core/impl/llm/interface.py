@@ -1135,7 +1135,9 @@ class LLMInterface:
             projected = count_tokens(system_prompt or "") + count_tokens(pending)
         else:
             projected = last + count_tokens(pending)
-        return projected + self.max_tokens <= get_context_window() - get_reserve_tokens()
+        return (
+            projected + self.max_tokens <= get_context_window() - get_reserve_tokens()
+        )
 
     def end_all_session_caches(self, task_id: str) -> None:
         """End ALL session/explicit caches for a task (all call types).
@@ -1879,7 +1881,11 @@ class LLMInterface:
         token = _active_session_key.set(f"{task_id}:{call_type}")
         try:
             return self._generate_response_with_session_sync(
-                task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
+                task_id,
+                call_type,
+                user_prompt,
+                system_prompt_for_new_session,
+                log_response,
             )
         finally:
             _active_session_key.reset(token)

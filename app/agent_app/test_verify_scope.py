@@ -272,10 +272,16 @@ with tempfile.TemporaryDirectory() as tmp:
             },
             "verdict": "pass",
             "features": [
-                {"name": "Column drag", "status": "pass",
-                 "evidence": "dragged In Progress before To Do; persisted after reload"},
-                {"name": "Card DnD", "status": "pass",
-                 "evidence": "moved a card between lists"},
+                {
+                    "name": "Column drag",
+                    "status": "pass",
+                    "evidence": "dragged In Progress before To Do; persisted after reload",
+                },
+                {
+                    "name": "Card DnD",
+                    "status": "pass",
+                    "evidence": "moved a card between lists",
+                },
             ],
         }
     )
@@ -388,12 +394,16 @@ with tempfile.TemporaryDirectory() as tmp:
 # ── 3. runner JSON-decision salvage (unrelated to the verdict format) ──
 ex = SubAgentRunner._extract_json_object
 assert ex(
-    "I will click next." + chr(10) + chr(10)
+    "I will click next."
+    + chr(10)
+    + chr(10)
     + '{"action_name": "x", "parameters": {"a": "{b}"}}'
 ) == {"action_name": "x", "parameters": {"a": "{b}"}}
 assert ex("no json here") is None
 dec, err = SubAgentRunner._parse_decision(
-    "Reading requirements first." + chr(10) + chr(10)
+    "Reading requirements first."
+    + chr(10)
+    + chr(10)
     + '{"action_name": "read_file", "parameters": {"file_path": "/x/y"}}'
 )
 assert err is None and dec["action_name"] == "read_file", (dec, err)
@@ -409,8 +419,10 @@ def sub(query="CHANGED SINCE LAST PROMOTE (x): …", iterations=6):
 
 
 def end(obj):
-    return {"status": "completed",
-            "result": obj if isinstance(obj, str) else json.dumps(obj)}
+    return {
+        "status": "completed",
+        "result": obj if isinstance(obj, str) else json.dumps(obj),
+    }
 
 
 def _feat(name, status, evidence="ran it, read it back", **kw):
@@ -420,8 +432,10 @@ def _feat(name, status, evidence="ran it, read it back", **kw):
 
 
 DELTA_OK = {
-    "scope": {"mode": "delta",
-              "excluded": [{"feature": "Labels", "reason": "Sidebar untouched"}]},
+    "scope": {
+        "mode": "delta",
+        "excluded": [{"feature": "Labels", "reason": "Sidebar untouched"}],
+    },
     "verdict": "pass",
     "features": [_feat("Column drag", "pass")],
 }
@@ -432,14 +446,18 @@ r = guard(sub(), end("not json at all"))
 assert r and "JSON object" in r
 ok("guard: a non-JSON result is rejected with the schema")
 
-r = guard(sub(query="CHANGED SINCE LAST PROMOTE: NO BASELINE — first verify"), end(DELTA_OK))
+r = guard(
+    sub(query="CHANGED SINCE LAST PROMOTE: NO BASELINE — first verify"), end(DELTA_OK)
+)
 assert r and "must be FULL" in r
 r = guard(sub(query="VERIFY MODE: FULL — a full sweep"), end(DELTA_OK))
 assert r and "must be FULL" in r
 ok("guard: DELTA rejected when NO BASELINE / FULL sweep was requested")
 
-bad_excl = {**DELTA_OK,
-            "scope": {"mode": "delta", "excluded": [{"feature": "Labels", "reason": ""}]}}
+bad_excl = {
+    **DELTA_OK,
+    "scope": {"mode": "delta", "excluded": [{"feature": "Labels", "reason": ""}]},
+}
 r = guard(sub(), end(bad_excl))
 assert r and "without a reason" in r
 ok("guard: an excluded feature without a reason is rejected")
@@ -448,10 +466,21 @@ nr = {**DELTA_OK, "features": [_feat("Column drag", "not_reached", evidence="")]
 r = guard(sub(), end(nr))
 assert r and "unreached_reason" in r
 assert guard(sub(iterations=48), end(nr)) is None
-ok("guard: not_reached without a reason is rejected while turns remain, allowed near the cap")
+ok(
+    "guard: not_reached without a reason is rejected while turns remain, allowed near the cap"
+)
 
-nr_ok = {**DELTA_OK, "features": [_feat("Export", "not_reached",
-         evidence="no download tool", unreached_reason="tooling")]}
+nr_ok = {
+    **DELTA_OK,
+    "features": [
+        _feat(
+            "Export",
+            "not_reached",
+            evidence="no download tool",
+            unreached_reason="tooling",
+        )
+    ],
+}
 assert guard(sub(), end(nr_ok)) is None
 ok("guard: not_reached WITH an unreached_reason is accepted")
 
@@ -466,9 +495,20 @@ assert guard(sub(iterations=40), end(FULL_EARLY)) is None
 ok("guard: FULL walks keep the 70% premature-conclusion floor")
 
 assert guard(sub(), {"status": "failed", "result": "missing base_url"}) is None
-assert guard(sub(), end({"scope": {"mode": "full", "excluded": []},
-                         "verdict": "blocked", "blocked_reason": "browser MCP died",
-                         "features": []})) is None
+assert (
+    guard(
+        sub(),
+        end(
+            {
+                "scope": {"mode": "full", "excluded": []},
+                "verdict": "blocked",
+                "blocked_reason": "browser MCP died",
+                "features": [],
+            }
+        ),
+    )
+    is None
+)
 ok("guard: failed status and a typed blocked verdict pass through")
 
 # ── 5. definition wiring ──

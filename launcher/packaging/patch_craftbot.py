@@ -51,10 +51,10 @@ EDITS = [
     ),
     (
         "managed-install uninstall shortcut",
-        '''    # Source mode: uninstall pip packages
+        """    # Source mode: uninstall pip packages
     req_file = os.path.join(BASE_DIR, "requirements.txt")
-''',
-        '''    # Source mode: uninstall pip packages.
+""",
+        """    # Source mode: uninstall pip packages.
     #
     # Not for a managed install: there the interpreter is a sidecar under the
     # user data directory that the launcher removes wholesale right after
@@ -66,7 +66,7 @@ EDITS = [
         return
 
     req_file = os.path.join(BASE_DIR, "requirements.txt")
-''',
+""",
     ),
 ]
 
@@ -81,8 +81,10 @@ def main() -> int:
             print(f"  already applied: {name}")
             continue
         if text.count(old) != 1:
-            print(f"  cannot apply {name}: expected exactly one match in craftbot.py, "
-                  f"found {text.count(old)}. Make this edit by hand (see this script).")
+            print(
+                f"  cannot apply {name}: expected exactly one match in craftbot.py, "
+                f"found {text.count(old)}. Make this edit by hand (see this script)."
+            )
             return 1
         text = text.replace(old, new)
         changed = True

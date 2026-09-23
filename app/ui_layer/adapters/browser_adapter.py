@@ -138,19 +138,6 @@ from app.ui_layer.adapters.session_buffer import (
 from contextvars import ContextVar
 from app.ui_layer.events.change_detection import ChangeDetection
 
-# `requestId` of the browser message being handled (task-local). Replies sent
-# while handling it echo the id, so the tab that asked can match its reply
-# and other tabs can ignore it (plan §A4.5).
-_REQUEST_ID: ContextVar[Optional[str]] = ContextVar("ui_request_id", default=None)
-
-
-def _with_request_id(message: Dict[str, Any]) -> Dict[str, Any]:
-    """``message`` with the current request's id added to its data, if any."""
-    request_id = _REQUEST_ID.get()
-    data = message.get("data")
-    if request_id is None or not isinstance(data, dict) or "requestId" in data:
-        return message
-    return {**message, "data": {**data, "requestId": request_id}}
 from app.ui_layer.events.resource_changes import (
     get_notifier as get_resource_notifier,
     Resource,
@@ -168,6 +155,21 @@ from app.agent_app.sharing import ShareError
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
     from aiohttp import web
+
+
+# `requestId` of the browser message being handled (task-local). Replies sent
+# while handling it echo the id, so the tab that asked can match its reply
+# and other tabs can ignore it (plan §A4.5).
+_REQUEST_ID: ContextVar[Optional[str]] = ContextVar("ui_request_id", default=None)
+
+
+def _with_request_id(message: Dict[str, Any]) -> Dict[str, Any]:
+    """``message`` with the current request's id added to its data, if any."""
+    request_id = _REQUEST_ID.get()
+    data = message.get("data")
+    if request_id is None or not isinstance(data, dict) or "requestId" in data:
+        return message
+    return {**message, "data": {**data, "requestId": request_id}}
 
 
 def _make_static_or_spa(dist: Path):
@@ -1009,7 +1011,9 @@ class BrowserAdapter(InterfaceAdapter):
             enhanced: str = await self._controller.handle_prompt_enhance(
                 user_message=content
             )
-            await self._send_to(ws, {"type": "prompt_enhanced", "content": enhanced.strip()})
+            await self._send_to(
+                ws, {"type": "prompt_enhanced", "content": enhanced.strip()}
+            )
             return
         except Exception as e:
             logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
@@ -1135,9 +1139,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Serve static files from dist/ (public/ files copied by Vite build)
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
             self._app.router.add_get("/", self._spa_handler)
-            self._app.router.add_get(
-                "/{path:.*}", _make_static_or_spa(frontend_dist)
-            )
+            self._app.router.add_get("/{path:.*}", _make_static_or_spa(frontend_dist))
         else:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
@@ -1403,7 +1405,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._lane_tasks.add(task)
         task.add_done_callback(self._lane_tasks.discard)
 
-    async def _run_in_lane(self, lock: asyncio.Lock, data: Dict[str, Any], ws: Any) -> None:
+    async def _run_in_lane(
+        self, lock: asyncio.Lock, data: Dict[str, Any], ws: Any
+    ) -> None:
         request_id = data.get("requestId")
         _REQUEST_ID.set(request_id if isinstance(request_id, str) else None)
         async with lock:
@@ -2829,7 +2833,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "local_llm_pull_model",
-                    "data": {"success": False, "error": tui("model_no_model_specified")},
+                    "data": {
+                        "success": False,
+                        "error": tui("model_no_model_specified"),
+                    },
                 }
             )
             return
@@ -3322,7 +3329,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 from app.agent_app import construction_events
 
                 live_ids = {p.id for p in projects}
-                for stale_id in [pid for pid in self._agent_app_todos if pid not in live_ids]:
+                for stale_id in [
+                    pid for pid in self._agent_app_todos if pid not in live_ids
+                ]:
                     del self._agent_app_todos[stale_id]
                 for p in projects:
                     if getattr(p, "status", None) not in ("creating", "error"):
@@ -3330,7 +3339,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     todos = self._agent_app_todos.get(p.id)
                     if todos:
                         await self._broadcast(
-                            {"type": "agent_app_todos", "data": {"projectId": p.id, "todos": todos}}
+                            {
+                                "type": "agent_app_todos",
+                                "data": {"projectId": p.id, "todos": todos},
+                            }
                         )
                     events = construction_events.get_buffered_events(p.id)
                     if events:
@@ -3641,9 +3653,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     zip_path = tmp.name
 
             if not zip_path:
-                return web.json_response(
-                    {"error": tui("agentapp_no_zip")}, status=400
-                )
+                return web.json_response({"error": tui("agentapp_no_zip")}, status=400)
 
             return web.json_response(
                 {
@@ -4167,7 +4177,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if self._chat._storage:
                     try:
                         await self._chat.run_storage(
-                            self._chat._storage.update_option_selected, message_id, value
+                            self._chat._storage.update_option_selected,
+                            message_id,
+                            value,
                         )
                     except Exception:
                         pass
@@ -4213,9 +4225,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         return storage.get_pending_questions(session_id)
 
                     try:
-                        pending_questions = await self._chat.run_storage(
-                            _record_answer
-                        )
+                        pending_questions = await self._chat.run_storage(_record_answer)
                     except Exception:
                         pass
 
@@ -5643,7 +5653,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     {
                         "type": "memory_schedule_get",
                         "data": {"success": False, "error": tui("schedule_not_found")},
-                    }
+                    },
                 )
                 return
 
@@ -5666,7 +5676,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "threshold_max": get_memory_processing_threshold_max(),
                         "unprocessed": get_unprocessed_event_count(),
                     },
-                }
+                },
             )
         except Exception as e:
             await self._send_to(
@@ -5674,7 +5684,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {
                     "type": "memory_schedule_get",
                     "data": {"success": False, "error": str(e)},
-                }
+                },
             )
 
     async def _handle_memory_schedule_set(self, data: dict) -> None:
@@ -7364,8 +7374,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             system = self._system_for(integration_id)
             if system is None:
-                success, message = False, tui(
-                    "integration_unknown", integration_id=integration_id
+                success, message = (
+                    False,
+                    tui("integration_unknown", integration_id=integration_id),
                 )
             else:
                 from app.data.action.integrations._helpers import system_connect_token
@@ -7423,8 +7434,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             system = self._system_for(integration_id)
             if system is None:
-                success, message = False, tui(
-                    "integration_unknown", integration_id=integration_id
+                success, message = (
+                    False,
+                    tui("integration_unknown", integration_id=integration_id),
                 )
             else:
                 success, message, _accounts = await system.add_account(integration_id)
@@ -9336,9 +9348,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             relative_path = f"download/{unique_name}"
 
             # Decode and save file (off the loop)
-            size = await asyncio.to_thread(
-                self._write_b64_file, file_path, content_b64
-            )
+            size = await asyncio.to_thread(self._write_b64_file, file_path, content_b64)
 
             # Build response
             await self._broadcast(
@@ -9878,7 +9888,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         session_id = request.query.get("sessionId", "main")
         asyncio.create_task(self._run_debug_flood(session_id, count, seconds))
         return web.json_response(
-            {"started": True, "sessionId": session_id, "count": count, "seconds": seconds}
+            {
+                "started": True,
+                "sessionId": session_id,
+                "count": count,
+                "seconds": seconds,
+            }
         )
 
     async def _debug_block_handler(self, request: "web.Request") -> "web.Response":
@@ -9897,7 +9912,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         asyncio.get_running_loop().call_later(0.2, time.sleep, seconds)
         return web.json_response({"blocking": True, "seconds": seconds})
 
-    async def _run_debug_flood(self, session_id: str, count: int, seconds: float) -> None:
+    async def _run_debug_flood(
+        self, session_id: str, count: int, seconds: float
+    ) -> None:
         run_id = uuid.uuid4().hex[:8]
         interval = seconds / count
         for index in range(count):

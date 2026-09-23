@@ -167,7 +167,9 @@ class LoopStallMonitor:
 
         stall.duration = time.monotonic() - started
         self._record(stall)
-        stack = "\n    ".join(str(frame) for frame in (stall.samples[0] if stall.samples else []))
+        stack = "\n    ".join(
+            str(frame) for frame in (stall.samples[0] if stall.samples else [])
+        )
         logger.warning(
             f"[LOOP STALL] Resolved after {stall.duration:.2f}s ({stall.origin}). "
             f"Stack (innermost first):\n    {stack or '(no project frames)'}"
@@ -186,7 +188,9 @@ class LoopStallMonitor:
         while frame is not None and len(frames) < _MAX_STACK_FRAMES:
             relative = _project_relative(frame.f_code.co_filename)
             if relative is not None:
-                frames.append(StackFrame(relative, frame.f_lineno, frame.f_code.co_name))
+                frames.append(
+                    StackFrame(relative, frame.f_lineno, frame.f_code.co_name)
+                )
             frame = frame.f_back
         return frames
 

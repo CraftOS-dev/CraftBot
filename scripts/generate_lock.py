@@ -323,7 +323,9 @@ def _check_committed_locks(require_all: bool = False) -> int:
         name = os.path.relpath(path, REPO_ROOT)
         with io.open(path, encoding="utf-8") as fh:
             header = fh.read(2048)
-        match = re.search(r"^# Source: requirements\.txt \((sha256:[0-9a-f]+)\)", header, re.M)
+        match = re.search(
+            r"^# Source: requirements\.txt \((sha256:[0-9a-f]+)\)", header, re.M
+        )
         if match is None:
             print(f"UNREADABLE: {name} has no source digest — regenerate it")
             stale.append(name)
@@ -336,9 +338,7 @@ def _check_committed_locks(require_all: bool = False) -> int:
     missing = [
         prefix
         for prefix in SHIPPED_PLATFORMS
-        if not any(
-            os.path.basename(p).startswith(f"lock-{prefix}") for p in locks
-        )
+        if not any(os.path.basename(p).startswith(f"lock-{prefix}") for p in locks)
     ]
     for prefix in missing:
         # ::warning/::error:: renders on the GitHub summary rather than being

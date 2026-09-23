@@ -196,7 +196,9 @@ class LanRelay:
             if not isinstance(result[0], Exception):
                 self._loop.run_forever()
 
-        threading.Thread(target=_run, daemon=True, name=f"lan-relay-{self.port}").start()
+        threading.Thread(
+            target=_run, daemon=True, name=f"lan-relay-{self.port}"
+        ).start()
         await asyncio.get_running_loop().run_in_executor(None, ready.wait, 10)
         if not isinstance(result[0], int):
             self._loop = None
@@ -448,7 +450,10 @@ class TunnelChannel(ShareChannel):
         # Record the exact identity (pid + start time) so a later run can reap
         # THIS process and nothing else — see _kill_orphans.
         get_ledger().register(
-            proc.pid, ROLE_TUNNEL, owner=str(getattr(project, "id", "")), label=origin_url
+            proc.pid,
+            ROLE_TUNNEL,
+            owner=str(getattr(project, "id", "")),
+            label=origin_url,
         )
         url = await self._parse_url(proc, log_path, log_offset)
         if not url:
@@ -660,7 +665,9 @@ class SharingService:
         self.channels: Dict[str, ShareChannel] = {
             c.name: c for c in (LanChannel(), TunnelChannel(terminate))
         }
-        assert set(self.channels) == set(SHARE_CHANNELS), "guards must know every channel"
+        assert set(self.channels) == set(SHARE_CHANNELS), (
+            "guards must know every channel"
+        )
 
     def channel(self, name: str) -> ShareChannel:
         try:

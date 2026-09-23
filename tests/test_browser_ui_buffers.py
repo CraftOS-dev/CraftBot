@@ -116,7 +116,9 @@ def test_activity_buffer_is_bounded_and_keeps_running_items():
         await panel.add_item(running)
         for i in range(1, 600):
             await panel.add_item(
-                ActionItem(id=f"done-{i}", name="x", status="completed", item_type="action")
+                ActionItem(
+                    id=f"done-{i}", name="x", status="completed", item_type="action"
+                )
             )
 
     asyncio.run(run())

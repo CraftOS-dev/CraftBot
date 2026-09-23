@@ -608,11 +608,9 @@ async def agent_app_notify_ready(input_data: dict) -> dict:
                     "not permitted",
                     "=false",
                 )
-                _hits = [
-                    ln
-                    for ln in _llines
-                    if any(k in ln.lower() for k in _keys)
-                ][-12:]
+                _hits = [ln for ln in _llines if any(k in ln.lower() for k in _keys)][
+                    -12:
+                ]
                 if _hits:
                     _body = "\n".join(ln[:300] for ln in _hits)[:2000]
                     _log_note = (
@@ -657,8 +655,7 @@ async def agent_app_notify_ready(input_data: dict) -> dict:
                     "the independent verifier — it drives the app in a real "
                     "browser (Playwright) against the requirements. The build "
                     "is complete ONLY when that returns success — do NOT tell "
-                    "the user the app is ready before then."
-                    + _log_note
+                    "the user the app is ready before then." + _log_note
                 ),
             }
         else:
@@ -841,9 +838,7 @@ async def agent_app_walk_verify(input_data: dict) -> dict:
         # requirements", stuck-capping a healthy modify.)
         verify_path = str(project.path)
         _state_dir = (
-            str(_dev.dir)
-            if _dev is not None and _dev.dir
-            else str(project.path)
+            str(_dev.dir) if _dev is not None and _dev.dir else str(project.path)
         )
 
         # Scope (docs/design/scoped-walk-verify.md): the verifier decides

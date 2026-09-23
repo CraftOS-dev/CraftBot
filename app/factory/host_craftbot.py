@@ -133,7 +133,9 @@ def _patterns(rounds: List[Dict[str, Any]]) -> List[str]:
         if len(set(streak)) == 1:
             out.append(f"{key}: {len(streak)} rounds, byte-identical cause each time")
         elif len(set(streak)) == len(streak):
-            shared = set.intersection(*(_routes(s) for s in streak)) if streak else set()
+            shared = (
+                set.intersection(*(_routes(s) for s in streak)) if streak else set()
+            )
             where = f" at {sorted(shared)[0]}" if shared else ""
             out.append(
                 f"{key}: {len(streak)} rounds, a different cause each round{where}"
@@ -586,9 +588,7 @@ class FactoryHost:
                 return
             if awaiting_answer:
                 arc.pause("question")
-                logger.info(
-                    f"[FACTORY] {project_id} parked on a question to the user"
-                )
+                logger.info(f"[FACTORY] {project_id} parked on a question to the user")
                 return
             paused = arc.paused
             if paused and paused.get("by") == "question":
@@ -834,7 +834,9 @@ class FactoryHost:
 
         _registry = get_instance_registry()
         _dev = _registry.shadow(project.id) if _registry is not None else None
-        log_dir = str(_dev.dir) if (_dev is not None and _dev.dir) else str(project.path)
+        log_dir = (
+            str(_dev.dir) if (_dev is not None and _dev.dir) else str(project.path)
+        )
         return f"""FIX MISSION {n} for Agent App '{project.name}' ({project.id}).
 
 The independent verifier drove the app in a real browser. Each DEFECT below

@@ -6,11 +6,13 @@ in parallel without causing file corruption through editing the same file at the
 same time.
 
 """
+
 import os
 import threading
 
 _FILE_LOCKS: dict[str, threading.Lock] = {}
 _FILE_LOCKS_GUARD = threading.Lock()
+
 
 def get_file_lock(path: str) -> threading.Lock:
     norm = os.path.realpath(os.path.abspath(path))

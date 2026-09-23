@@ -326,7 +326,6 @@ class Arc:
     def blocked_report(self, question: str) -> str:
         """The agent needs something only the user has. Not a failure: it
         ends in a question, and work resumes the moment it is answered."""
-        return (
-            "I need a decision from you before I can continue.\n\n"
-            + (question.strip() or "(no question was given)")
+        return "I need a decision from you before I can continue.\n\n" + (
+            question.strip() or "(no question was given)"
         )

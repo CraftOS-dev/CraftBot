@@ -17,9 +17,13 @@ def test_stop_never_waits_behind_session_work():
 
 
 def test_agent_app_messages_are_serialized_per_project():
-    assert message_lane({"type": "agent_app_launch", "projectId": "p1"}) == "agent_app:p1"
+    assert (
+        message_lane({"type": "agent_app_launch", "projectId": "p1"}) == "agent_app:p1"
+    )
     assert message_lane({"type": "agent_app_stop", "projectId": "p1"}) == "agent_app:p1"
-    assert message_lane({"type": "agent_app_launch", "projectId": "p2"}) == "agent_app:p2"
+    assert (
+        message_lane({"type": "agent_app_launch", "projectId": "p2"}) == "agent_app:p2"
+    )
     assert message_lane({"type": "agent_app_list"}) == "agent_app"
 
 
@@ -30,7 +34,9 @@ def test_settings_domains_are_independent_but_internally_serialized():
     assert message_lane({"type": "skill_install"}) == "skills"
     assert message_lane({"type": "skill_meta_get"}) == "skills"
     assert message_lane({"type": "command_list"}) == "skills"
-    assert message_lane({"type": "model_connection_test"}) != message_lane({"type": "mcp_enable"})
+    assert message_lane({"type": "model_connection_test"}) != message_lane(
+        {"type": "mcp_enable"}
+    )
 
 
 def test_unknown_types_keep_one_at_a_time_behaviour():

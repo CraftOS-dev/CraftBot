@@ -51,14 +51,25 @@ def _ctx(provider, model, anthropic_client=None):
 
 
 def _make(provider="grok", model="grok-3", anthropic_client=None):
-    with patch.object(ModelFactory, "create", return_value=_ctx(provider, model, anthropic_client)):
-        return LLMInterface(provider=provider, model=model, api_key="k", base_url="", max_tokens=MAX_TOKENS)
+    with patch.object(
+        ModelFactory, "create", return_value=_ctx(provider, model, anthropic_client)
+    ):
+        return LLMInterface(
+            provider=provider,
+            model=model,
+            api_key="k",
+            base_url="",
+            max_tokens=MAX_TOKENS,
+        )
 
 
 def _settings(context_window=WINDOW, reserve_tokens=RESERVE, keep_recent_tokens=20000):
     return {
         "model": {"context_window": context_window},
-        "context": {"reserve_tokens": reserve_tokens, "keep_recent_tokens": keep_recent_tokens},
+        "context": {
+            "reserve_tokens": reserve_tokens,
+            "keep_recent_tokens": keep_recent_tokens,
+        },
     }
 
 
@@ -72,8 +83,10 @@ class _FakeAnthropic:
         return SimpleNamespace(
             content=[SimpleNamespace(type="text", text='{"ok": 1}')],
             usage=SimpleNamespace(
-                input_tokens=10, output_tokens=2,
-                cache_creation_input_tokens=0, cache_read_input_tokens=0,
+                input_tokens=10,
+                output_tokens=2,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=0,
             ),
         )
 
@@ -130,7 +143,7 @@ def test_router_decides_on_the_request_and_restarts_without_ending():
     first_call = src.index("if not has_synced_before:")
     send = src.index("generate_response_with_session_async", first_call)
     assert "reset_session_history" in src[first_call:send]
-    assert "end_session_cache" not in src[src.index("No delta events"):send]
+    assert "end_session_cache" not in src[src.index("No delta events") : send]
     assert "except LLMContextOverflowError" in src
 
 
@@ -154,7 +167,9 @@ def test_anthropic_session_marks_system_and_last_assistant():
     iface._anthropic_client = fake
     iface.create_session_cache("task", "action_selection", "S" * 5000)
     for turn in ("turn 1", "turn 2"):
-        iface._generate_response_with_session_sync("task", "action_selection", turn, log_response=False)
+        iface._generate_response_with_session_sync(
+            "task", "action_selection", turn, log_response=False
+        )
 
     second = fake.calls[1]
     assert second["system"][0].get("cache_control")
@@ -169,7 +184,9 @@ def test_anthropic_session_marks_system_and_last_assistant():
 def test_openai_compat_session_sends_a_growing_identical_prefix():
     sent = []
 
-    def fake_generate_openai(self, system_prompt, user_prompt, call_type=None, messages_override=None, **kw):
+    def fake_generate_openai(
+        self, system_prompt, user_prompt, call_type=None, messages_override=None, **kw
+    ):
         sent.append([dict(m) for m in messages_override])
         return {"content": '{"ok": 1}', "tokens_used": 1}
 
@@ -177,9 +194,18 @@ def test_openai_compat_session_sends_a_growing_identical_prefix():
     iface.create_session_cache("task", "action_selection", "SYSTEM")
     with patch.object(LLMInterface, "_generate_openai", fake_generate_openai):
         for turn in range(3):
-            iface._generate_response_with_session_sync("task", "action_selection", f"turn {turn}", log_response=False)
+            iface._generate_response_with_session_sync(
+                "task", "action_selection", f"turn {turn}", log_response=False
+            )
 
-    assert [m["role"] for m in sent[2]] == ["system", "user", "assistant", "user", "assistant", "user"]
+    assert [m["role"] for m in sent[2]] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+    ]
     assert sent[1][:3] == sent[2][:3]
 
 
@@ -192,15 +218,21 @@ def test_the_providers_input_count_is_recorded_per_session():
     iface = _make()
     iface.create_session_cache("task", "action_selection", "SYSTEM")
 
-    def fake_generate_openai(self, system_prompt, user_prompt, call_type=None, messages_override=None, **kw):
+    def fake_generate_openai(
+        self, system_prompt, user_prompt, call_type=None, messages_override=None, **kw
+    ):
         self._report_usage_async("llm_openai", "grok", "grok-3", 4321, 10, 0)
         return {"content": '{"ok": 1}', "tokens_used": 4331}
 
     with patch.object(LLMInterface, "_generate_openai", fake_generate_openai):
-        iface.generate_response_with_session("task", "action_selection", "turn 1", log_response=False)
+        iface.generate_response_with_session(
+            "task", "action_selection", "turn 1", log_response=False
+        )
     assert iface.last_input_tokens("task", "action_selection") == 4321
 
-    iface._report_usage_async("llm_openai", "grok", "grok-3", 999, 1, 0)  # outside any session call
+    iface._report_usage_async(
+        "llm_openai", "grok", "grok-3", 999, 1, 0
+    )  # outside any session call
     assert iface.last_input_tokens("task", "action_selection") == 4321
 
 
@@ -211,8 +243,12 @@ def test_fits_context_uses_the_providers_count_plus_only_what_is_new():
     with patch.object(app_config, "get_settings", return_value=_settings()):
         iface._last_input_tokens["task:action_selection"] = FOLD_POINT - pending_tokens
         assert iface.fits_context("task", "action_selection", "SYSTEM", pending) is True
-        iface._last_input_tokens["task:action_selection"] = FOLD_POINT - pending_tokens + 1
-        assert iface.fits_context("task", "action_selection", "SYSTEM", pending) is False
+        iface._last_input_tokens["task:action_selection"] = (
+            FOLD_POINT - pending_tokens + 1
+        )
+        assert (
+            iface.fits_context("task", "action_selection", "SYSTEM", pending) is False
+        )
 
 
 def test_fits_context_counts_the_whole_prompt_on_a_sessions_first_request():
@@ -264,12 +300,22 @@ def test_a_provider_size_rejection_is_a_typed_overflow_not_a_failure():
         ),
     }
     fallback_calls = []
-    with patch.dict("agent_core.core.impl.llm.transports.TRANSPORTS",
-                    {"chat_completions": lambda *a, **k: refusal}), \
-         patch.object(LLMInterface, "_try_fallback", lambda self, *a, **k: fallback_calls.append(1)), \
-         patch.object(app_config, "get_settings", return_value=_settings()):
+    with (
+        patch.dict(
+            "agent_core.core.impl.llm.transports.TRANSPORTS",
+            {"chat_completions": lambda *a, **k: refusal},
+        ),
+        patch.object(
+            LLMInterface,
+            "_try_fallback",
+            lambda self, *a, **k: fallback_calls.append(1),
+        ),
+        patch.object(app_config, "get_settings", return_value=_settings()),
+    ):
         with pytest.raises(LLMContextOverflowError):
-            iface._generate_response_sync(system_prompt="s", user_prompt="u", log_response=False)
+            iface._generate_response_sync(
+                system_prompt="s", user_prompt="u", log_response=False
+            )
     assert iface._consecutive_failures == 0
     assert fallback_calls == []
 
@@ -281,7 +327,7 @@ def test_the_structured_openai_code_maps_to_context_overflow():
 
     src = Path(errors.__file__).read_text(encoding="utf-8")
     i = src.index('code == "context_length_exceeded"')
-    assert "ErrorCategory.CONTEXT_OVERFLOW" in src[i: i + 120]
+    assert "ErrorCategory.CONTEXT_OVERFLOW" in src[i : i + 120]
 
 
 def test_preflight_refuses_a_request_that_does_not_fit():
@@ -296,7 +342,9 @@ def test_preflight_refuses_a_request_that_does_not_fit():
 
 
 def test_shipped_defaults_apply_when_keys_are_absent():
-    with patch.object(app_config, "get_settings", return_value={"model": {}, "context": {}}):
+    with patch.object(
+        app_config, "get_settings", return_value={"model": {}, "context": {}}
+    ):
         assert app_config.get_context_window() == 128000
         assert app_config.get_reserve_tokens() == 16384
         assert app_config.get_keep_recent_tokens() == 20000
@@ -316,5 +364,11 @@ def test_no_fallback_constants_and_no_fractions_remain():
     from pathlib import Path
 
     source = Path(app_config.__file__).read_text(encoding="utf-8")
-    for token in ("LEGACY", "v1.4.1", "stream_fraction_of_window", "tail_keep_fraction", "get_context_limits"):
+    for token in (
+        "LEGACY",
+        "v1.4.1",
+        "stream_fraction_of_window",
+        "tail_keep_fraction",
+        "get_context_limits",
+    ):
         assert token not in source, token

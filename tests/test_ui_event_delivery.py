@@ -69,9 +69,7 @@ def test_a_failing_event_does_not_drop_the_rest_of_the_tick():
         UIEventType.ACTION_END, lambda e: delivered.append(e.data["action_id"])
     )
 
-    stream = SimpleNamespace(
-        tail_events=[_record(_end(f"run-{i}")) for i in range(4)]
-    )
+    stream = SimpleNamespace(tail_events=[_record(_end(f"run-{i}")) for i in range(4)])
 
     # Second event of the batch blows up inside the delivery path.
     real_update = controller._update_state_from_event

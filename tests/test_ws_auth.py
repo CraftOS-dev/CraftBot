@@ -61,9 +61,15 @@ def test_token_request_checks():
     ok = {"Host": "localhost:7925"}
     assert auth.check_token_request(ok) is None
     assert auth.check_token_request({**ok, "Sec-Fetch-Site": "same-origin"}) is None
-    assert auth.check_token_request({**ok, "Sec-Fetch-Site": "cross-site"}) == "fetch-site"
-    assert auth.check_token_request({**ok, "Sec-Fetch-Site": "same-site"}) == "fetch-site"
-    assert auth.check_token_request({**ok, "Origin": "https://evil.example"}) == "origin"
+    assert (
+        auth.check_token_request({**ok, "Sec-Fetch-Site": "cross-site"}) == "fetch-site"
+    )
+    assert (
+        auth.check_token_request({**ok, "Sec-Fetch-Site": "same-site"}) == "fetch-site"
+    )
+    assert (
+        auth.check_token_request({**ok, "Origin": "https://evil.example"}) == "origin"
+    )
     assert auth.check_token_request({"Host": "evil.example:7926"}) == "host"
 
 
@@ -143,7 +149,10 @@ def test_missing_token_rejected():
 def test_wrong_token_rejected():
     async def go(s, port):
         return await _handshake(
-            s, port, f"http://127.0.0.1:{port}", ("craftbot", "craftbot-auth." + "b" * 64)
+            s,
+            port,
+            f"http://127.0.0.1:{port}",
+            ("craftbot", "craftbot-auth." + "b" * 64),
         )
 
     assert _run(go) == ("rejected", 403, None)
@@ -153,9 +162,7 @@ def test_correct_origin_and_token_accepted():
     async def go(s, port):
         # Frontend-port origin (Vite / static server) and backend-port origin.
         return [
-            await _handshake(
-                s, port, origin, ("craftbot", f"craftbot-auth.{TOKEN}")
-            )
+            await _handshake(s, port, origin, ("craftbot", f"craftbot-auth.{TOKEN}"))
             for origin in ("http://localhost:7925", f"http://127.0.0.1:{port}")
         ]
 
@@ -166,7 +173,11 @@ def test_token_endpoint_same_origin_only():
     async def go(s, port):
         url = f"http://127.0.0.1:{port}/api/session-token"
         async with s.get(url, headers={"Sec-Fetch-Site": "same-origin"}) as r:
-            ok = (r.status, await r.json(), r.headers.get("Access-Control-Allow-Origin"))
+            ok = (
+                r.status,
+                await r.json(),
+                r.headers.get("Access-Control-Allow-Origin"),
+            )
         async with s.get(url, headers={"Origin": "https://evil.example"}) as r:
             foreign = r.status
         async with s.get(url, headers={"Sec-Fetch-Site": "cross-site"}) as r:
@@ -208,15 +219,18 @@ def test_api_request_checks():
         "no Origin = non-browser caller (the agent-app bridge)"
     )
     for method in ("POST", "PUT", "PATCH", "DELETE"):
-        assert auth.check_api_request(
-            method, {**ui, "Origin": "https://evil.example"}
-        ) == "origin", method
+        assert (
+            auth.check_api_request(method, {**ui, "Origin": "https://evil.example"})
+            == "origin"
+        ), method
     assert auth.check_api_request("POST", {**ui, "Origin": "null"}) == "origin"
-    assert auth.check_api_request("POST", {**ui, "Origin": "http://127.0.0.1:3100"}) == (
-        "origin"
-    ), "an Agent App page is not the CraftBot UI"
+    assert auth.check_api_request(
+        "POST", {**ui, "Origin": "http://127.0.0.1:3100"}
+    ) == ("origin"), "an Agent App page is not the CraftBot UI"
     # reads: Origin is the browser's business (no CORS grant), Host is ours
-    assert auth.check_api_request("GET", {**ui, "Origin": "https://evil.example"}) is None
+    assert (
+        auth.check_api_request("GET", {**ui, "Origin": "https://evil.example"}) is None
+    )
     assert auth.check_api_request("GET", {"Host": "evil.example:7926"}) == "host"
     assert auth.check_api_request("POST", {"Host": "evil.example:7925"}) == "host"
 

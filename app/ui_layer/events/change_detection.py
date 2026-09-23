@@ -25,9 +25,9 @@ Notify = Callable[[Resource, Iterable[str]], None]
 
 # Workspace folders that churn constantly or aren't shown as user files.
 WORKSPACE_IGNORE = (
-    "sessions",          # per-session EVENT.md logs, rewritten every turn
+    "sessions",  # per-session EVENT.md logs, rewritten every turn
     ".memory_staging",
-    "agent_app",         # Agent App code, pb_data, backups, logs
+    "agent_app",  # Agent App code, pb_data, backups, logs
     "node_modules",
     ".git",
     "__pycache__",
@@ -73,7 +73,9 @@ def default_watch_targets() -> List[WatchTarget]:
         WatchTarget(Resource.MEMORY.value, agent_fs / "MEMORY.md"),
         WatchTarget(Resource.MEMORY.value, agent_fs / "ENTITIES.md"),
         *(
-            WatchTarget(Resource.AGENT_FILES.value, agent_fs / name, id_for=lambda p: p.name)
+            WatchTarget(
+                Resource.AGENT_FILES.value, agent_fs / name, id_for=lambda p: p.name
+            )
             for name in ("USER.md", "AGENT.md", "SOUL.md")
         ),
         WatchTarget(
@@ -108,7 +110,9 @@ class ChangeDetection:
         self._unsubscribers: List[Callable[[], None]] = []
 
     def start(self) -> None:
-        targets = self._targets if self._targets is not None else default_watch_targets()
+        targets = (
+            self._targets if self._targets is not None else default_watch_targets()
+        )
         self._watcher = ChangeWatcher(targets, self._on_file_change)
         self._watcher.start()
         self._unsubscribers = [

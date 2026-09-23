@@ -225,9 +225,7 @@ def main() -> int:
         default=str(REPO_ROOT / "downloads-cache"),
         help="where to keep the runtime archives (default: <repo>/downloads-cache)",
     )
-    ap.add_argument(
-        "--skip-npm", action="store_true", help="don't warm npm's cache"
-    )
+    ap.add_argument("--skip-npm", action="store_true", help="don't warm npm's cache")
     ap.add_argument(
         "--skip-playwright", action="store_true", help="don't fetch Chromium"
     )

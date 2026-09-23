@@ -303,7 +303,7 @@ def _early_end_guard(sub, parameters):
         if sub.iterations < floor:
             remaining = _MAX_ITERATIONS - sub.iterations
             return (
-                'Verdict REJECTED — feature(s) left not_reached without an '
+                "Verdict REJECTED — feature(s) left not_reached without an "
                 'unreached_reason ("code_present" or "tooling"): '
                 f"{unqualified[:5]}. {remaining} turns remain — exercise them "
                 "now, one flow per turn, or set an unreached_reason."

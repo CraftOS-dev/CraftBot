@@ -122,7 +122,9 @@ def _finish(agent, records, truth, extra=None):
         extra={
             "actions_called": actions_called(agent),
             "ground_truth": json.dumps(truth, ensure_ascii=False),
-            "action_records": json.dumps(records, ensure_ascii=False, default=str)[:20000],
+            "action_records": json.dumps(records, ensure_ascii=False, default=str)[
+                :20000
+            ],
             **(extra or {}),
         },
     )
@@ -130,8 +132,10 @@ def _finish(agent, records, truth, extra=None):
     print("\n--- GROUND TRUTH ---\n" + json.dumps(truth, indent=1, ensure_ascii=False))
     print("\n--- ACTIONS ---")
     for r in records:
-        print(f"  {r['name']} input={json.dumps(r['input'], default=str)[:200]}"
-              f"{' BLOCKED' if r.get('blocked') else ''}")
+        print(
+            f"  {r['name']} input={json.dumps(r['input'], default=str)[:200]}"
+            f"{' BLOCKED' if r.get('blocked') else ''}"
+        )
     print("\n--- TRACE ---\n" + format_agent_trace(agent))
     return log_path
 
@@ -147,15 +151,16 @@ def test_live_gmail_answers_unread_reply_to_and_thread():
             user_message=(
                 "For each of my 3 most recent Gmail inbox emails, tell me the "
                 "sender, the subject, whether it is READ or UNREAD, its "
-                "Reply-To address (or 'none'), and its thread id. "
-                + _READ_ONLY_RULE
+                "Reply-To address (or 'none'), and its thread id. " + _READ_ONLY_RULE
             ),
             max_iterations=30,
         )
     )
     log_path = _finish(agent, records, truth)
 
-    assert not any(r.get("blocked") for r in records), f"mutating action attempted. trace: {log_path}"
+    assert not any(r.get("blocked") for r in records), (
+        f"mutating action attempted. trace: {log_path}"
+    )
     outs = _gmail_outputs(records, {"get_gmail", "read_top_emails", "get_gmail_thread"})
     assert outs, f"agent never read message details. trace: {log_path}"
     blob = json.dumps(outs, default=str)
@@ -182,25 +187,28 @@ def test_live_gmail_summarises_html_only_email():
         run_scenario(
             agent,
             user_message=(
-                f"Open the Gmail email with subject \"{html_only['subject']}\" "
+                f'Open the Gmail email with subject "{html_only["subject"]}" '
                 f"from {html_only['from']} and summarise what its BODY says in "
-                "3 bullet points (not just the preview snippet). "
-                + _READ_ONLY_RULE
+                "3 bullet points (not just the preview snippet). " + _READ_ONLY_RULE
             ),
             max_iterations=30,
         )
     )
     log_path = _finish(agent, records, [html_only])
 
-    assert not any(r.get("blocked") for r in records), f"mutating action attempted. trace: {log_path}"
+    assert not any(r.get("blocked") for r in records), (
+        f"mutating action attempted. trace: {log_path}"
+    )
     outs = _gmail_outputs(records, {"get_gmail", "read_top_emails"})
     bodies = [
-        o.get("result") for o in outs
-        if isinstance(o.get("result"), dict) and o["result"].get("id") == html_only["id"]
+        o.get("result")
+        for o in outs
+        if isinstance(o.get("result"), dict)
+        and o["result"].get("id") == html_only["id"]
     ]
     assert bodies, f"agent never fetched the HTML-only message. trace: {log_path}"
     full = [b for b in bodies if "body_format" in b]
     assert full, f"agent didn't request full_body for the message. trace: {log_path}"
-    assert full[-1]["body_format"] == "html_converted" and len(full[-1]["body"]) > 200, (
-        f"HTML-only body not converted: {full[-1].get('body_format')}. trace: {log_path}"
-    )
+    assert (
+        full[-1]["body_format"] == "html_converted" and len(full[-1]["body"]) > 200
+    ), f"HTML-only body not converted: {full[-1].get('body_format')}. trace: {log_path}"

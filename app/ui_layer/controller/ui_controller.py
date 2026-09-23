@@ -655,9 +655,7 @@ class UIController:
                 self._update_state_from_event(ui_event)
                 stale.pop(action_id, None)
             except Exception:
-                logger.exception(
-                    f"[UI] Failed to replay action_end for {action_id}"
-                )
+                logger.exception(f"[UI] Failed to replay action_end for {action_id}")
 
         # Whatever is left has lost its end event for good (folded out of the
         # stream, or never logged). The action is not running — say so.

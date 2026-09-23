@@ -145,8 +145,12 @@ def test_validator() -> None:
     risky = {
         "opsVersion": 1,
         "operations": [
-            _op("a.wipe", method="GET", destructive=True,
-                upstream={"method": "DELETE", "path": "/x"}),
+            _op(
+                "a.wipe",
+                method="GET",
+                destructive=True,
+                upstream={"method": "DELETE", "path": "/x"},
+            ),
             _op("a.list", method="GET", upstream={"method": "GET", "path": "/x"}),
             _op("a.del", destructive=True, upstream={"method": "DELETE", "path": "/x"}),
         ],
@@ -307,7 +311,9 @@ async def _auth_matrix(http, base: str, tmp: Path, seen) -> None:
     # ── refused ──
     status, body = await post({"Origin": "https://evil.example"})
     assert status == 403 and body["code"] == "forbidden_origin", body
-    status, _ = await post({"Origin": "https://evil.example", **{"X-A2App-Token": TOKEN}})
+    status, _ = await post(
+        {"Origin": "https://evil.example", **{"X-A2App-Token": TOKEN}}
+    )
     assert status == 403, "a token does not launder a foreign origin"
     for label, headers in (
         ("no Origin, no token", {}),
@@ -384,12 +390,12 @@ async def _auth_matrix(http, base: str, tmp: Path, seen) -> None:
         assert r.headers["Location"] == "/?tab=2", "secret must leave the URL"
         shared = _set_cookie(r)
         assert "Secure" in r.headers["Set-Cookie"]
-    async with http.get(
-        f"{base}/?a2app_share={secret}", allow_redirects=False
-    ) as r:
+    async with http.get(f"{base}/?a2app_share={secret}", allow_redirects=False) as r:
         assert r.status == 200, "locally the parameter means nothing"
 
-    status, _ = await post({**VIA_TUNNEL, "Origin": SHARED}, cookie=shared, title="visitor")
+    status, _ = await post(
+        {**VIA_TUNNEL, "Origin": SHARED}, cookie=shared, title="visitor"
+    )
     assert status == 200
     async with http.get(
         f"{base}/api/_a2app",
@@ -401,8 +407,13 @@ async def _auth_matrix(http, base: str, tmp: Path, seen) -> None:
     status, _ = await post({**VIA_TUNNEL, "X-A2App-Token": TOKEN}, title="remote agent")
     assert status == 200
     async with http.post(
-        create, json={"title": "evil"}, headers={**VIA_TUNNEL, "Origin": "https://evil.example",
-                                                 "Cookie": f"{shared[0]}={shared[1]}"}
+        create,
+        json={"title": "evil"},
+        headers={
+            **VIA_TUNNEL,
+            "Origin": "https://evil.example",
+            "Cookie": f"{shared[0]}={shared[1]}",
+        },
     ) as r:
         assert r.status == 403, "a session does not launder a foreign origin"
 
@@ -412,7 +423,14 @@ async def _auth_matrix(http, base: str, tmp: Path, seen) -> None:
     status, _ = await post({**VIA_TUNNEL, "Origin": SHARED}, cookie=shared)
     assert status in (401, 403)
     titles = [t["title"] for t in seen["todos"][before:]]
-    assert titles == ["agent", "agent+origin", "legacy", "ui", "visitor", "remote agent"], titles
+    assert titles == [
+        "agent",
+        "agent+origin",
+        "legacy",
+        "ui",
+        "visitor",
+        "remote agent",
+    ], titles
 
 
 async def _no_token_matrix(http, base: str, tmp: Path) -> None:
@@ -459,6 +477,7 @@ async def _lan_matrix(http, tmp: Path, seen) -> None:
     before = len(seen["todos"])
     grant = ShareGrant("lan")
     try:
+
         async def post(headers, cookie=None, title="x"):
             h = dict(headers)
             if cookie:
@@ -468,13 +487,19 @@ async def _lan_matrix(http, tmp: Path, seen) -> None:
 
         # LAN link switched off: nothing gets through, however it asks —
         # including a visitor claiming to be local (the relay overwrites it).
-        for headers in ({}, {"Host": f"127.0.0.1:{PROXY_PORT}"}, {"X-Forwarded-For": "127.0.0.1"}):
+        for headers in (
+            {},
+            {"Host": f"127.0.0.1:{PROXY_PORT}"},
+            {"X-Forwarded-For": "127.0.0.1"},
+        ):
             async with http.get(f"{base}/api/_a2app", headers=headers) as r:
                 assert r.status == 401, (headers, r.status)
                 assert (await r.json())["code"] == "share_session_required"
         async with http.get(f"{base}/") as r:
             assert "Set-Cookie" not in r.headers, "no local session over the LAN"
-        async with http.get(f"{base}/?a2app_share=anything", allow_redirects=False) as r:
+        async with http.get(
+            f"{base}/?a2app_share=anything", allow_redirects=False
+        ) as r:
             assert r.status == 403
 
         # switched on: the link's secret buys a (non-Secure: plain http) session
@@ -485,13 +510,19 @@ async def _lan_matrix(http, tmp: Path, seen) -> None:
         ) as r:
             assert r.status == 302 and r.headers["Location"] == "/?tab=2"
             lan = _set_cookie(r)
-            assert "Secure" not in r.headers["Set-Cookie"], "http LAN needs a plain cookie"
+            assert "Secure" not in r.headers["Set-Cookie"], (
+                "http LAN needs a plain cookie"
+            )
         async with http.get(
             f"{base}/api/_a2app", headers={"Cookie": f"{lan[0]}={lan[1]}"}
         ) as r:
             assert r.status == 200
-        assert await post({"Origin": lan_origin}, cookie=lan, title="lan visitor") == 200
-        assert await post({"Origin": lan_origin}) == 401, "the LAN origin authenticates nobody"
+        assert (
+            await post({"Origin": lan_origin}, cookie=lan, title="lan visitor") == 200
+        )
+        assert await post({"Origin": lan_origin}) == 401, (
+            "the LAN origin authenticates nobody"
+        )
         assert await post({"Origin": "https://evil.example"}, cookie=lan) == 403
         assert await post({"X-A2App-Token": TOKEN}, title="lan agent") == 200
 
@@ -568,7 +599,9 @@ async def _passthrough_matrix(http, base: str, tmp: Path, seen) -> None:
         status, body, reached = await send("POST", headers)
         assert status == 401 and body["code"] == "unauthorized", (label, status)
         assert not reached, label
-    async with http.post(f"{base}/api/todos", json={"title": "evil"}, headers=evil) as r:
+    async with http.post(
+        f"{base}/api/todos", json={"title": "evil"}, headers=evil
+    ) as r:
         assert r.status == 403, "a real app route, not just the echo"
 
     # the app's own UI (loopback page + the session its HTML page issued)

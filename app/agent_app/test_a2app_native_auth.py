@@ -61,9 +61,11 @@ migrate((app) => {
 
 
 def _pinned_pb_binary() -> Path:
-    version = (REPO / "agent-app" / "spec" / "pocketbase.version").read_text(
-        encoding="utf-8"
-    ).strip()
+    version = (
+        (REPO / "agent-app" / "spec" / "pocketbase.version")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
     cache = os.environ.get("AGENT_APP_PB_CACHE")
     if cache:
         root = Path(cache)
@@ -179,7 +181,9 @@ def _suite(base: str, proj: Path, superuser) -> None:
     assert _req(base, "GET", "/", VIA_TUNNEL)[0] == 401, "the UI itself is gated"
     # Either signal alone marks the tunnel: a public Host (request.host in Go,
     # not the header map) or a Cloudflare stamp on a loopback Host.
-    assert _req(base, "GET", create, {"Host": "shared-demo.trycloudflare.com"})[0] == 401
+    assert (
+        _req(base, "GET", create, {"Host": "shared-demo.trycloudflare.com"})[0] == 401
+    )
     assert _req(base, "GET", create, {"Cf-Ray": "8c0ffee-LHR"})[0] == 401
     assert post({**VIA_TUNNEL, **loopback}) == 401, "forged loopback Origin"
     assert post({**VIA_TUNNEL, "Origin": SHARED}, cookie=local) == 401
@@ -215,7 +219,9 @@ def _suite(base: str, proj: Path, superuser) -> None:
         assert status == 503 and body["code"] == "share_unavailable", (status, body)
         assert _req(base, "DELETE", create + "/anything", VIA_TUNNEL)[0] == 503
         assert _req(base, "GET", create, VIA_TUNNEL)[0] == 503
-        assert post(loopback, title="owner") == 200, "a missing token never locks the owner out"
+        assert post(loopback, title="owner") == 200, (
+            "a missing token never locks the owner out"
+        )
     finally:
         token_file.write_text(TOKEN, encoding="utf-8")
 
@@ -253,26 +259,44 @@ def _lan_suite(base: str, proj: Path) -> None:
         session = session[:2]
 
         assert _req(lan, "GET", "/", cookie=session)[0] == 200
-        status, headers, _ = _req(lan, "GET", create, {"Origin": lan_origin}, cookie=session)
+        status, headers, _ = _req(
+            lan, "GET", create, {"Origin": lan_origin}, cookie=session
+        )
         assert status == 200
-        assert headers["Access-Control-Allow-Origin"] == lan_origin, "CORS grant for the LAN origin"
+        assert headers["Access-Control-Allow-Origin"] == lan_origin, (
+            "CORS grant for the LAN origin"
+        )
         origin = {"Origin": lan_origin}
         assert _req(lan, "POST", create, origin, {"title": "lan"}, session)[0] == 200
-        assert _req(lan, "POST", create, origin, {"title": "x"})[0] == 401, "origin is no credential"
-        assert _req(
-            lan, "POST", create, {"Origin": "https://evil.example"}, {"title": "x"}, session
-        )[0] == 403
-        assert _req(
-            lan, "POST", "/api/_console", origin, {"entries": []}, session
-        )[0] == 200, "console relay accepts the LAN origin"
-        assert _req(base, "POST", create, {"Origin": base}, {"title": "x"}, session)[0] == 401, (
-            "a LAN session is not a local credential"
+        assert _req(lan, "POST", create, origin, {"title": "x"})[0] == 401, (
+            "origin is no credential"
         )
+        assert (
+            _req(
+                lan,
+                "POST",
+                create,
+                {"Origin": "https://evil.example"},
+                {"title": "x"},
+                session,
+            )[0]
+            == 403
+        )
+        assert (
+            _req(lan, "POST", "/api/_console", origin, {"entries": []}, session)[0]
+            == 200
+        ), "console relay accepts the LAN origin"
+        assert (
+            _req(base, "POST", create, {"Origin": base}, {"title": "x"}, session)[0]
+            == 401
+        ), "a LAN session is not a local credential"
 
         # switched off: every LAN session ends at once
         grant.revoke(proj)
         assert _req(lan, "GET", create, cookie=session)[0] == 401
-        assert _req(lan, "POST", "/api/_console", origin, {"entries": []}, session)[0] in (401, 403)
+        assert _req(lan, "POST", "/api/_console", origin, {"entries": []}, session)[
+            0
+        ] in (401, 403)
     finally:
         grant.revoke(proj)
         asyncio.run(relay.stop())

@@ -126,9 +126,7 @@ def _progress(phase: str, done: int, total: int, what: str = "") -> None:
         if total:
             pct = int(done * 100 / total)
             of = _human_bytes(total) if is_bytes else f"{total:,}"
-            logger.info(
-                f"[AGENT_APP] import {phase}: {shown}/{of} ({pct}%) {what}"
-            )
+            logger.info(f"[AGENT_APP] import {phase}: {shown}/{of} ({pct}%) {what}")
         else:
             logger.info(f"[AGENT_APP] import {phase}: {shown} {what}")
     except Exception:
@@ -146,6 +144,7 @@ def _progress(phase: str, done: int, total: int, what: str = "") -> None:
             )
     except Exception:
         pass
+
 
 def rmtree_long(path: Any, **kwargs: Any) -> None:
     """shutil.rmtree that survives paths over 260 chars on Windows.
@@ -1200,9 +1199,8 @@ UI in {project.path}/frontend/src/app/."""
         # pocketbase.log is append-mode across launches: remember where THIS
         # boot starts so failures below can quote only their own boot's lines.
         pb_log_path = (
-            (shadow.log_dir if shadow is not None else project_dir / "logs")
-            / "pocketbase.log"
-        )
+            shadow.log_dir if shadow is not None else project_dir / "logs"
+        ) / "pocketbase.log"
         pb_log_offset = pb_log_path.stat().st_size if pb_log_path.exists() else 0
 
         def _pb_log_since_boot(limit_lines: int = 30) -> str:
@@ -1243,7 +1241,9 @@ UI in {project.path}/frontend/src/app/."""
         # Healthy means OUR process answered: a 200 from whoever else holds
         # the port (PocketBase exited on "address in use") is not a boot.
         healthy = await self.runner.wait_healthy(port)
-        if healthy and (process.poll() is not None or process.pid not in listening_pids(port)):
+        if healthy and (
+            process.poll() is not None or process.pid not in listening_pids(port)
+        ):
             healthy = False
         if not healthy:
             self._terminate_process(process)
@@ -1505,7 +1505,10 @@ UI in {project.path}/frontend/src/app/."""
         # The start command runs under a shell; record the server itself too,
         # so it stays recognisably ours even if that shell dies first.
         get_ledger().adopt_listeners(
-            internal_port, ROLE_AGENT_APP, owner=project.id, label=f"server :{internal_port}"
+            internal_port,
+            ROLE_AGENT_APP,
+            owner=project.id,
+            label=f"server :{internal_port}",
         )
 
         # A2App adapter in front of the healthy app: bind the project port,
@@ -2634,11 +2637,10 @@ UI in {project.path}/frontend/src/app/."""
             _progress("landed", 1, 1, f"{dest.name} ({dropped} excluded)")
             return
         except OSError as e:
-            logger.info(
-                f"[AGENT_APP] import move unavailable ({e}) — copying instead"
-            )
+            logger.info(f"[AGENT_APP] import move unavailable ({e}) — copying instead")
         _progress("copying", 0, 0, str(dest.name))
         copytree_long(src, dest, ignore=shutil.ignore_patterns(*ignore_names))
+
     async def _import_external_tree(
         self, root: Path, name: Optional[str], origin: str
     ) -> AgentAppProject:
@@ -3078,9 +3080,12 @@ UI in {project.path}/frontend/src/app/."""
                     # which is what any progress display is made of.
                     zip_path = Path(dest) / "_download.zip"
                     zip_path.parent.mkdir(parents=True, exist_ok=True)
-                    with urllib.request.urlopen(
-                        req, timeout=60, context=ssl_ctx
-                    ) as resp, open(long_path(zip_path), "wb") as out:
+                    with (
+                        urllib.request.urlopen(
+                            req, timeout=60, context=ssl_ctx
+                        ) as resp,
+                        open(long_path(zip_path), "wb") as out,
+                    ):
                         total = int(resp.headers.get("Content-Length") or 0)
                         got = 0
                         next_mark = 0
@@ -3457,7 +3462,9 @@ UI in {project.path}/frontend/src/app/."""
                     if existing.port and self._is_port_in_use(existing.port):
                         self._kill_process_on_port(existing.port)
                     if project_path.exists():
-                        preserved_hold = Path(tempfile.mkdtemp(prefix="agent-app-adopt-"))
+                        preserved_hold = Path(
+                            tempfile.mkdtemp(prefix="agent-app-adopt-")
+                        )
                         for rel in ("reference", ".factory"):
                             keep = project_path / rel
                             if keep.exists():

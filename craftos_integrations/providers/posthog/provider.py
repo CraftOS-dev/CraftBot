@@ -159,7 +159,9 @@ class PostHogProvider:
             return None
         org = credential.get("org_id")
         project = credential.get("project_id")
-        org_text = "" if org is None or isinstance(org, (dict, list)) else str(org).strip()
+        org_text = (
+            "" if org is None or isinstance(org, (dict, list)) else str(org).strip()
+        )
         project_text = (
             ""
             if project is None or isinstance(project, (dict, list))
@@ -277,12 +279,12 @@ class PostHogProvider:
         )
 
         label = " / ".join(
-            part
-            for part in (organization.get("name"), team.get("name"))
-            if part
+            part for part in (organization.get("name"), team.get("name")) if part
         ) or (data.get("email") or "PostHog")
-        region = "EU Cloud" if "eu.posthog.com" in host else (
-            "US Cloud" if "us.posthog.com" in host else host
+        region = (
+            "EU Cloud"
+            if "eu.posthog.com" in host
+            else ("US Cloud" if "us.posthog.com" in host else host)
         )
         message = f"PostHog connected: {label} ({region})"
         if not project_id:

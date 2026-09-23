@@ -54,9 +54,7 @@ class WsAuth:
         self.allowed_hosts: Set[str] = {
             f"{h}:{p}" for h in _LOOPBACK_HOSTS for p in ports
         }
-        self.allowed_origins: Set[str] = {
-            f"http://{hp}" for hp in self.allowed_hosts
-        }
+        self.allowed_origins: Set[str] = {f"http://{hp}" for hp in self.allowed_hosts}
         self.token: str = token or secrets.token_hex(32)
 
     # -- individual checks -------------------------------------------------
@@ -78,7 +76,7 @@ class WsAuth:
         for proto in (header or "").split(","):
             proto = proto.strip()
             if proto.startswith(WS_TOKEN_PROTOCOL_PREFIX):
-                return proto[len(WS_TOKEN_PROTOCOL_PREFIX):]
+                return proto[len(WS_TOKEN_PROTOCOL_PREFIX) :]
         return None
 
     # -- request-level decisions ------------------------------------------
@@ -134,4 +132,3 @@ class WsAuth:
         if site is not None and site not in ("same-origin", "none"):
             return "fetch-site"
         return None
-

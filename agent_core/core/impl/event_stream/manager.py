@@ -223,7 +223,9 @@ class EventStreamManager:
         # raises RuntimeError straight into the UI's event pump.
         streams = list(self._streams.items())
         result = [(MAIN_SESSION_ID, self._streams[MAIN_SESSION_ID])]
-        result.extend((sid, stream) for sid, stream in streams if sid != MAIN_SESSION_ID)
+        result.extend(
+            (sid, stream) for sid, stream in streams if sid != MAIN_SESSION_ID
+        )
         return result
 
     def clear_all(self) -> None:

@@ -61,8 +61,7 @@ def _offset() -> Dict[str, Any]:
 
 def _project() -> Dict[str, Any]:
     return _s(
-        "Numeric PostHog project id. Omit to use the connected account's "
-        "project.",
+        "Numeric PostHog project id. Omit to use the connected account's project.",
         "",
     )
 
@@ -198,9 +197,7 @@ def build_operations() -> List[Operation]:
             description="Get one PostHog event by its uuid, with full properties.",
             tags=("posthog_query",),
             input_schema={
-                "event_uuid": _s(
-                    "Event uuid.", "01890a5d-0000-0000-0000-000000000000"
-                ),
+                "event_uuid": _s("Event uuid.", "01890a5d-0000-0000-0000-000000000000"),
                 "project_id": _project(),
             },
         ),
@@ -694,9 +691,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s(
-                    "Person uuid.", "01890a5d-0000-0000-0000-000000000000"
-                ),
+                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000"),
                 "project_id": _project(),
             },
         ),
@@ -710,9 +705,7 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s(
-                    "Person uuid.", "01890a5d-0000-0000-0000-000000000000"
-                ),
+                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000"),
                 "properties": _obj(
                     "Person properties to set.", {"plan": "pro", "company": "Acme"}
                 ),
@@ -726,9 +719,7 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s(
-                    "Person uuid.", "01890a5d-0000-0000-0000-000000000000"
-                ),
+                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000"),
                 "key": _s("Property name.", "plan"),
                 "value": _s("Property value.", "pro"),
                 "project_id": _project(),
@@ -742,9 +733,7 @@ def build_operations() -> List[Operation]:
             parallelizable=False,
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s(
-                    "Person uuid.", "01890a5d-0000-0000-0000-000000000000"
-                ),
+                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000"),
                 "key": _s("Property name to remove.", "plan"),
                 "project_id": _project(),
             },
@@ -780,9 +769,7 @@ def build_operations() -> List[Operation]:
             description="List the cohorts one person currently belongs to.",
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s(
-                    "Person uuid.", "01890a5d-0000-0000-0000-000000000000"
-                ),
+                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000"),
                 "project_id": _project(),
             },
         ),
@@ -790,14 +777,11 @@ def build_operations() -> List[Operation]:
             "get_posthog_person_properties_timeline",
             "get_person_properties_timeline",
             description=(
-                "Get how one person's properties changed over time, by person "
-                "uuid."
+                "Get how one person's properties changed over time, by person uuid."
             ),
             tags=("posthog_persons",),
             input_schema={
-                "person_id": _s(
-                    "Person uuid.", "01890a5d-0000-0000-0000-000000000000"
-                ),
+                "person_id": _s("Person uuid.", "01890a5d-0000-0000-0000-000000000000"),
                 "project_id": _project(),
             },
         ),
@@ -862,8 +846,7 @@ def build_operations() -> List[Operation]:
             "update_posthog_cohort",
             "update_cohort",
             description=(
-                "Update a PostHog cohort by numeric id (name, groups, "
-                "description)."
+                "Update a PostHog cohort by numeric id (name, groups, description)."
             ),
             parallelizable=False,
             tags=("posthog_cohorts",),
@@ -954,7 +937,9 @@ def build_operations() -> List[Operation]:
                     "ISO timestamp the note marks; defaults to now.",
                     "2026-09-20T12:00:00Z",
                 ),
-                "scope": _s("One of: project, organization, dashboard_item.", "project"),
+                "scope": _s(
+                    "One of: project, organization, dashboard_item.", "project"
+                ),
                 "dashboard_item": _i("Insight id when scope is dashboard_item.", 12345),
                 "project_id": _project(),
             },
@@ -1042,7 +1027,9 @@ def build_operations() -> List[Operation]:
             tags=("posthog_definitions",),
             input_schema=_paged(
                 search=_s("Filter by property name text.", ""),
-                event_names=_arr("Only properties seen on these events.", ["$pageview"]),
+                event_names=_arr(
+                    "Only properties seen on these events.", ["$pageview"]
+                ),
             ),
         ),
         client_op(
@@ -1120,9 +1107,7 @@ def build_operations() -> List[Operation]:
             description="Get a PostHog organization; defaults to the current one.",
             tags=("posthog_projects",),
             input_schema={
-                "organization_id": _s(
-                    "Organization uuid, or '@current'.", "@current"
-                ),
+                "organization_id": _s("Organization uuid, or '@current'.", "@current"),
             },
         ),
         client_op(
@@ -1131,9 +1116,7 @@ def build_operations() -> List[Operation]:
             description="List members of a PostHog organization, with their roles.",
             tags=("posthog_projects",),
             input_schema={
-                "organization_id": _s(
-                    "Organization uuid, or '@current'.", "@current"
-                ),
+                "organization_id": _s("Organization uuid, or '@current'.", "@current"),
                 "limit": _limit(),
                 "offset": _offset(),
             },
@@ -1148,9 +1131,7 @@ def build_operations() -> List[Operation]:
             ),
             tags=("posthog_projects", _UMBRELLA),
             input_schema={
-                "organization_id": _s(
-                    "Organization uuid, or '@current'.", "@current"
-                ),
+                "organization_id": _s("Organization uuid, or '@current'.", "@current"),
             },
         ),
         client_op(
@@ -1163,9 +1144,7 @@ def build_operations() -> List[Operation]:
             tags=("posthog_projects",),
             input_schema={
                 "project_id": _project(),
-                "organization_id": _s(
-                    "Organization uuid, or '@current'.", "@current"
-                ),
+                "organization_id": _s("Organization uuid, or '@current'.", "@current"),
             },
         ),
     ]

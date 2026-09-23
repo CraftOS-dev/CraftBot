@@ -148,8 +148,7 @@ async def verify_external_ops(
         "message": (
             f"A2App surface verified: {len(passed)} op(s) invoked live, "
             f"{len(results) - len(passed) - len(failed)} destructive op(s) "
-            "shape-checked."
-            + "".join(f"\nWarning: {w}" for w in warnings)
+            "shape-checked." + "".join(f"\nWarning: {w}" for w in warnings)
             if ok
             else (
                 f"{len(failed)} op(s) failed live verification. Per the "

@@ -148,7 +148,9 @@ def test_descendant_of_owned_shell_is_owned(tmp_path, procs):
     ledger.register(parent.pid, "agent_app")
     assert ledger.kill_port_listeners(port) is True
     assert _gone(parent)
-    assert not psutil.pid_exists(listener_pid) or listener_pid not in listening_pids(port)
+    assert not psutil.pid_exists(listener_pid) or listener_pid not in listening_pids(
+        port
+    )
 
 
 def test_adopt_skips_a_foreign_listener(tmp_path, procs):

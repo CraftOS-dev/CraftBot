@@ -8,7 +8,7 @@ All configuration is read from settings.json - no .env file is used.
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from app import paths
 
@@ -223,7 +223,9 @@ def get_context_window() -> int:
 def _get_positive_int(section: str, key: str) -> int:
     value = _setting(section, key)
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ConfigurationError(f"settings.json {section}.{key} must be a positive integer.")
+        raise ConfigurationError(
+            f"settings.json {section}.{key} must be a positive integer."
+        )
     return value
 
 

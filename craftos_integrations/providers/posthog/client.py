@@ -833,7 +833,9 @@ class PostHogClient(BasePlatformClient):
             expected=(200,),
         )
 
-    async def list_my_feature_flags(self, *, project_id: Optional[str] = None) -> Result:
+    async def list_my_feature_flags(
+        self, *, project_id: Optional[str] = None
+    ) -> Result:
         return await arequest(
             "GET",
             self._proj("feature_flags/my_flags/", project_id),
@@ -1081,9 +1083,7 @@ class PostHogClient(BasePlatformClient):
         description: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> Result:
-        body = self._clean(
-            {"name": name, "groups": groups, "description": description}
-        )
+        body = self._clean({"name": name, "groups": groups, "description": description})
         return await arequest(
             "PATCH",
             self._proj(f"cohorts/{cohort_id}/", project_id),
@@ -1342,9 +1342,7 @@ class PostHogClient(BasePlatformClient):
         description: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> Result:
-        body = self._clean(
-            {"name": name, "steps": steps, "description": description}
-        )
+        body = self._clean({"name": name, "steps": steps, "description": description})
         return await arequest(
             "POST",
             self._proj("actions/", project_id),
@@ -1403,8 +1401,7 @@ class PostHogClient(BasePlatformClient):
         return await arequest(
             "GET",
             self._api(
-                f"organizations/{organization_id}/projects/"
-                f"{self._project(project_id)}/"
+                f"organizations/{organization_id}/projects/{self._project(project_id)}/"
             ),
             headers=self._headers(json_body=False),
             expected=(200,),

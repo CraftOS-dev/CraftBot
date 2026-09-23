@@ -28,8 +28,18 @@ def test_action_end_maps_to_resource():
     detection = ChangeDetection(bus, targets=[], notify=rec)
     detection.start()
     try:
-        bus.emit(UIEvent(type=UIEventType.ACTION_END, data={"action_canonical_name": "recurring_add"}))
-        bus.emit(UIEvent(type=UIEventType.ACTION_END, data={"action_canonical_name": "write_file"}))
+        bus.emit(
+            UIEvent(
+                type=UIEventType.ACTION_END,
+                data={"action_canonical_name": "recurring_add"},
+            )
+        )
+        bus.emit(
+            UIEvent(
+                type=UIEventType.ACTION_END,
+                data={"action_canonical_name": "write_file"},
+            )
+        )
     finally:
         detection.stop()
     assert rec.calls == [(Resource.PROACTIVE, set())]
@@ -39,10 +49,25 @@ def test_run_ending_refreshes_sessions_and_stop_unsubscribes():
     bus, rec = EventBus(), Recorder()
     detection = ChangeDetection(bus, targets=[], notify=rec)
     detection.start()
-    bus.emit(UIEvent(type=UIEventType.RUN_STATE_CHANGED, data={"session_id": "s", "state": "running"}))
-    bus.emit(UIEvent(type=UIEventType.RUN_STATE_CHANGED, data={"session_id": "s", "state": "idle"}))
+    bus.emit(
+        UIEvent(
+            type=UIEventType.RUN_STATE_CHANGED,
+            data={"session_id": "s", "state": "running"},
+        )
+    )
+    bus.emit(
+        UIEvent(
+            type=UIEventType.RUN_STATE_CHANGED,
+            data={"session_id": "s", "state": "idle"},
+        )
+    )
     detection.stop()
-    bus.emit(UIEvent(type=UIEventType.RUN_STATE_CHANGED, data={"session_id": "s", "state": "idle"}))
+    bus.emit(
+        UIEvent(
+            type=UIEventType.RUN_STATE_CHANGED,
+            data={"session_id": "s", "state": "idle"},
+        )
+    )
     assert rec.calls == [(Resource.SESSIONS, set())]
 
 
@@ -50,7 +75,9 @@ def test_file_change_notifies_named_resource(tmp_path: Path):
     config = tmp_path / "mcp_config.json"
     config.write_text("{}")
     bus, rec = EventBus(), Recorder()
-    detection = ChangeDetection(bus, targets=[WatchTarget("mcp_servers", config, debounce=0.2)], notify=rec)
+    detection = ChangeDetection(
+        bus, targets=[WatchTarget("mcp_servers", config, debounce=0.2)], notify=rec
+    )
     detection.start()
     try:
         time.sleep(0.3)
@@ -81,7 +108,9 @@ def test_mapped_actions_exist_in_registry():
     from agent_core.core.action_framework.registry import registry_instance
     from app.config import PROJECT_ROOT
 
-    load_actions_from_directories(base_dir=str(PROJECT_ROOT), paths_to_scan=["app/data/action"])
+    load_actions_from_directories(
+        base_dir=str(PROJECT_ROOT), paths_to_scan=["app/data/action"]
+    )
     registered = set(registry_instance.list_all_actions().keys())
     missing = sorted(set(RESOURCE_BY_ACTION) - registered)
     assert missing == [], f"mapped actions not in the registry: {missing}"

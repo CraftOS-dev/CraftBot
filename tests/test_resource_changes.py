@@ -14,7 +14,11 @@ from app.ui_layer.events.resource_changes import (
 )
 
 ADAPTER_SOURCE = (
-    Path(__file__).resolve().parents[1] / "app" / "ui_layer" / "adapters" / "browser_adapter.py"
+    Path(__file__).resolve().parents[1]
+    / "app"
+    / "ui_layer"
+    / "adapters"
+    / "browser_adapter.py"
 ).read_text(encoding="utf-8")
 
 
@@ -43,7 +47,12 @@ def test_burst_is_coalesced_with_ids_unioned():
         return sent
 
     sent = asyncio.run(run())
-    assert sent == [{"type": "resource_changed", "data": {"resource": "agent_apps", "ids": ["a", "b"]}}]
+    assert sent == [
+        {
+            "type": "resource_changed",
+            "data": {"resource": "agent_apps", "ids": ["a", "b"]},
+        }
+    ]
 
 
 def test_change_without_ids_means_everything():
@@ -64,7 +73,9 @@ def test_notify_from_another_thread():
     async def run():
         notifier, broadcast, sent = _collect()
         notifier.bind(asyncio.get_running_loop(), broadcast)
-        thread = threading.Thread(target=notifier.notify, args=(Resource.AGENT_APPS, ["x"]))
+        thread = threading.Thread(
+            target=notifier.notify, args=(Resource.AGENT_APPS, ["x"])
+        )
         thread.start()
         thread.join()
         await asyncio.sleep(0.15)
@@ -110,25 +121,75 @@ def test_message_mapping():
     # overwrote the in-flight status an import's page was showing.
     assert resource_change_for_message({"type": "agent_app_status", "data": {}}) is None
     # Data-only replies must not report changes, or refetches would loop.
-    assert resource_change_for_message({"type": "agent_app_settings_get", "data": {}}) is None
+    assert (
+        resource_change_for_message({"type": "agent_app_settings_get", "data": {}})
+        is None
+    )
     assert resource_change_for_message({"type": "agent_app_list", "data": {}}) is None
 
 
 def test_mutation_replies_map_to_their_resource_with_ids():
     cases = [
-        ({"type": "session_updated", "data": {"session": {"id": "s1"}}}, Resource.SESSIONS, ["s1"]),
-        ({"type": "proactive_task_remove", "data": {"taskId": "t1", "success": True}}, Resource.PROACTIVE, ["t1"]),
-        ({"type": "proactive_mode_set", "data": {"enabled": False}}, Resource.PROACTIVE, []),
-        ({"type": "memory_schedule_set", "data": {"success": True}}, Resource.SCHEDULER, []),
-        ({"type": "memory_item_add", "data": {"item": {"id": "m1"}}}, Resource.MEMORY, ["m1"]),
-        ({"type": "memory_item_remove", "data": {"itemId": "m2"}}, Resource.MEMORY, ["m2"]),
+        (
+            {"type": "session_updated", "data": {"session": {"id": "s1"}}},
+            Resource.SESSIONS,
+            ["s1"],
+        ),
+        (
+            {
+                "type": "proactive_task_remove",
+                "data": {"taskId": "t1", "success": True},
+            },
+            Resource.PROACTIVE,
+            ["t1"],
+        ),
+        (
+            {"type": "proactive_mode_set", "data": {"enabled": False}},
+            Resource.PROACTIVE,
+            [],
+        ),
+        (
+            {"type": "memory_schedule_set", "data": {"success": True}},
+            Resource.SCHEDULER,
+            [],
+        ),
+        (
+            {"type": "memory_item_add", "data": {"item": {"id": "m1"}}},
+            Resource.MEMORY,
+            ["m1"],
+        ),
+        (
+            {"type": "memory_item_remove", "data": {"itemId": "m2"}},
+            Resource.MEMORY,
+            ["m2"],
+        ),
         ({"type": "skill_enable", "data": {"name": "pdf"}}, Resource.SKILLS, ["pdf"]),
         ({"type": "skill_reload", "data": {"success": True}}, Resource.SKILLS, []),
-        ({"type": "mcp_remove", "data": {"name": "github"}}, Resource.MCP_SERVERS, ["github"]),
-        ({"type": "integration_config_updated", "data": {"id": "slack"}}, Resource.INTEGRATIONS, ["slack"]),
-        ({"type": "slow_mode_set", "data": {"success": True}}, Resource.MODEL_SETTINGS, []),
-        ({"type": "settings_update", "data": {"settings": {"agentName": "x"}}}, Resource.GENERAL_SETTINGS, []),
-        ({"type": "agent_file_write", "data": {"filename": "USER.md"}}, Resource.AGENT_FILES, ["USER.md"]),
+        (
+            {"type": "mcp_remove", "data": {"name": "github"}},
+            Resource.MCP_SERVERS,
+            ["github"],
+        ),
+        (
+            {"type": "integration_config_updated", "data": {"id": "slack"}},
+            Resource.INTEGRATIONS,
+            ["slack"],
+        ),
+        (
+            {"type": "slow_mode_set", "data": {"success": True}},
+            Resource.MODEL_SETTINGS,
+            [],
+        ),
+        (
+            {"type": "settings_update", "data": {"settings": {"agentName": "x"}}},
+            Resource.GENERAL_SETTINGS,
+            [],
+        ),
+        (
+            {"type": "agent_file_write", "data": {"filename": "USER.md"}},
+            Resource.AGENT_FILES,
+            ["USER.md"],
+        ),
     ]
     for message, resource, ids in cases:
         assert resource_change_for_message(message) == (resource, ids), message["type"]
@@ -143,8 +204,15 @@ def test_failed_mutations_still_report_a_change():
 
 def test_reset_reports_every_resource_it_rewrites():
     changes = resource_changes_for_message({"type": "reset", "data": {"success": True}})
-    assert changes == [(Resource.AGENT_FILES, []), (Resource.MEMORY, []), (Resource.PROACTIVE, [])]
-    assert resource_change_for_message({"type": "reset", "data": {}}) == (Resource.AGENT_FILES, [])
+    assert changes == [
+        (Resource.AGENT_FILES, []),
+        (Resource.MEMORY, []),
+        (Resource.PROACTIVE, []),
+    ]
+    assert resource_change_for_message({"type": "reset", "data": {}}) == (
+        Resource.AGENT_FILES,
+        [],
+    )
     assert resource_changes_for_message({"type": "skill_list", "data": {}}) == []
 
 

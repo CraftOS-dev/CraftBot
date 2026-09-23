@@ -720,8 +720,7 @@ def cmd_start(extra_args: List[str]) -> bool:
             _open_browser_detached(browser_url)
         else:
             print(
-                f"  {DIM}Still starting — open {browser_url} "
-                f"once it finishes.{RESET}"
+                f"  {DIM}Still starting — open {browser_url} once it finishes.{RESET}"
             )
 
     return True
@@ -1307,8 +1306,7 @@ def _install_macos(run_args: List[str]) -> None:
     # 7925/7926 and one of them loses. Writing the plist is enough on its own:
     # launchd bootstraps ~/Library/LaunchAgents at login, so auto-start works
     # from the next login whether or not it was loaded now.
-    pid = _read_pid()
-    if pid and _is_running(pid):
+    if _owned_pid():
         print(f"Auto-start registered as launchd agent '{LAUNCHD_LABEL}'.")
         print("CraftBot is already running — auto-start begins at your next login.")
         _print_launchd_hints(plist_file)

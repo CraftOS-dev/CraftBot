@@ -448,7 +448,9 @@ class AgentAppRunner:
         pb_bin = await self.pb_binary()
         pb_dir = project_dir / "pb"
         effective_data = data_dir if data_dir is not None else pb_dir / "pb_data"
-        effective_public = public_dir if public_dir is not None else pb_dir / "pb_public"
+        effective_public = (
+            public_dir if public_dir is not None else pb_dir / "pb_public"
+        )
         # Must happen BEFORE serve, or PocketBase opens its setup page.
         await self.ensure_superuser(project_dir, data_dir=effective_data)
         # The credential non-browser clients present to write (Phase 2 C4).

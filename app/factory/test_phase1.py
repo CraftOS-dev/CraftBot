@@ -177,9 +177,9 @@ with tempfile.TemporaryDirectory() as td:
     host.report_verify(
         "testproj", "pass", url="http://127.0.0.1:3100", verified=["Board"]
     )
-    assert (
-        'Your change to "Test App" is live' in CHAT[-1]
-    ), "modify flavor comes from arc kind"
+    assert 'Your change to "Test App" is live' in CHAT[-1], (
+        "modify flavor comes from arc kind"
+    )
 print("modify arc: modify skill + change-is-live flavor: OK")
 
 # ── the supervisor: idle open arc → resume; stall cap → honest stuck ────────
@@ -193,7 +193,9 @@ with tempfile.TemporaryDirectory() as td:
         age(host)
         acted = host.supervise_once()
         if i < STALLS_CAP - 1:
-            assert acted == ["testproj"] and "CONTINUE BUILD" in DISPATCHED[-1].description
+            assert (
+                acted == ["testproj"] and "CONTINUE BUILD" in DISPATCHED[-1].description
+            )
         else:
             assert acted == ["testproj"]
     assert len(DISPATCHED) == STALLS_CAP - 1, "cap 3 → 2 resumes, then stuck"

@@ -226,11 +226,10 @@ def grep_files(input_data: dict) -> dict:
             # "frontend/src/app/x.ts". Strict root-anchoring is defensible,
             # but a false negative here costs far more than a false positive
             # — the caller reads it as "this code does not exist".
-            if fnmatch.fnmatch(norm, "*/" + pat) or fnmatch.fnmatch(
-                norm, "*/" + flat
-            ):
+            if fnmatch.fnmatch(norm, "*/" + pat) or fnmatch.fnmatch(norm, "*/" + flat):
                 return True
         return False
+
     def collect_files(directory, glob_pat=None, max_files=10000):
         SKIP_DIRS = {
             ".git",
@@ -385,9 +384,7 @@ def grep_files(input_data: dict) -> dict:
             # excludes every .tsx file — i.e. most of a React codebase — and
             # the caller only ever saw "0 matches" for it.
             exts = [
-                t.strip().lstrip(".")
-                for t in str(file_type).split(",")
-                if t.strip()
+                t.strip().lstrip(".") for t in str(file_type).split(",") if t.strip()
             ]
             if len(exts) > 1:
                 active_glob = "*.{" + ",".join(exts) + "}"
@@ -536,8 +533,7 @@ def grep_files(input_data: dict) -> dict:
         parts = [f"searched {len(files_to_search)} file(s)"]
         if skipped:
             parts.append(
-                f"{skipped} more were excluded by {active_glob!r} and never "
-                "looked at"
+                f"{skipped} more were excluded by {active_glob!r} and never looked at"
             )
         if hidden:
             parts.append(f"{hidden} dot-file(s) are always skipped")

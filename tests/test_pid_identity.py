@@ -67,7 +67,9 @@ def test_pid_file_written_by_start_is_recognised(pid_file, sleeper):
 def test_reused_pid_is_not_stopped(pid_file, sleeper):
     # Same pid, but recorded as starting an hour earlier: a recycled pid.
     pid_file.write_text(
-        json.dumps({"pid": sleeper.pid, "started": process_start_time(sleeper.pid) - 3600})
+        json.dumps(
+            {"pid": sleeper.pid, "started": process_start_time(sleeper.pid) - 3600}
+        )
     )
     craftbot.cmd_stop()
     assert _alive(sleeper), "craftbot stop killed a process it did not start"
@@ -115,7 +117,9 @@ def test_stale_marker_for_reused_pid_is_ignored(session, sleeper, tmp_path):
     marker = tmp_path / session / f"{sleeper.pid}.pid"
     marker.parent.mkdir(parents=True)
     marker.write_text(
-        json.dumps({"pid": sleeper.pid, "started": process_start_time(sleeper.pid) - 3600})
+        json.dumps(
+            {"pid": sleeper.pid, "started": process_start_time(sleeper.pid) - 3600}
+        )
     )
     assert cancellation.kill_session_processes(session) == 0
     assert _alive(sleeper), "a stale marker killed an unrelated process"

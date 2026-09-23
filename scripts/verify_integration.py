@@ -28,7 +28,7 @@ import collections
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -41,6 +41,7 @@ try:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except (AttributeError, ValueError):  # pragma: no cover - non-reconfigurable stream
     pass
+
 
 def _reexec_on_craftbot_interpreter() -> None:
     """Re-run under the interpreter that has CraftBot's dependencies.
@@ -179,16 +180,16 @@ def gate_operations(provider: Any, report: Report) -> None:
     untagged = [op.name for op in operations if not op.tags]
     report.check(not untagged, f"every operation carries a tag ({len(untagged)} bare)")
 
-    unprefixed = [t for t in counts if t != provider.id and not t.startswith(provider.id)]
+    unprefixed = [
+        t for t in counts if t != provider.id and not t.startswith(provider.id)
+    ]
     report.check(
         not unprefixed,
         f"every tag is prefixed with '{provider.id}' (offenders: {unprefixed})",
     )
 
     thin = {
-        tag: n
-        for tag, n in counts.items()
-        if tag != provider.id and n < MIN_SET_SIZE
+        tag: n for tag, n in counts.items() if tag != provider.id and n < MIN_SET_SIZE
     }
     report.check(
         not thin,

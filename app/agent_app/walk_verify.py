@@ -588,7 +588,9 @@ def parse_check_report(text: str) -> Dict[str, Any]:
     sf = _scope_and_features(obj)
     feats = [f for f in (obj.get("features") or []) if str(f.get("name") or "").strip()]
     verdict = str(obj.get("verdict")).lower()
-    passed = [str(f["name"]).strip() for f in feats if str(f["status"]).lower() == "pass"]
+    passed = [
+        str(f["name"]).strip() for f in feats if str(f["status"]).lower() == "pass"
+    ]
 
     if verdict == "blocked":
         return {
@@ -606,10 +608,22 @@ def parse_check_report(text: str) -> Dict[str, Any]:
             f"- {str(f['name']).strip()} — FAIL — {str(f.get('evidence') or '').strip()}"
             for f in fails
         ]
-        return {"kind": "defects", "passed": passed, "defects": defects, "raw": text, **sf}
+        return {
+            "kind": "defects",
+            "passed": passed,
+            "defects": defects,
+            "raw": text,
+            **sf,
+        }
 
     if any(str(f["status"]).lower() == "not_reached" for f in feats):
-        return {"kind": "incomplete", "passed": passed, "defects": [], "raw": text, **sf}
+        return {
+            "kind": "incomplete",
+            "passed": passed,
+            "defects": [],
+            "raw": text,
+            **sf,
+        }
 
     if not passed:
         # A "pass" that verified nothing did not judge the app: treat the

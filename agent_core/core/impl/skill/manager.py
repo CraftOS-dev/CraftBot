@@ -316,9 +316,7 @@ class SkillManager:
             # must never be disabled — refuse rather than silently break the
             # next memory/planner/skill-creation run.
             if skill.is_system:
-                logger.warning(
-                    f"[SKILLS] Refusing to disable system skill: {name}"
-                )
+                logger.warning(f"[SKILLS] Refusing to disable system skill: {name}")
                 return False
             skill.enabled = False
 

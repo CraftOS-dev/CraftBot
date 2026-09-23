@@ -355,6 +355,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert spec.payload.get("consent_ask") is True
 print("§7 consent ask composition: OK")
 
+
 # -- §9 action gates: a DRY RUN is not a send ---------------------------
 # A dry run executes nothing, so demanding confirm_irreversible for one made
 # the mode unreachable for every irreversible action. An app probing Gmail

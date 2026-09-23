@@ -690,9 +690,7 @@ class ActionManager:
         if session_id is None:
             return {run_id for run_id, _ in entries}
         return {
-            run_id
-            for run_id, entry in entries
-            if entry.get("session_id") == session_id
+            run_id for run_id, entry in entries if entry.get("session_id") == session_id
         }
 
     # ------------------------------------------------------------------

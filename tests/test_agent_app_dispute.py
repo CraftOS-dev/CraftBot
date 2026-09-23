@@ -73,9 +73,7 @@ class TestDisputeLedger:
 
 
 class TestDisputeReachesTheNextVerifier:
-    def test_the_evidence_block_carries_the_builder_s_reasoning(
-        self, monkeypatch, arc
-    ):
+    def test_the_evidence_block_carries_the_builder_s_reasoning(self, monkeypatch, arc):
         from app.agent_app import walk_verify as wv
 
         project = types.SimpleNamespace(id="f1eb1c85", name="Brainstorm Graph")
@@ -163,10 +161,12 @@ class TestTheAction:
         recorded = {"ruled": [], "disputed": []}
         host = types.SimpleNamespace(
             arc_for=lambda _pid: types.SimpleNamespace(is_open=True, kind="build"),
-            record_ruled_out=lambda _pid, items: recorded["ruled"].extend(items)
-            or len(items),
-            record_disputed=lambda _pid, items: recorded["disputed"].extend(items)
-            or len(items),
+            record_ruled_out=lambda _pid, items: (
+                recorded["ruled"].extend(items) or len(items)
+            ),
+            record_disputed=lambda _pid, items: (
+                recorded["disputed"].extend(items) or len(items)
+            ),
             report_blocked=lambda _pid, q, ruled_out=None: types.SimpleNamespace(
                 next_state="blocked"
             ),

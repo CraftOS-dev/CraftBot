@@ -230,7 +230,10 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # CLI routing: while a shadow is up, project-path CLI calls target it.
     sup.route_cli(proj, inst.port)
-    assert _json.loads((proj / ".agent-app" / "shadow.json").read_text())["port"] == inst.port
+    assert (
+        _json.loads((proj / ".agent-app" / "shadow.json").read_text())["port"]
+        == inst.port
+    )
     sup.unroute_cli(proj)
     assert not (proj / ".agent-app" / "shadow.json").exists()
 
@@ -386,9 +389,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert _shadow_inst is not None and Path(_shadow_inst.dir) == sdir
     assert result.get("dir") == str(sdir), "agents need the boot dir for logs"
     assert not (sdir / "pb_data").exists(), "shadow DB is born at boot, empty"
-    assert _json.loads((proj_dir / ".agent-app" / "shadow.json").read_text())[
-        "port"
-    ] == inst.port, "CLI routing follows the shadow"
+    assert (
+        _json.loads((proj_dir / ".agent-app" / "shadow.json").read_text())["port"]
+        == inst.port
+    ), "CLI routing follows the shadow"
     # Never delivered (no promote yet) → this is (still) a BUILD arc, even
     # though the scaffold-era pb_data exists.
     arc = host.arc_for("mgrtest01")
@@ -745,7 +749,9 @@ assert _doc.startswith("# app — Requirements")
 assert "## Overview" in _doc and "## Features" in _doc and _LONG.strip() in _doc
 # A truncated/empty response must never become the binding spec.
 try:
-    _render_requirements_doc({"title": "x", "sections": [{"heading": "H", "content": "tiny"}]})
+    _render_requirements_doc(
+        {"title": "x", "sections": [{"heading": "H", "content": "tiny"}]}
+    )
     raise AssertionError("implausibly short doc must refuse")
 except ValueError:
     pass
@@ -837,6 +843,7 @@ finally:
     wizard_mod._llm = _orig_wllm
 assert r2 and r2[0]["question"].startswith("Which columns")
 print("§10 adapt/fresh-choice detection + round 2: OK")
+
 
 # Synthesis JSON contract end-to-end: the LLM returns strict JSON, the wizard
 # parses + renders it. A valid as-is marketplace decision (short by mandate)
@@ -1035,7 +1042,11 @@ with tempfile.TemporaryDirectory() as tmp:
     VERDICTS.clear()
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "kanban-board", "_session_id": "agentapp_adopt0001", "will_adapt": True},
+        {
+            "app_id": "kanban-board",
+            "_session_id": "agentapp_adopt0001",
+            "will_adapt": True,
+        },
     )
     assert INSTALLS[-1] == "adopt0001" and not VERDICTS
     assert "notify_ready" in out["message"] and "adaptations" in out["message"].lower()
@@ -1786,18 +1797,30 @@ with tempfile.TemporaryDirectory() as tmp:
                     {
                         "name": "items.list",
                         "params": {},
-                        "executor": {"type": "http", "method": "GET", "path": "/api/ops/items/list"},
+                        "executor": {
+                            "type": "http",
+                            "method": "GET",
+                            "path": "/api/ops/items/list",
+                        },
                     },
                     {
                         "name": "items.create",
                         "params": {"title": {"type": "string", "required": True}},
-                        "executor": {"type": "http", "method": "POST", "path": "/api/ops/items/create"},
+                        "executor": {
+                            "type": "http",
+                            "method": "POST",
+                            "path": "/api/ops/items/create",
+                        },
                     },
                     {
                         "name": "items.clear",
                         "destructive": True,
                         "params": {},
-                        "executor": {"type": "http", "method": "POST", "path": "/api/ops/items/clear"},
+                        "executor": {
+                            "type": "http",
+                            "method": "POST",
+                            "path": "/api/ops/items/clear",
+                        },
                     },
                 ],
             }

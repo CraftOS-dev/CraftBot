@@ -167,10 +167,14 @@ def _check_serving_port(tmp: Path) -> None:
     """
     project = AgentAppProject(id="p", name="T", description="", path=str(tmp))
     project.port, project.backend_port = 3100, 3101
-    assert AgentAppManager._serving_port(project) == 3100, "must follow runner.start's port"
+    assert AgentAppManager._serving_port(project) == 3100, (
+        "must follow runner.start's port"
+    )
 
     project.port = None
-    assert AgentAppManager._serving_port(project) is None, "never the unbound backend_port"
+    assert AgentAppManager._serving_port(project) is None, (
+        "never the unbound backend_port"
+    )
 
 
 print_port = "§5 sharing targets the bound port, not the reserved one: OK"

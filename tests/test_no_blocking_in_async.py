@@ -127,7 +127,9 @@ def _direct_calls(function: ast.AsyncFunctionDef) -> Iterator[ast.Call]:
     pending: list[ast.AST] = list(function.body)
     while pending:
         node = pending.pop()
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+        if isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+        ):
             continue
         if isinstance(node, ast.Await) and isinstance(node.value, ast.Call):
             awaited.add(id(node.value))

@@ -119,7 +119,7 @@ def _start_time_linux(pid: int) -> Optional[float]:
             return None  # zombie: already exited
         start_ticks = int(fields[19])  # field 22 overall
         with open("/proc/stat", encoding="utf-8") as f:
-            btime = next(int(l.split()[1]) for l in f if l.startswith("btime"))
+            btime = next(int(line.split()[1]) for line in f if line.startswith("btime"))
         return btime + start_ticks / os.sysconf("SC_CLK_TCK")
     except Exception:
         return None

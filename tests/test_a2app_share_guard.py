@@ -25,10 +25,16 @@ TUNNEL_SECRET = "tunnel-secret"
 LOCAL = {"Host": "127.0.0.1:3100", "Origin": "http://127.0.0.1:3100"}
 # Cloudflare stamps cf-ray on everything it forwards and a remote caller
 # cannot strip it; the LAN relay stamps X-Forwarded-For for the same reason.
-TUNNEL = {"Host": "demo.trycloudflare.com", "Origin": "https://demo.trycloudflare.com",
-          "cf-ray": "test-ray"}
-LAN = {"Host": "192.168.1.20:3100", "Origin": "http://192.168.1.20:3100",
-       "x-forwarded-for": "192.168.1.55"}
+TUNNEL = {
+    "Host": "demo.trycloudflare.com",
+    "Origin": "https://demo.trycloudflare.com",
+    "cf-ray": "test-ray",
+}
+LAN = {
+    "Host": "192.168.1.20:3100",
+    "Origin": "http://192.168.1.20:3100",
+    "x-forwarded-for": "192.168.1.55",
+}
 
 
 @pytest.fixture
@@ -51,9 +57,14 @@ def code(project, method, headers, cookies=None):
 # -- the original bypass -----------------------------------------------------
 
 
-@pytest.mark.parametrize("origin", [
-    "http://localhost", "http://127.0.0.1:3100", "http://[::1]:3100",
-])
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost",
+        "http://127.0.0.1:3100",
+        "http://[::1]:3100",
+    ],
+)
 def test_a_loopback_origin_is_not_a_credential(project, origin):
     """The bug this guard replaced: the token check sat in an `elif not
     origin` branch, so naming any loopback Origin skipped it entirely."""

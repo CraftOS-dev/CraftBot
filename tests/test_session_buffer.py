@@ -9,7 +9,12 @@ def _session(item):
 
 def test_keeps_newest_items_per_session_in_original_order():
     items = [("a", 1), ("b", 1), ("a", 2), ("a", 3), ("b", 2), ("a", 4)]
-    assert trim_per_session(items, 2, _session) == [("b", 1), ("a", 3), ("b", 2), ("a", 4)]
+    assert trim_per_session(items, 2, _session) == [
+        ("b", 1),
+        ("a", 3),
+        ("b", 2),
+        ("a", 4),
+    ]
 
 
 def test_under_the_limit_is_unchanged():

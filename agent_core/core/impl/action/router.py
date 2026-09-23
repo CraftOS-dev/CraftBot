@@ -104,9 +104,6 @@ class ActionRouter:
 
         # Build the instruction prompt for the LLM
         session_state = self.context_engine.get_session_state(session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(
-            session_id=session_id
-        )
 
         # Pull just-in-time guidance for any integrations the user named.
         # Match against both the current turn's query and the session state so
@@ -144,7 +141,9 @@ class ActionRouter:
             # (see _prompt_for_decision) is reflected in what is sent.
             return SELECT_ACTION_PROMPT.format(
                 session_state=session_state,
-                event_stream=self.context_engine.get_event_stream(session_id=session_id),
+                event_stream=self.context_engine.get_event_stream(
+                    session_id=session_id
+                ),
                 query=query,
                 action_candidates=candidates_text,
                 integration_essentials=integration_essentials,
@@ -305,7 +304,10 @@ class ActionRouter:
                                 and not folded
                                 and render_prompt is not None
                                 and not self.llm_interface.fits_context(
-                                    current_task_id, call_type, system_prompt, delta_events
+                                    current_task_id,
+                                    call_type,
+                                    system_prompt,
+                                    delta_events,
                                 )
                             ):
                                 # The next request would exceed the budget: fold the
@@ -419,7 +421,9 @@ class ActionRouter:
                 # Fold once and retry with a prompt rendered from the folded stream.
                 if folded or render_prompt is None or not (current_task_id and is_task):
                     raise
-                stream = get_event_stream_manager().get_stream_by_id(session_id or current_task_id)
+                stream = get_event_stream_manager().get_stream_by_id(
+                    session_id or current_task_id
+                )
                 if stream is None:
                     raise
                 logger.warning(

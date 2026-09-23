@@ -139,7 +139,9 @@ class ChangeWatcher:
             watch_dir = target.path if target.path.is_dir() else target.path.parent
             if not watch_dir.is_dir():
                 continue  # Missing folder: nothing to watch until a restart.
-            dirs[watch_dir] = dirs.get(watch_dir, False) or (target.recursive and target.path.is_dir())
+            dirs[watch_dir] = dirs.get(watch_dir, False) or (
+                target.recursive and target.path.is_dir()
+            )
         observer = Observer()
         handler = _Handler(self._targets)
         for watch_dir, recursive in dirs.items():

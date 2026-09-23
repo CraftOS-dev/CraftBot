@@ -1287,7 +1287,6 @@ class AgentBase:
             "\n".join(f"{p}:{now.get(p, '-')}" for p in differing).encode()
         ).hexdigest()[:16]
 
-
     def _merge_action_outputs(self, outputs: list) -> dict:
         """
         Merge outputs from parallel actions into single response.
