@@ -154,10 +154,15 @@ class WizardAPI:
             self._push_log(f"\n[{label}] Already running, ignoring click.\n")
             return {"started": False, "reason": "busy"}
 
+        stdout, stderr = _install_routed_streams()
+
         def target() -> None:
-            saved_stdout, saved_stderr = sys.stdout, sys.stderr
-            sys.stdout = _BridgeWriter(self)
-            sys.stderr = _BridgeWriter(self)
+            # Route only THIS thread's prints into the log panel. The process
+            # streams are never swapped here, so the bridge thread polling
+            # get_state and any other thread keep writing to the real streams.
+            bridge = _BridgeWriter(self)
+            stdout.route_current_thread(bridge)
+            stderr.route_current_thread(bridge)
             try:
                 self._push_log(f"\n━━━ {label} ━━━\n")
                 fn()
@@ -165,7 +170,8 @@ class WizardAPI:
             except Exception as exc:
                 self._push_log(f"\n[{label}] ERROR: {exc!r}\n")
             finally:
-                sys.stdout, sys.stderr = saved_stdout, saved_stderr
+                stdout.route_current_thread(None)
+                stderr.route_current_thread(None)
                 self._push_event("workerDone", {"label": label})
 
         self._worker = threading.Thread(target=target, daemon=True)
@@ -285,3 +291,78 @@ class _BridgeWriter:
 
     def isatty(self) -> bool:
         return False
+
+
+class _NullStream:
+    """Stand-in for a process stream that does not exist.
+
+    The installer is frozen with console=False (packaging/CraftBotInstaller.spec),
+    so under pythonw sys.stdout and sys.stderr are None. CPython's print()
+    treats a None stream as a silent no-op, so anything WRAPPING it has to do
+    the same -- wrapping None directly turns every stray library print on a
+    non-routed thread into AttributeError: 'NoneType' has no attribute 'write',
+    and sys.stdout.encoding into a crash on a very common attribute read."""
+
+    def write(self, text: str) -> int:
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+    def isatty(self) -> bool:
+        return False
+
+    @property
+    def encoding(self) -> str:
+        return "utf-8"
+
+    @property
+    def errors(self) -> str:
+        return "replace"
+
+    def fileno(self) -> int:
+        raise OSError("stream has no file descriptor")
+
+
+class _ThreadRoutedStream:
+    """Process stream that sends writes from a routed thread to that
+    thread's sink, and everything else to the original stream.
+
+    Installed once for the life of the process (see _install_routed_streams)
+    instead of swapping sys.stdout/sys.stderr per action: a per-action swap
+    is process-wide, so every other thread's output would be captured too."""
+
+    def __init__(self, fallback) -> None:
+        self._fallback = fallback if fallback is not None else _NullStream()
+        self._local = threading.local()
+
+    def route_current_thread(self, sink) -> None:
+        self._local.sink = sink
+
+    def _target(self):
+        return getattr(self._local, "sink", None) or self._fallback
+
+    def write(self, text: str) -> int:
+        return self._target().write(text)
+
+    def flush(self) -> None:
+        self._target().flush()
+
+    def isatty(self) -> bool:
+        return self._target().isatty()
+
+    def __getattr__(self, name: str):
+        # encoding, fileno, buffer, ... come from the real stream.
+        return getattr(self._fallback, name)
+
+
+_routed_streams_lock = threading.Lock()
+
+
+def _install_routed_streams() -> tuple[_ThreadRoutedStream, _ThreadRoutedStream]:
+    with _routed_streams_lock:
+        if not isinstance(sys.stdout, _ThreadRoutedStream):
+            sys.stdout = _ThreadRoutedStream(sys.stdout)
+        if not isinstance(sys.stderr, _ThreadRoutedStream):
+            sys.stderr = _ThreadRoutedStream(sys.stderr)
+        return sys.stdout, sys.stderr
