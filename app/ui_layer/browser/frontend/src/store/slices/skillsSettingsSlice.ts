@@ -6,6 +6,9 @@ export interface SkillConfig {
   description: string
   enabled: boolean
   user_invocable: boolean
+  // System skills (runtime-managed workflows) are always enabled and cannot
+  // be disabled by the user; the UI locks their toggle.
+  is_system?: boolean
   action_sets: string[]
   source: string
 }

@@ -12,7 +12,7 @@ export type MascotState =
   | 'waiting'
   | 'paused'
   | 'error'
-  // LivingUI lifecycle states (preserved from the original CraftBotPet)
+  // AgentApp lifecycle states (preserved from the original CraftBotPet)
   | 'creating'
   | 'launching'
   | 'stopped'

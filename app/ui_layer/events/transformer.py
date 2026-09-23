@@ -219,6 +219,9 @@ class EventTransformer:
             data={
                 "action_id": action_id,
                 "action_name": _display_name_for(canonical, event.action_display_name),
+                # Registry name, for UI-layer change detection
+                # (ui_layer/events/action_resources.py).
+                "action_canonical_name": canonical,
                 "message": message,
                 "status": "error" if is_error else "completed",
                 "error": is_error,

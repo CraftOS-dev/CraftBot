@@ -37,10 +37,22 @@ services:
     environment:
       - OMNIPARSER_BASE_URL=http://omniparser-server:7861
       - USE_OMNIPARSER=${USE_OMNIPARSER:-True}
+    # The image runs as UID 10001 (see Dockerfile). Bind-mounted host
+    # directories keep their host ownership, so chown them to match once:
+    #   sudo chown -R 10001:10001 ./workspace
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      # /var/run/docker.sock was mounted here and is deliberately gone. It is
+      # the host's Docker control plane: a container holding it can start a
+      # privileged container and take the host. Nothing in the codebase used
+      # it (no `docker exec`, no docker SDK, no DOCKER_HOST), and this
+      # container runs commands the model chooses, so it was pure blast
+      # radius. Do not add it back without a scoped proxy in front.
       - ./workspace:/app/workspace
       - ./config.json:/app/config.json
+    security_opt:
+      # A process inside cannot gain privileges it did not start with
+      # (blocks setuid escalation paths).
+      - no-new-privileges:true
     depends_on:
       omniparser:
         condition: service_healthy

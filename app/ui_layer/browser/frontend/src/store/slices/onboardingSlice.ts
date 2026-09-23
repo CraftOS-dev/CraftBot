@@ -6,6 +6,7 @@ import type {
   OnboardingCompleteResponse,
 } from '../../types'
 import { register } from '../socket/messageRegistry'
+import i18n from '../../i18n/config'
 
 interface OnboardingState {
   step: OnboardingStep | null
@@ -89,7 +90,7 @@ register('onboarding_step', (data, dispatch) => {
       dispatch(setStep(r.step))
     }
   } else {
-    dispatch(setError(r.error || 'Failed to get step'))
+    dispatch(setError(r.error || i18n.t('nav:slices.onboarding.failedToGetStep')))
   }
 })
 
@@ -98,7 +99,7 @@ register('onboarding_submit', (data, dispatch) => {
   if (r.success && r.nextStep) {
     dispatch(setStep(r.nextStep))
   } else if (!r.success) {
-    dispatch(setError(r.error || 'Failed to submit'))
+    dispatch(setError(r.error || i18n.t('nav:slices.onboarding.failedToSubmit')))
   }
 })
 
@@ -107,7 +108,7 @@ register('onboarding_skip', (data, dispatch) => {
   if (r.success && r.nextStep) {
     dispatch(setStep(r.nextStep))
   } else if (!r.success) {
-    dispatch(setError(r.error || 'Cannot skip this step'))
+    dispatch(setError(r.error || i18n.t('nav:slices.onboarding.cannotSkip')))
   }
 })
 
@@ -116,7 +117,7 @@ register('onboarding_back', (data, dispatch) => {
   if (r.success && r.step) {
     dispatch(setStep(r.step))
   } else if (!r.success) {
-    dispatch(setError(r.error || 'Cannot go back'))
+    dispatch(setError(r.error || i18n.t('nav:slices.onboarding.cannotGoBack')))
   }
 })
 

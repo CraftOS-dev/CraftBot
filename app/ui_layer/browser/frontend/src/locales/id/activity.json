@@ -1,0 +1,165 @@
+{
+  "chunk": {
+    "working": "Bekerja",
+    "hideSteps": "Sembunyikan langkah",
+    "showSteps": "Tampilkan langkah",
+    "actionsExecuted_one": "{{count}} tindakan dijalankan",
+    "actionsExecuted_other": "{{count}} tindakan dijalankan"
+  },
+  "reasoning": {
+    "thinking": "Berpikir…"
+  },
+  "count": {
+    "lines_one": "{{formatted}} baris",
+    "lines_other": "{{formatted}} baris",
+    "linesOutput_one": "{{formatted}} baris output",
+    "linesOutput_other": "{{formatted}} baris output",
+    "items_one": "{{formatted}} item",
+    "items_other": "{{formatted}} item",
+    "elements_one": "{{formatted}} elemen",
+    "elements_other": "{{formatted}} elemen",
+    "chars_one": "{{formatted}} karakter",
+    "chars_other": "{{formatted}} karakter",
+    "characters_one": "{{formatted}} karakter",
+    "characters_other": "{{formatted}} karakter",
+    "attachmentsPlus_one": "+ {{formatted}} lampiran",
+    "attachmentsPlus_other": "+ {{formatted}} lampiran"
+  },
+  "action": {
+    "streamEdit": {
+      "editing": "Mengedit berkas",
+      "edited": "Berkas diedit",
+      "failed": "Edit gagal",
+      "cancelled": "Edit dibatalkan"
+    },
+    "readFile": {
+      "reading": "Membaca berkas",
+      "read": "Berkas dibaca",
+      "failed": "Baca gagal",
+      "cancelled": "Baca dibatalkan"
+    },
+    "findFiles": {
+      "finding": "Mencari berkas",
+      "failed": "Pencarian gagal",
+      "cancelled": "Pencarian dibatalkan",
+      "found_one": "Menemukan {{formatted}} berkas",
+      "found_other": "Menemukan {{formatted}} berkas"
+    },
+    "listFolder": {
+      "listing": "Menampilkan isi folder",
+      "listed": "Isi folder ditampilkan",
+      "failed": "Gagal menampilkan",
+      "cancelled": "Penampilan dibatalkan"
+    },
+    "convertToPdf": {
+      "creating": "Membuat PDF",
+      "created": "PDF dibuat",
+      "failed": "Pembuatan PDF gagal",
+      "cancelled": "Pembuatan PDF dibatalkan"
+    },
+    "readPdf": {
+      "reading": "Membaca PDF",
+      "read": "PDF dibaca",
+      "failed": "Baca PDF gagal",
+      "cancelled": "Baca PDF dibatalkan"
+    },
+    "convertToMarkdown": {
+      "converting": "Mengonversi ke markdown",
+      "converted": "Dikonversi ke markdown",
+      "failed": "Konversi gagal",
+      "cancelled": "Konversi dibatalkan"
+    },
+    "runPython": {
+      "running": "Menjalankan Python",
+      "ran": "Menjalankan Python",
+      "failed": "Python gagal",
+      "cancelled": "Python dibatalkan"
+    },
+    "runShell": {
+      "running": "Menjalankan perintah",
+      "ran": "Menjalankan perintah",
+      "failed": "Perintah gagal",
+      "cancelled": "Perintah dibatalkan"
+    },
+    "webSearch": {
+      "searching": "Mencari di web",
+      "failed": "Pencarian gagal",
+      "cancelled": "Pencarian dibatalkan",
+      "found_one": "Menemukan {{formatted}} hasil",
+      "found_other": "Menemukan {{formatted}} hasil"
+    },
+    "webFetch": {
+      "fetching": "Mengambil halaman",
+      "failed": "Pengambilan gagal",
+      "cancelled": "Pengambilan dibatalkan",
+      "fetchedTitle": "Mengambil {{title}}",
+      "fetchedPage": "Halaman diambil"
+    },
+    "httpRequest": {
+      "request": "Permintaan {{method}}",
+      "failed": "{{method}} gagal",
+      "cancelled": "{{method}} dibatalkan",
+      "response": "Respons {{method}}"
+    },
+    "generateImage": {
+      "generating": "Membuat gambar",
+      "failed": "Pembuatan gagal",
+      "cancelled": "Pembuatan dibatalkan",
+      "generated_one": "Membuat {{formatted}} gambar",
+      "generated_other": "Membuat {{formatted}} gambar"
+    },
+    "describeImage": {
+      "describing": "Mendeskripsikan gambar",
+      "described": "Gambar dideskripsikan",
+      "failed": "Deskripsi gagal",
+      "cancelled": "Deskripsi dibatalkan"
+    },
+    "performOcr": {
+      "reading": "Membaca teks gambar",
+      "extracted": "Teks diekstrak",
+      "failed": "OCR gagal",
+      "cancelled": "OCR dibatalkan"
+    },
+    "understandVideo": {
+      "analyzing": "Menganalisis video",
+      "analyzed": "Video dianalisis",
+      "failed": "Analisis gagal",
+      "cancelled": "Analisis dibatalkan"
+    },
+    "grepFiles": {
+      "grepping": "Menelusuri",
+      "failed": "Penelusuran gagal",
+      "cancelled": "Penelusuran dibatalkan",
+      "foundIn_one": "Ditemukan di {{formatted}} berkas",
+      "foundIn_other": "Ditemukan di {{formatted}} berkas"
+    },
+    "memorySearch": {
+      "searching": "Mencari memori",
+      "failed": "Pencarian memori gagal",
+      "cancelled": "Pencarian memori dibatalkan",
+      "found_one": "Menemukan {{formatted}} memori",
+      "found_other": "Menemukan {{formatted}} memori"
+    },
+    "sendMessage": {
+      "sending": "Mengirim pesan",
+      "sent": "Pesan terkirim",
+      "failed": "Pengiriman gagal",
+      "cancelled": "Pengiriman dibatalkan"
+    },
+    "updateTodos": {
+      "updating": "Memperbarui daftar tugas",
+      "updated": "Daftar tugas diperbarui",
+      "failed": "Pembaruan gagal",
+      "cancelled": "Pembaruan dibatalkan",
+      "progress": "{{done}}/{{total}} selesai",
+      "progressWithTask": "{{progress}} · {{task}}"
+    }
+  },
+  "generic": {
+    "actionNoun": "tindakan",
+    "running": "Menjalankan {{name}}",
+    "completed": "{{name}} selesai",
+    "failed": "{{name}} gagal",
+    "cancelled": "{{name}} dibatalkan"
+  }
+}

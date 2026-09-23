@@ -24,9 +24,9 @@ class SessionType:
 
     MAIN = "main"
     CHAT = "chat"
-    LIVING_UI = "living_ui"
+    AGENT_APP = "agent_app"
 
-    ALL = (MAIN, CHAT, LIVING_UI)
+    ALL = (MAIN, CHAT, AGENT_APP)
 
 
 # The singleton main session id. All ambient input (integrations, scheduler,
@@ -41,7 +41,7 @@ class Session:
 
     Attributes:
         id: Unique identifier (``main`` for the main session).
-        type: One of SessionType.ALL — main | chat | living_ui.
+        type: One of SessionType.ALL — main | chat | agent_app.
         title: Human-readable title shown in the sidebar (auto-generated
             for chat sessions after the first exchange, renamable).
         created_at: ISO timestamp when the session was created.
@@ -52,7 +52,7 @@ class Session:
         selected_skills: Skills currently loaded into this session.
         todos: Current todo list for the active run.
         workspace_dir: Persistent scratch directory for this session.
-        living_ui_project_id: Backing project id for living_ui sessions.
+        agent_app_project_id: Backing project id for agent_app sessions.
         gui_mode: Whether this session drives the GUI action space.
         action_count/token_count: Budget counters for the current run
             (reset when a new run starts).
@@ -77,7 +77,7 @@ class Session:
     # Run state
     todos: List[TodoItem] = field(default_factory=list)
     workspace_dir: Optional[str] = None
-    living_ui_project_id: Optional[str] = None
+    agent_app_project_id: Optional[str] = None
     gui_mode: bool = False
     # Per-run budget counters
     action_count: int = 0
@@ -138,7 +138,7 @@ class Session:
             "selected_skills": self.selected_skills,
             "todos": [todo.to_dict() for todo in self.todos],
             "workspace_dir": self.workspace_dir,
-            "living_ui_project_id": self.living_ui_project_id,
+            "agent_app_project_id": self.agent_app_project_id,
             "gui_mode": self.gui_mode,
             "action_count": self.action_count,
             "token_count": self.token_count,
@@ -166,7 +166,7 @@ class Session:
             selected_skills=data.get("selected_skills", []),
             todos=todos,
             workspace_dir=data.get("workspace_dir"),
-            living_ui_project_id=data.get("living_ui_project_id"),
+            agent_app_project_id=data.get("agent_app_project_id"),
             gui_mode=data.get("gui_mode", False),
             action_count=data.get("action_count", 0),
             token_count=data.get("token_count", 0),

@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import { findIndexInDraft } from './draftSearch'
 import type { ActionItem } from '../../types'
 import { register } from '../socket/messageRegistry'
 
@@ -22,6 +23,11 @@ function bucketFor(state: ActivityState, sessionId: string): ActionItem[] {
   return bucket
 }
 
+// Every search runs before its reducer mutates that bucket (see draftSearch.ts).
+function indexById(bucket: ActionItem[], id: string): number {
+  return findIndexInDraft(bucket, a => a.id === id)
+}
+
 const activitySlice = createSlice({
   name: 'activity',
   initialState,
@@ -40,7 +46,7 @@ const activitySlice = createSlice({
       const incoming = action.payload
       if (!incoming.sessionId) return
       const bucket = bucketFor(state, incoming.sessionId)
-      const idx = bucket.findIndex(a => a.id === incoming.id)
+      const idx = indexById(bucket, incoming.id)
       if (idx === -1) {
         bucket.push(incoming)
       } else {
@@ -63,8 +69,9 @@ const activitySlice = createSlice({
         ? [state.bySession[sessionId]]
         : Object.values(state.bySession)
       for (const bucket of buckets) {
-        const entry = bucket.find(a => a.id === id)
-        if (!entry) continue
+        const idx = indexById(bucket, id)
+        if (idx === -1) continue
+        const entry = bucket[idx]
         if (fields.status !== undefined) entry.status = fields.status
         if (fields.completedAt != null) entry.completedAt = fields.completedAt
         if (fields.duration !== undefined) entry.duration = fields.duration
@@ -76,12 +83,10 @@ const activitySlice = createSlice({
     },
     removeItem(state, action: PayloadAction<{ id: string; sessionId?: string }>) {
       const { id, sessionId } = action.payload
-      if (sessionId && state.bySession[sessionId]) {
-        state.bySession[sessionId] = state.bySession[sessionId].filter(a => a.id !== id)
-        return
-      }
-      for (const key of Object.keys(state.bySession)) {
-        state.bySession[key] = state.bySession[key].filter(a => a.id !== id)
+      const keys = sessionId && state.bySession[sessionId] ? [sessionId] : Object.keys(state.bySession)
+      for (const key of keys) {
+        const idx = indexById(state.bySession[key], id)
+        if (idx !== -1) state.bySession[key].splice(idx, 1)
       }
     },
     clearSession(state, action: PayloadAction<{ sessionId: string | null }>) {

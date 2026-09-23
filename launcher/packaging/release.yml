@@ -1,0 +1,299 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Build and push Docker images to GHCR
+  # ──────────────────────────────────────────────
+  docker:
+    name: Docker (${{ matrix.image_suffix }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_suffix: agent
+            dockerfile: Dockerfile
+            context: .
+          - image_suffix: omniparser
+            dockerfile: docker/omniparser/Dockerfile
+            context: .
+          # 'desktop' image removed: app/gui was deleted with GUI mode
+          # (901ad92e) — its Dockerfile no longer exists, and this entry
+          # broke the first tag build afterwards.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image_suffix }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ──────────────────────────────────────────────
+  # Build the source payload the launcher provisions around.
+  # ONE asset for every platform: it is pure Python plus data files. What
+  # used to differ per platform (the bundled interpreter, compiled wheels)
+  # is provisioned on the user's machine by install.py / app.provision.
+  # ──────────────────────────────────────────────
+  source:
+    name: Source payload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend
+        env:
+          VITE_BACKEND_PORT: "7926"
+        run: |
+          # Ships compiled into the payload: users have no Node toolchain at
+          # install time and must not need one to get a working UI.
+          cd app/ui_layer/browser/frontend
+          npm install
+          npx vite build
+
+      - name: Write VERSION file from git tag
+        run: |
+          REF="${{ github.ref_name }}"
+          echo "${REF#v}" > VERSION
+
+      - name: Create default config.json
+        run: |
+          echo '{"use_conda": false, "gui_mode_enabled": false}' > config.json
+
+      # A missing lock does not break the BUILD — it breaks the user's
+      # install, minutes in and hundreds of MB down. Catch it here instead.
+      - name: Require a lock for every platform we ship
+        run: python scripts/generate_lock.py --check --require-all
+
+      - name: Build payload
+        run: |
+          python scripts/package_source.py
+
+      - name: Upload source payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-source
+          path: dist/CraftBot-src.zip
+
+  # ──────────────────────────────────────────────
+  # The launcher: one native binary per platform, built from launcher/.
+  #
+  # This replaced the PyInstaller-built Tk window. A native binary is one
+  # process with no bootloader and no unpacking step, which is what fixed the
+  # macOS bundle (two Dock icons, an inactive window, dropped taps). It needs
+  # no Python, Node or web runtime on the user's machine: it downloads the
+  # source payload above plus a portable Python, then runs craftbot.py
+  # install (install.py) and start (run.py) in the installed tree.
+  # ──────────────────────────────────────────────
+  launcher:
+    name: Launcher (${{ matrix.os_label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os_label: linux
+          - os: windows-latest
+            os_label: windows
+          - os: macos-latest
+            os_label: macos
+
+    env:
+      # build.rs bakes this into the binary; the launcher downloads the
+      # matching CraftBot-src.zip from this tag's release.
+      CRAFTBOT_VERSION: ${{ github.ref_name }}
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Both macOS architectures, so the bundle is a universal binary and
+          # Intel Macs are not left out by macos-latest being arm64.
+          targets: ${{ matrix.os_label == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+
+      # Slint's Linux backend loads these at runtime through dlopen, and its
+      # build has no C dependencies — this is insurance for the few crates
+      # that probe for headers, not a runtime requirement for users.
+      - name: Linux build prerequisites
+        if: matrix.os_label == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libfontconfig1-dev
+
+      - name: Test
+        if: matrix.os_label == 'linux'
+        working-directory: launcher
+        run: cargo test --release
+
+      - name: Build (Linux / Windows)
+        if: matrix.os_label != 'macos'
+        working-directory: launcher
+        run: cargo build --release
+
+      - name: Build (macOS, universal)
+        if: matrix.os_label == 'macos'
+        working-directory: launcher
+        run: |
+          set -euo pipefail
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p target/universal
+          lipo -create \
+            target/aarch64-apple-darwin/release/CraftBotInstaller \
+            target/x86_64-apple-darwin/release/CraftBotInstaller \
+            -output target/universal/CraftBotInstaller
+          lipo -info target/universal/CraftBotInstaller
+
+      # sips and iconutil are both part of macOS; nothing to install.
+      - name: Build the macOS app icon
+        if: matrix.os_label == 'macos'
+        run: |
+          set -euo pipefail
+          iconset="$RUNNER_TEMP/craftbot.iconset"
+          mkdir -p "$iconset"
+          for size in 16 32 64 128 256 512; do
+            sips -z $size $size craftbot_logo_1.png \
+                 --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            sips -z $((size * 2)) $((size * 2)) craftbot_logo_1.png \
+                 --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o craftbot_logo_1.icns
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          case "${{ matrix.os_label }}" in
+            linux)
+              cp launcher/target/release/CraftBotInstaller dist/CraftBotInstaller-linux
+              chmod +x dist/CraftBotInstaller-linux
+              ;;
+            windows)
+              cp launcher/target/release/CraftBotInstaller.exe dist/CraftBotInstaller-windows.exe
+              ;;
+            macos)
+              REF="${{ github.ref_name }}"
+              launcher/packaging/macos/bundle.sh \
+                launcher/target/universal/CraftBotInstaller dist "${REF#v}"
+              # ditto, not zip: it preserves the bundle's extended attributes
+              # and execute bits. A plain zip loses them and the app will not
+              # launch after the user unzips it.
+              ditto -c -k --keepParent dist/CraftBotInstaller.app dist/CraftBotInstaller-macos.zip
+              rm -rf dist/CraftBotInstaller.app
+              ;;
+          esac
+          ls -la dist/
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-installer-${{ matrix.os_label }}
+          path: dist/CraftBotInstaller-${{ matrix.os_label }}*
+
+  # ──────────────────────────────────────────────
+  # Create GitHub Release with all artifacts
+  # ──────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    needs: [docker, source, launcher]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/**
+          generate_release_notes: true
+          body: |
+            ### Installer (Recommended)
+            Download the file for your platform from the assets below and run
+            it. The setup window lets you choose an install location, then
+            downloads `CraftBot-src.zip` from this release and sets up
+            everything it needs — Python, Node.js and all dependencies. You do
+            not need Git, Python or Node installed beforehand.
+
+            | Platform | Download | How to run |
+            |---|---|---|
+            | Windows | `CraftBotInstaller-windows.exe` | Double-click it. |
+            | macOS | `CraftBotInstaller-macos.zip` | Unzip, then **right-click the app and choose Open**. |
+            | Linux | `CraftBotInstaller-linux` | `chmod +x CraftBotInstaller-linux && ./CraftBotInstaller-linux` |
+
+            On macOS the right-click is required the first time: the app is not
+            yet signed with an Apple Developer ID, so double-clicking it shows
+            "cannot be opened because the developer cannot be verified".
+            Right-click → Open gives you an Open button that double-click does
+            not. You only need to do this once.
+
+            First install takes a few minutes while the runtime is prepared.
+
+            ### Manual install
+            If you'd rather skip the window, download both
+            `CraftBotInstaller-<platform>` and `CraftBot-src.zip`, place them
+            in the same folder, and run the installer — it'll use the local
+            payload instead of fetching from GitHub.

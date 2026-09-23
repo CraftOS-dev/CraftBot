@@ -1,5 +1,6 @@
 import React from 'react'
 import { FileText, Image, File, FolderOpen, ExternalLink } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { IconButton } from './IconButton'
 import type { Attachment } from '../../types'
 import styles from './AttachmentDisplay.module.css'
@@ -37,6 +38,7 @@ function getFileIcon(type: string): React.ReactNode {
 }
 
 export function AttachmentDisplay({ attachments, onOpenFile, onOpenFolder, onPreview }: AttachmentDisplayProps) {
+  const { t } = useTranslation(['components', 'common'])
   if (!attachments || attachments.length === 0) {
     return null
   }
@@ -84,7 +86,7 @@ export function AttachmentDisplay({ attachments, onOpenFile, onOpenFolder, onPre
                 type="button"
                 className={styles.previewTrigger}
                 onClick={() => onPreview!(attachment)}
-                title="Click to preview"
+                title={t('components:attachment.clickToPreview')}
               >
                 {body}
               </button>
@@ -98,7 +100,7 @@ export function AttachmentDisplay({ attachments, onOpenFile, onOpenFolder, onPre
                   icon={<ExternalLink size={14} />}
                   size="sm"
                   variant="ghost"
-                  tooltip="Open file"
+                  tooltip={t('components:attachment.openFile')}
                   onClick={() => onOpenFile(attachment.path)}
                 />
               )}
@@ -107,7 +109,7 @@ export function AttachmentDisplay({ attachments, onOpenFile, onOpenFolder, onPre
                   icon={<FolderOpen size={14} />}
                   size="sm"
                   variant="ghost"
-                  tooltip="Open folder"
+                  tooltip={t('components:attachment.openFolder')}
                   onClick={() => onOpenFolder(attachment.path)}
                 />
               )}

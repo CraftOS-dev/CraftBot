@@ -1,5 +1,5 @@
 extend-exclude = [
-    "app/data/living_ui_template",
+    "app/data/agent_app_template",
 ]
 
 # Pin the rule set explicitly. The repo was linted against ruff's classic

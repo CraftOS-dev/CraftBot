@@ -69,6 +69,21 @@ def test_malformed_probe_output_warns_and_continues(monkeypatch, capsys):
     assert "unexpected probe output" in output
 
 
+def test_conda_probe_command_is_single_line_and_runs():
+    # `conda run` refuses newline-containing args; the probe must be one line
+    # and still execute the full multi-line script.
+    cmd, _ = runtime_preflight._runtime_import_command(
+        True, "craftbot", {"json": "json", "nope": "no_such_module_xyz"}, "conda"
+    )
+    assert not any("\n" in arg for arg in cmd)
+
+    result = subprocess.run(
+        [sys.executable, "-c", cmd[-1]], text=True, capture_output=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert '__CRAFTBOT_MISSING_RUNTIME_IMPORTS__["nope"]' in result.stdout
+
+
 def test_app_main_runs_preflight_before_agent_core_import():
     code = textwrap.dedent(
         """

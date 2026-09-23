@@ -3,8 +3,6 @@
 __pycache__
 *.py[cod]
 *.log
-.env
-.env.*
 .venv
 venv
 node_modules
@@ -23,3 +21,63 @@ install.bat
 OmniParser_CraftOS
 debug_images
 workspace
+
+# ---------------------------------------------------------------------------
+# Secrets and per-machine runtime state — never belongs in an image.
+#
+# `COPY . .` takes whatever is in the build context, i.e. a developer's working
+# tree, and the release workflow pushes the resulting image to a public
+# registry. Anything not listed here gets baked into a layer and published, and
+# layers are permanent: deleting the file in a later layer does not remove it.
+# CI escapes it only by checking out clean, which makes this a trap that fires
+# exactly once, on someone's laptop. (Same failure as the old PyInstaller spec's
+# blanket app/data entry, which shipped 1.1 GB of one machine's memory index
+# and databases.) Keep this list in step with .gitignore.
+# ---------------------------------------------------------------------------
+
+# Secrets and credentials
+.env
+.env.*
+.credentials
+.credentials/
+config.json
+app/config/settings.json
+app/config/mcp_config.json
+app/config/skills_config.json
+app/config/scheduler_config.json
+
+# Per-install agent state
+app/data/.usage
+app/data/.file_index
+agent_file_system
+agent_bundle
+chroma_db_memory
+*.db
+.craftbot
+**/.craftbot
+.craftbot-managed
+logs
+**/logs
+**/agent_logs.txt
+**/memory.txt
+**/USER.md
+**/CONVERSATION_HISTORY.md
+**/EVENT.md
+**/EVENT_UNPROCESSED.md
+**/onboarding_config.json
+**/gui/config
+**/.whatsapp_web_sessions
+
+# Provisioned runtimes and build caches — re-fetched inside the image
+runtime
+wheelhouse
+downloads-cache
+npm-cache
+playwright-browsers
+hf-cache
+.playwright-mcp
+
+# Editor / tooling
+.claude
+.vscode
+.idea

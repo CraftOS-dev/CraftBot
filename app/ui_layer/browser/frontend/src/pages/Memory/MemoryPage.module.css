@@ -418,7 +418,7 @@
   border-top: 1px solid var(--border-primary);
 }
 
-/* ── Resize handle (same pattern as the Living UI chat panel) ── */
+/* ── Resize handle (same pattern as the Agent App chat panel) ── */
 
 .resizeHandle {
   position: relative;

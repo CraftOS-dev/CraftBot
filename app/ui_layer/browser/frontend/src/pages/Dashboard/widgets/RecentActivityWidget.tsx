@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAppSelector } from '../../../store/hooks'
-import { selectAllActivity } from '../../../store/selectors/activity'
+import { selectRecentActivity } from '../../../store/selectors/activity'
 import { ActionBlock, ReasoningBlock } from '../../../components/activity/ActivityBlocks'
+import i18n from '../../../i18n/config'
+import { formatNumber } from '../../../i18n/format'
 import styles from './widgets.module.css'
 
 const MAX_ITEMS = 20
@@ -9,20 +12,21 @@ const MAX_ITEMS = 20
 function formatRelativeTime(ms?: number): string {
   if (!ms) return ''
   const diff = Date.now() - ms
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
+  if (diff < 60_000) return i18n.t('dashboard:widgets.recentActivity.justNow')
+  if (diff < 3_600_000) return i18n.t('dashboard:widgets.recentActivity.minutesAgo', { count: Math.floor(diff / 60_000) })
+  if (diff < 86_400_000) return i18n.t('dashboard:widgets.recentActivity.hoursAgo', { count: Math.floor(diff / 3_600_000) })
+  return i18n.t('dashboard:widgets.recentActivity.daysAgo', { count: Math.floor(diff / 86_400_000) })
 }
 
 export function RecentActivityWidget() {
-  const activity = useAppSelector(selectAllActivity)
-  const recent = activity.slice(-MAX_ITEMS).reverse()
+  const { t } = useTranslation(['dashboard'])
+  // Bounded selector: only the newest MAX_ITEMS items are ever gathered.
+  const latest = useAppSelector(state => selectRecentActivity(state, MAX_ITEMS))
+  const recent = latest.slice().reverse()
 
   // Tick once a second while anything visible is still running/waiting, so
-  // the live elapsed timers (inside ActionBlock) and the relative "time
-  // ago" labels below stay fresh. Coarser than Chat's 100ms ticker — not
-  // needed at dashboard-widget granularity.
+  // the relative "time ago" labels below stay fresh. The live elapsed timers
+  // inside ActionBlock tick on their own.
   const [, forceTick] = useState(0)
   const hasLive = recent.some(item => item.status === 'running' || item.status === 'waiting')
   useEffect(() => {
@@ -32,7 +36,7 @@ export function RecentActivityWidget() {
   }, [hasLive])
 
   if (recent.length === 0) {
-    return <div className={styles.emptyUsage}>No activity yet</div>
+    return <div className={styles.emptyUsage}>{t('dashboard:widgets.recentActivity.empty')}</div>
   }
 
   return (
@@ -46,7 +50,7 @@ export function RecentActivityWidget() {
               : <ActionBlock item={item} />}
             <div className={styles.activityMeta}>
               <span>{formatRelativeTime(item.createdAt)}</span>
-              {tokens > 0 && <span>{tokens.toLocaleString()} tokens</span>}
+              {tokens > 0 && <span>{t('dashboard:widgets.recentActivity.tokens', { count: tokens, formattedCount: formatNumber(tokens) })}</span>}
             </div>
           </div>
         )

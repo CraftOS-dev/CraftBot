@@ -1,0 +1,27 @@
+# The pip that installs the locks.
+#
+# A lock pins 239 packages by hash so every machine resolves the same set.
+# That guarantee is only as good as the tool reading it, and pip's resolver
+# is not stable across versions: pip 23.1 treats an extras requirement
+# ("lxml[html_clean]>=4.4.2", which jusText declares) as SEPARATE from the
+# bare "lxml==6.1.2" already pinned in the lock, re-resolves it against the
+# index, picks a newer version, and then rejects it as unpinned. pip 23.3.2
+# and later unify the two and install the pinned wheel. Same lock, same
+# command, opposite outcomes.
+#
+# Which pip a machine had was previously an accident: the sidecar's pip is
+# whatever python-build-standalone bundled on the day it was downloaded, and
+# PythonStage may hand the install to an interpreter already on the machine.
+# So this pins it, and PipStage installs it before any lock is read.
+#
+# Pure Python (py3-none-any), so ONE file serves every platform and Python
+# version — unlike the per-platform locks beside it.
+#
+# To bump: change the version, replace the hash with the sha256 of that
+# version's py3-none-any wheel from https://pypi.org/pypi/pip/json, and run
+# an install end to end.
+
+--require-hashes
+
+pip==26.2.1 \
+    --hash=sha256:71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e

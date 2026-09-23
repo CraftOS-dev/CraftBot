@@ -12,7 +12,10 @@ The only way for agent to save event into long-term memory.
 
 ## Files
 
-- `agent_file_system/EVENT_UNPROCESSED.md` - Source (read & clear batches)
+- **The EVENT_UNPROCESSED.md staging file** - Source (read & clear batches).
+  Its ABSOLUTE path is given in the task instruction (the system merges every
+  session's events into this one time-ordered file, oldest first). Always use
+  that exact path; never assume a fixed location.
 - `agent_file_system/MEMORY.md` - Destination (append distilled memories)
 
 ## Todo Tracking (REQUIRED)
@@ -34,15 +37,22 @@ Process 50 lines at a time to avoid memory issues.
 
 ### Steps:
 
-1. **Read first batch**: `read_file` EVENT_UNPROCESSED.md, offset=11, limit=50
+1. **Read first batch**: `read_file` the staging file (path from the task
+   instruction), offset=11, limit=50
 2. **Create todos**: Use `update_todos` to create initial todo list
-3. **Loop for each batch**:
+3. **Loop for each batch** (ORDER IS MANDATORY):
    - Distill batch: Apply rules below, extract IMPORTANT memories only
-   - Append memories: `stream_edit` MEMORY.md (append only)
-   - Remove batch: `stream_edit` EVENT_UNPROCESSED.md (delete lines 12-61)
+   - Append memories: `stream_edit` MEMORY.md (append only) — do this FIRST
+   - Remove batch: `stream_edit` the staging file (delete lines 12-61) — ONLY
+     after the MEMORY.md write above has completed
    - Update todos: Mark batch completed, add next batch if more events
+
+   > An event is removed from a session's queue only once it is gone from the
+   > staging file, so you MUST save to MEMORY.md before deleting from staging.
+   > Never delete a batch you have not processed — whatever you leave in the
+   > staging file is treated as unprocessed and kept for the next run.
 4. **Validation** (mark todo in_progress):
-   - Validate no more unprocessed events in EVENT_UNPROCESSED.md
+   - Validate no more unprocessed events in the staging file
    - Validate no duplicated memory in MEMORY.md
 5. **End task**: `end_turn` when validation passes
 

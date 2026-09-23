@@ -26,8 +26,9 @@ Add one entry to ``_PROVIDER_DISPLAY`` in agent_core/core/impl/llm/errors.py.
 Adding a new language
 ---------------------
 Drop app/i18n/errors.<lang>.json alongside errors.en.json.  Missing keys
-fall back to "en" automatically.  Packaging picks the file up via the
-errors.*.json glob in packaging/CraftBotAgent.spec.
+fall back to "en" automatically.  No packaging change is needed: the install
+payload is built from the tracked file list (scripts/package_source.py), so
+a committed catalog ships automatically.
 """
 
 from __future__ import annotations
@@ -85,6 +86,36 @@ def t(key: str, **kwargs: str) -> str:
 
     lang = get_os_language()
     template = _load_catalog(lang).get(key) or _load_catalog("en").get(key, key)
+    return template.format_map(kwargs)
+
+
+# ── Browser-UI message catalog ────────────────────────────────────────────────
+# User-facing strings the backend emits to the browser interface (validation
+# errors, success toasts, update/progress text). These are localized in the
+# user's chosen *UI* language (settings.json general.ui_language), which is
+# distinct from os_language. Files: app/i18n/ui_messages.<ui_lang>.json.
+
+_ui_catalog_cache: dict[str, dict[str, str]] = {}
+
+
+def _load_ui_catalog(lang: str) -> dict[str, str]:
+    if lang not in _ui_catalog_cache:
+        path = _I18N_DIR / f"ui_messages.{lang}.json"
+        _ui_catalog_cache[lang] = (
+            json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        )
+    return _ui_catalog_cache[lang]
+
+
+def tui(key: str, **kwargs: str) -> str:
+    """Render a browser-UI message *key* in the user's UI language.
+
+    Resolves in order: UI locale → "en" → key itself (never raises).
+    """
+    from app.config import get_ui_language
+
+    lang = get_ui_language()
+    template = _load_ui_catalog(lang).get(key) or _load_ui_catalog("en").get(key, key)
     return template.format_map(kwargs)
 
 

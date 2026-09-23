@@ -2,10 +2,10 @@
 """
 Application-specific prompt templates.
 
-Contains prompt templates for Living UI and other application features.
+Contains prompt templates for Agent App and other application features.
 """
 
-LIVING_UI_TASK_INSTRUCTION = """Create a Living UI application (V2 — PocketBase + React kit).
+AGENT_APP_TASK_INSTRUCTION = """Create a Agent App application (V2 — PocketBase + React kit).
 
 Project ID: {project_id}
 Project Name: {project_name}
@@ -14,21 +14,21 @@ Features: {features}
 Theme: {theme}
 Project Path: {project_path}
 
-Follow the living-ui-creator skill. Workflow:
+Follow the agent-app-creator skill. Workflow:
 
-1. Read agent_file_system/GLOBAL_LIVING_UI.md — apply its colors, fonts, and rules
-2. Read {project_path}/LIVING_UI.md (plan/index) and {project_path}/reference/requirements.md.
+1. Read agent_file_system/GLOBAL_AGENT_APP.md — apply its colors, fonts, and rules
+2. Read {project_path}/AGENT_APP.md (plan/index) and {project_path}/reference/requirements.md.
    The creation wizard interviewed the user and synthesized requirements.md — it
    is the BINDING spec: implement it EXACTLY and mirror its feature checklist into
-   LIVING_UI.md before coding. If requirements.md is absent, build from the
+   AGENT_APP.md before coding. If requirements.md is absent, build from the
    Description above; only ask the user (a FINAL send_message, continue_work=false)
    when something is blocking and you cannot reasonably decide it yourself.
 3. This build IS substantial work — the standard run protocol applies as-is
    (scope, plan, execute, verify, deliver). Do not skip it because these
-   numbered steps exist; they only describe the Living-UI-specific parts.
+   numbered steps exist; they only describe the Agent-App-specific parts.
 4. OWNERSHIP RULE (the gate enforces this by hashing):
    - You may edit ONLY: frontend/src/app/, pb/pb_migrations/, pb/pb_hooks/ (ops.pb.js
-     and new *.pb.js files), operations.json (non-system entries), LIVING_UI.md
+     and new *.pb.js files), operations.json (non-system entries), AGENT_APP.md
    - NEVER touch: frontend/src/kit/, frontend/src/main.tsx, frontend/src/config.gen.ts,
      pb/pb_hooks/_system.pb.js, manifest.json, vite/tsconfig files.
      Need a component variant? Wrap the kit component in frontend/src/app/ instead.
@@ -40,17 +40,17 @@ Follow the living-ui-creator skill. Workflow:
    - UI: build in frontend/src/app/ from kit parts (import from '../kit/index.ts');
      data via useCollection (realtime — never poll or reload); writes via
      getPbClient().call(...) (errors toast automatically)
-   - Update LIVING_UI.md — mark the feature done, record entities/ops/components
+   - Update AGENT_APP.md — mark the feature done, record entities/ops/components
 6. Quality bar: empty states with a next action, loading states, confirmation dialog
    for destructive actions, toasts on CRUD, responsive layout, kit tokens only
    (never hardcoded colors — theming is host-owned)
 7. FINISH — two steps, in order:
-   a. living_ui_notify_ready(project_id="{project_id}") — runs the validation
+   a. agent_app_notify_ready(project_id="{project_id}") — runs the validation
       gate (types, build, migrations-on-fresh-db, ops structure, ownership),
       launches, health-checks, smoke-verifies. On errors: read ALL of them,
       fix ALL of them, call it again. Success = the app is RUNNING but NOT
       yet verified.
-   b. living_ui_walk_verify(project_id="{project_id}") — an independent
+   b. agent_app_walk_verify(project_id="{project_id}") — an independent
       verifier walks the RUNNING app in a real (headless) browser against
       reference/requirements.md. Success = the app is announced to the user
       and the build is COMPLETE. Failing features come back as a report:
@@ -59,9 +59,9 @@ Follow the living-ui-creator skill. Workflow:
 RUN RULE: this run IS the build — there is no "continue in a later turn".
 The ONLY valid ways this run ends: a question to the user (a FINAL
 send_message, continue_work=false — the reply wakes the session) or
-living_ui_walk_verify returning success. Never end_turn mid-build.
+agent_app_walk_verify returning success. Never end_turn mid-build.
 
-HONESTY RULE: the app is ready ONLY when living_ui_walk_verify returns
+HONESTY RULE: the app is ready ONLY when agent_app_walk_verify returns
 status=success. If you cannot make it pass, tell the user the build FAILED and
 exactly what is blocking — NEVER claim the app is ready or usable when the
 launch failed. A false "ready" is the worst possible outcome.

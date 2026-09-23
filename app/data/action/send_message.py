@@ -79,6 +79,15 @@ from agent_core import action
             "example": True,
             "description": "True when this message ends the current run.",
         },
+        "awaiting_answer": {
+            "type": "boolean",
+            "example": True,
+            "description": (
+                "True when this message ends the run WITH suggested_responses "
+                "- i.e. it is a question the user can answer, not the agent "
+                "stopping. Supervisors must not read it as a surrender."
+            ),
+        },
     },
     test_payload={
         "message": "Hello, user!",
@@ -111,7 +120,15 @@ async def send_message(input_data: dict) -> dict:
 
     # Return 'success' for test compatibility, but keep 'ok' in production if needed
     status = "success" if simulated_mode else "ok"
+    ends_run = not continue_work
     return {
         "status": status,
-        "end_turn": not continue_work,
+        "end_turn": ends_run,
+        # Parking on a question is not the same as stopping. Offering
+        # suggested_responses is the agent SAYING it expects an answer (the
+        # rules tell it to do exactly that when asking), so the distinction
+        # comes from the agent's own declared intent rather than from anyone
+        # guessing at the prose. app/factory/host_craftbot.on_run_end reads
+        # this to avoid treating a waiting run as a surrender.
+        "awaiting_answer": bool(ends_run and suggested_responses),
     }

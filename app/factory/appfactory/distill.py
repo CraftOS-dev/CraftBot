@@ -77,7 +77,7 @@ def distill(
     server_log: str = "",
     console_lines: Optional[List[str]] = None,
     project_path: str = "<project>",
-    cli: str = "node living-ui/tools/src/cli.ts",
+    cli: str = "node agent-app/tools/src/cli.ts",
 ) -> List[DefectCard]:
     """Raw report → cards. Every card gets a repro and quoted evidence;
     candidate_cause is 'unknown' when no evidence line matches — a card must
@@ -97,7 +97,10 @@ def distill(
         where = route_m.group(1) if route_m else "see evidence"
         op_m = _OP_ROUTE.search(where)
         if op_m:
-            repro = f"{cli} run {project_path} {op_m.group(1).replace('/', '-')}"
+            # Op names are dotted (integrations.status). Hyphenating the
+            # route gave "integrations-status", which the CLI answers with
+            # "Unknown op" — three fix missions opened with a dead repro.
+            repro = f"{cli} run {project_path} {op_m.group(1).replace('/', '.')}"
         else:
             repro = f"open the app and exercise: {feature}"
 

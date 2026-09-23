@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Sun, Moon, Github, BookOpen } from 'lucide-react'
 import { IconButton, PlaybookModal } from '../ui'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -21,6 +22,7 @@ interface TopBarProps {
 }
 
 export function TopBar({ collapsed = false }: TopBarProps) {
+  const { t } = useTranslation(['nav', 'common'])
   const { theme, toggleTheme } = useTheme()
   const version = useAppSelector(selectVersion)
   const [playbookOpen, setPlaybookOpen] = useState(false)
@@ -33,13 +35,13 @@ export function TopBar({ collapsed = false }: TopBarProps) {
           icon={<BookOpen />}
           onClick={() => setPlaybookOpen(true)}
           size="sm"
-          tooltip="Playbooks"
+          tooltip={t('nav:topBar.playbooks')}
         />
         <IconButton
           icon={theme === 'dark' ? <Sun /> : <Moon />}
           onClick={toggleTheme}
           size="sm"
-          tooltip={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          tooltip={theme === 'dark' ? t('nav:topBar.switchToLightMode') : t('nav:topBar.switchToDarkMode')}
         />
         <IconButton
           icon={<Github />}

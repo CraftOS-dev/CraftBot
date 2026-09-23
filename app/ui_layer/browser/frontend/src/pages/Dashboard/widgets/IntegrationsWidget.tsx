@@ -1,11 +1,16 @@
-import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Activity, CheckCircle } from 'lucide-react'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
+import { usePersistedState } from '../../../hooks'
+import { formatNumber } from '../../../i18n/format'
+import { UI_STATE } from '../../../store/uiState'
 import styles from './widgets.module.css'
 
 export function IntegrationsWidget() {
-  const { dashboardMetrics } = useWebSocket()
-  const [showAll, setShowAll] = useState(false)
+  const { t } = useTranslation(['dashboard', 'common'])
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
+  const [showAll, setShowAll] = usePersistedState(UI_STATE.dashboard.showAll('integrations'))
 
   const integrationConnected = dashboardMetrics?.integration?.connectedIntegrations ?? 0
   const integrationTotalCalls = dashboardMetrics?.integration?.totalCalls ?? 0
@@ -16,34 +21,34 @@ export function IntegrationsWidget() {
       <div className={styles.compactStats}>
         <div className={styles.compactStatItem}>
           <CheckCircle size={14} className={styles.successIcon} />
-          <span className={styles.compactStatValue}>{integrationConnected}</span>
-          <span className={styles.compactStatLabel}>Connected</span>
+          <span className={styles.compactStatValue}>{formatNumber(integrationConnected)}</span>
+          <span className={styles.compactStatLabel}>{t('common:status.connected')}</span>
         </div>
         <div className={styles.compactStatItem}>
           <Activity size={14} className={styles.primaryIcon} />
-          <span className={styles.compactStatValue}>{integrationTotalCalls}</span>
-          <span className={styles.compactStatLabel}>Total Calls</span>
+          <span className={styles.compactStatValue}>{formatNumber(integrationTotalCalls)}</span>
+          <span className={styles.compactStatLabel}>{t('dashboard:widgets.integrations.totalCalls')}</span>
         </div>
       </div>
       <div className={styles.usageSection}>
-        <div className={styles.usageSectionHeader}>Top Integrations</div>
+        <div className={styles.usageSectionHeader}>{t('dashboard:widgets.integrations.topIntegrations')}</div>
         {topIntegrations.length > 0 ? (
           <div className={styles.usageList}>
             {(showAll ? topIntegrations : topIntegrations.slice(0, 3)).map((intg, index) => (
               <div key={intg.name} className={styles.usageItem}>
                 <span className={styles.usageRank}>#{index + 1}</span>
                 <span className={styles.usageName}>{intg.name}</span>
-                <span className={styles.usageCount}>{intg.count}</span>
+                <span className={styles.usageCount}>{formatNumber(intg.count)}</span>
               </div>
             ))}
             {topIntegrations.length > 3 && (
               <button className={styles.viewAllButton} onClick={() => setShowAll(!showAll)}>
-                {showAll ? 'Show less' : `View all (${topIntegrations.length})`}
+                {showAll ? t('common:actions.showLess') : t('dashboard:widgets.common.viewAllCount', { count: topIntegrations.length })}
               </button>
             )}
           </div>
         ) : (
-          <div className={styles.emptyUsage}>No usage yet</div>
+          <div className={styles.emptyUsage}>{t('dashboard:widgets.common.noUsage')}</div>
         )}
       </div>
     </>

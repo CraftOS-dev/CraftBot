@@ -8,7 +8,7 @@ import styles from './Mascot.module.css'
 interface Props {
   state: MascotState
   size?: number
-  /** Used by LivingUI creation: blush appears past 60% progress. */
+  /** Used by AgentApp creation: blush appears past 60% progress. */
   progress?: number
   /** Incremented externally to trigger a celebratory wiggle. */
   completedCount?: number
@@ -282,7 +282,7 @@ export function CraftBotMascot({
 }: Props) {
   const wiggling = useWiggleOnIncrease(completedCount)
   const pose = getPose(state)
-  // Blush is pose-driven everywhere except LivingUI creation, where it's a
+  // Blush is pose-driven everywhere except AgentApp creation, where it's a
   // late-stage progress signal (>60%). OR them so either path lights it up.
   const showBlush = pose.showBlush || (state === 'creating' && progress > 60)
   const breatheClass = pose.sleeping ? styles.sleepBreathe : styles.breathe

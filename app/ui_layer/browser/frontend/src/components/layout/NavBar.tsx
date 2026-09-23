@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   MessageSquare,
   MessageCircle,
@@ -21,16 +22,24 @@ import {
   Eraser,
   Trash2,
   Sparkles,
+  Play,
+  Square,
+  Palette,
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import { removeIframe } from '../../pages/AgentApp/iframePool'
+import { ConfirmModal } from '../ui/ConfirmModal'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
-import { useSkillCreator } from '../../hooks'
-import { CreateLivingUIModal } from '../ui/CreateLivingUIModal'
+import { usePersistedState, useSkillCreator } from '../../hooks'
+import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
-import { LivingUIIcon } from '../ui/LivingUIIcon'
+import { AgentAppIcon } from '../ui/AgentAppIcon'
 import type { SessionInfo } from '../../types'
 import { useAppSelector } from '../../store/hooks'
+import { UI_STATE } from '../../store/uiState'
+import { selectAgentAppProjects } from '../../store/selectors/agentApp'
+import { selectSkillMeta } from '../../store/selectors/agent'
 import { selectMainSession, selectChatSessions } from '../../store/selectors/sessions'
 import { selectLastMessageIdBySession } from '../../store/selectors/messages'
 import { TopBar } from './TopBar'
@@ -86,14 +95,6 @@ function AnimatedSessionTitle({ title }: { title: string }) {
   )
 }
 
-const utilityNavItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard', tourAnchor: 'nav-dashboard' },
-  { id: 'memory', label: 'Memory', icon: <Waypoints size={16} />, path: '/memory', tourAnchor: 'nav-memory' },
-  { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace', tourAnchor: 'nav-workspace' },
-]
-
-const settingsItem: NavItem = { id: 'settings', label: 'Settings', icon: <Settings size={16} />, path: '/settings' }
-
 interface NavBarProps {
   collapsed?: boolean
   onToggleCollapsed?: () => void
@@ -104,64 +105,57 @@ interface SessionMenuState {
   sessionId: string
 }
 
-// Collapsed/expanded state of the sidebar groups, persisted so collapsing
-// a group survives reloads. Only the COLLAPSED state is stored ("1");
-// absence of the key means expanded (the default).
-const GROUP_COLLAPSED_KEY_PREFIX = 'sidebarGroupCollapsed.'
-
-// How many Living UI items show before the "Show more" row takes over.
+// How many Agent App items show before the "Show more" row takes over.
 const GROUP_PREVIEW_COUNT = 5
 
 // Chats never truncate behind a "Show more" — the full list is always
 // reachable. Rows mount in pages of this size as the sidebar scrolls.
 const CHAT_PAGE_SIZE = 30
 
-type SidebarGroup = 'livingui' | 'chats'
-
-const loadGroupExpanded = (group: SidebarGroup): boolean => {
-  try {
-    return localStorage.getItem(GROUP_COLLAPSED_KEY_PREFIX + group) !== '1'
-  } catch {
-    return true
-  }
-}
-
-const persistGroupExpanded = (group: SidebarGroup, expanded: boolean) => {
-  try {
-    if (expanded) {
-      localStorage.removeItem(GROUP_COLLAPSED_KEY_PREFIX + group)
-    } else {
-      localStorage.setItem(GROUP_COLLAPSED_KEY_PREFIX + group, '1')
-    }
-  } catch {
-    // localStorage may be unavailable
-  }
-}
-
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
+  const { t } = useTranslation(['nav', 'common', 'agentapp'])
   const location = useLocation()
   const navigate = useNavigate()
+
+  const utilityNavItems: NavItem[] = useMemo(() => [
+    { id: 'dashboard', label: t('nav:items.dashboard'), icon: <LayoutDashboard size={16} />, path: '/dashboard', tourAnchor: 'nav-dashboard' },
+    { id: 'memory', label: t('nav:items.memory'), icon: <Waypoints size={16} />, path: '/memory', tourAnchor: 'nav-memory' },
+    { id: 'workspace', label: t('nav:items.workspace'), icon: <FolderOpen size={16} />, path: '/workspace', tourAnchor: 'nav-workspace' },
+  ], [t])
+
+  const settingsItem: NavItem = useMemo(
+    () => ({ id: 'settings', label: t('nav:items.settings'), icon: <Settings size={16} />, path: '/settings' }),
+    [t],
+  )
   const {
-    livingUIProjects,
+    launchAgentApp,
+    stopAgentApp,
+    deleteAgentApp,
     deleteSession,
     renameSession,
     clearSession,
-    lastSeenBySession,
-    skillMeta,
   } = useWebSocket()
+  const agentAppProjects = useAppSelector(selectAgentAppProjects)
+  const skillMeta = useAppSelector(selectSkillMeta)
+  const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
   const { theme } = useTheme()
   const [showCreateModal, setShowCreateModal] = useState(false)
+  // Which Agent App row's "…" menu is open, and the app queued for a delete
+  // confirmation (delete is destructive, so it always confirms).
+  const [agentMenu, setAgentMenu] = useState<string | null>(null)
+  const [agentDelete, setAgentDelete] = useState<{ id: string; name: string } | null>(null)
 
   const mainSession = useAppSelector(selectMainSession)
   const chatSessions = useAppSelector(selectChatSessions)
   const lastMessageIdBySession = useAppSelector(selectLastMessageIdBySession)
   const runStateBySession = useAppSelector(state => state.agent.runStateBySession)
 
-  const [chatsExpanded, setChatsExpanded] = useState(() => loadGroupExpanded('chats'))
-  const [livingUIExpanded, setLivingUIExpanded] = useState(() => loadGroupExpanded('livingui'))
-  // Living UI "Show more" state: only the first GROUP_PREVIEW_COUNT items
+  // Sidebar group open/closed: persisted preferences, so they survive reloads.
+  const [chatsExpanded, setChatsExpanded] = usePersistedState(UI_STATE.nav.chatsExpanded)
+  const [agentAppExpanded, setAgentAppExpanded] = usePersistedState(UI_STATE.nav.agentAppExpanded)
+  // Agent App "Show more" state: only the first GROUP_PREVIEW_COUNT items
   // render until expanded. Not persisted — collapses back to 5 on reload.
-  const [showAllLivingUI, setShowAllLivingUI] = useState(false)
+  const [showAllAgentApp, setShowAllAgentApp] = useState(false)
   // Chats scroll pagination: how many chat rows are currently mounted.
   // Grows by CHAT_PAGE_SIZE whenever the sidebar scrolls near its bottom.
   const [chatVisibleCount, setChatVisibleCount] = useState(CHAT_PAGE_SIZE)
@@ -173,13 +167,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // Collapsed-sidebar flyout (ChatGPT-style): each group collapses to one
   // icon button whose click opens a popover listing the group's items.
   const [flyout, setFlyout] = useState<
-    { kind: 'livingui' | 'chats'; top: number; left: number } | null
+    { kind: 'agentapp' | 'chats'; top: number; left: number } | null
   >(null)
 
   const FLYOUT_MAX_HEIGHT = 420
 
   const openFlyout = (
-    kind: 'livingui' | 'chats',
+    kind: 'agentapp' | 'chats',
     e: React.MouseEvent<HTMLButtonElement>,
   ) => {
     if (flyout?.kind === kind) {
@@ -213,13 +207,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     if (!collapsed) setFlyout(null)
   }, [collapsed])
 
-  useEffect(() => {
-    persistGroupExpanded('chats', chatsExpanded)
-  }, [chatsExpanded])
-
-  useEffect(() => {
-    persistGroupExpanded('livingui', livingUIExpanded)
-  }, [livingUIExpanded])
   const [menu, setMenu] = useState<SessionMenuState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -247,9 +234,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return location.pathname.startsWith(path)
   }
 
-  // The Living UI project currently open (from the route).
-  const activeLivingUIId = location.pathname.startsWith('/living-ui/')
-    ? location.pathname.slice('/living-ui/'.length)
+  // The Agent App project currently open (from the route).
+  const activeAgentAppId = location.pathname.startsWith('/agent-app/')
+    ? location.pathname.slice('/agent-app/'.length)
     : null
 
   // When the open project sorts past the collapsed fold (e.g. a freshly
@@ -257,10 +244,10 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // is visible in its natural position. Only fires on navigation / list change,
   // so a manual "Show less" afterwards is respected.
   useEffect(() => {
-    if (!activeLivingUIId) return
-    const idx = livingUIProjects.findIndex(p => p.id === activeLivingUIId)
-    if (idx >= GROUP_PREVIEW_COUNT) setShowAllLivingUI(true)
-  }, [activeLivingUIId, livingUIProjects])
+    if (!activeAgentAppId) return
+    const idx = agentAppProjects.findIndex(p => p.id === activeAgentAppId)
+    if (idx >= GROUP_PREVIEW_COUNT) setShowAllAgentApp(true)
+  }, [activeAgentAppId, agentAppProjects])
 
   const sessionPath = (sessionId: string) =>
     sessionId === 'main' ? '/' : `/session/${sessionId}`
@@ -277,7 +264,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   }
 
   // Per-session status dot precedence: an in-flight run (orange, pulsing)
-  // outranks an unread message (green, steady). Living UI rows pass their
+  // outranks an unread message (green, steady). Agent App rows pass their
   // backing chat session id; a row with neither state shows no dot.
   type SessionDotKind = 'busy' | 'unread' | null
   const sessionDotKind = (sessionId: string | null | undefined): SessionDotKind => {
@@ -288,8 +275,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   }
   const renderSessionDot = (sessionId: string | null | undefined): React.ReactNode => {
     const kind = sessionDotKind(sessionId)
-    if (kind === 'busy') return <span className={styles.busyDot} aria-label="Agent working" />
-    if (kind === 'unread') return <span className={styles.unreadDot} aria-label="New messages" />
+    if (kind === 'busy') return <span className={styles.busyDot} aria-label={t('nav:dots.agentWorking')} />
+    if (kind === 'unread') return <span className={styles.unreadDot} aria-label={t('nav:dots.newMessages')} />
     return null
   }
 
@@ -306,16 +293,16 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   }
   const renderCollapsedDot = (ids: (string | null | undefined)[]): React.ReactNode => {
     const kind = aggregateDotKind(ids)
-    if (kind === 'busy') return <span className={styles.collapsedBusyDot} aria-label="Agent working" />
-    if (kind === 'unread') return <span className={styles.collapsedUnreadDot} aria-label="New messages" />
+    if (kind === 'busy') return <span className={styles.collapsedBusyDot} aria-label={t('nav:dots.agentWorking')} />
+    if (kind === 'unread') return <span className={styles.collapsedUnreadDot} aria-label={t('nav:dots.newMessages')} />
     return null
   }
 
   // Auto-switch: the wizard/marketplace hand back the new projectId — open
   // its tab so the user lands on the live build view immediately.
   const handleProjectCreated = (projectId: string) => {
-    setLivingUIExpanded(true)
-    navigate(`/living-ui/${projectId}`)
+    setAgentAppExpanded(true)
+    navigate(`/agent-app/${projectId}`)
   }
 
   // Lazy session creation: "New Chat" only opens the draft view at
@@ -334,18 +321,40 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   // before it highlights it.
   useTourEnvAction('ensureChatsExpanded', () => setChatsExpanded(true))
 
-  // Let the tour open and close the "Add Living UI" modal while it walks the
+  // Let the tour open and close the "Add Agent App" modal while it walks the
   // creation methods.
-  useTourEnvAction('openLivingUIModal', () => setShowCreateModal(true))
-  useTourEnvAction('closeLivingUIModal', () => setShowCreateModal(false))
+  useTourEnvAction('openAgentAppModal', () => setShowCreateModal(true))
+  useTourEnvAction('closeAgentAppModal', () => setShowCreateModal(false))
 
-  // Close any open context menu when clicking anywhere else.
+  // Close any open context menu when clicking anywhere else. The window-blur
+  // guard covers clicks into the cross-origin Agent App iframe, whose mousedown
+  // never reaches our document (also closes on tab switch, which is fine).
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(null)
     document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
+    window.addEventListener('blur', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      window.removeEventListener('blur', close)
+    }
   }, [menu])
+
+  // Same for the Agent App row's "…" menu, with one extra guard: the Agent App
+  // view is a cross-origin iframe, so clicks inside it never reach our document
+  // and can't fire the mousedown close. Clicking into the iframe blurs the top
+  // window, so we close on window blur too (this also closes on tab switch,
+  // which is fine).
+  useEffect(() => {
+    if (!agentMenu) return
+    const close = () => setAgentMenu(null)
+    document.addEventListener('mousedown', close)
+    window.addEventListener('blur', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      window.removeEventListener('blur', close)
+    }
+  }, [agentMenu])
 
   useEffect(() => {
     if (renamingId) {
@@ -405,7 +414,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
 
   useLayoutEffect(() => {
     updateOverflow()
-  }, [livingUIProjects.length, chatSessions.length, chatsExpanded, livingUIExpanded, chatVisibleCount])
+  }, [agentAppProjects.length, chatSessions.length, chatsExpanded, agentAppExpanded, chatVisibleCount])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -441,22 +450,22 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
       <div ref={positionSessionMenu} className={styles.sessionMenu} onMouseDown={e => e.stopPropagation()}>
         {!isMain && (
           <button className={styles.sessionMenuItem} onClick={() => startRename(session)}>
-            <Pencil size={13} /> Rename
+            <Pencil size={13} /> {t('common:actions.rename')}
           </button>
         )}
         <button className={styles.sessionMenuItem} onClick={() => handleClearSession(session.id)}>
-          <Eraser size={13} /> Clear conversation
+          <Eraser size={13} /> {t('nav:sessionMenu.clearConversation')}
         </button>
         {!isMain && (
           <button
             className={`${styles.sessionMenuItem} ${styles.sessionMenuItemDanger}`}
             onClick={() => handleDeleteSession(session.id)}
           >
-            <Trash2 size={13} /> Delete
+            <Trash2 size={13} /> {t('common:actions.delete')}
           </button>
         )}
         <button className={styles.sessionMenuItem} onClick={() => handleCreateSkill(session.id)}>
-          <Sparkles size={13} /> Create skill from this session
+          <Sparkles size={13} /> {t('nav:sessionMenu.createSkill')}
         </button>
       </div>
     )
@@ -471,7 +480,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
       <div
         key={session.id}
         className={`${styles.sessionRow} ${active ? styles.sessionRowActive : ''} ${opts.isMain ? styles.sessionRowMain : ''}`}
-        title={opts.isMain ? 'Main' : session.title}
+        title={opts.isMain ? t('nav:items.main') : session.title}
         {...(opts.isMain ? tourAnchorProps('nav-main-session') : {})}
       >
         {renaming ? (
@@ -491,31 +500,27 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             <button
               className={styles.sessionRowButton}
               onClick={() => navigate(path)}
-              title={opts.isMain ? 'Main' : session.title}
+              title={opts.isMain ? t('nav:items.main') : session.title}
             >
               <span className={styles.icon}>
                 {opts.isMain ? <MessageSquare size={16} /> : <MessageCircle size={14} />}
               </span>
               <span className={styles.label}>
-                {opts.isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
+                {opts.isMain ? t('nav:items.main') : <AnimatedSessionTitle title={session.title} />}
               </span>
               {opts.isMain && (
-                <span className={styles.mainInfo} aria-label="About the Main chat" title="">
+                <span className={styles.mainInfo} aria-label={t('nav:mainTooltip.aria')} title="">
                   <Info size={12} />
                   <span className={styles.mainInfoTooltip} role="tooltip">
-                    <strong>Why is Main different?</strong>
+                    <strong>{t('nav:mainTooltip.title')}</strong>
                     <span className={styles.mainInfoLine}>
-                      Main is the agent's home chat, so it can't be deleted or renamed.
+                      {t('nav:mainTooltip.line1')}
                     </span>
                     <span className={styles.mainInfoLine}>
-                      Anything that happens on its own, like scheduled tasks and
-                      updates from connected apps, arrives here.
+                      {t('nav:mainTooltip.line2')}
                     </span>
                     <span className={styles.mainInfoLine}>
-                      All chats share one memory: what the agent learns about you
-                      in any chat, it remembers everywhere. But each chat keeps its
-                      own conversation, so messages in one chat aren't visible from
-                      another.
+                      {t('nav:mainTooltip.line3')}
                     </span>
                   </span>
                 </span>
@@ -531,13 +536,137 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                     ? null
                     : { sessionId: session.id })
               }}
-              aria-label="Session options"
-              title="Options"
+              aria-label={t('nav:sessionMenu.sessionOptions')}
+              title={t('nav:sessionMenu.options')}
             >
               <MoreHorizontal size={14} />
             </button>
             {renderSessionMenu(session, opts.isMain)}
           </>
+        )}
+      </div>
+    )
+  }
+
+  const confirmDeleteAgentApp = () => {
+    if (!agentDelete) return
+    const { id } = agentDelete
+    removeIframe(id)
+    deleteAgentApp(id)
+    setAgentDelete(null)
+    // Deleting the open app navigates back to Main.
+    if (activeAgentAppId === id) navigate('/')
+  }
+
+  // Agent App row. Reuses the exact session-row hover mechanics (.sessionRow /
+  // .sessionMenuButton / .sessionMenu) so the Agent App and Chats lists behave
+  // identically. Everything lives behind the "…" menu: lifecycle (start/stop),
+  // theme, and delete. A stopped/idle app is dimmed so its state reads at a
+  // glance.
+  const renderAgentAppRow = (project: typeof agentAppProjects[number]) => {
+    const path = `/agent-app/${project.id}`
+    const active = isActive(path)
+    const status = project.status
+    const transitional = status === 'creating' || status === 'launching' || status === 'stopping'
+    const running = status === 'running'
+    const dimmed = !running && !transitional
+    const canDelete = status !== 'running'
+    // Lifecycle: running → offer Stop; a settled idle app → offer Start;
+    // mid-transition → no lifecycle action (the spinner already tells the story).
+    const lifecycle: 'stop' | 'start' | null = running ? 'stop' : (!transitional ? 'start' : null)
+    // Theme edits happen on the mounted (active) page, which owns the iframe
+    // bridge — so it's only offered for the active app.
+    const showTheme = active
+    const showKebab = lifecycle !== null || showTheme || canDelete
+
+    return (
+      <div
+        key={project.id}
+        className={`${styles.sessionRow} ${styles.agentAppRow} ${active ? styles.agentAppRowActive : ''} ${dimmed ? styles.agentAppRowDimmed : ''}`}
+        title={project.name}
+      >
+        <button
+          className={`${styles.agentAppTab} ${active ? styles.agentAppTabActive : ''}`}
+          onClick={() => navigate(path)}
+          title={project.name}
+        >
+          <span className={styles.agentAppTabIcon}>
+            {transitional
+              ? <Loader2 size={13} className={styles.spinner} />
+              : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
+          </span>
+          <span className={styles.agentAppTabLabel}>{project.name}</span>
+          {renderSessionDot(project.sessionId)}
+        </button>
+
+        {showKebab && (
+          <button
+            className={styles.sessionMenuButton}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => {
+              e.stopPropagation()
+              setAgentMenu(prev => (prev === project.id ? null : project.id))
+            }}
+            aria-label={t('nav:sessionMenu.options')}
+            title={t('nav:sessionMenu.options')}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        )}
+
+        {agentMenu === project.id && showKebab && (
+          <div
+            ref={positionSessionMenu}
+            className={styles.sessionMenu}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            {lifecycle === 'stop' && (
+              <button
+                className={styles.sessionMenuItem}
+                onClick={() => {
+                  setAgentMenu(null)
+                  stopAgentApp(project.id)
+                }}
+              >
+                <Square size={13} /> {t('agentapp:page.stop')}
+              </button>
+            )}
+            {lifecycle === 'start' && (
+              <button
+                className={styles.sessionMenuItem}
+                onClick={() => {
+                  setAgentMenu(null)
+                  launchAgentApp(project.id)
+                }}
+              >
+                <Play size={13} /> {t('agentapp:page.launch')}
+              </button>
+            )}
+            {showTheme && (
+              <button
+                className={styles.sessionMenuItem}
+                onClick={() => {
+                  setAgentMenu(null)
+                  window.dispatchEvent(
+                    new CustomEvent('agentapp:open-theme', { detail: { projectId: project.id } }),
+                  )
+                }}
+              >
+                <Palette size={13} /> {t('agentapp:page.theme')}
+              </button>
+            )}
+            {canDelete && (
+              <button
+                className={`${styles.sessionMenuItem} ${styles.sessionMenuItemDanger}`}
+                onClick={() => {
+                  setAgentMenu(null)
+                  setAgentDelete({ id: project.id, name: project.name })
+                }}
+              >
+                <Trash2 size={13} /> {t('common:actions.delete')}
+              </button>
+            )}
+          </div>
         )}
       </div>
     )
@@ -565,7 +694,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.logoLink}
-                aria-label="CraftBot website"
+                aria-label={t('nav:sidebar.websiteLabel')}
               >
                 <img
                   src={logoSrc}
@@ -579,9 +708,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               type="button"
               className={styles.collapseButton}
               onClick={onToggleCollapsed}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? t('nav:sidebar.expand') : t('nav:sidebar.collapse')}
               aria-pressed={collapsed}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={collapsed ? t('nav:sidebar.expand') : t('nav:sidebar.collapse')}
             >
               {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             </button>
@@ -599,11 +728,11 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             <button
               className={`${styles.navItem} ${location.pathname === '/session/new' ? styles.active : ''}`}
               onClick={startNewChat}
-              title="New Chat"
+              title={t('nav:items.newChat')}
               {...tourAnchorProps('nav-new-chat')}
             >
               <span className={styles.icon}><SquarePen size={16} /></span>
-              <span className={styles.label}>New Chat</span>
+              <span className={styles.label}>{t('nav:items.newChat')}</span>
             </button>
 
             {/* Utility items */}
@@ -626,21 +755,21 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               <>
                 {/* Collapsed: each group is one icon button opening a flyout */}
                 <button
-                  className={`${styles.navItem} ${flyout?.kind === 'livingui' ? styles.active : ''}`}
-                  onClick={e => openFlyout('livingui', e)}
+                  className={`${styles.navItem} ${flyout?.kind === 'agentapp' ? styles.active : ''}`}
+                  onClick={e => openFlyout('agentapp', e)}
                   onMouseDown={e => e.stopPropagation()}
-                  title="Living UI"
+                  title={t('nav:groups.agentApp')}
                   aria-haspopup="menu"
-                  aria-expanded={flyout?.kind === 'livingui'}
+                  aria-expanded={flyout?.kind === 'agentapp'}
                 >
                   <span className={styles.icon}><Box size={16} /></span>
-                  {renderCollapsedDot(livingUIProjects.map(p => p.sessionId))}
+                  {renderCollapsedDot(agentAppProjects.map(p => p.sessionId))}
                 </button>
                 <button
                   className={`${styles.navItem} ${flyout?.kind === 'chats' ? styles.active : ''}`}
                   onClick={e => openFlyout('chats', e)}
                   onMouseDown={e => e.stopPropagation()}
-                  title="Chats"
+                  title={t('nav:groups.chats')}
                   aria-haspopup="menu"
                   aria-expanded={flyout?.kind === 'chats'}
                 >
@@ -650,66 +779,47 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               </>
             ) : (
               <>
-            {/* Living UI group */}
-            <div className={styles.groupRow} {...tourAnchorProps('nav-living-ui')}>
+            {/* Agent App group */}
+            <div className={styles.groupRow} {...tourAnchorProps('nav-agent-app')}>
               <button
                 className={styles.groupToggle}
-                onClick={() => setLivingUIExpanded(v => !v)}
-                aria-expanded={livingUIExpanded}
+                onClick={() => setAgentAppExpanded(v => !v)}
+                aria-expanded={agentAppExpanded}
               >
                 <ChevronRight
                   size={14}
-                  className={`${styles.groupChevron} ${livingUIExpanded ? styles.groupChevronOpen : ''}`}
+                  className={`${styles.groupChevron} ${agentAppExpanded ? styles.groupChevronOpen : ''}`}
                 />
                 <span className={styles.icon}><Box size={16} /></span>
-                <span className={styles.label}>Living UI</span>
+                <span className={styles.label}>{t('nav:groups.agentApp')}</span>
               </button>
               <button
                 className={styles.groupAddButton}
                 onClick={() => setShowCreateModal(true)}
-                aria-label="Add Living UI"
-                title="Add Living UI"
+                aria-label={t('nav:sidebar.addAgentApp')}
+                title={t('nav:sidebar.addAgentApp')}
               >
                 <Plus size={14} />
               </button>
             </div>
-            {livingUIExpanded && (
+            {agentAppExpanded && (
               <div className={styles.groupChildren}>
-                {(showAllLivingUI
-                  ? livingUIProjects
-                  : livingUIProjects.slice(0, GROUP_PREVIEW_COUNT)
-                ).map(project => {
-                  const path = `/living-ui/${project.id}`
-                  const active = isActive(path)
-                  return (
-                    <button
-                      key={project.id}
-                      className={`${styles.livingUITab} ${active ? styles.livingUITabActive : ''}`}
-                      onClick={() => navigate(path)}
-                      title={project.name}
-                    >
-                      <span className={styles.livingUITabIcon}>
-                        {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
-                          ? <Loader2 size={13} className={styles.spinner} />
-                          : <LivingUIIcon icon={project.icon} projectId={project.id} size={13} />}
-                      </span>
-                      <span className={styles.livingUITabLabel}>{project.name}</span>
-                      {renderSessionDot(project.sessionId)}
-                    </button>
-                  )
-                })}
-                {livingUIProjects.length > GROUP_PREVIEW_COUNT && (
+                {(showAllAgentApp
+                  ? agentAppProjects
+                  : agentAppProjects.slice(0, GROUP_PREVIEW_COUNT)
+                ).map(project => renderAgentAppRow(project))}
+                {agentAppProjects.length > GROUP_PREVIEW_COUNT && (
                   <button
                     className={styles.showMoreRow}
-                    onClick={() => setShowAllLivingUI(v => !v)}
+                    onClick={() => setShowAllAgentApp(v => !v)}
                   >
-                    {showAllLivingUI
-                      ? 'Show less'
-                      : `Show more (${livingUIProjects.length - GROUP_PREVIEW_COUNT})`}
+                    {showAllAgentApp
+                      ? t('common:actions.showLess')
+                      : t('nav:sidebar.showMoreCount', { count: agentAppProjects.length - GROUP_PREVIEW_COUNT })}
                   </button>
                 )}
-                {livingUIProjects.length === 0 && (
-                  <div className={styles.groupEmpty}>No Living UI apps</div>
+                {agentAppProjects.length === 0 && (
+                  <div className={styles.groupEmpty}>{t('nav:sidebar.noAgentAppApps')}</div>
                 )}
               </div>
             )}
@@ -728,13 +838,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   className={`${styles.groupChevron} ${chatsExpanded ? styles.groupChevronOpen : ''}`}
                 />
                 <span className={styles.icon}><MessageCircle size={16} /></span>
-                <span className={styles.label}>Chats</span>
+                <span className={styles.label}>{t('nav:groups.chats')}</span>
               </button>
               <button
                 className={styles.groupAddButton}
                 onClick={startNewChat}
-                aria-label="New chat"
-                title="New chat"
+                aria-label={t('nav:sidebar.newChat')}
+                title={t('nav:sidebar.newChat')}
               >
                 <Plus size={14} />
               </button>
@@ -787,17 +897,20 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
           role="menu"
         >
           <div className={styles.flyoutHeader}>
-            {flyout.kind === 'livingui' ? 'Living UI' : 'Chats'}
+            {flyout.kind === 'agentapp' ? t('nav:groups.agentApp') : t('nav:groups.chats')}
           </div>
           <div className={styles.flyoutList}>
-            {flyout.kind === 'livingui' ? (
+            {flyout.kind === 'agentapp' ? (
               <>
-                {livingUIProjects.map(project => {
-                  const path = `/living-ui/${project.id}`
+                {agentAppProjects.map(project => {
+                  const path = `/agent-app/${project.id}`
+                  const transitional = project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
+                  // Match the expanded rows: a settled, non-running app is dimmed.
+                  const dimmed = project.status !== 'running' && !transitional
                   return (
                     <button
                       key={project.id}
-                      className={`${styles.flyoutItem} ${isActive(path) ? styles.flyoutItemActive : ''}`}
+                      className={`${styles.flyoutItem} ${isActive(path) ? styles.flyoutItemActive : ''} ${dimmed ? styles.flyoutItemDimmed : ''}`}
                       onClick={() => {
                         setFlyout(null)
                         navigate(path)
@@ -805,17 +918,17 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       title={project.name}
                     >
                       <span className={styles.flyoutItemIcon}>
-                        {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
+                        {transitional
                           ? <Loader2 size={13} className={styles.spinner} />
-                          : <LivingUIIcon icon={project.icon} projectId={project.id} size={13} />}
+                          : <AgentAppIcon icon={project.icon} projectId={project.id} size={13} />}
                       </span>
                       <span className={styles.flyoutItemLabel}>{project.name}</span>
                       {renderSessionDot(project.sessionId)}
                     </button>
                   )
                 })}
-                {livingUIProjects.length === 0 && (
-                  <div className={styles.flyoutEmpty}>No Living UI apps</div>
+                {agentAppProjects.length === 0 && (
+                  <div className={styles.flyoutEmpty}>{t('nav:sidebar.noAgentAppApps')}</div>
                 )}
               </>
             ) : (
@@ -830,13 +943,13 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       setFlyout(null)
                       navigate(path)
                     }}
-                    title={isMain ? 'Main' : session.title}
+                    title={isMain ? t('nav:items.main') : session.title}
                   >
                     <span className={styles.flyoutItemIcon}>
                       {isMain ? <MessageSquare size={13} /> : <MessageCircle size={13} />}
                     </span>
                     <span className={styles.flyoutItemLabel}>
-                      {isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
+                      {isMain ? t('nav:items.main') : <AnimatedSessionTitle title={session.title} />}
                     </span>
                     {renderSessionDot(session.id)}
                   </button>
@@ -848,10 +961,20 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         document.body,
       )}
 
-      <CreateLivingUIModal
+      <CreateAgentAppModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onInstalled={handleProjectCreated}
+      />
+
+      <ConfirmModal
+        isOpen={agentDelete !== null}
+        title={t('agentapp:page.deleteModalTitle')}
+        message={t('agentapp:page.deleteModalMessage', { name: agentDelete?.name ?? '' })}
+        confirmText={t('common:actions.delete')}
+        variant="danger"
+        onConfirm={confirmDeleteAgentApp}
+        onCancel={() => setAgentDelete(null)}
       />
 
       <SkillCreatorModal

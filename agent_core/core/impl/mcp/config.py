@@ -22,6 +22,7 @@ class MCPServerConfig:
     transport: str = "stdio"  # "stdio" | "sse" | "websocket"
     command: Optional[str] = None  # For stdio: executable path
     args: List[str] = field(default_factory=list)  # For stdio: command arguments
+    cwd: Optional[str] = None  # For stdio: working directory for the subprocess
     url: Optional[str] = None  # For sse/websocket: server URL
     env: Dict[str, str] = field(default_factory=dict)  # Environment variables
     enabled: bool = True  # Enable/disable toggle
@@ -63,6 +64,7 @@ class MCPServerConfig:
             transport=data.get("transport", "stdio"),
             command=data.get("command"),
             args=data.get("args", []),
+            cwd=data.get("cwd"),
             url=data.get("url"),
             env=data.get("env", {}),
             enabled=data.get("enabled", True),
@@ -81,6 +83,8 @@ class MCPServerConfig:
             "enabled": self.enabled,
         }
         # Only include optional fields if they have values
+        if self.cwd:
+            result["cwd"] = self.cwd
         if self.url:
             result["url"] = self.url
         if self.action_set_name:

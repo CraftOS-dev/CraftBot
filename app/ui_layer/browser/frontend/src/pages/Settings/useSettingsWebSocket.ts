@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSocketClient } from '../../store/socket/socketInstance'
+import { onInboundMessage } from '../../store/socket/socketMiddleware'
 
 // Compatibility shim over the shared SocketClient. Preserves the original
 // (send, onMessage, isConnected) API so the settings tabs don't have to
@@ -29,7 +30,11 @@ export function useSettingsWebSocket() {
   }, [client])
 
   const onMessage = useCallback((type: string, handler: (data: unknown) => void) => {
-    const unsub = client.onMessage(type, handler)
+    // Delivered after the store has applied the message (socketMiddleware
+    // batches inbound frames), so handlers always see up-to-date slices.
+    const unsub = onInboundMessage((msg) => {
+      if (msg.type === type) handler(msg.data)
+    })
     unsubscribesRef.current.push(unsub)
     return () => {
       unsub()

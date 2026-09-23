@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import ast
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Callable, Optional, List, Dict, Any, Tuple
 
 from agent_core.core.state import get_state, get_session_or_none
 from agent_core.decorators import profile, OperationCategory
@@ -21,6 +21,8 @@ from agent_core.core.impl.llm import LLMCallType
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
 from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo
 from agent_core.core.prompts import SELECT_ACTION_PROMPT
+from agent_core.core.impl.llm.interface import LLMContextOverflowError
+from agent_core import get_event_stream_manager
 from agent_core.utils.logger import logger
 
 
@@ -102,9 +104,6 @@ class ActionRouter:
 
         # Build the instruction prompt for the LLM
         session_state = self.context_engine.get_session_state(session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(
-            session_id=session_id
-        )
 
         # Pull just-in-time guidance for any integrations the user named.
         # Match against both the current turn's query and the session state so
@@ -135,13 +134,22 @@ class ActionRouter:
             action_candidates=self._format_candidates(action_candidates),
             integration_essentials=integration_essentials,
         )
-        full_prompt = SELECT_ACTION_PROMPT.format(
-            session_state=session_state,
-            event_stream=event_stream_content,
-            query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
-        )
+        candidates_text = self._format_candidates(action_candidates)
+
+        def render_prompt() -> str:
+            # Rendered from the CURRENT stream, so a fold made while deciding
+            # (see _prompt_for_decision) is reflected in what is sent.
+            return SELECT_ACTION_PROMPT.format(
+                session_state=session_state,
+                event_stream=self.context_engine.get_event_stream(
+                    session_id=session_id
+                ),
+                query=query,
+                action_candidates=candidates_text,
+                integration_essentials=integration_essentials,
+            )
+
+        full_prompt = render_prompt()
 
         max_format_retries = 3
         current_prompt = full_prompt
@@ -154,6 +162,7 @@ class ActionRouter:
                 call_type=LLMCallType.ACTION_SELECTION,
                 session_id=session_id,
                 prompt_name=decision_prompt_name,
+                render_prompt=render_prompt,
             )
 
             # Parse parallel action decisions with format error detection
@@ -167,7 +176,7 @@ class ActionRouter:
 
                 if attempt < max_format_retries - 1:
                     current_prompt = self._augment_prompt_with_format_error(
-                        full_prompt, attempt + 1, decision, format_error
+                        render_prompt(), attempt + 1, decision, format_error
                     )
                     continue
                 else:
@@ -214,6 +223,7 @@ class ActionRouter:
         call_type: str = LLMCallType.ACTION_SELECTION,
         session_id: Optional[str] = None,
         prompt_name: Optional[str] = None,
+        render_prompt: Optional[Callable[[], str]] = None,
     ) -> Dict[str, Any]:
         """
         Prompt the LLM for an action decision with session caching support.
@@ -230,6 +240,10 @@ class ActionRouter:
         max_retries = 3
         last_error: Optional[Exception] = None
         current_prompt = prompt
+        # One fold per decision: a request that still does not fit after the
+        # stream has been folded to keep_recent_tokens is a configuration
+        # problem, not something another fold can solve.
+        folded = False
 
         # Get current task_id for session cache (if running in a task)
         # Use session_id if provided, otherwise fall back to global state
@@ -264,8 +278,6 @@ class ActionRouter:
                     if has_session:
                         # Session is registered (complex task) - use session caching
                         # CRITICAL: Use session-specific stream to prevent event leakage
-                        from agent_core import get_event_stream_manager
-
                         event_stream_manager = get_event_stream_manager()
                         # Use get_stream_by_id with session_id to get the correct task's stream
                         effective_session_id = session_id or current_task_id
@@ -287,7 +299,31 @@ class ActionRouter:
                                 )
                             )
 
-                            if has_delta:
+                            if (
+                                has_delta
+                                and not folded
+                                and render_prompt is not None
+                                and not self.llm_interface.fits_context(
+                                    current_task_id,
+                                    call_type,
+                                    system_prompt,
+                                    delta_events,
+                                )
+                            ):
+                                # The next request would exceed the budget: fold the
+                                # stream now and start a fresh session from it.
+                                logger.info(
+                                    f"[SESSION CACHE] Next request exceeds the context "
+                                    f"budget; folding the event stream for {call_type}"
+                                )
+                                stream.summarize_by_LLM()
+                                folded = True
+                                current_prompt = render_prompt()
+                                self.context_engine.reset_event_stream_sync(
+                                    call_type, session_id=effective_session_id
+                                )
+                                has_synced_before = False
+                            elif has_delta:
                                 # Send only the new events
                                 logger.info(
                                     f"[SESSION CACHE] Sending delta events for {call_type}"
@@ -308,7 +344,7 @@ class ActionRouter:
                                 logger.info(
                                     f"[SESSION CACHE] No delta events, resetting cache for {call_type}"
                                 )
-                                self.llm_interface.end_session_cache(
+                                self.llm_interface.reset_session_history(
                                     current_task_id, call_type
                                 )
                                 self.context_engine.reset_event_stream_sync(
@@ -318,7 +354,12 @@ class ActionRouter:
                                 has_synced_before = False
 
                         if not has_synced_before:
-                            # First call with session - send full prompt to establish session
+                            # First call with session - send full prompt to establish session.
+                            # Also reached after the stream folds (the fold clears the
+                            # sync point); any accumulated turns are stale by then.
+                            self.llm_interface.reset_session_history(
+                                current_task_id, call_type
+                            )
                             logger.info(
                                 f"[SESSION CACHE] Creating new session for {call_type} (first call)"
                             )
@@ -375,6 +416,28 @@ class ActionRouter:
             except LLMConsecutiveFailureError:
                 # Fatal: LLM is in a broken state - re-raise immediately, do not retry
                 raise
+            except LLMContextOverflowError:
+                # The request could not fit (pre-flight, or the provider said so).
+                # Fold once and retry with a prompt rendered from the folded stream.
+                if folded or render_prompt is None or not (current_task_id and is_task):
+                    raise
+                stream = get_event_stream_manager().get_stream_by_id(
+                    session_id or current_task_id
+                )
+                if stream is None:
+                    raise
+                logger.warning(
+                    f"[SESSION CACHE] Request exceeded the context budget; folding the "
+                    f"event stream and retrying once for {call_type}"
+                )
+                stream.summarize_by_LLM()
+                folded = True
+                current_prompt = render_prompt()
+                self.llm_interface.reset_session_history(current_task_id, call_type)
+                self.context_engine.reset_event_stream_sync(
+                    call_type, session_id=session_id or current_task_id
+                )
+                continue
             except RuntimeError as e:
                 # LLM provider error (empty response, API error, auth failure, etc.)
                 # — a recognized, user-actionable failure, not a code bug. The
@@ -756,12 +819,22 @@ class ActionRouter:
                 f"Using non-parallelizable action: {non_parallel_name}"
             )
             # Mark other actions as dropped with error
+            kept = 0
+            for action_dict in actions:
+                if action_dict is not non_parallel_action:
+                    kept += 1
             for action_dict in actions:
                 if action_dict is not non_parallel_action:
                     dropped_action = action_dict.copy()
                     dropped_action["_error"] = (
-                        f"Action dropped: cannot run in parallel with non-parallelizable action '{non_parallel_name}'. "
-                        f"Non-parallelizable actions must run alone."
+                        f"Action dropped: '{non_parallel_name}' cannot run in "
+                        f"parallel, so it ran ALONE and the other {kept} "
+                        "action(s) in this batch did not run. Nothing about "
+                        "them failed — re-issue them, ONE non-parallelizable "
+                        "action per turn, after re-reading any state the "
+                        f"'{non_parallel_name}' call just changed. Do not "
+                        "re-send the same multi-action batch: it will be cut "
+                        "the same way."
                     )
                     dropped_actions.append(dropped_action)
             actions = [non_parallel_action]

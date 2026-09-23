@@ -75,6 +75,18 @@ class Skill:
         """Get the skill description."""
         return self.metadata.description
 
+    @property
+    def is_system(self) -> bool:
+        """Whether this is a system skill.
+
+        System skills are non-user-invocable skills that the runtime loads for
+        its own background workflows (memory processing, planners, skill
+        creation). They are always enabled and cannot be disabled by the user:
+        a disabled system skill would load its name into a run but have its
+        instructions stripped from the prompt, silently breaking the workflow.
+        """
+        return not self.metadata.user_invocable
+
     def get_supporting_file(self, relative_path: str) -> Optional[Path]:
         """
         Get path to a supporting file in the skill directory.

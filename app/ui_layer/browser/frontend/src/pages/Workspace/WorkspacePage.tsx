@@ -26,10 +26,13 @@ import {
   Info,
   Search,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { IconButton, Button, Badge, ConfirmModal, Modal, ModalBody, ModalFooter } from '../../components/ui'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedSet, usePersistedState, useScrollRestoration } from '../../hooks'
+import { formatNumber, formatDateTime } from '../../i18n/format'
+import { UI_STATE } from '../../store/uiState'
 import type { FileItem } from '../../types'
 import styles from './WorkspacePage.module.css'
 
@@ -39,15 +42,16 @@ import styles from './WorkspacePage.module.css'
 
 function formatFileSize(bytes?: number): string {
   if (bytes === undefined || bytes === null) return '-'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  const oneDecimal = { minimumFractionDigits: 1, maximumFractionDigits: 1 }
+  if (bytes < 1024) return `${formatNumber(bytes)} B`
+  if (bytes < 1024 * 1024) return `${formatNumber(bytes / 1024, oneDecimal)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${formatNumber(bytes / (1024 * 1024), oneDecimal)} MB`
+  return `${formatNumber(bytes / (1024 * 1024 * 1024), oneDecimal)} GB`
 }
 
 function formatDate(timestamp?: number): string {
   if (!timestamp) return '-'
-  return new Date(timestamp).toLocaleString()
+  return formatDateTime(timestamp)
 }
 
 function getFileExtension(name: string): string {
@@ -119,11 +123,12 @@ export function WorkspacePage() {
     search,
   } = useWorkspace()
 
+  const { t } = useTranslation(['workspace', 'common'])
   const { showToast } = useToast()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Selection state
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+  // Selection state (checked paths are remembered for the browser session)
+  const [selectedFiles, setSelectedFiles] = usePersistedSet(UI_STATE.workspace.selectedPaths)
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(-1)
 
   // Upload progress: filename → 0–100
@@ -140,13 +145,17 @@ export function WorkspacePage() {
   const [clipboard, setClipboard] = useState<{ action: 'copy' | 'cut'; paths: string[] } | null>(null)
   const [showPreviewContent, setShowPreviewContent] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
-  const [mobileShowPreview, setMobileShowPreview] = useState(false)
+  const [mobileShowPreview, setMobileShowPreview] = usePersistedState(UI_STATE.workspace.mobileShowPreview)
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
   const searchDebounceRef = useRef<number | null>(null)
+  const fileListBodyRef = useRef<HTMLDivElement>(null)
+
+  // Scroll position per directory, restored once the list has (re)loaded.
+  useScrollRestoration(UI_STATE.workspace.fileListScrollTop(currentDirectory), fileListBodyRef, !loading)
 
   // Search handler with debounce
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,11 +195,26 @@ export function WorkspacePage() {
     }
   }, [editingFile])
 
-  // Clear selection when directory changes
+  // Clear selection when the directory changes — but not on mount, where a
+  // restored selection belongs to the directory still being shown.
+  const shownDirectoryRef = useRef(currentDirectory)
   useEffect(() => {
+    if (shownDirectoryRef.current === currentDirectory) return
+    shownDirectoryRef.current = currentDirectory
     setSelectedFiles(new Set())
     setLastSelectedIndex(-1)
-  }, [currentDirectory])
+  }, [currentDirectory, setSelectedFiles])
+
+  // Bulk actions must only ever touch files the user can see. Once the list
+  // has loaded, drop remembered checks for paths it doesn't contain — e.g. a
+  // reload reset the folder to the root, or a file was removed elsewhere.
+  // Skipped while searching, where checked non-matches are hidden on purpose.
+  useEffect(() => {
+    if (loading || search) return
+    const listed = new Set(files.map(f => f.path))
+    const kept = Array.from(selectedFiles).filter(path => listed.has(path))
+    if (kept.length !== selectedFiles.size) setSelectedFiles(new Set(kept))
+  }, [files, loading, search, selectedFiles, setSelectedFiles])
 
   // Load file content when selected
   useEffect(() => {
@@ -323,9 +347,12 @@ export function WorkspacePage() {
       setShowCreateDialog(null)
       setCreateName('')
     } else {
-      showToast('error', result.error ?? `Failed to create ${showCreateDialog}`)
+      const fallback = showCreateDialog === 'directory'
+        ? t('workspace:files.createFolderFailed')
+        : t('workspace:files.createFileFailed')
+      showToast('error', result.error ?? fallback)
     }
-  }, [createName, showCreateDialog, currentDirectory, createFile, showToast])
+  }, [createName, showCreateDialog, currentDirectory, createFile, showToast, t])
 
   const handleRenameSubmit = useCallback(async () => {
     if (!editingFile || !editName.trim()) return
@@ -338,9 +365,9 @@ export function WorkspacePage() {
       setEditName('')
       setEditExt('')
     } else {
-      showToast('error', result.error ?? 'Failed to rename')
+      showToast('error', result.error ?? t('workspace:files.renameFailed'))
     }
-  }, [editingFile, editName, editExt, renameFile, showToast])
+  }, [editingFile, editName, editExt, renameFile, showToast, t])
 
   const handleDelete = useCallback((paths: string[]) => {
     if (paths.length === 0) return
@@ -349,34 +376,42 @@ export function WorkspacePage() {
     const singleName = isSingle ? paths[0].split('/').pop() : ''
 
     confirm({
-      title: isSingle ? 'Delete Item' : 'Delete Items',
+      title: t('workspace:files.deleteTitle', { count: paths.length }),
       message: isSingle
-        ? `Delete "${singleName}"? This cannot be undone.`
-        : `Delete ${paths.length} items? This cannot be undone.`,
-      confirmText: 'Delete',
+        ? t('workspace:files.deleteConfirmNamed', { name: singleName })
+        : t('workspace:files.deleteConfirmCount', { count: paths.length }),
+      confirmText: t('common:actions.delete'),
       variant: 'danger',
     }, async () => {
       if (isSingle) {
         const response = await deleteFile(paths[0])
         if (!response.success) {
-          showToast('error', `Failed to delete "${singleName}": ${response.error ?? 'unknown error'}`)
+          showToast('error', t('workspace:files.deleteFailedNamed', {
+            name: singleName,
+            error: response.error ?? t('common:status.unknownError'),
+          }))
         }
       } else {
         const response = await batchDelete(paths)
         const failed = response.results.filter(r => !r.success)
         if (failed.length > 0) {
-          const firstError = failed[0].error ?? 'unknown error'
+          const firstError = failed[0].error ?? t('common:status.unknownError')
           const succeeded = response.results.length - failed.length
           const message = succeeded === 0
-            ? `Failed to delete ${failed.length} item${failed.length > 1 ? 's' : ''}: ${firstError}`
-            : `Deleted ${succeeded} of ${response.results.length}. ${failed.length} failed: ${firstError}`
+            ? t('workspace:files.deleteFailedCount', { count: failed.length, error: firstError })
+            : t('workspace:files.deletePartial', {
+                succeeded: formatNumber(succeeded),
+                total: formatNumber(response.results.length),
+                failed: formatNumber(failed.length),
+                error: firstError,
+              })
           showToast('error', message)
         }
       }
 
       setSelectedFiles(new Set())
     })
-  }, [deleteFile, batchDelete, showToast, confirm])
+  }, [deleteFile, batchDelete, showToast, confirm, t])
 
   const handleCopy = useCallback((paths: string[]) => {
     setClipboard({ action: 'copy', paths })
@@ -447,7 +482,7 @@ export function WorkspacePage() {
     const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
     for (const file of Array.from(uploadFiles)) {
       if (file.size > MAX_UPLOAD_BYTES) {
-        showToast('error', `"${file.name}" (${formatFileSize(file.size)}) exceeds the 200 MB upload limit`)
+        showToast('error', t('workspace:upload.tooLarge', { name: file.name, size: formatFileSize(file.size) }))
         continue
       }
       const path = currentDirectory ? `${currentDirectory}/${file.name}` : file.name
@@ -457,7 +492,7 @@ export function WorkspacePage() {
           setUploadProgress(prev => ({ ...prev, [file.name]: pct }))
         )
       } catch (e) {
-        showToast('error', `Failed to upload "${file.name}": ${(e as Error).message}`)
+        showToast('error', t('workspace:upload.failed', { name: file.name, error: (e as Error).message }))
       } finally {
         setUploadProgress(prev => {
           const next = { ...prev }
@@ -467,7 +502,7 @@ export function WorkspacePage() {
       }
     }
     await refresh()
-  }, [currentDirectory, uploadFile, refresh, showToast])
+  }, [currentDirectory, uploadFile, refresh, showToast, t])
 
   const handleDownload = useCallback(async (path: string, fileName: string) => {
     const blob = await downloadFile(path)
@@ -504,7 +539,7 @@ export function WorkspacePage() {
         className={styles.breadcrumbItem}
         onClick={() => navigateTo('')}
       >
-        workspace
+        {t('workspace:files.breadcrumbRoot')}
       </button>
       {pathParts.map((part, index) => (
         <React.Fragment key={index}>
@@ -593,7 +628,7 @@ export function WorkspacePage() {
             icon={<Info size={14} />}
             size="sm"
             className={styles.mobilePreviewBtn}
-            tooltip="View details"
+            tooltip={t('workspace:files.viewDetails')}
             onClick={(e) => handleShowPreview(file, e)}
           />
           <IconButton
@@ -656,7 +691,7 @@ export function WorkspacePage() {
             }}
           >
             <Download size={14} />
-            <span>Download</span>
+            <span>{t('common:actions.download')}</span>
           </button>
         )}
         <button
@@ -680,7 +715,7 @@ export function WorkspacePage() {
           }}
         >
           <Edit3 size={14} />
-          <span>Rename</span>
+          <span>{t('common:actions.rename')}</span>
         </button>
         <button
           className={styles.contextMenuItem}
@@ -690,7 +725,7 @@ export function WorkspacePage() {
           }}
         >
           <Copy size={14} />
-          <span>Copy</span>
+          <span>{t('common:actions.copy')}</span>
         </button>
         <button
           className={styles.contextMenuItem}
@@ -700,7 +735,7 @@ export function WorkspacePage() {
           }}
         >
           <Scissors size={14} />
-          <span>Cut</span>
+          <span>{t('workspace:actions.cut')}</span>
         </button>
         {clipboard && isDirectory && (
           <button
@@ -711,7 +746,7 @@ export function WorkspacePage() {
             }}
           >
             <Clipboard size={14} />
-            <span>Paste here</span>
+            <span>{t('workspace:actions.pasteHere')}</span>
           </button>
         )}
         <div className={styles.contextMenuDivider} />
@@ -723,7 +758,7 @@ export function WorkspacePage() {
           }}
         >
           <Trash2 size={14} />
-          <span>Delete</span>
+          <span>{t('common:actions.delete')}</span>
         </button>
       </div>
     )
@@ -759,7 +794,7 @@ export function WorkspacePage() {
           }}
         >
           <FilePlus size={14} />
-          <span>New File</span>
+          <span>{t('workspace:actions.newFile')}</span>
         </button>
         <button
           className={styles.contextMenuItem}
@@ -769,7 +804,7 @@ export function WorkspacePage() {
           }}
         >
           <FolderPlus size={14} />
-          <span>New Folder</span>
+          <span>{t('workspace:actions.newFolder')}</span>
         </button>
         {clipboard && (
           <>
@@ -782,7 +817,7 @@ export function WorkspacePage() {
               }}
             >
               <Clipboard size={14} />
-              <span>Paste ({clipboard.paths.length})</span>
+              <span>{t('workspace:actions.pasteCount', { count: clipboard.paths.length })}</span>
             </button>
           </>
         )}
@@ -795,7 +830,9 @@ export function WorkspacePage() {
       <Modal
         isOpen={showCreateDialog !== null}
         onClose={() => setShowCreateDialog(null)}
-        title={`Create ${showCreateDialog === 'directory' ? 'Folder' : 'File'}`}
+        title={showCreateDialog === 'directory'
+          ? t('workspace:files.createFolderTitle')
+          : t('workspace:files.createFileTitle')}
         size="sm"
       >
         <ModalBody>
@@ -803,7 +840,9 @@ export function WorkspacePage() {
             ref={createInputRef}
             type="text"
             className={styles.dialogInput}
-            placeholder={`Enter ${showCreateDialog} name...`}
+            placeholder={showCreateDialog === 'directory'
+              ? t('workspace:files.createFolderPlaceholder')
+              : t('workspace:files.createFilePlaceholder')}
             value={createName}
             onChange={(e) => setCreateName(e.target.value)}
             onKeyDown={(e) => {
@@ -813,10 +852,10 @@ export function WorkspacePage() {
         </ModalBody>
         <ModalFooter>
           <Button variant="secondary" size="sm" onClick={() => setShowCreateDialog(null)}>
-            Cancel
+            {t('common:actions.cancel')}
           </Button>
           <Button variant="primary" size="sm" onClick={handleCreateSubmit}>
-            Create
+            {t('common:actions.create')}
           </Button>
         </ModalFooter>
       </Modal>
@@ -828,7 +867,7 @@ export function WorkspacePage() {
       return (
         <div className={styles.emptyPreview}>
           <FolderOpen size={32} />
-          <p>Select a file or folder to view details</p>
+          <p>{t('workspace:files.previewEmpty')}</p>
         </div>
       )
     }
@@ -846,37 +885,37 @@ export function WorkspacePage() {
         </div>
         <div className={styles.previewContent}>
           <dl className={styles.previewDetails}>
-            <dt>Type</dt>
+            <dt>{t('workspace:files.detailType')}</dt>
             <dd>
               <Badge variant={getFileBadgeVariant(selectedFile)}>
-                {selectedFile.type === 'directory' ? 'Directory' : getFileExtension(selectedFile.name).toUpperCase() || 'File'}
+                {selectedFile.type === 'directory' ? t('workspace:files.typeDirectory') : getFileExtension(selectedFile.name).toUpperCase() || t('workspace:files.typeFile')}
               </Badge>
             </dd>
-            <dt>Size</dt>
+            <dt>{t('workspace:files.detailSize')}</dt>
             <dd>{formatFileSize(selectedFile.size)}</dd>
-            <dt>Modified</dt>
+            <dt>{t('workspace:files.detailModified')}</dt>
             <dd>{formatDate(selectedFile.modified)}</dd>
           </dl>
 
           {selectedFile.type === 'file' && showPreviewContent && (
             <div className={styles.filePreview}>
               <div className={styles.filePreviewHeader}>
-                <span>Preview</span>
+                <span>{t('workspace:files.preview')}</span>
               </div>
               {previewLoading ? (
                 <div className={styles.previewLoading}>
                   <Loader2 size={20} className={styles.spinner} />
-                  <span>Loading...</span>
+                  <span>{t('common:status.loading')}</span>
                 </div>
               ) : fileIsBinary ? (
                 <div className={styles.previewBinary}>
                   <AlertCircle size={20} />
-                  <span>Binary file - cannot preview</span>
+                  <span>{t('workspace:files.binaryPreview')}</span>
                 </div>
               ) : fileContent ? (
                 <pre className={styles.previewCode}>{fileContent.slice(0, 5000)}</pre>
               ) : (
-                <div className={styles.previewEmpty}>Empty file</div>
+                <div className={styles.previewEmpty}>{t('workspace:files.emptyFile')}</div>
               )}
             </div>
           )}
@@ -890,7 +929,7 @@ export function WorkspacePage() {
               icon={<Download size={14} />}
               onClick={() => handleDownload(selectedFile.path, selectedFile.name)}
             >
-              Download
+              {t('common:actions.download')}
             </Button>
           )}
           <Button
@@ -900,7 +939,7 @@ export function WorkspacePage() {
             icon={<Trash2 size={14} />}
             onClick={() => handleDelete([selectedFile.path])}
           >
-            Delete
+            {t('common:actions.delete')}
           </Button>
           <Button
             variant="secondary"
@@ -924,7 +963,7 @@ export function WorkspacePage() {
               }
             }}
           >
-            Rename
+            {t('common:actions.rename')}
           </Button>
         </div>
       </>
@@ -942,13 +981,13 @@ export function WorkspacePage() {
         <div className={styles.toolbarLeft}>
           <IconButton
             icon={<Home size={16} />}
-            tooltip="Home"
+            tooltip={t('workspace:files.home')}
             onClick={() => navigateTo('')}
           />
           {currentDirectory && (
             <IconButton
               icon={<ChevronDown size={16} style={{ transform: 'rotate(90deg)' }} />}
-              tooltip="Go up"
+              tooltip={t('workspace:files.goUp')}
               onClick={handleNavigateUp}
             />
           )}
@@ -957,12 +996,12 @@ export function WorkspacePage() {
         <div className={styles.toolbarRight}>
           <IconButton
             icon={loading ? <Loader2 size={16} className={styles.spinner} /> : <RefreshCw size={16} />}
-            tooltip="Refresh"
+            tooltip={t('common:actions.refresh')}
             onClick={() => refresh()}
           />
           <IconButton
             icon={<FolderPlus size={16} />}
-            tooltip="New Folder"
+            tooltip={t('workspace:actions.newFolder')}
             onClick={() => setShowCreateDialog('directory')}
             className={styles.mobileOnly}
           />
@@ -973,11 +1012,11 @@ export function WorkspacePage() {
             onClick={() => setShowCreateDialog('directory')}
             className={styles.desktopOnly}
           >
-            New Folder
+            {t('workspace:actions.newFolder')}
           </Button>
           <IconButton
             icon={<FilePlus size={16} />}
-            tooltip="New File"
+            tooltip={t('workspace:actions.newFile')}
             onClick={() => setShowCreateDialog('file')}
             className={styles.mobileOnly}
           />
@@ -988,11 +1027,11 @@ export function WorkspacePage() {
             onClick={() => setShowCreateDialog('file')}
             className={styles.desktopOnly}
           >
-            New File
+            {t('workspace:actions.newFile')}
           </Button>
           <IconButton
             icon={<Upload size={16} />}
-            tooltip="Upload"
+            tooltip={t('common:actions.upload')}
             onClick={() => fileInputRef.current?.click()}
             className={styles.mobileOnly}
           />
@@ -1003,7 +1042,7 @@ export function WorkspacePage() {
             onClick={() => fileInputRef.current?.click()}
             className={styles.desktopOnly}
           >
-            Upload
+            {t('common:actions.upload')}
           </Button>
           <input
             ref={fileInputRef}
@@ -1040,7 +1079,7 @@ export function WorkspacePage() {
         <div className={styles.batchBar}>
           <span className={styles.batchCount}>
             <Check size={14} />
-            {selectedFiles.size} selected
+            {t('workspace:files.selectedCount', { count: selectedFiles.size })}
           </span>
           <div className={styles.batchActions}>
             <Button
@@ -1049,7 +1088,7 @@ export function WorkspacePage() {
               size="sm"
               onClick={handleBatchDownload}
             >
-              Download
+              {t('common:actions.download')}
             </Button>
             <Button
               icon={<Trash2 size={14} />}
@@ -1057,14 +1096,14 @@ export function WorkspacePage() {
               size="sm"
               onClick={() => handleDelete(Array.from(selectedFiles))}
             >
-              Delete
+              {t('common:actions.delete')}
             </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setSelectedFiles(new Set())}
             >
-              Clear
+              {t('common:actions.clear')}
             </Button>
           </div>
         </div>
@@ -1077,16 +1116,19 @@ export function WorkspacePage() {
           {/* Search bar */}
           <div className={styles.fileSearchBar}>
             <Search size={14} />
+            {/* Uncontrolled for the debounce. Keyed by directory: navigating
+                clears the search in the store, and the box must follow. */}
             <input
+              key={currentDirectory}
               type="text"
-              placeholder="Search files..."
+              placeholder={t('workspace:files.searchPlaceholder')}
               defaultValue={search}
               onChange={handleSearchChange}
               className={styles.fileSearchInput}
             />
             {total > 0 && (
               <span className={styles.fileCount}>
-                {files.length} of {total}
+                {t('workspace:files.countOfTotal', { shown: formatNumber(files.length), total: formatNumber(total) })}
               </span>
             )}
           </div>
@@ -1104,29 +1146,29 @@ export function WorkspacePage() {
                 }}
               />
             </span>
-            <span className={styles.colName}>Name</span>
-            <span className={styles.colSize}>Size</span>
-            <span className={styles.colModified}>Modified</span>
+            <span className={styles.colName}>{t('workspace:files.columnName')}</span>
+            <span className={styles.colSize}>{t('workspace:files.columnSize')}</span>
+            <span className={styles.colModified}>{t('workspace:files.columnModified')}</span>
             <span className={styles.colActions}></span>
           </div>
-          <div className={styles.fileListBody} onContextMenu={handleEmptySpaceContextMenu}>
+          <div ref={fileListBodyRef} className={styles.fileListBody} onContextMenu={handleEmptySpaceContextMenu}>
             {loading && files.length === 0 ? (
               <div className={styles.loadingState}>
                 <Loader2 size={24} className={styles.spinner} />
-                <span>Loading files...</span>
+                <span>{t('workspace:files.loadingFiles')}</span>
               </div>
             ) : error ? (
               <div className={styles.errorState}>
                 <AlertCircle size={24} />
                 <span>{error}</span>
                 <Button variant="secondary" size="sm" onClick={() => refresh()}>
-                  Retry
+                  {t('common:actions.retry')}
                 </Button>
               </div>
             ) : files.length === 0 ? (
               <div className={styles.emptyState}>
                 <FolderOpen size={32} />
-                <span>This folder is empty</span>
+                <span>{t('workspace:files.emptyFolder')}</span>
                 <div className={styles.emptyActions}>
                   <Button
                     icon={<FolderPlus size={14} />}
@@ -1134,7 +1176,7 @@ export function WorkspacePage() {
                     size="sm"
                     onClick={() => setShowCreateDialog('directory')}
                   >
-                    New Folder
+                    {t('workspace:actions.newFolder')}
                   </Button>
                   <Button
                     icon={<Upload size={14} />}
@@ -1142,7 +1184,7 @@ export function WorkspacePage() {
                     size="sm"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    Upload
+                    {t('common:actions.upload')}
                   </Button>
                 </div>
               </div>
@@ -1158,7 +1200,9 @@ export function WorkspacePage() {
                       disabled={loadingMore}
                       icon={loadingMore ? <Loader2 size={14} className={styles.spinner} /> : undefined}
                     >
-                      {loadingMore ? 'Loading...' : `Load more (${files.length} of ${total})`}
+                      {loadingMore
+                        ? t('common:status.loading')
+                        : t('workspace:files.loadMore', { shown: formatNumber(files.length), total: formatNumber(total) })}
                     </Button>
                   </div>
                 )}
@@ -1175,9 +1219,9 @@ export function WorkspacePage() {
               icon={<ArrowLeft size={18} />}
               variant="ghost"
               onClick={handleMobilePreviewBack}
-              tooltip="Back to files"
+              tooltip={t('workspace:files.backToFiles')}
             />
-            <span>File Details</span>
+            <span>{t('workspace:files.fileDetails')}</span>
           </div>
           {renderPreviewPanel()}
         </div>
@@ -1185,13 +1229,18 @@ export function WorkspacePage() {
 
       {/* Status Bar */}
       <div className={styles.statusBar}>
-        <span>{files.length} item{files.length !== 1 ? 's' : ''}</span>
+        <span>{t('workspace:files.itemCount', { count: files.length })}</span>
         {selectedFiles.size > 0 && (
-          <span>{selectedFiles.size} selected</span>
+          <span>{t('workspace:files.selectedCount', { count: selectedFiles.size })}</span>
         )}
         {clipboard && (
           <span className={styles.clipboardStatus}>
-            {clipboard.paths.length} item{clipboard.paths.length !== 1 ? 's' : ''} in clipboard ({clipboard.action})
+            {t('workspace:files.clipboardStatus', {
+              count: clipboard.paths.length,
+              action: clipboard.action === 'cut'
+                ? t('workspace:files.clipboardActionCut')
+                : t('workspace:files.clipboardActionCopy'),
+            })}
           </span>
         )}
       </div>

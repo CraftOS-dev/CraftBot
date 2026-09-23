@@ -1,0 +1,113 @@
+{
+  "page": {
+    "title": "Memoria",
+    "disabled": "Memoria desactivada"
+  },
+  "stats": {
+    "memories_one": "{{formatted}} recuerdo",
+    "memories_other": "{{formatted}} recuerdos",
+    "entities_one": "{{formatted}} entidad",
+    "entities_other": "{{formatted}} entidades",
+    "files_one": "{{formatted}} archivo",
+    "files_other": "{{formatted}} archivos",
+    "entityLinks_one": "{{formatted}} enlace de entidad",
+    "entityLinks_other": "{{formatted}} enlaces de entidad",
+    "fileLinks_one": "{{formatted}} enlace de archivo",
+    "fileLinks_other": "{{formatted}} enlaces de archivo"
+  },
+  "toggle": {
+    "hideMemories": "Ocultar recuerdos",
+    "showMemories": "Mostrar recuerdos",
+    "hideEntities": "Ocultar entidades",
+    "showEntities": "Mostrar entidades",
+    "hideFiles": "Ocultar archivos",
+    "showFiles": "Mostrar archivos",
+    "hideEntityLinks": "Ocultar enlaces recuerdo→entidad",
+    "showEntityLinks": "Mostrar enlaces recuerdo→entidad",
+    "hideFileLinks": "Ocultar enlaces recuerdo→archivo",
+    "showFileLinks": "Mostrar enlaces recuerdo→archivo",
+    "showDefaultFiles": "Mostrar archivos predeterminados",
+    "hideDefaultFiles": "Ocultar archivos predeterminados (AGENT.md, PROACTIVE.md)",
+    "toggleDefaultFiles": "Alternar archivos predeterminados",
+    "fitView": "Ajustar la vista",
+    "refreshGraph": "Actualizar el grafo"
+  },
+  "empty": {
+    "title": "Aún no hay recuerdos",
+    "body": "A medida que chateas, CraftBot destila lo que importa en la memoria y aparece aquí como un grafo vivo."
+  },
+  "a11y": {
+    "resizePanel": "Redimensionar el panel"
+  },
+  "kind": {
+    "memory": "Recuerdo",
+    "fileMemory": "Recuerdo de archivo",
+    "entity": "Entidad",
+    "file": "Archivo"
+  },
+  "tag": {
+    "superseded": "reemplazado"
+  },
+  "detail": {
+    "closeAria": "Cerrar detalles",
+    "connected": "Conectado · {{value}}"
+  },
+  "meta": {
+    "mentions_one": "{{formatted}} mención",
+    "mentions_other": "{{formatted}} menciones",
+    "sections_one": "{{formatted}} sección",
+    "sections_other": "{{formatted}} secciones"
+  },
+  "toolbar": {
+    "searchPlaceholder": "Buscar recuerdos…"
+  },
+  "list": {
+    "noMatches": "Sin coincidencias.",
+    "sectionFallback": "sección"
+  },
+  "paneEmpty": "Selecciona un nodo del grafo para ver sus detalles, o busca en tus recuerdos arriba.",
+  "category": {
+    "fact": "Hecho",
+    "preference": "Preferencia",
+    "event": "Evento",
+    "decision": "Decisión",
+    "learning": "Aprendizaje",
+    "project": "Proyecto",
+    "contact": "Contacto"
+  },
+  "field": {
+    "category": "Categoría",
+    "content": "Contenido"
+  },
+  "item": {
+    "addTitle": "Añadir recuerdo",
+    "editTitle": "Editar recuerdo",
+    "deleteTitle": "Eliminar recuerdo",
+    "deleteMessage": "Esto elimina permanentemente el elemento de memoria. Considera marcarlo como reemplazado en su lugar para conservar el historial.",
+    "entitiesHint": "Las entidades se identifican y se enlazan automáticamente la próxima vez que se ejecute el procesamiento de memoria.",
+    "supersededLabel": "Reemplazado (se conserva como historial, se excluye de la recuperación)",
+    "contentPlaceholder": "p. ej. Juan prefiere respuestas concisas"
+  },
+  "files": {
+    "title": "Archivos del agente",
+    "aboutAria": "Acerca de la indexación de archivos",
+    "indexingTooltip": "<1>¿Qué es la indexación?</1> Los archivos indexados pasan a formar parte de la memoria de CraftBot: su contenido se divide en secciones, se hace buscable y se muestra en el grafo como recuerdos de archivo.<2/><3/>Tras la indexación, una tarea en segundo plano lee cada archivo e identifica las personas, los proyectos y las herramientas que menciona, enlazándolo en el mismo grafo de conocimiento que los recuerdos de las conversaciones, de modo que la recuperación se nutre de ambos.",
+    "hint": "Marca un archivo para indexarlo en la memoria. Los archivos bloqueados siempre se indexan."
+  },
+  "tree": {
+    "chunks_one": "{{formatted}} fragmento",
+    "chunks_other": "{{formatted}} fragmentos",
+    "sizeKb": "{{size}} KB",
+    "missing": "falta",
+    "alwaysIndexed": "Siempre indexado",
+    "indexing": "Indexando…",
+    "stopIndexing": "Dejar de indexar {{path}}",
+    "indexFile": "Indexar {{path}}",
+    "indexedRemove": "Indexado (haz clic para quitar)",
+    "indexThis": "Indexar este archivo"
+  },
+  "toast": {
+    "updateFailed": "Error al actualizar los archivos indexados",
+    "skipped": "Se omitió {{path}}: {{reason}}"
+  }
+}

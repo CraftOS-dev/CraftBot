@@ -5,3 +5,6 @@ export const selectDashboardMetrics = (state: RootState) =>
 
 export const selectFilteredMetricsCache = (state: RootState) =>
   state.dashboard.filteredCache
+
+export const selectFilteredMetricsReceivedAt = (state: RootState) =>
+  state.dashboard.filteredReceivedAt

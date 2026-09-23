@@ -33,6 +33,7 @@ def default_providers() -> List[Provider]:
     from .linkedin import LinkedInProvider
     from .notion import NotionProvider
     from .outlook import OutlookProvider
+    from .posthog import PostHogProvider
     from .slack import SlackProvider
     from .stripe import StripeProvider
     from .telegram_bot import TelegramBotProvider
@@ -52,6 +53,7 @@ def default_providers() -> List[Provider]:
         LinkedInProvider(),
         NotionProvider(),
         OutlookProvider(),
+        PostHogProvider(),
         SlackProvider(),
         # Auth-layer bridges — multi-account storage/UI/listeners; the
         # action surface stays, made account-aware centrally

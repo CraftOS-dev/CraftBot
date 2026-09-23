@@ -1,13 +1,17 @@
-"""Agent payload management — downloading and extracting the agent zip.
+"""Install payload management — downloading and extracting what gets installed.
 
-The frozen installer (CraftBotInstaller.exe) is small and ships with no
-agent code. At install time it downloads CraftBot-agent-<platform>.zip from
-GitHub Releases (pinned to the bundled VERSION) and extracts the contained
-CraftBotAgent.exe to a user-chosen install directory.
+The installer (CraftBotInstaller.exe) is small and ships with no agent code.
+At install time it downloads CraftBot-src.zip from GitHub Releases (pinned to
+the bundled VERSION) and extracts it to a user-chosen directory;
+app.provision then builds an interpreter and dependency set around it.
 
 This module owns: asset naming, version pinning, download with progress,
-local-staged-zip lookup (so devs can test the installer without publishing
-a release), and zip extraction with EXE discovery.
+local-staged-zip lookup (so devs can test the installer without publishing a
+release), and extraction.
+
+The CraftBot-agent-<platform>.zip helpers are the LEGACY frozen-agent path,
+kept only so this code can still recognise a pre-1.5 release. See
+docs/plans/unified-install-architecture.md.
 
 All functions take the dependencies they need as arguments — there is no
 module-level state pulled from craftbot.py, which keeps imports one-way.
@@ -28,21 +32,15 @@ GITHUB_REPO = "CraftBot"
 _PLATFORM = sys.platform
 
 
-def agent_asset_name() -> str:
-    """Filename of the per-platform zip we expect at the GitHub release."""
-    plat = (
-        "windows"
-        if _PLATFORM == "win32"
-        else "macos"
-        if _PLATFORM == "darwin"
-        else "linux"
-    )
-    return f"CraftBot-agent-{plat}.zip"
+def source_asset_name() -> str:
+    """The source payload every platform shares.
 
-
-def agent_exe_filename() -> str:
-    """Filename of the agent executable produced by CraftBotAgent.spec."""
-    return "CraftBotAgent.exe" if _PLATFORM == "win32" else "CraftBotAgent"
+    One asset, not one per platform: it is pure Python plus data files. What
+    used to differ per platform was the bundled interpreter and the compiled
+    wheels, and both are now provisioned on the machine by app.provision
+    (a python-build-standalone sidecar plus the per-platform lock).
+    """
+    return "CraftBot-src.zip"
 
 
 def read_bundled_version(base_dir: str) -> str:
@@ -64,39 +62,31 @@ def read_bundled_version(base_dir: str) -> str:
     return "latest"
 
 
-def agent_download_url(base_dir: str) -> str:
+def _asset_url(base_dir: str, asset: str) -> str:
     version = read_bundled_version(base_dir)
-    asset = agent_asset_name()
     if version == "latest":
         return f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest/download/{asset}"
     return f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/download/v{version}/{asset}"
 
 
-def find_agent_exe(install_dir: str) -> Optional[str]:
-    """Locate the agent executable inside an extracted install directory.
-    Tries flat layout first, then nested CraftBotAgent/ folder."""
-    candidates = [
-        os.path.join(install_dir, agent_exe_filename()),
-        os.path.join(install_dir, "CraftBotAgent", agent_exe_filename()),
-    ]
-    for c in candidates:
-        if os.path.isfile(c):
-            return c
-    return None
+def source_download_url(base_dir: str) -> str:
+    return _asset_url(base_dir, source_asset_name())
 
 
-def local_agent_zip(exe_path: Optional[str]) -> Optional[str]:
-    """Return path to a locally-staged agent zip, if one exists.
+def local_asset(asset: str, exe_path: Optional[str], env_var: str) -> Optional[str]:
+    """A locally-staged copy of `asset`, if one exists.
 
     Lookup order (first match wins):
-      1. $CRAFTBOT_AGENT_ZIP env var (explicit override)
-      2. <dir-of-running-EXE>/CraftBot-agent-<platform>.zip
-      3. <cwd>/dist/CraftBot-agent-<platform>.zip  (matches local build output)
+      1. $<env_var> (explicit override)
+      2. <dir-of-running-EXE>/<asset>
+      3. <cwd>/dist/<asset>   (matches local build output)
+
+    This is the dev loop: build the payload, drop it beside the installer, and
+    the wizard uses it instead of fetching a published release.
     """
-    env_path = os.environ.get("CRAFTBOT_AGENT_ZIP")
+    env_path = os.environ.get(env_var)
     if env_path and os.path.isfile(env_path):
         return env_path
-    asset = agent_asset_name()
     candidates: list[str] = []
     if exe_path:
         candidates.append(os.path.join(os.path.dirname(exe_path), asset))
@@ -107,20 +97,23 @@ def local_agent_zip(exe_path: Optional[str]) -> Optional[str]:
     return None
 
 
-def download_agent_zip(
-    base_dir: str,
-    exe_path: Optional[str],
+def local_source_zip(exe_path: Optional[str]) -> Optional[str]:
+    return local_asset(source_asset_name(), exe_path, "CRAFTBOT_SRC_ZIP")
+
+
+def download_asset(
+    url: str,
+    local: Optional[str],
+    label: str,
     progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
 ) -> str:
-    """Get the agent zip — local copy if available, else download from GitHub.
+    """Get an asset — a locally-staged copy if given, else download it.
 
-    Returns the path to the zip on disk. If a local copy was found, the
-    caller MUST NOT unlink it. If the result is in tempfile.gettempdir(),
-    the caller is expected to clean it up.
+    Returns the path to the zip on disk. If a local copy was used, the caller
+    MUST NOT unlink it; is_temp_zip() distinguishes the two.
     """
-    local = local_agent_zip(exe_path)
     if local:
-        print(f"  Using local agent zip: {local}")
+        print(f"  Using local {label}: {local}")
         if progress_cb:
             try:
                 size = os.path.getsize(local)
@@ -131,10 +124,9 @@ def download_agent_zip(
 
     import urllib.request
 
-    url = agent_download_url(base_dir)
     print(f"  Downloading {url}")
 
-    fd, tmp_path = tempfile.mkstemp(prefix="CraftBot-agent-", suffix=".zip")
+    fd, tmp_path = tempfile.mkstemp(prefix="CraftBot-", suffix=".zip")
     os.close(fd)
     try:
         with urllib.request.urlopen(url, timeout=60) as resp:
@@ -163,24 +155,51 @@ def download_agent_zip(
         raise
 
 
-def extract_agent_zip(zip_path: str, target_dir: str) -> str:
-    """Extract zip into target_dir, return absolute path to the agent EXE."""
+def download_source_zip(
+    base_dir: str,
+    exe_path: Optional[str],
+    progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
+) -> str:
+    """The source payload the installer provisions a runtime around."""
+    return download_asset(
+        source_download_url(base_dir),
+        local_source_zip(exe_path),
+        "source zip",
+        progress_cb,
+    )
+
+
+def extract_source_zip(zip_path: str, target_dir: str) -> str:
+    """Extract the source payload and return the directory holding run.py.
+
+    Tolerates both shapes a zip can have: files at the root, or nested under a
+    single wrapper directory (what `git archive` and GitHub's own zips
+    produce). Getting this wrong yields an install that looks fine until
+    nothing can find run.py.
+    """
     import zipfile
 
     os.makedirs(target_dir, exist_ok=True)
-    print(f"  Extracting to {target_dir}")
+    print(f"  Extracting source to {target_dir}")
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(target_dir)
 
-    exe = find_agent_exe(target_dir)
-    if not exe:
-        raise RuntimeError(
-            f"Agent EXE not found after extracting to {target_dir}. "
-            f"Expected {agent_exe_filename()} at the top level or under CraftBotAgent/."
-        )
-    if _PLATFORM != "win32":
-        os.chmod(exe, 0o755)
-    return exe
+    if os.path.isfile(os.path.join(target_dir, "run.py")):
+        return target_dir
+
+    entries = [
+        os.path.join(target_dir, e)
+        for e in os.listdir(target_dir)
+        if os.path.isdir(os.path.join(target_dir, e))
+    ]
+    for candidate in entries:
+        if os.path.isfile(os.path.join(candidate, "run.py")):
+            return candidate
+
+    raise RuntimeError(
+        f"run.py not found after extracting to {target_dir}. "
+        "The source payload is not shaped as expected."
+    )
 
 
 def is_temp_zip(zip_path: str) -> bool:

@@ -1170,8 +1170,10 @@
       "transport": "stdio",
       "command": "npx",
       "args": [
-        "@playwright/mcp@latest",
-        "--headless"
+        "@playwright/mcp@0.0.80",
+        "--headless",
+        "--output-dir",
+        ".playwright-mcp"
       ],
       "env": {},
       "enabled": true
@@ -2124,6 +2126,18 @@
       "env": {
         "GOOGLE_MAPS_API_KEY": ""
       },
+      "enabled": false
+    },
+    {
+      "name": "context7",
+      "description": "Context7 (upstash/context7) — fetch up-to-date, version-specific library documentation and code examples directly into context. Use when writing code against a specific library/framework version to avoid outdated or hallucinated APIs. No API key required; for higher rate limits add a free key from context7.com and append '--api-key', 'YOUR_KEY' to args.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "env": {},
       "enabled": false
     }
   ],

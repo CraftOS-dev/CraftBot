@@ -454,7 +454,7 @@ class SubAgentRunner:
         ``_build_user_prompt`` will resend the full first-turn prompt and
         the LLM interface will lazily recreate the session.
         """
-        self.llm_interface.end_session_cache(sub.id, _SUBAGENT_CALL_TYPE)
+        self.llm_interface.reset_session_history(sub.id, _SUBAGENT_CALL_TYPE)
         stream.reset_session_sync(_SUBAGENT_CALL_TYPE)
 
     # ------------------------------------------------------------------
@@ -584,6 +584,9 @@ class SubAgentRunner:
         model after the cached history vanishes.
         """
         if not stream.has_session_sync(_SUBAGENT_CALL_TYPE):
+            # A true first turn, or the stream folded and cleared the sync
+            # point; either way any accumulated turns are stale.
+            self._reset_session(sub, stream)
             prompt = self.context_engine.make_first_turn_user_prompt(sub)
             return self._with_turn_budget(sub, prompt), True
 
