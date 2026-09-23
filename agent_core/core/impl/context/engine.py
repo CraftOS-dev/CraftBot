@@ -461,8 +461,25 @@ class ContextEngine:
             # updated a turn or two into a session, and this block sits in the
             # cacheable prefix (ahead of the event stream), so a mutating title
             # would break the KV-cache prefix every time it changed.
-            if getattr(session, "living_ui_project_id", None):
-                lines.append(f"Living UI Project: {session.living_ui_project_id}")
+            if getattr(session, "agent_app_project_id", None):
+                lines.append(f"Agent App Project: {session.agent_app_project_id}")
+            # Concrete per-session file paths. workspace_dir is stable for the
+            # session's lifetime, so it does not churn the cacheable prefix.
+            # This is how you learn the real path to grep your own event log or
+            # write your scratchpad — do not guess it from the session id.
+            workspace_dir = getattr(session, "workspace_dir", None)
+            if workspace_dir:
+                lines.append(f"Session Workspace: {workspace_dir}")
+                lines.append(
+                    f"  - EVENT.md ({workspace_dir}/EVENT.md): this session's full "
+                    f"event log; grep/read it to recover detail summarized out of "
+                    f"context. Read-only."
+                )
+                lines.append(
+                    f"  - NOTE.md ({workspace_dir}/NOTE.md): your scratchpad; read "
+                    f"AND write it to keep working notes that must survive "
+                    f"event-stream summarization."
+                )
             lines.append(f"Loaded Action Sets: {['core'] + list(session.action_sets)}")
             if session.selected_skills:
                 lines.append(f"Loaded Skills: {list(session.selected_skills)}")

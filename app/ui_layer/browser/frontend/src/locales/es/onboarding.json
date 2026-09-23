@@ -1,0 +1,90 @@
+{
+  "ollama": {
+    "checking": "Comprobando si Ollama está en ejecución…",
+    "notInstalledStatus": "Ollama no está instalado",
+    "notInstalledHint": "Ollama te permite ejecutar modelos de IA localmente, sin necesidad de la nube. Lo instalaremos automáticamente por ti.",
+    "install": "Instalar Ollama",
+    "installing": "Instalando Ollama…",
+    "installStarting": "Iniciando…",
+    "notRunningStatus": "Ollama está instalado pero no en ejecución",
+    "notRunningHint": "Haz clic abajo para iniciar el servidor de Ollama.",
+    "start": "Iniciar Ollama",
+    "starting": "Iniciando Ollama…",
+    "runningNoModels": "Ollama está en ejecución (aún no hay modelos)",
+    "selectModelHint": "Selecciona un modelo para descargar y empezar a chatear:",
+    "findModel": "Buscar modelo...",
+    "recommended": "Recomendado",
+    "noModelMatch": "Ningún modelo coincide con \"{{query}}\"",
+    "download": "Descargar {{model}}",
+    "modelFallback": "Modelo",
+    "downloading": "Descargando {{model}}…",
+    "downloadStarting": "Iniciando la descarga…",
+    "connected": "Conectado a Ollama",
+    "running": "Ollama está en ejecución",
+    "serverUrl": "URL del servidor de Ollama",
+    "test": "Probar"
+  },
+  "ollamaPrompt": {
+    "notInstalled": "Ollama aún no está instalado. Lo configuraré para nosotros.",
+    "installing": "Instalando Ollama… esto tardará un minuto.",
+    "notRunning": "Ollama está instalado pero no en ejecución. ¿Lo iniciamos?",
+    "starting": "Iniciando Ollama…",
+    "running": "Ollama está en ejecución. Vamos a probar la conexión.",
+    "selectingModel": "Elige un modelo para que lo descargue.",
+    "pullingModel": "Descargando tu modelo… esto puede tardar unos minutos.",
+    "connected_one": "Conectado. {{count}} modelo listo para usar.",
+    "connected_other": "Conectado. {{count}} modelos listos para usar.",
+    "errorFallback": "Algo salió mal. ¿Te importa reintentarlo?",
+    "checking": "Comprobando Ollama…"
+  },
+  "apiKey": {
+    "storedLocally": "Tu clave de API se guarda localmente.",
+    "optional": "Clave de API (opcional)",
+    "enter": "Introduce tu clave de API",
+    "orEnterKey": "o introduce una clave de API"
+  },
+  "apiKeyPrompt": {
+    "openrouter": "Pega tu clave de OpenRouter y la configuraré.",
+    "withSub": "Conecta tu cuenta de {{provider}} para que pueda empezar a trabajar. Inicia sesión o pega una clave de API.",
+    "plain": "Pega tu clave de API de {{provider}} para que pueda conectarme y empezar a trabajar.",
+    "providerFallback": "tu proveedor"
+  },
+  "proxied": {
+    "orKey": "Introduce tu clave de API de OpenRouter",
+    "directKey": "Introduce tu clave de API de {{provider}}",
+    "modelLabel": "Modelo <1>(opcional; deja el predeterminado o introduce cualquier slug de OpenRouter)</1>",
+    "useDirect": "← Usar la API directa de {{provider}} en su lugar",
+    "useOpenRouter": "¿Problemas de conexión? Usa OpenRouter en su lugar →"
+  },
+  "sub": {
+    "working": "Trabajando…",
+    "pastePlaceholder": "Pega el código de la página de inicio de sesión",
+    "submitting": "Enviando…",
+    "submitCode": "Enviar código",
+    "reopen": "Volver a abrir la página de inicio de sesión",
+    "openingBrowser": "Abriendo el navegador…",
+    "signInWith": "Iniciar sesión con {{provider}}",
+    "useKeyInstead": "Usar una clave de API en su lugar"
+  },
+  "form": {
+    "enterField": "Introduce {{field}}",
+    "enterName": "Introduce un nombre"
+  },
+  "stepPrompt": {
+    "provider": "¿Qué IA debería impulsarme?",
+    "userProfile": "¿Cómo debería llamarte?",
+    "agentName": "¿Y cómo te gustaría llamarme?"
+  },
+  "intro": {
+    "greeting": "<1>Encantado de conocerte, ¡soy CraftBot!</1><2/>Estoy aquí para ayudarte con el trabajo o la vida.",
+    "kicker": "Ahora, antes de empezar, hay algunos ajustes que debemos configurar."
+  },
+  "done": {
+    "message": "¡Todo listo! <1>{{name}}</1> está listo para trabajar."
+  },
+  "nav": {
+    "testingApiKey": "Probando la clave de API…",
+    "getStarted": "Empezar",
+    "finish": "Finalizar"
+  }
+}

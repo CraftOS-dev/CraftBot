@@ -12,13 +12,20 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { MarkdownContent } from './MarkdownContent'
-import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { setPendingPrefill } from '../../store/slices/chatInputSlice'
 import { selectEnabledSkillNames } from '../../store/selectors/skillsSettings'
+import {
+  selectPlaybooks,
+  selectPlaybooksError,
+  selectPlaybooksHasLoaded,
+} from '../../store/selectors/playbooks'
+import { resetPlaybooks, type Playbook } from '../../store/slices/playbooksSlice'
+import { RESOURCES, resourceSync, useResource } from '../../store/resources'
 import styles from './PlaybookModal.module.css'
 
 export interface PlaybookModalProps {
@@ -26,64 +33,31 @@ export interface PlaybookModalProps {
   onClose: () => void
 }
 
-interface PlaybookWorksBestWith {
-  agent_profile?: string
-  skills?: string[]
-  mcp_servers?: string[]
-  living_ui_apps?: string[]
-}
-
-interface Playbook {
-  id: string
-  name: string
-  category?: string
-  tags?: string[]
-  emoji?: string
-  description?: string
-  works_best_with?: PlaybookWorksBestWith
-  steps?: string[]
-  prompt: string
-}
-
 const DEFAULT_EMOJI = '📖'
 
 export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { t } = useTranslation(['components', 'common'])
   const dispatch = useAppDispatch()
   const enabledSkills = useAppSelector(selectEnabledSkillNames)
 
-  const [playbooks, setPlaybooks] = useState<Playbook[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // The catalogue lives in the store, so it is still there when the modal is
+  // reopened or remounted; ResourceSync asks for it when it is missing or
+  // went stale (first use, reconnect).
+  const playbooks = useAppSelector(selectPlaybooks)
+  const hasLoaded = useAppSelector(selectPlaybooksHasLoaded)
+  const loadError = useAppSelector(selectPlaybooksError)
+  useResource(isOpen ? RESOURCES.playbooks : null)
+  const loading = isOpen && !hasLoaded
+  const error = hasLoaded && loadError !== null
+    ? (loadError || t('components:playbookModal.loadFailed'))
+    : null
+
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
   const [tagsExpanded, setTagsExpanded] = useState(false)
   const [selectedPlaybook, setSelectedPlaybook] = useState<Playbook | null>(null)
 
   const TAG_COLLAPSE_LIMIT = 8
-
-  // Fetch on first open (and whenever the connection comes online while open).
-  useEffect(() => {
-    if (!isOpen || !isConnected) return
-    if (playbooks.length > 0) return
-    setLoading(true)
-    setError(null)
-    send('playbook_list')
-  }, [isOpen, isConnected, playbooks.length, send])
-
-  // Subscribe to playbook_list responses for as long as the modal is mounted.
-  useEffect(() => {
-    return onMessage('playbook_list', (data: unknown) => {
-      const d = data as { success: boolean; playbooks?: Playbook[]; error?: string }
-      setLoading(false)
-      if (d.success && d.playbooks) {
-        setPlaybooks(d.playbooks)
-        setError(null)
-      } else {
-        setError(d.error || 'Failed to load playbooks')
-      }
-    })
-  }, [onMessage])
 
   // Reset search + detail view whenever the modal closes so reopening starts clean.
   useEffect(() => {
@@ -148,7 +122,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
         title={
           <span className={styles.titleRow}>
             <BookOpen size={18} className={styles.titleIcon} />
-            Playbook
+            {t('components:playbookModal.detailTitle')}
           </span>
         }
       >
@@ -159,7 +133,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
             onClick={() => setSelectedPlaybook(null)}
           >
             <ArrowLeft size={14} />
-            Back to all playbooks
+            {t('components:playbookModal.backToAll')}
           </button>
 
           <div className={styles.detailHeader}>
@@ -174,20 +148,20 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
             </div>
           </div>
 
-          {(wbw.agent_profile || (wbw.skills && wbw.skills.length) || (wbw.mcp_servers && wbw.mcp_servers.length) || (wbw.living_ui_apps && wbw.living_ui_apps.length)) && (
+          {(wbw.agent_profile || (wbw.skills && wbw.skills.length) || (wbw.mcp_servers && wbw.mcp_servers.length) || (wbw.agent_app_apps && wbw.agent_app_apps.length)) && (
             <div className={styles.section}>
               <div className={styles.sectionLabel}>
-                Works best with
+                {t('components:playbookModal.worksBestWith')}
                 <span
                   className={styles.sectionHint}
-                  title="These are hints — CraftBot can run the prompt without them, and will offer to help install anything missing."
+                  title={t('components:playbookModal.worksBestWithHint')}
                 >
                   ?
                 </span>
               </div>
               <div className={styles.chips}>
                 {wbw.agent_profile && (
-                  <span className={styles.chip} title="Suggested agent profile">
+                  <span className={styles.chip} title={t('components:playbookModal.suggestedAgentProfile')}>
                     <UserCircle size={12} />
                     {wbw.agent_profile}
                   </span>
@@ -198,7 +172,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                     <span
                       key={`skill-${skill}`}
                       className={`${styles.chip} ${installed ? styles.chipInstalled : ''}`}
-                      title={installed ? 'Skill already enabled' : 'Suggested skill'}
+                      title={installed ? t('components:playbookModal.skillEnabled') : t('components:playbookModal.suggestedSkill')}
                     >
                       <Wrench size={12} />
                       {skill}
@@ -207,13 +181,13 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                   )
                 })}
                 {(wbw.mcp_servers || []).map(mcp => (
-                  <span key={`mcp-${mcp}`} className={styles.chip} title="Suggested MCP server">
+                  <span key={`mcp-${mcp}`} className={styles.chip} title={t('components:playbookModal.suggestedMcp')}>
                     <Server size={12} />
                     {mcp}
                   </span>
                 ))}
-                {(wbw.living_ui_apps || []).map(app => (
-                  <span key={`app-${app}`} className={styles.chip} title="Suggested Living UI app">
+                {(wbw.agent_app_apps || []).map(app => (
+                  <span key={`app-${app}`} className={styles.chip} title={t('components:playbookModal.suggestedApp')}>
                     <Layout size={12} />
                     {app}
                   </span>
@@ -224,7 +198,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
 
           {selectedPlaybook.description && (
             <div className={styles.section}>
-              <div className={styles.sectionLabel}>About</div>
+              <div className={styles.sectionLabel}>{t('components:playbookModal.about')}</div>
               <MarkdownContent
                 content={selectedPlaybook.description}
                 className={styles.description}
@@ -234,7 +208,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
 
           {selectedPlaybook.steps && selectedPlaybook.steps.length > 0 && (
             <div className={styles.section}>
-              <div className={styles.sectionLabel}>What CraftBot will do</div>
+              <div className={styles.sectionLabel}>{t('components:playbookModal.whatItWillDo')}</div>
               <ol className={styles.steps}>
                 {selectedPlaybook.steps.map((step, idx) => (
                   <li key={idx} className={styles.step}>
@@ -246,19 +220,19 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
           )}
 
           <div className={styles.section}>
-            <div className={styles.sectionLabel}>Prompt preview</div>
+            <div className={styles.sectionLabel}>{t('components:playbookModal.promptPreview')}</div>
             <pre className={styles.promptPreview}>{selectedPlaybook.prompt}</pre>
           </div>
 
           <div className={styles.detailFooter}>
             <Button variant="secondary" onClick={() => setSelectedPlaybook(null)}>
-              Back
+              {t('common:actions.back')}
             </Button>
             <Button
               icon={<Zap size={14} />}
               onClick={() => handleUse(selectedPlaybook)}
             >
-              Use this playbook
+              {t('components:playbookModal.useButton')}
             </Button>
           </div>
         </div>
@@ -275,7 +249,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
       title={
         <span className={styles.titleRow}>
           <BookOpen size={18} className={styles.titleIcon} />
-          Playbooks
+          {t('components:playbookModal.title')}
         </span>
       }
     >
@@ -285,7 +259,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
             <Search size={14} className={styles.searchIcon} />
             <input
               className={styles.searchInput}
-              placeholder="Search playbooks..."
+              placeholder={t('components:playbookModal.searchPlaceholder')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               autoFocus
@@ -301,7 +275,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                   className={`${styles.tagChip} ${selectedTags.size === 0 ? styles.tagChipActive : ''}`}
                   onClick={() => setSelectedTags(new Set())}
                 >
-                  All
+                  {t('components:playbookModal.filterAll')}
                 </button>
                 {visibleTags.map(tag => (
                   <button
@@ -319,7 +293,7 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                     className={styles.tagChip}
                     onClick={() => setTagsExpanded(v => !v)}
                   >
-                    {tagsExpanded ? 'Show less' : `+${hiddenCount} more`}
+                    {tagsExpanded ? t('common:actions.showLess') : t('components:playbookModal.moreCount', { count: hiddenCount })}
                   </button>
                 )}
               </div>
@@ -339,23 +313,22 @@ export function PlaybookModal({ isOpen, onClose }: PlaybookModalProps) {
                 size="sm"
                 variant="secondary"
                 onClick={() => {
-                  setLoading(true)
-                  setError(null)
-                  send('playbook_list')
+                  dispatch(resetPlaybooks())
+                  resourceSync.refresh(RESOURCES.playbooks)
                 }}
               >
-                Retry
+                {t('common:actions.retry')}
               </Button>
             </div>
           ) : playbooks.length === 0 ? (
             <div className={styles.stateCenter}>
               <Sparkles size={32} className={styles.stateIcon} />
-              <p className={styles.stateText}>No playbooks available yet.</p>
+              <p className={styles.stateText}>{t('components:playbookModal.emptyNone')}</p>
             </div>
           ) : filteredPlaybooks.length === 0 ? (
             <div className={styles.stateCenter}>
               <Search size={32} className={styles.stateIcon} />
-              <p className={styles.stateText}>No playbooks match your filters.</p>
+              <p className={styles.stateText}>{t('components:playbookModal.emptyFiltered')}</p>
             </div>
           ) : (
             <div className={styles.grid}>

@@ -19,12 +19,14 @@ import asyncio
 import base64
 import mimetypes
 import os
+import re
 from dataclasses import dataclass
 from datetime import timezone
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional
 
 from ... import (
@@ -68,6 +70,25 @@ _USEFUL_HEADERS = (
 )
 
 
+# Canonical casing for the format=metadata `metadataHeaders` request — the
+# same set as _USEFUL_HEADERS, so metadata and full reads return identical
+# headers (previously metadata asked for only From/To/Subject/Date, so Cc,
+# Reply-To and Message-ID were silently absent).
+_METADATA_HEADERS = [
+    "From",
+    "To",
+    "Cc",
+    "Bcc",
+    "Reply-To",
+    "Subject",
+    "Date",
+    "Message-ID",
+    "In-Reply-To",
+    "References",
+    "Content-Type",
+]
+
+
 def _filter_headers(headers: List[Dict[str, Any]]) -> Dict[str, str]:
     """Reduce Gmail's raw header list to the fields an agent actually uses."""
     return {
@@ -75,6 +96,98 @@ def _filter_headers(headers: List[Dict[str, Any]]) -> Dict[str, str]:
         for h in headers
         if h.get("name", "").lower() in _USEFUL_HEADERS
     }
+
+
+def _part_charset(part: Dict[str, Any]) -> str:
+    """Charset declared on a MIME part's Content-Type header (utf-8 if none)."""
+    for h in part.get("headers", []) or []:
+        if h.get("name", "").lower() == "content-type":
+            for param in h.get("value", "").split(";")[1:]:
+                key, _, val = param.strip().partition("=")
+                if key.strip().lower() == "charset" and val:
+                    return val.strip().strip('"').strip("'")
+    return "utf-8"
+
+
+def _decode_part(part: Dict[str, Any]) -> str:
+    """Decode a part's base64url body using its declared charset.
+
+    Never raises: an unknown charset or undecodable byte degrades to
+    replacement characters instead of failing the whole read (a strict
+    utf-8 decode used to turn any iso-8859-1 / windows-1252 email into an
+    error that also lost its headers).
+    """
+    data = (part.get("body") or {}).get("data", "")
+    if not data:
+        return ""
+    try:
+        raw = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+    except Exception:
+        return ""
+    try:
+        return raw.decode(_part_charset(part), errors="replace")
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
+
+
+class _HtmlText(HTMLParser):
+    """Minimal HTML → readable text: drops script/style/head, breaks lines
+    at block elements, keeps link targets."""
+
+    _BLOCK = {
+        "br", "p", "div", "tr", "li", "table", "blockquote",
+        "h1", "h2", "h3", "h4", "h5", "h6",
+    }
+    _SKIP = {"script", "style", "head", "title"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.out: List[str] = []
+        self._skip = 0
+        self._href: Optional[str] = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._skip += 1
+        elif tag in self._BLOCK:
+            self.out.append("\n")
+        elif tag == "a":
+            href = dict(attrs).get("href") or ""
+            if href.startswith("http"):
+                self._href = href
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP:
+            self._skip = max(0, self._skip - 1)
+        elif tag in self._BLOCK:
+            self.out.append("\n")
+        elif tag == "a" and self._href:
+            self.out.append(f" ({self._href})")
+            self._href = None
+
+    def handle_data(self, data):
+        if not self._skip:
+            self.out.append(data)
+
+
+# Spaces, nbsp, and the zero-width fillers marketing mail pads preheaders
+# (and therefore Gmail snippets) with \u2014 pure token waste for the agent.
+_SPACE_RUN = re.compile(r"[ \t\u00a0\u034f\u200b\u200c]+")
+
+
+def _clean_spaces(text: str) -> str:
+    return _SPACE_RUN.sub(" ", text).strip()
+
+
+def _html_to_text(html: str) -> str:
+    parser = _HtmlText()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:
+        pass
+    lines = [_clean_spaces(ln) for ln in "".join(parser.out).splitlines()]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 GMAIL = IntegrationSpec(
@@ -385,7 +498,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         cred = self._load()
         sender = from_email or cred.email
         # No recipient = the account owner. Callers reaching "the user" (a
-        # Living UI's daily digest, an agent self-notification) should never
+        # Agent App's daily digest, an agent self-notification) should never
         # need to know or store the user's address — identity is CraftBot's.
         recipient = to or cred.email
         raw = self._encode_email(recipient, sender, subject, body, attachments)
@@ -414,9 +527,20 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         format_type = "full" if full_body else "metadata"
 
         def _shape(msg):
+            labels = msg.get("labelIds", []) or []
             email_info: Dict[str, Any] = {
                 "id": msg.get("id"),
-                "snippet": msg.get("snippet", ""),
+                "threadId": msg.get("threadId"),
+                # Label state is the only place Gmail exposes read/unread,
+                # inbox/archive, starred, category — dropping it left the
+                # agent unable to answer "is this unread?".
+                "labelIds": labels,
+                "unread": "UNREAD" in labels,
+                # Server receive time (epoch ms) — unlike the Date header it is
+                # always present and not set by the sender.
+                "internalDate": msg.get("internalDate"),
+                "sizeEstimate": msg.get("sizeEstimate"),
+                "snippet": _clean_spaces(msg.get("snippet", "")),
                 # The `metadataHeaders` request param is honoured ONLY for
                 # format=metadata — with format=full (full_body=True) Gmail returns
                 # the entire raw MIME header block. That is ~55% of the payload and
@@ -428,41 +552,43 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             }
             if full_body:
                 attachments: List[Dict[str, Any]] = []
+                texts: Dict[str, str] = {}
 
-                def _walk_parts(parts):
-                    for part in parts:
-                        attachment_id = part.get("body", {}).get("attachmentId")
-                        if attachment_id:
-                            attachments.append(
-                                {
-                                    "filename": part.get("filename", ""),
-                                    "attachment_id": attachment_id,
-                                    "mimeType": part.get("mimeType", ""),
-                                    "size": part.get("body", {}).get("size", 0),
-                                }
-                            )
-                        elif part.get(
-                            "mimeType"
-                        ) == "text/plain" and "data" in part.get("body", {}):
-                            if "body" not in email_info:
-                                email_info["body"] = base64.urlsafe_b64decode(
-                                    part["body"]["data"].encode("ASCII")
-                                ).decode("utf-8")
-                        nested = part.get("parts")
-                        if nested:
-                            _walk_parts(nested)
+                def _visit(part):
+                    body = part.get("body", {}) or {}
+                    mime = part.get("mimeType", "")
+                    if body.get("attachmentId"):
+                        attachments.append(
+                            {
+                                "filename": part.get("filename", ""),
+                                "attachment_id": body["attachmentId"],
+                                "mimeType": mime,
+                                "size": body.get("size", 0),
+                            }
+                        )
+                    elif (
+                        mime in ("text/plain", "text/html")
+                        and "data" in body
+                        and not part.get("filename")  # inline-data text attachment
+                        and mime not in texts
+                    ):
+                        texts[mime] = _decode_part(part)
+                    for nested in part.get("parts", []) or []:
+                        _visit(nested)
 
-                payload = msg.get("payload", {})
-                top_parts = payload.get("parts", [])
-                if top_parts:
-                    _walk_parts(top_parts)
-                elif payload.get("mimeType") == "text/plain" and "data" in payload.get(
-                    "body", {}
-                ):
-                    email_info["body"] = base64.urlsafe_b64decode(
-                        payload["body"]["data"].encode("ASCII")
-                    ).decode("utf-8")
+                _visit(msg.get("payload", {}) or {})
 
+                # Prefer the plain-text alternative; HTML-only mail (most
+                # newsletters/notifications) used to come back with no body.
+                if texts.get("text/plain", "").strip():
+                    email_info["body"] = texts["text/plain"]
+                    email_info["body_format"] = "text"
+                elif texts.get("text/html"):
+                    email_info["body"] = _html_to_text(texts["text/html"])
+                    email_info["body_format"] = "html_converted"
+                else:
+                    email_info["body"] = ""
+                    email_info["body_format"] = "none"
                 email_info["attachments"] = attachments
             return email_info
 
@@ -472,7 +598,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             headers=self._auth_header(),
             params={
                 "format": format_type,
-                "metadataHeaders": ["From", "To", "Subject", "Date"],
+                "metadataHeaders": _METADATA_HEADERS,
             },
             expected=(200,),
             transform=_shape,
@@ -734,14 +860,6 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             "attachments": [],
         }
 
-        def _decode(part) -> str:
-            try:
-                return base64.urlsafe_b64decode(
-                    part["body"]["data"].encode("ASCII")
-                ).decode("utf-8", errors="replace")
-            except Exception:
-                return ""
-
         def _walk(parts):
             for part in parts:
                 body = part.get("body", {})
@@ -755,9 +873,9 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                         }
                     )
                 elif mime == "text/plain" and "data" in body and not out["text_body"]:
-                    out["text_body"] = _decode(part)
+                    out["text_body"] = _decode_part(part)
                 elif mime == "text/html" and "data" in body and not out["html_body"]:
-                    out["html_body"] = _decode(part)
+                    out["html_body"] = _decode_part(part)
                 if part.get("parts"):
                     _walk(part["parts"])
 
@@ -766,9 +884,9 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             _walk(payload["parts"])
         elif "data" in payload.get("body", {}):
             if payload.get("mimeType") == "text/html":
-                out["html_body"] = _decode(payload)
+                out["html_body"] = _decode_part(payload)
             else:
-                out["text_body"] = _decode(payload)
+                out["text_body"] = _decode_part(payload)
         return out
 
     def forward_message(

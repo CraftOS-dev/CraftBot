@@ -64,10 +64,11 @@ def test_datetime_refreshes_after_interval(event_stream_limits):
 
 
 def test_datetime_restamped_after_summarization(event_stream_limits):
-    event_stream_limits(2100, 100)
+    event_stream_limits(100)
     es = EventStream(llm=_FakeLLM())
     for i in range(400):
         es.log("action_end", f"action {i} produced some output text to add tokens")
-    assert es.head_summary is not None  # summarization happened
+    es.summarize_by_LLM()
+    assert es.head_summary is not None
     # A current datetime marker is always present (re-stamped post-summary).
     assert any(r.event.kind == "datetime" for r in es.tail_events)

@@ -74,6 +74,12 @@ export interface IndexCandidate {
   size: number
 }
 
+/** Daily auto-processing schedule as the Settings → Memory form edits it. */
+export interface MemorySchedule {
+  time: string // "HH:MM"
+  threshold: number
+}
+
 interface MemorySettingsState {
   enabled: boolean
   items: MemoryItem[]
@@ -84,6 +90,9 @@ interface MemorySettingsState {
   indexedFiles: IndexedFileInfo[]
   indexCandidates: IndexCandidate[]
   hasLoadedFiles: boolean
+  schedule: MemorySchedule | null
+  thresholdMax: number
+  unprocessedEvents: number
 }
 
 const initialState: MemorySettingsState = {
@@ -96,6 +105,9 @@ const initialState: MemorySettingsState = {
   indexedFiles: [],
   indexCandidates: [],
   hasLoadedFiles: false,
+  schedule: null,
+  thresholdMax: 100,
+  unprocessedEvents: 0,
 }
 
 // Backend items arrive snake_cased; normalise the optional graph fields.
@@ -142,6 +154,20 @@ const memorySettingsSlice = createSlice({
     setIndexCandidates(state, action: PayloadAction<IndexCandidate[]>) {
       state.indexCandidates = action.payload
     },
+    setSchedule(
+      state,
+      action: PayloadAction<{ schedule: MemorySchedule; thresholdMax?: number; unprocessedEvents?: number }>,
+    ) {
+      state.schedule = action.payload.schedule
+      if (action.payload.thresholdMax !== undefined) state.thresholdMax = action.payload.thresholdMax
+      if (action.payload.unprocessedEvents !== undefined) state.unprocessedEvents = action.payload.unprocessedEvents
+    },
+    // A reset rewrites MEMORY.md and rebuilds the index: the cached items and
+    // graph are gone. The views using them refetch via `resource_changed`.
+    clearMemoryContent(state) {
+      state.items = []
+      state.graph = null
+    },
   },
 })
 
@@ -152,6 +178,8 @@ export const {
   setGraphLoading,
   setIndexedFiles,
   setIndexCandidates,
+  setSchedule,
+  clearMemoryContent,
 } = memorySettingsSlice.actions
 export default memorySettingsSlice.reducer
 
@@ -216,3 +244,25 @@ const applyIndexFileMutation: InboundHandler = (data, dispatch) => {
 
 register('memory_index_file_add', applyIndexFileMutation)
 register('memory_index_file_remove', applyIndexFileMutation)
+
+register('memory_schedule_get', (data, dispatch) => {
+  const d = data as {
+    success: boolean
+    schedule?: { hour: number; minute: number }
+    threshold?: number
+    threshold_max?: number
+    unprocessed?: number
+  }
+  if (!d.success || !d.schedule) return
+  const pad = (n: number) => String(n).padStart(2, '0')
+  dispatch(setSchedule({
+    schedule: { time: `${pad(d.schedule.hour)}:${pad(d.schedule.minute)}`, threshold: d.threshold ?? 25 },
+    thresholdMax: d.threshold_max,
+    unprocessedEvents: d.unprocessed,
+  }))
+})
+
+register('memory_reset', (data, dispatch) => {
+  const d = data as { success: boolean }
+  if (d.success) dispatch(clearMemoryContent())
+})

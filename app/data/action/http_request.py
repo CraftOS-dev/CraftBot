@@ -213,7 +213,7 @@ def send_http_requests(input_data: dict) -> dict:
         }
 
     # SSRF protection: block requests to private/internal networks and cloud metadata.
-    # Loopback is allowed only when the port belongs to a registered Living UI project,
+    # Loopback is allowed only when the port belongs to a registered Agent App project,
     # so the agent can talk to its own apps without exposing arbitrary localhost services.
     try:
         from urllib.parse import urlparse as _urlparse
@@ -240,11 +240,11 @@ def send_http_requests(input_data: dict) -> dict:
                 "message": "Blocked: requests to cloud metadata endpoints are not allowed.",
             }
 
-        def _living_ui_ports() -> set:
+        def _agent_app_ports() -> set:
             try:
-                from app.living_ui import get_living_ui_manager
+                from app.agent_app import get_agent_app_manager
 
-                _mgr = get_living_ui_manager()
+                _mgr = get_agent_app_manager()
                 if not _mgr:
                     return set()
                 _ports = set()
@@ -263,8 +263,8 @@ def send_http_requests(input_data: dict) -> dict:
             for _family, _type, _proto, _canonname, _sockaddr in _resolved:
                 _ip = _ipaddress.ip_address(_sockaddr[0])
                 if _ip.is_loopback:
-                    if _port and _port in _living_ui_ports():
-                        continue  # Allowed: targeting a known Living UI port
+                    if _port and _port in _agent_app_ports():
+                        continue  # Allowed: targeting a known Agent App port
                     return {
                         "status": "error",
                         "status_code": 0,
@@ -272,7 +272,7 @@ def send_http_requests(input_data: dict) -> dict:
                         "body": "",
                         "final_url": "",
                         "elapsed_ms": 0,
-                        "message": f"Blocked: requests to loopback addresses ({_hostname}) are only allowed for registered Living UI ports. Use the living_ui_http action with project_id to talk to your Living UI.",
+                        "message": f"Blocked: requests to loopback addresses ({_hostname}) are only allowed for registered Agent App ports. Use the agent_app_http action with project_id to talk to your Agent App.",
                     }
                 if _ip.is_private or _ip.is_link_local:
                     return {

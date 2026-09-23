@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { usePersistedState } from '../../hooks/usePersistedState'
+import { UI_STATE } from '../../store/uiState'
 import { Modal } from './Modal'
 import { MarkdownContent } from './MarkdownContent'
 import styles from './AttachmentPreviewModal.module.css'
@@ -47,6 +50,7 @@ function formatFileSize(bytes: number): string {
 }
 
 export function AttachmentPreviewModal({ isOpen, attachment, onClose }: AttachmentPreviewModalProps) {
+  const { t } = useTranslation(['components', 'common'])
   // Memoized: classify() returns a new object each call, and an unstable
   // identity here would re-trigger the fetch effect below on every render
   // it itself causes (infinite fetch/abort loop).
@@ -79,10 +83,10 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
   const [textContent, setTextContent] = useState<string | null>(null)
   const [textLoading, setTextLoading] = useState(false)
   const [textError, setTextError] = useState<string | null>(null)
-  const [mdView, setMdView] = useState<'preview' | 'source'>('preview')
+  // Preview vs. source is a remembered preference, not reset per attachment.
+  const [mdView, setMdView] = usePersistedState(UI_STATE.attachments.markdownView)
 
   useEffect(() => {
-    setMdView('preview')
     if (!attachment || !kind?.isText) {
       setTextContent(null)
       setTextLoading(false)
@@ -96,7 +100,7 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
         setTextError(null)
       } catch {
         setTextContent(null)
-        setTextError('Failed to decode file.')
+        setTextError(t('components:attachment.decodeFailed'))
       }
       setTextLoading(false)
       return
@@ -108,13 +112,13 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
       setTextContent(null)
       fetch(attachment.url, { signal: ctrl.signal })
         .then(r => {
-          if (!r.ok) throw new Error(`Server returned ${r.status}`)
+          if (!r.ok) throw new Error(t('components:attachment.serverReturned', { status: r.status }))
           return r.text()
         })
-        .then(t => { setTextContent(t); setTextLoading(false) })
+        .then(text => { setTextContent(text); setTextLoading(false) })
         .catch(err => {
           if (err.name === 'AbortError') return
-          setTextError(`Failed to load file: ${err.message}`)
+          setTextError(t('components:attachment.loadFailed', { message: err.message }))
           setTextLoading(false)
         })
       return () => ctrl.abort()
@@ -129,7 +133,7 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
   const meta = (
     <>
       {formatFileSize(attachment.size)}
-      {kind.isText && lineCount > 0 && <> · {lineCount} line{lineCount !== 1 ? 's' : ''}</>}
+      {kind.isText && lineCount > 0 && <> · {t('components:attachment.lineCount', { count: lineCount })}</>}
     </>
   )
   const showMarkdownToggle = kind.isMarkdown && textContent != null
@@ -151,14 +155,14 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
               className={mdView === 'preview' ? styles.viewToggleBtnActive : styles.viewToggleBtn}
               onClick={() => setMdView('preview')}
             >
-              Preview
+              {t('components:attachment.preview')}
             </button>
             <button
               type="button"
               className={mdView === 'source' ? styles.viewToggleBtnActive : styles.viewToggleBtn}
               onClick={() => setMdView('source')}
             >
-              Source
+              {t('components:attachment.source')}
             </button>
           </div>
         )}
@@ -172,7 +176,7 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
         )}
         {kind.isText && (
           textLoading ? (
-            <div className={styles.message}>Loading…</div>
+            <div className={styles.message}>{t('common:status.loading')}</div>
           ) : textError ? (
             <div className={styles.message}>{textError}</div>
           ) : textContent != null ? (
@@ -185,7 +189,10 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
         )}
         {!kind.isImage && !kind.isPdf && !kind.isText && (
           <div className={styles.message}>
-            Preview isn't available for {attachment.name} ({formatFileSize(attachment.size)}).
+            {t('components:attachment.previewUnavailable', {
+              name: attachment.name,
+              size: formatFileSize(attachment.size),
+            })}
           </div>
         )}
       </div>

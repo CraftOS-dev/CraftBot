@@ -1,0 +1,90 @@
+{
+  "ollama": {
+    "checking": "Ollama が実行中か確認中…",
+    "notInstalledStatus": "Ollama がインストールされていません",
+    "notInstalledHint": "Ollama を使うと、クラウド不要で AI モデルをローカルで実行できます。自動的にインストールします。",
+    "install": "Ollama をインストール",
+    "installing": "Ollama をインストール中…",
+    "installStarting": "起動中…",
+    "notRunningStatus": "Ollama はインストール済みですが実行されていません",
+    "notRunningHint": "下をクリックして Ollama サーバーを起動してください。",
+    "start": "Ollama を起動",
+    "starting": "Ollama を起動中…",
+    "runningNoModels": "Ollama は実行中です（モデルはまだありません）",
+    "selectModelHint": "チャットを始められるよう、ダウンロードするモデルを選択してください:",
+    "findModel": "モデルを検索...",
+    "recommended": "おすすめ",
+    "noModelMatch": "「{{query}}」に一致するモデルがありません",
+    "download": "{{model}} をダウンロード",
+    "modelFallback": "モデル",
+    "downloading": "{{model}} をダウンロード中…",
+    "downloadStarting": "ダウンロードを開始中…",
+    "connected": "Ollama に接続しました",
+    "running": "Ollama は実行中です",
+    "serverUrl": "Ollama サーバー URL",
+    "test": "テスト"
+  },
+  "ollamaPrompt": {
+    "notInstalled": "Ollama がまだインストールされていません。セットアップします。",
+    "installing": "Ollama をインストール中… 1 分ほどかかります。",
+    "notRunning": "Ollama はインストール済みですが実行されていません。起動しますか？",
+    "starting": "Ollama を起動中…",
+    "running": "Ollama が実行中です。接続をテストしましょう。",
+    "selectingModel": "ダウンロードするモデルを選んでください。",
+    "pullingModel": "モデルをダウンロード中… 数分かかることがあります。",
+    "connected_one": "接続しました。{{count}} 個のモデルが利用可能です。",
+    "connected_other": "接続しました。{{count}} 個のモデルが利用可能です。",
+    "errorFallback": "問題が発生しました。もう一度試していただけますか？",
+    "checking": "Ollama を確認中…"
+  },
+  "apiKey": {
+    "storedLocally": "API キーはローカルに保存されます。",
+    "optional": "API キー（任意）",
+    "enter": "API キーを入力",
+    "orEnterKey": "または API キーを入力"
+  },
+  "apiKeyPrompt": {
+    "openrouter": "OpenRouter のキーを貼り付けてください。設定します。",
+    "withSub": "作業を始められるよう {{provider}} アカウントを接続してください。サインインするか、API キーを貼り付けてください。",
+    "plain": "接続して作業を始められるよう {{provider}} の API キーを貼り付けてください。",
+    "providerFallback": "プロバイダー"
+  },
+  "proxied": {
+    "orKey": "OpenRouter の API キーを入力",
+    "directKey": "{{provider}} の API キーを入力",
+    "modelLabel": "モデル <1>(任意。デフォルトのまま、または任意の OpenRouter スラッグを入力)</1>",
+    "useDirect": "← 代わりに {{provider}} の API を直接使用",
+    "useOpenRouter": "接続に問題がありますか？代わりに OpenRouter を使用 →"
+  },
+  "sub": {
+    "working": "処理中…",
+    "pastePlaceholder": "サインインページのコードを貼り付け",
+    "submitting": "送信中…",
+    "submitCode": "コードを送信",
+    "reopen": "サインインページを再度開く",
+    "openingBrowser": "ブラウザを開いています…",
+    "signInWith": "{{provider}} でサインイン",
+    "useKeyInstead": "代わりに API キーを使用"
+  },
+  "form": {
+    "enterField": "{{field}} を入力",
+    "enterName": "名前を入力"
+  },
+  "stepPrompt": {
+    "provider": "どの AI で動かしましょうか？",
+    "userProfile": "あなたを何とお呼びすればよいですか？",
+    "agentName": "私を何と呼びますか？"
+  },
+  "intro": {
+    "greeting": "<1>はじめまして、CraftBot です！</1><2/>仕事でも生活でも、お手伝いします。",
+    "kicker": "さて、始める前にいくつか設定が必要です。"
+  },
+  "done": {
+    "message": "準備が整いました！<1>{{name}}</1> は作業の準備ができています。"
+  },
+  "nav": {
+    "testingApiKey": "API キーをテスト中…",
+    "getStarted": "始める",
+    "finish": "完了"
+  }
+}

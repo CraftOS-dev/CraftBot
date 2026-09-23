@@ -7,9 +7,12 @@ import { WebSocketProvider } from './contexts/WebSocketContext'
 import { WorkspaceProvider } from './contexts/WorkspaceContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
-import { FullscreenProvider } from './contexts/FullscreenContext'
 import { store } from './store'
+import { startPerfMonitor } from './utils/perfMonitor'
+import './i18n/config'
 import './styles/global.css'
+
+startPerfMonitor()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -19,9 +22,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <ToastProvider>
             <WebSocketProvider>
               <WorkspaceProvider>
-                <FullscreenProvider>
-                  <App />
-                </FullscreenProvider>
+                <App />
               </WorkspaceProvider>
             </WebSocketProvider>
           </ToastProvider>

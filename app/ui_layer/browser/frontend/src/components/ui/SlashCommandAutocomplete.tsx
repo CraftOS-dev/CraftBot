@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
-import { useSettingsWebSocket } from '@/pages/Settings/useSettingsWebSocket';
+import { useTranslation } from 'react-i18next'
 import { ActivitySquare, Terminal } from 'lucide-react'
 import styles from './SlashCommandAutocomplete.module.css';
 import { useAppSelector } from '../../store/hooks';
-import {
-  selectSkillsHasLoaded,
-  selectEnabledSkillNames,
-} from '../../store/selectors/skillsSettings'
-import {
-  selectCommandNames,
-  selectCommandsHasLoaded,
-} from '../../store/selectors/commandsSettings'
+import { selectEnabledSkillNames } from '../../store/selectors/skillsSettings'
+import { selectCommandNames } from '../../store/selectors/commandsSettings'
+import { RESOURCES, useResource } from '../../store/resources'
 
 type ItemKind = 'command' | 'skill'
 
@@ -40,22 +35,17 @@ interface SlashCommandProps {
 
 export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandle, SlashCommandProps>(
   function SlashCommandAutocomplete({ input, onSelectItem }, ref) {
+    const { t } = useTranslation(['components', 'common'])
     const [selectedIndex, setSelectedIndex] = useState<number>(0);
     const itemRefs = useRef<(HTMLLIElement | null)[]>([])
 
     const skills = useAppSelector(selectEnabledSkillNames);
-    const skillsHasLoaded = useAppSelector(selectSkillsHasLoaded);
-    
     const commands = useAppSelector(selectCommandNames);
-    const commandsHasLoaded = useAppSelector(selectCommandsHasLoaded);
-    const { send, isConnected } = useSettingsWebSocket()
 
-  // Fetch only if no one else has loaded the data yet this session.
-  useEffect(() => {
-    if (!isConnected) return
-    if (!skillsHasLoaded) send('skill_list')
-    if (!commandsHasLoaded) send('command_list')
-    }, [isConnected, skillsHasLoaded, commandsHasLoaded, send])
+    // Fetched on first use and refetched when skills change (any tab, a
+    // reload) or after a reconnect.
+    useResource(RESOURCES.skills)
+    useResource(RESOURCES.commands)
 
     const query = input[0] === '/' ? input.slice(1).toLowerCase() : null
 
@@ -120,7 +110,7 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
             <ul className={styles.autocomplete}>
                 {filteredCommands.length > 0 && (
                     <>
-                        <p className={styles.header}><Terminal size={12} />Commands</p>
+                        <p className={styles.header}><Terminal size={12} />{t('components:slashCommand.commands')}</p>
                         {filteredCommands.map((item: string) => {
                             const idx = runningIndex++
                             const isSelected = idx === selectedIndex
@@ -138,7 +128,7 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
                 )}
                 {filteredSkills.length > 0 && (
                     <>
-                        <p className={styles.header}><ActivitySquare size={12} />Skills</p>
+                        <p className={styles.header}><ActivitySquare size={12} />{t('components:slashCommand.skills')}</p>
                         {filteredSkills.map((item: string) => {
                             const idx = runningIndex++
                             const isSelected = idx === selectedIndex

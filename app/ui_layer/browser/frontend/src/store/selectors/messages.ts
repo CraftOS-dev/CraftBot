@@ -35,14 +35,20 @@ export const selectPendingQuestions = createSelector(
   (items): ChatMessage[] => items.filter(m => m.isQuestion && !m.optionSelected),
 )
 
-// All messages across every session, in timestamp order. Used by global
-// consumers (mascot, dashboard status) that watch overall agent activity.
-export const selectAllMessages = createSelector(
+// The newest message across every session, for global consumers (mascot,
+// dashboard status) that only look at the latest message. Buckets are kept in
+// timestamp order, so each bucket's last item is its newest; `>=` lets a later
+// session win ties, matching the last element of a stable sort of all messages.
+export const selectLatestMessage = createSelector(
   (state: RootState) => state.messages.bySession,
-  (bySession): ChatMessage[] =>
-    Object.values(bySession)
-      .flatMap(bucket => bucket.items)
-      .sort((a, b) => a.timestamp - b.timestamp),
+  (bySession): ChatMessage | undefined => {
+    let latest: ChatMessage | undefined
+    for (const bucket of Object.values(bySession)) {
+      const last = bucket.items[bucket.items.length - 1]
+      if (last && (!latest || last.timestamp >= latest.timestamp)) latest = last
+    }
+    return latest
+  },
 )
 
 // sessionId → messageId of the newest message. Drives the per-session

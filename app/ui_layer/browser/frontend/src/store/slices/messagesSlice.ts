@@ -1,6 +1,7 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import { createSlice, current, isDraft, PayloadAction } from '@reduxjs/toolkit'
 import type { ChatMessage } from '../../types'
 import { register } from '../socket/messageRegistry'
+import { findIndexInDraft } from './draftSearch'
 
 // Chat messages keyed per session. Each bucket keeps its messages in
 // timestamp-ascending order. Optimistic ("pending") messages use
@@ -44,15 +45,28 @@ function sortBucket(bucket: SessionMessages) {
   bucket.items.sort((a, b) => a.timestamp - b.timestamp)
 }
 
-// Upsert by messageId, preserving timestamp order.
+// Upsert by messageId, preserving timestamp order. Works on a plain array
+// (`current` is O(1) for an untouched draft) with an ordered insert instead of
+// re-sorting the draft, which read every message through an Immer proxy per
+// event (see draftSearch.ts).
 function upsertMessage(bucket: SessionMessages, message: ChatMessage) {
-  const idx = bucket.items.findIndex(m => m.messageId === message.messageId)
-  if (idx === -1) {
-    bucket.items.push(message)
-  } else {
-    bucket.items[idx] = message
+  const items = isDraft(bucket.items) ? current(bucket.items) : bucket.items
+  const next = items.slice()
+  const idx = next.findIndex(m => m.messageId === message.messageId)
+  if (idx !== -1) {
+    if (next[idx].timestamp === message.timestamp) {
+      next[idx] = message
+      bucket.items = next
+      return
+    }
+    next.splice(idx, 1)
   }
-  sortBucket(bucket)
+  // Newest messages are the common case: scan back from the end. Equal
+  // timestamps keep arrival order, like the stable sort did.
+  let at = next.length
+  while (at > 0 && next[at - 1].timestamp > message.timestamp) at--
+  next.splice(at, 0, message)
+  bucket.items = next
 }
 
 const messagesSlice = createSlice({
@@ -87,8 +101,9 @@ const messagesSlice = createSlice({
       if (incoming.clientId) {
         // Swap the pending optimistic entry (same clientId) for the
         // confirmed server message so no duplicate bubble appears.
-        const tempIdx = bucket.items.findIndex(
-          m => m.pending && m.clientId === incoming.clientId,
+        const tempIdx = findIndexInDraft(
+          bucket.items,
+          m => !!m.pending && m.clientId === incoming.clientId,
         )
         if (tempIdx !== -1) {
           timestamp = bucket.items[tempIdx].timestamp
@@ -152,7 +167,9 @@ const messagesSlice = createSlice({
       value: string
     }>) {
       const bucket = state.bySession[action.payload.sessionId]
-      const entry = bucket?.items.find(m => m.messageId === action.payload.messageId)
+      if (!bucket) return
+      const idx = findIndexInDraft(bucket.items, m => m.messageId === action.payload.messageId)
+      const entry = idx === -1 ? undefined : bucket.items[idx]
       if (entry && !entry.optionSelected) {
         entry.optionSelected = action.payload.value
       }

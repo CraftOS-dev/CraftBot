@@ -7,6 +7,20 @@
 
 import { basename, strField, arrField, dictField } from './parse'
 import { extractTodos, isSupportedActionName, normalizeActionName, type SupportedActionName } from './actionNames'
+import i18n from '../../i18n/config'
+import { formatNumber } from '../../i18n/format'
+
+// Non-React module: pull the translated, count-aware label for one of the
+// shared "N thing(s)" bodies. `count` drives i18next plural selection; the
+// separately-formatted `formatted` string carries the locale-formatted
+// number that the message actually renders (via {{formatted}}).
+// The plural label key is chosen at runtime from the action type, so it can't
+// be a compile-time literal; validation is by catalog presence, not tsc.
+const translate = i18n.t as unknown as (key: string, opts?: Record<string, unknown>) => string
+
+function tCount(key: string, n: number): string {
+  return translate(key, { count: n, formatted: formatNumber(n) })
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -104,11 +118,11 @@ function firstSnippet(text: string, max = 60): string {
 const stream_edit: MascotActionFormatter = {
   running: (i) => {
     const fp = strField(i, 'file_path') ?? ''
-    return { status: 'running', label: 'Editing file', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
+    return { status: 'running', label: i18n.t('activity:action.streamEdit.editing'), body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
   result: (i, _o, s) => {
     const fp = strField(i, 'file_path') ?? ''
-    const verb = s === 'completed' ? 'Edited file' : s === 'error' ? 'Edit failed' : 'Edit cancelled'
+    const verb = s === 'completed' ? i18n.t('activity:action.streamEdit.edited') : s === 'error' ? i18n.t('activity:action.streamEdit.failed') : i18n.t('activity:action.streamEdit.cancelled')
     return { status: s, label: verb, body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
 }
@@ -116,48 +130,48 @@ const stream_edit: MascotActionFormatter = {
 const read_file: MascotActionFormatter = {
   running: (i) => {
     const fp = strField(i, 'file_path') ?? ''
-    return { status: 'running', label: 'Reading file', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
+    return { status: 'running', label: i18n.t('activity:action.readFile.reading'), body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
   result: (i, o, s) => {
     const fp = strField(i, 'file_path') ?? ''
     const lines = lineCount(strField(o, 'content') ?? '')
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Read failed' : 'Read cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.readFile.failed') : i18n.t('activity:action.readFile.cancelled')
       return { status: s, label: verb, body: fp ? basename(fp) : undefined, bodyMono: !!fp }
     }
-    return { status: s, label: 'Read file', body: lines > 0 ? `${lines.toLocaleString()} lines` : (fp ? basename(fp) : undefined), bodyMono: lines === 0 && !!fp }
+    return { status: s, label: i18n.t('activity:action.readFile.read'), body: lines > 0 ? tCount('activity:count.lines', lines) : (fp ? basename(fp) : undefined), bodyMono: lines === 0 && !!fp }
   },
 }
 
 const find_files: MascotActionFormatter = {
   running: (i) => {
     const pattern = strField(i, 'pattern') ?? ''
-    return { status: 'running', label: 'Finding files', body: pattern || undefined, bodyMono: true }
+    return { status: 'running', label: i18n.t('activity:action.findFiles.finding'), body: pattern || undefined, bodyMono: true }
   },
   result: (i, o, s) => {
     const pattern = strField(i, 'pattern') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Find failed' : 'Find cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.findFiles.failed') : i18n.t('activity:action.findFiles.cancelled')
       return { status: s, label: verb, body: pattern || undefined, bodyMono: true }
     }
     const count = (arrField(o, 'matches') ?? []).length
-    return { status: s, label: `Found ${count.toLocaleString()} file${count === 1 ? '' : 's'}`, body: pattern || undefined, bodyMono: true }
+    return { status: s, label: tCount('activity:action.findFiles.found', count), body: pattern || undefined, bodyMono: true }
   },
 }
 
 const list_folder: MascotActionFormatter = {
   running: (i) => {
     const path = strField(i, 'path') ?? ''
-    return { status: 'running', label: 'Listing folder', body: path ? basename(path) || '/' : undefined, bodyMono: !!path }
+    return { status: 'running', label: i18n.t('activity:action.listFolder.listing'), body: path ? basename(path) || '/' : undefined, bodyMono: !!path }
   },
   result: (i, o, s) => {
     const path = strField(i, 'path') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'List failed' : 'List cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.listFolder.failed') : i18n.t('activity:action.listFolder.cancelled')
       return { status: s, label: verb, body: path ? basename(path) || '/' : undefined, bodyMono: !!path }
     }
     const count = (arrField(o, 'contents') ?? []).length
-    return { status: s, label: 'Listed folder', body: `${count.toLocaleString()} item${count === 1 ? '' : 's'}` }
+    return { status: s, label: i18n.t('activity:action.listFolder.listed'), body: tCount('activity:count.items', count) }
   },
 }
 
@@ -165,11 +179,11 @@ const list_folder: MascotActionFormatter = {
 const convertToPdf: MascotActionFormatter = {
   running: (i) => {
     const fp = strField(i, 'output_path') ?? ''
-    return { status: 'running', label: 'Creating PDF', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
+    return { status: 'running', label: i18n.t('activity:action.convertToPdf.creating'), body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
   result: (i, o, s) => {
     const fp = strField(o, 'path') ?? strField(i, 'output_path') ?? ''
-    const verb = s === 'completed' ? 'Created PDF' : s === 'error' ? 'PDF creation failed' : 'PDF creation cancelled'
+    const verb = s === 'completed' ? i18n.t('activity:action.convertToPdf.created') : s === 'error' ? i18n.t('activity:action.convertToPdf.failed') : i18n.t('activity:action.convertToPdf.cancelled')
     return { status: s, label: verb, body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
 }
@@ -177,28 +191,28 @@ const convertToPdf: MascotActionFormatter = {
 const read_pdf: MascotActionFormatter = {
   running: (i) => {
     const fp = strField(i, 'file_path') ?? ''
-    return { status: 'running', label: 'Reading PDF', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
+    return { status: 'running', label: i18n.t('activity:action.readPdf.reading'), body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
   result: (i, o, s) => {
     const fp = strField(i, 'file_path') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'PDF read failed' : 'PDF read cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.readPdf.failed') : i18n.t('activity:action.readPdf.cancelled')
       return { status: s, label: verb, body: fp ? basename(fp) : undefined, bodyMono: !!fp }
     }
     const contentObj = dictField(o, 'content')
     const elements = arrField(contentObj, 'elements') ?? []
-    return { status: s, label: 'Read PDF', body: elements.length > 0 ? `${elements.length} element${elements.length === 1 ? '' : 's'}` : (fp ? basename(fp) : undefined), bodyMono: elements.length === 0 && !!fp }
+    return { status: s, label: i18n.t('activity:action.readPdf.read'), body: elements.length > 0 ? tCount('activity:count.elements', elements.length) : (fp ? basename(fp) : undefined), bodyMono: elements.length === 0 && !!fp }
   },
 }
 
 const convert_to_markdown: MascotActionFormatter = {
   running: (i) => {
     const src = strField(i, 'input_file') ?? ''
-    return { status: 'running', label: 'Converting to markdown', body: src ? basename(src) : undefined, bodyMono: !!src }
+    return { status: 'running', label: i18n.t('activity:action.convertToMarkdown.converting'), body: src ? basename(src) : undefined, bodyMono: !!src }
   },
   result: (i, o, s) => {
     const out = strField(o, 'md_file') ?? strField(i, 'output_md') ?? ''
-    const verb = s === 'completed' ? 'Converted to markdown' : s === 'error' ? 'Convert failed' : 'Convert cancelled'
+    const verb = s === 'completed' ? i18n.t('activity:action.convertToMarkdown.converted') : s === 'error' ? i18n.t('activity:action.convertToMarkdown.failed') : i18n.t('activity:action.convertToMarkdown.cancelled')
     return { status: s, label: verb, body: out ? basename(out) : undefined, bodyMono: !!out }
   },
 }
@@ -208,31 +222,31 @@ const convert_to_markdown: MascotActionFormatter = {
 const run_python: MascotActionFormatter = {
   running: (i) => {
     const lines = lineCount(strField(i, 'code') ?? '')
-    return { status: 'running', label: 'Running Python', body: lines > 0 ? `${lines} line${lines === 1 ? '' : 's'}` : undefined }
+    return { status: 'running', label: i18n.t('activity:action.runPython.running'), body: lines > 0 ? tCount('activity:count.lines', lines) : undefined }
   },
   result: (_i, o, s) => {
     const stderr = strField(o, 'stderr') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Python failed' : 'Python cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.runPython.failed') : i18n.t('activity:action.runPython.cancelled')
       return { status: s, label: verb, body: stderr ? firstSnippet(stderr, 60) : undefined }
     }
     // Successful completion that wrote to stderr usually still indicates
     // a problem worth surfacing (e.g., warnings). Show the first stderr
     // line; otherwise just say it ran.
-    if (stderr) return { status: s, label: 'Ran Python', body: firstSnippet(stderr, 60) }
+    if (stderr) return { status: s, label: i18n.t('activity:action.runPython.ran'), body: firstSnippet(stderr, 60) }
     const stdout = strField(o, 'stdout') ?? ''
-    return { status: s, label: 'Ran Python', body: stdout ? `${lineCount(stdout)} line${lineCount(stdout) === 1 ? '' : 's'} output` : undefined }
+    return { status: s, label: i18n.t('activity:action.runPython.ran'), body: stdout ? tCount('activity:count.linesOutput', lineCount(stdout)) : undefined }
   },
 }
 
 const run_shell: MascotActionFormatter = {
   running: (i) => {
     const cmd = strField(i, 'command') ?? ''
-    return { status: 'running', label: 'Running command', body: cmd ? `$ ${cmd}` : undefined, bodyMono: true }
+    return { status: 'running', label: i18n.t('activity:action.runShell.running'), body: cmd ? `$ ${cmd}` : undefined, bodyMono: true }
   },
   result: (i, _o, s) => {
     const cmd = strField(i, 'command') ?? ''
-    const verb = s === 'completed' ? 'Ran command' : s === 'error' ? 'Command failed' : 'Command cancelled'
+    const verb = s === 'completed' ? i18n.t('activity:action.runShell.ran') : s === 'error' ? i18n.t('activity:action.runShell.failed') : i18n.t('activity:action.runShell.cancelled')
     return { status: s, label: verb, body: cmd ? `$ ${cmd}` : undefined, bodyMono: true }
   },
 }
@@ -242,32 +256,32 @@ const run_shell: MascotActionFormatter = {
 const web_search: MascotActionFormatter = {
   running: (i) => {
     const q = strField(i, 'query') ?? ''
-    return { status: 'running', label: 'Searching web', body: q ? quote(q) : undefined }
+    return { status: 'running', label: i18n.t('activity:action.webSearch.searching'), body: q ? quote(q) : undefined }
   },
   result: (i, o, s) => {
     const q = strField(i, 'query') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Search failed' : 'Search cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.webSearch.failed') : i18n.t('activity:action.webSearch.cancelled')
       return { status: s, label: verb, body: q ? quote(q) : undefined }
     }
     const count = (arrField(o, 'results') ?? []).length
-    return { status: s, label: `Found ${count.toLocaleString()} result${count === 1 ? '' : 's'}`, body: q ? quote(q) : undefined }
+    return { status: s, label: tCount('activity:action.webSearch.found', count), body: q ? quote(q) : undefined }
   },
 }
 
 const web_fetch: MascotActionFormatter = {
   running: (i) => {
     const url = strField(i, 'url') ?? ''
-    return { status: 'running', label: 'Fetching page', body: url ? hostname(url) : undefined }
+    return { status: 'running', label: i18n.t('activity:action.webFetch.fetching'), body: url ? hostname(url) : undefined }
   },
   result: (i, o, s) => {
     const url = strField(i, 'url') ?? ''
     const title = strField(o, 'title')
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Fetch failed' : 'Fetch cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.webFetch.failed') : i18n.t('activity:action.webFetch.cancelled')
       return { status: s, label: verb, body: url ? hostname(url) : undefined }
     }
-    return { status: s, label: title ? `Fetched ${trim(title, 40)}` : 'Fetched page', body: url ? hostname(url) : undefined }
+    return { status: s, label: title ? i18n.t('activity:action.webFetch.fetchedTitle', { title: trim(title, 40) }) : i18n.t('activity:action.webFetch.fetchedPage'), body: url ? hostname(url) : undefined }
   },
 }
 
@@ -275,17 +289,17 @@ const http_request: MascotActionFormatter = {
   running: (i) => {
     const method = (strField(i, 'method') ?? 'GET').toUpperCase()
     const url = strField(i, 'url') ?? ''
-    return { status: 'running', label: `${method} request`, body: url ? hostname(url) : undefined }
+    return { status: 'running', label: i18n.t('activity:action.httpRequest.request', { method }), body: url ? hostname(url) : undefined }
   },
   result: (i, o, s) => {
     const method = (strField(i, 'method') ?? 'GET').toUpperCase()
     const url = strField(i, 'url') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? `${method} failed` : `${method} cancelled`
+      const verb = s === 'error' ? i18n.t('activity:action.httpRequest.failed', { method }) : i18n.t('activity:action.httpRequest.cancelled', { method })
       return { status: s, label: verb, body: url ? hostname(url) : undefined }
     }
     const body = strField(o, 'body') ?? ''
-    return { status: s, label: `${method} response`, body: body ? `${body.length.toLocaleString()} chars` : (url ? hostname(url) : undefined) }
+    return { status: s, label: i18n.t('activity:action.httpRequest.response', { method }), body: body ? tCount('activity:count.chars', body.length) : (url ? hostname(url) : undefined) }
   },
 }
 
@@ -294,64 +308,64 @@ const http_request: MascotActionFormatter = {
 const generate_image: MascotActionFormatter = {
   running: (i) => {
     const p = strField(i, 'prompt') ?? ''
-    return { status: 'running', label: 'Generating image', body: p ? quote(trim(p, 60)) : undefined }
+    return { status: 'running', label: i18n.t('activity:action.generateImage.generating'), body: p ? quote(trim(p, 60)) : undefined }
   },
   result: (i, o, s) => {
     const p = strField(i, 'prompt') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Generation failed' : 'Generation cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.generateImage.failed') : i18n.t('activity:action.generateImage.cancelled')
       return { status: s, label: verb, body: p ? quote(trim(p, 60)) : undefined }
     }
     const count = (arrField(o, 'image_paths') ?? []).length
-    return { status: s, label: `Generated ${count} image${count === 1 ? '' : 's'}`, body: p ? quote(trim(p, 60)) : undefined }
+    return { status: s, label: tCount('activity:action.generateImage.generated', count), body: p ? quote(trim(p, 60)) : undefined }
   },
 }
 
 const describe_image: MascotActionFormatter = {
   running: (i) => {
     const path = strField(i, 'image_path') ?? ''
-    return { status: 'running', label: 'Describing image', body: path ? basename(path) : undefined, bodyMono: !!path }
+    return { status: 'running', label: i18n.t('activity:action.describeImage.describing'), body: path ? basename(path) : undefined, bodyMono: !!path }
   },
   result: (i, o, s) => {
     const path = strField(i, 'image_path') ?? ''
     const desc = strField(o, 'description') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Describe failed' : 'Describe cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.describeImage.failed') : i18n.t('activity:action.describeImage.cancelled')
       return { status: s, label: verb, body: path ? basename(path) : undefined, bodyMono: !!path }
     }
-    return { status: s, label: 'Described image', body: desc ? firstSnippet(desc, 60) : (path ? basename(path) : undefined), bodyMono: !desc && !!path }
+    return { status: s, label: i18n.t('activity:action.describeImage.described'), body: desc ? firstSnippet(desc, 60) : (path ? basename(path) : undefined), bodyMono: !desc && !!path }
   },
 }
 
 const perform_ocr: MascotActionFormatter = {
   running: (i) => {
     const path = strField(i, 'image_path') ?? ''
-    return { status: 'running', label: 'Reading image text', body: path ? basename(path) : undefined, bodyMono: !!path }
+    return { status: 'running', label: i18n.t('activity:action.performOcr.reading'), body: path ? basename(path) : undefined, bodyMono: !!path }
   },
   result: (i, o, s) => {
     const path = strField(i, 'image_path') ?? ''
     const summary = strField(o, 'summary') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'OCR failed' : 'OCR cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.performOcr.failed') : i18n.t('activity:action.performOcr.cancelled')
       return { status: s, label: verb, body: path ? basename(path) : undefined, bodyMono: !!path }
     }
-    return { status: s, label: 'Extracted text', body: summary ? `${summary.length.toLocaleString()} characters` : (path ? basename(path) : undefined), bodyMono: !summary && !!path }
+    return { status: s, label: i18n.t('activity:action.performOcr.extracted'), body: summary ? tCount('activity:count.characters', summary.length) : (path ? basename(path) : undefined), bodyMono: !summary && !!path }
   },
 }
 
 const understand_video: MascotActionFormatter = {
   running: (i) => {
     const path = strField(i, 'video_path') ?? ''
-    return { status: 'running', label: 'Analyzing video', body: path ? basename(path) : undefined, bodyMono: !!path }
+    return { status: 'running', label: i18n.t('activity:action.understandVideo.analyzing'), body: path ? basename(path) : undefined, bodyMono: !!path }
   },
   result: (i, o, s) => {
     const path = strField(i, 'video_path') ?? ''
     const summary = strField(o, 'summary') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Analysis failed' : 'Analysis cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.understandVideo.failed') : i18n.t('activity:action.understandVideo.cancelled')
       return { status: s, label: verb, body: path ? basename(path) : undefined, bodyMono: !!path }
     }
-    return { status: s, label: 'Analyzed video', body: summary ? firstSnippet(summary, 60) : (path ? basename(path) : undefined), bodyMono: !summary && !!path }
+    return { status: s, label: i18n.t('activity:action.understandVideo.analyzed'), body: summary ? firstSnippet(summary, 60) : (path ? basename(path) : undefined), bodyMono: !summary && !!path }
   },
 }
 
@@ -360,32 +374,32 @@ const understand_video: MascotActionFormatter = {
 const grep_files: MascotActionFormatter = {
   running: (i) => {
     const p = strField(i, 'pattern') ?? ''
-    return { status: 'running', label: 'Grepping', body: p || undefined, bodyMono: true }
+    return { status: 'running', label: i18n.t('activity:action.grepFiles.grepping'), body: p || undefined, bodyMono: true }
   },
   result: (i, o, s) => {
     const p = strField(i, 'pattern') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Grep failed' : 'Grep cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.grepFiles.failed') : i18n.t('activity:action.grepFiles.cancelled')
       return { status: s, label: verb, body: p || undefined, bodyMono: true }
     }
     const count = (arrField(o, 'filenames') ?? []).length
-    return { status: s, label: `Found in ${count.toLocaleString()} file${count === 1 ? '' : 's'}`, body: p || undefined, bodyMono: true }
+    return { status: s, label: tCount('activity:action.grepFiles.foundIn', count), body: p || undefined, bodyMono: true }
   },
 }
 
 const memory_search: MascotActionFormatter = {
   running: (i) => {
     const q = strField(i, 'query') ?? ''
-    return { status: 'running', label: 'Searching memory', body: q ? quote(q) : undefined }
+    return { status: 'running', label: i18n.t('activity:action.memorySearch.searching'), body: q ? quote(q) : undefined }
   },
   result: (i, o, s) => {
     const q = strField(i, 'query') ?? ''
     if (s !== 'completed') {
-      const verb = s === 'error' ? 'Memory search failed' : 'Memory search cancelled'
+      const verb = s === 'error' ? i18n.t('activity:action.memorySearch.failed') : i18n.t('activity:action.memorySearch.cancelled')
       return { status: s, label: verb, body: q ? quote(q) : undefined }
     }
     const count = (arrField(o, 'results') ?? []).length
-    return { status: s, label: `Found ${count.toLocaleString()} memor${count === 1 ? 'y' : 'ies'}`, body: q ? quote(q) : undefined }
+    return { status: s, label: tCount('activity:action.memorySearch.found', count), body: q ? quote(q) : undefined }
   },
 }
 
@@ -401,10 +415,10 @@ const memory_search: MascotActionFormatter = {
 const send_message: MascotActionFormatter = {
   running: (i) => {
     const msg = strField(i, 'message') ?? ''
-    return { status: 'running', label: 'Sending message', body: msg ? firstSnippet(msg, 60) : undefined }
+    return { status: 'running', label: i18n.t('activity:action.sendMessage.sending'), body: msg ? firstSnippet(msg, 60) : undefined }
   },
   result: (_i, _o, s) => {
-    const verb = s === 'completed' ? 'Sent message' : s === 'error' ? 'Send failed' : 'Send cancelled'
+    const verb = s === 'completed' ? i18n.t('activity:action.sendMessage.sent') : s === 'error' ? i18n.t('activity:action.sendMessage.failed') : i18n.t('activity:action.sendMessage.cancelled')
     return { status: s, label: verb }
   },
 }
@@ -412,12 +426,12 @@ const send_message: MascotActionFormatter = {
 const send_message_with_attachment: MascotActionFormatter = {
   running: (i) => {
     const count = (arrField(i, 'file_paths') ?? []).length
-    return { status: 'running', label: 'Sending message', body: count > 0 ? `+ ${count} attachment${count === 1 ? '' : 's'}` : undefined }
+    return { status: 'running', label: i18n.t('activity:action.sendMessage.sending'), body: count > 0 ? tCount('activity:count.attachmentsPlus', count) : undefined }
   },
   result: (i, _o, s) => {
     const count = (arrField(i, 'file_paths') ?? []).length
-    const verb = s === 'completed' ? 'Sent message' : s === 'error' ? 'Send failed' : 'Send cancelled'
-    return { status: s, label: verb, body: count > 0 ? `+ ${count} attachment${count === 1 ? '' : 's'}` : undefined }
+    const verb = s === 'completed' ? i18n.t('activity:action.sendMessage.sent') : s === 'error' ? i18n.t('activity:action.sendMessage.failed') : i18n.t('activity:action.sendMessage.cancelled')
+    return { status: s, label: verb, body: count > 0 ? tCount('activity:count.attachmentsPlus', count) : undefined }
   },
 }
 
@@ -427,22 +441,22 @@ const update_todos: MascotActionFormatter = {
   running: (i) => {
     const todos = extractTodos(i)
     if (!todos || todos.length === 0) {
-      return { status: 'running', label: 'Updating todos' }
+      return { status: 'running', label: i18n.t('activity:action.updateTodos.updating') }
     }
     const done = todos.filter(t => t.status === 'completed').length
     const inProgress = todos.find(t => t.status === 'in_progress')
-    const progress = `${done}/${todos.length} done`
-    const body = inProgress ? `${progress} · ${trim(inProgress.content, 40)}` : progress
-    return { status: 'running', label: 'Updating todos', body }
+    const progress = i18n.t('activity:action.updateTodos.progress', { done: formatNumber(done), total: formatNumber(todos.length) })
+    const body = inProgress ? i18n.t('activity:action.updateTodos.progressWithTask', { progress, task: trim(inProgress.content, 40) }) : progress
+    return { status: 'running', label: i18n.t('activity:action.updateTodos.updating'), body }
   },
   result: (i, _o, s) => {
     const todos = extractTodos(i)
-    const verb = s === 'completed' ? 'Updated todos' : s === 'error' ? 'Update failed' : 'Update cancelled'
+    const verb = s === 'completed' ? i18n.t('activity:action.updateTodos.updated') : s === 'error' ? i18n.t('activity:action.updateTodos.failed') : i18n.t('activity:action.updateTodos.cancelled')
     if (!todos || todos.length === 0) {
       return { status: s, label: verb }
     }
     const done = todos.filter(t => t.status === 'completed').length
-    return { status: s, label: verb, body: `${done}/${todos.length} done` }
+    return { status: s, label: verb, body: i18n.t('activity:action.updateTodos.progress', { done: formatNumber(done), total: formatNumber(todos.length) }) }
   },
 }
 
@@ -493,7 +507,7 @@ const FORMATTER_REGISTRY: Record<SupportedActionName, MascotActionFormatter> = {
  *    "list-folder"       → "List folder" */
 function humanizeActionName(name: string): string {
   const spaced = name.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
-  if (!spaced) return 'action'
+  if (!spaced) return i18n.t('activity:generic.actionNoun')
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
@@ -505,20 +519,15 @@ function humanizeActionName(name: string): string {
 function makeGenericFormatter(name: string): MascotActionFormatter {
   const humanized = humanizeActionName(name)
   return {
-    running: () => ({ status: 'running', label: `Running ${humanized}` }),
+    running: () => ({ status: 'running', label: i18n.t('activity:generic.running', { name: humanized }) }),
     result: (_i, _o, s) => ({
       status: s,
-      label: s === 'completed' ? `${humanized} completed`
-        : s === 'error' ? `${humanized} failed`
-          : `${humanized} cancelled`,
+      label: s === 'completed' ? i18n.t('activity:generic.completed', { name: humanized })
+        : s === 'error' ? i18n.t('activity:generic.failed', { name: humanized })
+          : i18n.t('activity:generic.cancelled', { name: humanized }),
     }),
   }
 }
-
-/** Final-final fallback used when the action has no name at all
- *  (defensive — shouldn't happen in practice, but keeps the bubble
- *  alive instead of crashing if it does). */
-const GENERIC_FORMATTER: MascotActionFormatter = makeGenericFormatter('action')
 
 /** Look up the formatter for an action name. Falls back to a
  *  name-aware generic formatter for any name not in the supported
@@ -528,7 +537,9 @@ const GENERIC_FORMATTER: MascotActionFormatter = makeGenericFormatter('action')
  *  in the action renderer"). But the generic version still SHOWS the
  *  action name so the user knows what's happening. */
 export function getMascotFormatter(name: string | undefined): MascotActionFormatter {
-  if (!name) return GENERIC_FORMATTER
+  // Final-final fallback when the action has no name at all (defensive —
+  // shouldn't happen in practice, but keeps the bubble alive if it does).
+  if (!name) return makeGenericFormatter(i18n.t('activity:generic.actionNoun'))
   const normalized = normalizeActionName(name)
   return isSupportedActionName(normalized) ? FORMATTER_REGISTRY[normalized] : makeGenericFormatter(name)
 }

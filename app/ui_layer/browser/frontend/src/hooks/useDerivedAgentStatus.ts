@@ -1,13 +1,16 @@
 import { useMemo } from 'react'
-import type { ActionItem, AgentState, AgentStatus, ChatMessage } from '../types'
+import type { AgentState, AgentStatus, ChatMessage } from '../types'
+import type { ActivityOverview } from '../store/selectors/activity'
 import { normalizeActionName } from '../components/activity/actionNames'
+import i18n from '../i18n/config'
+import { formatList } from '../i18n/format'
 
 interface DerivedStatusOptions {
-  /** Activity items (actions + reasoning) to derive status from — a single
-   *  session's timeline, or the flattened all-sessions list for global
-   *  consumers like the dashboard header and the mascot. */
-  actions: ActionItem[]
-  messages: ChatMessage[]
+  /** Cross-session activity summary (selectActivityOverview): the in-progress
+   *  items plus the newest activity time — all the derivation reads. */
+  activity: ActivityOverview
+  /** The newest message across sessions (selectLatestMessage). */
+  lastMessage: ChatMessage | undefined
   connected: boolean
 }
 
@@ -15,30 +18,34 @@ interface DerivedStatusOptions {
  * Pure derivation of agent status from activity items and messages.
  *
  * This is more robust than relying on separate status_update messages because:
- * 1. Single source of truth - the activity and message arrays contain all state
+ * 1. Single source of truth - the activity and message state contain all state
  * 2. Always in sync - computed status can never be stale
  * 3. Shows meaningful info - displays actual action names
  */
 function deriveAgentStatus(
-  actions: ActionItem[],
-  messages: ChatMessage[],
+  activity: ActivityOverview,
+  lastMessage: ChatMessage | undefined,
   connected: boolean,
 ): AgentStatus {
   // If not connected, show error state
   if (!connected) {
     return {
       state: 'error' as AgentState,
-      message: 'Disconnected',
+      message: i18n.t('common:status.disconnected'),
       loading: false,
     }
   }
 
+  // Waiting/running items are always in `live`, so scanning it is the same
+  // as scanning every item.
+  const { live } = activity
+
   // Priority 1: an item is waiting on the user's reply.
-  const waiting = actions.find(a => a.status === 'waiting')
+  const waiting = live.find(a => a.status === 'waiting')
   if (waiting) {
     return {
       state: 'waiting' as AgentState,
-      message: 'Agent is waiting for your reply',
+      message: i18n.t('nav:agentStatus.waiting'),
       loading: false,
     }
   }
@@ -47,27 +54,28 @@ function deriveAgentStatus(
   // from the named-tool derivation (it isn't rendered in the timeline
   // either — the chat bubble is its visible form); if it's the only thing
   // running, the reasoning fallback below reports "thinking" instead.
-  const running = actions.filter(a =>
+  const running = live.filter(a =>
     a.itemType === 'action' &&
     a.status === 'running' &&
     normalizeActionName(a.name) !== 'send_message',
   )
   if (running.length > 0) {
     const names = running.map(a => a.name)
-    const message = names.length === 1
-      ? `Agent is running ${names[0]}`
-      : `Agent is running ${names.join(', ')}`
+    const message = i18n.t('nav:agentStatus.running', {
+      count: names.length,
+      names: formatList(names),
+    })
     return {
       state: 'working' as AgentState,
       message,
       loading: true,
     }
   }
-  if (actions.some(a => a.status === 'running')) {
+  if (live.some(a => a.status === 'running')) {
     // A reasoning block is streaming — the agent is thinking.
     return {
       state: 'thinking' as AgentState,
-      message: 'Agent is thinking',
+      message: i18n.t('nav:agentStatus.thinking'),
       loading: true,
     }
   }
@@ -75,22 +83,15 @@ function deriveAgentStatus(
   // Priority 3: the last message is from the user and the agent hasn't
   // visibly acted since — it's still preparing a response. This covers
   // the gap right after a send, before the first action item arrives.
-  if (messages.length > 0) {
-    const lastMessage = messages[messages.length - 1]
-    if (lastMessage.style === 'user') {
-      // ChatMessage.timestamp is epoch seconds; ActionItem times are ms.
-      const lastMessageMs = lastMessage.timestamp * 1000
-      const agentActedSince = actions.some(
-        a =>
-          (a.createdAt ?? 0) >= lastMessageMs ||
-          (a.completedAt ?? 0) >= lastMessageMs
-      )
-      if (!agentActedSince) {
-        return {
-          state: 'working' as AgentState,
-          message: 'Agent is working',
-          loading: true,
-        }
+  if (lastMessage && lastMessage.style === 'user') {
+    // ChatMessage.timestamp is epoch seconds; ActionItem times are ms.
+    // Some item was created or completed since ⇔ the newest such time is.
+    const agentActedSince = activity.latestAt >= lastMessage.timestamp * 1000
+    if (!agentActedSince) {
+      return {
+        state: 'working' as AgentState,
+        message: i18n.t('nav:agentStatus.working'),
+        loading: true,
       }
     }
   }
@@ -98,20 +99,20 @@ function deriveAgentStatus(
   // Default: Idle state
   return {
     state: 'idle' as AgentState,
-    message: 'Agent is idle',
+    message: i18n.t('nav:agentStatus.idle'),
     loading: false,
   }
 }
 
-/** Full status object — used by global consumers (dashboard header). */
+/** Full status object — used by global consumers (dashboard header, mascot). */
 export function useDerivedAgentStatus(
   options: DerivedStatusOptions
 ): AgentStatus {
-  const { actions, messages, connected } = options
+  const { activity, lastMessage, connected } = options
 
   return useMemo(
-    () => deriveAgentStatus(actions, messages, connected),
-    [actions, messages, connected],
+    () => deriveAgentStatus(activity, lastMessage, connected),
+    [activity, lastMessage, connected],
   )
 }
 

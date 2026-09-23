@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import json
 import os
 import re
@@ -11,8 +12,9 @@ import shutil
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from aiohttp.client_exceptions import ClientConnectionResetError
@@ -24,6 +26,7 @@ from agent_core.core.impl.memory.tuning import (
 )
 from agent_core.utils.logger import logger
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
+from app.i18n import tui
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
     # General settings
@@ -123,16 +126,81 @@ from app.ui_layer.components.types import (
 from app.ui_layer.events import UIEvent, UIEventType
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
-from app.living_ui import (
-    LivingUIManager,
-    set_living_ui_manager,
+from app.ui_layer.diagnostics import LoopStallMonitor
+from app.ui_layer.adapters.ws_channel import ClientChannel
+from app.ui_layer.adapters.ws_lanes import message_lane
+from app.ui_layer.adapters.ws_auth import WS_PROTOCOL, WsAuth
+from app.ui_layer.adapters.session_buffer import (
+    SESSION_BUFFER_LIMIT,
+    SESSION_BUFFER_SLACK,
+    trim_per_session,
+)
+from contextvars import ContextVar
+from app.ui_layer.events.change_detection import ChangeDetection
+
+# `requestId` of the browser message being handled (task-local). Replies sent
+# while handling it echo the id, so the tab that asked can match its reply
+# and other tabs can ignore it (plan §A4.5).
+_REQUEST_ID: ContextVar[Optional[str]] = ContextVar("ui_request_id", default=None)
+
+
+def _with_request_id(message: Dict[str, Any]) -> Dict[str, Any]:
+    """``message`` with the current request's id added to its data, if any."""
+    request_id = _REQUEST_ID.get()
+    data = message.get("data")
+    if request_id is None or not isinstance(data, dict) or "requestId" in data:
+        return message
+    return {**message, "data": {**data, "requestId": request_id}}
+from app.ui_layer.events.resource_changes import (
+    get_notifier as get_resource_notifier,
+    Resource,
+    notify_resource_changed,
+    resource_changes_for_message,
+)
+from app.agent_app import (
+    AgentAppManager,
+    set_agent_app_manager,
     register_broadcast_callbacks,
     make_todo_broadcast_hook,
 )
+from app.agent_app.sharing import ShareError
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
     from aiohttp import web
+
+
+def _make_static_or_spa(dist: Path):
+    """Build the catch-all handler: serve a file from dist/, else index.html.
+
+    Every request path is resolved and must land inside the resolved dist/
+    (symlinks included); anything else is a 404, never a file from elsewhere.
+    """
+    from aiohttp import web
+
+    dist_root = dist.resolve()
+    index_path = dist_root / "index.html"
+
+    async def _static_or_spa(request: web.Request) -> web.StreamResponse:
+        req_path = request.match_info.get("path", "")
+        if not req_path:
+            return web.FileResponse(index_path)
+        # Refuse drive/root/UNC paths before touching the filesystem: joining
+        # an absolute path replaces dist/ outright, and resolving //host/share
+        # makes Windows authenticate to that host.
+        if PureWindowsPath(req_path).anchor or PurePosixPath(req_path).anchor:
+            raise web.HTTPNotFound()
+        try:
+            file_path = (dist_root / req_path).resolve()
+        except (OSError, ValueError):
+            raise web.HTTPNotFound()
+        if not file_path.is_relative_to(dist_root):
+            raise web.HTTPNotFound()
+        if file_path.is_file():
+            return web.FileResponse(file_path)
+        return web.FileResponse(index_path)
+
+    return _static_or_spa
 
 
 class BrowserThemeAdapter(ThemeAdapter):
@@ -205,6 +273,12 @@ class BrowserChatComponent(ChatComponentProtocol):
     def __init__(self, adapter: "BrowserAdapter") -> None:
         self._adapter = adapter
         self._messages: List[ChatMessage] = []
+        self._trim_at = SESSION_BUFFER_LIMIT
+        # Chat SQLite calls run off the event loop on ONE worker thread, so
+        # they execute in the order they were issued: a history read sees
+        # earlier inserts, and an option update never lands before the
+        # insert of its message.
+        self._db = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ui-chat-db")
         self._storage = None
         self._init_storage()
 
@@ -270,6 +344,7 @@ class BrowserChatComponent(ChatComponentProtocol):
     async def append_message(self, message: ChatMessage) -> None:
         """Append message and broadcast to clients."""
         self._messages.append(message)
+        self._trim_buffer()
 
         # Persist to storage
         if self._storage:
@@ -309,7 +384,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                     allow_free_text=message.allow_free_text,
                     details=message.details,
                 )
-                self._storage.insert_message(stored)
+                await self.run_storage(self._storage.insert_message, stored)
             except Exception:
                 pass
 
@@ -331,7 +406,7 @@ class BrowserChatComponent(ChatComponentProtocol):
         # Clear from storage
         if self._storage:
             try:
-                self._storage.clear_messages(session_id)
+                await self.run_storage(self._storage.clear_messages, session_id)
             except Exception:
                 pass
 
@@ -354,6 +429,35 @@ class BrowserChatComponent(ChatComponentProtocol):
     def get_messages(self) -> List[ChatMessage]:
         """Get all loaded messages."""
         return self._messages.copy()
+
+    def get_recent_messages(self) -> List[ChatMessage]:
+        """Loaded messages capped to the last SESSION_BUFFER_LIMIT per session."""
+        return self._capped(self._messages)
+
+    @staticmethod
+    def _capped(messages: List[ChatMessage]) -> List[ChatMessage]:
+        # Unanswered questions stay: the UI pins them until answered, and
+        # _handle_question_response reads their text from this buffer.
+        return trim_per_session(
+            messages,
+            SESSION_BUFFER_LIMIT,
+            session_of=lambda m: m.session_id,
+            keep=lambda m: m.is_question and not m.option_selected,
+        )
+
+    def _trim_buffer(self) -> None:
+        """Bound the buffer (RS-1.8); older history stays in storage."""
+        if len(self._messages) <= self._trim_at:
+            return
+        self._messages = self._capped(self._messages)
+        self._trim_at = len(self._messages) + SESSION_BUFFER_SLACK
+
+    async def run_storage(self, fn, *args, **kwargs):
+        """Run a blocking chat-storage call on the ordered storage worker."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._db, functools.partial(fn, *args, **kwargs)
+        )
 
     def get_messages_before(
         self,
@@ -399,6 +503,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
     def __init__(self, adapter: "BrowserAdapter") -> None:
         self._adapter = adapter
         self._items: List[ActionItem] = []
+        self._trim_at = SESSION_BUFFER_LIMIT
         self._storage = None
         self._init_storage()
 
@@ -488,6 +593,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 return
 
         self._items.append(item)
+        self._trim_buffer()
         self._persist_item(item)
 
         await self._adapter._broadcast(
@@ -647,6 +753,27 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         """Get all loaded items."""
         return self._items.copy()
 
+    def get_recent_items(self) -> List[ActionItem]:
+        """Loaded items capped to the last SESSION_BUFFER_LIMIT per session."""
+        return self._capped(self._items)
+
+    @staticmethod
+    def _capped(items: List[ActionItem]) -> List[ActionItem]:
+        # Running items stay: later status updates look them up here.
+        return trim_per_session(
+            items,
+            SESSION_BUFFER_LIMIT,
+            session_of=lambda i: i.session_id,
+            keep=lambda i: i.status == "running",
+        )
+
+    def _trim_buffer(self) -> None:
+        """Bound the buffer (RS-1.8); older items stay in storage."""
+        if len(self._items) <= self._trim_at:
+            return
+        self._items = self._capped(self._items)
+        self._trim_at = len(self._items) + SESSION_BUFFER_SLACK
+
 
 class BrowserStatusBarComponent(StatusBarProtocol):
     """Browser status bar component."""
@@ -746,6 +873,8 @@ class BrowserAdapter(InterfaceAdapter):
         super().__init__(controller, "browser")
         self._host = host
         self._port = int(os.environ.get("BROWSER_PORT", port))
+        # Origin allowlist + per-process session token for /ws (ws_auth.py).
+        self._ws_auth = WsAuth(self._port)
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
@@ -753,6 +882,13 @@ class BrowserAdapter(InterfaceAdapter):
         self._footage = BrowserFootageComponent(self)
         self._app: Optional["web.Application"] = None
         self._ws_clients: Set = set()
+        # Per-connection outbound queues (ws_channel.py) and message lanes
+        # (ws_lanes.py): slow clients and slow requests don't hold up others.
+        self._channels: Dict[Any, ClientChannel] = {}
+        self._lane_locks: Dict[tuple, asyncio.Lock] = {}
+        self._lane_tasks: Set[asyncio.Task] = set()
+        # Latest build todo list per Agent App, replayed to reconnecting tabs.
+        self._agent_app_todos: Dict[str, list] = {}
         self._metrics_subscribers: Set = set()
         self._runner: Optional["web.AppRunner"] = None
         self._started_at: float = 0.0
@@ -762,62 +898,64 @@ class BrowserAdapter(InterfaceAdapter):
         self._metrics_collector = MetricsCollector(controller.agent)
         self._metrics_task: Optional[asyncio.Task] = None
 
+        # Logs event-loop stalls with the blocking stack (observation only)
+        self._loop_monitor = LoopStallMonitor()
+
         # Track active OAuth tasks for cancellation support
         self._oauth_tasks: Dict[str, asyncio.Task] = {}
 
         # Staged bundle bytes keyed by short-lived token (inspect → import flow)
         self._staged_bundles: Dict[str, bytes] = {}
 
-        # Living UI manager
-        self._living_ui_manager = LivingUIManager(workspace_root=AGENT_WORKSPACE_ROOT)
+        # Agent App manager
+        self._agent_app_manager = AgentAppManager(workspace_root=AGENT_WORKSPACE_ROOT)
         # Wizard: reference-image VLM notes cached between interview and
         # finalize (keyed by wizardId) so images are described only once.
         self._wizard_image_notes: Dict[str, List[str]] = {}
         # Bind session manager and trigger service for project sessions
         agent = self._controller.agent
-        self._living_ui_manager.bind_session_manager(
+        self._agent_app_manager.bind_session_manager(
             agent.session_manager, agent.trigger_service
         )
 
         # Clean up orphan processes and folders from previous sessions
-        self._living_ui_manager.cleanup_on_startup()
+        self._agent_app_manager.cleanup_on_startup()
 
-        # Start watchdog to monitor running Living UI processes
-        self._living_ui_manager.start_watchdog()
+        # Start watchdog to monitor running Agent App processes
+        self._agent_app_manager.start_watchdog()
 
         # Auto-launch projects that have auto_launch enabled
-        asyncio.create_task(self._living_ui_manager.auto_launch_projects())
+        asyncio.create_task(self._agent_app_manager.auto_launch_projects())
 
-        # Register global accessor and callbacks for Living UI actions
-        set_living_ui_manager(self._living_ui_manager)
+        # Register global accessor and callbacks for Agent App actions
+        set_agent_app_manager(self._agent_app_manager)
         register_broadcast_callbacks(
-            broadcast_ready=self.broadcast_living_ui_ready,
-            broadcast_progress=self.broadcast_living_ui_progress,
-            broadcast_todos=self.broadcast_living_ui_todos,
-            broadcast_data_changed=self.broadcast_living_ui_data_changed,
-            broadcast_created=self.broadcast_living_ui_created,
-            broadcast_build_event=self.broadcast_living_ui_build_event,
-            broadcast_wizard_open=self.broadcast_living_ui_wizard_open,
+            broadcast_ready=self.broadcast_agent_app_ready,
+            broadcast_progress=self.broadcast_agent_app_progress,
+            broadcast_todos=self.broadcast_agent_app_todos,
+            broadcast_created=self.broadcast_agent_app_created,
+            broadcast_build_event=self.broadcast_agent_app_build_event,
+            broadcast_wizard_open=self.broadcast_agent_app_wizard_open,
         )
 
-        # Subscribe the Living UI module to SessionManager todo updates so
+        # Subscribe the Agent App module to SessionManager todo updates so
         # that the agent's build breakdown streams to the browser automatically.
         agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
 
         # READ-ONLY build observer: derive construction-dock build events from
         # the actions the agent already performs (write_file / stream_edit /
-        # living_ui_scaffold / living_ui_notify_ready). These hooks are
+        # agent_app_scaffold / agent_app_notify_ready). These hooks are
         # single-callback and currently unset; the executor wraps them in
         # try/except and the observer swallows all exceptions, so this can
         # never affect a build. It reads inputs/outputs only, mutates nothing.
         try:
-            from app.living_ui import construction_events
+            from app.agent_app import construction_events
 
             on_start, on_end = construction_events.make_action_hooks()
             agent.action_manager._on_action_start = on_start
             agent.action_manager._on_action_end = on_end
         except Exception as e:
-            logger.warning(f"[LIVING_UI] build-event observer not attached: {e}")
+            logger.warning(f"[AGENT_APP] build-event observer not attached: {e}")
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -871,7 +1009,7 @@ class BrowserAdapter(InterfaceAdapter):
             enhanced: str = await self._controller.handle_prompt_enhance(
                 user_message=content
             )
-            await ws.send_json({"type": "prompt_enhanced", "content": enhanced.strip()})
+            await self._send_to(ws, {"type": "prompt_enhanced", "content": enhanced.strip()})
             return
         except Exception as e:
             logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
@@ -936,11 +1074,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             self._chat._messages.insert(0, welcome_message)
 
-        self._app = web.Application()
+        self._app = web.Application(middlewares=[self._api_guard()])
 
         # API and WebSocket routes (must be registered first)
         self._app.router.add_get("/ws", self._websocket_handler)
+        self._app.router.add_get("/api/session-token", self._session_token_handler)
         self._app.router.add_get("/api/state", self._state_handler)
+        self._app.router.add_get("/api/debug/loop", self._debug_loop_handler)
+        if os.getenv("CRAFTBOT_DEBUG_ENDPOINTS") == "1":
+            # Dev-only load and stall generators; never registered otherwise.
+            self._app.router.add_post("/api/debug/flood", self._debug_flood_handler)
+            self._app.router.add_post("/api/debug/block", self._debug_block_handler)
         self._app.router.add_get("/api/theme.css", self._theme_css_handler)
         self._app.router.add_get(
             "/api/workspace/{path:.*}", self._workspace_file_handler
@@ -949,16 +1093,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "/api/agent-profile-picture", self._agent_profile_picture_handler
         )
 
-        # Living UI export/import routes
+        # Agent App export/import routes
         self._app.router.add_get(
-            "/api/living-ui/{project_id}/export", self._living_ui_export_handler
+            "/api/agent-app/{project_id}/export", self._agent_app_export_handler
         )
         self._app.router.add_post(
-            "/api/living-ui/import", self._living_ui_import_handler
+            "/api/agent-app/import", self._agent_app_import_handler
         )
-        self._app.router.add_post("/api/living-ui/stage", self._living_ui_stage_handler)
+        self._app.router.add_post("/api/agent-app/stage", self._agent_app_stage_handler)
         self._app.router.add_get(
-            "/api/living-ui/icon/{project_id}", self._living_ui_icon_handler
+            "/api/agent-app/icon/{project_id}", self._agent_app_icon_handler
         )
 
         # Workspace and chat HTTP upload routes
@@ -974,10 +1118,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
         self._app.router.add_post("/api/profile/import", self._profile_import_handler)
 
-        # Integration bridge routes (Living UI → external APIs)
-        from app.living_ui.integration_bridge import IntegrationBridge
+        # Integration bridge routes (Agent App → external APIs)
+        from app.agent_app.integration_bridge import IntegrationBridge
 
-        self._integration_bridge = IntegrationBridge(self._living_ui_manager)
+        self._integration_bridge = IntegrationBridge(self._agent_app_manager)
         self._integration_bridge.register_routes(self._app)
 
         # Serve Vite-built frontend (production)
@@ -990,19 +1134,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Serve static files from dist/ (public/ files copied by Vite build)
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
-            _dist = frontend_dist  # capture for closure
-
-            async def _static_or_spa(request: web.Request) -> web.StreamResponse:
-                """Serve static file from dist/ if it exists, otherwise index.html for SPA routing."""
-                req_path = request.match_info.get("path", "")
-                if req_path:
-                    file_path = _dist / req_path
-                    if file_path.is_file():
-                        return web.FileResponse(file_path)
-                return web.FileResponse(_dist / "index.html")
-
             self._app.router.add_get("/", self._spa_handler)
-            self._app.router.add_get("/{path:.*}", _static_or_spa)
+            self._app.router.add_get(
+                "/{path:.*}", _make_static_or_spa(frontend_dist)
+            )
         else:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
@@ -1018,10 +1153,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         site = web.TCPSite(self._runner, self._host, self._port)
         await site.start()
         self._started_at = time.monotonic()
+        self._loop_monitor.start()
+        get_resource_notifier().bind(asyncio.get_running_loop(), self._broadcast)
+        # Changes the agent and background jobs make outside UI handlers.
+        try:
+            self._change_detection = ChangeDetection(self._controller.event_bus)
+            self._change_detection.start()
+        except Exception as e:
+            self._change_detection = None
+            logger.warning(f"[BROWSER ADAPTER] change detection unavailable: {e}")
 
         # Only print URL info if not using browser startup UI (run.py handles it)
-        import os
-
         if os.getenv("BROWSER_STARTUP_UI", "0") != "1":
             print(
                 f"\nCraftBot Browser Interface running at http://{self._host}:{self._port}"
@@ -1049,9 +1191,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
     async def _on_stop(self) -> None:
         """Stop the browser interface."""
-        # Stop all running Living UI projects
-        if self._living_ui_manager:
-            await self._living_ui_manager.stop_all_projects()
+        # Stop all running Agent App projects
+        if self._agent_app_manager:
+            await self._agent_app_manager.stop_all_projects()
 
         # Close integration bridge HTTP client
         if hasattr(self, "_integration_bridge"):
@@ -1065,10 +1207,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except asyncio.CancelledError:
                 pass
 
+        self._loop_monitor.stop()
+        if getattr(self, "_change_detection", None) is not None:
+            self._change_detection.stop()
+            self._change_detection = None
+        get_resource_notifier().unbind()
+
         # Close all WebSocket connections
         for ws in self._ws_clients.copy():
             await ws.close()
         self._ws_clients.clear()
+        for channel in list(self._channels.values()):
+            await channel.close()
+        self._channels.clear()
 
         # Shut down the aiohttp server and release the port
         if self._runner:
@@ -1082,9 +1233,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web, WSMsgType
         import asyncio
 
+        # Reject foreign pages before upgrading (browsers apply no CORS here).
+        rejected = self._ws_auth.check_ws_handshake(request.headers)
+        if rejected:
+            logger.warning(
+                f"[BROWSER ADAPTER] Rejected /ws handshake ({rejected}): "
+                f"origin={request.headers.get('Origin')!r} "
+                f"host={request.headers.get('Host')!r}"
+            )
+            raise web.HTTPForbidden(reason="WebSocket handshake not allowed")
+
         ws = web.WebSocketResponse(
             max_msg_size=100 * 1024 * 1024,
             heartbeat=30.0,  # Send ping every 30s to keep connection alive
+            protocols=(WS_PROTOCOL,),
         )
 
         try:
@@ -1123,6 +1285,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         is_first_client = len(self._ws_clients) == 0
         self._ws_clients.add(ws)
+        channel = ClientChannel(ws)
+        self._channels[ws] = channel
 
         # Trigger soft onboarding on first client connection so the UI
         # is ready to receive the onboarding messages.
@@ -1136,44 +1300,43 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                     asyncio.create_task(agent.trigger_soft_onboarding())
 
-        # Send initial state
+        # Send initial state (through the channel, so it stays ordered with
+        # broadcasts queued for this client)
         try:
             initial_state = self._get_initial_state()
-            await ws.send_json(
+            channel.send_json(
                 {
                     "type": "init",
                     "data": initial_state,
                 }
             )
-            await ws.send_json(
+            channel.send_json(
                 {
                     "type": "skill_meta",
                     "data": self._get_skill_meta(),
                 }
             )
-            # Push the Living UI list on connect instead of relying on the
+            # Push the Agent App list on connect instead of relying on the
             # client to request it. The frontend's request is sent from an
             # onOpen handler registered after React mounts; when the socket
             # opens before that (middleware connects during store bootstrap),
             # the request was never sent and the side panel stayed empty
             # until the next reconnect.
-            await ws.send_json(
+            channel.send_json(
                 {
-                    "type": "living_ui_list",
+                    "type": "agent_app_list",
                     "data": {
                         "success": True,
                         "projects": [
-                            p.to_dict() for p in self._living_ui_manager.list_projects()
+                            p.to_dict() for p in self._agent_app_manager.list_projects()
                         ],
                     },
                 }
             )
-        except (ConnectionResetError, ClientConnectionResetError, RuntimeError):
-            # Gracefully handle connection closing
-            self._ws_clients.discard(ws)
-            return ws
         except Exception:
             self._ws_clients.discard(ws)
+            self._channels.pop(ws, None)
+            await channel.close()
             return ws
 
         # Message loop
@@ -1182,7 +1345,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 try:
                     if msg.type == WSMsgType.TEXT:
                         data = json.loads(msg.data)
-                        await self._handle_ws_message(data, ws)
+                        if data.get("type") == "ping":
+                            # Liveness probe, answered by the reader itself: the
+                            # reply only fails to arrive when the loop is blocked.
+                            channel.send_json({"type": "pong"})
+                        else:
+                            self._dispatch_in_lane(ws, data)
                     elif msg.type == WSMsgType.ERROR:
                         break
                     elif msg.type == WSMsgType.CLOSE:
@@ -1216,8 +1384,38 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         finally:
             self._ws_clients.discard(ws)
             self._metrics_subscribers.discard(ws)
+            closing = self._channels.pop(ws, None)
+            if closing is not None:
+                await closing.close()
+            for key in [k for k in self._lane_locks if k[0] == id(ws)]:
+                del self._lane_locks[key]
 
         return ws
+
+    def _dispatch_in_lane(self, ws: Any, data: Dict[str, Any]) -> None:
+        """Handle a browser message as its own task, serialized only with
+        earlier messages from this connection in the same lane (ws_lanes.py)."""
+        key = (id(ws), message_lane(data))
+        lock = self._lane_locks.get(key)
+        if lock is None:
+            lock = self._lane_locks[key] = asyncio.Lock()
+        task = asyncio.create_task(self._run_in_lane(lock, data, ws))
+        self._lane_tasks.add(task)
+        task.add_done_callback(self._lane_tasks.discard)
+
+    async def _run_in_lane(self, lock: asyncio.Lock, data: Dict[str, Any], ws: Any) -> None:
+        request_id = data.get("requestId")
+        _REQUEST_ID.set(request_id if isinstance(request_id, str) else None)
+        async with lock:
+            try:
+                await self._handle_ws_message(data, ws)
+            except Exception as e:
+                # Report and carry on; one failing message never stops others.
+                import traceback
+
+                error_detail = f"WebSocket message error: {type(e).__name__}: {e}\n{traceback.format_exc()}"
+                print(f"[BROWSER ADAPTER] {error_detail}")
+                await self._broadcast_error_to_chat(error_detail)
 
     async def _handle_ws_message(self, data: Dict[str, Any], ws=None) -> None:
         """Handle incoming WebSocket message."""
@@ -1538,7 +1736,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._handle_memory_process_trigger()
 
         elif msg_type == "memory_schedule_get":
-            await self._handle_memory_schedule_get()
+            await self._handle_memory_schedule_get(ws)
 
         elif msg_type == "memory_schedule_set":
             await self._handle_memory_schedule_set(data)
@@ -1668,6 +1866,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "command_list":
             await self._handle_command_list()
 
+        # Same payload the connect handler pushes, on request (refetch).
+        elif msg_type == "skill_meta_get":
+            await self._send_to(
+                ws, {"type": "skill_meta", "data": self._get_skill_meta()}
+            )
+
         # Skill settings operations
         elif msg_type == "skill_list":
             await self._handle_skill_list()
@@ -1772,42 +1976,42 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             values = data.get("values") or {}
             await self._handle_integration_update_config(integration_id, values)
 
-        # Living UI settings handlers
-        elif msg_type == "living_ui_settings_get":
-            await self._handle_living_ui_settings_get()
+        # Agent App settings handlers
+        elif msg_type == "agent_app_settings_get":
+            await self._handle_agent_app_settings_get()
 
-        elif msg_type == "living_ui_project_setting_update":
+        elif msg_type == "agent_app_project_setting_update":
             project_id = data.get("projectId", "")
             setting = data.get("setting", "")
             value = data.get("value")
-            await self._handle_living_ui_project_setting_update(
+            await self._handle_agent_app_project_setting_update(
                 project_id, setting, value
             )
 
-        elif msg_type == "living_ui_backups_list":
-            await self._handle_living_ui_backups_list(data.get("projectId", ""))
+        elif msg_type == "agent_app_backups_list":
+            await self._handle_agent_app_backups_list(data.get("projectId", ""))
 
-        elif msg_type == "living_ui_backup_now":
-            await self._handle_living_ui_backup_now(data.get("projectId", ""))
+        elif msg_type == "agent_app_backup_now":
+            await self._handle_agent_app_backup_now(data.get("projectId", ""))
 
-        elif msg_type == "living_ui_backup_restore":
-            await self._handle_living_ui_backup_restore(
+        elif msg_type == "agent_app_backup_restore":
+            await self._handle_agent_app_backup_restore(
                 data.get("projectId", ""),
                 data.get("filename", ""),
                 data.get("sourceProjectId") or None,
             )
 
-        elif msg_type == "living_ui_backup_delete":
-            await self._handle_living_ui_backup_delete(
+        elif msg_type == "agent_app_backup_delete":
+            await self._handle_agent_app_backup_delete(
                 data.get("projectId", ""),
                 data.get("filename", ""),
                 orphan=bool(data.get("orphan", False)),
             )
 
-        elif msg_type == "living_ui_marketplace_list":
+        elif msg_type == "agent_app_marketplace_list":
             await self._handle_marketplace_list()
 
-        elif msg_type == "living_ui_marketplace_install":
+        elif msg_type == "agent_app_marketplace_install":
             app_id = data.get("appId", "")
             app_name = data.get("appName", "")
             app_description = data.get("appDescription", "")
@@ -1819,10 +2023,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 )
             )
 
-        elif msg_type == "living_ui_import":
+        elif msg_type == "agent_app_import":
             source = data.get("source", "")
             name = data.get("name", "External App")
-            asyncio.create_task(self._handle_living_ui_import(source, name))
+            asyncio.create_task(self._handle_agent_app_import(source, name))
 
         # Playbook catalogue handlers
         elif msg_type == "playbook_list":
@@ -1887,51 +2091,52 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             model = data.get("model", "")
             base_url = data.get("baseUrl")
             await self._handle_local_llm_pull_model(model, base_url)
-        # Living UI handlers
-        elif msg_type == "living_ui_create":
-            await self._handle_living_ui_create(data)
+        # Agent App handlers
+        elif msg_type == "agent_app_create":
+            await self._handle_agent_app_create(data)
 
-        elif msg_type == "living_ui_wizard_interview":
-            await self._handle_living_ui_wizard_interview(data)
+        elif msg_type == "agent_app_wizard_interview":
+            await self._handle_agent_app_wizard_interview(data)
 
-        elif msg_type == "living_ui_wizard_finalize":
-            await self._handle_living_ui_wizard_finalize(data)
+        elif msg_type == "agent_app_wizard_finalize":
+            await self._handle_agent_app_wizard_finalize(data)
 
-        elif msg_type == "living_ui_theme_update":
-            await self._handle_living_ui_theme_update(data)
+        elif msg_type == "agent_app_theme_update":
+            await self._handle_agent_app_theme_update(data)
 
-        elif msg_type == "living_ui_list":
-            await self._handle_living_ui_list()
+        elif msg_type == "agent_app_list":
+            await self._handle_agent_app_list()
 
-        elif msg_type == "living_ui_launch":
+        elif msg_type == "agent_app_launch":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_launch(project_id)
+            await self._handle_agent_app_launch(project_id)
 
-        elif msg_type == "living_ui_stop":
+        elif msg_type == "agent_app_stop":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_stop(project_id)
+            await self._handle_agent_app_stop(project_id)
 
-        elif msg_type == "living_ui_delete":
+        elif msg_type == "agent_app_delete":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_delete(
+            await self._handle_agent_app_delete(
                 project_id, delete_backups=bool(data.get("deleteBackups", False))
             )
 
-        elif msg_type == "living_ui_state_update":
-            await self._handle_living_ui_state_update(data)
+        elif msg_type == "agent_app_state_update":
+            await self._handle_agent_app_state_update(data)
 
-        elif msg_type == "living_ui_tunnel_start":
-            project_id = data.get("projectId", "")
-            provider = data.get("provider", "cloudflared")
-            await self._handle_living_ui_tunnel_start(project_id, provider)
+        elif msg_type == "agent_app_share_open":
+            await self._handle_agent_app_share(
+                data.get("projectId", ""), data.get("channel", ""), open_it=True
+            )
 
-        elif msg_type == "living_ui_tunnel_stop":
-            project_id = data.get("projectId", "")
-            await self._handle_living_ui_tunnel_stop(project_id)
+        elif msg_type == "agent_app_share_close":
+            await self._handle_agent_app_share(
+                data.get("projectId", ""), data.get("channel", ""), open_it=False
+            )
 
-        elif msg_type == "living_ui_sharing_info":
+        elif msg_type == "agent_app_sharing_info":
             project_id = data.get("projectId", "")
-            await self._handle_living_ui_sharing_info(project_id)
+            await self._handle_agent_app_sharing_info(project_id)
 
         # Update operations
         elif msg_type == "check_update":
@@ -1992,7 +2197,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "update_progress",
-                    "data": {"message": f"Update failed: {e}"},
+                    "data": {"message": tui("update_failed", error=str(e))},
                 }
             )
 
@@ -2007,7 +2212,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except ValueError:
                 period_enum = TimePeriod.TOTAL
 
-            filtered_metrics = self._metrics_collector.get_filtered_metrics(period_enum)
+            filtered_metrics = await asyncio.to_thread(
+                self._metrics_collector.get_filtered_metrics, period_enum
+            )
 
             await self._broadcast(
                 {
@@ -2172,7 +2379,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     ollama_url = (value or "http://localhost:11434").strip()
                     from app.ui_layer.local_llm_setup import test_ollama_connection_sync
 
-                    test_result = test_ollama_connection_sync(ollama_url)
+                    test_result = await asyncio.to_thread(
+                        test_ollama_connection_sync, ollama_url
+                    )
                     if not test_result.get("success"):
                         err = test_result.get("error", "Cannot reach Ollama")
                         await self._broadcast(
@@ -2218,7 +2427,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 or_model = _OR_MODEL_MAP.get(provider, {}).get(
                                     native_model
                                 ) or _to_openrouter_slug(provider, native_model)
-                            test_result = test_connection(
+                            test_result = await asyncio.to_thread(
+                                test_connection,
                                 provider="openrouter",
                                 api_key=actual_key,
                                 model=or_model,
@@ -2228,7 +2438,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             native_model = MODEL_REGISTRY.get(provider, {}).get(
                                 InterfaceType.LLM
                             )
-                            test_result = test_connection(
+                            test_result = await asyncio.to_thread(
+                                test_connection,
                                 provider=provider,
                                 api_key=actual_key,
                                 model=native_model,
@@ -2248,7 +2459,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         default_model = MODEL_REGISTRY.get(provider, {}).get(
                             InterfaceType.LLM
                         )
-                        test_result = test_connection(
+                        test_result = await asyncio.to_thread(
+                            test_connection,
                             provider=provider,
                             api_key=actual_key,
                             model=default_model,
@@ -2361,7 +2573,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "onboarding_skip",
                         "data": {
                             "success": False,
-                            "error": "This step is required and cannot be skipped",
+                            "error": tui("onboarding_step_required"),
                         },
                     }
                 )
@@ -2450,7 +2662,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "onboarding_back",
                         "data": {
                             "success": False,
-                            "error": "Already at the first step",
+                            "error": tui("onboarding_at_first_step"),
                         },
                     }
                 )
@@ -2510,7 +2722,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             from app.ui_layer.local_llm_setup import get_ollama_status
 
-            status = get_ollama_status()
+            status = await asyncio.to_thread(get_ollama_status)
             await self._broadcast(
                 {
                     "type": "local_llm_check",
@@ -2531,7 +2743,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             from app.ui_layer.local_llm_setup import test_ollama_connection_sync
 
-            result = test_ollama_connection_sync(url)
+            result = await asyncio.to_thread(test_ollama_connection_sync, url)
             await self._broadcast(
                 {
                     "type": "local_llm_test",
@@ -2617,7 +2829,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "local_llm_pull_model",
-                    "data": {"success": False, "error": "No model specified"},
+                    "data": {"success": False, "error": tui("model_no_model_specified")},
                 }
             )
             return
@@ -2662,28 +2874,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     # -------------------------------------------------------------------------
-    # Living UI Handlers
+    # Agent App Handlers
     # -------------------------------------------------------------------------
 
-    async def _handle_living_ui_wizard_interview(self, data: Dict[str, Any]) -> None:
+    async def _handle_agent_app_wizard_interview(self, data: Dict[str, Any]) -> None:
         """Wizard step 2: generate interview questions from the Step-1
         configuration via a direct LLM call (no project/session exists yet)."""
-        from app.living_ui import wizard
+        from app.agent_app import wizard
 
         wizard_id = str(data.get("wizardId", ""))
         try:
             config = data.get("config") or {}
-            living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
-            wizard.sweep_stale_staging(living_ui_dir)
+            agent_app_dir = Path(self._agent_app_manager.agent_app_dir)
+            wizard.sweep_stale_staging(agent_app_dir)
 
             # Reference images are described once and reused at finalize.
-            image_notes = await wizard.describe_staged_images(living_ui_dir, wizard_id)
+            image_notes = await wizard.describe_staged_images(agent_app_dir, wizard_id)
             self._wizard_image_notes[wizard_id] = image_notes
 
             questions = await wizard.generate_interview(config, image_notes)
             await self._broadcast(
                 {
-                    "type": "living_ui_wizard_interview",
+                    "type": "agent_app_wizard_interview",
                     "data": {
                         "success": True,
                         "wizardId": wizard_id,
@@ -2692,10 +2904,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI:WIZARD] interview failed: {e}")
+            logger.error(f"[AGENT_APP:WIZARD] interview failed: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_wizard_interview",
+                    "type": "agent_app_wizard_interview",
                     "data": {
                         "success": False,
                         "wizardId": wizard_id,
@@ -2704,11 +2916,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_wizard_finalize(self, data: Dict[str, Any]) -> None:
+    async def _handle_agent_app_wizard_finalize(self, data: Dict[str, Any]) -> None:
         """Wizard step 3: synthesize the requirements document, create the
         project, move staged attachments in, queue the build run in the
         project's session, and hand the frontend its projectId to navigate to."""
-        from app.living_ui import wizard
+        from app.agent_app import wizard
 
         wizard_id = str(data.get("wizardId", ""))
         try:
@@ -2717,13 +2929,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             name = str(config.get("name", "")).strip()
             description = str(config.get("description", "")).strip()
             if not name or not description:
-                raise ValueError("Name and description are required")
+                raise ValueError(tui("agentapp_name_desc_required"))
 
-            living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
+            agent_app_dir = Path(self._agent_app_manager.agent_app_dir)
             image_notes = self._wizard_image_notes.pop(wizard_id, None)
             if image_notes is None:
                 image_notes = await wizard.describe_staged_images(
-                    living_ui_dir, wizard_id
+                    agent_app_dir, wizard_id
                 )
 
             # SECOND INTERVIEW ROUND (one, at most): with a marketplace
@@ -2748,7 +2960,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             config, image_notes, include_marketplace=False
                         )
                 except Exception as e:
-                    logger.warning(f"[LIVING_UI:WIZARD] round 2 skipped: {e}")
+                    logger.warning(f"[AGENT_APP:WIZARD] round 2 skipped: {e}")
                     followups = []
                 if followups:
                     # Re-id: a model reusing "q1" would collide with the
@@ -2759,7 +2971,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     self._wizard_image_notes[wizard_id] = image_notes
                     await self._broadcast(
                         {
-                            "type": "living_ui_wizard_finalize",
+                            "type": "agent_app_wizard_finalize",
                             "data": {
                                 "success": True,
                                 "wizardId": wizard_id,
@@ -2777,7 +2989,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # stylePack is derived by the frontend from the theme catalog
             # (style-bearing theme id, or "" for pinned color themes).
             style_pack = str(config.get("stylePack") or "")
-            project = await self._living_ui_manager.create_project(
+            project = await self._agent_app_manager.create_project(
                 name=name,
                 description=description,
                 auth_mode=auth_mode,
@@ -2787,26 +2999,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Staged files: uploaded icon → app favicon, references →
             # <project>/reference/. An uploaded icon wins over a lucide pick.
             moved = wizard.move_staging_into_project(
-                living_ui_dir, wizard_id, Path(project.path)
+                agent_app_dir, wizard_id, Path(project.path)
             )
             if moved["icon"]:
                 project.icon = moved["icon"]
                 # Favicon injection edited the system-owned index.html —
                 # re-canonize hashes so the validation gate stays green.
                 try:
-                    await self._living_ui_manager.runner.kit_sync(Path(project.path))
+                    await self._agent_app_manager.runner.kit_sync(Path(project.path))
                 except Exception as e:
-                    logger.warning(f"[LIVING_UI:WIZARD] re-canon failed: {e}")
+                    logger.warning(f"[AGENT_APP:WIZARD] re-canon failed: {e}")
             elif str(config.get("icon", "")).startswith("lucide:"):
                 project.icon = str(config.get("icon"))
 
             # The wizard's theme pick becomes the project's default display
-            # theme — the Living UI page adopts it (absent a local override)
-            # and pushes it to the app via the livingui-theme protocol.
+            # theme — the Agent App page adopts it (absent a local override)
+            # and pushes it to the app via the agentapp-theme protocol.
             ui_theme = str(config.get("uiTheme") or "").strip()
             if ui_theme:
                 project.ui_theme = {"themeId": ui_theme}
-            self._living_ui_manager._save_projects()
+            self._agent_app_manager._save_projects()
 
             # The build's binding specification (walk-verify reads it too).
             reference_dir = Path(project.path) / "reference"
@@ -2816,16 +3028,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # Create the project's session BEFORE broadcasting so the project
-            # snapshot carries sessionId — the Living UI page keys its chat
+            # snapshot carries sessionId — the Agent App page keys its chat
             # panel on project.sessionId, and nothing back-fills it later.
             # (start_development_run reuses this session; ensure is idempotent.)
-            self._living_ui_manager.ensure_project_session(project)
+            self._agent_app_manager.ensure_project_session(project)
 
             # Same broadcast the plain create path uses — the store's
-            # living_ui_create handler adds the project tab.
+            # agent_app_create handler adds the project tab.
             await self._broadcast(
                 {
-                    "type": "living_ui_create",
+                    "type": "agent_app_create",
                     "data": {
                         "success": True,
                         "projectId": project.id,
@@ -2836,37 +3048,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # Post the "what you asked for" summary as the first bubble in the
-            # PROJECT'S session (never main) — it heads the Living UI chat the
+            # PROJECT'S session (never main) — it heads the Agent App chat the
             # user is auto-switched into, so the build has a visible cause.
             try:
                 await self._display_chat_message(
                     "System",
-                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    f"**Agent App: {name}**\n\n{description}\n\n"
                     "Building your app now — follow the progress here.",
                     "system",
                     session_id=project.session_id,
                 )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+                logger.debug(f"[AGENT_APP] create chat message failed: {e}")
 
             await self._broadcast(
                 {
-                    "type": "living_ui_status",
+                    "type": "agent_app_status",
                     "data": {
                         "projectId": project.id,
                         "phase": "initializing",
                         "progress": 10,
-                        "message": "Project created, starting development...",
+                        "message": tui("agentapp_project_created"),
                     },
                 }
             )
 
             # Queue the build run in the project's dedicated session.
-            session_id = await self._living_ui_manager.start_development_run(project.id)
+            session_id = await self._agent_app_manager.start_development_run(project.id)
             if not session_id:
-                raise RuntimeError("Failed to start development run")
+                raise RuntimeError(tui("agentapp_dev_run_failed"))
 
-            # CHAT-PATH tail: tell the session that ran living_ui_scaffold
+            # CHAT-PATH tail: tell the session that ran agent_app_scaffold
             # which project resulted. Without this the origin agent's last
             # knowledge is "no project created yet" — observed live
             # 2026-08-05: asked to "add data to it", it searched the
@@ -2880,16 +3092,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                     get_factory_host().set_origin_session(project.id, origin_session)
                 except Exception as e:
-                    logger.debug(f"[LIVING_UI:WIZARD] origin persist failed: {e}")
+                    logger.debug(f"[AGENT_APP:WIZARD] origin persist failed: {e}")
                 try:
                     from app.triggers import TriggerSource, TriggerSpec
 
-                    await self._living_ui_manager._trigger_service.emit(
+                    await self._agent_app_manager._trigger_service.emit(
                         TriggerSpec(
-                            source=TriggerSource.LIVING_UI_CREATED,
+                            source=TriggerSource.AGENT_APP_CREATED,
                             description=(
                                 f"FYI: the setup questions were answered — "
-                                f"Living UI '{project.name}' (project_id "
+                                f"Agent App '{project.name}' (project_id "
                                 f"{project.id}) has been created and its "
                                 "build is running in its own session. No "
                                 "action and no message needed: acknowledge "
@@ -2905,12 +3117,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     )
                 except Exception as e:
                     logger.debug(
-                        f"[LIVING_UI:WIZARD] origin-session notify failed: {e}"
+                        f"[AGENT_APP:WIZARD] origin-session notify failed: {e}"
                     )
 
             await self._broadcast(
                 {
-                    "type": "living_ui_wizard_finalize",
+                    "type": "agent_app_wizard_finalize",
                     "data": {
                         "success": True,
                         "wizardId": wizard_id,
@@ -2919,10 +3131,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI:WIZARD] finalize failed: {e}")
+            logger.error(f"[AGENT_APP:WIZARD] finalize failed: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_wizard_finalize",
+                    "type": "agent_app_wizard_finalize",
                     "data": {
                         "success": False,
                         "wizardId": wizard_id,
@@ -2931,19 +3143,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_theme_update(self, data: Dict[str, Any]) -> None:
+    async def _handle_agent_app_theme_update(self, data: Dict[str, Any]) -> None:
         """Persist a project's display theme so it follows the user across
         browsers ({"projectId", "theme": {"themeId", "customColors"}})."""
         try:
             project_id = str(data.get("projectId", ""))
             theme = data.get("theme")
             if project_id:
-                self._living_ui_manager.set_project_ui_theme(project_id, theme)
+                self._agent_app_manager.set_project_ui_theme(project_id, theme)
+                # Other tabs and browsers refetch the list, which carries uiTheme.
+                notify_resource_changed(Resource.AGENT_APPS, [project_id])
         except Exception as e:
-            logger.debug(f"[LIVING_UI] theme update failed: {e}")
+            logger.debug(f"[AGENT_APP] theme update failed: {e}")
 
-    async def _handle_living_ui_create(self, data: Dict[str, Any]) -> None:
-        """Create a new Living UI project."""
+    async def _handle_agent_app_create(self, data: Dict[str, Any]) -> None:
+        """Create a new Agent App project."""
         try:
             name = data.get("name", "")
             description = data.get("description", "")
@@ -2954,10 +3168,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not name or not description:
                 await self._broadcast(
                     {
-                        "type": "living_ui_error",
+                        "type": "agent_app_error",
                         "data": {
                             "projectId": "",
-                            "error": "Name and description are required",
+                            "error": tui("agentapp_name_desc_required"),
                         },
                     }
                 )
@@ -2985,7 +3199,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if extras:
                 description = description + "\n\n" + "\n".join(extras)
 
-            project = await self._living_ui_manager.create_project(
+            project = await self._agent_app_manager.create_project(
                 name=name,
                 description=description,
                 features=features,
@@ -3002,20 +3216,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 for f in ref_files[:10]:
                     src = Path(f)
                     staging_root = (
-                        Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                        Path(self._agent_app_manager.agent_app_dir) / "_staging"
                     )
                     if src.exists() and staging_root in src.parents:
-                        shutil.move(str(src), str(ref_dir / src.name))
+                        await asyncio.to_thread(
+                            shutil.move, str(src), str(ref_dir / src.name)
+                        )
 
             # Create the session BEFORE broadcasting so the project snapshot
-            # carries sessionId (the Living UI page's chat panel keys on it;
+            # carries sessionId (the Agent App page's chat panel keys on it;
             # nothing back-fills it later). start_development_run reuses it.
-            self._living_ui_manager.ensure_project_session(project)
+            self._agent_app_manager.ensure_project_session(project)
 
             # Broadcast project created
             await self._broadcast(
                 {
-                    "type": "living_ui_create",
+                    "type": "agent_app_create",
                     "data": {
                         "success": True,
                         "projectId": project.id,
@@ -3026,60 +3242,60 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # Post the "what you asked for" summary as the first bubble in the
-            # PROJECT'S session (never main) — it heads the Living UI chat the
+            # PROJECT'S session (never main) — it heads the Agent App chat the
             # user is auto-switched into, so the build has a visible cause.
             try:
                 await self._display_chat_message(
                     "System",
-                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    f"**Agent App: {name}**\n\n{description}\n\n"
                     "Building your app now — follow the progress here.",
                     "system",
                     session_id=project.session_id,
                 )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+                logger.debug(f"[AGENT_APP] create chat message failed: {e}")
 
             # Broadcast initial status update
             await self._broadcast(
                 {
-                    "type": "living_ui_status",
+                    "type": "agent_app_status",
                     "data": {
                         "projectId": project.id,
                         "phase": "initializing",
                         "progress": 10,
-                        "message": "Project created, starting development...",
+                        "message": tui("agentapp_project_created"),
                     },
                 }
             )
 
             # Queue the build run in the project's dedicated session.
             # The manager handles: session creation, status update, trigger firing.
-            session_id = await self._living_ui_manager.start_development_run(project.id)
+            session_id = await self._agent_app_manager.start_development_run(project.id)
 
             if session_id:
                 logger.info(
-                    f"[LIVING_UI] Queued build run in session {session_id} "
+                    f"[AGENT_APP] Queued build run in session {session_id} "
                     f"for project {project.id}"
                 )
             else:
                 logger.error(
-                    f"[LIVING_UI] Failed to start development run for project {project.id}"
+                    f"[AGENT_APP] Failed to start development run for project {project.id}"
                 )
                 await self._broadcast(
                     {
-                        "type": "living_ui_error",
+                        "type": "agent_app_error",
                         "data": {
                             "projectId": project.id,
-                            "error": "Failed to start development run",
+                            "error": tui("agentapp_dev_run_failed"),
                         },
                     }
                 )
 
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error creating project: {e}")
+            logger.error(f"[AGENT_APP] Error creating project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {
                         "projectId": "",
                         "error": str(e),
@@ -3087,13 +3303,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_list(self) -> None:
-        """Get list of all Living UI projects."""
+    async def _handle_agent_app_list(self) -> None:
+        """Get list of all Agent App projects."""
         try:
-            projects = self._living_ui_manager.list_projects()
+            projects = self._agent_app_manager.list_projects()
             await self._broadcast(
                 {
-                    "type": "living_ui_list",
+                    "type": "agent_app_list",
                     "data": {
                         "success": True,
                         "projects": [p.to_dict() for p in projects],
@@ -3103,26 +3319,34 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Replay buffered build events for any in-progress build so a
             # reconnecting client repopulates the construction dock feed.
             try:
-                from app.living_ui import construction_events
+                from app.agent_app import construction_events
 
+                live_ids = {p.id for p in projects}
+                for stale_id in [pid for pid in self._agent_app_todos if pid not in live_ids]:
+                    del self._agent_app_todos[stale_id]
                 for p in projects:
                     if getattr(p, "status", None) not in ("creating", "error"):
                         continue
+                    todos = self._agent_app_todos.get(p.id)
+                    if todos:
+                        await self._broadcast(
+                            {"type": "agent_app_todos", "data": {"projectId": p.id, "todos": todos}}
+                        )
                     events = construction_events.get_buffered_events(p.id)
                     if events:
                         await self._broadcast(
                             {
-                                "type": "living_ui_build_events_replay",
+                                "type": "agent_app_build_events_replay",
                                 "data": {"projectId": p.id, "events": events},
                             }
                         )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] build-event replay skipped: {e}")
+                logger.debug(f"[AGENT_APP] build-event replay skipped: {e}")
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error listing projects: {e}")
+            logger.error(f"[AGENT_APP] Error listing projects: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_list",
+                    "type": "agent_app_list",
                     "data": {
                         "success": False,
                         "error": str(e),
@@ -3130,16 +3354,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_launch(self, project_id: str) -> None:
-        """Launch a Living UI project."""
+    async def _handle_agent_app_launch(self, project_id: str) -> None:
+        """Launch a Agent App project."""
         try:
-            success = await self._living_ui_manager.launch_project(project_id)
-            project = self._living_ui_manager.get_project(project_id)
+            success = await self._agent_app_manager.launch_project(project_id)
+            project = self._agent_app_manager.get_project(project_id)
 
             if success and project:
                 await self._broadcast(
                     {
-                        "type": "living_ui_launch",
+                        "type": "agent_app_launch",
                         "data": {
                             "success": True,
                             "projectId": project_id,
@@ -3151,7 +3375,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             else:
                 await self._broadcast(
                     {
-                        "type": "living_ui_launch",
+                        "type": "agent_app_launch",
                         "data": {
                             "success": False,
                             "projectId": project_id,
@@ -3160,10 +3384,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     }
                 )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error launching project: {e}")
+            logger.error(f"[AGENT_APP] Error launching project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_launch",
+                    "type": "agent_app_launch",
                     "data": {
                         "success": False,
                         "projectId": project_id,
@@ -3172,13 +3396,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_stop(self, project_id: str) -> None:
-        """Stop a running Living UI project."""
+    async def _handle_agent_app_stop(self, project_id: str) -> None:
+        """Stop a running Agent App project."""
         try:
-            success = await self._living_ui_manager.stop_project(project_id)
+            success = await self._agent_app_manager.stop_project(project_id)
             await self._broadcast(
                 {
-                    "type": "living_ui_stop",
+                    "type": "agent_app_stop",
                     "data": {
                         "success": success,
                         "projectId": project_id,
@@ -3186,10 +3410,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error stopping project: {e}")
+            logger.error(f"[AGENT_APP] Error stopping project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_stop",
+                    "type": "agent_app_stop",
                     "data": {
                         "success": False,
                         "projectId": project_id,
@@ -3198,26 +3422,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_living_ui_delete(
+    async def _handle_agent_app_delete(
         self, project_id: str, delete_backups: bool = False
     ) -> None:
-        """Delete a Living UI project (and its dedicated session)."""
+        """Delete a Agent App project (and its dedicated session)."""
         try:
-            project = self._living_ui_manager.get_project(project_id)
+            project = self._agent_app_manager.get_project(project_id)
             session_id = project.session_id if project else None
 
-            success = await self._living_ui_manager.delete_project(
+            success = await self._agent_app_manager.delete_project(
                 project_id, delete_backups=delete_backups
             )
             try:
-                from app.living_ui import construction_events
+                from app.agent_app import construction_events
 
                 construction_events.clear_buffer(project_id)
             except Exception:
                 pass
             await self._broadcast(
                 {
-                    "type": "living_ui_delete",
+                    "type": "agent_app_delete",
                     "data": {
                         "success": success,
                         "projectId": project_id,
@@ -3234,10 +3458,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     }
                 )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error deleting project: {e}")
+            logger.error(f"[AGENT_APP] Error deleting project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_delete",
+                    "type": "agent_app_delete",
                     "data": {
                         "success": False,
                         "projectId": project_id,
@@ -3246,14 +3470,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _living_ui_export_handler(self, request: "web.Request") -> "web.Response":
-        """HTTP handler: download a Living UI project as a ZIP file."""
+    async def _agent_app_export_handler(self, request: "web.Request") -> "web.Response":
+        """HTTP handler: download a Agent App project as a ZIP file."""
         from aiohttp import web
 
         project_id = request.match_info["project_id"]
         try:
-            zip_path = self._living_ui_manager.export_project_zip(project_id)
-            project = self._living_ui_manager.get_project(project_id)
+            zip_path = self._agent_app_manager.export_project_zip(project_id)
+            project = self._agent_app_manager.get_project(project_id)
             filename = (
                 f"{project.name.replace(' ', '_')}.zip"
                 if project
@@ -3277,40 +3501,40 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             return error_json_response(
                 ErrorInfo(
                     category=ErrorCategory.NOT_FOUND,
-                    code="LIVING_UI_EXPORT_NOT_FOUND",
+                    code="AGENT_APP_EXPORT_NOT_FOUND",
                     title="Export not found",
                     message=redact(str(e)),
                 ),
                 status=404,
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Export error: {e}")
+            logger.error(f"[AGENT_APP] Export error: {e}")
             from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
             from app.errors.web import error_json_response
 
             return error_json_response(
                 ErrorInfo(
                     category=ErrorCategory.INTERNAL,
-                    code="LIVING_UI_EXPORT_FAILED",
+                    code="AGENT_APP_EXPORT_FAILED",
                     title="Export failed",
                     message=redact(str(e)),
                 ),
                 status=500,
             )
 
-    async def _living_ui_stage_handler(self, request: "web.Request") -> "web.Response":
-        """Stage a reference file (sketch/screenshot/doc) for a NEW Living UI.
+    async def _agent_app_stage_handler(self, request: "web.Request") -> "web.Response":
+        """Stage a reference file (sketch/screenshot/doc) for a NEW Agent App.
 
-        Saves under living_ui/_staging/refs/ and returns {"path": ...}. The
+        Saves under agent_app/_staging/refs/ and returns {"path": ...}. The
         create flow moves staged files into the project's reference/ dir.
 
         Wizard mode: with ?wizardId=<id> (and optional &kind=icon) the file
-        stages under living_ui/_staging/wizard/<id>/ instead; icons are
+        stages under agent_app/_staging/wizard/<id>/ instead; icons are
         normalized to icon.<ext> so finalize can find them.
         """
         from aiohttp import web
 
-        from app.living_ui import wizard
+        from app.agent_app import wizard
 
         wizard_id = request.query.get("wizardId", "")
         kind = request.query.get("kind", "reference")
@@ -3322,13 +3546,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     filename = Path(part.filename or "reference.bin").name
                     if wizard_id:
                         staging = wizard.staging_dir(
-                            Path(self._living_ui_manager.living_ui_dir), wizard_id
+                            Path(self._agent_app_manager.agent_app_dir), wizard_id
                         )
                         if kind == "icon":
                             filename = f"icon{Path(filename).suffix.lower() or '.png'}"
                     else:
                         staging = (
-                            Path(self._living_ui_manager.living_ui_dir)
+                            Path(self._agent_app_manager.agent_app_dir)
                             / "_staging"
                             / "refs"
                         )
@@ -3360,13 +3584,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _living_ui_icon_handler(
+    async def _agent_app_icon_handler(
         self, request: "web.Request"
     ) -> "web.StreamResponse":
         """Serve a project's uploaded icon (project.icon == "file:<relpath>")."""
         from aiohttp import web
 
-        project = self._living_ui_manager.get_project(
+        project = self._agent_app_manager.get_project(
             request.match_info.get("project_id", "")
         )
         if project and (project.icon or "").startswith("file:"):
@@ -3378,10 +3602,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return web.FileResponse(icon_path)
         return web.json_response({"error": "no icon"}, status=404)
 
-    async def _living_ui_import_handler(self, request: "web.Request") -> "web.Response":
+    async def _agent_app_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
 
-        The frontend then sends a living_ui_import WebSocket message with
+        The frontend then sends a agent_app_import WebSocket message with
         the path so the agent handles extraction via the importer skill.
         """
         from aiohttp import web
@@ -3399,7 +3623,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 elif part.name == "file":
                     # Save uploaded file to a staging location
                     staging_dir = (
-                        Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                        Path(self._agent_app_manager.agent_app_dir) / "_staging"
                     )
                     staging_dir.mkdir(parents=True, exist_ok=True)
                     tmp = tempfile.NamedTemporaryFile(
@@ -3417,7 +3641,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     zip_path = tmp.name
 
             if not zip_path:
-                return web.json_response({"error": "No ZIP file uploaded"}, status=400)
+                return web.json_response(
+                    {"error": tui("agentapp_no_zip")}, status=400
+                )
 
             return web.json_response(
                 {
@@ -3427,7 +3653,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Upload staging error: {e}")
+            logger.error(f"[AGENT_APP] Upload staging error: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def _workspace_upload_handler(self, request: "web.Request") -> "web.Response":
@@ -3502,9 +3728,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
 
         try:
-            name = (
-                request.rel_url.query.get("name", "attachment").strip() or "attachment"
-            )
+            # A display name, never a path: keep only the final component, or
+            # "../../x" walks out of download/ (Windows collapses ".." without
+            # the intermediate directory existing).
+            name = Path(
+                request.rel_url.query.get("name", "").strip().replace("\\", "/")
+            ).name
+            if name in ("", ".", ".."):
+                name = "attachment"
             file_type = (
                 request.rel_url.query.get("type", "application/octet-stream").strip()
                 or "application/octet-stream"
@@ -3564,7 +3795,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         description = request.query.get("description", "")
         try:
-            result = export_profile(description=description)
+            result = await asyncio.to_thread(export_profile, description=description)
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Export failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)
@@ -3576,12 +3807,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         bundle_path = Path(result["path"])
         filename = result["filename"]
-        try:
-            payload = bundle_path.read_bytes()
-        finally:
-            # Clean up the temp file + its parent dir immediately. Bundles are
-            # small enough (no node_modules) to hold in memory briefly.
-            shutil.rmtree(bundle_path.parent, ignore_errors=True)
+
+        def _take_bundle() -> bytes:
+            try:
+                return bundle_path.read_bytes()
+            finally:
+                # Clean up the temp file + its parent dir immediately. Bundles are
+                # small enough (no node_modules) to hold in memory briefly.
+                shutil.rmtree(bundle_path.parent, ignore_errors=True)
+
+        payload = await asyncio.to_thread(_take_bundle)
 
         return web.Response(
             body=payload,
@@ -3624,12 +3859,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             bundle_path = await self._stage_uploaded_bundle(request)
             if not bundle_path:
                 return web.json_response(
-                    {"error": "No bundle file uploaded"}, status=400
+                    {"error": tui("agentapp_no_bundle")}, status=400
                 )
-            result = inspect_bundle(bundle_path)
+            result = await asyncio.to_thread(inspect_bundle, bundle_path)
             # Read bytes into memory and delete the temp file immediately so a
             # cancelled import (user closes modal) never leaks a file to %TEMP%.
-            bundle_bytes = Path(bundle_path).read_bytes()
+            bundle_bytes = await asyncio.to_thread(Path(bundle_path).read_bytes)
             token = str(uuid.uuid4())
             self._staged_bundles[token] = bundle_bytes
             result["bundle_token"] = token
@@ -3677,13 +3912,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 tmp.write(bundle_bytes)
                 tmp_path = tmp.name
 
-            # Pass the live LivingUIManager so imported projects land in its
+            # Pass the live AgentAppManager so imported projects land in its
             # in-memory state. Without this, the manager's stale state will
             # overwrite our file on the next status update / watchdog tick.
             result = import_profile(
                 tmp_path,
                 mode=mode,
-                living_ui_manager=self._living_ui_manager,
+                agent_app_manager=self._agent_app_manager,
             )
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
@@ -3698,8 +3933,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         return web.json_response(result)
 
-    async def _handle_living_ui_state_update(self, data: Dict[str, Any]) -> None:
-        """Handle state update from a Living UI for agent awareness."""
+    async def _handle_agent_app_state_update(self, data: Dict[str, Any]) -> None:
+        """Handle state update from a Agent App for agent awareness."""
         try:
             project_id = data.get("projectId", "")
             state = data.get("state", {})
@@ -3707,13 +3942,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Store the state for agent context
             from app.state import STATE
 
-            if hasattr(STATE, "update_living_ui_state"):
-                STATE.update_living_ui_state(project_id, state)
+            if hasattr(STATE, "update_agent_app_state"):
+                STATE.update_agent_app_state(project_id, state)
 
             # Also forward to any listening clients (for debugging/monitoring)
             await self._broadcast(
                 {
-                    "type": "living_ui_state_update",
+                    "type": "agent_app_state_update",
                     "data": {
                         "projectId": project_id,
                         "state": state,
@@ -3721,93 +3956,66 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI] Error handling state update: {e}")
+            logger.error(f"[AGENT_APP] Error handling state update: {e}")
 
-    async def _handle_living_ui_sharing_info(self, project_id: str) -> None:
-        """Return sharing info (LAN URL, tunnel URL)."""
-        lan_url = self._living_ui_manager.get_lan_url(project_id)
-        project = self._living_ui_manager.get_project(project_id)
-        await self._broadcast(
-            {
-                "type": "living_ui_sharing_info",
-                "data": {
-                    "projectId": project_id,
-                    "lanUrl": lan_url,
-                    "tunnelUrl": project.tunnel_url if project else None,
-                },
-            }
-        )
-
-    async def _handle_living_ui_tunnel_start(
-        self, project_id: str, provider: str
+    async def _handle_agent_app_sharing_info(
+        self, project_id: str, error: Optional[Dict[str, str]] = None
     ) -> None:
-        """Start a tunnel for a Living UI project."""
-        logger.info(
-            f"[LIVING_UI] Tunnel start requested: project={project_id}, provider={provider}"
-        )
-        try:
-            url = await self._living_ui_manager.start_tunnel(project_id, provider)
-            await self._broadcast(
-                {
-                    "type": "living_ui_tunnel_status",
-                    "data": {
-                        "projectId": project_id,
-                        "tunnelUrl": url,
-                        "success": url is not None,
-                        "error": None if url else f"Failed to start {provider} tunnel",
-                    },
-                }
-            )
-        except Exception as e:
-            logger.error(f"[LIVING_UI] Tunnel start error: {e}", exc_info=True)
-            await self._broadcast(
-                {
-                    "type": "living_ui_tunnel_status",
-                    "data": {
-                        "projectId": project_id,
-                        "tunnelUrl": None,
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
-            )
-
-    async def _handle_living_ui_tunnel_stop(self, project_id: str) -> None:
-        """Stop a tunnel for a Living UI project."""
-        await self._living_ui_manager.stop_tunnel(project_id)
+        """Broadcast the project's share links: {channel: link | None}. A
+        link carries its secret — the bare URL admits nobody."""
         await self._broadcast(
             {
-                "type": "living_ui_tunnel_status",
+                "type": "agent_app_sharing_info",
                 "data": {
                     "projectId": project_id,
-                    "tunnelUrl": None,
-                    "success": True,
+                    "links": self._agent_app_manager.share_links(project_id),
+                    "error": error,
                 },
             }
         )
 
-    async def broadcast_living_ui_ready(
+    async def _handle_agent_app_share(
+        self, project_id: str, channel: str, open_it: bool
+    ) -> None:
+        """Open or close one share channel ("lan" | "tunnel"), then answer
+        with the current links (and why, if opening failed)."""
+        error = None
+        try:
+            if open_it:
+                await self._agent_app_manager.open_share(project_id, channel)
+            else:
+                await self._agent_app_manager.close_share(project_id, channel)
+        except Exception as e:
+            logger.error(
+                f"[AGENT_APP] Share {channel} {'open' if open_it else 'close'} "
+                f"failed for {project_id}: {e}",
+                exc_info=not isinstance(e, ShareError),
+            )
+            error = {"channel": channel, "message": str(e)}
+        await self._handle_agent_app_sharing_info(project_id, error)
+
+    async def broadcast_agent_app_ready(
         self, project_id: str, url: str, port: int
     ) -> bool:
         """
-        Broadcast that a Living UI is ready (called from agent action).
+        Broadcast that a Agent App is ready (called from agent action).
 
-        This method launches the Living UI server via the manager and notifies
+        This method launches the Agent App server via the manager and notifies
         the browser. The agent should NOT start the server itself - just build
         and call this action.
 
         Returns:
             True if project was found and launched successfully, False otherwise
         """
-        project = self._living_ui_manager.get_project(project_id)
+        project = self._agent_app_manager.get_project(project_id)
         if not project:
             logger.error(
-                f"[LIVING_UI] Project not found for ready notification: {project_id}"
+                f"[AGENT_APP] Project not found for ready notification: {project_id}"
             )
             # Broadcast error to browser so it can display the error state
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {
                         "projectId": project_id,
                         "error": f"Project '{project_id}' not found. Check that the project_id matches the one from the build instruction.",
@@ -3827,22 +4035,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if (
             project.status == "running"
             and project.port
-            and self._living_ui_manager._is_port_in_use(project.port)
+            and self._agent_app_manager._is_port_in_use(project.port)
         ):
             success = True
         else:
             # Update project status to "ready" (build complete, about to launch)
-            self._living_ui_manager.update_project_status(project_id, "ready")
+            self._agent_app_manager.update_project_status(project_id, "ready")
 
             # Launch the project server via manager (centralizes process management)
-            success = await self._living_ui_manager.launch_project(project_id)
+            success = await self._agent_app_manager.launch_project(project_id)
 
         if success:
             # Get updated project info with URL
-            project = self._living_ui_manager.get_project(project_id)
+            project = self._agent_app_manager.get_project(project_id)
             await self._broadcast(
                 {
-                    "type": "living_ui_ready",
+                    "type": "agent_app_ready",
                     "data": {
                         "projectId": project_id,
                         "url": project.url if project else url,
@@ -3851,11 +4059,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-            logger.info(f"[LIVING_UI] Project {project_id} launched and ready")
+            logger.info(f"[AGENT_APP] Project {project_id} launched and ready")
             # Build finished — drop the buffered construction-dock feed so a
             # later rebuild of the same project starts from a clean slate.
             try:
-                from app.living_ui import construction_events
+                from app.agent_app import construction_events
 
                 construction_events.clear_buffer(project_id)
             except Exception:
@@ -3865,30 +4073,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Launch failed
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {
                         "projectId": project_id,
-                        "error": "Failed to launch Living UI server",
+                        "error": tui("agentapp_launch_failed"),
                     },
                 }
             )
-            logger.error(f"[LIVING_UI] Failed to launch project {project_id}")
+            logger.error(f"[AGENT_APP] Failed to launch project {project_id}")
             return False
 
-    async def broadcast_living_ui_wizard_open(self, payload: Dict[str, Any]) -> None:
+    async def broadcast_agent_app_wizard_open(self, payload: Dict[str, Any]) -> None:
         """Open the Create Custom wizard at the interview step (chat-path
-        requirements phase: living_ui_scaffold has questions for the user)."""
-        await self._broadcast({"type": "living_ui_wizard_open", "data": payload})
+        requirements phase: agent_app_scaffold has questions for the user)."""
+        await self._broadcast({"type": "agent_app_wizard_open", "data": payload})
 
-    async def broadcast_living_ui_created(self, project: Dict[str, Any]) -> None:
-        """Broadcast that a Living UI project was created (called from agent action).
+    async def broadcast_agent_app_created(self, project: Dict[str, Any]) -> None:
+        """Broadcast that a Agent App project was created (called from agent action).
 
-        Mirrors the modal create flow's broadcast so a chat-created Living UI is
+        Mirrors the modal create flow's broadcast so a chat-created Agent App is
         registered in the browser's project list and shows its build progress.
         """
         await self._broadcast(
             {
-                "type": "living_ui_create",
+                "type": "agent_app_create",
                 "data": {
                     "success": True,
                     "projectId": project.get("id", ""),
@@ -3897,13 +4105,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_progress(
+    async def broadcast_agent_app_progress(
         self, project_id: str, phase: str, progress: int, message: str
     ) -> None:
-        """Broadcast Living UI creation progress (called from agent action)."""
+        """Broadcast Agent App creation progress (called from agent action)."""
         await self._broadcast(
             {
-                "type": "living_ui_status",
+                "type": "agent_app_status",
                 "data": {
                     "projectId": project_id,
                     "phase": phase,
@@ -3913,19 +4121,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_todos(
+    async def broadcast_agent_app_todos(
         self,
         project_id: str,
         todos: list,
     ) -> None:
-        """Broadcast the agent's current todo list for a Living UI build.
+        """Broadcast the agent's current todo list for a Agent App build.
 
         Fired from the SessionManager's post-update-todos hook whenever the
-        agent updates its todos during a Living UI build run.
+        agent updates its todos during a Agent App build run.
         """
+        self._agent_app_todos[project_id] = todos
         await self._broadcast(
             {
-                "type": "living_ui_todos",
+                "type": "agent_app_todos",
                 "data": {
                     "projectId": project_id,
                     "todos": todos,
@@ -3933,28 +4142,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_living_ui_build_event(
+    async def broadcast_agent_app_build_event(
         self, project_id: str, event: dict
     ) -> None:
         """Broadcast one construction-dock build event (from the read-only
         observer in construction_events). Fire-and-forget UI observation."""
         await self._broadcast(
             {
-                "type": "living_ui_build_event",
+                "type": "agent_app_build_event",
                 "data": {
                     "projectId": project_id,
                     "event": event,
                 },
-            }
-        )
-
-    async def broadcast_living_ui_data_changed(self, project_id: str) -> None:
-        """Tell the browser that a Living UI's backend data was just modified
-        by the agent, so it should refresh the iframe to display new state."""
-        await self._broadcast(
-            {
-                "type": "living_ui_data_changed",
-                "data": {"projectId": project_id},
             }
         )
 
@@ -3967,7 +4166,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if self._chat and message_id:
                 if self._chat._storage:
                     try:
-                        self._chat._storage.update_option_selected(message_id, value)
+                        await self._chat.run_storage(
+                            self._chat._storage.update_option_selected, message_id, value
+                        )
                     except Exception:
                         pass
                 # Update in-memory message so refreshes reflect the selection
@@ -4002,13 +4203,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         question_text = m.content
                         m.option_selected = recorded
                         break
-                if self._chat._storage:
-                    try:
-                        self._chat._storage.update_option_selected(message_id, recorded)
+                storage = self._chat._storage
+                if storage:
+
+                    def _record_answer() -> list:
+                        storage.update_option_selected(message_id, recorded)
                         # After marking this one, whatever question messages
                         # remain unanswered are still pinned in the user's UI.
-                        pending_questions = self._chat._storage.get_pending_questions(
-                            session_id
+                        return storage.get_pending_questions(session_id)
+
+                    try:
+                        pending_questions = await self._chat.run_storage(
+                            _record_answer
                         )
                     except Exception:
                         pass
@@ -4053,7 +4259,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "title": session.title,
             "createdAt": session.created_at,
             "lastActiveAt": session.last_active_at,
-            "livingUiProjectId": session.living_ui_project_id,
+            "agentAppProjectId": session.agent_app_project_id,
         }
 
     async def _handle_session_delete(self, data: Dict[str, Any]) -> None:
@@ -4102,7 +4308,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             from app.usage import get_action_storage, get_chat_storage
 
             try:
-                get_chat_storage().clear_messages(session_id)
+                # Ordered storage worker: runs after any insert still queued
+                # for this session, so no message resurfaces after the clear.
+                await self._chat.run_storage(
+                    get_chat_storage().clear_messages, session_id
+                )
             except Exception:
                 pass
             try:
@@ -4126,7 +4336,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             },
         }
         if ws is not None:
-            await ws.send_json(message)
+            await self._send_to(ws, message)
         else:
             await self._broadcast(message)
 
@@ -4171,7 +4381,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             result = get_general_settings()
             settings = {
                 "agentName": result.get("agent_name", "CraftBot"),
-                "theme": "dark",  # Theme is managed client-side
+                "language": result.get("language", "en"),
                 "agentProfilePictureUrl": result.get(
                     "agent_profile_picture_url", "/api/agent-profile-picture"
                 ),
@@ -4207,6 +4417,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             update_data = {}
             if "agentName" in settings:
                 update_data["agent_name"] = settings["agentName"]
+            if "language" in settings:
+                update_data["language"] = settings["language"]
 
             result = update_general_settings(update_data)
 
@@ -4277,7 +4489,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after file change
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -4308,7 +4520,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after file change
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -4389,14 +4601,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     }
                 )
 
-            # If LivingUI apps were deleted, push refreshed (now-empty) lists so
-            # the frontend reflects the deletion. Both the main LivingUI page
-            # (living_ui_list) and the Settings > LivingUI page
-            # (living_ui_settings_get) cache their own project lists and won't
+            # If AgentApp apps were deleted, push refreshed (now-empty) lists so
+            # the frontend reflects the deletion. Both the main AgentApp page
+            # (agent_app_list) and the Settings > AgentApp page
+            # (agent_app_settings_get) cache their own project lists and won't
             # refetch on their own, so we must push to both.
-            if components is not None and "livingui" in components:
-                await self._handle_living_ui_list()
-                await self._handle_living_ui_settings_get()
+            if components is not None and "agentapp" in components:
+                await self._handle_agent_app_list()
+                await self._handle_agent_app_settings_get()
 
             await self._broadcast(
                 {
@@ -5202,7 +5414,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after adding
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -5243,7 +5455,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after updating
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -5274,7 +5486,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after removing
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -5314,7 +5526,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.index_all(force=True)
+                await asyncio.to_thread(agent.memory_manager.index_all, force=True)
 
             await self._broadcast(
                 {
@@ -5363,7 +5575,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "memory_process_trigger",
                         "data": {
                             "success": False,
-                            "error": "Memory is disabled. Enable memory mode first.",
+                            "error": tui("memory_disabled"),
                         },
                     }
                 )
@@ -5380,7 +5592,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "type": "memory_process_trigger",
                         "data": {
                             "success": False,
-                            "error": "No unprocessed events to process.",
+                            "error": tui("memory_no_unprocessed_events"),
                         },
                     }
                 )
@@ -5403,7 +5615,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "memory_process_trigger",
                     "data": {
                         "success": True,
-                        "message": "Memory processing run queued",
+                        "message": tui("memory_processing_queued"),
                     },
                 }
             )
@@ -5418,22 +5630,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_memory_schedule_get(self) -> None:
-        """Send the auto-processing schedule + threshold to the panel."""
+    async def _handle_memory_schedule_get(self, ws=None) -> None:
+        """Send the auto-processing schedule + threshold to the panel that
+        asked. The panel polls this for the live "events waiting" count, so
+        it goes only to the requesting tab, not every connection."""
         try:
             agent = self._controller.agent
             task = agent.scheduler.get_schedule("memory-processing")
             if task is None:
-                await self._broadcast(
+                await self._send_to(
+                    ws,
                     {
                         "type": "memory_schedule_get",
-                        "data": {"success": False, "error": "Schedule not found"},
+                        "data": {"success": False, "error": tui("schedule_not_found")},
                     }
                 )
                 return
 
             sched = task.schedule
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "memory_schedule_get",
                     "data": {
@@ -5453,7 +5669,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "memory_schedule_get",
                     "data": {"success": False, "error": str(e)},
@@ -5765,7 +5982,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 # frontend's test-before-save — with no model the tester
                 # falls back to a different auth-only probe and the two can
                 # contradict each other.
-                test_result = test_connection(
+                test_result = await asyncio.to_thread(
+                    test_connection,
                     provider=new_provider,
                     api_key=test_api_key,
                     base_url=base_url,
@@ -5927,7 +6145,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     ) -> None:
         """Test connection to a model provider."""
         try:
-            result = test_connection(
+            result = await asyncio.to_thread(
+                test_connection,
                 provider=provider,
                 api_key=api_key,
                 base_url=base_url,
@@ -5946,7 +6165,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "model_connection_test",
                     "data": {
                         "success": False,
-                        "message": "Test failed",
+                        "message": tui("model_test_failed"),
                         "provider": provider,
                         "error": str(e),
                     },
@@ -5986,7 +6205,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not base_url:
                 settings_data = get_model_settings()
                 base_url = settings_data.get("base_urls", {}).get("remote")
-            result = get_ollama_models(base_url=base_url)
+            result = await asyncio.to_thread(get_ollama_models, base_url=base_url)
             await self._broadcast({"type": "ollama_models_get", "data": result})
         except Exception as e:
             await self._broadcast(
@@ -6319,7 +6538,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         ``_activate_provider_via_settings``.
         """
         try:
-            success, message = complete_subscription(provider, code, attempt_id)
+            success, message = await asyncio.to_thread(
+                complete_subscription, provider, code, attempt_id
+            )
             active_provider = self._activate_provider_via_settings(success, provider)
             await self._broadcast(
                 {
@@ -6778,9 +6999,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             # Check if it's a git URL
             if source.startswith("http") or source.startswith("git@"):
-                success, message = install_skill_from_git(source)
+                install = install_skill_from_git
             else:
-                success, message = install_skill_from_path(source)
+                install = install_skill_from_path
+            # Clone/copy in a thread; the skill registry reload stays on the
+            # loop, where the agent reads that registry.
+            success, message = await asyncio.to_thread(install, source, reload=False)
+            if success:
+                reload_skills()
 
             await self._broadcast(
                 {
@@ -7138,7 +7364,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             system = self._system_for(integration_id)
             if system is None:
-                success, message = False, f"Unknown integration: {integration_id}"
+                success, message = False, tui(
+                    "integration_unknown", integration_id=integration_id
+                )
             else:
                 from app.data.action.integrations._helpers import system_connect_token
 
@@ -7195,7 +7423,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             system = self._system_for(integration_id)
             if system is None:
-                success, message = False, f"Unknown integration: {integration_id}"
+                success, message = False, tui(
+                    "integration_unknown", integration_id=integration_id
+                )
             else:
                 success, message, _accounts = await system.add_account(integration_id)
             await self._broadcast(
@@ -7222,7 +7452,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "integration_connect_result",
                     "data": {
                         "success": False,
-                        "message": "OAuth cancelled",
+                        "message": tui("integration_oauth_cancelled"),
                         "id": integration_id,
                     },
                 }
@@ -7297,7 +7527,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "integration_connect_result",
                     "data": {
                         "success": False,
-                        "message": "Connection cancelled",
+                        "message": tui("integration_connection_cancelled"),
                         "id": integration_id,
                     },
                 }
@@ -7526,7 +7756,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "id": integration_id,
                             "requestId": request_id,
                             "ok": False,
-                            "message": "Add account cancelled",
+                            "message": tui("integration_add_account_cancelled"),
                         },
                         self._current_accounts(integration_id),
                     ),
@@ -7663,7 +7893,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "data": {
                             "id": integration_id,
                             "success": False,
-                            "error": "Unknown integration",
+                            "error": tui("integration_unknown_generic"),
                         },
                     }
                 )
@@ -7723,38 +7953,38 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     # ==========================
-    # Living UI Settings Handlers
+    # Agent App Settings Handlers
     # ==========================
 
-    async def _handle_living_ui_settings_get(self) -> None:
-        """Get all Living UI projects with their settings."""
-        from app.ui_layer.settings.living_ui_settings import get_living_ui_projects
+    async def _handle_agent_app_settings_get(self) -> None:
+        """Get all Agent App projects with their settings."""
+        from app.ui_layer.settings.agent_app_settings import get_agent_app_projects
 
-        result = get_living_ui_projects()
-        await self._broadcast({"type": "living_ui_settings_get", "data": result})
+        result = get_agent_app_projects()
+        await self._broadcast({"type": "agent_app_settings_get", "data": result})
 
-    async def _handle_living_ui_project_setting_update(
+    async def _handle_agent_app_project_setting_update(
         self, project_id: str, setting: str, value
     ) -> None:
         """Update a per-project setting."""
-        from app.ui_layer.settings.living_ui_settings import update_project_setting
+        from app.ui_layer.settings.agent_app_settings import update_project_setting
 
         result = update_project_setting(project_id, setting, value)
         await self._broadcast(
-            {"type": "living_ui_project_setting_update", "data": result}
+            {"type": "agent_app_project_setting_update", "data": result}
         )
 
-    # Backups (spec docs/plans/living-ui-backups-plan.md Phase 4). Thin
+    # Backups (spec docs/plans/agent-app-backups-plan.md Phase 4). Thin
     # handlers: all policy lives in the manager/BackupStore. Restore and
     # backup-now run as background tasks (stop+relaunch can take a minute)
     # so the WS loop stays responsive; results broadcast with *_result types.
 
-    async def _handle_living_ui_backups_list(self, project_id: str) -> None:
-        from app.living_ui import get_living_ui_manager
+    async def _handle_agent_app_backups_list(self, project_id: str) -> None:
+        from app.agent_app import get_agent_app_manager
 
         payload = {"projectId": project_id, "backups": [], "totalSize": 0}
         try:
-            manager = get_living_ui_manager()
+            manager = get_agent_app_manager()
             entries = manager.backups.store.list_backups(project_id)
             payload["backups"] = [
                 {
@@ -7768,59 +7998,59 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             payload["totalSize"] = sum(e.size for e in entries)
         except Exception as e:
             payload["error"] = str(e)
-        await self._broadcast({"type": "living_ui_backups_list", "data": payload})
+        await self._broadcast({"type": "agent_app_backups_list", "data": payload})
 
-    async def _handle_living_ui_backup_now(self, project_id: str) -> None:
-        from app.living_ui import get_living_ui_manager
+    async def _handle_agent_app_backup_now(self, project_id: str) -> None:
+        from app.agent_app import get_agent_app_manager
 
         async def _run() -> None:
             try:
-                result = await get_living_ui_manager().backup_now(project_id)
+                result = await get_agent_app_manager().backup_now(project_id)
             except Exception as e:
                 result = {"status": "error", "errors": [str(e)]}
             await self._broadcast(
                 {
-                    "type": "living_ui_backup_now_result",
+                    "type": "agent_app_backup_now_result",
                     "data": {"projectId": project_id, **result},
                 }
             )
-            await self._handle_living_ui_backups_list(project_id)
+            await self._handle_agent_app_backups_list(project_id)
 
         asyncio.create_task(_run())
 
-    async def _handle_living_ui_backup_restore(
+    async def _handle_agent_app_backup_restore(
         self, project_id: str, filename: str, source_project_id: str | None = None
     ) -> None:
         """source_project_id: restore an archive from ANOTHER project's
         backup dir (a deleted app's leftovers) into project_id."""
-        from app.living_ui import get_living_ui_manager
+        from app.agent_app import get_agent_app_manager
 
         async def _run() -> None:
             try:
-                result = await get_living_ui_manager().restore_backup(
+                result = await get_agent_app_manager().restore_backup(
                     project_id, filename, source_project_id=source_project_id
                 )
             except Exception as e:
                 result = {"status": "error", "errors": [str(e)]}
             await self._broadcast(
                 {
-                    "type": "living_ui_backup_restore_result",
+                    "type": "agent_app_backup_restore_result",
                     "data": {"projectId": project_id, "filename": filename, **result},
                 }
             )
-            await self._handle_living_ui_backups_list(project_id)
+            await self._handle_agent_app_backups_list(project_id)
 
         asyncio.create_task(_run())
 
-    async def _handle_living_ui_backup_delete(
+    async def _handle_agent_app_backup_delete(
         self, project_id: str, filename: str, orphan: bool = False
     ) -> None:
-        from app.living_ui import get_living_ui_manager
+        from app.agent_app import get_agent_app_manager
 
         data = {"projectId": project_id, "filename": filename, "success": True}
         orphan_reaped = False
         try:
-            manager = get_living_ui_manager()
+            manager = get_agent_app_manager()
             if orphan:
                 # Whole-dir cleanup of a deleted project's leftovers (D5) —
                 # refuse if the id is (again) a registered project.
@@ -7839,11 +8069,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     orphan_reaped = True
         except Exception as e:
             data = {**data, "success": False, "error": str(e)}
-        await self._broadcast({"type": "living_ui_backup_delete", "data": data})
+        await self._broadcast({"type": "agent_app_backup_delete", "data": data})
         if not orphan:
-            await self._handle_living_ui_backups_list(project_id)
+            await self._handle_agent_app_backups_list(project_id)
         if orphan or orphan_reaped:
-            await self._handle_living_ui_settings_get()
+            await self._handle_agent_app_settings_get()
 
     # =====================
     # Playbook Handlers
@@ -7873,7 +8103,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "type": "playbook_list",
                     "data": {
                         "success": False,
-                        "error": "Playbook catalogue not found.",
+                        "error": tui("playbook_catalogue_not_found"),
                         "playbooks": [],
                     },
                 }
@@ -7909,29 +8139,44 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # Marketplace Handlers
     # =====================
 
-    async def _handle_marketplace_list(self) -> None:
-        """Fetch marketplace catalogue from GitHub."""
-        import urllib.request
+    @staticmethod
+    def _fetch_catalogue(url: str) -> dict:
+        """Blocking fetch + parse of the marketplace catalogue.
+
+        Split out so the caller can run it off the event loop — see
+        _handle_marketplace_list.
+        """
         import json as _json
         import re as _re
+        import ssl
+        import urllib.request
 
-        from app.living_ui import marketplace_source
+        import certifi
+
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
+        raw = urllib.request.urlopen(req, timeout=15, context=ssl_ctx).read().decode()
+        # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
+        return _json.loads(_re.sub(r",\s*([}\]])", r"\1", raw))
+
+    async def _handle_marketplace_list(self) -> None:
+        """Fetch marketplace catalogue from GitHub."""
+        from app.agent_app import marketplace_source
 
         CATALOGUE_URL = marketplace_source.catalogue_url()
 
         try:
-            import ssl
-            import certifi
-
-            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-            req = urllib.request.Request(
-                CATALOGUE_URL, headers={"User-Agent": "CraftBot"}
+            # MUST run off the event loop. urlopen is blocking, and this used
+            # to be called inline in an async handler: a slow fetch froze the
+            # whole loop, so the websocket could neither deliver this reply
+            # nor anything else. `timeout=15` does not bound it either — name
+            # resolution happens before the socket timeout applies, so a DNS
+            # blackhole hangs indefinitely and the UI spinner never resolves.
+            # Every other network call in this module already uses to_thread.
+            catalogue = await asyncio.wait_for(
+                asyncio.to_thread(self._fetch_catalogue, CATALOGUE_URL),
+                timeout=30,
             )
-            response = urllib.request.urlopen(req, timeout=15, context=ssl_ctx)
-            raw = response.read().decode()
-            # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
-            raw = _re.sub(r",\s*([}\]])", r"\1", raw)
-            catalogue = _json.loads(raw)
             # Resolve thumbnails here rather than in the frontend, which would
             # otherwise build them against a hard-coded branch and 404 for any
             # app that only exists on the ref being tested.
@@ -7945,15 +8190,35 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     app["preview"] = marketplace_source.thumbnail_url(app["folder"])
             await self._broadcast(
                 {
-                    "type": "living_ui_marketplace_list",
+                    "type": "agent_app_marketplace_list",
                     "data": {"success": True, "apps": apps},
+                }
+            )
+        except asyncio.TimeoutError:
+            # str(TimeoutError()) is "", which would reach the UI as a blank
+            # error and read as "it failed for no reason".
+            await self._broadcast(
+                {
+                    "type": "agent_app_marketplace_list",
+                    "data": {
+                        "success": False,
+                        "error": (
+                            "The marketplace did not respond within 30 seconds. "
+                            "Check your internet connection and try again."
+                        ),
+                        "apps": [],
+                    },
                 }
             )
         except Exception as e:
             await self._broadcast(
                 {
-                    "type": "living_ui_marketplace_list",
-                    "data": {"success": False, "error": str(e), "apps": []},
+                    "type": "agent_app_marketplace_list",
+                    "data": {
+                        "success": False,
+                        "error": f"{type(e).__name__}: {e}",
+                        "apps": [],
+                    },
                 }
             )
 
@@ -7968,38 +8233,54 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if not app_id or not app_name:
             await self._broadcast(
                 {
-                    "type": "living_ui_marketplace_install",
+                    "type": "agent_app_marketplace_install",
                     "data": {
                         "success": False,
-                        "error": "App ID and name are required",
+                        "error": tui("agentapp_app_id_name_required"),
                         "appId": app_id,
                     },
                 }
             )
             return
 
+        # A second copy of an app you already have is a legitimate thing to
+        # want, and a very easy thing to install by accident. Either way the
+        # user has to KNOW: the two run on different ports, and work done on
+        # one never appears in the other (observed live 2026-09-02).
+        try:
+            existing = self._agent_app_manager.find_marketplace_installs(app_id)
+        except Exception as e:
+            logger.debug(f"[AGENT_APP] duplicate-install check skipped: {e}")
+            existing = []
+        if existing:
+            logger.warning(
+                f"[AGENT_APP] '{app_id}' is already installed as "
+                + ", ".join(f"{p.name} ({p.id})" for p in existing)
+                + " — installing an additional separate copy."
+            )
+
         # Spawn a placeholder tab immediately so the user sees the install is
         # underway (the install itself is synchronous and can take a while).
         # install_from_marketplace adopts this id so the same tab becomes the
         # running app.
-        placeholder = self._living_ui_manager.create_placeholder_project(
+        placeholder = self._agent_app_manager.create_placeholder_project(
             app_name, app_description
         )
         project_id = placeholder.id
-        await self.broadcast_living_ui_created(placeholder.to_dict())
+        await self.broadcast_agent_app_created(placeholder.to_dict())
         await self._broadcast(
             {
-                "type": "living_ui_status",
+                "type": "agent_app_status",
                 "data": {
                     "projectId": project_id,
                     "phase": "initializing",
                     "progress": 10,
-                    "message": "Installing from marketplace...",
+                    "message": tui("agentapp_installing_marketplace"),
                 },
             }
         )
 
-        result = await self._living_ui_manager.install_from_marketplace(
+        result = await self._agent_app_manager.install_from_marketplace(
             app_id=app_id,
             app_name=app_name,
             app_description=app_description,
@@ -8012,7 +8293,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # it to running so the iframe loads.
             await self._broadcast(
                 {
-                    "type": "living_ui_ready",
+                    "type": "agent_app_ready",
                     "data": {
                         "projectId": project_id,
                         "url": result.get("url"),
@@ -8025,55 +8306,108 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Mirror the install into chat as a system message so the request
             # is visible in the conversation (not just the new tab).
             body = f"{app_description}\n\n" if app_description else ""
+            note = "Installed from the marketplace — open it in the new tab."
+            if existing:
+                others = ", ".join(f"**{p.name}**" for p in existing)
+                note = (
+                    "Installed from the marketplace as a **second, separate "
+                    f"copy** — you already have {others}. The two run "
+                    "independently on different ports, so changes I make to "
+                    "one will not appear in the other. Open the new tab to "
+                    "use this copy."
+                )
             try:
                 await self._display_chat_message(
                     "System",
-                    f"**Living UI: {app_name}**\n\n{body}"
-                    "Installed from the marketplace — open it in the new tab.",
+                    f"**Agent App: {app_name}**\n\n{body}{note}",
                     "system",
                 )
             except Exception as e:
-                logger.debug(f"[LIVING_UI] marketplace chat message failed: {e}")
+                logger.debug(f"[AGENT_APP] marketplace chat message failed: {e}")
         else:
-            # Install failed — surface the error on the spawned tab.
+            # Install failed — surface the error on the spawned tab. The
+            # placeholder must be settled in the manager too, or the next
+            # agent_app_list overwrites the error state with the stale
+            # "creating" record and the spinner comes back for good.
+            error_msg = result.get("error", "Marketplace install failed")
+            self._agent_app_manager.fail_placeholder_project(project_id, error_msg)
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {
                         "projectId": project_id,
-                        "error": result.get("error", "Marketplace install failed"),
+                        "error": error_msg,
                     },
                 }
             )
 
         await self._broadcast(
             {
-                "type": "living_ui_marketplace_install",
+                "type": "agent_app_marketplace_install",
                 "data": {**result, "projectId": project_id, "appId": app_id},
             }
         )
 
-    async def _handle_living_ui_import(self, source: str, name: str) -> None:
-        """Import a Living UI from a ZIP, a local folder path, or a git URL
+    async def _handle_agent_app_import(self, source: str, name: str) -> None:
+        """Import a Agent App from a ZIP, a local folder path, or a git URL
         (one door — LIFECYCLE-PLAN Phase 4). After registering, a
         launch-and-verify run is queued in the project's session so the
         import finishes as a running, verified app without further clicks."""
         if not source:
             return
-        # Every outcome is LOGGED and answered with living_ui_import_result:
+        # Every outcome is LOGGED and answered with agent_app_import_result:
         # the first live test failed with no server log line and no UI
         # feedback at all (2026-08-05 — "I paste the path and nothing
         # happens"), because failures only broadcast a generic error the
         # already-closed modal never saw.
-        logger.info(f"[LIVING_UI] import requested: {source!r} (name={name!r})")
+        logger.info(f"[AGENT_APP] import requested: {source!r} (name={name!r})")
+        # Mirror progress to the browser for the duration of THIS import.
+        # The fetch/extract/copy run on a worker thread (they used to block
+        # the event loop for 13 minutes), so the sink has to hop back onto
+        # the loop — run_coroutine_threadsafe, never a bare await.
+        from app.agent_app.manager import set_import_progress_sink
+
+        loop = asyncio.get_running_loop()
+
+        def _sink(event: Dict[str, Any]) -> None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast(
+                        {
+                            "type": "agent_app_import_progress",
+                            "data": {**event, "source": source, "name": name},
+                        }
+                    ),
+                    loop,
+                )
+            except Exception:
+                pass
+
+        set_import_progress_sink(_sink)
+        # Tell the UI the import is under way NOW, so the modal can close and
+        # hand the outcome to a toast instead of holding a dialog open for
+        # the length of a 300MB download.
+        await self._broadcast(
+            {
+                "type": "agent_app_import_progress",
+                "data": {
+                    "phase": "starting",
+                    "done": 0,
+                    "total": 0,
+                    "unit": "files",
+                    "source": source,
+                    "name": name,
+                },
+            }
+        )
         try:
-            project = await self._living_ui_manager.import_project_source(
+            project = await self._agent_app_manager.import_project_source(
                 source, name or None
             )
-            await self.broadcast_living_ui_created(project.to_dict())
+            await self.broadcast_agent_app_created(project.to_dict())
             await self._broadcast(
                 {
-                    "type": "living_ui_import_result",
+                    "type": "agent_app_import_result",
                     "data": {"success": True, "projectId": project.id},
                 }
             )
@@ -8081,12 +8415,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 from app.triggers import TriggerSource
 
                 is_ext = getattr(project, "project_type", "native") == "external"
-                await self._living_ui_manager.start_development_run(
+                await self._agent_app_manager.start_development_run(
                     project.id,
-                    brief=self._living_ui_manager.post_import_brief(project),
-                    trigger_source=TriggerSource.LIVING_UI_IMPORT,
+                    brief=self._agent_app_manager.post_import_brief(project),
+                    trigger_source=TriggerSource.AGENT_APP_IMPORT,
                     workflow_skill=(
-                        "living-ui-importer" if is_ext else "living-ui-modify"
+                        "agent-app-importer" if is_ext else "agent-app-modify"
                     ),
                     # External adoption is a build-like run: "creating" shows
                     # the construction dock while the agent writes the
@@ -8095,32 +8429,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     status=("creating" if is_ext else None),
                 )
             except Exception as e:
-                logger.warning(f"[LIVING_UI] import verify dispatch failed: {e}")
+                logger.warning(f"[AGENT_APP] import verify dispatch failed: {e}")
         except Exception as e:
-            logger.error(f"[LIVING_UI] import failed for {source!r}: {e}")
+            logger.error(f"[AGENT_APP] import failed for {source!r}: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_import_result",
+                    "type": "agent_app_import_result",
                     "data": {"success": False, "error": f"Import failed: {e}"},
                 }
             )
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "agent_app_error",
                     "data": {"projectId": "", "error": f"Import failed: {e}"},
                 }
             )
+        finally:
+            set_import_progress_sink(None)
         return
 
     async def _send_to(self, ws, message: Dict[str, Any]) -> None:
         """Send to one connection (session-scoped flows); falls back to a
         broadcast when the requesting socket is unknown/closed."""
-        if ws is not None:
-            try:
-                await ws.send_json(message)
-                return
-            except Exception:
-                pass
+        channel = self._channels.get(ws) if ws is not None else None
+        if channel is not None and not channel.closed:
+            channel.send_json(_with_request_id(message))
+            return
         await self._broadcast(message)
 
     async def _handle_whatsapp_start_qr(self, ws=None, force: bool = False) -> None:
@@ -8210,25 +8544,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _broadcast(self, message: Dict[str, Any]) -> None:
-        """Broadcast message to all connected clients."""
-        if not self._ws_clients:
+        """Queue a message for every connected client.
+
+        Never waits on a slow client: each connection has its own outbound
+        queue and writer task (ws_channel.py).
+        """
+        message = _with_request_id(message)
+        # Mutation replies and status events also tell every view caching
+        # that resource to refetch (resource_changes.py).
+        for resource, ids in resource_changes_for_message(message):
+            notify_resource_changed(resource, ids)
+        if not self._channels:
             return
-
-        json_msg = json.dumps(message)
-        disconnected = set()
-
-        for ws in self._ws_clients.copy():
-            try:
-                await ws.send_str(json_msg)
-            except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
-                # Silently handle expected connection errors
-                disconnected.add(ws)
-            except Exception:
-                # Log unexpected errors
-                disconnected.add(ws)
-
-        # Clean up disconnected clients
-        self._ws_clients -= disconnected
+        text = json.dumps(message)
+        for channel in list(self._channels.values()):
+            channel.send_text(text)
 
     async def _broadcast_error_to_chat(self, error_message: str) -> None:
         """Broadcast an error message to the chat panel for debugging."""
@@ -8259,13 +8589,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if self._metrics_subscribers:
                     metrics = self._metrics_collector.get_metrics()
                     payload = {"type": "dashboard_metrics", "data": metrics.to_dict()}
-                    disconnected: Set = set()
+                    text = json.dumps(payload)
                     for ws in self._metrics_subscribers.copy():
-                        try:
-                            await ws.send_json(payload)
-                        except Exception:
-                            disconnected.add(ws)
-                    self._metrics_subscribers -= disconnected
+                        channel = self._channels.get(ws)
+                        if channel is None or channel.closed:
+                            self._metrics_subscribers.discard(ws)
+                        else:
+                            channel.send_text(text)
                 await asyncio.sleep(2)  # Update every 2 seconds
             except asyncio.CancelledError:
                 break
@@ -8287,8 +8617,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             target = workspace / file_path
         target = target.resolve()
 
-        # Security check - ensure path is within workspace
-        if not str(target).startswith(str(workspace)):
+        # Security check - ensure path is within workspace. Containment by
+        # path components, never by string prefix: "../workspace_x/f" resolves
+        # to a SIBLING whose string starts with the workspace's.
+        if not target.is_relative_to(workspace):
             raise ValueError(f"Path '{file_path}' is outside workspace")
 
         return target
@@ -8329,21 +8661,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not target.is_dir():
                 raise ValueError(f"Path is not a directory: {directory}")
 
-            # Collect and sort all files
-            all_files = sorted(
-                target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
-            )
+            def _list_page():
+                # Collect and sort all files (a stat per entry: off the loop)
+                all_files = sorted(
+                    target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
+                )
 
-            # Apply search filter
-            if search:
-                search_lower = search.lower()
-                all_files = [f for f in all_files if search_lower in f.name.lower()]
+                # Apply search filter
+                if search:
+                    search_lower = search.lower()
+                    all_files = [f for f in all_files if search_lower in f.name.lower()]
 
-            total = len(all_files)
+                # Apply pagination
+                paginated = all_files[offset : offset + limit]
+                return len(all_files), [self._get_file_info(item) for item in paginated]
 
-            # Apply pagination
-            paginated = all_files[offset : offset + limit]
-            files = [self._get_file_info(item) for item in paginated]
+            total, files = await asyncio.to_thread(_list_page)
 
             await self._broadcast(
                 {
@@ -8506,9 +8839,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 raise FileNotFoundError(f"Path not found: {file_path}")
 
             if target.is_dir():
-                shutil.rmtree(target)
+                await asyncio.to_thread(shutil.rmtree, target)
             else:
-                target.unlink()
+                await asyncio.to_thread(target.unlink)
 
             await self._broadcast(
                 {
@@ -8593,9 +8926,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     continue
 
                 if target.is_dir():
-                    shutil.rmtree(target)
+                    await asyncio.to_thread(shutil.rmtree, target)
                 else:
-                    target.unlink()
+                    await asyncio.to_thread(target.unlink)
 
                 results.append({"path": file_path, "success": True})
             except Exception as e:
@@ -8627,7 +8960,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if dest.exists():
                 raise ValueError(f"Destination already exists: {dest_path}")
 
-            shutil.move(str(src), str(dest))
+            await asyncio.to_thread(shutil.move, str(src), str(dest))
 
             file_info = self._get_file_info(dest)
 
@@ -8674,10 +9007,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 raise ValueError(f"Destination already exists: {dest_path}")
 
             if src.is_dir():
-                shutil.copytree(str(src), str(dest))
+                await asyncio.to_thread(shutil.copytree, str(src), str(dest))
             else:
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(src), str(dest))
+                await asyncio.to_thread(shutil.copy2, str(src), str(dest))
 
             file_info = self._get_file_info(dest)
 
@@ -8707,18 +9040,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    @staticmethod
+    def _write_b64_file(path: Path, content_b64: str) -> int:
+        """Decode base64 content and write it to ``path`` (creating parent
+        dirs); returns the byte count. Blocking: call via asyncio.to_thread."""
+        content = base64.b64decode(content_b64)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return len(content)
+
     async def _handle_file_upload(self, file_path: str, content_b64: str) -> None:
         """Upload a file (content is base64 encoded)."""
         try:
             target = self._validate_path(file_path)
 
-            # Decode base64 content
-            content = base64.b64decode(content_b64)
-
-            # Ensure parent directory exists
-            target.parent.mkdir(parents=True, exist_ok=True)
-
-            target.write_bytes(content)
+            # Decode and write off the loop (uploads can be up to 100 MB)
+            await asyncio.to_thread(self._write_b64_file, target, content_b64)
 
             file_info = self._get_file_info(target)
 
@@ -8755,9 +9092,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if target.is_dir():
                 raise ValueError(f"Cannot download directory: {file_path}")
 
+            def _read_b64() -> str:
+                return base64.b64encode(target.read_bytes()).decode("utf-8")
+
             # Read and encode as base64
-            content = target.read_bytes()
-            content_b64 = base64.b64encode(content).decode("utf-8")
+            content_b64 = await asyncio.to_thread(_read_b64)
 
             file_info = self._get_file_info(target)
 
@@ -8796,26 +9135,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         async def _reply(payload: Dict[str, Any]) -> None:
             message = {"type": "chat_history", "data": payload}
             if ws is not None:
-                await ws.send_json(message)
+                await self._send_to(ws, message)
             else:
                 await self._broadcast(message)
 
-        try:
+        def _load_page() -> List[ChatMessage]:
             if before_timestamp is not None:
-                messages = self._chat.get_messages_before(
+                return self._chat.get_messages_before(
                     before_timestamp, session_id=session_id, limit=limit
                 )
-            else:
-                # Initial page: most recent messages for the session.
-                storage = self._chat._storage
-                stored = (
-                    storage.get_recent_messages(session_id=session_id, limit=limit)
-                    if storage
-                    else []
-                )
-                messages = [
-                    BrowserChatComponent._stored_to_chat_message(s) for s in stored
-                ]
+            # Initial page: most recent messages for the session.
+            storage = self._chat._storage
+            stored = (
+                storage.get_recent_messages(session_id=session_id, limit=limit)
+                if storage
+                else []
+            )
+            return [BrowserChatComponent._stored_to_chat_message(s) for s in stored]
+
+        try:
+            messages = await self._chat.run_storage(_load_page)
 
             await _reply(
                 {
@@ -8872,9 +9211,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     # file that was already uploaded via HTTP pre-upload.
                     if content_b64:
                         try:
-                            file_content = base64.b64decode(content_b64)
-                            file_path.write_bytes(file_content)
-                            size = len(file_content)
+                            size = await asyncio.to_thread(
+                                self._write_b64_file, file_path, content_b64
+                            )
                         except Exception as e:
                             print(
                                 f"[BROWSER ADAPTER] Error saving attachment {name}: {e}"
@@ -8996,9 +9335,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             file_path = download_dir / unique_name
             relative_path = f"download/{unique_name}"
 
-            # Decode and save file
-            file_content = base64.b64decode(content_b64)
-            file_path.write_bytes(file_content)
+            # Decode and save file (off the loop)
+            size = await asyncio.to_thread(
+                self._write_b64_file, file_path, content_b64
+            )
 
             # Build response
             await self._broadcast(
@@ -9010,7 +9350,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "name": name,
                             "path": relative_path,
                             "type": file_type,
-                            "size": len(file_content),
+                            "size": size,
                             "url": f"/api/workspace/{relative_path}",
                         },
                     },
@@ -9112,11 +9452,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Open file with default application based on OS
             system = platform.system()
             if system == "Windows":
-                os.startfile(str(target))
+                await asyncio.to_thread(os.startfile, str(target))
             elif system == "Darwin":  # macOS
-                subprocess.run(["open", str(target)], check=True)
+                await asyncio.to_thread(
+                    subprocess.run, ["open", str(target)], check=True
+                )
             else:  # Linux and others
-                subprocess.run(["xdg-open", str(target)], check=True)
+                await asyncio.to_thread(
+                    subprocess.run, ["xdg-open", str(target)], check=True
+                )
 
             await self._broadcast(
                 {
@@ -9158,16 +9502,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if system == "Windows":
                 # Use explorer with /select to highlight the file
                 if target.is_file():
-                    subprocess.run(["explorer", "/select,", str(target)], check=True)
+                    cmd = ["explorer", "/select,", str(target)]
                 else:
-                    subprocess.run(["explorer", str(folder)], check=True)
+                    cmd = ["explorer", str(folder)]
             elif system == "Darwin":  # macOS
                 if target.is_file():
-                    subprocess.run(["open", "-R", str(target)], check=True)
+                    cmd = ["open", "-R", str(target)]
                 else:
-                    subprocess.run(["open", str(folder)], check=True)
+                    cmd = ["open", str(folder)]
             else:  # Linux and others
-                subprocess.run(["xdg-open", str(folder)], check=True)
+                cmd = ["xdg-open", str(folder)]
+            await asyncio.to_thread(subprocess.run, cmd, check=True)
 
             await self._broadcast(
                 {
@@ -9413,12 +9758,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Sessions with a run currently in flight — seeds the per-session
             # typing indicator on connect/reload.
             "busySessions": sorted(self._controller.agent.busy_sessions),
-            # ChatMessage.to_dict() always carries sessionId.
-            "messages": [m.to_dict() for m in self._chat.get_messages()],
+            # Recent messages only (D17 cap per session); each Chat view pages
+            # older history through chat_history. ChatMessage.to_dict() always
+            # carries sessionId.
+            "messages": [m.to_dict() for m in self._chat.get_recent_messages()],
             # Recent activity items (per-session inline feed); each carries sessionId.
             "actions": [
                 BrowserActionPanelComponent._item_payload(a)
-                for a in self._action_panel.get_items()
+                for a in self._action_panel.get_recent_items()
             ],
             "status": self._status_bar.get_status(),
             "dashboardMetrics": metrics.to_dict(),
@@ -9450,11 +9797,146 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         html = self._get_index_html()
         return web.Response(text=html, content_type="text/html")
 
+    def _api_guard(self):
+        """Middleware: /api/* refuses rebinding Hosts and foreign-origin writes
+        (ws_auth.check_api_request). /ws guards its own handshake."""
+        from aiohttp import web
+
+        @web.middleware
+        async def api_guard(request, handler):
+            if request.path == "/api" or request.path.startswith("/api/"):
+                rejected = self._ws_auth.check_api_request(
+                    request.method, request.headers
+                )
+                if rejected:
+                    logger.warning(
+                        f"[BROWSER ADAPTER] Refused {request.method} {request.path} "
+                        f"({rejected}): origin={request.headers.get('Origin')!r} "
+                        f"host={request.headers.get('Host')!r}"
+                    )
+                    raise web.HTTPForbidden(reason="Request not allowed")
+            return await handler(request)
+
+        return api_guard
+
+    async def _session_token_handler(self, request: "web.Request") -> "web.Response":
+        """Hand the /ws session token to CraftBot's own UI.
+
+        No CORS headers are ever set here, so a cross-origin page can't read
+        the response; ws_auth also refuses rebinding Hosts and cross-site
+        fetches outright.
+        """
+        from aiohttp import web
+
+        rejected = self._ws_auth.check_token_request(request.headers)
+        if rejected:
+            logger.warning(
+                f"[BROWSER ADAPTER] Refused session token ({rejected}): "
+                f"origin={request.headers.get('Origin')!r} "
+                f"host={request.headers.get('Host')!r}"
+            )
+            raise web.HTTPForbidden()
+        return web.json_response(
+            {"token": self._ws_auth.token},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     async def _state_handler(self, request: "web.Request") -> "web.Response":
         """API endpoint for current state."""
         from aiohttp import web
 
         return web.json_response(self._get_initial_state())
+
+    async def _debug_loop_handler(self, request: "web.Request") -> "web.Response":
+        """Event-loop stall statistics (app/ui_layer/diagnostics/loop_monitor.py)."""
+        from aiohttp import web
+
+        return web.json_response(self._loop_monitor.snapshot())
+
+    async def _debug_flood_handler(self, request: "web.Request") -> "web.Response":
+        """Dev-only: broadcast a synthetic burst of activity frames to every browser.
+
+        Reproduces browser-side render load without the agent or an LLM. The
+        frames are never persisted; a page reload clears them. Registered only
+        with CRAFTBOT_DEBUG_ENDPOINTS=1.
+
+        Query: sessionId (default "main"), count (1-5000, default 300),
+        seconds (0-120, default 10).
+        """
+        from aiohttp import web
+
+        try:
+            count = max(1, min(int(request.query.get("count", 300)), 5000))
+            seconds = max(0.0, min(float(request.query.get("seconds", 10)), 120.0))
+        except ValueError:
+            return web.json_response(
+                {"error": "count and seconds must be numbers"}, status=400
+            )
+        session_id = request.query.get("sessionId", "main")
+        asyncio.create_task(self._run_debug_flood(session_id, count, seconds))
+        return web.json_response(
+            {"started": True, "sessionId": session_id, "count": count, "seconds": seconds}
+        )
+
+    async def _debug_block_handler(self, request: "web.Request") -> "web.Response":
+        """Dev-only: block the event loop for ``seconds`` (0-30, default 5).
+
+        Exercises the busy banner and the loop-stall detector. Registered only
+        with CRAFTBOT_DEBUG_ENDPOINTS=1.
+        """
+        from aiohttp import web
+
+        try:
+            seconds = max(0.0, min(float(request.query.get("seconds", 5)), 30.0))
+        except ValueError:
+            return web.json_response({"error": "seconds must be a number"}, status=400)
+        # Scheduled after the response is sent, so the caller gets its reply.
+        asyncio.get_running_loop().call_later(0.2, time.sleep, seconds)
+        return web.json_response({"blocking": True, "seconds": seconds})
+
+    async def _run_debug_flood(self, session_id: str, count: int, seconds: float) -> None:
+        run_id = uuid.uuid4().hex[:8]
+        interval = seconds / count
+        for index in range(count):
+            now_ms = int(time.time() * 1000)
+            item_id = f"debug-flood-{run_id}-{index}"
+            await self._broadcast(
+                {
+                    "type": "action_add",
+                    "data": {
+                        "id": item_id,
+                        "name": "debug_flood",
+                        "status": "running",
+                        "itemType": "action",
+                        "sessionId": session_id,
+                        "createdAt": now_ms,
+                        "completedAt": None,
+                        "duration": None,
+                        "input": None,
+                        "output": None,
+                        "error": None,
+                    },
+                }
+            )
+            await self._broadcast(
+                {
+                    "type": "action_update",
+                    "data": {
+                        "id": item_id,
+                        "status": "completed",
+                        "sessionId": session_id,
+                        "completedAt": now_ms,
+                        "duration": 0.0,
+                        "output": None,
+                        "error": None,
+                    },
+                }
+            )
+            if interval:
+                await asyncio.sleep(interval)
 
     async def _theme_css_handler(self, request: "web.Request") -> "web.Response":
         """Serve theme CSS variables."""
@@ -9680,9 +10162,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         let ws;
         let state = { messages: [], actions: [], status: 'Connecting...' };
 
-        function connect() {
+        async function connect() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws`);
+            let token;
+            try {
+                const resp = await fetch('/api/session-token', { cache: 'no-store' });
+                token = (await resp.json()).token;
+            } catch (err) {
+                setTimeout(connect, 2000);
+                return;
+            }
+            ws = new WebSocket(`${protocol}//${location.host}/ws`, ['craftbot', `craftbot-auth.${token}`]);
 
             ws.onopen = () => {
                 console.log('Connected to CraftBot');

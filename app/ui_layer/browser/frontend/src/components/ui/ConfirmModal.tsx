@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
 import styles from './ConfirmModal.module.css'
@@ -18,12 +19,13 @@ export function ConfirmModal({
   isOpen,
   title,
   message,
-  confirmText = 'Confirm',
-  cancelText = 'Cancel',
+  confirmText,
+  cancelText,
   variant = 'default',
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  const { t } = useTranslation('common')
   return (
     <Modal isOpen={isOpen} onClose={onCancel} title={title} size="sm">
       <ModalBody className={styles.body}>
@@ -36,10 +38,10 @@ export function ConfirmModal({
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" onClick={onCancel}>
-          {cancelText}
+          {cancelText ?? t('actions.cancel')}
         </Button>
         <Button variant="primary" onClick={onConfirm}>
-          {confirmText}
+          {confirmText ?? t('actions.confirm')}
         </Button>
       </ModalFooter>
     </Modal>

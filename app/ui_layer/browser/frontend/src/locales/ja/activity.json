@@ -1,0 +1,165 @@
+{
+  "chunk": {
+    "working": "作業中",
+    "hideSteps": "ステップを非表示",
+    "showSteps": "ステップを表示",
+    "actionsExecuted_one": "{{count}} 件のアクションを実行",
+    "actionsExecuted_other": "{{count}} 件のアクションを実行"
+  },
+  "reasoning": {
+    "thinking": "思考中…"
+  },
+  "count": {
+    "lines_one": "{{formatted}} 行",
+    "lines_other": "{{formatted}} 行",
+    "linesOutput_one": "{{formatted}} 行の出力",
+    "linesOutput_other": "{{formatted}} 行の出力",
+    "items_one": "{{formatted}} 件",
+    "items_other": "{{formatted}} 件",
+    "elements_one": "{{formatted}} 要素",
+    "elements_other": "{{formatted}} 要素",
+    "chars_one": "{{formatted}} 文字",
+    "chars_other": "{{formatted}} 文字",
+    "characters_one": "{{formatted}} 文字",
+    "characters_other": "{{formatted}} 文字",
+    "attachmentsPlus_one": "+ {{formatted}} 件の添付",
+    "attachmentsPlus_other": "+ {{formatted}} 件の添付"
+  },
+  "action": {
+    "streamEdit": {
+      "editing": "ファイルを編集中",
+      "edited": "ファイルを編集しました",
+      "failed": "編集に失敗しました",
+      "cancelled": "編集をキャンセルしました"
+    },
+    "readFile": {
+      "reading": "ファイルを読み込み中",
+      "read": "ファイルを読み込みました",
+      "failed": "読み込みに失敗しました",
+      "cancelled": "読み込みをキャンセルしました"
+    },
+    "findFiles": {
+      "finding": "ファイルを検索中",
+      "failed": "検索に失敗しました",
+      "cancelled": "検索をキャンセルしました",
+      "found_one": "{{formatted}} 件のファイルが見つかりました",
+      "found_other": "{{formatted}} 件のファイルが見つかりました"
+    },
+    "listFolder": {
+      "listing": "フォルダーを一覧表示中",
+      "listed": "フォルダーを一覧表示しました",
+      "failed": "一覧表示に失敗しました",
+      "cancelled": "一覧表示をキャンセルしました"
+    },
+    "convertToPdf": {
+      "creating": "PDF を作成中",
+      "created": "PDF を作成しました",
+      "failed": "PDF の作成に失敗しました",
+      "cancelled": "PDF の作成をキャンセルしました"
+    },
+    "readPdf": {
+      "reading": "PDF を読み込み中",
+      "read": "PDF を読み込みました",
+      "failed": "PDF の読み込みに失敗しました",
+      "cancelled": "PDF の読み込みをキャンセルしました"
+    },
+    "convertToMarkdown": {
+      "converting": "Markdown に変換中",
+      "converted": "Markdown に変換しました",
+      "failed": "変換に失敗しました",
+      "cancelled": "変換をキャンセルしました"
+    },
+    "runPython": {
+      "running": "Python を実行中",
+      "ran": "Python を実行しました",
+      "failed": "Python の実行に失敗しました",
+      "cancelled": "Python の実行をキャンセルしました"
+    },
+    "runShell": {
+      "running": "コマンドを実行中",
+      "ran": "コマンドを実行しました",
+      "failed": "コマンドの実行に失敗しました",
+      "cancelled": "コマンドの実行をキャンセルしました"
+    },
+    "webSearch": {
+      "searching": "ウェブを検索中",
+      "failed": "検索に失敗しました",
+      "cancelled": "検索をキャンセルしました",
+      "found_one": "{{formatted}} 件の結果が見つかりました",
+      "found_other": "{{formatted}} 件の結果が見つかりました"
+    },
+    "webFetch": {
+      "fetching": "ページを取得中",
+      "failed": "取得に失敗しました",
+      "cancelled": "取得をキャンセルしました",
+      "fetchedTitle": "{{title}} を取得しました",
+      "fetchedPage": "ページを取得しました"
+    },
+    "httpRequest": {
+      "request": "{{method}} リクエスト",
+      "failed": "{{method}} に失敗しました",
+      "cancelled": "{{method}} をキャンセルしました",
+      "response": "{{method}} レスポンス"
+    },
+    "generateImage": {
+      "generating": "画像を生成中",
+      "failed": "生成に失敗しました",
+      "cancelled": "生成をキャンセルしました",
+      "generated_one": "{{formatted}} 枚の画像を生成しました",
+      "generated_other": "{{formatted}} 枚の画像を生成しました"
+    },
+    "describeImage": {
+      "describing": "画像を説明中",
+      "described": "画像を説明しました",
+      "failed": "説明に失敗しました",
+      "cancelled": "説明をキャンセルしました"
+    },
+    "performOcr": {
+      "reading": "画像内のテキストを読み取り中",
+      "extracted": "テキストを抽出しました",
+      "failed": "OCR に失敗しました",
+      "cancelled": "OCR をキャンセルしました"
+    },
+    "understandVideo": {
+      "analyzing": "動画を分析中",
+      "analyzed": "動画を分析しました",
+      "failed": "分析に失敗しました",
+      "cancelled": "分析をキャンセルしました"
+    },
+    "grepFiles": {
+      "grepping": "grep 検索中",
+      "failed": "grep 検索に失敗しました",
+      "cancelled": "grep 検索をキャンセルしました",
+      "foundIn_one": "{{formatted}} 件のファイルで見つかりました",
+      "foundIn_other": "{{formatted}} 件のファイルで見つかりました"
+    },
+    "memorySearch": {
+      "searching": "メモリーを検索中",
+      "failed": "メモリー検索に失敗しました",
+      "cancelled": "メモリー検索をキャンセルしました",
+      "found_one": "{{formatted}} 件のメモリーが見つかりました",
+      "found_other": "{{formatted}} 件のメモリーが見つかりました"
+    },
+    "sendMessage": {
+      "sending": "メッセージを送信中",
+      "sent": "メッセージを送信しました",
+      "failed": "送信に失敗しました",
+      "cancelled": "送信をキャンセルしました"
+    },
+    "updateTodos": {
+      "updating": "ToDo を更新中",
+      "updated": "ToDo を更新しました",
+      "failed": "更新に失敗しました",
+      "cancelled": "更新をキャンセルしました",
+      "progress": "{{done}}/{{total}} 完了",
+      "progressWithTask": "{{progress}} · {{task}}"
+    }
+  },
+  "generic": {
+    "actionNoun": "アクション",
+    "running": "{{name}} を実行中",
+    "completed": "{{name}} が完了しました",
+    "failed": "{{name}} に失敗しました",
+    "cancelled": "{{name}} をキャンセルしました"
+  }
+}

@@ -28,7 +28,8 @@ def _get_gmail_thread_op() -> Operation:
         "get_thread",
         description=(
             "Get a thread (conversation) and its messages. Default returns "
-            "per-message {id, from, to, subject, date, snippet}; set "
+            "per-message {id, from, to, cc, subject, date, internalDate, "
+            "labelIds, unread, snippet}; set "
             "include_metadata for the raw thread."
         ),
         tags=("gmail_threads", "gmail"),
@@ -67,13 +68,18 @@ def _get_gmail_thread_op() -> Operation:
                         h.get("name", ""): h.get("value", "")
                         for h in msg.get("payload", {}).get("headers", [])
                     }
+                    labels = msg.get("labelIds", []) or []
                     lean_messages.append(
                         {
                             "id": msg.get("id"),
                             "from": headers.get("From", ""),
                             "to": headers.get("To", ""),
+                            "cc": headers.get("Cc", ""),
                             "subject": headers.get("Subject", ""),
                             "date": headers.get("Date", ""),
+                            "internalDate": msg.get("internalDate"),
+                            "labelIds": labels,
+                            "unread": "UNREAD" in labels,
                             "snippet": msg.get("snippet", ""),
                         }
                     )
@@ -217,7 +223,13 @@ def build_operations() -> List[Operation]:
         client_op(
             "get_gmail",
             "get_email",
-            description="Get a single Gmail message by id.",
+            description=(
+                "Get a single Gmail message by id. Returns {id, threadId, "
+                "labelIds, unread, internalDate (epoch ms), sizeEstimate, "
+                "snippet, headers (From/To/Cc/Reply-To/Subject/Date/"
+                "Message-ID/...)}; with full_body also {body, body_format, "
+                "attachments}."
+            ),
             tags=("gmail_mail", "gmail"),
             unwrap_envelope=True,
             fail_message="Failed to get email.",
@@ -229,7 +241,11 @@ def build_operations() -> List[Operation]:
                 },
                 "full_body": {
                     "type": "boolean",
-                    "description": "Return the full body instead of a snippet.",
+                    "description": (
+                        "Also return the body text and attachments list. "
+                        "HTML-only mail is converted to text "
+                        "(body_format='html_converted')."
+                    ),
                     "example": False,
                 },
             },
@@ -237,7 +253,10 @@ def build_operations() -> List[Operation]:
         client_op(
             "read_top_emails",
             "read_top_emails",
-            description="Read the top N recent emails with details.",
+            description=(
+                "Read the top N recent inbox emails with details (same "
+                "per-message shape as get_gmail, including unread/labelIds)."
+            ),
             tags=("gmail_mail", "gmail"),
             unwrap_envelope=True,
             fail_message="Failed to read emails.",

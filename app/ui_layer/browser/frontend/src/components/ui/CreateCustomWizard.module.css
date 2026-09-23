@@ -1,4 +1,4 @@
-/* Create Custom wizard (inside the Add Living UI modal) */
+/* Create Custom wizard (inside the Add Agent App modal) */
 
 .wizardScroll {
   display: flex;
@@ -142,7 +142,7 @@
   display: block;
 }
 
-/* — theme picker (mirrors the Living UI theme modal's presets) — */
+/* — theme picker (mirrors the Agent App theme modal's presets) — */
 
 .themeGrid {
   display: grid;

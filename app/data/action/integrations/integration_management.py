@@ -72,7 +72,18 @@ def list_available_integrations(input_data: dict) -> dict:
         return {
             "status": "success",
             "integrations": integrations,
-            "message": f"Found {len(integrations)} integration(s).",
+            # State the scope. An empty/short list read as "you cannot do
+            # that" (observed live 2026-09-01: asked for the weather, the
+            # agent called this twice, saw no weather entry, and told the
+            # user 12 times over 4 minutes that it had no weather
+            # capability — while holding web_fetch and http_request, and
+            # with Open-Meteo needing neither key nor account).
+            "message": (
+                f"Found {len(integrations)} integration(s). This lists "
+                "CREDENTIALED account integrations only. Public APIs and "
+                "websites never appear here and need no integration — use "
+                "http_request / web_fetch / web_search for those."
+            ),
         }
     except Exception as e:
         return {"status": "error", "integrations": [], "message": str(e)}
@@ -103,7 +114,8 @@ def list_available_integrations(input_data: dict) -> dict:
             "type": "string",
             "description": (
                 "The integration to connect, using its exact id. Valid values: slack, "
-                "discord, telegram, whatsapp, whatsapp_business, notion, linkedin, and "
+                "discord, telegram, whatsapp, whatsapp_business, notion, linkedin, "
+                "posthog, and "
                 "the Google Workspace apps as SEPARATE ids — gmail, google_drive, "
                 "google_docs, google_calendar, google_youtube (there is no single "
                 "'google' integration). Call list_available_integrations if unsure."
@@ -118,7 +130,9 @@ def list_available_integrations(input_data: dict) -> dict:
                 "discord: {bot_token}, "
                 "telegram: {bot_token}, "
                 "whatsapp_business: {access_token, phone_number_id}, "
-                "notion: {token}. "
+                "notion: {token}, "
+                "posthog: {api_key, host(optional: 'us'/'eu'/self-hosted URL), "
+                "project_id(optional)}. "
                 "Leave empty for OAuth or interactive (QR code) flows."
             ),
             "example": {"bot_token": "123456:ABC-DEF"},

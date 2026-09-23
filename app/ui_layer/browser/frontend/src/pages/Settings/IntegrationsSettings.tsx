@@ -30,11 +30,16 @@ import {
   GoogleDrive,
   YouTube,
   MicrosoftOutlook,
+  PostHog,
 } from '@ridemountainpig/svgl-react'
+import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedState } from '../../hooks'
 import { useTheme } from '../../contexts/ThemeContext'
+import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
+import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -92,6 +97,7 @@ const SVGL_BY_ID: Record<string, SvglIcon> = {
   google_drive: GoogleDrive,
   google_youtube: YouTube,
   outlook: MicrosoftOutlook,
+  posthog: PostHog,
 }
 
 // Integration icon component. Lookup order:
@@ -326,9 +332,15 @@ const ConfigFields = ({
 // parent and are committed as one ``integration_apply_account_changes``.
 
 export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: boolean } = {}) {
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { t } = useTranslation(['settings', 'common'])
+  const { send, onMessage } = useSettingsWebSocket()
   const { showToast } = useToast()
   const dispatch = useAppDispatch()
+
+  // The slice caches the list; ResourceSync fetches it when unloaded or stale
+  // and refetches it whenever integrations change (connect, disconnect,
+  // account or config edits from any tab).
+  useResource(RESOURCES.integrations)
 
   // Slice-backed: list state cached across remounts.
   const integrations = useAppSelector(selectIntegrations)
@@ -338,7 +350,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   const isLoading = !hasLoaded
 
   // Search
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState(UI_STATE.settings.integrationsSearch)
 
   // Reload state
   const [isReloading, setIsReloading] = useState(false)
@@ -359,9 +371,16 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     selectedIntegrationRef.current = selectedIntegration
   }, [selectedIntegration])
 
-  // Manage modal state
+  // Manage modal state. The modal opens with the integration_info snapshot,
+  // then reads the integration from the slice by id, so a refreshed list
+  // (another tab, the agent) keeps it current instead of a stale copy.
   const [showManageModal, setShowManageModal] = useState(false)
-  const [managingIntegration, setManagingIntegration] = useState<Integration | null>(null)
+  const [managingSnapshot, setManagingIntegration] = useState<Integration | null>(null)
+  const managingIntegration = React.useMemo(() => {
+    if (!managingSnapshot) return null
+    const listed = integrations.find(i => i.id === managingSnapshot.id)
+    return listed ? { ...managingSnapshot, ...listed } : managingSnapshot
+  }, [managingSnapshot, integrations])
   // Mirrors ``managingIntegration`` for the WebSocket handlers (same reason
   // as ``selectedIntegrationRef`` above — the subscription effect doesn't
   // re-run on state changes, so direct reads would be stale).
@@ -503,10 +522,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
       JSON.stringify(configValues) !== JSON.stringify(configBaseline)
     if (managingIntegration && (accountsDirty || settingsDirty)) {
       confirm({
-        title: 'Discard unsaved changes?',
-        message: `Your changes to ${managingIntegration.name} haven't been saved yet.`,
-        confirmText: 'Discard',
-        cancelText: 'Keep editing',
+        title: t('settings:integrations.discardConfirmTitle'),
+        message: t('settings:integrations.discardConfirmMessage', { name: managingIntegration.name }),
+        confirmText: t('settings:integrations.discardConfirmButton'),
+        cancelText: t('settings:integrations.keepEditing'),
         variant: 'danger',
       }, closeManageModal)
       return
@@ -517,8 +536,6 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // Subscribe to side-effect messages (toasts, modal close). The integrations
   // list itself is updated by the slice via the registry.
   useEffect(() => {
-    if (!isConnected) return
-
     const cleanups = [
       // The slice handles populating the list. Here we only handle the
       // reload-success toast and error reporting.
@@ -529,7 +546,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         isReloadingRef.current = false
         if (d.success) {
           if (wasReloading) {
-            showToast('success', 'Integrations reloaded')
+            showToast('success', t('settings:integrations.toast.reloaded'))
           }
         } else if (d.error) {
           showToast('error', d.error)
@@ -539,7 +556,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         const d = data as { success: boolean; message?: string; error?: string; id?: string }
         setIsConnecting(false)
         if (d.success) {
-          showToast('success', d.message || 'Connected successfully')
+          showToast('success', d.message || t('settings:integrations.toast.connected'))
           setShowConnectModal(false)
           setCredentials({})
           setConnectError('')
@@ -550,7 +567,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
             send('integration_info', { id: just.id })
           }
         } else {
-          setConnectError(d.error || d.message || 'Connection failed')
+          setConnectError(d.error || d.message || t('settings:integrations.toast.connectionFailed'))
         }
       }),
       onMessage('integration_disconnect_result', (data: unknown) => {
@@ -559,10 +576,11 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         // operation it was tracking.
         setPendingOp(prev => (prev && d.id && prev.id === d.id) ? null : prev)
         if (d.success) {
-          showToast('success', d.message || 'Disconnected successfully')
-          closeManageModal()
+          showToast('success', d.message || t('settings:integrations.toast.disconnected'))
+          // Only a disconnect of the integration on screen closes the modal.
+          if (d.id && d.id === managingIntegrationRef.current?.id) closeManageModal()
         } else {
-          showToast('error', d.error || 'Failed to disconnect')
+          showToast('error', d.error || t('settings:integrations.toast.disconnectFailed'))
         }
       }),
       onMessage('integration_info', (data: unknown) => {
@@ -609,7 +627,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           }
         } else if (manageRequestedRef.current) {
           manageRequestedRef.current = false
-          showToast('error', d.error || 'Failed to get integration info')
+          showToast('error', d.error || t('settings:integrations.toast.infoFailed'))
         }
       }),
       // Result broadcast for "Add account" (real OAuth; can take minutes).
@@ -628,9 +646,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         pendingAddRef.current.delete(d.requestId)
         setAddingAccountFor(prev => (prev === d.id ? null : prev))
         if (d.ok) {
-          showToast('success', d.message || 'Account added')
+          showToast('success', d.message || t('settings:integrations.toast.accountAdded'))
         } else {
-          showToast('error', d.message || 'Failed to add account')
+          showToast('error', d.message || t('settings:integrations.toast.accountAddFailed'))
         }
       }),
       // Result broadcast for the batched "Save changes" request.
@@ -654,11 +672,11 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         setAccountsSaving(false)
         if (d.ok) {
           setAccountsError('')
-          showToast('success', 'Account changes saved')
+          showToast('success', t('settings:integrations.toast.accountChangesSaved'))
         } else {
           // Failure keeps the staged edits (nothing cleared above) so the
           // user can retry; surface the error inline and as a toast.
-          const msg = d.error || 'Failed to apply account changes'
+          const msg = d.error || t('settings:integrations.toast.accountChangesFailed')
           setAccountsError(msg)
           showToast('error', msg)
         }
@@ -671,6 +689,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           schema?: ConfigField[]; values?: Record<string, any>
           error?: string
         }
+        // Another integration's config must not replace the open form.
+        if (d.id !== managingIntegrationRef.current?.id) return
         setConfigLoading(false)
         if (d.success) {
           const loaded = d.values || {}
@@ -685,15 +705,16 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           id: string; success: boolean
           message?: string; values?: Record<string, any>; error?: string
         }
+        if (d.id !== managingIntegrationRef.current?.id) return
         setConfigSaving(false)
         if (d.success) {
-          showToast('success', d.message || 'Settings saved')
+          showToast('success', d.message || t('settings:integrations.toast.settingsSaved'))
           if (d.values) {
             setConfigValues(d.values)
             setConfigBaseline(d.values)
           }
         } else {
-          showToast('error', d.error || d.message || 'Failed to save settings')
+          showToast('error', d.error || d.message || t('settings:integrations.toast.settingsFailed'))
         }
       }),
       // WhatsApp QR code handlers
@@ -707,7 +728,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           setWhatsappExpiresIn(typeof d.expires_in === 'number' ? d.expires_in : null)
         } else {
           setWhatsappStatus('error')
-          setWhatsappError(d.message || 'Failed to get QR code')
+          setWhatsappError(d.message || t('settings:integrations.toast.qrFailed'))
         }
       }),
       onMessage('whatsapp_status_result', (data: unknown) => {
@@ -721,7 +742,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         if (d.connected) {
           setWhatsappStatus('connected')
           setShowConnectModal(false)
-          showToast('success', d.message || 'WhatsApp connected successfully')
+          showToast('success', d.message || t('settings:integrations.toast.whatsappConnected'))
           stopPolling()
           setWhatsappQrCode(null)
           setWhatsappSessionId(null)
@@ -744,11 +765,11 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           setWhatsappStatus(d.status)
         } else if (d.status === 'timeout' || d.status === 'cancelled') {
           setWhatsappStatus('timeout')
-          setWhatsappError(d.message || 'QR code expired — try again.')
+          setWhatsappError(d.message || t('settings:integrations.toast.qrExpired'))
           stopPolling()
         } else if (d.status === 'error' || d.status === 'disconnected') {
           setWhatsappStatus('error')
-          setWhatsappError(d.message || 'Session failed')
+          setWhatsappError(d.message || t('settings:integrations.toast.sessionFailed'))
           stopPolling()
         }
       }),
@@ -760,13 +781,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
       }),
     ]
 
-    // Fetch list only on first mount (cached across re-mounts thereafter).
-    if (!hasLoaded) {
-      send('integration_list')
-    }
-
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoaded, showToast, closeManageModal, pruneStagedFor, refreshManagedAccounts])
+  }, [send, onMessage, showToast, closeManageModal, pruneStagedFor, refreshManagedAccounts])
 
   // Poll while a link flow is live (QR pending, scanned, or promoting).
   useEffect(() => {
@@ -1016,14 +1032,14 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
       return integration.name.toLowerCase().includes(query) ||
         integration.description.toLowerCase().includes(query)
     })
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => localeCompare(a.name, b.name))
 
   if (isLoading) {
     return (
       <div className={styles.settingsSection}>
         <div className={styles.loadingState}>
           <Loader2 className={styles.spinner} />
-          <span>Loading integrations...</span>
+          <span>{t('settings:integrations.loading')}</span>
         </div>
       </div>
     )
@@ -1035,10 +1051,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
       {!hideHeader && (
         <div className={styles.sectionHeader}>
           <div className={styles.sectionTitleRow}>
-            <h3>External Integrations</h3>
-            <Badge variant="default">{connectedCount}/{totalIntegrations} connected</Badge>
+            <h3>{t('settings:integrations.title')}</h3>
+            <Badge variant="default">{t('settings:integrations.connectedBadge', { connected: formatNumber(connectedCount), total: formatNumber(totalIntegrations) })}</Badge>
           </div>
-          <p>Connect to external services and tools</p>
+          <p>{t('settings:integrations.subtitle')}</p>
         </div>
       )}
 
@@ -1048,7 +1064,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           <input
             type="text"
             className={styles.searchInput}
-            placeholder="Search integrations..."
+            placeholder={t('settings:integrations.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -1060,7 +1076,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           disabled={isReloading}
           icon={<RotateCcw size={14} className={isReloading ? styles.spinning : ''} />}
         >
-          Reload
+          {t('settings:integrations.reload')}
         </Button>
       </div>
 
@@ -1070,7 +1086,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           <div className={styles.emptyState}>
             <Package size={24} />
             <span>
-              {searchQuery ? 'No integrations match your search' : 'No integrations available'}
+              {searchQuery ? t('settings:integrations.noMatch') : t('settings:integrations.noneAvailable')}
             </span>
           </div>
         ) : (
@@ -1086,10 +1102,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                 <div className={styles.integrationItemHeader}>
                   <span className={styles.integrationItemName}>{integration.name}</span>
                   <Badge variant={integration.connected ? 'success' : 'default'}>
-                    {integration.connected ? 'Connected' : 'Not connected'}
+                    {integration.connected ? t('settings:integrations.connected') : t('settings:integrations.notConnected')}
                   </Badge>
                   {integration.connected && integration.accounts.length > 0 && (
-                    <Badge variant="info">{integration.accounts.length} account{integration.accounts.length > 1 ? 's' : ''}</Badge>
+                    <Badge variant="info">{t('settings:integrations.accountCount', { count: integration.accounts.length })}</Badge>
                   )}
                 </div>
                 <p className={styles.integrationItemDesc}>{integration.description}</p>
@@ -1102,23 +1118,23 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                       size="sm"
                       onClick={() => handleOpenManage(integration)}
                       icon={<Wrench size={14} />}
-                      title="Manage accounts"
+                      title={t('settings:integrations.manageAccounts')}
                     />
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => {
                         confirm({
-                          title: 'Disconnect Integration',
-                          message: `Disconnect all accounts from ${integration.name}?`,
-                          confirmText: 'Disconnect',
+                          title: t('settings:integrations.disconnectConfirmTitle'),
+                          message: t('settings:integrations.disconnectConfirmMessage', { name: integration.name }),
+                          confirmText: t('common:actions.disconnect'),
                           variant: 'danger',
                         }, () => {
                           handleDisconnectAll(integration)
                         })
                       }}
                       icon={<Power size={14} />}
-                      title="Disconnect"
+                      title={t('settings:integrations.disconnectTitle')}
                     />
                   </>
                 ) : (
@@ -1128,7 +1144,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     onClick={() => handleOpenConnect(integration)}
                     icon={<Plus size={14} />}
                   >
-                    Connect
+                    {t('settings:integrations.connect.connect')}
                   </Button>
                 )}
               </div>
@@ -1142,13 +1158,13 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         <div className={styles.modalOverlay} onClick={() => setShowConnectModal(false)}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3>Connect {selectedIntegration.name}</h3>
+              <h3>{t('settings:integrations.connect.title', { name: selectedIntegration.name })}</h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 {(selectedIntegration.connect_help?.length ?? 0) > 0 && (
                   <button
                     className={styles.modalClose}
                     onClick={() => setShowConnectHelp(v => !v)}
-                    title={`Where to find ${selectedIntegration.name} credentials`}
+                    title={t('settings:integrations.connect.helpTitle', { name: selectedIntegration.name })}
                     aria-expanded={showConnectHelp}
                   >
                     <HelpCircle size={18} />
@@ -1174,7 +1190,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                 }}
               >
                 <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text-primary)' }}>
-                  Where to find {selectedIntegration.name} credentials
+                  {t('settings:integrations.connect.helpTitle', { name: selectedIntegration.name })}
                 </div>
                 <ol style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-secondary)' }}>
                   {selectedIntegration.connect_help!.map((step, i) => (
@@ -1188,8 +1204,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
               {selectedIntegration.auth_type === 'oauth' && (
                 <div className={styles.connectForm}>
                   <p className={styles.connectDesc}>
-                    Click the button below to sign in with {selectedIntegration.name}.
-                    A browser window will open for authentication.
+                    {t('settings:integrations.connect.oauthDesc', { name: selectedIntegration.name })}
                   </p>
                   {connectError && (
                     <div className={styles.formError}>{connectError}</div>
@@ -1202,10 +1217,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     {isConnecting ? (
                       <>
                         <Loader2 size={16} className={styles.spinning} />
-                        Connecting...
+                        {t('common:status.connecting')}
                       </>
                     ) : (
-                      <>Sign in with {selectedIntegration.name}</>
+                      <>{t('settings:integrations.connect.signInWith', { name: selectedIntegration.name })}</>
                     )}
                   </Button>
                 </div>
@@ -1240,10 +1255,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     {isConnecting ? (
                       <>
                         <Loader2 size={16} className={styles.spinning} />
-                        Connecting...
+                        {t('common:status.connecting')}
                       </>
                     ) : (
-                      'Connect'
+                      t('settings:integrations.connect.connect')
                     )}
                   </Button>
                 </div>
@@ -1278,19 +1293,19 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     {isConnecting ? (
                       <>
                         <Loader2 size={16} className={styles.spinning} />
-                        Connecting...
+                        {t('common:status.connecting')}
                       </>
                     ) : (
-                      'Connect with Token'
+                      t('settings:integrations.connect.connectWithToken')
                     )}
                   </Button>
-                  <div className={styles.connectFormDivider}>or</div>
+                  <div className={styles.connectFormDivider}>{t('settings:integrations.or')}</div>
                   <Button
                     variant="secondary"
                     onClick={handleConnectOAuth}
                     disabled={isConnecting}
                   >
-                    Use OAuth Instead
+                    {t('settings:integrations.connect.useOAuth')}
                   </Button>
                 </div>
               )}
@@ -1324,15 +1339,15 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     {isConnecting ? (
                       <>
                         <Loader2 size={16} className={styles.spinning} />
-                        Connecting...
+                        {t('common:status.connecting')}
                       </>
                     ) : (
-                      'Connect Bot'
+                      t('settings:integrations.connect.connectBot')
                     )}
                   </Button>
-                  <div className={styles.connectFormDivider}>or</div>
+                  <div className={styles.connectFormDivider}>{t('settings:integrations.or')}</div>
                   <p className={styles.connectDesc}>
-                    Connect a personal account via QR code. A QR code window will open separately on your machine.
+                    {t('settings:integrations.connect.qrDesc')}
                   </p>
                   <Button
                     variant="secondary"
@@ -1342,10 +1357,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     {isConnecting ? (
                       <>
                         <Loader2 size={16} className={styles.spinning} />
-                        Waiting for QR scan...
+                        {t('settings:integrations.connect.waitingQrScan')}
                       </>
                     ) : (
-                      'Connect User Account (QR Code)'
+                      t('settings:integrations.connect.connectUserQr')
                     )}
                   </Button>
                 </div>
@@ -1363,9 +1378,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     disabled={isConnecting}
                   >
                     {isConnecting ? (
-                      <><Loader2 size={16} className={styles.spinning} /> Connecting...</>
+                      <><Loader2 size={16} className={styles.spinning} /> {t('common:status.connecting')}</>
                     ) : (
-                      <>Connect {selectedIntegration.name}</>
+                      <>{t('settings:integrations.connect.connectNamed', { name: selectedIntegration.name })}</>
                     )}
                   </Button>
                   {connectError && (
@@ -1380,26 +1395,26 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   {whatsappStatus === 'loading' && (
                     <div className={styles.whatsappLoading}>
                       <Loader2 size={32} className={styles.spinning} />
-                      <p>Starting WhatsApp Web session...</p>
+                      <p>{t('settings:integrations.whatsapp.starting')}</p>
                     </div>
                   )}
 
                   {whatsappStatus === 'qr_ready' && whatsappQrCode && (
                     <div className={styles.whatsappQrContainer}>
                       <p className={styles.connectDesc}>
-                        Scan this QR code with your WhatsApp mobile app to connect.
+                        {t('settings:integrations.whatsapp.scanDesc')}
                       </p>
                       <div className={styles.whatsappQrCode}>
-                        <img src={whatsappQrCode} alt="WhatsApp QR Code" />
+                        <img src={whatsappQrCode} alt={t('settings:integrations.whatsapp.qrAlt')} />
                       </div>
                       <p className={styles.whatsappQrHint}>
-                        Open WhatsApp &rarr; Settings &rarr; Linked Devices &rarr; Link a Device
+                        {t('settings:integrations.whatsapp.linkHint')}
                       </p>
                       {whatsappExpiresIn !== null && (
                         <p className={styles.whatsappQrHint}>
                           {whatsappExpiresIn > 0
-                            ? `Code refreshes in ${Math.floor(whatsappExpiresIn / 60)}:${String(whatsappExpiresIn % 60).padStart(2, '0')}`
-                            : 'Refreshing code…'}
+                            ? t('settings:integrations.whatsapp.refreshIn', { time: `${Math.floor(whatsappExpiresIn / 60)}:${String(whatsappExpiresIn % 60).padStart(2, '0')}` })
+                            : t('settings:integrations.whatsapp.refreshing')}
                         </p>
                       )}
                     </div>
@@ -1410,8 +1425,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                       <Loader2 size={32} className={styles.spinning} />
                       <p>
                         {whatsappStatus === 'scanned'
-                          ? 'QR scanned — connecting to WhatsApp…'
-                          : 'Almost done — finishing the connection…'}
+                          ? t('settings:integrations.whatsapp.scanned')
+                          : t('settings:integrations.whatsapp.promoting')}
                       </p>
                     </div>
                   )}
@@ -1419,9 +1434,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   {whatsappStatus === 'timeout' && (
                     <div className={styles.whatsappError}>
                       <AlertTriangle size={24} />
-                      <p>{whatsappError || 'The QR code expired before it was scanned.'}</p>
+                      <p>{whatsappError || t('settings:integrations.whatsapp.expired')}</p>
                       <Button variant="primary" onClick={handleStartWhatsAppQR}>
-                        Start Again
+                        {t('settings:integrations.whatsapp.startAgain')}
                       </Button>
                     </div>
                   )}
@@ -1429,9 +1444,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   {whatsappStatus === 'error' && (
                     <div className={styles.whatsappError}>
                       <AlertTriangle size={24} />
-                      <p>{whatsappError || 'Failed to connect to WhatsApp'}</p>
+                      <p>{whatsappError || t('settings:integrations.whatsapp.connectFailed')}</p>
                       <Button variant="primary" onClick={handleStartWhatsAppQR}>
-                        Try Again
+                        {t('settings:integrations.whatsapp.tryAgain')}
                       </Button>
                     </div>
                   )}
@@ -1439,17 +1454,17 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   {whatsappStatus === 'idle' && (
                     <div className={styles.whatsappIdle}>
                       <p className={styles.connectDesc}>
-                        Click the button below to generate a QR code for WhatsApp Web.
+                        {t('settings:integrations.whatsapp.idleDesc')}
                       </p>
                       <Button variant="primary" onClick={handleStartWhatsAppQR}>
-                        Generate QR Code
+                        {t('settings:integrations.whatsapp.generateQr')}
                       </Button>
                     </div>
                   )}
 
                   {(whatsappStatus === 'loading' || whatsappStatus === 'qr_ready' || whatsappStatus === 'scanned') && (
                     <Button variant="secondary" onClick={handleCancelWhatsApp}>
-                      Cancel
+                      {t('common:actions.cancel')}
                     </Button>
                   )}
                 </div>
@@ -1485,11 +1500,11 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         // Plain-language session labels (only whatsapp_web carries state).
         const stateLabel = (a: ManagedAccount): string => {
           switch (a.sessionState) {
-            case 'needs_relink': return 'Signed out'
-            case 'reconnecting': return 'Reconnecting…'
-            case 'failed': return 'Connection problem'
-            case 'launching': return 'Connecting…'
-            default: return 'Connected'
+            case 'needs_relink': return t('settings:integrations.manage.state.signedOut')
+            case 'reconnecting': return t('settings:integrations.manage.state.reconnecting')
+            case 'failed': return t('settings:integrations.manage.state.problem')
+            case 'launching': return t('settings:integrations.manage.state.connecting')
+            default: return t('settings:integrations.manage.state.connected')
           }
         }
         const isProblem = (a: ManagedAccount): boolean =>
@@ -1559,22 +1574,21 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
             <div className={styles.modalBody}>
               {managedAccounts === null ? (
                 <p className={styles.noAccounts}>
-                  Couldn&apos;t load accounts — close and reopen Manage, or check
-                  the backend logs.
+                  {t('settings:integrations.manage.loadFailed')}
                 </p>
               ) : page === 'list' ? (
                 /* ---- Main page: account list + integration settings ---- */
                 <>
                   <div className={styles.mList}>
                     {accounts.length === 0 && (
-                      <p className={styles.noAccounts}>No accounts connected</p>
+                      <p className={styles.noAccounts}>{t('settings:integrations.manage.noAccounts')}</p>
                     )}
                     {accounts.map(account => {
                       const marked = staged?.disconnect.includes(account.identity) ?? false
                       const meta = account.identity === effectivePrimary
-                        ? 'Default'
+                        ? t('settings:integrations.manage.default')
                         : marked
-                          ? 'Will disconnect'
+                          ? t('settings:integrations.manage.willDisconnect')
                           : isProblem(account) || account.sessionState === 'reconnecting'
                             ? stateLabel(account)
                             : ''
@@ -1608,8 +1622,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                         : <Plus size={16} />}
                       <span>
                         {addingAccountFor === integration.id
-                          ? 'Waiting for sign-in…'
-                          : 'Add account'}
+                          ? t('settings:integrations.manage.waitingSignIn')
+                          : t('settings:integrations.manage.addAccount')}
                       </span>
                     </button>
 
@@ -1619,15 +1633,15 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   {hasConfig && (
                     <div className={styles.mSettings}>
                       <div>
-                        <h4 className={styles.mSettingsHeading}>{integration.name} settings</h4>
+                        <h4 className={styles.mSettingsHeading}>{t('settings:integrations.manage.settingsHeading', { name: integration.name })}</h4>
                         <p className={styles.mSettingsScope}>
-                          Applies to every {integration.name} account you&apos;ve connected.
+                          {t('settings:integrations.manage.settingsScope', { name: integration.name })}
                         </p>
                       </div>
                       {configLoading ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
                           <Loader2 size={16} className={styles.spinning} />
-                          <span>Loading settings…</span>
+                          <span>{t('settings:integrations.manage.loadingSettings')}</span>
                         </div>
                       ) : (
                         <ConfigFields
@@ -1660,36 +1674,36 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                           <div className={styles.mDetailState}>{stateLabel(selectedAccount)}</div>
                         </div>
                         {isDefault ? (
-                          <span className={styles.mDefaultTag}>Default</span>
+                          <span className={styles.mDefaultTag}>{t('settings:integrations.manage.default')}</span>
                         ) : !selectedMarked ? (
                           <button
                             className={styles.mMakeDefault}
                             onClick={() => stagePrimary(integration.id, selectedAccount)}
                           >
-                            Make default
+                            {t('settings:integrations.manage.makeDefault')}
                           </button>
                         ) : null}
                       </div>
 
                       {selectedAccount.sessionState === 'needs_relink' && (
                         <div className={styles.mNotice}>
-                          <span>This account was signed out. Scan the QR code again to reconnect it.</span>
-                          <Button variant="primary" size="sm" onClick={relink}>Re-link</Button>
+                          <span>{t('settings:integrations.manage.relinkNotice')}</span>
+                          <Button variant="primary" size="sm" onClick={relink}>{t('settings:integrations.manage.relink')}</Button>
                         </div>
                       )}
 
                       <div className={styles.formGroup}>
-                        <label htmlFor={`alias-${selectedAccount.identity}`}>Nickname</label>
+                        <label htmlFor={`alias-${selectedAccount.identity}`}>{t('settings:integrations.manage.nickname')}</label>
                         <input
                           id={`alias-${selectedAccount.identity}`}
                           type="text"
                           className={styles.input}
-                          placeholder="e.g. work"
+                          placeholder={t('settings:integrations.manage.nicknamePlaceholder')}
                           value={aliasValue}
                           onChange={e => stageAlias(integration.id, selectedAccount, e.target.value)}
                         />
                         <p className={styles.hint}>
-                          A short name to use instead of the full address.
+                          {t('settings:integrations.manage.nicknameHint')}
                         </p>
                       </div>
 
@@ -1698,10 +1712,9 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                         htmlFor={`listen-${selectedAccount.identity}`}
                       >
                         <div className={styles.toggleInfo}>
-                          <span className={styles.toggleLabel}>Send new activity to the agent</span>
+                          <span className={styles.toggleLabel}>{t('settings:integrations.manage.listenLabel')}</span>
                           <span className={styles.toggleDesc}>
-                            When on, new messages and events from this account are handed
-                            to the agent to act on. When off, it&apos;s used only for sending.
+                            {t('settings:integrations.manage.listenDesc')}
                           </span>
                         </div>
                         <input
@@ -1715,7 +1728,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
 
                       {selectedMarked && (
                         <p className={styles.mRemovalNote}>
-                          This account will be disconnected when you save.
+                          {t('settings:integrations.manage.willDisconnectNote')}
                         </p>
                       )}
                     </div>
@@ -1730,7 +1743,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
             {managedAccounts !== null && (
               <div className={styles.modalFooter}>
                 <span className={styles.mFootStatus}>
-                  {anyDirty ? 'Unsaved changes' : 'All changes saved'}
+                  {anyDirty ? t('settings:integrations.manage.unsavedChanges') : t('settings:integrations.manage.allSaved')}
                 </span>
                 <Button
                   variant="ghost"
@@ -1738,7 +1751,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   onClick={discardAll}
                   disabled={!anyDirty || busy}
                 >
-                  Discard
+                  {t('settings:integrations.manage.discard')}
                 </Button>
                 {page === 'account' && selectedAccount && (
                   selectedMarked ? (
@@ -1748,7 +1761,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                       onClick={() => stageDisconnect(integration.id, selectedAccount.identity, false)}
                       disabled={busy}
                     >
-                      Keep account
+                      {t('settings:integrations.manage.keepAccount')}
                     </Button>
                   ) : (
                     <Button
@@ -1758,7 +1771,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                       onClick={() => stageDisconnect(integration.id, selectedAccount.identity, true)}
                       disabled={busy}
                     >
-                      Disconnect
+                      {t('settings:integrations.manage.disconnect')}
                     </Button>
                   )
                 )}
@@ -1768,7 +1781,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                   onClick={saveAll}
                   disabled={!anyDirty || busy}
                 >
-                  {busy ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save'}
+                  {busy ? <><Loader2 size={14} className={styles.spinning} /> {t('common:status.saving')}</> : t('common:actions.save')}
                 </Button>
               </div>
             )}
@@ -1786,10 +1799,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
             <div className={styles.whatsappLoading}>
               <Loader2 size={48} className={styles.spinning} />
               <p style={{ marginTop: 16, fontWeight: 500 }}>
-                {pendingOp.kind === 'disconnect' ? `Disconnecting ${pendingOp.label}…` : `Connecting ${pendingOp.label}…`}
+                {pendingOp.kind === 'disconnect' ? t('settings:integrations.overlay.disconnecting', { label: pendingOp.label }) : t('settings:integrations.overlay.connecting', { label: pendingOp.label })}
               </p>
               <p style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-                This can take up to 30 seconds.
+                {t('settings:integrations.overlay.takesTime')}
               </p>
             </div>
           </div>

@@ -27,7 +27,7 @@ jobs, and a hard boundary around them:
    deserve to exist as entities but are not in the known-entity list yet:
    - people, companies, teams, projects, products, tools, services, places
    - canonical names: match spellings already used in the known-entity
-     list and the record texts exactly ("Living UI", not "living-ui")
+     list and the record texts exactly ("Agent App", not "agent-app")
    - NOT: dates, numbers, generic nouns, common terms, role words
      ("User", "Agent"), code keywords, capitalised sentence-starters
    - Prefer precision over recall: an entity should matter to someone

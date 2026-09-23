@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Responsive } from 'react-grid-layout'
 import type { Layout, Layouts } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
@@ -23,6 +24,7 @@ interface DashboardGridProps {
 }
 
 export function DashboardGrid({ activeLayout, onLayoutsChange, onRemoveWidget }: DashboardGridProps) {
+  const { t } = useTranslation(['dashboard', 'common'])
   // Measured rather than taken from RGL's WidthProvider because WidthProvider
   // only re-measures on *window* resize — so anything that changes the
   // dashboard's width without resizing the window (collapsing the sidebar, a
@@ -54,7 +56,7 @@ export function DashboardGrid({ activeLayout, onLayoutsChange, onRemoveWidget }:
     <div ref={hostRef} className={styles.gridHost}>
       {widgetIds.length === 0 && (
         <div className={styles.emptyState}>
-          No widgets on this layout yet — click "Add Widget" to get started.
+          {t('dashboard:grid.emptyState')}
         </div>
       )}
 
@@ -81,7 +83,7 @@ export function DashboardGrid({ activeLayout, onLayoutsChange, onRemoveWidget }:
             const Comp = def.component
             return (
               <div key={id}>
-                <WidgetChrome title={def.title} icon={def.icon} headerBadge={def.headerBadge} bleed={def.bleed} onRemove={() => onRemoveWidget(id)}>
+                <WidgetChrome title={t(def.titleKey as never)} icon={def.icon} headerBadge={def.headerBadge} bleed={def.bleed} onRemove={() => onRemoveWidget(id)}>
                   <Comp />
                 </WidgetChrome>
               </div>

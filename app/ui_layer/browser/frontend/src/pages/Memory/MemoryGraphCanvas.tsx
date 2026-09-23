@@ -201,7 +201,9 @@ function graphSignature(graph: MemoryGraph | null): string {
  * NOT reheat the layout, so panel actions don't shake the graph. While the
  * initial layout settles, the camera smoothly follows a zoom-to-fit frame
  * until the user takes over (pan/zoom/drag). After settling the physics
- * pass stops dead — only a gentle render-side breathing remains.
+ * pass stops dead and a gentle render-side breathing ramps in; the loop then
+ * sleeps (no frames) until input, resize, theme, prop or data changes wake it.
+ * A selected node's radar ping keeps it running while the selection lasts.
  */
 export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, refreshNonce = 0, showEntityLinks = true, showFileLinks = true }: MemoryGraphCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -223,6 +225,9 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
   })
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+  // Wakes the render loop when it is asleep (no-op while it runs). Anything
+  // that changes the picture — input, resize, theme, props, data — calls it.
+  const requestFrameRef = useRef<() => void>(() => {})
 
   // Link-visibility flags read inside the rAF loop (which closes over refs,
   // not props), so live toggles take effect without restarting the loop.
@@ -519,6 +524,8 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         specksRef.current = []
       }
     }
+    // Labels, colours or topology may have changed: draw (and re-settle).
+    requestFrameRef.current()
   }, [graph])
 
   // ── Simulation + render loop ───────────────────────────────────────────
@@ -528,8 +535,23 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // 0 while no frame is scheduled: the loop sleeps once nothing moves
+    // (see the end of step) and requestFrame wakes it.
     let raf = 0
     let disposed = false
+    // Clock for the ambient animations (breathing, twinkle, selection ping).
+    // It stands still while the loop sleeps, so waking resumes them where
+    // they stopped instead of jumping ahead.
+    let lastTime = 0
+    let sleptFor = 0
+    let waking = false
+
+    const requestFrame = () => {
+      if (disposed || raf !== 0) return
+      waking = true
+      raf = requestAnimationFrame(step)
+    }
+    requestFrameRef.current = requestFrame
 
     const resize = () => {
       const dpr = Math.min(2, window.devicePixelRatio || 1)
@@ -539,9 +561,17 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         canvas.height = clientHeight * dpr
       }
     }
-    const ro = new ResizeObserver(resize)
+    const ro = new ResizeObserver(() => {
+      resize()
+      requestFrame()
+    })
     ro.observe(canvas)
     resize()
+
+    // Colours come from theme CSS variables read at draw time; redraw when
+    // the theme flips while the loop is asleep.
+    const themeObserver = new MutationObserver(requestFrame)
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
     // Transform that frames all nodes with padding, or null when empty.
     const fitTransform = (): { x: number; y: number; k: number } | null => {
@@ -767,7 +797,14 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
     }
 
     const step = (time: number) => {
+      raf = 0
       if (disposed) return
+      if (waking) {
+        sleptFor += time - lastTime
+        waking = false
+      }
+      lastTime = time
+      const anim = time - sleptFor
       const nodes = Array.from(nodesRef.current.values())
       const width = canvas.clientWidth
       const height = canvas.clientHeight
@@ -837,15 +874,15 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         ? Math.min(1, (time - settledAt) / BREATHE_RAMP_MS) * 1.2
         : 0
       const breathe = (n: SimNode) => ({
-        x: n.x + Math.sin(time / 1600 + n.phase) * amp,
-        y: n.y + Math.cos(time / 1900 + n.phase) * amp,
+        x: n.x + Math.sin(anim / 1600 + n.phase) * amp,
+        y: n.y + Math.cos(anim / 1900 + n.phase) * amp,
       })
 
       // ── Background starfield: distant static specks, faint slow twinkle ──
       if (isDark) {
         for (const s of specksRef.current) {
           if (!inView(s.x, s.y)) continue
-          const tw = 0.7 + 0.3 * Math.sin(time / 1400 + s.phase)
+          const tw = 0.7 + 0.3 * Math.sin(anim / 1400 + s.phase)
           ctx.fillStyle = `rgba(240,224,205,${s.a * tw})`
           ctx.beginPath()
           ctx.arc(s.x, s.y, s.r / Math.max(0.7, t.k), 0, Math.PI * 2)
@@ -903,10 +940,12 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
       //   memory — smaller solid dot
       //   file   — short filled document glyph (FileText icon)
       // No gradients: flat colour reads cleanly on dark AND light themes.
+      let entering = false
       for (const n of nodes) {
         if (!inView(n.x, n.y)) continue
         const p = breathe(n)
         const age = Math.min(1, (time - n.birth) / ENTRANCE_MS)
+        if (age < 1) entering = true
         const entrance = 1 - Math.pow(1 - age, 3)
         const dimmed = neighbours ? !neighbours.has(n.data.id) : false
         const faded = n.data.superseded === true
@@ -922,7 +961,7 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         // Rings are born at the core and ONLY travel outward, fading as
         // they go; the node's opacity dips smoothly in sync.
         if (isSelected) {
-          const phase = ((time % 1400) / 1400)          // 0→1, then reset
+          const phase = ((anim % 1400) / 1400)          // 0→1, then reset
           const eased = 1 - Math.pow(1 - phase, 2)      // ease-out travel
           vis *= 1 - 0.35 * Math.sin(phase * Math.PI)   // smooth dip
           const ringR = r * 0.4 + eased * (r + 14)
@@ -1063,7 +1102,19 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
       }
       ctx.lineWidth = 1 / t.k
 
-      raf = requestAnimationFrame(step)
+      // Sleep once the picture stops moving: physics settled and the
+      // breathing ramped in (it then holds still), no camera glide, no node
+      // entering or dragged, and no selection ping. Input, resize, theme,
+      // prop and data changes wake the loop through requestFrame.
+      const keepAnimating = nodes.length > 0 && (
+        alphaRef.current > 0 ||
+        followRef.current ||
+        dragRef.current.node !== null ||
+        entering ||
+        (selected !== null && nodesRef.current.has(selected)) ||
+        (settledAt !== null && time - settledAt < BREATHE_RAMP_MS)
+      )
+      if (keepAnimating) raf = requestAnimationFrame(step)
     }
     raf = requestAnimationFrame(step)
 
@@ -1071,8 +1122,16 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
       disposed = true
       cancelAnimationFrame(raf)
       ro.disconnect()
+      themeObserver.disconnect()
+      requestFrameRef.current = () => {}
     }
   }, [])
+
+  // Prop-driven visuals (selection ping, link toggles, fit/refresh requests)
+  // are read from refs inside the loop; make sure a sleeping loop draws them.
+  useEffect(() => {
+    requestFrameRef.current()
+  }, [selectedId, showEntityLinks, showFileLinks, fitNonce, refreshNonce])
 
   // ── Interaction ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1104,6 +1163,7 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
     const wake = (heat: number) => {
       alphaRef.current = Math.max(alphaRef.current, heat)
       settledAtRef.current = null
+      requestFrameRef.current()
     }
 
     const onPointerDown = (e: PointerEvent) => {
@@ -1140,9 +1200,11 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         drag.lastX = e.clientX
         drag.lastY = e.clientY
         if (Math.abs(e.movementX) + Math.abs(e.movementY) > 1) drag.moved = true
+        requestFrameRef.current()
         return
       }
       const hovered = hitTest(w.x, w.y)
+      if (hovered !== hoverRef.current) requestFrameRef.current()
       hoverRef.current = hovered
       canvas.style.cursor = hovered ? 'pointer' : 'grab'
     }
@@ -1155,6 +1217,7 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
         onSelectRef.current(node ? node.data : null)
       }
       dragRef.current = { node: null, panning: false, lastX: 0, lastY: 0, moved: false }
+      requestFrameRef.current()
     }
 
     const onWheel = (e: WheelEvent) => {
@@ -1170,10 +1233,12 @@ export function MemoryGraphCanvas({ graph, selectedId, onSelect, fitNonce = 0, r
       t.x = px - ((px - t.x) / t.k) * k
       t.y = py - ((py - t.y) / t.k) * k
       t.k = k
+      requestFrameRef.current()
     }
 
     const onLeave = () => {
       hoverRef.current = null
+      requestFrameRef.current()
     }
 
     canvas.addEventListener('pointerdown', onPointerDown)

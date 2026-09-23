@@ -9,7 +9,7 @@ _INPUT_SCHEMA = {
     },
     "name_b": {
         "type": "string",
-        "example": "Living UI",
+        "example": "Agent App",
         "description": "Second entity name. Case-insensitive.",
     },
 }
@@ -34,11 +34,11 @@ _OUTPUT_SCHEMA = {
             {
                 "kind": "item",
                 "id": "i:m1a2b3c4d5e6",
-                "label": "John built the Living UI dashboard",
+                "label": "John built the Agent App dashboard",
                 "category": "event",
                 "superseded": False,
             },
-            {"kind": "entity", "id": "e:living ui", "label": "Living UI"},
+            {"kind": "entity", "id": "e:agent app", "label": "Agent App"},
         ],
     },
 }

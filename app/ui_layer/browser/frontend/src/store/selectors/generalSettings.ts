@@ -1,5 +1,6 @@
 import type { RootState } from '../index'
 
+export const selectGeneralSettingsValues = (state: RootState) => state.generalSettings.settings
 export const selectUserMd = (state: RootState) => state.generalSettings.userMd
 export const selectAgentMd = (state: RootState) => state.generalSettings.agentMd
 export const selectSoulMd = (state: RootState) => state.generalSettings.soulMd

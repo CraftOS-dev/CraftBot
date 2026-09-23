@@ -1,0 +1,90 @@
+{
+  "ollama": {
+    "checking": "正在检查 Ollama 是否运行…",
+    "notInstalledStatus": "未安装 Ollama",
+    "notInstalledHint": "Ollama 让你在本地运行 AI 模型，无需云端。我们会自动为你安装。",
+    "install": "安装 Ollama",
+    "installing": "正在安装 Ollama…",
+    "installStarting": "启动中…",
+    "notRunningStatus": "Ollama 已安装但未运行",
+    "notRunningHint": "点击下方以启动 Ollama 服务器。",
+    "start": "启动 Ollama",
+    "starting": "正在启动 Ollama…",
+    "runningNoModels": "Ollama 正在运行（尚无模型）",
+    "selectModelHint": "选择一个模型下载，即可开始对话：",
+    "findModel": "查找模型…",
+    "recommended": "推荐",
+    "noModelMatch": "没有模型匹配“{{query}}”",
+    "download": "下载 {{model}}",
+    "modelFallback": "模型",
+    "downloading": "正在下载 {{model}}…",
+    "downloadStarting": "正在开始下载…",
+    "connected": "已连接到 Ollama",
+    "running": "Ollama 正在运行",
+    "serverUrl": "Ollama 服务器 URL",
+    "test": "测试"
+  },
+  "ollamaPrompt": {
+    "notInstalled": "Ollama 尚未安装。我来为我们设置好。",
+    "installing": "正在安装 Ollama…这需要一分钟。",
+    "notRunning": "Ollama 已安装但未运行。要启动它吗？",
+    "starting": "正在启动 Ollama…",
+    "running": "Ollama 正在运行。我们来测试一下连接。",
+    "selectingModel": "选一个模型让我下载。",
+    "pullingModel": "正在下载你的模型…这可能需要几分钟。",
+    "connected_one": "已连接。{{count}} 个模型已就绪。",
+    "connected_other": "已连接。{{count}} 个模型已就绪。",
+    "errorFallback": "出错了。介意重试一下吗？",
+    "checking": "正在检查 Ollama…"
+  },
+  "apiKey": {
+    "storedLocally": "你的 API 密钥存储在本地。",
+    "optional": "API 密钥（可选）",
+    "enter": "输入你的 API 密钥",
+    "orEnterKey": "或输入一个 API 密钥"
+  },
+  "apiKeyPrompt": {
+    "openrouter": "粘贴你的 OpenRouter 密钥，我来接好它。",
+    "withSub": "连接你的 {{provider}} 账户，我就能开始工作了。登录，或粘贴一个 API 密钥。",
+    "plain": "粘贴你的 {{provider}} API 密钥，我就能连接并开始工作。",
+    "providerFallback": "你的供应商"
+  },
+  "proxied": {
+    "orKey": "输入你的 OpenRouter API 密钥",
+    "directKey": "输入你的 {{provider}} API 密钥",
+    "modelLabel": "模型 <1>（可选；保持默认或输入任意 OpenRouter slug）</1>",
+    "useDirect": "← 改用直连 {{provider}} API",
+    "useOpenRouter": "遇到连接问题？改用 OpenRouter →"
+  },
+  "sub": {
+    "working": "工作中…",
+    "pastePlaceholder": "粘贴登录页面上的验证码",
+    "submitting": "提交中…",
+    "submitCode": "提交验证码",
+    "reopen": "重新打开登录页面",
+    "openingBrowser": "正在打开浏览器…",
+    "signInWith": "使用 {{provider}} 登录",
+    "useKeyInstead": "改用 API 密钥"
+  },
+  "form": {
+    "enterField": "输入 {{field}}",
+    "enterName": "输入一个名称"
+  },
+  "stepPrompt": {
+    "provider": "该由哪个 AI 来驱动我？",
+    "userProfile": "那我该怎么称呼你？",
+    "agentName": "你又想怎么称呼我？"
+  },
+  "intro": {
+    "greeting": "<1>很高兴认识你，我是 CraftBot！</1><2/>我在这里帮你处理工作和生活。",
+    "kicker": "那么，在开始之前，我们需要先配置几项设置。"
+  },
+  "done": {
+    "message": "一切就绪！<1>{{name}}</1> 已准备好开始工作。"
+  },
+  "nav": {
+    "testingApiKey": "正在测试 API 密钥…",
+    "getStarted": "开始使用",
+    "finish": "完成"
+  }
+}

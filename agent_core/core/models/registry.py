@@ -225,7 +225,7 @@ def default_models_registry() -> Dict[str, Dict[Any, Optional[str]]]:
 
 def session_cc_providers() -> frozenset:
     """chat_completions providers whose session path accumulates history
-    (the _openai_compat_session_messages / openrouter-anthropic buffers).
+    (the accumulated session history).
 
     Replaces the hand-maintained tuple in interface.py's session dispatcher
     and create_session_cache. minimax/moonshot stay excluded

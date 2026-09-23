@@ -8,7 +8,7 @@ the markdown files remain the source of truth and the graph can always be
 rebuilt from them.
 
 Structure (three node kinds, bipartite-style edges):
-- entity nodes  — LLM-extracted entities ("tham yik foong", "Living UI",
+- entity nodes  — LLM-extracted entities ("tham yik foong", "Agent App",
   ...). Size grows with mention count.
 - memory nodes  — TWO equal-rank sources: MEMORY.md items (source
   "memory": distilled facts, editable, supersedable) and section chunks

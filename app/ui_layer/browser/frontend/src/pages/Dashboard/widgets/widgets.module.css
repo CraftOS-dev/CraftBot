@@ -484,7 +484,7 @@
 }
 
 /* FIXED-HEIGHT TILE — Connected/Calls and friends (MCP/Skills/Integrations/
-   Living UI/Agent Status). The list below takes the height. */
+   Agent App/Agent Status). The list below takes the height. */
 .compactStats {
   display: flex;
   gap: var(--w-gap);
@@ -526,7 +526,7 @@
   white-space: nowrap;
 }
 
-/* Usage Section (Top Tools/Skills/Integrations/Living UI projects) —
+/* Usage Section (Top Tools/Skills/Integrations/Agent App projects) —
  * top-anchored rather than vertical-centered: list content shouldn't
  * drift position as the widget is resized. The only flexible block in
  * these widgets now that the stat tiles are fixed, so it absorbs all the

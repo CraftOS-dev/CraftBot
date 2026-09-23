@@ -104,7 +104,14 @@ async def _check_source_update(
     the release-tag check instead of blocking update checks on git-specific
     failures.
     """
-    if getattr(sys, "frozen", False):
+    # A git-based update check is only meaningful in a source checkout. This
+    # used to test sys.frozen as a proxy for that; the agent is no longer
+    # frozen, so the test silently started passing and every installed
+    # machine began spawning git processes that can only ever answer "not a
+    # repository" - on machines that may not have git at all.
+    from app import paths
+
+    if not paths.is_dev_checkout():
         return None
 
     try:
@@ -268,7 +275,9 @@ async def perform_update(
     if not updater_script.exists():
         raise RuntimeError(f"Updater script not found: {updater_script}")
 
-    await emit(f"Launching updater in a new window (pulling {target_branch})...")
+    from app.i18n import tui
+
+    await emit(tui("update_launching", branch=target_branch))
     await asyncio.sleep(0.5)  # let the UI show the message
 
     if sys.platform == "win32":
@@ -290,7 +299,7 @@ async def perform_update(
             start_new_session=True,
         )
 
-    await emit("Shutting down — the updater will relaunch CraftBot shortly.")
+    await emit(tui("update_shutting_down"))
     await asyncio.sleep(1)
 
     # Exit cleanly. The updater handles everything from here.

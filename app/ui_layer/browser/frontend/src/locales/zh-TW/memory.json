@@ -1,0 +1,113 @@
+{
+  "page": {
+    "title": "記憶",
+    "disabled": "記憶已停用"
+  },
+  "stats": {
+    "memories_one": "{{formatted}} 則記憶",
+    "memories_other": "{{formatted}} 則記憶",
+    "entities_one": "{{formatted}} 個實體",
+    "entities_other": "{{formatted}} 個實體",
+    "files_one": "{{formatted}} 個檔案",
+    "files_other": "{{formatted}} 個檔案",
+    "entityLinks_one": "{{formatted}} 個實體連結",
+    "entityLinks_other": "{{formatted}} 個實體連結",
+    "fileLinks_one": "{{formatted}} 個檔案連結",
+    "fileLinks_other": "{{formatted}} 個檔案連結"
+  },
+  "toggle": {
+    "hideMemories": "隱藏記憶",
+    "showMemories": "顯示記憶",
+    "hideEntities": "隱藏實體",
+    "showEntities": "顯示實體",
+    "hideFiles": "隱藏檔案",
+    "showFiles": "顯示檔案",
+    "hideEntityLinks": "隱藏記憶→實體連結",
+    "showEntityLinks": "顯示記憶→實體連結",
+    "hideFileLinks": "隱藏記憶→檔案連結",
+    "showFileLinks": "顯示記憶→檔案連結",
+    "showDefaultFiles": "顯示預設檔案",
+    "hideDefaultFiles": "隱藏預設檔案（AGENT.md、PROACTIVE.md）",
+    "toggleDefaultFiles": "切換預設檔案",
+    "fitView": "調整檢視範圍",
+    "refreshGraph": "重新整理圖譜"
+  },
+  "empty": {
+    "title": "尚無記憶",
+    "body": "在你對話的過程中，CraftBot 會將重要的內容萃取成記憶，並以動態圖譜的形式顯示在這裡。"
+  },
+  "a11y": {
+    "resizePanel": "調整面板大小"
+  },
+  "kind": {
+    "memory": "記憶",
+    "fileMemory": "檔案記憶",
+    "entity": "實體",
+    "file": "檔案"
+  },
+  "tag": {
+    "superseded": "已取代"
+  },
+  "detail": {
+    "closeAria": "關閉詳細資料",
+    "connected": "已連結 · {{value}}"
+  },
+  "meta": {
+    "mentions_one": "{{formatted}} 次提及",
+    "mentions_other": "{{formatted}} 次提及",
+    "sections_one": "{{formatted}} 個區段",
+    "sections_other": "{{formatted}} 個區段"
+  },
+  "toolbar": {
+    "searchPlaceholder": "搜尋記憶…"
+  },
+  "list": {
+    "noMatches": "沒有符合的項目。",
+    "sectionFallback": "區段"
+  },
+  "paneEmpty": "選取圖譜中的節點以檢視詳細資料，或在上方搜尋你的記憶。",
+  "category": {
+    "fact": "事實",
+    "preference": "偏好",
+    "event": "事件",
+    "decision": "決策",
+    "learning": "學習心得",
+    "project": "專案",
+    "contact": "聯絡人"
+  },
+  "field": {
+    "category": "類別",
+    "content": "內容"
+  },
+  "item": {
+    "addTitle": "新增記憶",
+    "editTitle": "編輯記憶",
+    "deleteTitle": "刪除記憶",
+    "deleteMessage": "這會永久移除此記憶項目。建議改為標記為「已取代」，以保留歷史記錄。",
+    "entitiesHint": "下次執行記憶處理時，系統會自動辨識並連結實體。",
+    "supersededLabel": "已取代（保留為歷史記錄，不納入回憶）",
+    "contentPlaceholder": "例如：John 偏好簡潔的回覆"
+  },
+  "files": {
+    "title": "代理檔案",
+    "aboutAria": "關於檔案索引",
+    "indexingTooltip": "<1>什麼是索引？</1> 已建立索引的檔案會成為 CraftBot 記憶的一部分：其內容會被切分為區段、可供搜尋，並以檔案記憶的形式顯示在圖譜中。<2/><3/>建立索引後，背景任務會讀取每個檔案，辨識其中提及的人員、專案與工具，並將其連結到與對話記憶相同的知識圖譜中，讓回憶能同時參考兩者。",
+    "hint": "勾選檔案即可將其建立索引納入記憶。鎖定的檔案一律會建立索引。"
+  },
+  "tree": {
+    "chunks_one": "{{formatted}} 個區塊",
+    "chunks_other": "{{formatted}} 個區塊",
+    "sizeKb": "{{size}} KB",
+    "missing": "遺失",
+    "alwaysIndexed": "一律建立索引",
+    "indexing": "建立索引中…",
+    "stopIndexing": "停止為 {{path}} 建立索引",
+    "indexFile": "為 {{path}} 建立索引",
+    "indexedRemove": "已建立索引（點按以移除）",
+    "indexThis": "為此檔案建立索引"
+  },
+  "toast": {
+    "updateFailed": "更新已建立索引的檔案失敗",
+    "skipped": "已略過 {{path}}：{{reason}}"
+  }
+}

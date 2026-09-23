@@ -10,8 +10,43 @@ import type {
   FileUploadResponse,
 } from '../../types'
 import { register } from '../socket/messageRegistry'
+import i18n from '../../i18n/config'
 
 export const FILE_PAGE_SIZE = 50
+
+/** A workspace path's folder ("" for the root), with "/" separators. */
+export function workspaceParentPath(path: string): string {
+  const normalized = normalizePath(path)
+  const slash = normalized.lastIndexOf('/')
+  return slash === -1 ? '' : normalized.slice(0, slash)
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+// Workspace requests this tab sent, by requestId (the backend echoes it).
+// Replies to other tabs' requests are ignored: their changes reach this tab
+// through `workspace_files` refreshes instead, so one tab's navigation or
+// paste never overwrites another's listing (plan WS-4.6, W3/W4). A
+// 'reply-only' request (peeking into another folder) resolves its promise
+// without touching the listing.
+const ownRequests = new Map<string, 'apply' | 'reply-only'>()
+
+export function trackWorkspaceRequest(requestId: string, mode: 'apply' | 'reply-only'): void {
+  ownRequests.set(requestId, mode)
+}
+
+export function releaseWorkspaceRequest(requestId: string): void {
+  ownRequests.delete(requestId)
+}
+
+// Replies without an id (e.g. the HTTP upload broadcast) still apply; the
+// appliers check the folder themselves.
+function appliesHere(data: unknown): boolean {
+  const requestId = (data as { requestId?: unknown } | null)?.requestId
+  return typeof requestId !== 'string' || ownRequests.get(requestId) === 'apply'
+}
 
 const sortFiles = (a: FileItem, b: FileItem): number => {
   if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
@@ -95,23 +130,27 @@ const workspaceSlice = createSlice({
     // ── Inbound-response appliers (called from registry handlers) ─────────
     applyList(state, action: PayloadAction<FileListResponse>) {
       const d = action.payload
+      // A late reply for a folder this tab has since left.
+      if (typeof d.directory === 'string' && normalizePath(d.directory) !== normalizePath(state.currentDirectory)) return
       const isLoadMore = d.offset > 0
       const incoming = d.files || []
       state.files = isLoadMore ? [...state.files, ...incoming] : incoming
       state.total = d.total ?? 0
       state.hasMore = d.hasMore ?? false
       state.offset = (d.offset ?? 0) + incoming.length
-      state.error = d.success ? null : d.error || 'Failed to list files'
+      state.error = d.success ? null : d.error || i18n.t('nav:workspace.failedToListFiles')
       state.loading = false
       state.loadingMore = false
     },
     applyRead(state, action: PayloadAction<FileReadResponse>) {
+      const path = action.payload.path
+      if (path && normalizePath(path) !== normalizePath(state.selectedFile?.path ?? '')) return
       state.fileContent = action.payload.content ?? null
       state.fileIsBinary = action.payload.isBinary || false
     },
     applyCreate(state, action: PayloadAction<FileCreateResponse>) {
       const r = action.payload
-      if (r.success && r.fileInfo) {
+      if (r.success && r.fileInfo && workspaceParentPath(r.fileInfo.path) === normalizePath(state.currentDirectory)) {
         state.files = [...state.files, r.fileInfo].sort(sortFiles)
       }
     },
@@ -141,7 +180,7 @@ const workspaceSlice = createSlice({
     },
     applyUpload(state, action: PayloadAction<FileUploadResponse>) {
       const r = action.payload
-      if (r.success && r.fileInfo) {
+      if (r.success && r.fileInfo && workspaceParentPath(r.fileInfo.path) === normalizePath(state.currentDirectory)) {
         const exists = state.files.some(f => f.path === r.fileInfo!.path)
         if (exists) {
           state.files = state.files.map(f =>
@@ -179,27 +218,27 @@ export default workspaceSlice.reducer
 // layer resolves them.
 
 register('file_list', (data, dispatch) => {
-  dispatch(applyList(data as FileListResponse))
+  if (appliesHere(data)) dispatch(applyList(data as FileListResponse))
 })
 
 register('file_read', (data, dispatch) => {
-  dispatch(applyRead(data as FileReadResponse))
+  if (appliesHere(data)) dispatch(applyRead(data as FileReadResponse))
 })
 
 register('file_create', (data, dispatch) => {
-  dispatch(applyCreate(data as FileCreateResponse))
+  if (appliesHere(data)) dispatch(applyCreate(data as FileCreateResponse))
 })
 
 register('file_delete', (data, dispatch) => {
-  dispatch(applyDelete(data as FileDeleteResponse))
+  if (appliesHere(data)) dispatch(applyDelete(data as FileDeleteResponse))
 })
 
 register('file_rename', (data, dispatch) => {
-  dispatch(applyRename(data as FileRenameResponse))
+  if (appliesHere(data)) dispatch(applyRename(data as FileRenameResponse))
 })
 
 register('file_batch_delete', (data, dispatch) => {
-  dispatch(applyBatchDelete(data as FileBatchDeleteResponse))
+  if (appliesHere(data)) dispatch(applyBatchDelete(data as FileBatchDeleteResponse))
 })
 
 register('file_upload', (data, dispatch) => {

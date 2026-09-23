@@ -1,0 +1,82 @@
+{
+  "dateDivider": {
+    "today": "오늘",
+    "yesterday": "어제"
+  },
+  "unread": {
+    "aria": "새 메시지",
+    "label": "새 메시지"
+  },
+  "history": {
+    "loadingOlder": "이전 메시지를 불러오는 중..."
+  },
+  "working": {
+    "label": "작업 중",
+    "aria": "에이전트가 작업 중"
+  },
+  "composer": {
+    "placeholder": "무엇을 도와드릴까요?",
+    "listening": "듣는 중... 지금 말씀하세요",
+    "attachAndTools": "첨부 및 도구",
+    "attachFiles": "파일 첨부",
+    "aiEnhance": "AI 향상",
+    "enhancing": "향상 중…",
+    "voiceInput": "음성 입력",
+    "stopListening": "듣기 중지",
+    "speechLanguage": "음성 언어",
+    "send": "보내기",
+    "sendMessage": "메시지 보내기",
+    "stop": "중지",
+    "stopping": "중지하는 중…",
+    "stopRun": "실행 중지",
+    "stoppingRun": "실행 중지하는 중"
+  },
+  "reply": {
+    "replyingTo": "답장 대상: <1>{{name}}</1>",
+    "cancel": "답장 취소"
+  },
+  "scrollToLatest": "최신 메시지로 이동",
+  "dismiss": "닫기",
+  "playbooks": {
+    "all": "모든 플레이북"
+  },
+  "attachment": {
+    "preview": "클릭하여 미리 보기",
+    "tooManyFiles": "최대 {{max}}개 파일까지 허용됩니다.",
+    "tooManyFilesDetailed": "최대 {{max}}개 파일까지 허용됩니다. 현재 {{have}}개입니다.",
+    "totalSizeExceeds": "전체 크기({{size}})가 200MB 제한을 초과합니다.",
+    "fileExceedsLimit": "파일 \"{{name}}\"({{size}})이(가) 200MB 제한을 초과합니다.",
+    "addWouldExceed": "\"{{name}}\"을(를) 추가하면 200MB 전체 크기 제한을 초과합니다.",
+    "uploadFailed": "\"{{name}}\" 업로드에 실패했습니다.",
+    "uploadFailedNetwork": "\"{{name}}\" 업로드 실패: 네트워크 오류.",
+    "readFailed": "파일 \"{{name}}\"을(를) 읽지 못했습니다."
+  },
+  "toast": {
+    "enhanceTimedOut": "AI 향상 시간이 초과되었습니다. 다시 시도해 주세요.",
+    "reconnecting": "다시 연결하는 중입니다. 연결이 복구되면 메시지가 전송됩니다."
+  },
+  "voice": {
+    "notSupported": "이 브라우저에서는 음성 인식이 지원되지 않습니다.",
+    "micDenied": "마이크 접근이 거부되었습니다. 브라우저 설정에서 마이크 권한을 허용해 주세요."
+  },
+  "question": {
+    "aria": "에이전트의 질문",
+    "asking": "{{sender}}이(가) 묻습니다",
+    "queuePosition": "{{total}}개 중 1번째",
+    "dismissHint": "닫기. 에이전트가 답변 없이 진행합니다.",
+    "dismissAria": "질문 닫기",
+    "recommended": "(권장)",
+    "freeTextPlaceholder": "또는 직접 답변을 입력하세요...",
+    "sendAnswer": "답변 보내기"
+  },
+  "message": {
+    "hideReceived": "받은 메시지 숨기기",
+    "showReceived": "받은 메시지 보기",
+    "hideMessage": "메시지 숨기기",
+    "showMessage": "메시지 보기",
+    "selectResponse": "계속하려면 응답을 선택하세요:",
+    "replyTooltip": "이 메시지에 답장",
+    "copyTooltip": "메시지 복사",
+    "copiedTooltip": "복사됨!"
+  }
+}
