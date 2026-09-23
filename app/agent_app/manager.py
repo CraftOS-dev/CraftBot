@@ -3276,6 +3276,27 @@ UI in {project.path}/frontend/src/app/."""
         )
         return project
 
+    def fail_placeholder_project(self, project_id: str, error: str) -> bool:
+        """Settle a never-adopted placeholder as failed.
+
+        A placeholder left at "creating" after its install fails contradicts
+        the agent_app_error event: every subsequent agent_app_list (sent to
+        all clients on any connect) serves the stale "creating" record and
+        resurrects the progress spinner. Marking it errored here keeps the
+        saved list and the live event telling the same story; like the
+        placeholder itself, the error state is not persisted, so a restart
+        still drops it.
+
+        Only touches projects still at "creating" — an adopted placeholder is
+        a real project whose status the launch pipeline owns.
+        """
+        project = self.projects.get(project_id)
+        if project is None or project.status != "creating":
+            return False
+        project.status = "error"
+        project.error = error
+        return True
+
     def _replace_placeholders(
         self, directory: Path, replacements: Dict[str, str]
     ) -> None:

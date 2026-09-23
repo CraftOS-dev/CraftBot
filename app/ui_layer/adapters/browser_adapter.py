@@ -8293,13 +8293,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except Exception as e:
                 logger.debug(f"[AGENT_APP] marketplace chat message failed: {e}")
         else:
-            # Install failed — surface the error on the spawned tab.
+            # Install failed — surface the error on the spawned tab. The
+            # placeholder must be settled in the manager too, or the next
+            # agent_app_list overwrites the error state with the stale
+            # "creating" record and the spinner comes back for good.
+            error_msg = result.get("error", "Marketplace install failed")
+            self._agent_app_manager.fail_placeholder_project(project_id, error_msg)
             await self._broadcast(
                 {
                     "type": "agent_app_error",
                     "data": {
                         "projectId": project_id,
-                        "error": result.get("error", "Marketplace install failed"),
+                        "error": error_msg,
                     },
                 }
             )
