@@ -1,12 +1,14 @@
 import { Monitor, RefreshCw, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useWebSocket } from '../../contexts/WebSocketContext'
+import { useAppSelector } from '../../store/hooks'
+import { selectFootageUrl, selectGuiMode } from '../../store/selectors/agent'
 import { IconButton, Badge } from '../../components/ui'
 import styles from './ScreenPage.module.css'
 
 export function ScreenPage() {
   const { t } = useTranslation(['workspace', 'common'])
-  const { guiMode, footageUrl } = useWebSocket()
+  const guiMode = useAppSelector(selectGuiMode)
+  const footageUrl = useAppSelector(selectFootageUrl)
 
   return (
     <div className={styles.screenPage}>

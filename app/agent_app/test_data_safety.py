@@ -41,9 +41,14 @@ import app.agent_app.wizard as wizard_mod
 from app.data.action import agent_app_actions as LA
 from app.agent_app.manager import AgentAppManager, AgentAppProject
 from app.agent_app.pb_data_io import restore_pb_data, snapshot_pb_data
-from app.agent_app.lifecycle import DEV_PORT_RANGE, DevProvisioner, live_db_exists
+from app.agent_app.lifecycle import ShadowProvisioner, live_db_exists
+from app.agent_app.instances import InstanceRegistry, PortAllocator, SHADOW_RANGE
 from app.agent_app.runner import AgentAppRunner
-from app.agent_app.wizard import _unwrap_document, adapt_chosen, fresh_build_chosen
+from app.agent_app.wizard import (
+    _render_requirements_doc,
+    adapt_chosen,
+    fresh_build_chosen,
+)
 
 
 # ── shared helpers ─────────────────────────────────────────────────────────
@@ -73,7 +78,7 @@ def _make_project_dir(living: Path, pid: str, port: int) -> Path:
         "pb/pb_public",
         "frontend/src",
         "frontend/node_modules/somepkg",
-        ".lui",
+        ".agent-app",
         "reference",
         "logs",
     ):
@@ -98,7 +103,7 @@ def _make_project_dir(living: Path, pid: str, port: int) -> Path:
     (proj / "frontend" / "src" / "App.tsx").write_text("export const A = 1\n")
     (proj / "pb" / "pb_hooks" / "ops.pb.js").write_text("// ops\n")
     (proj / "pb" / "pb_public" / "index.html").write_text("<html>built</html>")
-    (proj / ".lui" / "system-hashes.json").write_text("{}")
+    (proj / ".agent-app" / "system-hashes.json").write_text("{}")
     (proj / "reference" / "requirements.md").write_text("- feature one\n")
     _mkdb(proj / "pb" / "pb_data" / "data.db", rows=2)
     _mkdb(proj / "pb" / "pb_data" / "auxiliary.db", rows=0, table="aux")
@@ -186,7 +191,7 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§2 pb_data_io guards: OK")
 
 
-# ── §3 DevProvisioner ──────────────────────────────────────────────────────
+# ── §3 ShadowProvisioner ───────────────────────────────────────────────────
 
 
 class _StubRunner:
@@ -201,82 +206,81 @@ with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "agent_app"
     proj = _make_project_dir(living, "dev00001", 3125)
     project = _Project("dev00001", proj, 3125)
-    # Trigger declaration MUST travel to the dev copy: without it the copy's
-    # guard declares nothing, every ⚡ fire 400s, and the walker fails an
-    # unfixable "defect" (observed live 2026-08-06 — three identical STUCKs).
-    (proj / "triggers.json").write_text(
-        '{"triggers": {"ping": {"instruction": "reply", "description": "d"}}}'
-    )
-    runner = _StubRunner()
-    sup = DevProvisioner(living, runner)
+    sup = ShadowProvisioner(living, _StubRunner())
+    registry = InstanceRegistry(living / "agent_app_instances.json", PortAllocator())
 
-    inst = asyncio.run(sup.create_copy(project))
-    sdir = inst.dir
-    assert sdir == living / "_staging" / "project" / "dev00001"
-    assert DEV_PORT_RANGE[0] <= inst.port <= DEV_PORT_RANGE[1]
-    manifest = _json.loads((sdir / "manifest.json").read_text())
-    assert manifest["port"] == inst.port, "manifest.port must be rewritten"
-    assert manifest["env"] == "dev", "dev copies must be stamped env=dev (A2APP)"
-    assert str(inst.port) in manifest["pipeline"]["start"], "pipeline keeps port inline"
-    assert "3125" not in manifest["pipeline"]["start"], "old port must be gone"
-    assert runner.kit_synced == [sdir], "hash canon must be re-recorded after rewrite"
-    assert not (sdir / "pb" / "pb_public").exists(), (
-        "gate rebuilds pb_public — never copy"
+    # The provisioner mints only the boot DIR; the port + durable record are
+    # the registry's job (identity by instance id, never by port).
+    boot = sup.prepare(project, None)
+    inst = registry.create_shadow(
+        "dev00001", token="t", boot_id=boot.boot_id, dir=str(boot.dir)
     )
-    # THE POINT of the unified lifecycle: the dev copy has NO database at
-    # all — PocketBase creates it at boot and replays the migration chain.
-    # Live data is never cloned into an environment the agent writes to.
-    assert not (sdir / "pb" / "pb_data").exists(), (
-        "dev copy must NOT contain a database — schema comes from migrations"
+    assert Path(inst.dir).parent == living / "_shadow" / "dev00001"
+    assert SHADOW_RANGE[0] <= inst.port <= SHADOW_RANGE[1]
+    assert (Path(inst.dir) / "logs").is_dir(), "per-boot logs live with the instance"
+    assert not inst.data_dir.exists(), (
+        "the shadow DB is created AT BOOT from the migration chain — live "
+        "data is never cloned into an environment the agent writes to"
     )
-    assert (sdir / "frontend" / "node_modules" / "somepkg").exists(), (
-        "node_modules rides along"
+    # THE POINT of the shadow rewrite: nothing is copied and nothing in the
+    # tree is rewritten. The project's manifest keeps ITS port; environment
+    # identity travels in the process env, not in mutated files.
+    assert not (Path(inst.dir) / "manifest.json").exists()
+    assert _json.loads((proj / "manifest.json").read_text())["port"] == 3125
+
+    # CLI routing: while a shadow is up, project-path CLI calls target it.
+    sup.route_cli(proj, inst.port)
+    assert _json.loads((proj / ".agent-app" / "shadow.json").read_text())["port"] == inst.port
+    sup.unroute_cli(proj)
+    assert not (proj / ".agent-app" / "shadow.json").exists()
+
+    # THE regression the copy era died of: booting again while the previous
+    # shadow still holds its files (Windows lock). prepare() never deletes
+    # in place — the second boot gets a FRESH dir and the registry a fresh
+    # instance/port that cannot collide, even though the first dir is on disk.
+    (Path(inst.dir) / "pb_data").mkdir()
+    (Path(inst.dir) / "pb_data" / "auxiliary.db").write_bytes(b"locked")
+    boot2 = sup.prepare(project, inst)
+    inst2 = registry.create_shadow(
+        "dev00001", token="t", boot_id=boot2.boot_id, dir=str(boot2.dir)
     )
-    assert (sdir / ".superuser").exists() and (sdir / ".lui").exists()
-    assert (sdir / "triggers.json").exists(), (
-        "triggers.json must travel to the dev copy — its absence 400s every fire"
+    assert Path(inst2.dir) != Path(inst.dir) and Path(inst2.dir).exists()
+    # create_shadow evicted the first instance and there is exactly one shadow.
+    assert registry.shadow("dev00001").instance_id == inst2.instance_id
+    assert registry.get(inst.instance_id) is None
+
+    # sweep keeps the current boot, removes older ones + prunes build cache
+    builds = sup.builds_root("dev00001")
+    for i in range(5):
+        (builds / f"fp{i:02d}").mkdir(parents=True)
+        _os.utime(builds / f"fp{i:02d}", (1000 + i, 1000 + i))
+    removed = sup.sweep("dev00001", keep=Path(inst2.dir))
+    assert not Path(inst.dir).exists() and Path(inst2.dir).exists()
+    assert removed >= 1
+    survivors = sorted(d.name for d in builds.iterdir())
+    assert survivors == ["fp02", "fp03", "fp04"], (
+        f"newest {3} artifacts survive the prune, got {survivors}"
     )
 
-    # sync_code: refreshes agent-owned paths, keeps the rewritten manifest.
-    (proj / "frontend" / "src" / "App.tsx").write_text("export const A = 2\n")
-    (proj / "frontend" / "package.json").write_text(
-        '{"name": "app", "dependencies": {"x": "1.0.0"}}'
-    )
-    (proj / "triggers.json").write_text(
-        '{"triggers": {"pong": {"instruction": "reply", "description": "d"}}}'
-    )
-    sup.sync_code(project, sdir)
-    assert "A = 2" in (sdir / "frontend" / "src" / "App.tsx").read_text()
-    assert "pong" in (sdir / "triggers.json").read_text(), (
-        "fix-iteration edits to triggers.json must reach the dev copy"
-    )
-    assert not (sdir / "frontend" / "node_modules").exists(), (
-        "changed package.json must clear node_modules so install runs"
-    )
-    assert _json.loads((sdir / "manifest.json").read_text())["port"] == inst.port
-
-    # reset_db drops the dev DB (a booted dev instance leaves one behind);
-    # the next boot replays migrations from empty.
-    _mkdb(sdir / "pb" / "pb_data" / "data.db", rows=9)
-    sup.reset_db(sdir)
-    assert not (sdir / "pb" / "pb_data").exists(), "reset_db must drop the dev DB"
-    assert _count(proj / "pb" / "pb_data" / "data.db") == 2, "original DB polluted!"
-
-    # guarded rmtree refuses anything outside _staging
+    # guarded rmtree refuses anything outside the shadow/_staging roots
     try:
         sup._guarded_rmtree(proj)
-        raise AssertionError("guarded rmtree left the dev root!")
+        raise AssertionError("guarded rmtree left its roots!")
     except ValueError:
         pass
 
-    # destroy + reap
-    sup.destroy("dev00001", inst.to_record())
-    assert not sdir.exists()
+    # destroy + dir reap; the wizard's OWN staging area must survive the legacy
+    # dev-copy sweep (_staging/wizard is not ours).
+    sup.destroy("dev00001", inst2)
+    assert not Path(inst2.dir).exists()
     leftover = living / "_staging" / "project" / "leftover99"
     leftover.mkdir(parents=True)
-    reaped = sup.reap_all({"gone12345": {"dir": str(leftover), "pid": 99999999}})
+    wizard_files = living / "_staging" / "wizard" / "w1"
+    wizard_files.mkdir(parents=True)
+    reaped = sup.reap_dirs()
     assert reaped >= 1 and not leftover.exists()
-print("§3 DevProvisioner: OK")
+    assert wizard_files.exists(), "wizard staging must never be reaped"
+print("§3 ShadowProvisioner: OK")
 
 
 # ── §4 FactoryHost delivery bookkeeping + live_db_exists ───────────────────
@@ -299,14 +303,12 @@ with tempfile.TemporaryDirectory() as tmp:
     assert first_stamp is not None
     host.stamp_delivered("sidecar01")
     assert host.delivered_at("sidecar01") == first_stamp, "stamp is write-once"
-    assert host.get_staging_record("sidecar01") is None
-    host.set_staging_record("sidecar01", {"url": "http://127.0.0.1:3901", "port": 3901})
-    assert host.get_staging_record("sidecar01")["port"] == 3901
-    # stamp survives alongside the dev record
+    # "A dev environment exists" is no longer a FactoryHost sidecar record — it
+    # is a shadow Instance in the InstanceRegistry (see §3). The host sidecar
+    # now carries only durable bookkeeping (delivered_at, backups, arcs).
     side = _json.loads((proj / ".factory" / "host.json").read_text())
-    assert side["delivered_at"] == first_stamp and side["staging"]["port"] == 3901
-    host.clear_staging_record("sidecar01")
-    assert host.get_staging_record("sidecar01") is None
+    assert side["delivered_at"] == first_stamp
+    assert "staging" not in side
 
     # live_db_exists: the structural first-vs-update predicate.
     assert live_db_exists(proj) is True
@@ -357,8 +359,8 @@ with tempfile.TemporaryDirectory() as tmp:
         def kill(self):
             pass
 
-    async def _fake_pipeline(project_dir, port, bridge_token):
-        PIPELINE_RUNS.append((Path(project_dir), port))
+    async def _fake_pipeline(project_dir, port, bridge_token, shadow=None):
+        PIPELINE_RUNS.append((Path(project_dir), port, shadow))
         return {"status": "success", "process": _FakeProc()}
 
     mgr._run_launch_pipeline = _fake_pipeline
@@ -373,26 +375,31 @@ with tempfile.TemporaryDirectory() as tmp:
 
     result = asyncio.run(mgr.open_dev("mgrtest01"))
     assert result["status"] == "success" and result.get("dev") is True
-    record = host.get_staging_record("mgrtest01")
-    assert record and record["pid"] == 4242
-    sdir = Path(record["dir"])
-    assert sdir.exists() and PIPELINE_RUNS[-1][0] == sdir, (
-        "pipeline must target the COPY"
+    inst = mgr.instances.shadow("mgrtest01")
+    assert inst and inst.pid == 4242
+    sdir = Path(inst.dir)
+    assert sdir.exists() and PIPELINE_RUNS[-1][0] == proj_dir, (
+        "pipeline targets the PROJECT TREE — nothing is copied"
     )
-    assert PIPELINE_RUNS[-1][1] == record["port"] != 3127
-    assert result.get("dir") == str(sdir), "agents need the dev dir for logs/CLI"
-    assert not (sdir / "pb" / "pb_data").exists(), "dev copy must start with no DB"
-    # live DB exists → open_dev re-armed the machine as a MODIFY
-    machine = host.machine_for("mgrtest01")
-    assert machine is not None and machine.state == "modifying", machine.state
+    assert PIPELINE_RUNS[-1][1] == inst.port != 3127
+    _shadow_inst = PIPELINE_RUNS[-1][2]
+    assert _shadow_inst is not None and Path(_shadow_inst.dir) == sdir
+    assert result.get("dir") == str(sdir), "agents need the boot dir for logs"
+    assert not (sdir / "pb_data").exists(), "shadow DB is born at boot, empty"
+    assert _json.loads((proj_dir / ".agent-app" / "shadow.json").read_text())[
+        "port"
+    ] == inst.port, "CLI routing follows the shadow"
+    # Never delivered (no promote yet) → this is (still) a BUILD arc, even
+    # though the scaffold-era pb_data exists.
+    arc = host.arc_for("mgrtest01")
+    assert arc is not None and arc.is_open and arc.kind == "build"
 
-    # a second open_dev (fix iteration) reuses the copy and resets its DB
-    _mkdb(sdir / "pb" / "pb_data" / "data.db", rows=9)  # simulated boot junk
+    # a second open_dev (fix iteration) boots FRESH — new dir, no reuse, so
+    # a zombie holding the old dir's files can never block it
     result = asyncio.run(mgr.open_dev("mgrtest01"))
     assert result["status"] == "success"
-    assert not (sdir / "pb" / "pb_data").exists(), (
-        "each open_dev must reset the dev DB — migrations replay from empty"
-    )
+    sdir2 = Path(mgr.instances.shadow("mgrtest01").dir)
+    assert sdir2 != sdir, "every boot gets a fresh state dir"
 
     # promote (update): relaunch real app, then destroy dev copy + record
     PROMOTED = []
@@ -405,16 +412,19 @@ with tempfile.TemporaryDirectory() as tmp:
     up = asyncio.run(mgr.promote("mgrtest01"))
     assert up["status"] == "success" and PROMOTED == ["mgrtest01"]
     assert up["first"] is False, "live DB existed — this is an UPDATE promote"
-    assert not sdir.exists(), "promote must destroy the dev copy"
-    assert host.get_staging_record("mgrtest01") is None
+    assert not sdir2.exists(), "promote must sweep the shadow state"
+    assert mgr.instances.shadow("mgrtest01") is None
+    assert not (proj_dir / ".agent-app" / "shadow.json").exists(), (
+        "promote must route the CLI back to the live app"
+    )
     assert host.delivered_at("mgrtest01") is not None, "promote stamps delivery"
     assert _live_db.read_bytes() == _live_bytes_before, (
         "INVARIANT VIOLATED: the live DB changed outside the promote boot"
     )
 
-    # failed promote keeps the copy and the record
+    # failed promote keeps the instance (the shadow stays up for the retry)
     result = asyncio.run(mgr.open_dev("mgrtest01"))
-    sdir = Path(host.get_staging_record("mgrtest01")["dir"])
+    sdir = Path(mgr.instances.shadow("mgrtest01").dir)
 
     async def _failing_launch(pid):
         return {"status": "error", "step": "health", "errors": ["boom"]}
@@ -422,9 +432,9 @@ with tempfile.TemporaryDirectory() as tmp:
     mgr.lifecycle.promoter._launch_live = _failing_launch
     up = asyncio.run(mgr.promote("mgrtest01"))
     assert up["status"] == "error"
-    assert sdir.exists() and host.get_staging_record("mgrtest01") is not None
-    mgr.lifecycle.provisioner.destroy("mgrtest01", host.get_staging_record("mgrtest01"))
-    host.clear_staging_record("mgrtest01")
+    assert sdir.exists() and mgr.instances.shadow("mgrtest01") is not None
+    mgr.lifecycle.provisioner.destroy("mgrtest01", mgr.instances.shadow("mgrtest01"))
+    mgr.instances.clear_project("mgrtest01")
 
     # FIRST promote: no live DB → first=True; nothing restores or wipes.
     proj2_dir = _make_project_dir(living, "firstdel01", 3128)
@@ -444,9 +454,10 @@ with tempfile.TemporaryDirectory() as tmp:
 
     dev = asyncio.run(mgr.open_dev("firstdel01"))
     assert dev["status"] == "success"
-    # no live DB → build era: the machine must NOT be re-armed into modify
-    m2 = host.machine_for("firstdel01")
-    assert m2 is not None and m2.state == "building", m2.state
+    # no live DB → build era: open_dev must NOT open a modify arc (the build
+    # arc opens when the development run is dispatched, not here)
+    a2 = host.arc_for("firstdel01")
+    assert a2 is not None and a2.kind != "modify"
 
     async def _first_launch(pid):
         # the promote boot creates the live DB from migrations — simulate it
@@ -457,7 +468,7 @@ with tempfile.TemporaryDirectory() as tmp:
     up = asyncio.run(mgr.promote("firstdel01"))
     assert up["status"] == "success" and up["first"] is True
     assert live_db_exists(proj2_dir)
-    assert host.get_staging_record("firstdel01") is None
+    assert mgr.instances.shadow("firstdel01") is None
 print("§5 manager open_dev/promote invariant: OK")
 
 
@@ -471,6 +482,10 @@ class _StubMgr:
     def __init__(self, project):
         self._p = project
         self.projects = {project.id: project}
+        # The walk gate and HTTP redirect resolve "a dev env exists" from here.
+        self.instances = InstanceRegistry(
+            Path(tempfile.mkdtemp()) / "inst.json", PortAllocator()
+        )
 
     def get_project(self, pid):
         return self._p if pid == self._p.id else None
@@ -521,9 +536,6 @@ def _wire(project, host):
     agent_app_mod.get_agent_app_manager = lambda: stub
     agent_app_mod.broadcast_agent_app_ready = _b_ready
     agent_app_mod.broadcast_agent_app_progress = _b_progress
-    agent_app_mod.dispatch_agent_app_data_changed = lambda pid: EVENTS.append(
-        "data_changed"
-    )
     wv_mod.run_walk_verify = _walk_stub
     host.report_launch_success = lambda pid: None
     host.report_verify = lambda *a, **k: types.SimpleNamespace(
@@ -552,13 +564,13 @@ with tempfile.TemporaryDirectory() as tmp:
     print("§6a dev-env gating: OK")
 
     # §6c dev defects: live app NOT stopped; dev log quoted
-    sdir = living / "_staging" / "project" / "actnostg01"
+    sdir = living / "_shadow" / "actnostg01" / "boot1"
     (sdir / "logs").mkdir(parents=True)
     (sdir / "logs" / "pocketbase.log").write_text(
         "ERROR hook exploded: dev-only-line\n"
     )
-    host.set_staging_record(
-        "actnostg01", {"url": "http://127.0.0.1:3905", "port": 3905, "dir": str(sdir)}
+    _inst = stub.instances.create_shadow(
+        "actnostg01", token="t", boot_id="boot1", dir=str(sdir)
     )
     captured = {}
     host.report_verify = lambda *a, **k: (
@@ -575,10 +587,14 @@ with tempfile.TemporaryDirectory() as tmp:
     assert out["status"] == "error"
     assert "stop_project" not in EVENTS, "native defects must not stop the live app"
     assert "previous working version" in out["message"]
-    assert WALK["base_url"] == "http://127.0.0.1:3905", "verifier must drive the COPY"
-    assert WALK["project_path"] == str(sdir)
+    assert WALK["base_url"] == _inst.url, "verifier must drive the SHADOW"
+    assert WALK["project_path"] == str(proj), (
+        "the verifier reads the PROJECT TREE — the shadow serves exactly it; "
+        "its boot dir holds only state (regression: boot dir passed as tree "
+        "made every walk die on 'Missing requirements')"
+    )
     assert "dev-only-line" in captured.get("server_log", ""), (
-        "evidence must come from the dev log"
+        "server-log evidence must come from the shadow's own boot dir"
     )
     print("§6c dev defects: OK")
 
@@ -618,7 +634,9 @@ with tempfile.TemporaryDirectory() as tmp:
                 "errors": ["real app did not boot"],
             }
 
-    agent_app_mod.get_agent_app_manager = lambda: _PromoteFailMgr(project)
+    _pfm = _PromoteFailMgr(project)
+    _pfm.instances = stub.instances  # keep the same probed shadow instance
+    agent_app_mod.get_agent_app_manager = lambda: _pfm
     EVENTS.clear()
     out = _run_action(LA.agent_app_walk_verify, {"project_id": "actnostg01"})
     assert out["status"] == "error" and "deploy" in out["message"].lower()
@@ -663,11 +681,13 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         proj = _make_project_dir(living, "acthttp01", 3134)
         project = _Project("acthttp01", proj, 3134)
-        _wire(project, host)
+        stub = _wire(project, host)
 
-        # mid-arc (machine non-terminal), no dev env → writes refused,
-        # reads allowed. A virgin machine reads as mid-arc — that is the
-        # safe direction: agent test writes belong in the dev env.
+        # mid-arc (open arc), no dev env → writes refused, reads allowed.
+        # Arc state is EXPLICIT now: a build/modify in flight is an open
+        # arc, and only that refuses writes — an app with no arc (e.g. a
+        # marketplace install being operated) takes real user data.
+        host.open_arc("acthttp01", host_mod.ARC_MODIFY)
         out = _run_action(
             LA.agent_app_http,
             {"project_id": "acthttp01", "method": "POST", "path": "/api/x", "json": {}},
@@ -680,8 +700,8 @@ with tempfile.TemporaryDirectory() as tmp:
         assert out["status"] == "success"
 
         # dev env up → ALL agent HTTP redirected there, and NO iframe reload
-        host.set_staging_record(
-            "acthttp01", {"url": "http://127.0.0.1:3906", "port": 3906, "dir": "x"}
+        _http_inst = stub.instances.create_shadow(
+            "acthttp01", token="t", boot_id="b", dir="x"
         )
         EVENTS.clear()
         out = _run_action(
@@ -689,17 +709,11 @@ with tempfile.TemporaryDirectory() as tmp:
             {"project_id": "acthttp01", "method": "POST", "path": "/api/x", "json": {}},
         )
         assert out["status"] == "success"
-        assert HTTP[-1][1].startswith("http://127.0.0.1:3906"), (
-            "write must hit the COPY"
-        )
-        assert "data_changed" not in EVENTS, (
-            "dev writes must not reload the user's iframe"
-        )
+        assert HTTP[-1][1].startswith(_http_inst.url), "write must hit the SHADOW"
 
-        # arc closed (machine terminal), no dev env → live writes are USER
-        # data and flow to the real app + data_changed dispatch.
-        host.clear_staging_record("acthttp01")
-        host._machines["acthttp01"] = types.SimpleNamespace(terminal=True)
+        # arc closed, no dev env → live writes are USER data and hit the real app.
+        stub.instances.clear_project("acthttp01")
+        host.arc_for("acthttp01").close()
         EVENTS.clear()
         out = _run_action(
             LA.agent_app_http,
@@ -708,34 +722,63 @@ with tempfile.TemporaryDirectory() as tmp:
         assert out["status"] == "success" and HTTP[-1][1].startswith(
             "http://127.0.0.1:3134"
         )
-        assert "data_changed" in EVENTS
-        host._machines.pop("acthttp01", None)
     finally:
         _requests.request = _orig_request
     print("§8 agent_app_http redirect/refusal: OK")
 
 
-# ── §9 requirements-document unwrap (wizard) ───────────────────────────────
-_MD = "# app — Requirements\n\n## Features\n" + "The user can do a thing.\n" * 20
-assert _unwrap_document(_MD) == _MD.strip(), "plain markdown must pass through"
-assert _unwrap_document(f"```markdown\n{_MD}\n```") == _MD.strip()
-# The observed failure: a {"document": "..."} JSON envelope (grok, 2026-08-04)
-assert _unwrap_document(_json.dumps({"document": _MD})) == _MD.strip()
-assert _unwrap_document(_json.dumps(_MD)) == _MD.strip(), "bare JSON string unwraps"
-# 2026-08-05 live: a short-by-mandate decision doc arrived JSON-wrapped and
-# slipped past the old >=200 unwrap heuristic — must unwrap regardless of length.
-_SHORT_DECISION = (
-    "MARKETPLACE DECISION: install kanban-board; adapt: no\n"
-    "## Adaptations\n## User request\na simple kanban board"
+# ── §9 requirements-document render (wizard) ───────────────────────────────
+# Synthesis now returns STRICT JSON (harness json_mode contract, same as the
+# interview) and _render_requirements_doc deterministically produces the
+# binding markdown the build run and walk-verify read. The full six-section
+# shape renders "# <title>" then "## <heading>\n\n<content>" per section.
+_LONG = "The user can do a thing. " * 20
+_FULL = {
+    "title": "app — Requirements",
+    "sections": [
+        {"heading": "Overview", "content": _LONG},
+        {"heading": "Features", "content": _LONG},
+    ],
+}
+_doc = _render_requirements_doc(_FULL)
+assert _doc.startswith("# app — Requirements")
+assert "## Overview" in _doc and "## Features" in _doc and _LONG.strip() in _doc
+# A truncated/empty response must never become the binding spec.
+try:
+    _render_requirements_doc({"title": "x", "sections": [{"heading": "H", "content": "tiny"}]})
+    raise AssertionError("implausibly short doc must refuse")
+except ValueError:
+    pass
+try:
+    _render_requirements_doc({"title": "x", "sections": []})
+    raise AssertionError("no sections must refuse")
+except ValueError:
+    pass
+# Marketplace-install decision — distinct short shape, rendered to the binding
+# first-line format the builder keys on.
+_dec = _render_requirements_doc(
+    {
+        "marketplace_install": "kanban-board",
+        "adapt": False,
+        "adaptations": [],
+        "user_request": "a simple kanban board",
+    }
 )
-assert _unwrap_document(_json.dumps({"document": _SHORT_DECISION})) == _SHORT_DECISION
-# A dict with several long strings is ambiguous — leave untouched
-_amb = _json.dumps({"a": _MD, "b": _MD})
-assert _unwrap_document(_amb) == _amb
-# Markdown that merely STARTS with "{" but isn't JSON is untouched
-_brace = "{not json}\n" + _MD
-assert _unwrap_document(_brace) == _brace.strip()
-print("§9 requirements unwrap: OK")
+assert _dec.startswith("MARKETPLACE DECISION: install kanban-board; adapt: no")
+assert "## User request\na simple kanban board" in _dec
+# adapt:true with no concrete changes must fall back to the "ask first" bullet.
+_dec2 = _render_requirements_doc(
+    {"marketplace_install": "kanban-board", "adapt": True, "adaptations": []}
+)
+assert "adapt: yes" in _dec2.splitlines()[0]
+assert "none specified — ask the user before changing anything" in _dec2
+# A malformed app-id must refuse.
+try:
+    _render_requirements_doc({"marketplace_install": "bad id!"})
+    raise AssertionError("malformed app-id must refuse")
+except ValueError:
+    pass
+print("§9 requirements render: OK")
 
 
 # ── §10 wizard adapt-choice detection ──────────────────────────────────────
@@ -795,15 +838,10 @@ finally:
 assert r2 and r2[0]["question"].startswith("Which columns")
 print("§10 adapt/fresh-choice detection + round 2: OK")
 
-# Short-document guard vs marketplace-decision docs (observed live
-# 2026-08-05: a VALID as-is decision doc is under 200 chars and failed the
-# whole wizard finalize). Decision docs are exempt; garbage still refused.
-_DECISION_DOC = (
-    "MARKETPLACE DECISION: install kanban-board; adapt: no\n\n"
-    "## Adaptations\n- none\n\n## User request\nkanban board\n"
-)
-
-
+# Synthesis JSON contract end-to-end: the LLM returns strict JSON, the wizard
+# parses + renders it. A valid as-is marketplace decision (short by mandate)
+# renders fine; garbage is refused. The fake _llm returns _SYN_REPLY[0]
+# verbatim so _llm_json's parse (and its one reformat retry) run for real.
 async def _fake_syn_llm(system_prompt, user_prompt, prompt_name):
     return _SYN_REPLY[0]
 
@@ -811,30 +849,42 @@ async def _fake_syn_llm(system_prompt, user_prompt, prompt_name):
 _orig_sllm = wizard_mod._llm
 wizard_mod._llm = _fake_syn_llm
 try:
-    _SYN_REPLY = [_json.dumps({"document": _DECISION_DOC})]  # grok-style envelope
+    _SYN_REPLY = [
+        _json.dumps(
+            {
+                "marketplace_install": "kanban-board",
+                "adapt": False,
+                "adaptations": [],
+                "user_request": "kanban board",
+            }
+        )
+    ]
     doc = asyncio.run(wizard_mod.synthesize_requirements({"name": "k"}, [], []))
     assert doc.startswith("MARKETPLACE DECISION: install kanban-board; adapt: no")
 
-    _SYN_REPLY = [_DECISION_DOC]
+    # A ```json fence around the object is tolerated by _parse_json.
+    _SYN_REPLY = ["```json\n" + _SYN_REPLY[0] + "\n```"]
     doc = asyncio.run(wizard_mod.synthesize_requirements({"name": "k"}, [], []))
     assert doc.startswith("MARKETPLACE DECISION: install kanban-board; adapt: no")
 
-    _SYN_REPLY = ["MARKETPLACE DECISION: broken line"]
+    _SYN_REPLY = [_json.dumps({"marketplace_install": "broken id!"})]
     try:
         asyncio.run(wizard_mod.synthesize_requirements({"name": "k"}, [], []))
-        raise AssertionError("malformed decision line must refuse")
+        raise AssertionError("malformed decision app-id must refuse")
     except ValueError:
         pass
 
-    _SYN_REPLY = ["too short"]
+    _SYN_REPLY = [
+        _json.dumps({"sections": [{"heading": "Overview", "content": "too short"}]})
+    ]
     try:
         asyncio.run(wizard_mod.synthesize_requirements({"name": "k"}, [], []))
-        raise AssertionError("truncated non-decision doc must still refuse")
+        raise AssertionError("truncated spec must still refuse")
     except ValueError:
         pass
 finally:
     wizard_mod._llm = _orig_sllm
-print("§10b short-doc guard vs decision docs: OK")
+print("§10b synthesis JSON contract + short-doc guard: OK")
 
 # Adapt follow-ups must know WHAT the app is (else the model produces
 # category options — "change the columns" — that teach the spec writer
@@ -972,7 +1022,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # a) session project, never delivered, as-is → adopt + machine completes
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "kanban-board", "_session_id": "lui_adopt0001"},
+        {"app_id": "kanban-board", "_session_id": "agentapp_adopt0001"},
     )
     assert out["status"] == "success" and out["project_id"] == "adopt0001"
     assert INSTALLS[-1] == "adopt0001", "install must ADOPT the session project"
@@ -985,7 +1035,7 @@ with tempfile.TemporaryDirectory() as tmp:
     VERDICTS.clear()
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "kanban-board", "_session_id": "lui_adopt0001", "will_adapt": True},
+        {"app_id": "kanban-board", "_session_id": "agentapp_adopt0001", "will_adapt": True},
     )
     assert INSTALLS[-1] == "adopt0001" and not VERDICTS
     assert "notify_ready" in out["message"] and "adaptations" in out["message"].lower()
@@ -1000,7 +1050,7 @@ with tempfile.TemporaryDirectory() as tmp:
     _n_installs = len(INSTALLS)
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "kanban-board", "_session_id": "lui_adopt0001"},
+        {"app_id": "kanban-board", "_session_id": "agentapp_adopt0001"},
     )
     assert out["status"] == "success" and out.get("already_installed") is True
     assert len(INSTALLS) == _n_installs, "already-installed must not reinstall"
@@ -1009,7 +1059,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # c2) delivered session project, DIFFERENT app → separate fresh install
     out = _run_action(
         LA.agent_app_marketplace_install,
-        {"app_id": "crm-system", "_session_id": "lui_adopt0001"},
+        {"app_id": "crm-system", "_session_id": "agentapp_adopt0001"},
     )
     assert INSTALLS[-1] is None, "a delivered session project means a NEW separate app"
     assert out["project_id"] == "fresh999"
@@ -1047,16 +1097,14 @@ with tempfile.TemporaryDirectory() as tmp:
     host.stamp_delivered("modarc001")
     assert isinstance(host.delivered_at("modarc001"), float)
 
-    # Simulate the finished BUILD arc (wizard-built app): machine at DONE.
-    machine = host.machine_for("modarc001")
-    for s in ("building", "gating", "launching"):
-        machine.advance(host_mod.Outcome(s, ok=True))
-    machine.advance(host_mod.Outcome("verifying", ok=True))
-    assert machine.terminal and machine.state == "done"
+    # A wizard-built app whose build DELIVERED: the arc is closed — "no work
+    # in flight" is the stored truth, not a terminal state to archive.
+    arc = host.arc_for("modarc001")
+    assert arc is not None and not arc.is_open
 
     MISSIONS = []
-    host._emit_mission = lambda project, brief, mission_kind, machine: MISSIONS.append(
-        (mission_kind, machine.generation, brief)
+    host._emit_mission = lambda project, brief, mission_kind, arc: MISSIONS.append(
+        (mission_kind, arc.kind, brief)
     )
     CHAT = []
     host._emit_chat = lambda pid, text: CHAT.append(text)
@@ -1076,24 +1124,24 @@ with tempfile.TemporaryDirectory() as tmp:
         def kill(self):
             pass
 
-    async def _mod_pipeline(project_dir, port, bridge_token):
+    async def _mod_pipeline(project_dir, port, bridge_token, shadow=None):
         return {"status": "success", "process": _ModProc()}
 
     mgr._run_launch_pipeline = _mod_pipeline
     mgr.lifecycle._launch_pipeline = _mod_pipeline
 
-    # First modify: dev env up (live DB exists) → machine re-armed into
-    # MODIFYING, gen 1
+    # First modify: dev env opens (live DB exists) → MODIFY arc armed at
+    # intent, before the pipeline boots
     result = asyncio.run(mgr.open_dev("modarc001"))
     assert result["status"] == "success"
-    machine = host.machine_for("modarc001")
-    assert machine.state == "modifying" and machine.generation == 1
+    arc = host.arc_for("modarc001")
+    assert arc.is_open and arc.kind == "modify"
 
-    # notify_ready's report_launch_success no longer no-ops (non-terminal)
+    # notify_ready's report_launch_success moves the arc to verifying
     host.report_launch_success("modarc001")
-    assert machine.state == "verifying"
+    assert arc.phase == "verifying"
 
-    # Defects now dispatch a REAL fix mission — the pre-Phase-2 hole
+    # Defects dispatch a REAL fix mission carrying the modify skill
     decision = host.report_verify(
         "modarc001",
         "defects",
@@ -1102,16 +1150,16 @@ with tempfile.TemporaryDirectory() as tmp:
         walk_report="VERDICT: FAIL",
         server_log="ERROR boom",
     )
-    assert decision is not None, "modify verdicts must reach the machine"
-    assert machine.state == "fixing"
-    assert MISSIONS and MISSIONS[-1][0] == "fix" and MISSIONS[-1][1] == 1
+    assert decision is not None and decision.next_state == "fixing"
+    assert arc.phase == "working"
+    assert MISSIONS and MISSIONS[-1][0] == "fix" and MISSIONS[-1][1] == "modify"
 
-    # Fix mission re-enters open_dev → begin_modify no-ops mid-arc
+    # Fix mission re-enters open_dev → re-entry keeps the SAME arc + budget
     result = asyncio.run(mgr.open_dev("modarc001"))
     assert result["status"] == "success"
-    assert machine.state == "fixing" and machine.generation == 1
+    assert arc.is_open and arc.kind == "modify" and len(arc.rounds()) == 1
 
-    # Fix passes → machine announces THE CHANGE (not a first build)
+    # Fix passes → the system announces THE CHANGE and closes the arc
     host.report_launch_success("modarc001")
     decision = host.report_verify(
         "modarc001",
@@ -1119,14 +1167,15 @@ with tempfile.TemporaryDirectory() as tmp:
         url="http://127.0.0.1:3145",
         verified=["deadline"],
     )
-    assert machine.terminal and machine.state == "done"
-    assert CHAT and "change is live" in CHAT[-1], CHAT
+    assert not arc.is_open, "done = the arc is gone"
+    assert CHAT and "change" in CHAT[-1] and "is live" in CHAT[-1], CHAT
 
-    # Second modify: fresh generation, fresh budget
+    # Second modify: a fresh arc with a fresh budget and empty ledger
     result = asyncio.run(mgr.open_dev("modarc001"))
-    assert machine.state == "modifying" and machine.generation == 2
-    state_file = _json.loads((proj_dir / ".factory" / "state.json").read_text())
-    assert state_file["total_missions"] == 0 and len(state_file["generations"]) == 2
+    arc = host.arc_for("modarc001")
+    assert arc.is_open and arc.kind == "modify"
+    arc_file = _json.loads((proj_dir / ".factory" / "arc.json").read_text())
+    assert arc_file["missions_spent"] == 0 and arc_file["rounds"] == []
 print("§12 supervised modifies: OK")
 
 
@@ -1139,9 +1188,7 @@ with tempfile.TemporaryDirectory() as tmp:
     host = host_mod.get_factory_host()
     stub = _wire(project, host)
     host.stamp_delivered("specbelt01")
-    host.set_staging_record(
-        "specbelt01", {"url": "http://127.0.0.1:3907", "port": 3907, "dir": "x"}
-    )
+    stub.instances.create_shadow("specbelt01", token="t", boot_id="b", dir="x")
 
     req = proj / "reference" / "requirements.md"
     stale = host.delivered_at("specbelt01") - 1000
@@ -1272,7 +1319,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     async def _sdr(pid, **kwargs):
         DISPATCHES.append((pid, kwargs))
-        return "lui_impact0001"
+        return "agentapp_impact0001"
 
     stub.import_project_source = _imp_source
     stub.start_development_run = _sdr
@@ -1371,9 +1418,14 @@ with tempfile.TemporaryDirectory() as tmp:
 
     mgr.runner.scaffold = _ScaffoldStub().scaffold
 
-    _FAKE_DOC = (
-        "# Express Todo — Requirements\n\n## Overview\nA todo app.\n\n## Features\n"
-        + "The user can add a todo.\n" * 20
+    _FAKE_DOC = _json.dumps(
+        {
+            "title": "Express Todo — Requirements",
+            "sections": [
+                {"heading": "Overview", "content": "A todo app."},
+                {"heading": "Features", "content": "The user can add a todo.\n" * 20},
+            ],
+        }
     )
 
     async def _fake_source_llm(system_prompt, user_prompt, prompt_name):
@@ -1428,7 +1480,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     async def _sdr2(pid, **kwargs):
         DISPATCHES2.append((pid, kwargs))
-        return "lui_convact001"
+        return "agentapp_convact001"
 
     stub.convert_foreign_source = _convert
     stub.start_development_run = _sdr2
@@ -1506,7 +1558,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # open_dev refuses externals (changes run live)
     res = asyncio.run(mgr.open_dev(project.id))
-    assert res["status"] == "error" and "no dev environment" in res["errors"][0]
+    assert res["status"] == "error" and "no shadow environment" in res["errors"][0]
 
     # broken start command → health failure with app.log evidence
     cfg["pipeline"]["start"] = "python3 -c 'import sys; sys.exit(3)'"
@@ -1550,41 +1602,46 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§20 external action branches: OK")
 
 
-# ── §21 surrender loops are capped by the machine (chili3d incident) ───────
+# ── §21 surrender loops are capped by the supervisor (chili3d incident) ────
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "agent_app"
     proj = _make_project_dir(living, "loopcap001", 3155)
     project = _Project("loopcap001", proj, 3155)
 
     class _MgrLoop:
+        projects = {"loopcap001": project}
+
         def get_project(self, pid):
             return project if pid == "loopcap001" else None
 
     agent_app_mod.get_agent_app_manager = lambda: _MgrLoop()
     host_mod._HOST = None
-    host_mod._REDISPATCH_MIN_INTERVAL_S = 0
     host = host_mod.get_factory_host()
     RESUMES = []
-    host._emit_mission = lambda p, b, mission_kind, machine: RESUMES.append(
-        mission_kind
-    )
+    host._emit_mission = lambda p, b, mission_kind, arc: RESUMES.append(mission_kind)
     CHAT21 = []
     host._emit_chat = lambda pid, text: CHAT21.append(text)
 
-    machine = host.machine_for("loopcap001")
-    assert machine.state == "building" and not machine.terminal
+    host.open_arc("loopcap001", host_mod.ARC_MODIFY)
+    arc21 = host.arc_for("loopcap001")
 
-    # An agent that keeps surrendering: 5 run-ends with no progress.
+    # An agent that keeps surrendering: every tick finds the arc idle with
+    # no evidence of work between resumes.
     for _ in range(5):
-        host.on_run_end("loopcap001", {})
+        arc21._d["last_activity_at"] = 0.0
+        arc21.save()
+        host.supervise_once()
 
     assert RESUMES.count("resume") == 2, (
-        f"surrender must cap after the fingerprint limit, got {RESUMES}"
+        f"surrender must cap after the stall limit, got {RESUMES}"
     )
-    assert machine.terminal and machine.state == "stuck"
-    assert CHAT21 and "could not be completed" in CHAT21[-1], (
+    assert not arc21.is_open, "the cap closes the arc"
+    assert CHAT21 and "try again" in CHAT21[-1], (
         "the cap must produce an honest machine-composed stuck report"
     )
+    arc21._d["last_activity_at"] = 0.0
+    arc21.save()
+    assert host.supervise_once() == [], "a capped arc stays quiet forever"
 print("§21 surrender-loop cap: OK")
 
 
@@ -1613,7 +1670,7 @@ with tempfile.TemporaryDirectory() as tmp:
     (src_dir / ".factory" / "host.json").write_text(
         '{"delivered": true, "donor_marker": 1}'
     )
-    (src_dir / ".factory" / "state.json").write_text('{"state": "stuck"}')
+    (src_dir / ".factory" / "arc.json").write_text('{"arc": "modify"}')
 
     project = asyncio.run(mgr.import_project_source(str(src_dir)))
     assert project.craftbot_version == _CB_V, "registry records the acquirer"
@@ -1621,8 +1678,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert _mf2["craftbotVersion"] == "0.9.9", "manifest keeps the creator"
     _side = _json.loads((Path(project.path) / ".factory" / "host.json").read_text())
     assert "donor_marker" not in _side, "donor lifecycle state must not travel"
-    assert not (Path(project.path) / ".factory" / "state.json").exists(), (
-        "donor machine state must not travel"
+    assert not (Path(project.path) / ".factory" / "arc.json").exists(), (
+        "donor arc state must not travel"
     )
     assert project.to_dict()["craftbotVersion"] == _CB_V
 
@@ -1669,39 +1726,186 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§23 superuser fail-closed: OK")
 
 
-# ── §24 thrash-guard suppression must NOT lose the wakeup (stale build) ────
+# ── §24 the heartbeat never loses a wakeup (stale build) ───────────────────
+# The old deferred-wakeup bug: a suppressed redispatch with nothing left to
+# re-fire it left a build stale at 'fixing' forever. The supervisor's
+# periodic heartbeat is the structural fix — an idle open arc is found on
+# the next tick even when NO run-end ever fires again.
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "agent_app"
     proj = _make_project_dir(living, "wakeup0001", 3157)
     project = _Project("wakeup0001", proj, 3157)
 
     class _MgrWake:
+        projects = {"wakeup0001": project}
+
         def get_project(self, pid):
             return project if pid == "wakeup0001" else None
 
     agent_app_mod.get_agent_app_manager = lambda: _MgrWake()
     host_mod._HOST = None
-    host_mod._REDISPATCH_MIN_INTERVAL_S = 2  # shrink the guard for the test
+    _old_tick = host_mod._TICK_S
+    host_mod._TICK_S = 0.3  # shrink the heartbeat for the test
     host = host_mod.get_factory_host()
     WAKE_DISPATCHES = []
-    host._emit_mission = lambda p, b, mission_kind, machine: WAKE_DISPATCHES.append(
+    host._emit_mission = lambda p, b, mission_kind, arc: WAKE_DISPATCHES.append(
         mission_kind
     )
     host._emit_chat = lambda pid, text: None
 
     async def _scenario():
-        machine = host.machine_for("wakeup0001")
-        # A run just ended and advanced the machine (fresh history entry),
-        # then a 5s surrender ends another run — the guard trips.
-        machine.advance(host_mod.Outcome("building", ok=True))  # fresh timestamp
-        host.on_run_end("wakeup0001", {})  # guard trips → must DEFER, not drop
-        assert WAKE_DISPATCHES == [], "guard should suppress the immediate dispatch"
-        # The deferred re-check must fire on its own after the interval.
-        await asyncio.sleep(3.5)
-        assert WAKE_DISPATCHES, "the deferred wakeup was LOST — stale build bug"
+        host.open_arc("wakeup0001", host_mod.ARC_MODIFY)
+        arc24 = host.arc_for("wakeup0001")
+        host.start_supervisor()
+        await asyncio.sleep(0.1)
+        assert WAKE_DISPATCHES == [], "fresh activity — backoff must hold"
+        # The work goes idle past backoff; no run-end will EVER kick again.
+        arc24._d["last_activity_at"] = 0.0
+        arc24.save()
+        await asyncio.sleep(1.0)
+        assert WAKE_DISPATCHES, "the heartbeat wakeup was LOST — stale build bug"
+        host._supervisor.cancel()
 
     asyncio.run(_scenario())
-    host_mod._REDISPATCH_MIN_INTERVAL_S = 20
-print("§24 deferred redispatch wakeup: OK")
+    host_mod._TICK_S = _old_tick
+print("§24 heartbeat wakeup: OK")
+
+# ── §25 changed-op smoke selection (structural, no invocation) ─────────────
+from app.agent_app import verify_scope as _vs25  # noqa: E402
+from app.agent_app.op_smoke import select_changed_ops  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    proj = Path(tmp) / "app_ops01"
+    (proj / "pb" / "pb_hooks").mkdir(parents=True)
+    (proj / "manifest.json").write_text(_json.dumps({"id": "ops01", "port": 3199}))
+    (proj / "operations.json").write_text(
+        _json.dumps(
+            {
+                "opsVersion": 1,
+                "operations": [
+                    {
+                        "name": "items.list",
+                        "params": {},
+                        "executor": {"type": "http", "method": "GET", "path": "/api/ops/items/list"},
+                    },
+                    {
+                        "name": "items.create",
+                        "params": {"title": {"type": "string", "required": True}},
+                        "executor": {"type": "http", "method": "POST", "path": "/api/ops/items/create"},
+                    },
+                    {
+                        "name": "items.clear",
+                        "destructive": True,
+                        "params": {},
+                        "executor": {"type": "http", "method": "POST", "path": "/api/ops/items/clear"},
+                    },
+                ],
+            }
+        )
+    )
+    hooks = proj / "pb" / "pb_hooks" / "ops.pb.js"
+    hooks.write_text(
+        "routerAdd('GET', '/api/ops/items/list', (e) => { return e.json(200, []) })\n"
+        "routerAdd('POST', '/api/ops/items/create', (e) => { return e.json(200, {}) })\n"
+        "routerAdd('POST', '/api/ops/items/clear', (e) => { return e.json(200, {}) })\n"
+    )
+    store = Path(tmp) / "_verify" / "ops01"
+    _vs25.write_baseline(proj, store)
+
+    # Nothing changed → nothing to smoke.
+    assert select_changed_ops(proj, store) == []
+
+    # Change ONE route's handler → exactly that op is selected.
+    hooks.write_text(
+        "routerAdd('GET', '/api/ops/items/list', (e) => { return e.json(200, []) })\n"
+        "routerAdd('POST', '/api/ops/items/create', (e) => { const x = 1; return e.json(200, {x}) })\n"
+        "routerAdd('POST', '/api/ops/items/clear', (e) => { return e.json(200, {}) })\n"
+    )
+    picked = [op["name"] for op in select_changed_ops(proj, store)]
+    assert picked == ["items.create"], picked
+
+    # A destructive op's route change is NEVER selected.
+    hooks.write_text(
+        "routerAdd('GET', '/api/ops/items/list', (e) => { return e.json(200, []) })\n"
+        "routerAdd('POST', '/api/ops/items/create', (e) => { const x = 1; return e.json(200, {x}) })\n"
+        "routerAdd('POST', '/api/ops/items/clear', (e) => { const y = 2; return e.json(200, {y}) })\n"
+    )
+    picked = [op["name"] for op in select_changed_ops(proj, store)]
+    assert picked == ["items.create"], "destructive ops must never be invoked"
+
+    # An app that declares bridge ACTIONS gets no auto-invocation at all.
+    (proj / "manifest.json").write_text(
+        _json.dumps(
+            {"id": "ops01", "port": 3199, "capabilities": {"actions": ["send_gmail"]}}
+        )
+    )
+    assert select_changed_ops(proj, store) == [], (
+        "bridge-action apps must never be auto-invoked (side effects)"
+    )
+
+    # No baseline (first build) → all eligible ops, capped.
+    (proj / "manifest.json").write_text(_json.dumps({"id": "ops01", "port": 3199}))
+    empty_store = Path(tmp) / "_verify" / "fresh"
+    picked = [op["name"] for op in select_changed_ops(proj, empty_store)]
+    assert picked == ["items.list", "items.create"]
+print("§25 changed-op smoke selection: OK")
+
+# ── §26 changed-op smoke sends the agent token (the 401 gate trap) ─────────
+# The blueprint's system gate 401s every origin-less POST to /api/ops/*
+# without X-A2App-Token, so a smoke that omits the header can never pass a
+# mutating op — observed live 2026-09-15 (Clock App, 3 wasted gate cycles
+# and a gate-bypass workaround). The header must actually cross the wire.
+from app.agent_app.op_smoke import _invoke, _smoke_headers  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    proj = Path(tmp) / "app_ops02"
+    proj.mkdir()
+
+    # Token file present → both layers' headers; trimmed value.
+    (proj / ".agent-token").write_text("tok-26-secret\n", encoding="utf-8")
+    headers = _smoke_headers(proj, "SUPER")
+    assert headers["X-A2App-Token"] == "tok-26-secret"
+    assert headers["Authorization"] == "SUPER"
+    assert headers["X-A2App-Agent"] == "op-smoke"
+
+    # No token provisioned → header absent (the gate fails open), no crash.
+    (proj / ".agent-token").unlink()
+    headers_bare = _smoke_headers(proj, None)
+    assert "X-A2App-Token" not in headers_bare and "Authorization" not in headers_bare
+
+    # Round-trip: a gate-shaped server that 401s POSTs missing the token.
+    import http.server as _http26
+    import threading as _threading26
+
+    SEEN26 = {}
+
+    class _Gate26(_http26.BaseHTTPRequestHandler):
+        def do_POST(self):
+            SEEN26["token"] = self.headers.get("X-A2App-Token")
+            ok = SEEN26["token"] == "tok-26-secret"
+            self.send_response(200 if ok else 401)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                b'{"ok": true}' if ok else b'{"error": "agent token required"}'
+            )
+
+        def log_message(self, *a):
+            pass
+
+    server26 = _http26.HTTPServer(("127.0.0.1", 0), _Gate26)
+    _threading26.Thread(target=server26.serve_forever, daemon=True).start()
+    base26 = f"http://127.0.0.1:{server26.server_address[1]}"
+    op26 = {
+        "name": "items.create",
+        "params": {"title": {"type": "string", "required": True}},
+        "executor": {"type": "http", "method": "POST", "path": "/api/ops/items/create"},
+    }
+    (proj / ".agent-token").write_text("tok-26-secret\n", encoding="utf-8")
+    result = _invoke(base26, op26, _smoke_headers(proj, None))
+    assert SEEN26["token"] == "tok-26-secret", "X-A2App-Token never crossed the wire"
+    assert result.ok and result.status == 200, (result.status, result.detail)
+    server26.shutdown()
+print("§26 changed-op smoke agent token: OK")
 
 print("\nData-safety acceptance: ALL GREEN")

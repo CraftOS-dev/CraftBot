@@ -1,5 +1,5 @@
 /**
- * lui requests <project-dir> [--status pending|claimed|done|rejected]
+ * agent-app requests <project-dir> [--status pending|claimed|done|rejected]
  *
  * Inspect the RUNNING app's agent_requests queue — trigger fires and what
  * became of them. This is the polling surface an agent WITHOUT realtime
@@ -32,7 +32,7 @@ function age(created: string): string {
 export async function run(args: string[]): Promise<number> {
   const projectDir = args[0];
   if (projectDir === undefined) {
-    log.error('Usage: lui requests <project-dir> [--status pending|claimed|done|rejected]');
+    log.error('Usage: agent-app requests <project-dir> [--status pending|claimed|done|rejected]');
     return 1;
   }
   const project = loadProject(projectDir);

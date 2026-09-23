@@ -45,7 +45,7 @@ export function Select({
           id={selectId}
           aria-invalid={error !== undefined || undefined}
           className={cn(
-            'h-9 w-full appearance-none rounded-[var(--lui-radius)] border border-[var(--lui-border)] bg-[var(--lui-surface)] px-3 pr-8 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--lui-accent)]',
+            'h-9 w-full appearance-none rounded-[var(--agent-app-radius)] border border-[var(--agent-app-border)] bg-[var(--agent-app-surface-2)] px-3 pr-8 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--agent-app-ring)]',
             error !== undefined && 'border-red-500',
             className,
           )}
@@ -60,7 +60,7 @@ export function Select({
         </select>
         <ChevronDownIcon
           size={16}
-          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--lui-muted)]"
+          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--agent-app-muted)]"
         />
       </div>
       {error !== undefined && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}

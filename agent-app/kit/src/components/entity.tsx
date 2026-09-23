@@ -355,21 +355,21 @@ export function EntityTable({
     <div className="flex flex-col gap-3">
       {error !== null && <p className="text-xs text-red-500">{error}</p>}
       {loading ? (
-        <p className="px-6 py-10 text-center text-sm text-[var(--lui-muted)]">Loading…</p>
+        <p className="px-6 py-10 text-center text-sm text-[var(--agent-app-muted)]">Loading…</p>
       ) : records.length === 0 ? (
         <div className="flex flex-col items-center gap-1 px-6 py-10 text-center">
-          <p className="text-sm text-[var(--lui-muted)]">{emptyMessage ?? 'Nothing here yet.'}</p>
+          <p className="text-sm text-[var(--agent-app-muted)]">{emptyMessage ?? 'Nothing here yet.'}</p>
         </div>
       ) : (
         <div className="w-full overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="border-b border-[var(--lui-border)] text-left">
+              <tr className="border-b border-[var(--agent-app-border)] text-left">
                 {cols.map((col) => (
                   <th
                     key={col.field}
                     onClick={() => toggleSort(col.field)}
-                    className="cursor-pointer select-none whitespace-nowrap px-4 py-2.5 font-medium text-[var(--lui-muted)] hover:text-[var(--lui-text)]"
+                    className="cursor-pointer select-none whitespace-nowrap px-4 py-2.5 font-medium text-[var(--agent-app-muted)] hover:text-[var(--agent-app-text)]"
                   >
                     {col.label ?? labelOf(col.field)}
                     {sortField === col.field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
@@ -384,8 +384,8 @@ export function EntityTable({
                   key={row.id}
                   onClick={onRowClick !== undefined ? () => onRowClick(row) : undefined}
                   className={cn(
-                    'border-b border-[var(--lui-border)] last:border-0',
-                    onRowClick !== undefined && 'cursor-pointer hover:bg-[var(--lui-border)]/20',
+                    'border-b border-[var(--agent-app-border)] last:border-0',
+                    onRowClick !== undefined && 'cursor-pointer hover:bg-[var(--agent-app-border)]/20',
                   )}
                 >
                   {cols.map((col) => {

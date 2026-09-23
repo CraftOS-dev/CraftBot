@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect } from 'react'
+import { useStore } from 'react-redux'
 import { useTranslation } from 'react-i18next'
 import type { MetricsTimePeriod } from '../../../types'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { usePersistedState } from '../../../hooks'
+import type { RootState } from '../../../store'
+import { useAppSelector } from '../../../store/hooks'
+import { selectConnected } from '../../../store/selectors/connection'
+import {
+  selectFilteredMetricsCache,
+  selectFilteredMetricsReceivedAt,
+} from '../../../store/selectors/dashboard'
+import { UI_STATE } from '../../../store/uiState'
 import i18n from '../../../i18n/config'
 import { formatNumber, formatTime } from '../../../i18n/format'
 import styles from './widgets.module.css'
@@ -82,29 +92,51 @@ export function getChartLabels(period: MetricsTimePeriod): { title: string; desc
   }
 }
 
-// Each time-period-filterable widget owns its own period selection and
-// requests+caches that period's metrics on demand (the cache is shared
-// app-wide via Redux, so switching back to an already-seen period is free).
-export function useMetricsPeriod(initial: MetricsTimePeriod = 'total') {
-  const { connected, filteredMetricsCache, requestFilteredMetrics } = useWebSocket()
-  const [period, setPeriod] = useState<MetricsTimePeriod>(initial)
+// How old a period's cached metrics may get while a widget shows them.
+const FILTERED_METRICS_MAX_AGE_MS = 10_000
+// Last request per period across all widgets, so several widgets showing the
+// same period ask once, not once each.
+const lastFilteredRequestAt: Partial<Record<MetricsTimePeriod, number>> = {}
+
+// Each time-period-filterable widget owns its own period selection
+// (remembered per widget id). "All" reads the live `dashboard_metrics` push
+// (the widgets fall back to it), so it ticks with the dashboard. Other periods
+// come from the shared Redux cache and are re-requested while shown once they
+// are older than FILTERED_METRICS_MAX_AGE_MS.
+export function useMetricsPeriod(widgetId: string) {
+  const { requestFilteredMetrics } = useWebSocket()
+  const connected = useAppSelector(selectConnected)
+  const filteredMetricsCache = useAppSelector(selectFilteredMetricsCache)
+  const store = useStore<RootState>()
+  const [period, setPeriod] = usePersistedState(UI_STATE.dashboard.metricsPeriod(widgetId))
+
+  const refreshIfStale = useCallback((target: MetricsTimePeriod) => {
+    if (target === 'total') return
+    const now = Date.now()
+    const receivedAt = selectFilteredMetricsReceivedAt(store.getState())[target] ?? 0
+    const requestedAt = lastFilteredRequestAt[target] ?? 0
+    if (now - Math.max(receivedAt, requestedAt) < FILTERED_METRICS_MAX_AGE_MS) return
+    lastFilteredRequestAt[target] = now
+    requestFilteredMetrics(target)
+  }, [store, requestFilteredMetrics])
 
   const onChange = useCallback((next: MetricsTimePeriod) => {
     setPeriod(next)
-    if (!filteredMetricsCache[next]) {
-      requestFilteredMetrics(next)
-    }
-  }, [filteredMetricsCache, requestFilteredMetrics])
+    refreshIfStale(next)
+  }, [refreshIfStale])
 
-  // Request the current period's data once connected, if not already cached
-  // (mirrors the widget being newly added to a layout, or a fresh page load).
   useEffect(() => {
-    if (connected && !filteredMetricsCache[period]) {
-      requestFilteredMetrics(period)
-    }
-  }, [connected, period, filteredMetricsCache, requestFilteredMetrics])
+    if (!connected || period === 'total') return
+    refreshIfStale(period)
+    const id = window.setInterval(() => refreshIfStale(period), FILTERED_METRICS_MAX_AGE_MS / 2)
+    return () => window.clearInterval(id)
+  }, [connected, period, refreshIfStale])
 
-  return { period, onChange, filteredData: filteredMetricsCache[period] }
+  return {
+    period,
+    onChange,
+    filteredData: period === 'total' ? undefined : filteredMetricsCache[period] ?? undefined,
+  }
 }
 
 interface TimePeriodSelectorProps {

@@ -8,7 +8,6 @@
       "schedule": "every day at 3am",
       "enabled": true,
       "priority": 100,
-      "mode": "simple",
       "recurring": true,
       "action_sets": [],
       "skills": [],
@@ -24,7 +23,6 @@
       "schedule": "0,30 * * * *",
       "enabled": true,
       "priority": 50,
-      "mode": "simple",
       "recurring": true,
       "action_sets": [
         "file_operations",
@@ -45,7 +43,6 @@
       "schedule": "every day at 7am",
       "enabled": true,
       "priority": 35,
-      "mode": "simple",
       "recurring": true,
       "action_sets": [
         "file_operations",
@@ -66,7 +63,6 @@
       "schedule": "every sunday at 5pm",
       "enabled": true,
       "priority": 35,
-      "mode": "simple",
       "recurring": true,
       "action_sets": [
         "file_operations",
@@ -87,7 +83,6 @@
       "schedule": "0 8 1 * *",
       "enabled": true,
       "priority": 35,
-      "mode": "simple",
       "recurring": true,
       "action_sets": [
         "file_operations",

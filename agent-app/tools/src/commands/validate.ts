@@ -1,5 +1,5 @@
 /**
- * lui validate <project> — the validation gate (spec §11, D7 scope for M1):
+ * agent-app validate <project> — the validation gate (spec §11, D7 scope for M1):
  *   1. tsc --noEmit        (types)
  *   2. vite build          (build; lands in pb/pb_public)
  *   3. migrations apply    (against a FRESH temp pb_data)
@@ -15,7 +15,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileMatchesCanon, recordFileHash, verifySystemHashes } from '../lib/hashes.ts';
+import { fileMatchesCanon, recordFileHash } from '../lib/hashes.ts';
 import { log } from '../lib/log.ts';
 import { ensurePbBinary } from './pb.ts';
 
@@ -45,7 +45,7 @@ const BASELINE_DEV_DEPS = new Set([
   'tailwindcss',
   'typescript',
   'vite',
-  'vite-plugin-istanbul', // dev-build coverage for scoped walk-verify (LUI_COVERAGE=1)
+  'vite-plugin-istanbul', // dev-build coverage for scoped walk-verify (AGENT_APP_COVERAGE=1)
 ]);
 
 const BASELINE_SCRIPTS: Record<string, string> = {
@@ -112,6 +112,7 @@ interface Operation {
   name?: unknown;
   description?: unknown;
   system?: unknown;
+  destructive?: unknown;
   params?: unknown;
   executor?: {
     type?: unknown;
@@ -192,7 +193,7 @@ function checkTransactionHandles(projectDir: string): void {
  * Egress scan (spec EXTERNAL-DATA-PLAN §4): derive the app's outbound surface.
  *
  * `capabilities.external_hosts` in manifest.json is written by the GATE, never
- * declared by the agent — same lifecycle as `.lui/system-hashes.json`. One
+ * declared by the agent — same lifecycle as `.agent-app/system-hashes.json`. One
  * JSON field answers "what does this app talk to?" for build output, users,
  * and (later) marketplace review. Born from the weather-tracker incident,
  * where an app whose requirements promised live API data shipped
@@ -702,6 +703,14 @@ function validateOps(projectDir: string): void {
       throw new Error(`${op.name}: http/job executor needs method + /api/... path`);
     }
 
+    // A destructive GET op: local reads carry no credential (authorizeCaller),
+    // so any page can trigger it with a link or top-level navigation.
+    if (op.destructive === true && method.toUpperCase() === 'GET') {
+      log.warn(
+        `${op.name}: destructive op declared as GET — any page can trigger it with a link (reads carry no credential); declare it POST`,
+      );
+    }
+
     // O3 structural check: non-system ops must resolve to a declared hook route.
     // System entries may point at PB built-ins (e.g. /api/health).
     const key = `${method} ${path}`;
@@ -736,7 +745,7 @@ function validateOps(projectDir: string): void {
 // written after a clean build, never after a failed one).
 // ---------------------------------------------------------------------------
 
-const BUILD_FP_FILE = join('.lui', 'build-fingerprint.txt');
+const BUILD_FP_FILE = join('.agent-app', 'build-fingerprint.txt');
 const BUILD_INPUT_IGNORE = new Set(['node_modules', 'dist', '.vite', '.turbo', '.cache']);
 
 /** SHA-256 over every build input under frontend/ (src, package.json, the
@@ -764,7 +773,7 @@ function computeBuildFingerprint(frontendDir: string): string | null {
     const h = createHash('sha256');
     // A coverage-instrumented (dev) build is a different artifact from a
     // plain one — the flag is a build input.
-    h.update(`LUI_COVERAGE=${process.env['LUI_COVERAGE'] ?? ''}\0`);
+    h.update(`AGENT_APP_COVERAGE=${process.env['AGENT_APP_COVERAGE'] ?? ''}\0`);
     for (const rel of files) {
       h.update(rel);
       h.update('\0');
@@ -787,7 +796,7 @@ function readBuildFingerprint(projectDir: string): string | null {
 
 function writeBuildFingerprint(projectDir: string, fp: string): void {
   try {
-    mkdirSync(join(projectDir, '.lui'), { recursive: true });
+    mkdirSync(join(projectDir, '.agent-app'), { recursive: true });
     writeFileSync(join(projectDir, BUILD_FP_FILE), fp + '\n');
   } catch (err) {
     log.warn(
@@ -799,7 +808,19 @@ function writeBuildFingerprint(projectDir: string, fp: string): void {
 export async function run(args: string[]): Promise<number> {
   const projectDir = args[0];
   if (projectDir === undefined || !existsSync(join(projectDir, 'manifest.json'))) {
-    log.error('Usage: lui validate <project-dir>   (must contain manifest.json)');
+    log.error(
+      'Usage: agent-app validate <project-dir> [--outRoot <dir>]   (must contain manifest.json)',
+    );
+    return 1;
+  }
+  // --outRoot: build into a content-addressed artifact under <outRoot>/<fp>/
+  // instead of pb/pb_public. This is how SHADOW environments gate: the real
+  // tree's served build is never touched, and a matching artifact from an
+  // earlier boot is reused (same skip economics as the in-place fast path).
+  const outRootIdx = args.indexOf('--outRoot');
+  const outRoot = outRootIdx !== -1 ? args[outRootIdx + 1] : undefined;
+  if (outRootIdx !== -1 && (outRoot === undefined || outRoot === '')) {
+    log.error('--outRoot requires a directory argument');
     return 1;
   }
 
@@ -808,8 +829,8 @@ export async function run(args: string[]): Promise<number> {
 
   // Windows: npm is npm.cmd, which Node refuses to spawn without a shell.
   const isWin = process.platform === 'win32';
-  const npmRun = (script: string): void => {
-    execFileSync(isWin ? 'npm.cmd' : 'npm', ['run', script], {
+  const npmRun = (script: string, extra: string[] = []): void => {
+    execFileSync(isWin ? 'npm.cmd' : 'npm', ['run', script, ...extra], {
       cwd: frontendDir, stdio: 'pipe', encoding: 'utf8', shell: isWin,
     });
   };
@@ -826,15 +847,34 @@ export async function run(args: string[]): Promise<number> {
   });
 
   // Skip tsc + vite build when the inputs are byte-for-byte the last-built
-  // state AND pb_public still holds that output; otherwise build and record
-  // the fingerprint — but only when BOTH steps pass, so a failed build never
+  // state AND the destination still holds that output; otherwise build —
+  // and only mark currency when BOTH steps pass, so a failed build never
   // marks itself current. tsc --noEmit and vite build write nothing under
   // frontend/, so the fingerprint taken before the build still describes the
   // inputs afterward.
-  const builtIndex = join(projectDir, 'pb', 'pb_public', 'index.html');
+  //
+  // Two destinations, chosen by the caller:
+  // - LIVE (no --outRoot): in-place into pb/pb_public, currency recorded in
+  //   .agent-app/build-fingerprint.txt. Used when the platform is (re)booting the
+  //   live process — nothing serves pb_public at that moment.
+  // - SHADOW (--outRoot): into <outRoot>/<fp>/ — content-addressed, so a
+  //   boot whose inputs match an earlier artifact skips both steps by
+  //   construction, and the served live build is never written.
   const buildFp = computeBuildFingerprint(frontendDir);
+  const artifactDir =
+    outRoot !== undefined && buildFp !== null
+      ? join(outRoot, buildFp.slice(0, 16))
+      : undefined;
+  const builtIndex =
+    artifactDir !== undefined
+      ? join(artifactDir, 'index.html')
+      : join(projectDir, 'pb', 'pb_public', 'index.html');
   const buildCurrent =
-    buildFp !== null && existsSync(builtIndex) && readBuildFingerprint(projectDir) === buildFp;
+    artifactDir !== undefined
+      ? existsSync(builtIndex)
+      : buildFp !== null &&
+        existsSync(builtIndex) &&
+        readBuildFingerprint(projectDir) === buildFp;
 
   if (buildCurrent) {
     log.ok('types (tsc --noEmit) — skipped (build inputs unchanged)');
@@ -842,15 +882,35 @@ export async function run(args: string[]): Promise<number> {
   } else {
     const errorsBefore = errors.length;
     runStep(errors, 'types (tsc --noEmit)', () => npmRun('typecheck'));
-    runStep(errors, 'build (vite)', () => npmRun('build'));
-    if (errors.length === errorsBefore && buildFp !== null && existsSync(builtIndex)) {
+    if (errors.length > errorsBefore) {
+      // The build script runs the SAME compiler first (`tsc -p . && vite
+      // build`) — running it now would fail identically and duplicate every
+      // error into the report. One compiler verdict per gate.
+      log.raw('✗ build (vite) — skipped (fix the type errors above first)');
+    } else {
+      runStep(errors, 'build (vite)', () =>
+        artifactDir !== undefined
+          ? npmRun('build', ['--', '--outDir', artifactDir, '--emptyOutDir'])
+          : npmRun('build'),
+      );
+    }
+    if (
+      errors.length === errorsBefore &&
+      buildFp !== null &&
+      existsSync(builtIndex) &&
+      artifactDir === undefined
+    ) {
       writeBuildFingerprint(projectDir, buildFp);
     }
+  }
+  // Machine-readable: the host boots the shadow instance serving this dir.
+  if (artifactDir !== undefined && existsSync(builtIndex)) {
+    log.raw(`ARTIFACT ${artifactDir}`);
   }
 
   const pbBin = await ensurePbBinary();
   await runStepAsync(errors, 'migrations (fresh pb_data)', async () => {
-    const tempData = mkdtempSync(join(tmpdir(), 'lui-migrate-'));
+    const tempData = mkdtempSync(join(tmpdir(), 'agent-app-migrate-'));
     try {
       // NOTE: `pocketbase migrate up` exits 0 even when a migration fails —
       // it only PRINTS the error. Scan output; never trust the exit code.
@@ -938,20 +998,23 @@ export async function run(args: string[]): Promise<number> {
     }
   });
 
-  runStep(errors, 'ownership (system files unmodified)', () => {
-    const drift = verifySystemHashes(projectDir);
-    const problems: string[] = [
-      ...drift.modified.map((p) => `modified: ${p}`),
-      ...drift.missing.map((p) => `deleted: ${p}`),
-      ...drift.added.map((p) => `added: ${p}`),
-    ];
-    if (problems.length > 0) {
-      throw new Error(
-        `system-managed files changed outside tooling (spec P1):\n${problems.join('\n')}\n` +
-          `If a kit upgrade is intended, run kit-sync; agent edits belong in app-owned paths.`,
-      );
-    }
-  });
+  // Ownership gate DISABLED (temporarily, per user request) — re-enable by
+  // uncommenting. Existing projects carry pre-change canon entries; run
+  // kit-sync per project to reseed before re-enabling.
+  // runStep(errors, 'ownership (system files unmodified)', () => {
+  //   const drift = verifySystemHashes(projectDir);
+  //   const problems: string[] = [
+  //     ...drift.modified.map((p) => `modified: ${p}`),
+  //     ...drift.missing.map((p) => `deleted: ${p}`),
+  //     ...drift.added.map((p) => `added: ${p}`),
+  //   ];
+  //   if (problems.length > 0) {
+  //     throw new Error(
+  //       `system-managed files changed outside tooling (spec P1):\n${problems.join('\n')}\n` +
+  //         `If a kit upgrade is intended, run kit-sync; agent edits belong in app-owned paths.`,
+  //     );
+  //   }
+  // });
 
   // Enrich every located error with its source before reporting.
   for (const e of errors) {

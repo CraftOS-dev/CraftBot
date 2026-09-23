@@ -114,10 +114,11 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
       const resp = await fetch('/api/agent-app/import', { method: 'POST', body: formData })
       const result = await resp.json()
       if (result.success && result.path) {
-        // Stay open and importing until agent_app_import_result arrives —
-        // closing immediately hid every failure (nothing happened, no error).
+        // Handed off to AgentAppImportToast (see the URL import button).
         setImportError(null)
         send('agent_app_import', { source: result.path, name: result.name || zipName })
+        setImporting(false)
+        onCloseRef.current()
         return
       }
       setImportError(result.error || t('components:createAgentApp.uploadFailed'))
@@ -125,6 +126,18 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
       setImportError(t('components:createAgentApp.uploadFailedDetail', { message: err instanceof Error ? err.message : String(err) }))
     }
     setImporting(false)
+  }
+
+  // The catalog is cached for the modal's lifetime, but a disconnect (e.g. a
+  // backend update) makes the next marketplace view refetch it.
+  const catalogStaleRef = useRef(false)
+  useEffect(() => {
+    if (!isConnected) catalogStaleRef.current = true
+  }, [isConnected])
+  const fetchCatalogIfNeeded = () => {
+    if (apps.length > 0 && !catalogStaleRef.current) return
+    catalogStaleRef.current = false
+    fetchMarketplace()
   }
 
   // Reset form fields on open — intentionally NOT resetting installingIds/completedIds
@@ -138,16 +151,16 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
       // isConnected matters: opening straight onto the marketplace tab before
       // the websocket is up would send the request into a closed socket. The
       // effect below re-fires once the connection comes up.
-      if (activeTab === 'marketplace' && apps.length === 0 && isConnected) {
-        fetchMarketplace()
+      if (activeTab === 'marketplace' && isConnected) {
+        fetchCatalogIfNeeded()
       }
     }
   }, [isOpen])
 
   // Fetch marketplace when tab changes
   useEffect(() => {
-    if (isOpen && activeTab === 'marketplace' && apps.length === 0 && isConnected) {
-      fetchMarketplace()
+    if (isOpen && activeTab === 'marketplace' && isConnected) {
+      fetchCatalogIfNeeded()
     }
   }, [activeTab, isConnected])
 
@@ -172,6 +185,10 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
         }
       }),
       onMessage('agent_app_import_result', (data: any) => {
+        // The modal has usually closed by now — AgentAppImportToast owns
+        // telling the user how it went. All that is left here is the
+        // navigation on success, and restoring the inline error for the
+        // case where the modal is somehow still open.
         setImporting(false)
         if (data.success) {
           setImportSource('')
@@ -635,15 +652,20 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
                 icon={importing ? <Loader2 size={16} className={styles.spinner} /> : <FolderInput size={16} />}
                 disabled={!importSource.trim() || importing}
                 onClick={() => {
-                  // Stay open until agent_app_import_result: closing right
-                  // after send() hid every failure — the first live test
-                  // read as "I paste the path and nothing happens".
-                  setImporting(true)
+                  // Close NOW and let AgentAppImportToast carry it. Holding
+                  // this modal open until agent_app_import_result was the old
+                  // way of not hiding failures, but an import can run for
+                  // minutes (odoo/odoo: ~300MB, ~58k files) and a modal
+                  // parked over the whole app for that long is its own bug.
+                  // The root-level toast reports progress AND the failure,
+                  // so nothing is hidden by closing.
                   setImportError(null)
                   send('agent_app_import', {
                     source: importSource.trim(),
                     name: importSource.trim().split('/').pop()?.replace('.git', '') || t('components:createAgentApp.externalAppName'),
                   })
+                  setImportSource('')
+                  onCloseRef.current()
                 }}
               >
                 {importing ? t('common:status.importing') : t('components:createAgentApp.importButton')}

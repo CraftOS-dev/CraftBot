@@ -146,6 +146,10 @@ _FALLBACK_BODY_BY_CATEGORY: Dict[ErrorCategory, str] = {
     ErrorCategory.QUOTA: "quota exceeded",
     ErrorCategory.MODEL: "the selected model is not available",
     ErrorCategory.BAD_REQUEST: "the request was rejected",
+    ErrorCategory.CONTEXT_OVERFLOW: "the request exceeded the model's context window",
+    ErrorCategory.CONTEXT_OVERFLOW: "the request exceeded the model's context window",
+    ErrorCategory.CONTEXT_OVERFLOW: "the request exceeded the model's context window",
+    ErrorCategory.CONTEXT_OVERFLOW: "the request exceeded the model's context window",
     ErrorCategory.BLOCKED: "blocked by the provider's safety filter",
     ErrorCategory.SERVER: "the provider is unavailable",
     ErrorCategory.CONNECTION: "unable to reach the provider",
@@ -381,7 +385,7 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
         elif code == "rate_limit_exceeded":
             category = ErrorCategory.RATE_LIMIT
         elif code == "context_length_exceeded":
-            category = ErrorCategory.BAD_REQUEST
+            category = ErrorCategory.CONTEXT_OVERFLOW
         elif code in ("model_not_found", "invalid_model"):
             category = ErrorCategory.MODEL
         elif code == "invalid_api_key":

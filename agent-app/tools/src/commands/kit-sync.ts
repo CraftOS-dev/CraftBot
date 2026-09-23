@@ -1,5 +1,5 @@
 /**
- * lui kit-sync <project> — re-vendor the kit (wholesale replace).
+ * agent-app kit-sync <project> — re-vendor the kit (wholesale replace).
  * Used by hosts on launch (auto for patch/minor) and opt-in externally (D8).
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { log } from '../lib/log.ts';
 export async function run(args: string[]): Promise<number> {
   const projectDir = args[0];
   if (projectDir === undefined || !existsSync(join(projectDir, 'manifest.json'))) {
-    log.error('Usage: lui kit-sync <project-dir>   (must contain manifest.json)');
+    log.error('Usage: agent-app kit-sync <project-dir>   (must contain manifest.json)');
     return 1;
   }
 

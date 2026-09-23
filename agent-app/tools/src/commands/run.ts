@@ -1,5 +1,5 @@
 /**
- * lui run <project-dir> <op-name> [--param value ...]
+ * agent-app run <project-dir> <op-name> [--param value ...]
  * Execute a declared operation against the RUNNING app (spec O2 executors).
  */
 import { log } from '../lib/log.ts';
@@ -26,13 +26,13 @@ export async function run(args: string[]): Promise<number> {
   const positional = args.filter((a, i) => !a.startsWith('--') && (i === 0 || !(args[i - 1] ?? '').startsWith('--')));
   const [dirArg, opName] = positional;
   if (dirArg === undefined || opName === undefined) {
-    log.error('Usage: lui run <project-dir> <op-name> [--param value ...]');
+    log.error('Usage: agent-app run <project-dir> <op-name> [--param value ...]');
     return 1;
   }
   const project = loadProject(dirArg);
   const op: Operation | undefined = loadOps(project).find((o) => o.name === opName);
   if (op === undefined) {
-    log.error(`Unknown op "${opName}". Try: lui ops ${dirArg}`);
+    log.error(`Unknown op "${opName}". Try: agent-app ops ${dirArg}`);
     return 1;
   }
 
@@ -68,7 +68,7 @@ export async function run(args: string[]): Promise<number> {
       log.raw(res.body);
       return res.status < 300 ? 0 : 1;
     }
-    log.error(`crud action "${action}" not supported via run — use: lui data ${dirArg} ${collection} ...`);
+    log.error(`crud action "${action}" not supported via run — use: agent-app data ${dirArg} ${collection} ...`);
     return 1;
   }
   log.error(`Unsupported executor type: ${exec.type}`);

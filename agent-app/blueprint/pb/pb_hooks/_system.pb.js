@@ -25,14 +25,15 @@
  * preflight for a destructive route is no longer approved. Direct clients
  * (curl, the CLI, an agent) are unaffected — they were never the threat.
  *
- * Policy: loopback origins, PLUS the one public origin the host publishes in
- * `<project>/.tunnel-origin` while the user is deliberately sharing this app
- * (AgentAppManager.start_tunnel writes it, stop_tunnel deletes it). Loopback
- * alone did not make sharing safe, it made it impossible: browsers send
- * `Origin` on same-origin writes too, so through a tunnel the app LOADED (a
- * GET carries no Origin) and then answered 403 to every save. The file is read
- * per request, so the grant lasts exactly as long as the tunnel does and needs
- * no app restart at either end — and with no tunnel up, the policy is
+ * Policy: loopback origins, PLUS the origin of each channel the host is
+ * deliberately sharing this app on — `<project>/.tunnel-origin` (public link)
+ * and `<project>/.lan-origin` (private LAN link), written when the channel
+ * opens and deleted when it closes (CraftBot's sharing.py). Loopback alone
+ * did not make sharing safe, it made it impossible: browsers send `Origin` on
+ * same-origin writes too, so through a share the app LOADED (a GET carries no
+ * Origin) and then answered 403 to every save. The files are read per
+ * request, so a grant lasts exactly as long as its channel and needs no app
+ * restart at either end — and with nothing shared, the policy is
  * loopback-only, exactly as before.
  *
  * NOTE FOR EDITORS: hook callbacks run in isolated VMs that CANNOT see this
@@ -42,19 +43,9 @@
  */
 
 routerUse((e) => {
-  // Inlined per the NOTE above — callbacks cannot see this file's scope, and
-  // cannot see each other's either, so this lives once per callback that needs
-  // it. Called late, so only a NON-loopback origin ever costs a file read.
+  // Called late, so only a NON-loopback origin ever costs the share-file reads.
   function isSharedOrigin(candidate) {
-    var shared = '';
-    try {
-      shared = toString(
-        $os.readFile($filepath.join(__hooks, '..', '..', '.tunnel-origin'))
-      ).trim();
-    } catch {
-      return false; // no file = not sharing = loopback only
-    }
-    return shared !== '' && candidate.toLowerCase() === shared.toLowerCase();
+    return require(`${__hooks}/_a2app_lib.js`).isSharedOrigin(candidate);
   }
 
   // Must run BEFORE e.next(): headers are flushed with the first body byte, so
@@ -76,6 +67,34 @@ routerUse((e) => {
     'Content-Security-Policy',
     "frame-ancestors 'self' http://127.0.0.1:* http://localhost:*"
   );
+
+  // THE SPA ENTRY MUST NEVER BE CACHED. index.html references content-hashed
+  // assets that change on every deploy, but PocketBase serves it with no
+  // Cache-Control at all, so browsers heuristically cache it — after a
+  // promote, open tabs and CraftBot's app iframe kept rendering the previous
+  // build byte-for-byte (observed live 2026-09-08, clock 72371f3d: the
+  // server provably served the new bundle while every warm-cache browser
+  // showed the old app; a hard refresh of the HOST page does not bypass the
+  // cache for iframe navigations). Content-hashed /assets/ stay cacheable —
+  // their names change with their bytes. Runs before the origin branches:
+  // same-origin iframe loads carry no Origin header and must still get this.
+  var reqPath = '';
+  try {
+    reqPath = String((e.request.url && e.request.url.path) || '');
+  } catch {
+    reqPath = '';
+  }
+  if (
+    reqPath.indexOf('/api/') !== 0 &&
+    reqPath.indexOf('/assets/') !== 0 &&
+    reqPath.indexOf('/_/') !== 0 &&
+    (reqPath === '/' || reqPath.indexOf('.') === -1 || /\.html?$/i.test(reqPath))
+  ) {
+    headers.set('Cache-Control', 'no-store');
+    // The page that boots the UI hands it its session (local ingress only);
+    // see CALLER AUTH below.
+    require(`${__hooks}/_a2app_lib.js`).issueLocalSession(e);
+  }
 
   if (origin === '') return e.next(); // not a browser cross-origin request
 
@@ -109,8 +128,8 @@ routerUse((e) => {
       ok: false,
       error: 'forbidden origin: ' + origin,
       hint:
-        'This app accepts writes from loopback origins, and from the shared ' +
-        'origin in .tunnel-origin while sharing is switched on.',
+        'This app accepts writes from loopback origins, and from the origin ' +
+        'of each share link (public or LAN) while that link is switched on.',
     });
   }
   return e.next();
@@ -177,63 +196,27 @@ routerUse((e) => {
 });
 
 /**
- * AGENT TOKEN (spec A2APP-PLAN Phase 2 C4).
+ * CALLER AUTH (spec A2APP-PLAN Phase 2 C4) — logic in _a2app_lib.js
+ * (authorizeCaller), shared rule-for-rule with CraftBot's external-app proxy.
  *
- * A non-browser client that writes must present the project's agent token.
- * The app's own frontend does not need it: browsers always send `Origin` on a
- * write, and a loopback `Origin` is already trusted by the guard above. So the
- * rule is precisely "programmatic callers carry a credential", which is what
- * makes handing access to a third-party agent a deliberate act.
+ * Every write carries a credential, whatever its Origin: the agent token
+ * (programs), the UI session cookie (the app's own frontend — issued with the
+ * page locally, and only for the share link's secret through a tunnel), or a
+ * signed-in principal. The origin guard above is a SEPARATE check: it decides
+ * which pages may talk to the app, never who the caller is. Trusting a
+ * loopback `Origin` as a credential was a bypass — tunnel traffic arrives
+ * over loopback and can send any Origin it likes.
  *
  * Not a defence against local processes — anything running as this user can
- * read the 0600 file. That is the correct model for a loopback app (Home
- * Assistant and Obsidian's local API work the same way); what it buys is a
- * real credential to hand out, and the precondition for tightening collection
- * rules and for remote access later.
+ * read the 0600 token file. That is the correct model for a loopback app
+ * (Home Assistant and Obsidian's local API work the same way); what it buys is
+ * a real credential to hand out, and a tunnel that only admits link holders.
  */
 routerUse((e) => {
-  var method = '';
-  var path = '';
-  var origin = '';
-  try {
-    method = String(e.request.method || '').toUpperCase();
-    path = String((e.request.url && e.request.url.path) || '');
-    origin = String(e.request.header.get('Origin') || '');
-  } catch {
-    return e.next();
-  }
-  if (method !== 'POST' && method !== 'PATCH' && method !== 'PUT' && method !== 'DELETE') {
-    return e.next();
-  }
-  if (path.indexOf('/api/collections/') !== 0 && path.indexOf('/api/ops/') !== 0) {
-    return e.next();
-  }
-  // Browser traffic: already constrained to loopback origins by the guard.
-  if (origin !== '') return e.next();
-  // PocketBase's own auth flows must stay reachable (sign-in, refresh).
-  if (path.indexOf('/auth-') > 0 || path.indexOf('/request-') > 0) return e.next();
-
-  var expected = '';
-  try {
-    expected = toString($os.readFile($filepath.join(__hooks, '..', '..', '.agent-token'))).trim();
-  } catch {
-    expected = '';
-  }
-  if (expected === '') return e.next(); // no token provisioned — do not lock the app out
-
-  var presented = '';
-  try {
-    presented = String(e.request.header.get('X-LUI-Token') || '').trim();
-  } catch {
-    presented = '';
-  }
-  if (presented !== expected) {
-    return e.json(401, {
-      ok: false,
-      error: 'agent token required',
-      hint: 'Send X-LUI-Token: <contents of the project .agent-token file> on writes.',
-    });
-  }
+  const a2 = require(`${__hooks}/_a2app_lib.js`);
+  if (a2.handleShareExchange(e)) return;
+  const denied = a2.authorizeCaller(e);
+  if (denied) return e.json(denied.status, denied.body);
   return e.next();
 });
 
@@ -290,16 +273,8 @@ routerAdd('POST', '/api/_console', (e) => {
     origin = '';
   }
   if (origin !== '' && !ALLOWED_ORIGIN.test(origin)) {
-    // Read late: only a NON-loopback origin ever costs a file read.
-    let sharedOrigin = '';
-    try {
-      sharedOrigin = toString(
-        $os.readFile($filepath.join(__hooks, '..', '..', '.tunnel-origin'))
-      ).trim();
-    } catch {
-      sharedOrigin = '';
-    }
-    if (sharedOrigin === '' || origin.toLowerCase() !== sharedOrigin.toLowerCase()) {
+    // Checked late: only a NON-loopback origin ever costs the share-file reads.
+    if (!require(`${__hooks}/_a2app_lib.js`).isSharedOrigin(origin)) {
       return e.json(403, { ok: false, error: 'forbidden origin' });
     }
   }
@@ -331,7 +306,7 @@ routerAdd('POST', '/api/_console', (e) => {
 
 /**
  * COVERAGE TIMELINE (scoped walk-verify, docs/design/scoped-walk-verify.md).
- * The DEV build (LUI_COVERAGE=1) is istanbul-instrumented; the kit's
+ * The DEV build (AGENT_APP_COVERAGE=1) is istanbul-instrumented; the kit's
  * CoverageRelay posts function-hit DELTAS here every 2s, and the verifier
  * posts a feature MARK before exercising each feature. Interleaved, the two
  * make logs/coverage.jsonl a timeline the host folds into feature → executed

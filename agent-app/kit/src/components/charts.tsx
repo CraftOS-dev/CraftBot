@@ -20,7 +20,7 @@ export function Sparkline({
   values,
   width = 120,
   height = 32,
-  color = 'var(--lui-accent)',
+  color = 'var(--agent-app-accent)',
   className,
 }: SparklineProps): React.JSX.Element | null {
   if (values.length < 2) return null;
@@ -74,7 +74,7 @@ export interface MiniBarChartProps {
 export function MiniBarChart({
   data,
   height = 96,
-  color = 'var(--lui-accent)',
+  color = 'var(--agent-app-accent)',
   className,
 }: MiniBarChartProps): React.JSX.Element | null {
   if (data.length === 0) return null;
@@ -87,15 +87,15 @@ export function MiniBarChart({
           title={`${d.label}: ${d.value}`}
           className="flex min-w-0 flex-1 flex-col items-center gap-1"
         >
-          <span className="text-xs text-[var(--lui-muted)]">{d.value}</span>
+          <span className="text-xs text-[var(--agent-app-muted)]">{d.value}</span>
           <div
-            className="w-full rounded-t-[var(--lui-radius)] transition-all"
+            className="w-full rounded-t-[var(--agent-app-radius)] transition-all"
             style={{
               height: Math.max(2, (d.value / max) * height),
               backgroundColor: d.color ?? color,
             }}
           />
-          <span className="max-w-full truncate text-xs text-[var(--lui-muted)]">{d.label}</span>
+          <span className="max-w-full truncate text-xs text-[var(--agent-app-muted)]">{d.label}</span>
         </div>
       ))}
     </div>

@@ -74,11 +74,12 @@ async def walk_mark_feature(input_data: dict) -> dict:
             return {"status": "error", "message": f"Unknown project: {project_id}"}
         base = None
         try:
-            from app.factory.host_craftbot import get_factory_host as _gfh
+            from app.agent_app.instances import get_instance_registry
 
-            record = _gfh().get_staging_record(project_id)
-            if record and record.get("url"):
-                base = str(record["url"]).rstrip("/")
+            _registry = get_instance_registry()
+            _dev = _registry.shadow(project_id) if _registry is not None else None
+            if _dev is not None:
+                base = _dev.url.rstrip("/")
         except Exception:
             base = None
         if base is None:

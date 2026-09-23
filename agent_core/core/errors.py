@@ -34,7 +34,8 @@ class ErrorCategory(str, Enum):
     RATE_LIMIT = "rate_limit"  # 429 — transient
     QUOTA = "quota"  # 429 + monthly/account scope (separable from per-min)
     MODEL = "model"  # 404, "model_not_found"
-    BAD_REQUEST = "bad_request"  # 400 — request malformed (context overflow, etc.)
+    BAD_REQUEST = "bad_request"  # 400 — request malformed
+    CONTEXT_OVERFLOW = "context_overflow"  # request exceeds the model's context window
     BLOCKED = "blocked"  # safety filter (Gemini/Anthropic)
     SERVER = "server"  # 5xx, "overloaded_error"
     CONNECTION = "connection"  # network / timeout / DNS

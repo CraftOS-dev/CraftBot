@@ -53,7 +53,7 @@ export function ConfirmDialog({
         </>
       }
     >
-      <p className="text-sm text-[var(--lui-muted)]">{message}</p>
+      <p className="text-sm text-[var(--agent-app-muted)]">{message}</p>
     </Dialog>
   );
 }

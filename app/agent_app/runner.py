@@ -22,6 +22,7 @@ from typing import Optional
 
 from app import node_runtime
 from app.node_runtime import MIN_NODE_MAJOR
+from app.process_ledger import ROLE_AGENT_APP, get_ledger
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ GATE_TIMEOUT_S = 600
 INSTALL_TIMEOUT_S = 600
 HEALTH_TIMEOUT_S = 30
 
-# Node resolution: app/node_runtime.py. The lui CLI is the strictest
+# Node resolution: app/node_runtime.py. The agent-app CLI is the strictest
 # consumer — TypeScript run by native type stripping, >= 24 or
 # ERR_UNKNOWN_FILE_EXTENSION (observed 2026-08-19, system Node 22.14).
 
@@ -46,6 +47,9 @@ class V2ScaffoldResult:
 class V2GateResult:
     passed: bool
     output: str
+    # SHADOW gates (out_root set) build to a content-addressed artifact dir;
+    # the booted instance serves it via --publicDir. None for live gates.
+    artifact: Optional[Path] = None
 
 
 class AgentAppRunnerUnavailable(RuntimeError):
@@ -95,7 +99,7 @@ class AgentAppRunner:
                 path_version = node_runtime.probe_version(path_node)
                 hint = (
                     f" (PATH has {path_version or 'an unprobeable node'} at "
-                    f"{path_node}, which the lui CLI — TypeScript run by "
+                    f"{path_node}, which the agent-app CLI — TypeScript run by "
                     "Node's native type stripping — cannot load; it is left "
                     "untouched)"
                 )
@@ -182,7 +186,7 @@ class AgentAppRunner:
         folder: Optional[str] = None,
         style: Optional[str] = None,
     ) -> V2ScaffoldResult:
-        """Scaffold via `lui create --json` (copies blueprint, vendors kit,
+        """Scaffold via `agent-app create --json` (copies blueprint, vendors kit,
         substitutes placeholders, bootstraps superuser, canonizes hashes)."""
         self.ensure_available()
         args = [
@@ -242,33 +246,40 @@ class AgentAppRunner:
         if code != 0:
             raise RuntimeError(f"npm install failed:\n{out[-4000:]}")
 
-    async def gate(self, project_dir: Path) -> V2GateResult:
+    async def gate(
+        self,
+        project_dir: Path,
+        *,
+        coverage: bool = False,
+        out_root: Optional[Path] = None,
+    ) -> V2GateResult:
         """Run the validation gate; output is the machine-readable error list.
 
-        A DEV copy (manifest env == "dev") builds with LUI_COVERAGE=1: the
-        blueprint's vite config then instruments the bundle so the walk-verify
-        can record which code each feature runs through (scoped verify
-        Phase 2). Live builds never see the flag - bundles stay identical."""
+        SHADOW gates pass `out_root`: the frontend builds into a
+        content-addressed artifact under it (reused when inputs are
+        unchanged) and pb/pb_public is never written — the served live
+        build only changes at promote. `coverage` builds with AGENT_APP_COVERAGE=1
+        so walk-verify can record which code each feature runs through
+        (scoped verify); live builds never see the flag, bundles stay
+        identical."""
         self.ensure_available()
-        env_extra = {"LUI_COVERAGE": "1"} if self._is_dev_copy(project_dir) else None
+        args = ["validate", str(project_dir)]
+        if out_root is not None:
+            args += ["--outRoot", str(out_root)]
         code, out = await self._run(
-            self._cli("validate", str(project_dir)),
+            self._cli(*args),
             timeout=GATE_TIMEOUT_S,
-            env_extra=env_extra,
+            # TODO(lui-compat): older apps' vite.config reads LUI_COVERAGE; set
+            # both until every app is rebuilt against AGENT_APP_COVERAGE.
+            env_extra=(
+                {"AGENT_APP_COVERAGE": "1", "LUI_COVERAGE": "1"} if coverage else None
+            ),
         )
-        return V2GateResult(passed=code == 0, output=out)
-
-    @staticmethod
-    def _is_dev_copy(project_dir: Path) -> bool:
-        try:
-            import json as _json
-
-            manifest = _json.loads(
-                (Path(project_dir) / "manifest.json").read_text(encoding="utf-8")
-            )
-            return manifest.get("env") == "dev"
-        except Exception:
-            return False
+        artifact: Optional[Path] = None
+        for line in out.splitlines():
+            if line.startswith("ARTIFACT "):
+                artifact = Path(line[len("ARTIFACT ") :].strip())
+        return V2GateResult(passed=code == 0, output=out, artifact=artifact)
 
     async def kit_sync(self, project_dir: Path) -> None:
         """Re-vendor the kit and re-canonize system-file hashes (used after
@@ -319,12 +330,14 @@ class AgentAppRunner:
             raise RuntimeError(f"could not resolve PocketBase binary:\n{out}")
         return Path(out.strip().splitlines()[-1])
 
-    async def ensure_superuser(self, project_dir: Path) -> None:
+    async def ensure_superuser(
+        self, project_dir: Path, data_dir: Optional[Path] = None
+    ) -> None:
         """Guarantee the project's PocketBase has a machine superuser.
 
         Without one, PocketBase treats the first `serve` as an install and
         POPS OPEN ITS SETUP/LOGIN PAGE IN THE USER'S BROWSER — jarring, and
-        it exposes an admin console the user never asked for. `lui create`
+        it exposes an admin console the user never asked for. `agent-app create`
         bootstraps this for scaffolded projects, but marketplace installs
         and ZIP imports skip that path, and a wiped pb_data loses it, so
         (re)assert it on every launch. `superuser upsert` is idempotent.
@@ -340,7 +353,7 @@ class AgentAppRunner:
         cred_file = project_dir / ".superuser"
 
         creds = read_superuser_creds(project_dir)
-        email = creds[0] if creds else "agent@lui.local"
+        email = creds[0] if creds else "agent@agent-app.local"
         password = creds[1] if creds else secrets.token_urlsafe(18)
 
         code, out = await self._run(
@@ -351,7 +364,7 @@ class AgentAppRunner:
                 email,
                 password,
                 "--dir",
-                str(pb_dir / "pb_data"),
+                str(data_dir if data_dir is not None else pb_dir / "pb_data"),
                 "--migrationsDir",
                 str(pb_dir / "pb_migrations"),
                 "--hooksDir",
@@ -383,7 +396,7 @@ class AgentAppRunner:
     def ensure_agent_token(self, project_dir: Path) -> str:
         """Guarantee the project has an agent token, and return it.
 
-        This is the credential a NON-BROWSER client presents to write: the lui
+        This is the credential a NON-BROWSER client presents to write: the agent-app
         CLI, CraftBot, or a third-party agent (spec A2APP-PLAN Phase 2 C4).
 
         Threat model, stated plainly: the file is 0600 but any local process
@@ -415,19 +428,35 @@ class AgentAppRunner:
         return token
 
     async def start(
-        self, project_dir: Path, port: int, bridge_token: str = ""
+        self,
+        project_dir: Path,
+        port: int,
+        bridge_token: str = "",
+        *,
+        data_dir: Optional[Path] = None,
+        public_dir: Optional[Path] = None,
+        log_dir: Optional[Path] = None,
+        app_env: str = "live",
     ) -> subprocess.Popen:
-        """Start the single production process: PocketBase serving app + API."""
+        """Start ONE PocketBase process serving app + API.
+
+        Environments are just three redirected inputs on the SAME code tree:
+        LIVE = defaults (pb/pb_data, pb/pb_public, assigned port); SHADOW =
+        fresh data dir, content-addressed build artifact, hidden port.
+        Nothing in the tree is copied or rewritten to create an environment —
+        identity travels in CRAFTBOT_APP_ENV."""
         pb_bin = await self.pb_binary()
         pb_dir = project_dir / "pb"
+        effective_data = data_dir if data_dir is not None else pb_dir / "pb_data"
+        effective_public = public_dir if public_dir is not None else pb_dir / "pb_public"
         # Must happen BEFORE serve, or PocketBase opens its setup page.
-        await self.ensure_superuser(project_dir)
+        await self.ensure_superuser(project_dir, data_dir=effective_data)
         # The credential non-browser clients present to write (Phase 2 C4).
         self.ensure_agent_token(project_dir)
         # Upgrade the in-app A2APP layer. This is the ONLY path that reaches an
         # app the user already had — install and import cover new arrivals only.
         await self.adapter_sync(project_dir)
-        logs_dir = project_dir / "logs"
+        logs_dir = log_dir if log_dir is not None else project_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = open(logs_dir / "pocketbase.log", "a")
 
@@ -448,43 +477,48 @@ class AgentAppRunner:
                 "[AGENT_APP] no bridge token provided; AI features will be unavailable"
             )
 
+        # Environment identity for hooks/adapter (A2App reports env=shadow so
+        # any client can structurally confirm which instance a port belongs to).
+        env["CRAFTBOT_APP_ENV"] = app_env
+        env["CRAFTBOT_APP_PORT"] = str(port)
+
         process = subprocess.Popen(
             [
                 str(pb_bin),
                 "serve",
                 f"--http=127.0.0.1:{port}",
                 "--dir",
-                str(pb_dir / "pb_data"),
+                str(effective_data),
                 "--hooksDir",
                 str(pb_dir / "pb_hooks"),
                 "--migrationsDir",
                 str(pb_dir / "pb_migrations"),
                 "--publicDir",
-                str(pb_dir / "pb_public"),
+                str(effective_public),
+                # Hooks are shared by LIVE and SHADOW (they ARE the candidate
+                # code); the live process must never hot-load an edit before
+                # it is verified. No effect on Windows per PB docs — pinned
+                # anyway so the invariant holds on every platform.
+                "--hooksWatch=false",
             ],
             env=env,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
-        logger.info(f"[AGENT_APP] started PocketBase pid={process.pid} port={port}")
-        return process
-
-    async def verify(self, project_dir: Path, url: str) -> "tuple[str, str]":
-        """Headless smoke verification of the running app (walk-verify core).
-
-        Returns (status, detail) where status is 'pass' | 'fail' | 'skipped'.
-        Skipped (no browser installed) must not block a launch.
-        """
-        code, out = await self._run(
-            self._cli("verify", str(project_dir), "--url", url), timeout=120
+        # Recorded so cleanup can later kill exactly this process (and a
+        # restart can reap it) without guessing from the port.
+        get_ledger().register(
+            process.pid,
+            ROLE_AGENT_APP,
+            owner=project_dir.name,
+            label=f"pocketbase {app_env} :{port}",
         )
-        detail = out.strip().splitlines()[-1] if out.strip() else "{}"
-        if code == 0:
-            return "pass", detail
-        if code == 2:
-            return "skipped", detail
-        return "fail", detail
+        logger.info(
+            f"[AGENT_APP] started PocketBase pid={process.pid} port={port} "
+            f"env={app_env}"
+        )
+        return process
 
     async def wait_healthy(self, port: int, timeout: int = HEALTH_TIMEOUT_S) -> bool:
         """Poll /api/health until 200 or timeout."""

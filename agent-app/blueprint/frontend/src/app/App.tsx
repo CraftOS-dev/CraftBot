@@ -87,7 +87,7 @@ export function App(): React.JSX.Element {
         </CardContent>
         <CardContent className="p-0">
           {loading ? (
-            <p className="px-6 py-10 text-center text-sm text-[var(--lui-muted)]">Loading…</p>
+            <p className="px-6 py-10 text-center text-sm text-[var(--agent-app-muted)]">Loading…</p>
           ) : error !== null ? (
             <p className="px-6 py-10 text-center text-sm text-red-500">{error}</p>
           ) : (

@@ -1,5 +1,5 @@
 /**
- * lui dev <project> — development mode: PocketBase (backend, hooks, data) +
+ * agent-app dev <project> — development mode: PocketBase (backend, hooks, data) +
  * Vite dev server (HMR frontend) pointing at it. Ctrl+C stops both.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -12,7 +12,7 @@ import { ensurePbBinary } from './pb.ts';
 export async function run(args: string[]): Promise<number> {
   const projectDir = args[0];
   if (projectDir === undefined || !existsSync(join(projectDir, 'manifest.json'))) {
-    log.error('Usage: lui dev <project-dir>   (must contain manifest.json)');
+    log.error('Usage: agent-app dev <project-dir>   (must contain manifest.json)');
     return 1;
   }
 
@@ -70,6 +70,9 @@ export async function run(args: string[]): Promise<number> {
     env: {
       ...process.env,
       VITE_PB_URL: `http://127.0.0.1:${pbPort}`,
+      AGENT_APP_DEV_PORT: String(vitePort),
+      // TODO(lui-compat): older apps' vite.config reads LUI_DEV_PORT. Emit both
+      // until every app is rebuilt against AGENT_APP_DEV_PORT.
       LUI_DEV_PORT: String(vitePort),
     },
   });

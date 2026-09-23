@@ -6,7 +6,7 @@ from agent_core import action
     description="Write or overwrite a text file with the provided content. Creates parent directories if they don't exist.",
     mode="CLI",
     action_sets=["core"],
-    parallelizable=False,
+    parallelizable=True,
     input_schema={
         "file_path": {
             "type": "string",
@@ -51,6 +51,8 @@ from agent_core import action
 def write_file(input_data: dict) -> dict:
     import os
 
+    from app.utils.file_locks import get_file_lock
+
     simulated_mode = input_data.get("simulated_mode", False)
 
     if simulated_mode:
@@ -81,21 +83,24 @@ def write_file(input_data: dict) -> dict:
             "message": "mode must be 'overwrite' or 'append'.",
         }
 
+    lock = get_file_lock(file_path)
+
     try:
-        # Create parent directories if needed
-        parent_dir = os.path.dirname(file_path)
-        if parent_dir:
-            os.makedirs(parent_dir, exist_ok=True)
+        with lock:
+            # Create parent directories if needed
+            parent_dir = os.path.dirname(file_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
 
-        file_mode = "w" if write_mode == "overwrite" else "a"
-        with open(file_path, file_mode, encoding=encoding) as f:
-            bytes_written = f.write(content)
+            file_mode = "w" if write_mode == "overwrite" else "a"
+            with open(file_path, file_mode, encoding=encoding) as f:
+                bytes_written = f.write(content)
 
-        return {
-            "status": "success",
-            "file_path": file_path,
-            "bytes_written": bytes_written,
-        }
+            return {
+                "status": "success",
+                "file_path": file_path,
+                "bytes_written": bytes_written,
+            }
     except Exception as e:
         return {
             "status": "error",

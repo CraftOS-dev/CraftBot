@@ -22,6 +22,8 @@ from agent_core.core.impl.mcp import (
     SSETransport,
     WebSocketTransport,
     get_client_info,
+    set_default_stdio_cwd,
+    get_default_stdio_cwd,
     DEFAULT_CONFIG_PATH,
 )
 
@@ -38,6 +40,8 @@ __all__ = [
     "MCPServerConnection",
     "set_mcp_client_info",
     "get_client_info",
+    "set_default_stdio_cwd",
+    "get_default_stdio_cwd",
     # Client
     "MCPClient",
     "mcp_client",

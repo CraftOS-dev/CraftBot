@@ -1,0 +1,47 @@
+/*
+ * Kit global base layer (spec K3). Loaded via tokens.css so every app inherits
+ * it. Only safe, token-driven, non-conflicting globals live here: the app font,
+ * text smoothing, selection color, themed scrollbars. The body rule sits in
+ * @layer base so component/utility classes always win and never fight the kit
+ * components; the scrollbar/selection rules target pseudo-elements only.
+ *
+ * Everything reads --agent-app-* tokens, so light/dark and every style pack keep
+ * working with no per-theme rules here.
+ */
+
+@layer base {
+  body {
+    font-family: var(--agent-app-font, system-ui, -apple-system, sans-serif);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--agent-app-accent) 26%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--agent-app-border) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--agent-app-border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--agent-app-muted);
+}

@@ -1,6 +1,8 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import { createSlice, current, isDraft, PayloadAction } from '@reduxjs/toolkit'
+import { setConnected } from './connectionSlice'
 import type {
   AgentAppProject,
+  AgentAppStatus,
   AgentAppStatusUpdate,
   AgentAppStateUpdate,
   AgentAppListResponse,
@@ -12,6 +14,7 @@ import type {
 } from '../../types'
 import { register } from '../socket/messageRegistry'
 import { getSocketClient } from '../socket/socketInstance'
+import { findIndexInDraft } from './draftSearch'
 
 // Local types — these aren't in src/types but the backend sends them.
 // Shape mirrors the agent's todo tool: content is the imperative label,
@@ -44,9 +47,22 @@ interface AgentAppState {
   snapshots: Record<string, AgentAppSnapshot>
   activeId: string | null
   states: Record<string, AgentAppStateUpdate['state']>
+  // True until the first project list after a (re)connect replaces the
+  // projects wholesale (see setProjects).
+  listIsAuthoritative: boolean
+}
+
+// Statuses the browser learns from live events, not from the saved list.
+const IN_FLIGHT_STATUSES = new Set<AgentAppStatus>(['creating', 'launching', 'stopping'])
+
+// Whether the saved server status ends an in-flight one.
+function settlesInFlight(inFlight: AgentAppStatus, server: AgentAppStatus): boolean {
+  if (server === 'error') return true
+  return inFlight === 'stopping' ? server === 'stopped' : server === 'running'
 }
 
 const initialState: AgentAppState = {
+  listIsAuthoritative: true,
   projects: [],
   creating: null,
   todos: {},
@@ -61,19 +77,41 @@ const agentAppSlice = createSlice({
   initialState,
   reducers: {
     setProjects(state, action: PayloadAction<AgentAppProject[]>) {
-      state.projects = action.payload
+      // The list is the server's saved state, which says "stopped" until a
+      // build or launch actually finishes; the in-flight state is only known
+      // from live events. A refetch mid-launch (any tab's change triggers
+      // one) must not flip the page to "not running", so in-flight states
+      // stay until their own event (ready, error, launch/stop reply) settles
+      // them. The first list after a (re)connect is taken as-is: events may
+      // have been missed while disconnected.
+      if (state.listIsAuthoritative) {
+        state.projects = action.payload
+        state.listIsAuthoritative = false
+        return
+      }
+      const inFlight = new Map(
+        state.projects.filter(p => IN_FLIGHT_STATUSES.has(p.status)).map(p => [p.id, p.status]),
+      )
+      state.projects = action.payload.map(p => {
+        const live = inFlight.get(p.id)
+        return live && !settlesInFlight(live, p.status) ? { ...p, status: live } : p
+      })
     },
     addProject(state, action: PayloadAction<AgentAppProject>) {
       // Upsert by id: the import/marketplace flows first add a "creating"
       // placeholder, then re-broadcast the same id with real data once the
-      // import completes. Replacing in place keeps a single tab. Never
-      // downgrade a project that's already running.
+      // import completes. Replacing in place keeps a single tab. A running
+      // project keeps its live status and address (never downgraded by a late
+      // event) but still takes renames, icon changes and other fields.
       const incoming = action.payload
-      const idx = state.projects.findIndex(p => p.id === incoming.id)
+      const idx = findIndexInDraft(state.projects, p => p.id === incoming.id)
       if (idx === -1) {
         state.projects.push(incoming)
-      } else if (state.projects[idx].status !== 'running') {
-        state.projects[idx] = incoming
+      } else {
+        const existing = state.projects[idx]
+        state.projects[idx] = existing.status === 'running'
+          ? { ...incoming, status: existing.status, url: existing.url, port: existing.port, readyAt: existing.readyAt }
+          : incoming
       }
     },
     applyStatus(state, action: PayloadAction<AgentAppStatusUpdate>) {
@@ -94,7 +132,18 @@ const agentAppSlice = createSlice({
       delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
         p.id === projectId
-          ? { ...p, status: 'running', url, port, ...(sessionId ? { sessionId } : {}) }
+          ? {
+              ...p,
+              status: 'running',
+              url,
+              port,
+              // Every ready event stamps a fresh version: the app iframe keys
+              // its src on it, so a promote/relaunch forces a real fetch of
+              // index.html instead of the browser's heuristically-cached copy
+              // (which kept showing the previous build after deploys).
+              readyAt: Date.now(),
+              ...(sessionId ? { sessionId } : {}),
+            }
           : p,
       )
     },
@@ -103,7 +152,7 @@ const agentAppSlice = createSlice({
       delete state.buildEvents[projectId]
       delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
-        p.id === projectId ? { ...p, status: 'running', url, port } : p,
+        p.id === projectId ? { ...p, status: 'running', url, port, readyAt: Date.now() } : p,
       )
     },
     // Optimistic transition set the instant the user clicks Launch, so the UI
@@ -169,7 +218,9 @@ const agentAppSlice = createSlice({
       // Persist the authoritative snapshot the moment it arrives, so the chips
       // survive event eviction/pacing (they read this, not the feed).
       if (event.snapshot) state.snapshots[projectId] = event.snapshot
-      const list = state.buildEvents[projectId] ?? []
+      const stored = state.buildEvents[projectId]
+      // Plain array, so the dedupe scan and copy don't proxy every event.
+      const list = stored ? (isDraft(stored) ? current(stored) : stored) : []
       if (list.some(e => e.id === event.id)) return
       const next = [...list, event]
       state.buildEvents[projectId] =
@@ -205,6 +256,12 @@ const agentAppSlice = createSlice({
         p.id === projectId ? { ...p, status: 'error', error } : p,
       )
     },
+  },
+  extraReducers: (builder) => {
+    // Events may be missed while disconnected; trust the next list fully.
+    builder.addCase(setConnected, (state, action) => {
+      if (!action.payload) state.listIsAuthoritative = true
+    })
   },
 })
 
@@ -320,5 +377,3 @@ register('agent_app_error', (data, dispatch) => {
   dispatch(markError(data as { projectId: string; error: string }))
 })
 
-// `agent_app_data_changed` has no state — it just nudges the iframe pool to
-// reload. Handled in WebSocketContext where scheduleRefreshIframe is imported.

@@ -506,8 +506,8 @@ def test_every_provider_accepts_three_arg_make_listener():
         pass
 
     providers = default_providers()
-    # 10 full ports + 5 wave-1 + 6 wave-2 + 2 wave-3 bridges
-    assert len(providers) == 23
+    # 11 full ports + 5 wave-1 + 6 wave-2 + 2 wave-3 bridges
+    assert len(providers) == 24
     with_listeners = set()
     for provider in providers:
         listener = provider.make_listener(object(), None, emit)

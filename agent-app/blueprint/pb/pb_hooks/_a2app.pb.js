@@ -68,10 +68,13 @@ routerAdd('GET', '/api/_a2app', (e) => {
       agentAppVersion: manifest.agentAppVersion || null,
       kitVersion: manifest.kitVersion || null,
     },
-    // Which environment this instance IS: the dev provisioner stamps
-    // env:"dev" into its copy's manifest; anything else is the live app.
-    // Structural, so a client never has to guess which DB a port holds.
-    env: manifest.env === 'dev' ? 'dev' : 'live',
+    // Which environment this instance IS. Identity travels in the process
+    // env (the host boots shadow instances with CRAFTBOT_APP_ENV=shadow on
+    // the SAME code tree — nothing in the tree is rewritten per env).
+    // Reported as 'dev' for shadow: that is the wire value verifiers and
+    // walk tooling already speak. Structural, so a client never has to
+    // guess which DB a port holds.
+    env: $os.getenv('CRAFTBOT_APP_ENV') === 'shadow' ? 'dev' : 'live',
     schemaVersion: a2.schemaVersion(e.app),
     serverNow: a2.serverNowIso(),
     serverTzOffsetMinutes: -new Date().getTimezoneOffset(),

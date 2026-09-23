@@ -68,7 +68,7 @@ export function Toaster(): React.JSX.Element {
           type="button"
           onClick={() => store.dismiss(t.id)}
           className={cn(
-            'pointer-events-auto rounded-lg border bg-[var(--lui-surface)] px-4 py-3 text-left text-sm shadow-lg',
+            'pointer-events-auto rounded-lg border bg-[var(--agent-app-surface)] px-4 py-3 text-left text-sm shadow-lg',
             KIND_CLASSES[t.kind],
           )}
         >

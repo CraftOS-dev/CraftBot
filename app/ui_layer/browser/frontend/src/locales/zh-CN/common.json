@@ -76,6 +76,7 @@
     "quota": "配额",
     "model": "模型",
     "badRequest": "请求",
+    "contextOverflow": "超出上下文窗口",
     "blocked": "已拦截",
     "server": "服务不可用",
     "connection": "连接",

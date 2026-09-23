@@ -49,9 +49,11 @@ function callAction(actionName, params, options) {
         action: actionName,
         params: params || {},
         confirm_irreversible: !!(options && options.confirmIrreversible),
-        // dryRun: validate everything (grant, params, confirmation) WITHOUT
-        // executing — build-time verification of paths that must never fire
-        // for real (emails, posts, deletes).
+        // dryRun: validate the grant and the params WITHOUT executing —
+        // build-time verification of paths that must never fire for real
+        // (emails, posts, deletes). It does NOT check confirmIrreversible:
+        // nothing runs, so there is nothing to confirm. A real call still
+        // has to carry the flag.
         dry_run: !!(options && options.dryRun),
       }),
       headers: {

@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "Diubah di tempat lain",
+    "loadLatest": "Muat yang terbaru"
+  },
   "general": {
     "title": "Pengaturan Umum",
     "subtitle": "Konfigurasikan pengaturan dan preferensi dasar agen",
@@ -396,6 +400,8 @@
     "noDescription": "Tanpa deskripsi",
     "actionsLabel": "Tindakan:",
     "viewDetails": "Lihat detail",
+    "systemBadge": "Sistem",
+    "systemLocked": "Keterampilan sistem selalu aktif dan tidak dapat dinonaktifkan.",
     "remove": "Hapus",
     "installSkill": "Instal Keahlian",
     "createSkill": "Buat Keahlian",
@@ -677,7 +683,9 @@
     "deleteBackupMessage": "Hapus permanen cadangan dari {{date}}?",
     "lan": "LAN",
     "public": "Publik",
-    "notShared": "Tidak dibagikan",
+    "lanHint": "Perangkat di jaringan Anda, dengan tautan",
+    "publicHint": "Siapa pun di internet, dengan tautan",
+    "createLanLink": "Buat Tautan LAN",
     "starting": "Memulai...",
     "createTunnel": "Buat Tunnel"
   }

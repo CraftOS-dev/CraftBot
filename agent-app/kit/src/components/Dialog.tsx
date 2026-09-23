@@ -28,13 +28,13 @@ export function Dialog({
         <RadixDialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
         <RadixDialog.Content
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[var(--lui-border)] bg-[var(--lui-surface)] p-5 text-[var(--lui-text)] shadow-xl',
+            'fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[var(--agent-app-border)] bg-[var(--agent-app-surface)] p-5 text-[var(--agent-app-text)] shadow-xl',
             className,
           )}
         >
           <RadixDialog.Title className="text-base font-semibold">{title}</RadixDialog.Title>
           {description !== undefined ? (
-            <RadixDialog.Description className="mt-1 text-sm text-[var(--lui-muted)]">
+            <RadixDialog.Description className="mt-1 text-sm text-[var(--agent-app-muted)]">
               {description}
             </RadixDialog.Description>
           ) : (

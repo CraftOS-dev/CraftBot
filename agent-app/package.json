@@ -10,7 +10,7 @@
     "examples/*/frontend"
   ],
   "scripts": {
-    "lui": "node tools/src/cli.ts",
+    "agent-app": "node tools/src/cli.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write ."

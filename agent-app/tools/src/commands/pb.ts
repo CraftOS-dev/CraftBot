@@ -1,9 +1,9 @@
 /**
- * lui pb — manage the pinned PocketBase binary.
+ * agent-app pb — manage the pinned PocketBase binary.
  *
- *   lui pb fetch   download + cache the pinned version for this OS/arch
- *   lui pb path    print the cached binary path (fetches if missing)
- *   lui pb version print the pinned version
+ *   agent-app pb fetch   download + cache the pinned version for this OS/arch
+ *   agent-app pb path    print the cached binary path (fetches if missing)
+ *   agent-app pb version print the pinned version
  */
 import { execFileSync } from 'node:child_process';
 import { chmodSync, createWriteStream, existsSync } from 'node:fs';
@@ -71,7 +71,7 @@ export async function run(args: string[]): Promise<number> {
     }
     default:
       log.error(`Unknown subcommand: pb ${sub}`);
-      log.raw('Try: lui pb fetch | path | version');
+      log.raw('Try: agent-app pb fetch | path | version');
       return 1;
   }
 }

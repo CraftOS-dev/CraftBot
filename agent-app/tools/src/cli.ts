@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * lui — Agent App workspace CLI.
+ * agent-app — Agent App workspace CLI.
  *
  * Thin dispatcher: each command is a module in ./commands exporting
  * { summary, run }. Composition over a framework (spec W4).
@@ -18,7 +18,6 @@ const COMMANDS: Record<string, { summary: string }> = {
   data: { summary: 'Read/write collection records of the RUNNING app (list/get/create/update/delete)' },
   trigger: { summary: 'Fire a declared trigger of the RUNNING app (tests the app→agent plane)' },
   requests: { summary: "Inspect the RUNNING app's agent_requests queue (fires and their outcomes)" },
-  probe: { summary: 'Scripted headless-browser walk of the RUNNING app (goto/click/type/read/screenshot)' },
   'kit-sync': { summary: 'Re-vendor the kit into a project (wholesale replace)' },
   'adapter-sync': { summary: 'Re-vendor only the system pb_hooks (A2APP adapter) — no rebuild' },
   symbols: { summary: 'Print the symbol table of a TS/TSX/JS file as JSON (scoped verify attribution)' },
@@ -71,16 +70,16 @@ async function main(): Promise<number> {
   const [, , name, ...args] = process.argv;
 
   if (!name || name === 'help' || name === '--help') {
-    log.raw('lui — Agent App workspace CLI\n');
+    log.raw('agent-app — Agent App workspace CLI\n');
     for (const [cmd, meta] of Object.entries(COMMANDS)) {
-      log.raw(`  lui ${cmd.padEnd(10)} ${meta.summary}`);
+      log.raw(`  agent-app ${cmd.padEnd(10)} ${meta.summary}`);
     }
     return 0;
   }
 
   if (!(name in COMMANDS)) {
     log.error(`Unknown command: ${name}`);
-    log.raw(`Try: lui help`);
+    log.raw(`Try: agent-app help`);
     return 1;
   }
 

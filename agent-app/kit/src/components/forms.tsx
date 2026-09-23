@@ -100,7 +100,7 @@ export function SearchInput({
       <div className="relative">
         <SearchIcon
           size={14}
-          className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-[var(--lui-muted)]"
+          className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-[var(--agent-app-muted)]"
         />
         <Input
           placeholder={placeholder}
@@ -143,12 +143,12 @@ export function TagInput({
           {value.map((tag) => (
             <span
               key={tag}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--lui-border)] bg-[var(--lui-border)]/40 px-2 py-0.5 text-xs text-[var(--lui-text)]"
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--agent-app-border)] bg-[var(--agent-app-border)]/40 px-2 py-0.5 text-xs text-[var(--agent-app-text)]"
             >
               {tag}
               <button
                 type="button"
-                className="inline-flex items-center text-[var(--lui-muted)] hover:text-[var(--lui-text)]"
+                className="inline-flex items-center text-[var(--agent-app-muted)] hover:text-[var(--agent-app-text)]"
                 onClick={() => onChange(value.filter((t) => t !== tag))}
                 aria-label={`Remove ${tag}`}
               >

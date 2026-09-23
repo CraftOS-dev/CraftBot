@@ -76,6 +76,7 @@
     "quota": "Kuota",
     "model": "Model",
     "badRequest": "Permintaan",
+    "contextOverflow": "Jendela konteks terlampaui",
     "blocked": "Diblokir",
     "server": "Layanan tidak tersedia",
     "connection": "Koneksi",

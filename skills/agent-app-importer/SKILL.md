@@ -132,8 +132,13 @@ never edit its code except configuration needed to bind the assigned port.
 7. `agent_app_walk_verify(project_id="<ID>")` — verifies the launch and
    announces. HONESTY RULE: adopted ONLY when this succeeds. If the app
    fundamentally cannot run here (needs a database server, private APIs,
-   system deps), STOP and tell the user exactly what is missing — do not
-   fake a start command that serves an error page.
+   system deps, a credential the user has not connected), stop through
+   `agent_app_report_finding(project_id="<ID>", blocked_question="This app
+   needs a running Postgres — should I…?")`. That ends the adoption cleanly
+   and puts the question to the user; a bare `send_message` does not — the
+   build tracker reads a run that stopped mid-adoption as an agent that
+   walked out, and restarts you on the same app. Never fake a start command
+   that serves an error page.
 
 Changes to a running external app apply LIVE (no staging): edit → 
 `agent_app_notify_ready` relaunches it.
@@ -141,9 +146,9 @@ Changes to a running external app apply LIVE (no staging): edit →
 ## Notes
 
 - Imported/installed projects are ordinary Agent App projects afterwards:
-  operate them via the lui CLI (`ops` / `run` / `data`), modify them via
+  operate them via the agent-app CLI (`ops` / `run` / `data`), modify them via
   the agent-app-modify workflow. External apps speak the same ops surface
-  through their adapter — `lui ops` / `lui run` (and raw HTTP with the
+  through their adapter — `agent-app ops` / `agent-app run` (and raw HTTP with the
   project's `.agent-token`) work against them too; only the `data` verbs
   don't apply (external apps expose operations only, no protocol
   entities — the app's own API passes

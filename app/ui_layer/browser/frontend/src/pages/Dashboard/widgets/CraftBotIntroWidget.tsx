@@ -5,6 +5,8 @@ import { CraftBotMascot, useMascotState, getPose } from '@mascot'
 import type { MascotState } from '@mascot'
 import { Button } from '../../../components/ui'
 import { useTour } from '../../../tour'
+import { usePersistedState } from '../../../hooks'
+import { UI_STATE } from '../../../store/uiState'
 import styles from './widgets.module.css'
 
 interface IntroCard {
@@ -121,7 +123,7 @@ export function CraftBotIntroWidget() {
   const containerRef = useRef<HTMLDivElement>(null)
   const bannerScrollRef = useRef<HTMLDivElement>(null)
 
-  const [showDetails, setShowDetails] = useState(false)
+  const [showDetails, setShowDetails] = usePersistedState(UI_STATE.dashboard.introShowDetails)
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
   const [isEnlarged, setIsEnlarged] = useState(false)
   const [isFourBlocks, setIsFourBlocks] = useState(false)

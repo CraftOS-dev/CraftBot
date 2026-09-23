@@ -71,8 +71,14 @@ class _MgrStub:
     """Just enough AgentAppManager for the bridge handler."""
 
     def __init__(self, project):
+        from app.agent_app.instances import InstanceRegistry, PortAllocator
+
         self._project = project
         self.notified = []
+        # The era gate resolves "is a dev env up" from the instance registry.
+        self.instances = InstanceRegistry(
+            Path(tempfile.mkdtemp()) / "inst.json", PortAllocator()
+        )
 
     def validate_bridge_token(self, token):
         return self._project.id if token == "good" else None
@@ -82,7 +88,7 @@ class _MgrStub:
 
     async def notify_app_trigger(self, project_id, trigger, request_id):
         self.notified.append((project_id, trigger, request_id))
-        return {"status": "success", "session_id": "lui_x"}
+        return {"status": "success", "session_id": "agentapp_x"}
 
     async def notify_trigger_consent_needed(self, project_id, trigger):
         self.consent_asks = getattr(self, "consent_asks", [])
@@ -177,7 +183,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # traffic (the walker clicks ⚡ in the dev instance, which aliases to the
     # real project id through the shared bridge token) — must defer.
     host.set_triggers_approved("gates001")
-    host.set_staging_record("gates001", {"dir": "/tmp/x", "port": 3901, "pid": 1})
+    mgr.instances.create_shadow("gates001", token="t", boot_id="b1", dir="/tmp/x")
     resp = _fire(bridge)
     assert resp.status == 200 and b"deferred" in resp.body, "dev-env fire must defer"
     assert mgr.notified == []
@@ -185,7 +191,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # Live era: consented, no dev env → dispatch exactly once. (No stored
     # "delivered" flag any more — with no dev env in flight, a consented
     # fire from a running app is legitimate operation.)
-    host.clear_staging_record("gates001")
+    mgr.instances.clear_project("gates001")
     resp = _fire(bridge)
     assert resp.status == 200 and b"deferred" not in resp.body
     assert mgr.notified == [("gates001", "restock_needed", "row1")], (
@@ -206,7 +212,7 @@ with tempfile.TemporaryDirectory() as tmp:
     project = _make_project(living, "brief001")
 
     class _Session:
-        id = "lui_brief001"
+        id = "agentapp_brief001"
 
     class _TriggerService:
         def __init__(self):
@@ -227,7 +233,7 @@ with tempfile.TemporaryDirectory() as tmp:
     from app.triggers import TriggerSource
 
     assert spec.source == TriggerSource.AGENT_APP_APP_REQUEST
-    assert spec.session_id == "lui_brief001", "must land in the PROJECT session"
+    assert spec.session_id == "agentapp_brief001", "must land in the PROJECT session"
     assert spec.payload["request_id"] == "rowXYZ"
     # The instruction comes from triggers.json on disk — never from the nudge.
     assert "Ensure a draft restock order exists." in spec.description
@@ -273,15 +279,33 @@ with tempfile.TemporaryDirectory() as tmp:
     assert mgr.declared_triggers_brief(bare) == "", "no triggers → no consent ask"
 print("§5 consent surfacing: OK")
 
-# ── §6 throttled verifier: classified, bounded, never stuck-on-first ───────
-report = parse_check_report(
-    "(sub-agent aborted — LLM unavailable: Rate limit exceeded for grok-4)"
+# ── §6 structured verdict: typed classification, throttle told apart ───────
+from app.agent_app.walk_verify import _LLM_ABORT_SENTINEL  # noqa: E402
+
+_pass_json = _json.dumps(
+    {
+        "scope": {"mode": "delta", "excluded": []},
+        "verdict": "pass",
+        "features": [{"name": "x", "status": "pass", "evidence": "did it"}],
+    }
 )
-assert report["kind"] == "throttled", report
+assert parse_check_report(_pass_json)["kind"] == "pass"
+_fail_json = _json.dumps(
+    {
+        "scope": {"mode": "full", "excluded": []},
+        "verdict": "fail",
+        "features": [{"name": "x", "status": "fail", "evidence": "broken"}],
+    }
+)
+assert parse_check_report(_fail_json)["kind"] == "defects"
+# Throttle is decided in run_walk_verify from status + the runner's OWN abort
+# sentinel (a control string, not the model's prose); the abort string is not
+# a verdict, so parsing it as one is unparseable.
+assert _LLM_ABORT_SENTINEL in "(sub-agent aborted — LLM unavailable: rate limit)"
 assert (
-    parse_check_report("VERDICT: PASS\nFEATURES:\n- x — PASS — did it")["kind"]
-    == "pass"
-), "throttle detection must not shadow real verdicts"
+    parse_check_report("(sub-agent aborted — LLM unavailable: x)")["kind"]
+    == "unparseable"
+)
 
 with tempfile.TemporaryDirectory() as tmp:
     living = Path(tmp) / "agent_app"
@@ -304,7 +328,7 @@ with tempfile.TemporaryDirectory() as tmp:
     host_mod._HOST = None
 
     class _Session:
-        id = "lui_ask00001"
+        id = "agentapp_ask00001"
 
     class _TriggerService:
         def __init__(self):
@@ -324,72 +348,131 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     assert result["status"] == "success", result
     (spec,) = mgr._trigger_service.emitted
-    assert spec.session_id == "lui_ask00001"
+    assert spec.session_id == "agentapp_ask00001"
     assert "NOT approved" in spec.description and "refused" in spec.description
     assert "agent_app_approve_triggers" in spec.description
     assert "Do NOT act on the trigger itself" in spec.description
     assert spec.payload.get("consent_ask") is True
 print("§7 consent ask composition: OK")
 
-# ── §8 write receipts skip trigger-plane bookkeeping ───────────────────────
-# Claim/done updates on agent_requests must not produce receipt bubbles —
-# the ⚡ event and the agent's final message are the user-facing output
-# (observed live 2026-08-06: three noise bubbles per fire).
-# agent_base pulls the scheduler stack (croniter …), which the bare test env
-# may lack — skip honestly rather than fake a pass; the live runtime always
-# has it.
-try:
-    from app.agent_base import AgentBase
-
-    _AGENT_BASE = True
-except ImportError as _e:
-    print(f"§8 receipts skip queue bookkeeping: SKIPPED (agent_base deps: {_e})")
-    _AGENT_BASE = False
+# -- §9 action gates: a DRY RUN is not a send ---------------------------
+# A dry run executes nothing, so demanding confirm_irreversible for one made
+# the mode unreachable for every irreversible action. An app probing Gmail
+# with a dry-run send_gmail read "it acts on the user's real account"
+# (correctly) as a reason NOT to set the flag, and reported Gmail as
+# disconnected to the user for three straight verification rounds.
+class _Meta:
+    def __init__(self, irreversible):
+        self.action_sets = ["gmail_mail", "gmail"]
+        self.irreversible = irreversible
+        self.input_schema = {}
 
 
-class _RecvSession:
-    agent_app_project_id = "recpt001"
+class _Impl:
+    def __init__(self, irreversible=True):
+        self.metadata = _Meta(irreversible)
+        self.calls = []
+
+    def handler(self, params):
+        self.calls.append(params)
+        return {"sent": True}
 
 
-class _RecvSessionMgr:
-    def get(self, sid):
-        return _RecvSession()
+class _Registry:
+    impl = None
+
+    def get_action_implementation(self, name):
+        return _Registry.impl
 
 
-class _RecvHost:
-    def __init__(self):
-        self.described = []
-        self.session_manager = _RecvSessionMgr()
-        self.event_stream_manager = None
+def _call(bridge, body):
+    import agent_core.core.action_framework.registry as _reg
 
-    def _describe_write(self, session_id, project_id, match, result):
-        self.described.append(match.group("collection") or match.group("op"))
-        return None  # keep the tail (event log + dispatch) out of the test
+    _reg.ActionRegistry = _Registry
+    return asyncio.run(bridge._handle_action(_Req("good", body)))
 
 
-class _Act:
-    name = "run_shell"
+with tempfile.TemporaryDirectory() as tmp:
+    living = Path(tmp) / "agent_app"
+    project = _make_project(living, "acts0001")
+    manifest = Path(project.path) / "manifest.json"
+    manifest.write_text(
+        _json.dumps({"id": "acts0001", "capabilities": {"actions": ["send_gmail"]}})
+    )
+    bridge = _bridge(_MgrStub(project))
+    impl = _Impl(irreversible=True)
+    _Registry.impl = impl
+
+    # A real call still demands the flag, and still refuses without it.
+    resp = _call(bridge, {"action": "send_gmail", "params": {"subject": "x"}})
+    assert resp.status == 400 and b"confirm_irreversible" in resp.body, (
+        "a real irreversible call must still require confirmation"
+    )
+    assert impl.calls == [], "a refused call must not execute"
+
+    # The same call as a dry run passes that gate and executes NOTHING.
+    resp = _call(
+        bridge, {"action": "send_gmail", "params": {"subject": "x"}, "dry_run": True}
+    )
+    assert resp.status == 200, f"dry run must pass the irreversible gate: {resp.body}"
+    assert b"dry_run" in resp.body
+    assert impl.calls == [], "a dry run must never reach the handler"
+
+    # camelCase spelling behaves identically.
+    resp = _call(bridge, {"action": "send_gmail", "params": {}, "dryRun": True})
+    assert resp.status == 200, "camelCase dryRun must behave identically"
+
+    # ...but a dry run is NOT a way past the capability grant.
+    manifest.write_text(
+        _json.dumps({"id": "acts0001", "capabilities": {"actions": []}})
+    )
+    resp = _call(bridge, {"action": "send_gmail", "params": {}, "dry_run": True})
+    assert resp.status == 403 and b"capabilities.actions" in resp.body, (
+        "dry run must not bypass the capability grant"
+    )
+    assert impl.calls == []
+print("§9 dry run bypasses irreversible confirm, not the grant: OK")
+
+# -- §10 the connection probe is never a write --------------------------
+# The capability block names ONE call per integration for "is this
+# connected?". Picking it from the metadata alone chose create_google_doc
+# for google_docs — neither `destructive` nor `parallelizable` is set on it,
+# so it scored as safe and took the fewest parameters. Every app checking
+# that integration would have created a blank document in the user's Drive,
+# one line below a sentence reading "never a send/create".
+from app.agent_app.agent_view import _probe_action  # noqa: E402
 
 
-if not _AGENT_BASE:
-    print("\nTrigger-plane acceptance: ALL GREEN (§8 skipped)")
-    raise SystemExit(0)
-host = _RecvHost()
-report = AgentBase._report_agent_app_writes.__get__(host)
-cli = "node /x/agent-app/tools/src/cli.ts data /apps/proj"
-report(
-    "lui_recpt001",
-    [
-        (_Act(), {"command": f"{cli} agent_requests update row1 --status claimed"}),
-        (_Act(), {"command": f"{cli} agent_requests update row1 --status done"}),
-        (_Act(), {"command": f"{cli} tasks create --title X"}),
-        (_Act(), {"command": f"{cli} agent_requests list --limit 5"}),
-    ],
-    [{}, {}, {}, {}],
+class _M:
+    def __init__(self, params, irreversible=False, parallelizable=True):
+        self.input_schema = {p: {"type": "string"} for p in params}
+        self.irreversible = irreversible
+        self.parallelizable = parallelizable
+
+
+_google_docs = [
+    ("create_google_doc", _M(["account", "title"])),
+    ("get_google_doc_text", _M(["account", "document_id"])),
+    ("get_google_doc", _M(["account", "document_id", "include_metadata"])),
+]
+assert _probe_action(_google_docs) == "", (
+    "no zero-arg read exists here: name nothing rather than a write "
+    "(create_google_doc) or a read that needs an id the app hasn't got"
 )
-assert host.described == ["tasks"], (
-    f"only real data writes may receipt — got {host.described}"
-)
-print("§8 receipts skip queue bookkeeping: OK")
+
+_gmail = [
+    ("create_gmail_draft", _M(["account", "to"])),
+    ("get_gmail", _M(["account", "message_id"])),
+    ("list_gmail_labels", _M(["account"])),
+    ("get_gmail_profile", _M(["account"])),
+]
+assert _probe_action(_gmail) == "get_gmail_profile", _probe_action(_gmail)
+# Stable across runs: two zero-arg reads tie and alphabetical breaks it.
+assert _probe_action(list(reversed(_gmail))) == "get_gmail_profile"
+# `account` is injected by the bridge, so it is not an argument the app owns;
+# anything else IS one, however read-shaped the name.
+assert _probe_action([("get_thing", _M(["account", "id"]))]) == ""
+assert _probe_action([("get_thing", _M([]))]) == "get_thing"
+print("§10 connection probe is a zero-arg read or nothing: OK")
 
 print("\nTrigger-plane acceptance: ALL GREEN")

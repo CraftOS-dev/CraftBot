@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button, ConfirmModal } from '../../components/ui'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedSet, usePersistedState } from '../../hooks'
 import i18n from '../../i18n/config'
 import { formatNumber, formatDateTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
@@ -29,10 +29,12 @@ import {
   selectAgentAppSettingsProjects,
   selectAgentAppSettingsHasLoadedProjects,
 } from '../../store/selectors/agentAppSettings'
+import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, useResource } from '../../store/resources'
 
 export function AgentAppSettings() {
   const { t } = useTranslation(['settings', 'common'])
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { send, onMessage } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
@@ -43,38 +45,23 @@ export function AgentAppSettings() {
 
   // Transient UI state.
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
+  // Which project cards are open: a persisted preference.
+  const [expandedProjects, , toggleProject] = usePersistedSet(UI_STATE.settings.agentAppExpandedProjects)
 
-  // Fire-once fetch. Slice owns the data; we just trigger the request when
-  // not yet loaded.
-  useEffect(() => {
-    if (!isConnected) return
-    if (!hasLoadedProjects) send('agent_app_settings_get')
-  }, [isConnected, send, hasLoadedProjects])
+  // The slice caches the list; ResourceSync fetches it when unloaded or stale
+  // and refetches whenever any tab, the agent or a status event changes apps.
+  useResource(RESOURCES.agentAppSettings)
 
+  // Clear the card spinner when the action this view started finishes.
   useEffect(() => {
-    const handleActionComplete = (data: unknown) => {
-      const d = data as { success: boolean }
-      setActionInProgress(null)
-      if (d.success) send('agent_app_settings_get')
-    }
+    const clearInProgress = () => setActionInProgress(null)
     const cleanups = [
-      onMessage('agent_app_launch', handleActionComplete),
-      onMessage('agent_app_stop', handleActionComplete),
-      onMessage('agent_app_delete', handleActionComplete),
+      onMessage('agent_app_launch', clearInProgress),
+      onMessage('agent_app_stop', clearInProgress),
+      onMessage('agent_app_delete', clearInProgress),
     ]
     return () => cleanups.forEach(c => c())
-  }, [send, onMessage])
-
-  useEffect(() => {
-    const cleanup = onMessage('agent_app_project_setting_update', (data: unknown) => {
-      const d = data as { success: boolean }
-      // Refetch to reconcile with authoritative state (response doesn't
-      // carry the updated project payload).
-      if (d.success) send('agent_app_settings_get')
-    })
-    return cleanup
-  }, [send, onMessage])
+  }, [onMessage])
 
   const handleLaunch = (projectId: string) => {
     setActionInProgress(projectId)
@@ -84,15 +71,6 @@ export function AgentAppSettings() {
   const handleStop = (projectId: string) => {
     setActionInProgress(projectId)
     send('agent_app_stop', { projectId })
-  }
-
-  const toggleProject = (id: string) => {
-    setExpandedProjects(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
   }
 
   const handleDelete = (project: AgentAppProject) => {
@@ -571,7 +549,7 @@ function ProjectCard({
           <div style={{ ...sectionLabelStyle, marginBottom: 'var(--space-2)' }}>
             {t('settings:agentApp.share')}
           </div>
-          <ShareSection projectId={project.id} port={project.port} send={send} onMessage={onMessage} />
+          <ShareSection projectId={project.id} send={send} onMessage={onMessage} />
         </div>
       )}
 
@@ -668,10 +646,15 @@ function OrphanBackupsRow({ orphan, projects, send, onDeleteAll }: OrphanBackups
   const { t } = useTranslation(['settings', 'common'])
   const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = usePersistedState(UI_STATE.settings.agentAppOrphanBackupsExpanded(orphan.id))
   const backups = useAppSelector(
     s => s.agentAppSettings.backupsByProject[orphan.id],
   )
+  // A row remembered as expanded still needs its archive list on mount.
+  useEffect(() => {
+    if (expanded && backups === undefined) send('agent_app_backups_list', { projectId: orphan.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Only native apps have pb_data to restore into.
   const targets = projects.filter(p => (p.projectType || 'native') !== 'external')
   const [targetId, setTargetId] = useState('')
@@ -1125,50 +1108,57 @@ function BackupsSection({ project, onToggleSetting, send }: BackupsSectionProps)
 
 interface ShareSectionProps {
   projectId: string
-  port: number | null
   send: (type: string, data?: Record<string, unknown>) => void
   onMessage: (type: string, handler: (data: unknown) => void) => () => void
 }
 
+type ShareChannel = 'lan' | 'tunnel'
+
+interface SharingInfo {
+  projectId: string
+  links: Partial<Record<ShareChannel, string | null>>
+  error: { channel: ShareChannel; message: string } | null
+}
+
+// One row per channel, in display order. Both are shared the same way — by
+// a link that carries its secret; closing a channel revokes every visitor.
+const SHARE_CHANNELS = [
+  { id: 'lan', label: 'settings:agentApp.lan', hint: 'settings:agentApp.lanHint', create: 'settings:agentApp.createLanLink' },
+  { id: 'tunnel', label: 'settings:agentApp.public', hint: 'settings:agentApp.publicHint', create: 'settings:agentApp.createTunnel' },
+] as const satisfies readonly { id: ShareChannel; label: string; hint: string; create: string }[]
+
 function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
   const { t } = useTranslation(['settings', 'common'])
-  const [lanUrl, setLanUrl] = useState<string | null>(null)
-  const [tunnelUrl, setTunnelUrl] = useState<string | null>(null)
-  const [tunnelLoading, setTunnelLoading] = useState(false)
-  const [copied, setCopied] = useState<string | null>(null)
+  const [links, setLinks] = useState<SharingInfo['links']>({})
+  const [error, setError] = useState<SharingInfo['error']>(null)
+  const [pending, setPending] = useState<ShareChannel | null>(null)
+  const [copied, setCopied] = useState<ShareChannel | null>(null)
 
   useEffect(() => {
     send('agent_app_sharing_info', { projectId })
-
-    const unsub1 = onMessage('agent_app_sharing_info', (data: any) => {
-      if (data.projectId === projectId) {
-        setLanUrl(data.lanUrl)
-        setTunnelUrl(data.tunnelUrl)
-      }
+    return onMessage('agent_app_sharing_info', (raw: unknown) => {
+      const data = raw as SharingInfo
+      if (data.projectId !== projectId) return
+      setLinks(data.links ?? {})
+      setError(data.error ?? null)
+      setPending(null)
     })
-    const unsub2 = onMessage('agent_app_tunnel_status', (data: any) => {
-      if (data.projectId === projectId) {
-        setTunnelUrl(data.tunnelUrl)
-        setTunnelLoading(false)
-      }
-    })
-    return () => { unsub1(); unsub2() }
   }, [projectId, send, onMessage])
 
-  const handleCopy = (url: string, label: string) => {
+  const handleCopy = (url: string, channel: ShareChannel) => {
     navigator.clipboard.writeText(url)
-    setCopied(label)
+    setCopied(channel)
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const handleStartTunnel = () => {
-    setTunnelLoading(true)
-    send('agent_app_tunnel_start', { projectId, provider: 'cloudflared' })
+  const handleOpen = (channel: ShareChannel) => {
+    setPending(channel)
+    setError(null)
+    send('agent_app_share_open', { projectId, channel })
   }
 
-  const handleStopTunnel = () => {
-    send('agent_app_tunnel_stop', { projectId })
-    setTunnelUrl(null)
+  const handleClose = (channel: ShareChannel) => {
+    send('agent_app_share_close', { projectId, channel })
   }
 
   return (
@@ -1179,65 +1169,53 @@ function ShareSection({ projectId, send, onMessage }: ShareSectionProps) {
         gap: 'var(--space-2)',
       }}
     >
-      {/* LAN URL */}
-      {lanUrl && (
-        <div className={styles.modelRow}>
-          <span className={styles.modelLabel}>{t('settings:agentApp.lan')}</span>
-          <code
-            className={styles.modelValue}
-            style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {lanUrl}
-          </code>
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={copied === 'lan' ? <Check size={14} /> : <Copy size={14} />}
-            onClick={() => handleCopy(lanUrl, 'lan')}
-          />
-        </div>
-      )}
-
-      {/* Tunnel URL */}
-      {tunnelUrl ? (
-        <div className={styles.modelRow}>
-          <span className={styles.modelLabel}>{t('settings:agentApp.public')}</span>
-          <code
-            className={styles.modelValue}
-            style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {tunnelUrl}
-          </code>
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={copied === 'tunnel' ? <Check size={14} /> : <Copy size={14} />}
-            onClick={() => handleCopy(tunnelUrl, 'tunnel')}
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<Square size={14} />}
-            onClick={handleStopTunnel}
-          />
-        </div>
-      ) : (
-        <div className={styles.modelRow}>
-          <span className={styles.modelLabel}>{t('settings:agentApp.public')}</span>
-          <span style={{ flex: 1, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            {t('settings:agentApp.notShared')}
-          </span>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={handleStartTunnel}
-            disabled={tunnelLoading}
-            icon={tunnelLoading ? <Loader2 size={14} className={styles.spinning} /> : undefined}
-          >
-            {tunnelLoading ? t('settings:agentApp.starting') : t('settings:agentApp.createTunnel')}
-          </Button>
-        </div>
-      )}
+      {SHARE_CHANNELS.map(({ id, label, hint, create }) => {
+        const link = links[id]
+        return (
+          <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+            <div className={styles.modelRow}>
+              <span className={styles.modelLabel} title={t(hint)}>{t(label)}</span>
+              {link ? (
+                <>
+                  <code
+                    className={styles.modelValue}
+                    // width 0 + flex 1: fill the row without the (secret-long) link
+                    // widening the settings column to its full text width.
+                    style={{ flex: 1, width: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
+                    {link}
+                  </code>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={copied === id ? <Check size={14} /> : <Copy size={14} />}
+                    onClick={() => handleCopy(link, id)}
+                  />
+                  <Button size="sm" variant="ghost" icon={<Square size={14} />} onClick={() => handleClose(id)} />
+                </>
+              ) : (
+                <>
+                  <span style={{ flex: 1, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                    {t(hint)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleOpen(id)}
+                    disabled={pending !== null}
+                    icon={pending === id ? <Loader2 size={14} className={styles.spinning} /> : undefined}
+                  >
+                    {pending === id ? t('settings:agentApp.starting') : t(create)}
+                  </Button>
+                </>
+              )}
+            </div>
+            {error?.channel === id && (
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)' }}>{error.message}</span>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

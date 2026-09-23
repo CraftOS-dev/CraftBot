@@ -355,7 +355,7 @@ def _block_end(lines: Sequence[str], start_idx: int) -> int:
 def ts_symbols(text: str) -> List[Symbol]:
     """Heuristic symbol table for TS/TSX/JS: every named declaration with its
     brace-matched range and nesting depth. Good enough to say "which
-    function did this hunk land in"; the exact `lui symbols` path replaces it
+    function did this hunk land in"; the exact `agent-app symbols` path replaces it
     when the project's TypeScript is reachable (see node_symbols)."""
     blanked = _blank_strings(text).splitlines()
     raw = text.splitlines()
@@ -724,7 +724,7 @@ def attribute_changes(
     symbols_for: Optional[Callable[[str, str], Optional[List[Symbol]]]] = None,
 ) -> None:
     """Fill changed/unchanged symbols + notes on every FileChange, in place.
-    `symbols_for(rel, text)` may return an exact symbol table (lui symbols)
+    `symbols_for(rel, text)` may return an exact symbol table (agent-app symbols)
     or None to fall back to the heuristic."""
     project_path = Path(project_path)
     for fc in changes:
@@ -952,78 +952,6 @@ def render_history_block(store_dir: Path) -> str:
 
 
 # ── scope parsing ────────────────────────────────────────────────────────────
-_SCOPE_RE = re.compile(r"^\s*SCOPE:\s*(DELTA|FULL)\b", re.I | re.M)
-_INCLUDED_RE = re.compile(r"^[ 	]*INCLUDED:[ 	]*(.*)$", re.I | re.M)
-_EXCLUDED_HDR = re.compile(r"^[ 	]*EXCLUDED:[ 	]*(.*)$", re.I | re.M)
-
-
-def parse_scope(text: str) -> Optional[Dict[str, Any]]:
-    """The verifier's SCOPE block → {mode, included:[...], excluded:[(feature,
-    reason)], excluded_without_reason:[...]}. None when no block."""
-    text = text or ""
-    m = _SCOPE_RE.search(text)
-    if not m:
-        return None
-    mode = m.group(1).upper()
-    included: List[str] = []
-    im = _INCLUDED_RE.search(text)
-    if im:
-        raw = im.group(1).strip()
-        if raw and raw.lower() not in ("none", "-", "—"):
-            included = [s.strip(" .") for s in re.split(r"[,;]", raw) if s.strip(" .")]
-    excluded: List[Tuple[str, str]] = []
-    bare: List[str] = []
-    em = _EXCLUDED_HDR.search(text)
-    if em:
-        tail = text[em.end() :]
-        inline = em.group(1).strip()
-        # "none", "none (single-feature walk…)", "nothing excluded", "n/a"
-        # all mean: no exclusions. A parenthetical after "none" is a note.
-        if re.match(r"^\(?\s*(none|nothing|n/?a|no features?)\b", inline, re.I):
-            inline = ""
-        if inline and inline not in ("-", "—"):
-            for item in re.split(r"[;]", inline):
-                if "—" in item or " - " in item or ":" in item:
-                    feat, reason = re.split(r"\s+—\s+|\s+-\s+|:\s*", item, maxsplit=1)
-                    excluded.append((feat.strip(), reason.strip()))
-                elif item.strip():
-                    bare.append(item.strip())
-        for line in tail.splitlines():
-            if re.match(r"^\s*(FEATURES|VERDICT|FAILURES|BLOCKED BY)\b", line, re.I):
-                break
-            lm = re.match(r"^\s*[-*•]\s*(.+?)\s*(?:—|–|:| - )\s*(.+)$", line)
-            if lm:
-                excluded.append((lm.group(1).strip(), lm.group(2).strip()))
-            elif re.match(r"^\s*[-*•]\s*\S", line):
-                bare.append(line.strip(" -*•"))
-    return {
-        "mode": mode,
-        "included": included,
-        "excluded": excluded,
-        "excluded_without_reason": bare,
-    }
-
-
-_FEATURE_LINE = re.compile(
-    r"^-\s+(.{1,160}?)\s*(?:—|–|:|-+)\s*(PASS|FAIL|NOT REACHED)\b", re.M | re.I
-)
-
-
-def feature_verdicts(report_text: str) -> Dict[str, str]:
-    """{feature: PASS|FAIL|NOT REACHED} from the FEATURES section only."""
-    section = re.split(
-        r"^\s*(?:FAILURES|BLOCKED BY)\b",
-        report_text or "",
-        maxsplit=1,
-        flags=re.M | re.I,
-    )[0]
-    section = section.split("FEATURES:", 1)[-1] if "FEATURES:" in section else section
-    out: Dict[str, str] = {}
-    for m in _FEATURE_LINE.finditer(section):
-        out[m.group(1).strip()] = m.group(2).upper()
-    return out
-
-
 # ── coverage (Phase 2) ───────────────────────────────────────────────────────
 def _norm_cov_path(path: str) -> str:
     p = path.replace("\\", "/")

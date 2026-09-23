@@ -48,7 +48,6 @@ _WATCHED_ACTIONS = (
             "agent_app_ops_verify",
             "run_shell",
             "spawn_subagent",
-            "browser_probe",
         }
     )
 )
@@ -544,8 +543,6 @@ def _classify_activity(
         )
     elif name == "run_shell":
         kind, area, label = "run", "other", f"Ran {_clip(inputs.get('command'), 40)}"
-    elif name == "browser_probe":
-        kind, area, label = "verify", "tests", "Reviewed the app in a browser"
     elif name == "spawn_subagent":
         agent_type = str(inputs.get("agent_type", ""))
         if agent_type == "walk_verify":

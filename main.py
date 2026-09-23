@@ -7,7 +7,6 @@ import time
 import socket
 import signal
 import threading
-import shutil  # Needed for lsof check on Linux/macOS
 
 # --- CONFIGURATION ---
 # Path to the directory containing the docker-compose.yml file
@@ -18,8 +17,6 @@ PYTHON_APP_BASE_CMD = [sys.executable, "-m", "app.main"]
 READY_HOST = "localhost"
 READY_PORT = 3001
 MAX_WAIT_SECONDS = 60
-# Port to clean up at the very end
-CLEANUP_PORT = 7861
 # ---------------------
 
 
@@ -65,155 +62,6 @@ def is_port_open(host: str, port: int, timeout: int = 1) -> bool:
             return True
     except (socket.timeout, ConnectionRefusedError, OSError):
         return False
-
-
-def kill_process_on_port(port: int):
-    """Finds and kills any process listening on the specified TCP port (Cross-platform)."""
-    current_os = platform.system()
-    port_str = str(port)
-    print(f"[*] Checking for leftover processes on port {port}...")
-
-    try:
-        if current_os == "Windows":
-            # SECURITY FIX: Use list-based subprocess call instead of shell=True
-            # This prevents command injection vulnerabilities
-            try:
-                # Use netstat without shell pipes - safer approach
-                output = subprocess.check_output(
-                    ["netstat", "-ano"], text=True, stderr=subprocess.DEVNULL
-                )
-                pids_to_kill = set()
-                for line in output.strip().split("\n"):
-                    parts = line.strip().split()
-                    # Format: PROTO  LOCAL_ADDR  FOREIGN_ADDR  STATE  PID
-                    if len(parts) >= 5 and "LISTENING" in line and parts[-1].isdigit():
-                        pid = parts[-1]
-                        try:
-                            pid_int = int(pid)
-                            if pid_int > 0:
-                                pids_to_kill.add(pid)
-                        except ValueError:
-                            continue
-
-                if not pids_to_kill:
-                    print(f"[*] Port {port} is free.")
-                    return
-
-                for pid in pids_to_kill:
-                    print(
-                        f"[!] Found stale process (PID: {pid}) on port {port}. Killing it..."
-                    )
-                    # SECURITY FIX: Use list-based call instead of f-string with shell=True
-                    try:
-                        subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", pid],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=5,
-                        )
-                    except subprocess.TimeoutExpired:
-                        print(f"[!] Timeout killing PID {pid}")
-                    except Exception as e:
-                        print(f"[!] Error killing PID {pid}: {e}")
-                print(f"[*] Port {port} cleared.")
-                time.sleep(0.5)
-            except subprocess.CalledProcessError:
-                print(f"[*] Port {port} is free.")
-
-        else:  # Linux/macOS
-            find_cmd = ["lsof", "-t", "-i", f"TCP:{port_str}"]
-            if shutil.which("lsof"):
-                try:
-                    output = subprocess.check_output(
-                        find_cmd, text=True, stderr=subprocess.DEVNULL
-                    )
-                    pids = [
-                        p
-                        for p in output.strip().split("\n")
-                        if p.isdigit() and int(p) > 0
-                    ]
-                    if not pids:
-                        print(f"[*] Port {port} is free.")
-                        return
-                    for pid in pids:
-                        print(
-                            f"[!] Found stale process (PID: {pid}) on port {port}. Killing it..."
-                        )
-                        subprocess.run(
-                            ["kill", "-9", pid],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                    print(f"[*] Port {port} cleared.")
-                    time.sleep(0.5)
-                except subprocess.CalledProcessError:
-                    print(f"[*] Port {port} is free.")
-            else:
-                print(
-                    f"[!] Warning: 'lsof' not found. Cannot automatically clean port {port}."
-                )
-
-    except Exception as e:
-        print(f"[!] Warning: Failed to clean up port {port}: {e}")
-
-
-def kill_process_on_port_quiet(port: int):
-    """Quietly kill any process listening on the specified TCP port."""
-    current_os = platform.system()
-    port_str = str(port)
-
-    try:
-        if current_os == "Windows":
-            # SECURITY FIX: Use list-based subprocess call instead of shell=True
-            try:
-                output = subprocess.check_output(
-                    ["netstat", "-ano"], text=True, stderr=subprocess.DEVNULL
-                )
-                pids_to_kill = set()
-                for line in output.strip().split("\n"):
-                    parts = line.strip().split()
-                    if len(parts) >= 5 and "LISTENING" in line and parts[-1].isdigit():
-                        try:
-                            pid_int = int(parts[-1])
-                            if pid_int > 0:
-                                pids_to_kill.add(parts[-1])
-                        except ValueError:
-                            continue
-
-                for pid in pids_to_kill:
-                    try:
-                        subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", pid],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=5,
-                        )
-                    except (subprocess.TimeoutExpired, Exception):
-                        pass
-            except subprocess.CalledProcessError:
-                pass
-        else:
-            find_cmd = ["lsof", "-t", "-i", f"TCP:{port_str}"]
-            if shutil.which("lsof"):
-                try:
-                    output = subprocess.check_output(
-                        find_cmd, text=True, stderr=subprocess.DEVNULL
-                    )
-                    pids = [
-                        p
-                        for p in output.strip().split("\n")
-                        if p.isdigit() and int(p) > 0
-                    ]
-                    for pid in pids:
-                        subprocess.run(
-                            ["kill", "-9", pid],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                except subprocess.CalledProcessError:
-                    pass
-    except Exception:
-        pass
 
 
 # --- MAIN LOGIC ---
@@ -329,9 +177,9 @@ def main():
                 run_command(["docker", "compose", "down"], cwd=VM_DIR, check=False)
             except Exception as e:
                 print(f"[!] Warning: Error during docker shutdown: {e}")
-
-            # 2. Clean up ports
-            kill_process_on_port(CLEANUP_PORT)
+            # No port sweep afterwards: `compose down` stops exactly the
+            # containers we started. Killing whatever else listens on the
+            # port would hit processes CraftBot never launched.
         else:
             print("[*] Skipping Docker cleanup (not started in CLI mode).")
 

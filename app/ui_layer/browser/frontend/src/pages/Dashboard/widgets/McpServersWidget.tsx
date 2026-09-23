@@ -1,14 +1,16 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Activity, CheckCircle } from 'lucide-react'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
+import { usePersistedState } from '../../../hooks'
 import { formatNumber } from '../../../i18n/format'
+import { UI_STATE } from '../../../store/uiState'
 import styles from './widgets.module.css'
 
 export function McpServersWidget() {
   const { t } = useTranslation(['dashboard', 'common'])
-  const { dashboardMetrics } = useWebSocket()
-  const [showAll, setShowAll] = useState(false)
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
+  const [showAll, setShowAll] = usePersistedState(UI_STATE.dashboard.showAll('mcpServers'))
 
   const mcpConnectedServers = dashboardMetrics?.mcp?.connectedServers ?? 0
   const mcpTotalCalls = dashboardMetrics?.mcp?.totalCalls ?? 0

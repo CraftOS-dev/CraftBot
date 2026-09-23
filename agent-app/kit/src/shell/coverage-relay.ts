@@ -1,7 +1,7 @@
 /**
  * Coverage relay (scoped walk-verify, docs/design/scoped-walk-verify.md).
  *
- * A DEV build is istanbul-instrumented (vite.config.ts, LUI_COVERAGE=1) and
+ * A DEV build is istanbul-instrumented (vite.config.ts, AGENT_APP_COVERAGE=1) and
  * exposes `window.__coverage__`. This relay ships the function-hit DELTAS
  * since its last flush to the app's own backend (`POST /api/_coverage`),
  * where they interleave with the verifier's feature marks into a timeline

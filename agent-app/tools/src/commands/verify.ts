@@ -1,5 +1,5 @@
 /**
- * lui verify <project> --url <base> — headless smoke verification (spec WD11,
+ * agent-app verify <project> --url <base> — headless smoke verification (spec WD11,
  * the deterministic core of walk-verify):
  *   1. app mounts (#root renders real content)
  *   2. zero console errors / page crashes while loading + settling
@@ -27,7 +27,7 @@ export async function run(args: string[]): Promise<number> {
   const projectDir = args.find((a) => !a.startsWith('--'));
   const url = argValue(args, '--url');
   if (projectDir === undefined || url === undefined || !existsSync(join(projectDir, 'manifest.json'))) {
-    log.error('Usage: lui verify <project-dir> --url http://127.0.0.1:<port>');
+    log.error('Usage: agent-app verify <project-dir> --url http://127.0.0.1:<port>');
     return 1;
   }
 

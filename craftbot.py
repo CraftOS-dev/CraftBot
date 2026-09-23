@@ -325,18 +325,65 @@ def _python_exe() -> str:
     return python
 
 
-def _read_pid() -> Optional[int]:
-    """Read PID from the PID file. Returns None if file missing or invalid."""
+# A pid alone is not an identity: once CraftBot exits (crash, reboot) the OS
+# reuses the number, and `stop` would kill whatever holds it now — with /T,
+# its whole tree. The PID file therefore also records the process's start
+# time, and a pid is only treated as CraftBot when both still match.
+_START_TIME_TOLERANCE_S = 2.0  # macOS `ps lstart` has 1s resolution
+
+
+def _read_pid_record() -> Optional[tuple]:
+    """(pid, recorded start time or None, file mtime), or None if no file.
+    Accepts the legacy bare-integer format (no start time)."""
     try:
         with open(PID_FILE) as f:
-            return int(f.read().strip())
-    except (FileNotFoundError, ValueError):
+            raw = f.read().strip()
+        mtime = os.path.getmtime(PID_FILE)
+    except OSError:
+        return None
+    try:
+        if raw.startswith("{"):
+            import json
+
+            data = json.loads(raw)
+            started = data.get("started")
+            return int(data["pid"]), (float(started) if started else None), mtime
+        return int(raw), None, mtime
+    except (ValueError, KeyError, TypeError):
         return None
 
 
+def _owned_pid() -> Optional[int]:
+    """The pid in the PID file IF that process is still the CraftBot we
+    started; otherwise None. A stale record (process gone, or pid reused by
+    another program) is removed so nothing ever acts on it."""
+    record = _read_pid_record()
+    if record is None:
+        return None
+    pid, started, mtime = record
+    actual = _helpers.process_start_time(pid)
+    if actual is None:
+        _remove_pid()
+        return None
+    if started is not None:
+        ours = abs(actual - started) <= _START_TIME_TOLERANCE_S
+    else:
+        # Legacy file (or start time unreadable at spawn): the file was
+        # written right after the spawn, so our process started before it.
+        # A reused pid belongs to a process started after ours died — i.e.
+        # after the file was written.
+        ours = actual <= mtime + _START_TIME_TOLERANCE_S
+    if not ours:
+        _remove_pid()
+        return None
+    return pid
+
+
 def _write_pid(pid: int) -> None:
+    import json
+
     with open(PID_FILE, "w") as f:
-        f.write(str(pid))
+        json.dump({"pid": pid, "started": _helpers.process_start_time(pid)}, f)
 
 
 def _remove_pid() -> None:
@@ -466,23 +513,7 @@ def _wait_for_ready_marker(start_offset: int, timeout: float) -> bool:
 
 def _is_running(pid: int) -> bool:
     """Return True if a process with the given PID is currently alive."""
-    if _PLATFORM == "win32":
-        try:
-            result = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            return str(pid) in result.stdout
-        except Exception:
-            return False
-    else:
-        try:
-            os.kill(pid, 0)
-            return True
-        except (ProcessLookupError, PermissionError):
-            return False
+    return _helpers.process_start_time(pid) is not None
 
 
 def _stop_running_agent_if_alive(grace_s: float = 1.0) -> bool:
@@ -491,8 +522,7 @@ def _stop_running_agent_if_alive(grace_s: float = 1.0) -> bool:
     install/repair so reinstall over a running agent doesn't fail with
     "Permission denied" on Windows. Returns True if a process was stopped.
     """
-    pid = _read_pid()
-    if pid and _is_running(pid):
+    if _owned_pid():
         cmd_stop()
         time.sleep(grace_s)
         return True
@@ -580,8 +610,7 @@ def cmd_start(extra_args: List[str]) -> bool:
     Returns True once the service survives the early startup check; False when
     launch fails before CraftBot can be used.
     """
-    pid = _read_pid()
-    if pid and _is_running(pid):
+    if _owned_pid():
         cmd_stop()
 
     # service_mode=False — don't suppress the browser; we open it ourselves below
@@ -700,14 +729,13 @@ def cmd_start(extra_args: List[str]) -> bool:
 
 def cmd_stop() -> None:
     """Stop the running CraftBot service."""
-    pid = _read_pid()
+    had_record = _read_pid_record() is not None
+    pid = _owned_pid()  # verified by start time; a reused pid is never ours
     if pid is None:
-        print("CraftBot does not appear to be running (no PID file found).")
-        return
-
-    if not _is_running(pid):
-        print(f"  {DIM}▸ PID {pid} not running — cleaning up stale PID file{RESET}")
-        _remove_pid()
+        if had_record:
+            print(f"  {DIM}▸ CraftBot not running — cleaned up stale PID file{RESET}")
+        else:
+            print("CraftBot does not appear to be running (no PID file found).")
         return
 
     print(f"  {ORANGE}▸{RESET} {WHITE}STOPPING CRAFTBOT{RESET}  {DIM}PID {pid}{RESET}")
@@ -745,9 +773,9 @@ def cmd_stop() -> None:
 def cmd_status() -> None:
     """Print whether CraftBot is currently running and whether auto-start is installed."""
     W = max(50, len(LOG_FILE) + 12)
-    pid = _read_pid()
+    pid = _owned_pid()
     print(f"\n{ORANGE}╔{'═' * W}╗{RESET}")
-    if pid and _is_running(pid):
+    if pid:
         print(
             f"{ORANGE}║{RESET}  {GREEN}▸ RUNNING{RESET}  {DIM}PID {pid}{RESET}{' ' * (W - 17 - len(str(pid)))}{ORANGE}║{RESET}"
         )
@@ -755,8 +783,6 @@ def cmd_status() -> None:
             f"{ORANGE}║{RESET}  {DIM}░░ LOG: {LOG_FILE[: W - 8]}{RESET}{' ' * max(0, W - 10 - len(LOG_FILE[: W - 8]))}{ORANGE}║{RESET}"
         )
     else:
-        if pid:
-            _remove_pid()
         print(
             f"{ORANGE}║{RESET}  {RED}▸ NOT RUNNING{RESET}{' ' * (W - 15)}{ORANGE}║{RESET}"
         )

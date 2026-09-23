@@ -178,7 +178,7 @@ No long-term goals defined yet.
 
 ### Current Focus
 <!-- Updated by week/day planner -->
-No current focus defined.
+Today: Improve an in-progress PDF deliverable (clean up messy formatting and incorporate more images where they add meaning).
 
 ### Recent Accomplishments
 <!-- Updated by planners after task completion -->
@@ -186,6 +186,10 @@ None yet.
 
 ### Upcoming Priorities
 <!-- Updated by day planner -->
-None defined.
+Today:
+- If a PDF task is active: normalize layout/formatting issues first (spacing, headings, alignment) before content edits.
+- Increase visual support: add/restore relevant images (figures/screenshots/diagrams) instead of text-only pages.
+- When the user shares/requests a PDF fix: ask for concrete success criteria (which pages/sections look wrong, required image types/placement).
 
 ---
+

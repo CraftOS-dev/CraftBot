@@ -76,6 +76,7 @@
     "quota": "Cuota",
     "model": "Modelo",
     "badRequest": "Solicitud",
+    "contextOverflow": "Ventana de contexto excedida",
     "blocked": "Bloqueado",
     "server": "Servicio no disponible",
     "connection": "Conexión",

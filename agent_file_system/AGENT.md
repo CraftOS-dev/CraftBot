@@ -1,5 +1,5 @@
 ---
-version: 8
+version: 9
 purpose: agent operations manual
 ---
 
@@ -81,7 +81,7 @@ Trigger producers: the scheduler ([app/config/scheduler_config.json](app/config/
 
 ### Trigger aggregation
 
-When a session's loop claims work, ALL triggers currently due for that session fold into ONE turn (`_merge_triggers`, [app/triggers/runtime.py](app/triggers/runtime.py)). The merged query is a numbered checklist: address EVERY item, in order. A later user message supersedes an earlier one only if it explicitly corrects it. The payload carries `queued_user_messages` and `aggregated_triggers` (the structured cause list).
+When a session's loop claims work, ALL triggers currently due for that session fold into ONE turn (`_merge_triggers`, [app/triggers/runtime.py](app/triggers/runtime.py)). The exception is EXCLUSIVE_SOURCES (currently the Agent-App crash-fix source): they always take their own turn and are never merged in either direction. The merged query is a numbered checklist: address EVERY item, in order. A later user message supersedes an earlier one only if it explicitly corrects it. The payload carries `queued_user_messages` and `aggregated_triggers` (the structured cause list).
 
 ### react() order
 
@@ -103,9 +103,10 @@ When a session's loop claims work, ALL triggers currently due for that session f
 Memory and proactive work run IN the main session — no separate task objects. The workflow's skills and action sets are loaded onto the session at run start and unloaded at run end.
 
 **memory**
-- Source: scheduler `memory-processing` (daily 3am) or startup replay if EVENT_UNPROCESSED.md is non-empty.
-- Loads the `memory-processor` skill. Reads EVENT_UNPROCESSED.md, distills important events into MEMORY.md, clears the buffer. Pruning (when MEMORY.md exceeds `max_items`) is folded into the same run's instruction.
-- During the run, `event_stream_manager.set_skip_unprocessed_logging(True)` is on so the run's own events do not loop back into EVENT_UNPROCESSED.md; reset at run end.
+- Trigger: the scheduler `memory-processing` job (runs once a day at a user-configurable time, 3am by default), or a startup replay when any session's unprocessed buffer is non-empty.
+- Gate: the run proceeds only when total unprocessed events reach `memory.processing_threshold`, or when a prune is due (MEMORY.md over `max_items`).
+- Work: loads the `memory-processor` skill, merges every session's EVENT_UNPROCESSED.md into one time-ordered staging file, distills the important events into the single MEMORY.md, then clears only the processed events from each session's buffer. A due prune folds into the same run.
+- During the run, `event_stream_manager.set_skip_unprocessed_logging(True)` keeps the run's own events out of the buffers; it is reset at run end.
 - Skipped entirely if `is_memory_enabled()` is False. See `## Memory`.
 
 **proactive heartbeat**
@@ -142,7 +143,7 @@ SessionRuntimeManager  per-session serial consumer loops
 TriggerService/Store   durable per-session trigger queues
 ContextEngine          builds system + user prompt each turn (KV cache aware)
 MemoryManager          hybrid vector+BM25 retrieval over agent_file_system
-EventStreamManager     appends to EVENT.md / EVENT_UNPROCESSED.md / session streams
+EventStreamManager     appends to each session's EVENT.md / EVENT_UNPROCESSED.md (per-session workspace dir)
 MCPClient              external MCP tool servers
 SkillManager           SKILL.md discovery + selection + reload
 Scheduler              cron-driven trigger fires from scheduler_config.json
@@ -279,6 +280,7 @@ Rules:
 ### Output destinations
 
 - Files the user should keep across sessions → `agent_file_system/workspace/`
+- Working notes that must survive event-stream summarization (plans, intermediate results, decisions) → `agent_file_system/workspace/sessions/{session_id}/NOTE.md` (a per-session scratchpad you own, seeded automatically)
 - Drafts, sketches, intermediate state → `agent_file_system/workspace/sessions/{session_id}/` (persists for the session's life; removed when the session is deleted)
 - Mission-scale, multi-run initiatives → `agent_file_system/workspace/missions/<mission_name>/INDEX.md`
 
@@ -313,7 +315,7 @@ docs, CRM, chat, repo, ...)                      list_available_integrations. If
                                                  around it.
 
 sounds like something an app of yours already    Agent App. agent_app_list_projects; on a match,
-does                                             agent_app_usage + the lui CLI/ops to read its data
+does                                             agent_app_usage + the agent-app CLI/ops to read its data
                                                  or perform the operation instead of redoing the
                                                  work by hand.
 ```
@@ -474,6 +476,10 @@ RATE_LIMIT /  provider throttling / usage cap        Retryable after a delay. Co
 QUOTA                                                 (see ## Models).
 SERVER        provider 5xx, temporary                Retryable. Usually transient.
 CONNECTION    timeout / network                      Retryable once connectivity is back.
+CONTEXT_      request exceeds context window         Auto-handled: the harness folds (summarizes)
+OVERFLOW                                             the event stream once, then retries. Still too
+                                                     big means model.context_window is set too
+                                                     small; surface that, do not hand-retry.
 BAD_REQUEST / other                                  Investigate before retrying.
 UNKNOWN
 ```
@@ -548,11 +554,11 @@ When the action's `status=error` message does not tell you enough to recover, dr
 **Three log surfaces. Know which to use for what.**
 
 ```
-EVENT.md                       agent_file_system/EVENT.md
-                               your perspective: events you produced/observed
+EVENT.md                       agent_file_system/workspace/sessions/<id>/EVENT.md
+                               THIS session's events you produced/observed
                                (action_start, action_end, send_message, error,
-                               warning, action_error, internal). Already on disk
-                               and indexed by memory_search.
+                               warning, action_error, internal). On disk, but NOT
+                               in the memory index; grep it, don't memory_search it.
 
 logs/<run>/                    project_root/logs/<timestamp>/  (ONE FOLDER PER APP RUN)
                                runtime perspective: harness internals, every
@@ -759,8 +765,8 @@ You're blocked when you don't know what to do next AND retrying won't help. The 
 
 ### read_file
 - Returns `cat -n` formatted lines plus a `has_more` flag.
-- Default limit is 500 lines. Use `offset` and `limit` for targeted reads.
-- For files larger than 500 lines: read the head first to learn structure, then `grep_files` for the section you need, then `read_file` with the right offset and limit.
+- Default limit is 2000 lines (and 2000 chars per line before truncation). Use `offset` and `limit` for targeted reads.
+- For files larger than 2000 lines: read the head first to learn structure, then `grep_files` for the section you need, then `read_file` with the right offset and limit.
 - Full input schema: [app/data/action/read_file.py](app/data/action/read_file.py).
 
 ### grep_files
@@ -837,8 +843,6 @@ agent_file_system/
 ├── FORMAT.md                 Document / design standards
 ├── MEMORY.md                 Distilled facts                     DO NOT EDIT
 ├── ENTITIES.md               Entity-graph registry               DO NOT EDIT
-├── EVENT.md                  Full event log                      DO NOT EDIT
-├── EVENT_UNPROCESSED.md      Memory-pipeline staging buffer      DO NOT EDIT
 ├── PROACTIVE.md              Recurring tasks + Goals/Plan/Status
 ├── GLOBAL_AGENT_APP.md       Global Agent App design rules
 ├── MISSION_INDEX_TEMPLATE.md Template for mission INDEX.md files
@@ -854,7 +858,6 @@ AGENT.md
 PROACTIVE.md
 MEMORY.md
 USER.md
-EVENT_UNPROCESSED.md
 ENTITIES.md
 ```
 
@@ -900,22 +903,30 @@ plus any user-added extras from `memory.indexed_files` in settings.json. Editing
 - Read pattern: `read_file` / `grep_files` to inspect the graph when troubleshooting retrieval. See `## Memory` "The entity graph".
 - Format: `## Entities` (one name per line) and `## Connections` (`[chunk-id] [pending|judged] names :: preview`; marks: plain = confirmed, `!` = rejected, `?` = pending judgment).
 
-### EVENT.md
-- Purpose: complete chronological event log. Append-only.
-- Write access: EventStreamManager. Hard rule: DO NOT edit.
-- Read pattern: `read_file` / `grep_files` for self-troubleshooting. See `## Errors` for log workflow.
-- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
-- Auto-rotated when size threshold is exceeded.
+### EVENT.md, EVENT_UNPROCESSED.md, NOTE.md (per-session)
 
-### EVENT_UNPROCESSED.md
-- Purpose: staging buffer for events awaiting memory distillation.
+These three files are PER-SESSION and live in THIS session's workspace dir,
+`agent_file_system/workspace/sessions/{session_id}/` (the concrete path is given
+to you each turn in the `<session>` state block — do not guess it). There is no
+longer a global EVENT.md at the `agent_file_system/` root.
+
+**EVENT.md** — this session's complete chronological event log. Append-only.
+- Write access: EventStreamManager. Hard rule: DO NOT edit.
+- Read pattern: `read_file` / `grep_files` on THIS session's copy for self-troubleshooting. Your live context only carries a summarized slice, so grep here to recover full detail. See `## Errors`.
+- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines. Auto-rotated when the size threshold is exceeded.
+
+**EVENT_UNPROCESSED.md** — this session's staging buffer for events awaiting memory distillation.
 - Write access: EventStreamManager (filtered subset of EVENT.md events). Hard rule: DO NOT edit.
-- Read pattern: the memory processor reads it daily 3am. See `## Memory`.
-- Cleared: after each successful memory-processing run.
-- Filter: events of kind `action_start`, `action_end`, `todos`, `error`, `waiting_for_user`, `gui_action`, `agent reasoning`, `screen_description`, `relevant_memories` are NOT staged. The pipeline focuses on user-facing dialogue and important state changes.
+- Read pattern: the memory processor aggregates every session's copy (oldest event first) into one staging file daily at 3am. See `## Memory`.
+- Cleared: this session's processed events are removed after each successful memory-processing run.
+- Filter: events of kind `action_start`, `action_end`, `todos`, `error`, `waiting_for_user`, `gui_action`, `agent reasoning`, `screen_description`, `relevant_memories` are NOT staged.
 - Skip flag: during memory-processing runs, `set_skip_unprocessed_logging(True)` prevents the run's own events from looping back. Reset automatically at run end.
 
-To review past dialogue or past run outcomes, grep EVENT.md (the complete history) or use `memory_search`.
+**NOTE.md** — YOUR scratchpad for this session. You may freely read AND write it (the only per-session file you may write).
+- Purpose: record plans, intermediate results, key facts, decisions, and running state so they survive event-stream summarization (NOTE.md is never summarized).
+- Use it whenever you have working state you must not lose across turns. It persists for the life of the session and is removed only when the session is deleted.
+
+To review past dialogue or past run outcomes, grep THIS session's EVENT.md or use `memory_search`.
 
 ### PROACTIVE.md
 - Purpose: recurring proactive task definitions plus the planner-maintained Goals / Plan / Status section.
@@ -972,7 +983,6 @@ Some persistent state the agent interacts with lives outside this directory:
 app/config/settings.json              model, API keys, OAuth, cache              (## Configs)
 app/config/mcp_config.json            MCP server registry                         (## MCP)
 app/config/skills_config.json         enabled / disabled skills                   (## Skills)
-app/config/external_comms_config.json platform listener configs                   (## Integrations)
 app/config/scheduler_config.json      cron schedules                              (## Proactive)
 app/config/onboarding_config.json     first-run state                             (## Onboarding)
 skills/<name>/SKILL.md                installed skills                            (## Skills)
@@ -996,7 +1006,10 @@ agent_file_system/workspace/
 ├── <files at root>           Persistent outputs the user should keep
 ├── sessions/
 │   └── {session_id}/         Per-session scratch directory. Persists for the
-│                             session's life; removed when the session is deleted.
+│       │                     session's life; removed when the session is deleted.
+│       ├── EVENT.md          This session's full event log        DO NOT EDIT
+│       ├── EVENT_UNPROCESSED.md  This session's memory buffer      DO NOT EDIT
+│       └── NOTE.md           Your scratchpad (read AND write it)
 ├── missions/
 │   └── <mission_name>/       Multi-run initiative. Persists indefinitely.
 │       ├── INDEX.md          Required (template at MISSION_INDEX_TEMPLATE.md)
@@ -1011,6 +1024,7 @@ agent_file_system/workspace/
 Type of file                                      → Destination
 final document the user should keep               → workspace/<filename>
 draft, sketch, intermediate state, scratch        → workspace/sessions/{session_id}/<filename>
+working notes that must survive summarization     → workspace/sessions/{session_id}/NOTE.md
 mission deliverable (multi-run initiative)        → workspace/missions/<mission_name>/<filename>
 Agent App project file                            → workspace/agent_app/<name>_<hash>/...
 ```
@@ -1193,13 +1207,14 @@ DO NOT silently change FORMAT.md. The user owns their style guide.
 ```
 agent_app_scaffold(name, description, ...)  Create a project: copies the blueprint, allocates ports,
                                             runs the requirements interview, then dispatches the build
-                                            to the project's own dedicated session (lui_<id>). After
+                                            to the project's own dedicated session (agentapp_<id>). After
                                             scaffold, do NOT write project files or call notify_ready
                                             yourself — the build session owns that.
 agent_app_list_projects()                   {id, name, description, status, url, path, delivered}.
                                             Resolve "the app" to an id here, never by filesystem search.
 agent_app_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
-                                            build, migrations, ops manifest) → boot the DEV environment
+                                            build, migrations, op smoke [changed ops run against the
+                                            boot]) → boot the DEV environment
                                             (your code on a hidden port with a FRESH schema-only DB —
                                             migrations replay; live data is never cloned). The live app
                                             (if any) keeps running untouched. Gate failures come back
@@ -1220,10 +1235,17 @@ agent_app_walk_verify(project_id, scope?)   Headless-browser sub-agent drives th
                                             real data) and destroys the dev copy. 35-minute ceiling.
 agent_app_restart(project_id)               Stop + full launch pipeline.
 agent_app_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
+agent_app_report_finding(project_id,        Inside a factory FIX round. ruled_out: causes you PROVED
+  ruled_out?, blocked_question?)            innocent, with the evidence that killed each — every later
+                                            round is a fresh run and re-tests anything you did not
+                                            record. blocked_question: ends the build cleanly and puts
+                                            ONE question to the user (a design decision, an account
+                                            that is not connected, a credential). Never use it to
+                                            escape a hard bug — a bug is yours while budget remains.
 agent_app_usage(project_id)                 Returns the project's operating manual: path, live data
-                                            schema, exact lui CLI commands. Call this FIRST when
+                                            schema, exact agent-app CLI commands. Call this FIRST when
                                             working on an existing project.
-agent_app_http(project_id, method, path)    FALLBACK HTTP access — prefer the lui CLI. PocketBase
+agent_app_http(project_id, method, path)    FALLBACK HTTP access — prefer the agent-app CLI. PocketBase
                                             admin endpoints (/api/collections) are superuser-only;
                                             use /api/collections/<name>/records.
 agent_app_marketplace_list() /
@@ -1237,8 +1259,8 @@ agent_app_import(source)                    Import a Agent App project from ZIP 
                                             Non-Agent-App sources register as external apps: craftbot.json
                                             (install/build/start/health verbs) + an operations.json that
                                             maps declared ops onto the app's own endpoints via an A2App
-                                            adapter on the assigned port. lui ops / lui run (and raw HTTP
-                                            with the project's .agent-token) work against them; lui data
+                                            adapter on the assigned port. agent-app ops / agent-app run (and raw HTTP
+                                            with the project's .agent-token) work against them; agent-app data
                                             does not. If the app has no server API, leave operations
                                             empty — never invent verbs or map direct DB writes.
 agent_app_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operations.json against the
@@ -1256,9 +1278,9 @@ agent_app_convert(source, ...)              Rebuild a foreign app as a Agent App
                                             supervised build dispatched. Non-Agent-App sources register as external apps (craftbot.json).
 ```
 
-### Data and ops: the lui CLI
+### Data and ops: the agent-app CLI
 
-Read/write a project's live data with the lui CLI via `run_shell` (absolute paths required):
+Read/write a project's live data with the agent-app CLI via `run_shell` (absolute paths required):
 
 ```
 node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> schema
@@ -1318,8 +1340,8 @@ When a project misbehaves: grep `logs/pocketbase.log` (server side) and `logs/fr
 - Editing `frontend/src/kit/` or system-managed pb_hooks. They are re-vendored and your edits are lost.
 - Skipping the `reference/requirements.md` update on modify. walk_verify then verifies against a stale spec.
 - Renaming a project directory by hand. `manifest.json` (project root) is the source of truth for identity and ports.
-- Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the lui CLI.
-- Using `agent_app_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the lui CLI.
+- Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the agent-app CLI.
+- Using `agent_app_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the agent-app CLI.
 - Putting project-specific design changes in GLOBAL_AGENT_APP.md instead of the project's AGENT_APP.md.
 
 ---
@@ -1382,14 +1404,14 @@ output_schema    dict  JSON-schema-like description of return shape. Read this t
 requirement      list  pip packages auto-installed in sandbox before execution.
 test_payload     dict  test input for diagnostic harness. The "simulated_mode" key bypasses real execution.
 action_sets      list  set names this action belongs to. Determines when it's loaded.
-parallelizable   bool  default True. False = action runs alone in its turn (write ops, state changes).
+parallelizable   bool  default True. False = action runs alone in its turn (e.g. set/skill changes, end_turn).
 irreversible     bool  default False. True = outward-facing side effect (send email/message,
                        public post). Guarded by an activity ledger: intent recorded before
                        execution, completed runs never silently re-executed.
 ```
 
 Key implications when reading an action:
-- `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `add_action_sets`, `remove_action_sets`, `end_turn`, `stream_edit`.
+- `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `add_action_sets`, `remove_action_sets`, `end_turn`.
 - `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. Most actions are `internal` (run in-process).
 - `default=True` means the action is in the action list regardless of which sets are loaded. Common defaults: `send_message`, `update_todos`, `set_requirement`, `spawn_subagent`, `run_shell`, `generate_image`, `generate_video`.
 - `mode="GUI"` actions (`clipboard_read`, `clipboard_write`) are filtered out of the CLI runtime's action list even when their set is loaded.
@@ -1422,10 +1444,10 @@ proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggl
 
 agent_app                agent_app_scaffold, agent_app_list_projects, agent_app_notify_ready,
                          agent_app_walk_verify, agent_app_restart, agent_app_report_progress,
-                         agent_app_http, agent_app_usage, agent_app_marketplace_list,
+                         agent_app_report_finding, agent_app_http, agent_app_usage,
+                         agent_app_marketplace_list,
                          agent_app_marketplace_install, agent_app_import_zip, agent_app_import,
-                         agent_app_convert, agent_app_ops_verify, agent_app_approve_triggers,
-                         browser_probe
+                         agent_app_convert, agent_app_ops_verify, agent_app_approve_triggers
 
 per-integration sets     Discord, Slack, Telegram (bot/user), Notion, LinkedIn, Jira, GitHub,
                          Outlook, WhatsApp, Twitter, HubSpot, Stripe, LINE, Lark (+calendar/drive),
@@ -1498,7 +1520,7 @@ Any set name not in `DEFAULT_SET_DESCRIPTIONS` is presented to the LLM as `Custo
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
 content_creation      generate_image, generate_video
-agent_app             the full Agent App surface (see ## Agent App) + browser_probe
+agent_app             the full Agent App surface (see ## Agent App)
 
 per-integration sets (loaded only when the user has the integration connected):
 umbrella set = <name> (15-25 high-value actions), plus fine-grained
@@ -1648,7 +1670,7 @@ For each integration registered in the `craftos_integrations` package, a slash c
 plus handler-specific subcommands (e.g. login-qr for whatsapp_web, invite for OAuth flows)
 ```
 
-There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (23 integrations) and each one's credential fields live in `craftos_integrations/providers/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
+There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (24 integrations) and each one's credential fields live in `craftos_integrations/providers/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
 
 ### Agent-provided commands
 
@@ -1677,7 +1699,6 @@ app/config/settings.json              model, API keys, OAuth, cache, browser, me
 app/config/mcp_config.json            MCP server registry                                     hot-reload
 app/config/skills_config.json         enabled / disabled skills                               hot-reload
 app/config/scheduler_config.json      cron schedules                                          hot-reload
-app/config/external_comms_config.json telegram + whatsapp listener configs                    NOT watched — restart required
 app/config/onboarding_config.json     first-run state                                         NOT watched
 app/config/connection_test_models.json  per-provider cheap test models                        NOT watched
 ```
@@ -1749,11 +1770,6 @@ skills_config.json
                   Already-loaded skills on the current run are unaffected until reloaded.
   log signature   [SKILL] Reloaded skills_config ...
 
-external_comms_config.json
-  NOT watched. Editing it requires a restart to take effect. Telegram and whatsapp
-  listener configs live here; other platforms are managed by .credentials/ +
-  /<integration> commands.
-
 scheduler_config.json
   callback        scheduler.reload  (async)
   effect          schedules re-parsed. New entries fire on their first matching window.
@@ -1772,7 +1788,6 @@ onboarding_config.json
 - The live LLM client's provider/model (requires a reinitialize — `/provider` or Settings UI save, see `## Models`).
 - An LLM call already in flight (uses the old config; next turn uses the new one).
 - A loaded skill's body/metadata on the current run (unload and re-load the skill to pick up changes).
-- `external_comms_config.json` (not watched — restart required).
 - New built-in actions added by creating a new `.py` file under `app/data/action/` (code change, requires restart).
 - Changes to OS environment variables not stored in any config file (requires restart).
 - Code changes anywhere in `app/`, `agent_core/` (requires restart).
@@ -1796,9 +1811,6 @@ skills_config.json
   - run /skill list (user-side) or
   - call list_skills action  → confirms enabled/disabled state
   - new /<skill_name> slash commands appear after sync_skill_commands fires
-
-external_comms_config.json
-  - not hot-reloaded; verify after a restart (listener connection messages in the log)
 
 scheduler_config.json
   - check logs:  grep_files "[SCHEDULER]" logs/<run>/all.log -A 2
@@ -1830,6 +1842,11 @@ memory:
   max_items: int                 (default 200; cap on MEMORY.md before pruning)
   prune_target: int              (default 135; how many items remain after a prune)
   item_word_limit: int           (default 150; words per stored memory item)
+  processing_threshold: int      (default 25; min total unprocessed events before a memory run fires)
+
+context:                         (event-stream budget; a fold is decided on the WHOLE request)
+  reserve_tokens: int            (default 16384; headroom the fold/summary request itself needs)
+  keep_recent_tokens: int        (default 20000; recent events kept verbatim after a fold)
 
 model:
   llm_provider: any provider key registered in the code (see ## Models);
@@ -1841,6 +1858,9 @@ model:
   image_gen_model / video_gen_model: string | null
   slow_mode: bool                (true throttles requests for rate-limited providers)
   slow_mode_tpm_limit: int       (default 30000; tokens per minute when slow_mode is true)
+  context_window: int            (default 128000; the configured model's context window in tokens;
+                                  drives the context-overflow fold; set it to match your model or
+                                  requests get force-summarized, then rejected. See ## Errors.)
 
 api_keys:
   openai: string                 (sk-...)
@@ -1909,6 +1929,8 @@ mcp_servers: [
     args: [string]                                 stdio command arguments
     url: string                                    required for sse / websocket
     env: { KEY: VALUE }                            environment variables passed to the server process
+    cwd: string                                    (stdio only) working directory for the subprocess;
+                                                   default = the agent workspace (see ## MCP)
     enabled: bool                                  controls whether the server connects on load/reload
     action_set_name: string                        default "mcp_<name>"; the action set tools register under
   }
@@ -1948,37 +1970,6 @@ To remove a skill entirely: also delete the directory under skills/.
 SKILL.md frontmatter fields: see ## Skills.
 ```
 <!-- /schema:skills_config.json -->
-
-<!-- schema:external_comms_config.json -->
-```
-File: app/config/external_comms_config.json
-
-telegram:
-  enabled: bool                  master switch for the telegram listener
-  mode: "bot" | "mtproto"        bot = Bot API; mtproto = user-account API
-  bot_token: string              required for mode=bot (from @BotFather)
-  bot_username: string           the bot's @username (without the @)
-  api_id: string                 required for mode=mtproto (from my.telegram.org)
-  api_hash: string               required for mode=mtproto
-  phone_number: string           required for mode=mtproto (E.164 format)
-  auto_reply: bool               if true, incoming messages route to the agent
-
-whatsapp:
-  enabled: bool                  master switch for whatsapp listener
-  mode: "web" | "business"       web = WhatsApp Web (Playwright); business = Cloud API
-  session_id: string             web mode: cached browser session
-  phone_number_id: string        business mode (from Meta business)
-  access_token: string           business mode
-  auto_reply: bool
-
-NOTE: Other platforms (discord, slack, gmail, notion, linkedin, outlook,
-google, jira, github, twitter) do NOT live in this file.
-- Their credentials live under .credentials/<platform>.json.
-- OAuth client_id/secret for some live in settings.json's "oauth" section.
-- Connect/disconnect via /<platform> commands.
-See ## Integrations and ## Slash Commands.
-```
-<!-- /schema:external_comms_config.json -->
 
 <!-- schema:scheduler_config.json -->
 ```
@@ -2135,7 +2126,7 @@ The action set name is `mcp_<name>` by default, or whatever `action_set_name` is
 
 ### Pre-defined servers in this codebase
 
-The shipped `mcp_config.json` contains roughly 157 server entries (most `enabled: false`). Examples of always-shipped, commonly-enabled ones:
+The shipped `mcp_config.json` contains roughly 158 server entries (most `enabled: false`). Examples of always-shipped, commonly-enabled ones:
 
 ```
 filesystem            @modelcontextprotocol/server-filesystem      file ops on cwd
@@ -2147,6 +2138,8 @@ github-mcp            @modelcontextprotocol/server-github           GitHub API
 Categories present in the shipped config: filesystem, browser automation, calendar/email/notes, finance/markets/crypto, productivity, OS integrations, fitness, search, media, AI/image, e-commerce, dev tools, security, design, analytics, real estate. To enumerate: `grep_files '"name":' app/config/mcp_config.json` returns the full list.
 
 Before adding a NEW server, check the existing entries. The capability you need may already be there as `enabled: false` — flipping the flag is safer than adding a duplicate.
+
+Stdio server cwd: unless an entry sets `cwd`, stdio MCP subprocesses run from the agent workspace (`agent_file_system/workspace/`). Cwd-relative artifacts land there; e.g. `playwright-mcp` writes screenshots to `agent_file_system/workspace/.playwright-mcp/`, reachable by your file tools.
 
 ### Add or enable a server (recipe)
 
@@ -2561,7 +2554,7 @@ Code: the standalone [craftos_integrations/](craftos_integrations/) package owns
 
 ### What's wired in
 
-23 integrations. Each has an `auth_type` that determines how connection happens:
+24 integrations. Each has an `auth_type` that determines how connection happens:
 
 ```
 id                  auth_type                description
@@ -2589,6 +2582,7 @@ twitter             token                    Tweets, timeline
 stripe              token                    Payments
 line                token                    LINE Messaging API
 lark                token                    Lark messaging
+posthog             token                    Product analytics, feature flags, dashboards
 ```
 
 To enumerate at runtime: call the `list_available_integrations` action. To check what's already connected: `check_integration_status`. Guessed ids get normalized via an alias map (e.g. `gdrive` → `google_drive`, `gcal` → `google_calendar`).
@@ -2740,6 +2734,16 @@ twitter
     1. Go to https://developer.twitter.com → Projects & Apps → create an app.
     2. Keys and tokens tab: regenerate Consumer Keys, then Access Token and Secret.
     3. Apps need at least Read+Write user-context permissions for posting.
+
+posthog
+  api_key             (required: Personal API Key "phx_..."; scope it to the
+                       resources the agent may touch; it can only do what the key allows)
+  host                (optional: "us", "eu", or a self-host URL; default US Cloud)
+  project_id          (optional: auto-detected from the key if omitted)
+  Where to get it:
+    1. PostHog → your avatar (top right) → Personal API keys.
+    2. Create personal API key; grant read+write on Query, Insight, Dashboard,
+       Feature flag, Cohort, Person, Annotation. Copy it (shown once, "phx_...").
 ```
 
 For OAuth integrations: shipped client credentials are embedded ([agent_core/core/credentials/embedded_credentials.py](agent_core/core/credentials/embedded_credentials.py)) — Google services, Slack, Notion, HubSpot, Outlook connect one-click without the user registering an app. The `settings.json` `oauth.<platform>` block (google / linkedin / slack / notion / outlook) is an optional override for users who bring their own OAuth app; only walk a user through developer-console registration if they explicitly want their own app or the embedded flow is unavailable.
@@ -2803,7 +2807,7 @@ Remember: Google is per-service. "Connect my Google account" → ask which servi
 
 ### Listener auto-start
 
-After a successful `connect_integration` call, the connect dispatcher auto-starts the platform's listener generically (`manager.start_platform(handler.spec.platform_id)`) for platforms that support push-style messaging. Telegram/WhatsApp listener runtime configs live in `external_comms_config.json` (restart to change).
+After a successful `connect_integration` call, the connect dispatcher auto-starts the platform's listener generically (`manager.start_platform(handler.spec.platform_id)`) for platforms that support push-style messaging.
 
 ### Verifying a connection
 
@@ -3206,29 +3210,34 @@ Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manag
 1. Action / message / system event happens
         |
         v
-2. EventStreamManager appends to EVENT.md           (full chronological log)
+2. EventStreamManager appends to the writing         (per-session full log,
+   session's EVENT.md                                 workspace/sessions/<id>/)
         |
         v
-3. EventStreamManager appends filtered subset to    (memory pipeline staging
-   EVENT_UNPROCESSED.md                              buffer; see filter below)
+3. EventStreamManager appends filtered subset to    (that session's memory
+   the same session's EVENT_UNPROCESSED.md            staging buffer; filter below)
         |
         v
-4. Daily at the configured time (default 3am) the    (or on startup if buffer
-   scheduler fires a MEMORY-source trigger — but      is non-empty)
-   the run proceeds ONLY if unprocessed events ≥
+4. Daily at the configured time (default 3am) the    (or on startup if buffers
+   scheduler fires a MEMORY-source trigger — but      are non-empty)
+   the run proceeds ONLY if unprocessed events
+   (summed across ALL sessions) ≥
    memory.processing_threshold (default 25) OR
    MEMORY.md pruning is due; otherwise the fire
    is skipped (idle days cost nothing)
         |
         v
-5. Run loads the memory-processor skill             (set_skip_unprocessed_logging
-   reads EVENT_UNPROCESSED.md                        is True so the run's own
-   applies the Future Utility Test                   events do not loop back)
-   (SAVE / NEVER-save condition lists)
-   distills passing events to MEMORY.md
+5. The run assembles EVERY session's                (oldest event first, one
+   EVENT_UNPROCESSED.md into one time-ordered         merged staging file)
+   staging file, then loads the memory-processor     (set_skip_unprocessed_logging
+   skill, applies the Future Utility Test             is True so the run's own
+   (SAVE / NEVER-save lists), and distills            events do not loop back)
+   passing events into the single global MEMORY.md
         |
         v
-6. EVENT_UNPROCESSED.md is cleared
+6. On success, the processed events are cleared      (an interrupted run clears
+   from each source session's EVENT_UNPROCESSED.md    nothing, so events are
+   and the staging file is removed                    reprocessed next time)
         |
         v
 7. memory_file_watcher detects MEMORY.md changed,
@@ -3304,9 +3313,9 @@ AGENT.md
 PROACTIVE.md
 MEMORY.md
 USER.md
-EVENT_UNPROCESSED.md
 ENTITIES.md
 ```
+(EVENT_UNPROCESSED.md is deliberately NOT indexed: it is a per-session transient buffer, cleared once memory processing consumes it. Grep it, don't memory_search it.)
 
 plus any extra files the user has added via `memory.indexed_files` in settings.json (managed from the Memory settings panel; merged in at runtime).
 
@@ -3338,7 +3347,7 @@ The watcher at [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/c
 3. cache the new hash
 ```
 
-Chunking: MEMORY.md and EVENT_UNPROCESSED.md are chunked per ITEM (one chunk per `[ts] [category] content` line); AGENT.md, USER.md, and PROACTIVE.md are chunked per markdown section. The watcher debounces changes by 30 seconds. Logs:
+Chunking: MEMORY.md is chunked per ITEM (one chunk per `[ts] [category] content` line); AGENT.md, USER.md, and PROACTIVE.md are chunked per markdown section. The watcher debounces changes by 30 seconds. Logs:
 
 ```
 [MemoryFileWatcher] Started watching: <agent_file_system path>
@@ -3355,7 +3364,7 @@ Question                                         Tool
 "Show me all entries of a specific type"         grep_files "[type]" MEMORY.md
 "What's in USER.md right now?"                   read_file USER.md
 "Find specific text in PROACTIVE.md"             grep_files "<text>" PROACTIVE.md
-"What past runs involved <subject>?"             grep_files "<subject>" agent_file_system/EVENT.md
+"What past runs involved <subject>?"             grep_files "<subject>" workspace/sessions/<id>/EVENT.md
 ```
 
 memory_search is for "what do I know about" questions. Grep is for "find this exact string". Pick the right tool.
@@ -3386,7 +3395,7 @@ Option 1: Add to USER.md
   USER.md is in INDEX_TARGET_FILES, so memory_search picks it up.
 
 Option 2: Wait for next pipeline run
-  Every interaction is in EVENT_UNPROCESSED.md. The 3am job will distill it.
+  Every interaction is in this session's EVENT_UNPROCESSED.md; the next qualifying memory run aggregates all sessions and distills it.
   Tell the user: "I'll remember that — it'll be distilled into long-term
   memory in the next memory cycle."
 
@@ -4661,7 +4670,7 @@ AGENT_APP.md              per-project doc inside a Agent App project            
 Agent App                 generated React + PocketBase apps served from CraftBot           ## Agent App
 LLM                       large language model used for text generation                    ## Models
 LLMConsecutiveFailureError  circuit-breaker on repeated LLM failures                       ## Errors / ## Models
-lui CLI                   node CLI for Agent App data/ops (agent-app/tools)             ## Agent App
+agent-app CLI                   node CLI for Agent App data/ops (agent-app/tools)             ## Agent App
 manage_integration_account  account admin action: set_primary / set_alias / set_listening  ## Integrations
 MCP                       Model Context Protocol; external tool servers                    ## MCP
 mcp_<server_name>         action set name registered when an MCP server connects           ## MCP / ## Action Sets

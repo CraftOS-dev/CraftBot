@@ -76,6 +76,7 @@
     "quota": "クォータ",
     "model": "モデル",
     "badRequest": "リクエスト",
+    "contextOverflow": "コンテキストウィンドウ超過",
     "blocked": "ブロック",
     "server": "サービス利用不可",
     "connection": "接続",

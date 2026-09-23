@@ -1,5 +1,5 @@
 /**
- * lui adapter-sync <project> — re-vendor ONLY the system pb_hooks files.
+ * agent-app adapter-sync <project> — re-vendor ONLY the system pb_hooks files.
  *
  * `kit-sync` does two jobs: it re-vendors `frontend/src/kit` AND the system
  * hooks. When all you need is to push a fixed adapter — a validation bug, a
@@ -19,7 +19,7 @@ import { log } from '../lib/log.ts';
 export async function run(args: string[]): Promise<number> {
   const projectDir = args[0];
   if (projectDir === undefined || !existsSync(join(projectDir, 'manifest.json'))) {
-    log.error('Usage: lui adapter-sync <project-dir>   (must contain manifest.json)');
+    log.error('Usage: agent-app adapter-sync <project-dir>   (must contain manifest.json)');
     return 1;
   }
 

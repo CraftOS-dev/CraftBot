@@ -177,7 +177,7 @@ For detailed troubleshooting, see [INSTALLATION_FIX.md](INSTALLATION_FIX.md).
 ---
 ## 🐳 Run with Container
 
-The repository root included a Docker configuration with Python 3.10, key system packages (including Tesseract for OCR), and all Python dependencies defined in `environment.yml`/`requirements.txt` so the agent can run consistently in isolated environments. 
+The repository root included a Docker configuration with Python 3.10, key system packages (including Tesseract for OCR), and all Python dependencies defined in `requirements.txt` so the agent can run consistently in isolated environments. 
 
 Below are the setup instruction of running our agent with container.
 
@@ -205,7 +205,7 @@ docker run --rm -it --env-file .env craftbot
 
 Mount any directories that should persist outside the container (such as data or cache folders) using `-v`, and adjust ports or additional flags as needed for your deployment. The container ships with system dependencies for OCR (`tesseract`) and common HTTP clients so the agent can work with files and network APIs inside the container.
 
-By default the image uses Python 3.10 and bundles the Python dependencies from `environment.yml`/`requirements.txt`, so `python -m app.main` works out of the box.
+By default the image uses Python 3.10 and bundles the Python dependencies from `requirements.txt`, so `python -m app.main` works out of the box.
 
 ---
 

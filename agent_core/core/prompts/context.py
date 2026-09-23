@@ -190,14 +190,15 @@ IMPORTANT: Always use absolute paths when working with files in the agent file s
 - **{agent_file_system_path}/SOUL.md**: Your personality, tone, and behavioral traits. This file is injected directly into your system prompt and shapes how you communicate and interact. Users can edit it to customize your personality. You can read and update SOUL.md to adjust your personality when instructed by the user.
 - **{agent_file_system_path}/MEMORY.md**: Persistent memory log storing distilled facts, preferences, and events from past interactions. Format: `[timestamp] [category] content {{entities: Name1, Name2}}`, optionally ending in `{{superseded}}` for invalidated facts. Agent should NOT edit directly - use memory processing actions.
 - **{agent_file_system_path}/ENTITIES.md**: Registry mapping memories and indexed files to their entities, maintained automatically by the system's entity-judge pipeline after memory processing. Agent should NOT edit directly.
-- **{agent_file_system_path}/EVENT.md**: Comprehensive event log tracking all system activities including task execution, action results, and agent messages. Older events are summarized automatically.
-- **{agent_file_system_path}/EVENT_UNPROCESSED.md**: Temporary buffer for recent events awaiting memory processing. Events here are periodically evaluated and important ones are distilled into MEMORY.md.
 - **{agent_file_system_path}/PROACTIVE.md**: Configuration for scheduled proactive tasks (hourly/daily/weekly/monthly), including task instructions, conditions, priorities, deadlines, and execution history.
 - **{agent_file_system_path}/FORMAT.md**: Formatting and design standards for file generation. Contains global standards (brand colors, fonts, spacing) and file-type-specific templates (pptx, docx, xlsx, pdf). When generating or creating any file output (documents, presentations, spreadsheets, PDFs), use `grep_files` to search FORMAT.md for the target file type keyword (e.g., "## pptx") to find relevant formatting rules, and also read the "## global" section for universal standards. If the specific file type is not found, fall back to the global section. You can read and update FORMAT.md to store user's formatting preferences.
 
 ## Working Directory
 - **{agent_file_system_path}/workspace/**: Your sandbox directory for work files. ALL files you create during execution MUST be saved here, not outside.
-- **{agent_file_system_path}/workspace/sessions/{{session_id}}/**: Each session's persistent scratch directory (plans, drafts, sketch pads). Cleaned up only when the session is deleted.
+- **{agent_file_system_path}/workspace/sessions/{{session_id}}/**: THIS session's persistent scratch directory (plans, drafts, sketch pads). Cleaned up only when the session is deleted. It also holds this session's own event files:
+  - **EVENT.md**: This session's complete event log (task execution, action results, messages). Older events in your live context are summarized, so `grep_files`/`read_file` this file to recover full detail of anything that scrolled off. Read-only — do NOT edit.
+  - **EVENT_UNPROCESSED.md**: This session's buffer of recent events awaiting memory processing; periodically distilled into MEMORY.md. Read-only — do NOT edit.
+  - **NOTE.md**: YOUR scratchpad for this session. You may freely read AND write it. Record plans, intermediate results, key facts, and running state here so they survive event-stream summarization (NOTE.md is never summarized). Prefer it whenever you have working state you must not lose.
 - **{agent_file_system_path}/workspace/missions/**: Dedicated folders for missions (work spanning multiple runs). Each mission has an INDEX.md for context continuity. Scan this directory at the start of substantial work.
 
 ## Skills Directory
@@ -207,9 +208,9 @@ IMPORTANT: Always use absolute paths when working with files in the agent file s
 ## Important Notes
 - ALWAYS use absolute paths (e.g., {agent_file_system_path}/workspace/report.pdf) when referencing files
 - Save files to `{agent_file_system_path}/workspace/` directory if you want them shared across sessions
-- Session-scoped scratch files go in `{agent_file_system_path}/workspace/sessions/{{session_id}}/`
-- Do not edit system files (MEMORY.md, EVENT*.md) directly.
-- You can read and update AGENT.md, USER.md, and SOUL.md to store persistent configuration
+- Session-scoped scratch files go in `{agent_file_system_path}/workspace/sessions/{{session_id}}/`; use its NOTE.md for working notes that must survive summarization
+- Do not edit system files (MEMORY.md, and each session's EVENT.md / EVENT_UNPROCESSED.md) directly.
+- You can read and update AGENT.md, USER.md, and SOUL.md to store persistent configuration, and freely read/write your session's NOTE.md
 </agent_file_system>
 """
 

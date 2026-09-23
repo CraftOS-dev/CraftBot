@@ -32,13 +32,13 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
   override render(): ReactNode {
     if (this.state.error !== null) {
       return (
-        <div className="flex min-h-screen items-center justify-center bg-[var(--lui-bg)] p-8 text-[var(--lui-text)]">
-          <div className="max-w-md rounded-xl border border-red-500/30 bg-[var(--lui-surface)] p-6">
+        <div className="flex min-h-screen items-center justify-center bg-[var(--agent-app-bg)] p-8 text-[var(--agent-app-text)]">
+          <div className="max-w-md rounded-xl border border-red-500/30 bg-[var(--agent-app-surface)] p-6">
             <h1 className="mb-2 text-lg font-semibold">Something went wrong</h1>
             <p className="mb-4 text-sm opacity-80">{this.state.error.message}</p>
             <button
               type="button"
-              className="rounded-md bg-[var(--lui-accent)] px-3 py-1.5 text-sm text-white"
+              className="rounded-md bg-[var(--agent-app-accent)] px-3 py-1.5 text-sm text-white"
               onClick={() => window.location.reload()}
             >
               Reload app
@@ -72,7 +72,10 @@ export function Shell({ children }: { children: ReactNode }): React.JSX.Element 
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-[var(--lui-bg)] text-[var(--lui-text)] antialiased">
+      <div
+        className="min-h-screen bg-[var(--agent-app-bg)] text-[var(--agent-app-text)] antialiased"
+        style={{ fontFamily: 'var(--agent-app-font)' }}
+      >
         {children}
       </div>
       <Toaster />

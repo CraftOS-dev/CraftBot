@@ -261,16 +261,24 @@ with tempfile.TemporaryDirectory() as tmp:
     ok("scope='full' → VERIFY MODE: FULL in the query")
 
     # ── 2. history + coverage fold/render ──
-    report_text = """SCOPE: DELTA
-INCLUDED: Column drag, Card DnD
-EXCLUDED:
-- Labels — Sidebar untouched; no data-shape change
-- Search — search route unchanged
-VERDICT: PASS
-FEATURES:
-- Column drag — PASS — dragged In Progress before To Do; order persisted after reload
-- Card DnD — PASS — moved a card between lists
-"""
+    report_text = json.dumps(
+        {
+            "scope": {
+                "mode": "delta",
+                "excluded": [
+                    {"feature": "Labels", "reason": "Sidebar untouched"},
+                    {"feature": "Search", "reason": "search route unchanged"},
+                ],
+            },
+            "verdict": "pass",
+            "features": [
+                {"name": "Column drag", "status": "pass",
+                 "evidence": "dragged In Progress before To Do; persisted after reload"},
+                {"name": "Card DnD", "status": "pass",
+                 "evidence": "moved a card between lists"},
+            ],
+        }
+    )
     report = wv.parse_check_report(report_text)
     assert report["kind"] == "pass" and report["passed"] == [
         "Column drag",
@@ -281,9 +289,7 @@ FEATURES:
         and report["scope"]["excluded"][0][0] == "Labels"
     )
     assert report["features"] == {"Column drag": "PASS", "Card DnD": "PASS"}
-    ok(
-        "parse_check_report carries scope + per-feature verdicts; EXCLUDED bullets never count as passed"
-    )
+    ok("parse_check_report derives scope + per-feature verdicts from typed fields")
     assert wv.describe_scope(report).startswith("scoped to your change — 2 unaffected")
     assert wv.describe_scope({"scope": {"mode": "FULL"}}) == ""
     ok("describe_scope: clause for DELTA, empty for FULL")
@@ -379,68 +385,22 @@ FEATURES:
         "coverage block: a diff in handleDragEnd names Card DnD as the feature that executed it"
     )
 
-# ── 3. scope parsing edge cases ──
-assert vs.parse_scope("VERDICT: PASS\nFEATURES:\n- a — PASS — b") is None
-s = vs.parse_scope("SCOPE: FULL\nINCLUDED: a, b\nEXCLUDED: none\nVERDICT: PASS")
-assert (
-    s["mode"] == "FULL"
-    and s["included"] == ["a", "b"]
-    and s["excluded"] == []
-    and s["excluded_without_reason"] == []
-)
-s = vs.parse_scope(
-    "SCOPE: DELTA\nINCLUDED: a\nEXCLUDED:\n- b\n- c: reason\nVERDICT: PASS\nFEATURES:\n- a — PASS — x"
-)
-assert s["excluded"] == [("c", "reason")] and s["excluded_without_reason"] == ["b"], s
-for txt in (
-    "EXCLUDED: none (single-feature delta walk; only Header.tsx changed)",
-    "EXCLUDED: nothing excluded",
-    "EXCLUDED: N/A",
-):
-    s = vs.parse_scope(
-        "SCOPE: DELTA"
-        + chr(10)
-        + "INCLUDED: a"
-        + chr(10)
-        + txt
-        + chr(10)
-        + "VERDICT: PASS"
-    )
-    assert s["excluded"] == [] and s["excluded_without_reason"] == [], (txt, s)
-ok(
-    "parse_scope: none (…) / nothing / N/A are no exclusions (guard false-rejected this live)"
-)
-
+# ── 3. runner JSON-decision salvage (unrelated to the verdict format) ──
 ex = SubAgentRunner._extract_json_object
 assert ex(
-    "I will click next."
-    + chr(10)
-    + chr(10)
+    "I will click next." + chr(10) + chr(10)
     + '{"action_name": "x", "parameters": {"a": "{b}"}}'
 ) == {"action_name": "x", "parameters": {"a": "{b}"}}
 assert ex("no json here") is None
 dec, err = SubAgentRunner._parse_decision(
-    "Reading requirements first."
-    + chr(10)
-    + chr(10)
-    + '{"action_name": "read_file", "parameters": {"file_path": "C:\\\\x"}}'
+    "Reading requirements first." + chr(10) + chr(10)
+    + '{"action_name": "read_file", "parameters": {"file_path": "/x/y"}}'
 )
 assert err is None and dec["action_name"] == "read_file", (dec, err)
 ok("runner: prose before the JSON decision is salvaged instead of costing a retry call")
 
-# a report whose feature lines use '--' as the separator (observed live) still yields verdicts
-fv = vs.feature_verdicts(
-    "VERDICT: FAIL"
-    + chr(10)
-    + "FEATURES:"
-    + chr(10)
-    + "- Priority filter pills in header -- FAIL -- toggle-off broken"
-)
-assert fv == {"Priority filter pills in header": "FAIL"}, fv
-ok("feature_verdicts: double-dash separators parse to a clean feature name")
-ok("parse_scope: none/absent/bare-exclusion cases")
 
-# ── 4. the guard enforces SHAPE, never content ──
+# ── 4. the guard enforces the STRUCTURED verdict's SHAPE, never its content ──
 guard = defn_mod._early_end_guard
 
 
@@ -448,108 +408,75 @@ def sub(query="CHANGED SINCE LAST PROMOTE (x): …", iterations=6):
     return types.SimpleNamespace(query=query, iterations=iterations)
 
 
-def end(result):
-    return {"status": "completed", "result": result}
+def end(obj):
+    return {"status": "completed",
+            "result": obj if isinstance(obj, str) else json.dumps(obj)}
 
 
-DELTA_OK = """SCOPE: DELTA
-INCLUDED: Column drag
-EXCLUDED:
-- Labels — Sidebar untouched
-VERDICT: PASS
-FEATURES:
-- Column drag — PASS — dragged the column; new order read back after reload
-"""
+def _feat(name, status, evidence="ran it, read it back", **kw):
+    f = {"name": name, "status": status, "evidence": evidence}
+    f.update(kw)
+    return f
+
+
+DELTA_OK = {
+    "scope": {"mode": "delta",
+              "excluded": [{"feature": "Labels", "reason": "Sidebar untouched"}]},
+    "verdict": "pass",
+    "features": [_feat("Column drag", "pass")],
+}
 assert guard(sub(), end(DELTA_OK)) is None
 ok("guard: a complete DELTA walk may end at turn 6 (no turn floor)")
 
-r = guard(
-    sub(),
-    end(
-        DELTA_OK.replace(
-            "SCOPE: DELTA\nINCLUDED: Column drag\nEXCLUDED:\n- Labels — Sidebar untouched\n",
-            "",
-        )
-    ),
-)
-assert r and "no SCOPE block" in r
-ok("guard: missing SCOPE block is rejected")
+r = guard(sub(), end("not json at all"))
+assert r and "JSON object" in r
+ok("guard: a non-JSON result is rejected with the schema")
 
-r = guard(
-    sub(query="CHANGED SINCE LAST PROMOTE: NO BASELINE — first verify"), end(DELTA_OK)
-)
-assert r and "not available" in r
-ok("guard: DELTA rejected when the query says NO BASELINE")
+r = guard(sub(query="CHANGED SINCE LAST PROMOTE: NO BASELINE — first verify"), end(DELTA_OK))
+assert r and "must be FULL" in r
 r = guard(sub(query="VERIFY MODE: FULL — a full sweep"), end(DELTA_OK))
-assert r and "not available" in r
-ok("guard: DELTA rejected when a FULL sweep was requested")
+assert r and "must be FULL" in r
+ok("guard: DELTA rejected when NO BASELINE / FULL sweep was requested")
 
-r = guard(sub(), end(DELTA_OK.replace("- Labels — Sidebar untouched", "- Labels")))
+bad_excl = {**DELTA_OK,
+            "scope": {"mode": "delta", "excluded": [{"feature": "Labels", "reason": ""}]}}
+r = guard(sub(), end(bad_excl))
 assert r and "without a reason" in r
-ok("guard: exclusion without a reason is rejected")
+ok("guard: an excluded feature without a reason is rejected")
 
-r = guard(
-    sub(),
-    end(DELTA_OK.replace("INCLUDED: Column drag", "INCLUDED: Column drag, Search")),
-)
-assert r and "no FEATURES line" in r and "Search" in r
-ok("guard: an INCLUDED feature with no verdict line is rejected")
+nr = {**DELTA_OK, "features": [_feat("Column drag", "not_reached", evidence="")]}
+r = guard(sub(), end(nr))
+assert r and "unreached_reason" in r
+assert guard(sub(iterations=48), end(nr)) is None
+ok("guard: not_reached without a reason is rejected while turns remain, allowed near the cap")
 
-r = guard(
-    sub(),
-    end(
-        DELTA_OK.replace(
-            "— PASS — dragged the column; new order read back after reload",
-            "— NOT REACHED",
-        )
-    ),
-)
-assert r and "NOT REACHED" in r
-ok("guard: bare NOT REACHED on an included feature is rejected while turns remain")
-assert (
-    guard(
-        sub(iterations=48),
-        end(
-            DELTA_OK.replace(
-                "— PASS — dragged the column; new order read back after reload",
-                "— NOT REACHED",
-            )
-        ),
-    )
-    is None
-)
-ok("guard: …but allowed when the cap is near")
+nr_ok = {**DELTA_OK, "features": [_feat("Export", "not_reached",
+         evidence="no download tool", unreached_reason="tooling")]}
+assert guard(sub(), end(nr_ok)) is None
+ok("guard: not_reached WITH an unreached_reason is accepted")
 
-FULL_EARLY = "SCOPE: FULL\nINCLUDED: a, b\nEXCLUDED: none\nVERDICT: FAIL\nFEATURES:\n- a — PASS — did it, read it back\n- b — NOT REACHED\n"
+FULL_EARLY = {
+    "scope": {"mode": "full", "excluded": []},
+    "verdict": "fail",
+    "features": [_feat("a", "pass"), _feat("b", "not_reached", evidence="")],
+}
 r = guard(sub(iterations=10), end(FULL_EARLY))
-assert r and "Early conclusion REJECTED" in r
+assert r and "not_reached" in r
 assert guard(sub(iterations=40), end(FULL_EARLY)) is None
 ok("guard: FULL walks keep the 70% premature-conclusion floor")
 
-r = guard(
-    sub(),
-    end(
-        DELTA_OK.replace(
-            "dragged the column; new order read back after reload", "button visible"
-        )
-    ),
-)
-assert r and "cosmetic" in r
-ok("guard: quality gates still apply")
-
 assert guard(sub(), {"status": "failed", "result": "missing base_url"}) is None
-assert (
-    guard(sub(), end("VERDICT: BLOCKED\nBLOCKED BY:\n- browser MCP connection lost"))
-    is None
-)
-ok("guard: failed status and genuine tooling blockage pass through")
+assert guard(sub(), end({"scope": {"mode": "full", "excluded": []},
+                         "verdict": "blocked", "blocked_reason": "browser MCP died",
+                         "features": []})) is None
+ok("guard: failed status and a typed blocked verdict pass through")
 
 # ── 5. definition wiring ──
 d = get_subagent_definition("walk_verify")
 assert "walk_mark_feature" in d.actions and "sub_task_end" in d.actions
 assert d.compact_actions and d.session_reset_every == 10 and d.compact_keep == 3
 assert (
-    "SCOPE: DELTA | FULL" in d.system_prompt
+    '"verdict": "pass" | "fail" | "blocked"' in d.system_prompt
     and "EVERY feature in the requirements MUST appear" not in d.system_prompt
 )
 ok("definition: walk_mark_feature allowed, compaction configured, prompt rewritten")

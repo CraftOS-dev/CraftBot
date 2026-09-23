@@ -29,7 +29,7 @@ needs code changes, that's agent-app-modify.
 
 ## Operating an app (using it on the user's behalf)
 
-Use the **`lui` CLI via run_shell**. ALWAYS use the ABSOLUTE CLI path —
+Use the **`agent-app` CLI via run_shell**. ALWAYS use the ABSOLUTE CLI path —
 the shell's cwd is NOT the repo root, so relative paths fail. The CLI is
 `<craftbot-root>/agent-app/tools/src/cli.ts` (craftbot-root = parent of
 `agent_file_system`; in a Agent App session the [INTERACTING WITH AGENT APP]

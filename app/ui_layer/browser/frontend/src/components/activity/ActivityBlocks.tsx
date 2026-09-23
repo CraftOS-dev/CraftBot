@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { StatusIndicator } from '../ui'
@@ -19,14 +20,32 @@ function formatDuration(ms?: number): string {
   return `${minutes}m ${seconds}s`
 }
 
-// Live elapsed time for an in-flight action. The row only shows a timer
-// while the action is running/waiting — finished actions (success or
-// error) show no duration.
-function getRunningElapsedMs(item: ActionItem): number | undefined {
+// Start time of an in-flight action. The row only shows a timer while the
+// action is running/waiting — finished actions (success or error) show no
+// duration.
+function getRunningSince(item: ActionItem): number | undefined {
   if ((item.status === 'running' || item.status === 'waiting') && item.createdAt) {
-    return Date.now() - item.createdAt
+    return item.createdAt
   }
   return undefined
+}
+
+const ELAPSED_TICK_MS = 100
+
+// Live elapsed time since `since` (epoch ms). Ticks itself while mounted, so
+// only this text re-renders — not the row, and not the Chat around it. Rows
+// mount it only while their action or run is in flight.
+function Elapsed({ since }: { since: number }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), ELAPSED_TICK_MS)
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <span className={styles.actionRowDuration}>
+      {formatDuration(Math.max(0, Date.now() - since))}
+    </span>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -48,13 +67,14 @@ export function ChunkHeaderRow({
   count,
   expanded,
   working,
-  elapsedMs,
+  startedAt,
   onToggle,
 }: {
   count: number
   expanded: boolean
   working: boolean
-  elapsedMs?: number
+  /** Run start (epoch ms); shows a live timer while working. */
+  startedAt?: number
   onToggle: () => void
 }) {
   const { t } = useTranslation(['activity', 'common'])
@@ -86,9 +106,7 @@ export function ChunkHeaderRow({
             <span className={styles.workingDot}>.</span>
           </span>
           {chevron}
-          {elapsedMs != null && (
-            <span className={styles.actionRowDuration}>{formatDuration(elapsedMs)}</span>
-          )}
+          {startedAt != null && <Elapsed since={startedAt} />}
         </>
       ) : (
         <>
@@ -204,7 +222,7 @@ export function ActionBlock({ item }: { item: ActionItem }) {
   const preview = isError && item.error
     ? firstLine(item.error)
     : getActionPreview(item, inputObj)
-  const elapsed = getRunningElapsedMs(item)
+  const runningSince = getRunningSince(item)
 
   return (
     <div
@@ -216,9 +234,7 @@ export function ActionBlock({ item }: { item: ActionItem }) {
       </span>
       <span className={styles.actionRowName}>{displayActionName(item.name)}</span>
       {preview && <span className={styles.actionRowPreview}>{preview}</span>}
-      {elapsed != null && (
-        <span className={styles.actionRowDuration}>{formatDuration(elapsed)}</span>
-      )}
+      {runningSince != null && <Elapsed since={runningSince} />}
     </div>
   )
 }

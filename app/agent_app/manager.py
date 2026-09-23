@@ -11,10 +11,13 @@ Manages the lifecycle of Agent App projects:
 """
 
 import asyncio
+import errno
+import hmac
 import json
 import os
 import re
 import secrets
+import functools
 import shutil
 import socket
 import subprocess
@@ -26,10 +29,17 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 from app import node_runtime
+from app.process_ledger import (
+    ROLE_AGENT_APP,
+    get_ledger,
+    kill_tree,
+    listening_pids,
+)
 from app.agent_app import marketplace_source
+from app.agent_app.sharing import SHARE_STATE_FILES, ShareError, SharingService
 
 try:
     from loguru import logger
@@ -77,6 +87,65 @@ def copytree_long(src: Any, dst: Any, **kwargs: Any) -> str:
     """shutil.copytree that survives paths over 260 chars on Windows."""
     return shutil.copytree(long_path(src), long_path(dst), **kwargs)
 
+
+# Set for the duration of one import by the UI adapter, so progress can reach
+# the browser. A plain module global (not a constructor arg) because _progress
+# is called from deep inside blocking helpers running on a worker thread.
+_PROGRESS_SINK: Any = None
+
+
+def set_import_progress_sink(sink: Any) -> None:
+    """Install (or clear, with None) the callback that mirrors import
+    progress to the UI. Scoped to a single import by the caller."""
+    global _PROGRESS_SINK
+    _PROGRESS_SINK = sink
+
+
+def _human_bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f}{unit}" if unit == "B" else f"{n:.1f}{unit}"
+        n /= 1024.0
+    return f"{n:.1f}GB"
+
+
+def _progress(phase: str, done: int, total: int, what: str = "") -> None:
+    """One log line per import phase.
+
+    Observed live 2026-09-01: importing github.com/odoo/odoo produced ONE log
+    line ("import requested") and then 13 minutes 6 seconds of complete
+    silence — not just from the import, from the whole process — before
+    "Registered EXTERNAL app". With nothing to look at, a working import is
+    indistinguishable from a hung one.
+    """
+    # GitHub's codeload sends no Content-Length, so a download has no total —
+    # raw byte counts ("downloading: 236978176") are not a progress report.
+    is_bytes = phase == "downloading"
+    try:
+        shown = _human_bytes(done) if is_bytes else f"{done:,}"
+        if total:
+            pct = int(done * 100 / total)
+            of = _human_bytes(total) if is_bytes else f"{total:,}"
+            logger.info(
+                f"[AGENT_APP] import {phase}: {shown}/{of} ({pct}%) {what}"
+            )
+        else:
+            logger.info(f"[AGENT_APP] import {phase}: {shown} {what}")
+    except Exception:
+        pass
+    try:
+        if _PROGRESS_SINK is not None:
+            _PROGRESS_SINK(
+                {
+                    "phase": phase,
+                    "done": done,
+                    "total": total,
+                    "unit": "bytes" if is_bytes else "files",
+                    "what": what,
+                }
+            )
+    except Exception:
+        pass
 
 def rmtree_long(path: Any, **kwargs: Any) -> None:
     """shutil.rmtree that survives paths over 260 chars on Windows.
@@ -134,11 +203,6 @@ class AgentAppProject:
     # binds; the A2App proxy holds `port` in front of it (NOT serialized —
     # reallocated at every launch).
     internal_port: Optional[int] = None
-    tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
-    tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
-    # Open file object the tunnel process writes into (NOT serialized). Held
-    # so it can be closed when the tunnel stops — see start_tunnel.
-    tunnel_log: Optional[Any] = None
     process: Optional[subprocess.Popen] = None  # Frontend process
 
     def to_dict(self) -> Dict[str, Any]:
@@ -170,7 +234,6 @@ class AgentAppProject:
             "appRuntime": self.app_runtime,
             "craftbotVersion": self.craftbot_version,
             "agentAppVersion": 2,
-            "tunnelUrl": self.tunnel_url,
         }
 
 
@@ -186,10 +249,24 @@ class AgentAppManager:
         """
         self.workspace_root = Path(workspace_root)
         self.projects: Dict[str, AgentAppProject] = {}
-        self._next_port = 3100
-        self._port_range = (3100, 3199)
-        self._used_ports: set = set()
         self._projects_file = self.workspace_root / "agent_app_projects.json"
+
+        # Ports and running instances: ONE allocator over both pools (live
+        # 3100-3199, shadow 3900-3999) and ONE registry that is the single
+        # source of truth for what is running and where traffic routes. Live
+        # ports are sticky (reserved for the project's lifetime); shadow ports
+        # are reserved per boot. Identity is the instance id, never the port.
+        from app.agent_app.instances import (
+            LIVE_RANGE,
+            InstanceRegistry,
+            PortAllocator,
+        )
+
+        self._port_range = LIVE_RANGE  # retained for the range-scan reconciler
+        self.ports = PortAllocator()
+        self.instances = InstanceRegistry(
+            self.workspace_root / "agent_app_instances.json", self.ports
+        )
 
         # Session and trigger management (set via bind_session_manager)
         self._session_manager: Optional["SessionManager"] = None
@@ -204,6 +281,10 @@ class AgentAppManager:
         # external-app-a2app-adapter.md). The proxy holds the project PORT,
         # so every kill-by-port on a project port must stop the proxy first.
         self._external_proxies: Dict[str, Any] = {}
+
+        # Share channels (private LAN link, public tunnel link): every way a
+        # running app is reached from off this machine. See sharing.py.
+        self.sharing = SharingService(self._terminate_process)
 
         # Ensure workspace directory exists
         self.agent_app_dir = self.workspace_root / "agent_app"
@@ -228,6 +309,7 @@ class AgentAppManager:
             self.runner,
             self._run_launch_pipeline,
             self.launch_and_verify,
+            self.instances,
         )
 
         # Backups of live pb_data (spec docs/plans/agent-app-backups-plan.md).
@@ -239,6 +321,10 @@ class AgentAppManager:
 
         self.backups = BackupService(self.agent_app_dir)
         self._backup_lock = asyncio.Lock()
+        # ONE launch at a time per project. The watchdog restarts a dead app
+        # on its own schedule while the agent can call notify_ready at any
+        # moment, and both drive the same pipeline over the same ports.
+        self._launch_locks: Dict[str, asyncio.Lock] = {}
         self._live_ops: set = set()  # project ids mid-promote/mid-restore
         self._backups_inflight: set = set()  # ids with a capture task queued/running
         # Pre-promote backup (lifecycle plan deferred issue #1): snapshot the
@@ -318,7 +404,7 @@ class AgentAppManager:
         session = self._session_manager.create_session(
             session_type=SessionType.AGENT_APP,
             title=project.name,
-            session_id=project.session_id or f"lui_{project.id}",
+            session_id=project.session_id or f"agentapp_{project.id}",
             action_sets=["file_operations", "code_execution", "agent_app"],
             selected_skills=[],
             agent_app_project_id=project.id,
@@ -399,25 +485,7 @@ class AgentAppManager:
                         retry_counts.pop(project_id, None)
                         continue
 
-                    frontend_dead = (
-                        project.process is not None
-                        and project.process.poll() is not None
-                    )
-                    if not frontend_dead and project.port:
-                        if project.process is None and not self._is_port_in_use(
-                            project.port
-                        ):
-                            frontend_dead = True
-                    # External apps: the in-process proxy keeps the PROJECT
-                    # port alive even when the app behind it dies, so the
-                    # app's own (internal) port is the honest liveness probe.
-                    if (
-                        not frontend_dead
-                        and getattr(project, "project_type", "native") == "external"
-                        and project.internal_port
-                        and not self._is_port_in_use(project.internal_port)
-                    ):
-                        frontend_dead = True
+                    frontend_dead = self._project_is_dead(project)
 
                     if not frontend_dead:
                         # Everything healthy, reset retry counter
@@ -457,28 +525,7 @@ class AgentAppManager:
                     # restart via its own pipeline, not as PocketBase (the
                     # orphaned V1 machinery's sharpest bug: this call used to
                     # hardcode runner.start for every project type).
-                    restart_ok = True
-                    project.process = None
-                    try:
-                        if not project.bridge_token:
-                            project.bridge_token = secrets.token_urlsafe(32)
-                        if getattr(project, "project_type", "native") == "external":
-                            _res = await self._run_external_pipeline(project)
-                            restart_ok = _res.get("status") == "success"
-                            if restart_ok:
-                                project.process = _res.pop("process")
-                        else:
-                            project.process = await self.runner.start(
-                                Path(project.path),
-                                project.port,
-                                bridge_token=project.bridge_token,
-                            )
-                            restart_ok = await self.runner.wait_healthy(project.port)
-                    except Exception as e:
-                        logger.error(
-                            f"[AGENT_APP:WATCHDOG] restart failed for {project_id}: {e}"
-                        )
-                        restart_ok = False
+                    restart_ok = await self._watchdog_restart(project)
 
                     if restart_ok:
                         logger.info(
@@ -630,6 +677,68 @@ class AgentAppManager:
         except Exception:
             pass
 
+    async def _watchdog_restart(self, project: "AgentAppProject") -> bool:
+        """Bring a crashed project back up, without fighting a launch already
+        in flight.
+
+        The delay before this call is a window the agent can walk into: it
+        calls notify_ready, that launch takes the lock, and by the time the
+        watchdog gets it the app is already back. Restarting again from here
+        would kill the app the other launch just started, so re-check liveness
+        once the lock is held and do nothing if it recovered.
+        """
+        async with self._launch_lock(project.id):
+            if not self._project_is_dead(project):
+                logger.info(
+                    f"[AGENT_APP:WATCHDOG] {project.name} ({project.id}) came back "
+                    "while we waited — another launch handled it."
+                )
+                return True
+
+            project.process = None
+            try:
+                if not project.bridge_token:
+                    project.bridge_token = secrets.token_urlsafe(32)
+                if getattr(project, "project_type", "native") == "external":
+                    _res = await self._run_external_pipeline(project)
+                    if _res.get("status") != "success":
+                        return False
+                    project.process = _res.pop("process")
+                    self.instances.register_live(
+                        project.id,
+                        project.port,
+                        pid=getattr(project.process, "pid", None),
+                        token=project.bridge_token or "",
+                        dir=str(project.path),
+                    )
+                    return True
+                # A crashed process can leave a zombie holding our OWN port on
+                # Windows; clear it before rebinding (the native restart used
+                # to skip this and burn the whole retry ladder on a squatted
+                # port).
+                if project.port and self._is_port_in_use(project.port):
+                    self._kill_process_on_port(project.port)
+                project.process = await self.runner.start(
+                    Path(project.path),
+                    project.port,
+                    bridge_token=project.bridge_token,
+                )
+                healthy = await self.runner.wait_healthy(project.port)
+                if healthy:
+                    self.instances.register_live(
+                        project.id,
+                        project.port,
+                        pid=getattr(project.process, "pid", None),
+                        token=project.bridge_token or "",
+                        dir=str(project.path),
+                    )
+                return healthy
+            except Exception as e:
+                logger.error(
+                    f"[AGENT_APP:WATCHDOG] restart failed for {project.id}: {e}"
+                )
+                return False
+
     async def _escalate_crash(self, project_id: str, crash_targets: List[str]) -> None:
         """
         Escalate a crash to the agent by creating a fix task.
@@ -773,6 +882,43 @@ UI in {project.path}/frontend/src/app/."""
         except Exception as e:
             logger.error(f"[AGENT_APP:WATCHDOG] Failed to queue crash-fix run: {e}")
 
+    def find_marketplace_installs(
+        self, app_id: str, exclude_id: str = ""
+    ) -> List["AgentAppProject"]:
+        """Projects already installed from this marketplace app.
+
+        Installing a delivered app again as a SEPARATE project is deliberate
+        (see install_from_marketplace) — the gap is that nothing said so. On
+        2026-09-02 a second Brainstorm Graph was installed mid-session and
+        launched on its own port; every edit in that session went to the
+        first one, so the user was told "Done" three times while looking at a
+        pristine copy that could never contain the work.
+
+        Reads the marketplaceAppId marker install_from_marketplace writes
+        into each project's manifest.json, so apps installed before this
+        check existed are still found.
+        """
+        if not app_id:
+            return []
+        found: List["AgentAppProject"] = []
+        for project in self.projects.values():
+            if project.id == exclude_id or not project.path:
+                continue
+            # A deleted project is gone from self.projects entirely
+            # (delete_project does `del`), so "creating" — a placeholder whose
+            # install has not landed yet — is the only status to skip.
+            if project.status == "creating":
+                continue
+            try:
+                manifest = json.loads(
+                    (Path(project.path) / "manifest.json").read_text(encoding="utf-8")
+                )
+            except Exception:
+                continue
+            if manifest.get("marketplaceAppId") == app_id:
+                found.append(project)
+        return found
+
     def _load_projects(self) -> None:
         """Load projects from persistent storage."""
         if self._projects_file.exists():
@@ -785,7 +931,11 @@ UI in {project.path}/frontend/src/app/."""
                             name=project_data["name"],
                             description=project_data.get("description", ""),
                             path=project_data["path"],
-                            status=project_data.get("status", "stopped"),
+                            # Runtime status is DERIVED, never restored: every
+                            # app process died with the previous CraftBot, so
+                            # every project boots stopped. Launch/watchdog/
+                            # auto-launch re-establish the truth from there.
+                            status="stopped",
                             port=project_data.get("port"),
                             backend_port=project_data.get("backendPort"),
                             created_at=project_data.get(
@@ -807,198 +957,119 @@ UI in {project.path}/frontend/src/app/."""
                             app_runtime=project_data.get("appRuntime"),
                             craftbot_version=project_data.get("craftbotVersion"),
                         )
-                        # Check if saved tunnel URL is still reachable
-                        saved_tunnel = project_data.get("tunnelUrl")
-                        if saved_tunnel:
-                            try:
-                                import urllib.request
-
-                                req = urllib.request.Request(
-                                    saved_tunnel, method="HEAD"
-                                )
-                                urllib.request.urlopen(req, timeout=3)
-                                project.tunnel_url = saved_tunnel
-                                logger.info(
-                                    f"[AGENT_APP] Tunnel still active for '{project.name}': {saved_tunnel}"
-                                )
-                            except Exception:
-                                logger.info(
-                                    f"[AGENT_APP] Tunnel expired for '{project.name}', clearing"
-                                )
-                                project.tunnel_url = None
-                                # The app must stop trusting an origin that no
-                                # longer reaches it.
-                                self._publish_tunnel_origin(project, None)
-                        # Reset status to stopped for all loaded projects
-                        project.status = (
-                            "stopped" if project.status == "running" else project.status
-                        )
+                        # Share channels: keep a grant whose transport
+                        # survived the restart, revoke the rest.
+                        self.sharing.restore(project)
                         self.projects[project.id] = project
-                        # Track both frontend and backend ports
+                        # The live port is sticky: reserved for the project's
+                        # whole lifetime, not a single boot, so the allocator
+                        # never re-hands it while the app is merely stopped.
                         if project.port:
-                            self._used_ports.add(project.port)
-                        if project.backend_port:
-                            self._used_ports.add(project.backend_port)
+                            self.ports.reserve_known(project.port)
                 logger.info(f"[AGENT_APP] Loaded {len(self.projects)} projects")
             except Exception as e:
                 logger.error(f"[AGENT_APP] Failed to load projects: {e}")
 
+    # Runtime facts that must never be persisted: they describe processes
+    # that die with this CraftBot, and a stale copy on disk is exactly the
+    # class of bug the status rewrite removed (a crash between writes used
+    # to persist "ready"/"launching" forever; "error" survived restarts and
+    # silently blocked auto-launch). to_dict() keeps emitting them — the UI
+    # wants the LIVE values — the registry on disk does not.
+    _RUNTIME_KEYS = ("status", "url", "backendUrl", "error")
+
     def _save_projects(self) -> None:
-        """Save projects to persistent storage."""
+        """Save projects to persistent storage (identity + prefs only)."""
         try:
-            data = {"projects": [p.to_dict() for p in self.projects.values()]}
+            records = []
+            for p in self.projects.values():
+                record = p.to_dict()
+                for key in self._RUNTIME_KEYS:
+                    record.pop(key, None)
+                records.append(record)
             with open(self._projects_file, "w") as f:
-                json.dump(data, f, indent=2)
+                json.dump({"projects": records}, f, indent=2)
         except Exception as e:
             logger.error(f"[AGENT_APP] Failed to save projects: {e}")
 
     def _allocate_port(self) -> int:
-        """Allocate a free port for a Agent App project.
+        """Reserve a live (3100-3199) port via the shared allocator.
 
-        Checks both the internal tracking set AND actual system port usage
-        to avoid conflicts with orphan processes.
+        Reserve-before-return with one lock over both pools: two launches
+        racing through the pre-bind window can never be handed the same port
+        (raises PortPoolExhausted, a RuntimeError, when the pool is full)."""
+        from app.agent_app.instances import ROLE_LIVE
+
+        return self.ports.reserve(ROLE_LIVE)
+
+    def _launch_lock(self, project_id: str) -> asyncio.Lock:
+        """The per-project launch lock, created on first use.
+
+        Unsynchronised, an agent relaunch and a watchdog restart interleave:
+        the first pops the in-process A2App proxy, the second finds nothing to
+        stop, and whichever reaches `proxy.start()` second gets WinError 10048
+        and then terminates ITS OWN app process — after both have already
+        overwritten project.internal_port, project.process and
+        self._external_proxies[id]. Observed live 2026-09-02 17:06 (opentetris
+        949f0cad): the user's rounded-blocks edit was on disk and the relaunch
+        that would have shipped it died on "A2App adapter failed to bind
+        :3105".
         """
-        for port in range(self._port_range[0], self._port_range[1] + 1):
-            # Skip if tracked as used
-            if port in self._used_ports:
-                continue
-            # Skip if actually in use on the system
-            if self._is_port_in_use(port):
-                logger.warning(
-                    f"[AGENT_APP] Port {port} in use by external process, skipping"
-                )
-                continue
-            self._used_ports.add(port)
-            return port
-        raise RuntimeError("No available ports in the Agent App port range")
+        lock = self._launch_locks.get(project_id)
+        if lock is None:
+            lock = self._launch_locks[project_id] = asyncio.Lock()
+        return lock
+
+    def _project_is_dead(self, project: "AgentAppProject") -> bool:
+        """Whether a project marked running has actually stopped serving."""
+        if project.process is not None and project.process.poll() is not None:
+            return True
+        if project.port and project.process is None:
+            if not self._is_port_in_use(project.port):
+                return True
+        # External apps: the in-process proxy keeps the PROJECT port alive
+        # even when the app behind it dies, so the app's own (internal) port
+        # is the honest liveness probe.
+        if (
+            getattr(project, "project_type", "native") == "external"
+            and project.internal_port
+            and not self._is_port_in_use(project.internal_port)
+        ):
+            return True
+        return False
 
     def _release_port(self, port: int) -> None:
-        """Release a port back to the pool."""
-        self._used_ports.discard(port)
+        """Release a live port back to the pool (project delete only — the
+        port is sticky across stop/start)."""
+        self.ports.release(port)
+
+    @staticmethod
+    def _can_bind(port: int) -> bool:
+        """True when 127.0.0.1:<port> can actually be bound right now."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return True
+            except OSError:
+                return False
 
     def _is_port_in_use(self, port: int) -> bool:
-        """Check if a port is actually in use on the system."""
+        """Check if a port is actually in use on the system.
+
+        A timed-out probe is ambiguous: it is what a listener with a full
+        accept queue (a busy or wedged app) looks like, but on Windows a
+        closed loopback port times out too (SYN retries before the refusal).
+        Reading every timeout as "free" made the watchdog declare a live app
+        dead, so a timeout is settled by the OS listener table instead.
+        """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5)
-            return s.connect_ex(("localhost", port)) == 0
-
-    def _get_pids_on_ports(
-        self, ports_to_check: Optional[Set[int]] = None
-    ) -> Dict[int, str]:
-        """
-        Get PIDs of processes listening on ports in the Agent App range.
-        Uses a single system call for efficiency.
-
-        Args:
-            ports_to_check: Optional set of specific ports to check.
-                           If None, checks all ports in the Agent App range.
-
-        Returns:
-            Dict mapping port numbers to PIDs
-        """
-        port_pids = {}
-
-        if os.name == "nt":
-            # Windows: run netstat once and parse all results
-            try:
-                result = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True,
-                    text=True,
-                    shell=True,
-                    timeout=5,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-                for line in result.stdout.split("\n"):
-                    if "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            addr = parts[1]
-                            pid = parts[-1]
-                            if ":" in addr:
-                                try:
-                                    port = int(addr.split(":")[-1])
-                                    # Check if port is in range and optionally in the filter set
-                                    if (
-                                        self._port_range[0]
-                                        <= port
-                                        <= self._port_range[1]
-                                    ):
-                                        if (
-                                            ports_to_check is None
-                                            or port in ports_to_check
-                                        ):
-                                            port_pids[port] = pid
-                                except ValueError:
-                                    pass
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Failed to get ports via netstat: {e}")
-        else:
-            # Linux/Mac: use lsof
-            try:
-                result = subprocess.run(
-                    ["lsof", "-i", "-P", "-n"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                for line in result.stdout.split("\n"):
-                    if "LISTEN" in line:
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            # PID is typically the second column
-                            pid = parts[1]
-                            # Find the port in the line
-                            for part in parts:
-                                if ":" in part:
-                                    try:
-                                        port = int(part.split(":")[-1])
-                                        if (
-                                            self._port_range[0]
-                                            <= port
-                                            <= self._port_range[1]
-                                        ):
-                                            if (
-                                                ports_to_check is None
-                                                or port in ports_to_check
-                                            ):
-                                                port_pids[port] = pid
-                                                break
-                                    except ValueError:
-                                        pass
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Failed to get ports via lsof: {e}")
-
-        return port_pids
-
-    def _kill_process_by_pid(self, pid: str) -> bool:
-        """
-        Kill a process by its PID.
-
-        Args:
-            pid: Process ID to kill
-
-        Returns:
-            True if process was killed, False otherwise
-        """
-        try:
-            if os.name == "nt":
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", pid],
-                    capture_output=True,
-                    shell=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-            else:
-                subprocess.run(["kill", "-9", pid], capture_output=True)
+            rc = s.connect_ex(("127.0.0.1", port))
+        if rc == 0:
             return True
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] Failed to kill process {pid}: {e}")
+        if rc == errno.ECONNREFUSED:
             return False
+        return bool(listening_pids(port))
 
     # ========================================================================
     # Manifest-driven launch pipeline
@@ -1050,16 +1121,16 @@ UI in {project.path}/frontend/src/app/."""
         )
 
     async def _run_launch_pipeline(
-        self, project_dir: Path, port: int, bridge_token: str
+        self, project_dir: Path, port: int, bridge_token: str, shadow=None
     ) -> dict:
-        """The native launch pipeline against an ARBITRARY project directory:
+        """The native launch pipeline against ONE code tree:
         install → validation gate → serve → health → hook-load scan → smoke.
 
-        Registry-free on purpose: `_launch_native` runs it on the real project
-        and adds status/persistence around it; the lifecycle's `open_dev`
-        runs the SAME pipeline on a dev copy — one definition means fix
+        `shadow` (a registry Instance) redirects the boot's three inputs —
+        hidden port, fresh data dir, content-addressed build artifact — and
+        the same tree serves both environments. One definition means fix
         missions get identical evidence quality (boot-log excerpts,
-        hook-load failures) in both environments.
+        hook-load failures) in both.
 
         Returns {"status": "success", "process": Popen} — caller owns the
         process — or {"status": "error", "step": ..., "errors": [...]}.
@@ -1074,11 +1145,25 @@ UI in {project.path}/frontend/src/app/."""
         except AgentAppRunnerUnavailable as e:
             return _fail("setup", [str(e)])
 
-        # Clear any stale listener before binding the port.
+        # Clear any stale listener before binding the port. Only our own
+        # leftovers are killed; a program CraftBot did not start keeps the
+        # port, and booting anyway would "pass" health against THAT program.
         self._kill_process_on_port(port)
+        holder = self._foreign_listener(port)
+        if holder is not None:
+            return _fail(
+                "start",
+                [
+                    f"port {port} is in use by another program (pid {holder}) "
+                    f"that CraftBot did not start, so it was left running. "
+                    f"Close it, or move this app to a different port."
+                ],
+            )
 
         # Renamed/deleted APPLIED migrations brick the boot with an error only
         # pocketbase.log ever sees — catch them here, before any process spawns.
+        # Checked against the LIVE pb_data in both environments: a shadow's DB
+        # is fresh, but the promote this shadow is heading for is not.
         divergence = self._check_migration_divergence(project_dir)
         if divergence:
             return _fail("validation", [divergence])
@@ -1088,13 +1173,36 @@ UI in {project.path}/frontend/src/app/."""
         except Exception as e:
             return _fail("install", [str(e)])
 
-        gate = await self.runner.gate(project_dir)
+        # Shadow gates build coverage-instrumented artifacts (walk-verify
+        # records which code each feature runs through) into the project's
+        # content-addressed build cache; live gates build pb/pb_public in
+        # place — nothing serves it at this moment.
+        gate = await self.runner.gate(
+            project_dir,
+            coverage=shadow is not None,
+            out_root=(
+                self.lifecycle.provisioner.builds_root(shadow.project_id)
+                if shadow is not None
+                else None
+            ),
+        )
         if not gate.passed:
             return _fail("validation", [gate.output])
+        if shadow is not None:
+            if gate.artifact is None:
+                return _fail(
+                    "validation",
+                    ["gate produced no build artifact for the shadow boot"],
+                )
+            # Stored on the registry Instance (persisted JSON) — keep it a str.
+            shadow.public_dir = str(gate.artifact)
 
         # pocketbase.log is append-mode across launches: remember where THIS
         # boot starts so failures below can quote only their own boot's lines.
-        pb_log_path = project_dir / "logs" / "pocketbase.log"
+        pb_log_path = (
+            (shadow.log_dir if shadow is not None else project_dir / "logs")
+            / "pocketbase.log"
+        )
         pb_log_offset = pb_log_path.stat().st_size if pb_log_path.exists() else 0
 
         def _pb_log_since_boot(limit_lines: int = 30) -> str:
@@ -1121,12 +1229,23 @@ UI in {project.path}/frontend/src/app/."""
 
         try:
             process = await self.runner.start(
-                project_dir, port, bridge_token=bridge_token
+                project_dir,
+                port,
+                bridge_token=bridge_token,
+                data_dir=shadow.data_dir if shadow is not None else None,
+                public_dir=shadow.public_dir if shadow is not None else None,
+                log_dir=shadow.log_dir if shadow is not None else None,
+                app_env="shadow" if shadow is not None else "live",
             )
         except Exception as e:
             return _fail("start", [str(e)])
 
-        if not await self.runner.wait_healthy(port):
+        # Healthy means OUR process answered: a 200 from whoever else holds
+        # the port (PocketBase exited on "address in use") is not a boot.
+        healthy = await self.runner.wait_healthy(port)
+        if healthy and (process.poll() is not None or process.pid not in listening_pids(port)):
+            healthy = False
+        if not healthy:
             self._terminate_process(process)
             # A dead health check with no cause starved the agent before —
             # the boot abort (bad migration, hook panic) is in pocketbase.log
@@ -1156,26 +1275,37 @@ UI in {project.path}/frontend/src/app/."""
                 ],
             )
 
-        # Walk-verify smoke pass (headless, invisible): app must mount with
-        # zero console errors. 'skipped' (no browser) never blocks a launch.
-        url = f"http://127.0.0.1:{port}"
-        verify_status, verify_detail = await self.runner.verify(project_dir, url)
-        if verify_status == "fail":
-            self._terminate_process(process)
-            # The browser sees only status codes; the CAUSE (hook exception,
-            # bad query) is server-side. Ship this boot's log lines so the
-            # agent debugs evidence instead of inventing explanations.
-            errors = [verify_detail]
-            boot_log = _pb_log_since_boot()
-            if boot_log:
-                errors.append("pocketbase.log (this boot):\n" + boot_log)
-            return _fail("verify", errors)
-        if verify_status == "skipped":
-            logger.warning(
-                f"[AGENT_APP] verify skipped for {project_dir.name}: {verify_detail}"
-            )
+        # Frontend render is verified by walk_verify (Playwright MCP), which
+        # opens the app and FAILs on a blank/error first paint. The launch
+        # pipeline's own gates are the server-side ones above (health +
+        # hook-load) plus the changed-op smoke below; there is no separate
+        # in-process browser probe.
 
-        return {"status": "success", "process": process}
+        # Changed-op smoke (shadow only): invoke the server ops this change
+        # touched and carry any failure out as EVIDENCE — the fixing agent
+        # gets the status + response body one turn earlier than a walk
+        # verdict would deliver it, and with the body attached.
+        op_smoke_results: list = []
+        if shadow is not None:
+            from app.agent_app.op_smoke import run_op_smoke
+            from app.agent_app.verify_scope import verify_store_dir
+
+            project = self.get_project(shadow.project_id)
+            if project is not None:
+                op_smoke_results = await asyncio.to_thread(
+                    run_op_smoke,
+                    project_dir,
+                    verify_store_dir(project),
+                    f"http://127.0.0.1:{port}",
+                )
+
+        envelope: dict = {"status": "success", "process": process}
+        if op_smoke_results:
+            envelope["op_smoke"] = [
+                {"name": r.name, "ok": r.ok, "status": r.status, "detail": r.detail}
+                for r in op_smoke_results
+            ]
+        return envelope
 
     def _external_config(self, project_dir: Path) -> Dict[str, Any]:
         """craftbot.json for an external project ({} when unreadable)."""
@@ -1194,7 +1324,7 @@ UI in {project.path}/frontend/src/app/."""
         identity/describe/_ops/ops plus transparent passthrough — so an
         adopted app presents the same agent-drivable surface as a native
         one. Reduced gate per WORKFLOWS I-R2: install/build (when declared)
-        + start + health + adapter self-check. No kit, no lui gate, no
+        + start + health + adapter self-check. No kit, no agent-app gate, no
         PocketBase anything. Same result envelope as the native pipeline.
         """
         project_dir = Path(project.path)
@@ -1228,10 +1358,7 @@ UI in {project.path}/frontend/src/app/."""
             except Exception:
                 pass
         if self._is_port_in_use(port):
-            own_pid = str(os.getpid())
-            holder = self._get_pids_on_ports({port}).get(port)
-            if holder is None or str(holder) != own_pid:
-                self._kill_process_on_port(port)
+            self._kill_process_on_port(port)
 
         # The app itself binds a fresh hidden internal port each launch.
         if project.internal_port:
@@ -1375,6 +1502,12 @@ UI in {project.path}/frontend/src/app/."""
                 errors.append("app.log (this boot):\n" + boot_log)
             return _fail("health", errors)
 
+        # The start command runs under a shell; record the server itself too,
+        # so it stays recognisably ours even if that shell dies first.
+        get_ledger().adopt_listeners(
+            internal_port, ROLE_AGENT_APP, owner=project.id, label=f"server :{internal_port}"
+        )
+
         # A2App adapter in front of the healthy app: bind the project port,
         # then structurally self-check the surface (the identity probe is
         # the only reliable check — a status code never is).
@@ -1468,6 +1601,18 @@ UI in {project.path}/frontend/src/app/."""
         return False
 
     async def _launch_native(self, project: AgentAppProject) -> dict:
+        """Launch a project, serialized against every other launch of it.
+
+        Every launch that goes through the registry funnels here — the
+        agent's notify_ready and a promote's live boot — so this is where
+        the lock is taken for them. The watchdog does not come through here
+        (it drives the pipeline directly) and takes the same lock itself in
+        _watchdog_restart. See _launch_lock for what happens without it.
+        """
+        async with self._launch_lock(project.id):
+            return await self._launch_native_locked(project)
+
+    async def _launch_native_locked(self, project: AgentAppProject) -> dict:
         """Native launch of the REAL project: the shared pipeline plus registry
         state (status, url, persistence).
 
@@ -1503,6 +1648,17 @@ UI in {project.path}/frontend/src/app/."""
 
         project.process = result.pop("process")
 
+        # Register the LIVE instance (identity + pid) so routing, liveness and
+        # the startup reconciler resolve it by instance id, never by scanning
+        # ports. The live port is sticky, so this does not re-reserve it.
+        self.instances.register_live(
+            project.id,
+            project.port,
+            pid=getattr(project.process, "pid", None),
+            token=project.bridge_token or "",
+            dir=str(project.path),
+        )
+
         project.status = "running"
         project.url = f"http://127.0.0.1:{project.port}"
         project.backend_url = project.url
@@ -1528,19 +1684,20 @@ UI in {project.path}/frontend/src/app/."""
             await self._record_verify_baseline(project)
 
         logger.info(f"[AGENT_APP] {project.name} running at {project.url}")
-        return {
+        envelope = {
             "status": "success",
             "url": project.url,
             "backend_url": project.url,
             "port": project.port,
         }
+        return envelope
 
     async def _record_verify_baseline(self, project: AgentAppProject) -> None:
         """Best-effort, off the event loop; never fails a launch."""
         try:
-            from app.factory.host_craftbot import get_factory_host
-
-            if get_factory_host().get_staging_record(project.id):
+            # A shadow up means dev-in-progress: the baseline belongs to the
+            # promoted tree, not a mid-change one.
+            if self.instances.shadow(project.id) is not None:
                 return
             from app.agent_app.verify_scope import ensure_baseline, verify_store_dir
 
@@ -1564,9 +1721,10 @@ UI in {project.path}/frontend/src/app/."""
             logger.debug(f"[AGENT_APP] ready broadcast skipped for {project.id}: {e}")
 
     async def open_dev(self, project_id: str) -> dict:
-        """Boot the DEV environment for a code change (first build or
-        modify): the project's current code on a hidden port with a fresh
-        schema-only DB. See lifecycle.AppLifecycle.open_dev."""
+        """Boot the SHADOW environment for a code change (first build or
+        modify): the project's own code tree on a hidden port with a fresh
+        schema-only DB and an isolated build artifact. See
+        lifecycle.AppLifecycle.open_dev."""
         project = self.projects.get(project_id)
         if not project:
             return {
@@ -1577,8 +1735,8 @@ UI in {project.path}/frontend/src/app/."""
         return await self.lifecycle.open_dev(project)
 
     async def promote(self, project_id: str) -> dict:
-        """Deploy verified code to the live environment and destroy the dev
-        copy. See lifecycle.Promoter.promote."""
+        """Deploy verified code to the live environment and tear the shadow
+        down. See lifecycle.Promoter.promote."""
         project = self.projects.get(project_id)
         if not project:
             return {
@@ -1759,13 +1917,6 @@ UI in {project.path}/frontend/src/app/."""
                     ],
                 }
 
-            # Open tabs still paint pre-restore rows through the restart.
-            try:
-                from app.agent_app.broadcast import dispatch_agent_app_data_changed
-
-                dispatch_agent_app_data_changed(project_id)
-            except Exception:
-                pass
             logger.info(
                 f"[AGENT_APP:BACKUP] {project_id} restored from {filename}"
                 + (
@@ -2008,6 +2159,12 @@ UI in {project.path}/frontend/src/app/."""
                 stderr=log_handle,
                 shell=True,
             )
+        get_ledger().register(
+            process.pid,
+            ROLE_AGENT_APP,
+            owner=project.id if project else "",
+            label=f"{command[:80]} :{port}" if port else command[:80],
+        )
         return process
 
     def _create_frontend_log(project_path: Path) -> Path:
@@ -2027,93 +2184,45 @@ UI in {project.path}/frontend/src/app/."""
             return "(could not read log)"
 
     def _terminate_process(self, process: subprocess.Popen) -> None:
-        """Terminate a subprocess, killing the entire process tree on Windows."""
+        """Stop a subprocess WE hold the handle of, with its whole tree.
+
+        shell=True puts a cmd.exe / sh between us and the server; stopping
+        only that shell strands the server still bound to its port (and, on
+        POSIX, reparented away from anything the ledger could trace back).
+        """
         try:
-            if os.name == "nt":
-                # On Windows with shell=True, terminate() only kills cmd.exe,
-                # not the child python/uvicorn. Kill the whole tree via taskkill.
-                subprocess.run(
-                    ["taskkill", "/T", "/F", "/PID", str(process.pid)],
-                    capture_output=True,
-                    shell=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-            else:
-                process.terminate()
+            kill_tree(process.pid)
             process.wait(timeout=5)
         except (subprocess.TimeoutExpired, Exception):
             try:
                 process.kill()
             except Exception:
                 pass
+        get_ledger().forget(process.pid)
+
+    @staticmethod
+    def _foreign_listener(port: int) -> Optional[int]:
+        """A pid listening on `port` that CraftBot did not start (and is not
+        CraftBot itself), or None."""
+        ledger = get_ledger()
+        for pid in listening_pids(port):
+            if pid != os.getpid() and ledger.owner_of(pid) is None:
+                return pid
+        return None
 
     def _kill_process_on_port(self, port: int) -> bool:
-        """
-        Kill any process listening on the specified port (Windows-specific).
+        """Free `port` by killing its listener — ONLY if CraftBot started it.
 
-        Args:
-            port: The port to free
-
-        Returns:
-            True if a process was killed, False otherwise
+        The listener is matched on the exact port (never a substring of a
+        netstat line) and must be a process in the owned-process ledger, or a
+        descendant of one. A foreign service on the port is left alone; so is
+        CraftBot's own process (the in-process A2App proxy holds project
+        ports). Returns True if a process was killed.
         """
-        if os.name != "nt":
-            # Linux/Mac: use lsof and kill
-            try:
-                result = subprocess.run(
-                    ["lsof", "-ti", f":{port}"], capture_output=True, text=True
-                )
-                if result.stdout.strip():
-                    pids = result.stdout.strip().split("\n")
-                    for pid in pids:
-                        subprocess.run(["kill", "-9", pid], capture_output=True)
-                    logger.info(f"[AGENT_APP] Killed process(es) on port {port}")
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[AGENT_APP] Failed to kill process on port {port}: {e}"
-                )
-            return False
-        else:
-            # Windows: use netstat and taskkill
-            try:
-                no_window = (
-                    subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0
-                )
-                result = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True,
-                    text=True,
-                    shell=True,
-                    creationflags=no_window,
-                )
-                killed = False
-                for line in result.stdout.split("\n"):
-                    if f":{port}" in line and "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            pid = parts[-1]
-                            # /T kills entire process tree (shell + child processes)
-                            subprocess.run(
-                                ["taskkill", "/T", "/F", "/PID", pid],
-                                capture_output=True,
-                                shell=True,
-                                creationflags=no_window,
-                            )
-                            logger.info(
-                                f"[AGENT_APP] Killed process tree {pid} on port {port}"
-                            )
-                            killed = True
-                if killed:
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[AGENT_APP] Failed to kill process on port {port}: {e}"
-                )
+        try:
+            return get_ledger().kill_port_listeners(port)
+        except Exception as e:
+            logger.warning(f"[AGENT_APP] Failed to free port {port}: {e}")
             return False
 
     def cleanup_on_startup(self) -> None:
@@ -2121,77 +2230,49 @@ UI in {project.path}/frontend/src/app/."""
         Clean up orphan processes and folders on startup.
 
         This should be called after loading projects to:
-        1. Kill any orphan Agent App server processes on tracked ports (frontend + backend)
-        2. Delete project folders not tracked in the registry
-        3. Reset all project statuses to 'stopped'
-
-        Optimized to:
-        - Only check ports that are tracked in projects (not all 100 ports)
-        - Use a single netstat call to get all port info at once
+        1. Kill leftover Agent App servers and tunnels from the previous run —
+           only the ones recorded in the owned-process ledger
+        2. Log project folders not tracked in the registry
+        3. Sweep dev-env leftover directories
         """
         logger.info("[AGENT_APP] Running startup cleanup...")
 
-        # 1. Kill orphan processes - on both frontend and backend ports
-        killed_count = 0
-        tracked_ports = set()
-        for p in self.projects.values():
-            if p.port:
-                tracked_ports.add(p.port)
-            if p.backend_port:
-                tracked_ports.add(p.backend_port)
-
-        if tracked_ports:
-            # Get all port -> PID mappings with a single system call
-            port_pids = self._get_pids_on_ports(tracked_ports)
-
-            # Kill processes on tracked ports
-            for port, pid in port_pids.items():
-                if self._kill_process_by_pid(pid):
-                    killed_count += 1
-                    logger.info(f"[AGENT_APP] Killed process {pid} on port {port}")
-
+        # Nothing of ours is legitimately running yet: every app server and
+        # tunnel died with the previous CraftBot, or should have. Reap exactly
+        # the processes the ledger recorded starting — verified by pid AND
+        # creation time, so a recycled pid or a foreign service that happens
+        # to sit on one of our ports is never touched. Snapshotting and
+        # clearing the instance registry releases the shadow reservations;
+        # the live ports were re-reserved from the project list at load.
+        self.instances.reset()
+        try:
+            killed_count = get_ledger().reap()
+        except Exception as e:
+            killed_count = 0
+            logger.warning(f"[AGENT_APP] owned-process reap failed: {e}")
         if killed_count > 0:
-            logger.info(f"[AGENT_APP] Killed {killed_count} orphan process(es)")
+            logger.info(f"[AGENT_APP] reaped {killed_count} leftover owned process(es)")
 
-        # 2. Log orphan project folders (do NOT delete — deleting them at boot
-        # has destroyed real user projects; logging is the safe behavior).
+        # Log orphan project folders (do NOT delete — deleting them at boot has
+        # destroyed real user projects; logging is the safe behavior).
         orphan_count = self._log_orphan_folders()
         if orphan_count > 0:
             logger.info(
                 f"[AGENT_APP] Found {orphan_count} orphan folder(s) (left in place)"
             )
 
-        # 2b. Reap dev environments. None is legitimately alive at boot
-        # (their build/modify missions died with the previous process), but
-        # their PocketBase instances outlive us — kill by recorded pid,
-        # delete the copies, clear the records so nothing redirects to a
-        # dead port.
+        # Sweep dev-env leftover directories. Process kills were handled above
+        # by the ledger reap, which covers shadow boots too (the runner
+        # records every PocketBase it starts, live or shadow).
         try:
-            from app.factory.host_craftbot import get_factory_host
-
-            host = get_factory_host()
-            records = {}
-            for pid_ in list(self.projects):
-                record = host.get_staging_record(pid_)
-                if record:
-                    records[pid_] = record
-            reaped = self.lifecycle.reap_dev(records)
-            for pid_ in records:
-                host.clear_staging_record(pid_)
+            reaped = self.lifecycle.reap_dirs()
             if reaped:
                 logger.info(f"[AGENT_APP] Reaped {reaped} dev-env leftover(s)")
         except Exception as e:
             logger.warning(f"[AGENT_APP] dev-env reap failed: {e}")
 
-        # 3. Reset all project statuses to 'stopped' and clear process references
-        for project in self.projects.values():
-            if project.status == "running":
-                project.status = "stopped"
-                project.process = None
-                project.url = None
-                project.backend_url = None
-        self._save_projects()
-
+        # Runtime status is never persisted, so there is nothing to
+        # normalize here: _load_projects already booted everything stopped.
         logger.info("[AGENT_APP] Startup cleanup complete")
 
     def _log_orphan_folders(self) -> int:
@@ -2211,12 +2292,13 @@ UI in {project.path}/frontend/src/app/."""
         tracked_paths = {Path(p.path) for p in self.projects.values()}
         orphan_count = 0
 
-        # _staging and _backups are workspace infrastructure, not orphan
-        # projects: the wizard stages reference files under _staging (with
-        # its own age-based sweeper) and DevProvisioner keeps dev-env app
-        # copies there. _backups holds pb_data archives that must OUTLIVE
-        # their project. Skip both so they never show up as orphans.
-        skip_names = {"_staging", "_backups"}
+        # Workspace infrastructure, not orphan projects: the wizard stages
+        # reference files under _staging (with its own age-based sweeper),
+        # _shadow holds shadow-environment state (per-boot databases + build
+        # artifacts, swept by the provisioner), _backups holds pb_data
+        # archives that must OUTLIVE their project, and _verify holds walk
+        # baselines. Skip them so they never show up as orphans.
+        skip_names = {"_staging", "_backups", "_shadow", "_verify", "_import_tmp"}
 
         for folder in self.agent_app_dir.iterdir():
             if folder.name in skip_names:
@@ -2410,6 +2492,21 @@ UI in {project.path}/frontend/src/app/."""
         return None
 
     @staticmethod
+    def _manifest_version(manifest: dict) -> Optional[int]:
+        """The Agent App format version declared by a manifest.
+
+        Reads the current ``agentAppVersion`` key, falling back to the
+        legacy ``livingUIVersion`` key. Apps published in the marketplace
+        before the Living UI -> Agent App rename carry the old key; a
+        published package can't be reseeded, so every gate reads through
+        this helper rather than deciding the format is unsupported.
+        """
+        version = manifest.get("agentAppVersion")
+        if version is None:
+            version = manifest.get("livingUIVersion")
+        return version
+
+    @staticmethod
     def _find_project_root(root: Path) -> Optional[Path]:
         """The Agent App project dir inside a source tree (root or first
         level), or None when the tree is a FOREIGN app."""
@@ -2419,10 +2516,8 @@ UI in {project.path}/frontend/src/app/."""
             if not mf.exists():
                 continue
             try:
-                if (
-                    json.loads(mf.read_text(encoding="utf-8")).get("agentAppVersion")
-                    == 2
-                ):
+                manifest = json.loads(mf.read_text(encoding="utf-8"))
+                if AgentAppManager._manifest_version(manifest) == 2:
                     return c
             except Exception:
                 continue
@@ -2439,29 +2534,111 @@ UI in {project.path}/frontend/src/app/."""
         runtime, adopted by an agent mission (EXTERNAL-APPS-PLAN — the user
         decided foreign apps run unchanged, never auto-rebuilt)."""
         import tempfile
-        import zipfile
 
         kind = self.detect_import_source(source)
-        if kind == "folder":
-            # Read-only: the user's folder is copied, never modified.
-            root = Path(source).expanduser()
-            if self._find_project_root(root) is not None:
-                return await self._import_project_tree(root, name)
-            return await self._import_external_tree(root, name, origin=source)
         # ignore_cleanup_errors: a deep foreign tree can carry paths this
         # rmtree cannot reach, and losing a temp dir must never fail an
         # otherwise-successful import.
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        # The staging dir lives on the WORKSPACE volume, not %TEMP%. Windows
+        # temp is typically C: while the workspace is elsewhere, which makes
+        # the later move a cross-volume copy of every file. Same volume turns
+        # it into a rename (see _land_tree).
+        staging_root = self.agent_app_dir / "_import_tmp"
+        try:
+            staging_root.mkdir(parents=True, exist_ok=True)
+            tmp_parent = str(staging_root)
+        except Exception:
+            tmp_parent = None
+        with tempfile.TemporaryDirectory(
+            ignore_cleanup_errors=True, dir=tmp_parent
+        ) as tmp:
             root = Path(tmp)
+            # to_thread, NOT a bare call. asyncio runs EVERYTHING on one
+            # thread — websockets, timers, the agent loop, the UI broadcasts.
+            # These calls are ordinary blocking I/O, so running them inline
+            # froze the entire process for the length of the import (observed
+            # live 2026-09-01: 13m06s of dead silence on odoo/odoo). It also
+            # made progress reporting impossible in principle, because the
+            # loop that would deliver it was the one being blocked.
+            tree = root
             if kind == "zip":
-                with zipfile.ZipFile(source) as zf:
-                    zf.extractall(long_path(root))
+                await asyncio.to_thread(self._extract_zip, source, root)
+            elif kind == "git":
+                await asyncio.to_thread(self._fetch_git_source, source, root)
             else:
-                self._fetch_git_source(source, root)
-            if self._find_project_root(root) is not None:
-                return await self._import_project_tree(root, name)
-            return await self._import_external_tree(root, name, origin=source)
+                # folder — the user's folder is READ-ONLY, so it must be
+                # staged as a copy like every other source: the pipeline
+                # MOVES its input (_land_tree) and prunes junk in place,
+                # and handing it the original destroyed the user's folder
+                # (the "Read-only" comment used to sit directly above the
+                # call that did exactly that).
+                src_folder = Path(source).expanduser()
+                tree = root / (src_folder.name or "import")
+                await asyncio.to_thread(
+                    functools.partial(
+                        copytree_long,
+                        src_folder,
+                        tree,
+                        ignore=shutil.ignore_patterns(
+                            "node_modules", ".git", "logs", ".factory", ".snapshots"
+                        ),
+                    )
+                )
+            if self._find_project_root(tree) is not None:
+                return await self._import_project_tree(tree, name)
+            return await self._import_external_tree(tree, name, origin=source)
 
+    def _extract_zip(self, source: str, root: Path) -> None:
+        """Blocking zip extraction with per-batch progress (runs off-loop)."""
+        import zipfile as _zipfile
+
+        with _zipfile.ZipFile(source) as zf:
+            members = zf.infolist()
+            for i, member in enumerate(members, 1):
+                zf.extract(member, long_path(root))
+                if i % 2000 == 0 or i == len(members):
+                    _progress("extracting", i, len(members), str(source))
+
+    def _land_tree(self, src: Path, dest: Path, ignore_names: tuple) -> None:
+        """Put the staged tree at *dest*, moving rather than copying.
+
+        The old path wrote every file TWICE and then deleted one copy:
+        extract ~40k files to temp, copytree the same ~40k to the workspace,
+        rmtree the ~40k temp files — ~120k file operations, where Windows
+        per-file overhead dominates. Staging now lives on the workspace
+        volume (see import_project_source), so the same result is one
+        rename. The ignore list is applied by deleting those entries from
+        OUR staging copy first, which keeps copytree_long's exact semantics.
+
+        Falls back to the copy on any OSError (different volume, locked
+        file, dest exists) — the move is an optimisation, never a
+        correctness requirement.
+        """
+        src, dest = Path(src), Path(dest)
+        try:
+            dropped = 0
+            for name in ignore_names:
+                for hit in list(src.rglob(name)):
+                    if hit.is_dir():
+                        rmtree_long(hit, ignore_errors=True)
+                    else:
+                        hit.unlink(missing_ok=True)
+                    dropped += 1
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # An empty dest would fail the rename AND the copy fallback
+            # (shutil.copytree refuses an existing dir). Clearing it keeps
+            # the fast path usable if anything pre-created the folder.
+            if dest.is_dir() and not any(dest.iterdir()):
+                dest.rmdir()
+            os.replace(long_path(src), long_path(dest))
+            _progress("landed", 1, 1, f"{dest.name} ({dropped} excluded)")
+            return
+        except OSError as e:
+            logger.info(
+                f"[AGENT_APP] import move unavailable ({e}) — copying instead"
+            )
+        _progress("copying", 0, 0, str(dest.name))
+        copytree_long(src, dest, ignore=shutil.ignore_patterns(*ignore_names))
     async def _import_external_tree(
         self, root: Path, name: Optional[str], origin: str
     ) -> AgentAppProject:
@@ -2485,10 +2662,8 @@ UI in {project.path}/frontend/src/app/."""
         # node_modules is rebuilt by the install verb; .git/logs never import.
         # copytree_long, not shutil.copytree: a foreign repo can carry paths
         # that only blow MAX_PATH once rebased onto the workspace prefix.
-        copytree_long(
-            src,
-            dest,
-            ignore=shutil.ignore_patterns("node_modules", ".git", "logs"),
+        await asyncio.to_thread(
+            self._land_tree, src, dest, ("node_modules", ".git", "logs")
         )
         (dest / "logs").mkdir(exist_ok=True)
 
@@ -2645,6 +2820,13 @@ UI in {project.path}/frontend/src/app/."""
                 f"and re-run until it passes: a mapping that does not work "
                 f"must not ship.\n"
                 f'7. agent_app_walk_verify(project_id="{project.id}").\n'
+                f"If this app CANNOT run here (needs a database server, "
+                f"private APIs, system deps, a credential that is not "
+                f"connected), stop through agent_app_report_finding"
+                f'(project_id="{project.id}", blocked_question="...") — it '
+                f"puts the question to the user and ends the adoption "
+                f"cleanly. Ending the run any other way reads as walking out, "
+                f"and you will be restarted on the same app.\n"
                 f"The system announces the result — do not send status "
                 f"messages."
             )
@@ -2654,8 +2836,11 @@ UI in {project.path}/frontend/src/app/."""
             f"Launch and verify it now:\n"
             f'agent_app_notify_ready(project_id="{project.id}") then\n'
             f'agent_app_walk_verify(project_id="{project.id}").\n'
-            f"Fix any returned errors and repeat. The system announces "
-            f"the result to the user — do not send status messages."
+            f"Fix any returned errors and repeat. If you need a decision only "
+            f"the user can make, ask through agent_app_report_finding"
+            f'(project_id="{project.id}", blocked_question="...") — stopping '
+            f"any other way reads as walking out and restarts you. The system "
+            f"announces the result to the user — do not send status messages."
             + self.declared_triggers_brief(project)
         )
 
@@ -2749,12 +2934,8 @@ UI in {project.path}/frontend/src/app/."""
             mf = c / "manifest.json"
             if mf.exists():
                 try:
-                    if (
-                        json.loads(mf.read_text(encoding="utf-8")).get(
-                            "agentAppVersion"
-                        )
-                        == 2
-                    ):
+                    manifest = json.loads(mf.read_text(encoding="utf-8"))
+                    if self._manifest_version(manifest) == 2:
                         raise ValueError(
                             "This source IS a Agent App project — use "
                             "agent_app_import, not conversion."
@@ -2827,6 +3008,7 @@ UI in {project.path}/frontend/src/app/."""
         "token.json",
         ".superuser",
         ".agent-token",
+        *SHARE_STATE_FILES,
         ".jwt_secret",
         ".npmrc",
         ".netrc",
@@ -2867,7 +3049,6 @@ UI in {project.path}/frontend/src/app/."""
         fast path (no git binary, same mechanism as the marketplace
         installer) with a main→master fallback; everything else (and
         file:// URLs) is a depth-1 clone."""
-        import io
         import subprocess
         import urllib.request
         import zipfile
@@ -2889,11 +3070,45 @@ UI in {project.path}/frontend/src/app/."""
                     req = urllib.request.Request(
                         zip_url, headers={"User-Agent": "CraftBot"}
                     )
-                    data = urllib.request.urlopen(
+                    # STREAM to disk. `.read()` pulled the WHOLE archive into
+                    # one bytes object first: odoo/odoo is ~300MB, so that is a
+                    # 300MB spike, and a single call that returns only when it
+                    # is completely done — no way to know you are 40% through.
+                    # Chunked reads give flat memory and a real byte count,
+                    # which is what any progress display is made of.
+                    zip_path = Path(dest) / "_download.zip"
+                    zip_path.parent.mkdir(parents=True, exist_ok=True)
+                    with urllib.request.urlopen(
                         req, timeout=60, context=ssl_ctx
-                    ).read()
-                    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                        zf.extractall(long_path(dest))
+                    ) as resp, open(long_path(zip_path), "wb") as out:
+                        total = int(resp.headers.get("Content-Length") or 0)
+                        got = 0
+                        next_mark = 0
+                        while True:
+                            chunk = resp.read(1 << 20)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                            got += len(chunk)
+                            if got >= next_mark:
+                                _progress(
+                                    "downloading",
+                                    got,
+                                    total,
+                                    f"{url} ({branch})",
+                                )
+                                next_mark = got + (25 << 20)
+                    with zipfile.ZipFile(long_path(zip_path)) as zf:
+                        members = zf.infolist()
+                        _progress("extracting", 0, len(members), url)
+                        for i, member in enumerate(members, 1):
+                            zf.extract(member, long_path(dest))
+                            if i % 2000 == 0 or i == len(members):
+                                _progress("extracting", i, len(members), url)
+                    try:
+                        zip_path.unlink()
+                    except OSError:
+                        pass
                     return
                 except Exception as e:
                     last_err = e
@@ -2942,7 +3157,7 @@ UI in {project.path}/frontend/src/app/."""
             )
         raw_manifest = (src / "manifest.json").read_text(encoding="utf-8")
         manifest = json.loads(raw_manifest)
-        if manifest.get("agentAppVersion") != 2:
+        if self._manifest_version(manifest) != 2:
             raise ValueError(
                 "Only native Agent App projects can be imported (foreign apps need "
                 "the conversion flow)"
@@ -2956,17 +3171,17 @@ UI in {project.path}/frontend/src/app/."""
         # install step rebuilds it from package.json. .factory/.snapshots are
         # the DONOR's lifecycle state (machine history, delivery stamp,
         # legacy baseline) — a fresh identity must start a fresh lifecycle.
-        copytree_long(
+        await asyncio.to_thread(
+            self._land_tree,
             src,
             dest,
-            ignore=shutil.ignore_patterns(
-                "node_modules", ".git", "logs", ".factory", ".snapshots"
-            ),
+            ("node_modules", ".git", "logs", ".factory", ".snapshots"),
         )
 
         # Never trust shipped credentials or runtime state.
         (dest / ".superuser").unlink(missing_ok=True)
-        (dest / ".tunnel-origin").unlink(missing_ok=True)
+        for name in SHARE_STATE_FILES:
+            (dest / name).unlink(missing_ok=True)
 
         # Rewrite identity + port (pipeline start command embeds the port).
         old_port = manifest.get("port")
@@ -3060,6 +3275,27 @@ UI in {project.path}/frontend/src/app/."""
             f"[AGENT_APP] Registered placeholder project: {name} ({project_id})"
         )
         return project
+
+    def fail_placeholder_project(self, project_id: str, error: str) -> bool:
+        """Settle a never-adopted placeholder as failed.
+
+        A placeholder left at "creating" after its install fails contradicts
+        the agent_app_error event: every subsequent agent_app_list (sent to
+        all clients on any connect) serves the stale "creating" record and
+        resurrects the progress spinner. Marking it errored here keeps the
+        saved list and the live event telling the same story; like the
+        placeholder itself, the error state is not persisted, so a restart
+        still drops it.
+
+        Only touches projects still at "creating" — an adopted placeholder is
+        a real project whose status the launch pipeline owns.
+        """
+        project = self.projects.get(project_id)
+        if project is None or project.status != "creating":
+            return False
+        project.status = "error"
+        project.error = error
+        return True
 
     def _replace_placeholders(
         self, directory: Path, replacements: Dict[str, str]
@@ -3221,7 +3457,7 @@ UI in {project.path}/frontend/src/app/."""
                     if existing.port and self._is_port_in_use(existing.port):
                         self._kill_process_on_port(existing.port)
                     if project_path.exists():
-                        preserved_hold = Path(tempfile.mkdtemp(prefix="lui-adopt-"))
+                        preserved_hold = Path(tempfile.mkdtemp(prefix="agent-app-adopt-"))
                         for rel in ("reference", ".factory"):
                             keep = project_path / rel
                             if keep.exists():
@@ -3267,7 +3503,7 @@ UI in {project.path}/frontend/src/app/."""
                     )
             else:
                 try:
-                    version = json.loads(mf.read_text()).get("agentAppVersion")
+                    version = self._manifest_version(json.loads(mf.read_text()))
                     is_v2 = version == 2
                     if not is_v2:
                         reason = (
@@ -3299,14 +3535,15 @@ UI in {project.path}/frontend/src/app/."""
                     ),
                 }
 
-            # Ports: an adopted project keeps its scaffold ports (the tab and
-            # session already reference them); fresh installs allocate.
+            # Ports: an adopted project keeps its scaffold port (the tab and
+            # session already reference it); fresh installs allocate one. One
+            # PocketBase process serves API + frontend, so the {{BACKEND_PORT}}
+            # template placeholder is the SAME port — no second allocation.
             if adopting and existing.port:
                 frontend_port = existing.port
-                backend_port = existing.backend_port or existing.port
             else:
                 frontend_port = self._allocate_port()
-                backend_port = self._allocate_port()
+            backend_port = frontend_port
 
             # Replace placeholders (marketplace apps use the same template placeholders)
             # Build replacements — system placeholders + custom fields
@@ -3389,6 +3626,9 @@ UI in {project.path}/frontend/src/app/."""
             # later code changes run as modify arcs (dev env + promote)
             # structurally.
             self._register_acquired(project, delivered=True)
+            # No arc is opened here: the app arrived finished, and "no work
+            # in flight" is now an explicit stored state (arc: none) — the
+            # old virgin-machine-means-building inference is gone.
 
             logger.info(
                 f"[AGENT_APP:MARKETPLACE] Created project: {app_name} ({project_id})"
@@ -3520,6 +3760,27 @@ UI in {project.path}/frontend/src/app/."""
             if not session:
                 raise RuntimeError("could not create project session")
 
+            # Supervision arms at INTENT: this dispatch IS the work starting.
+            # Kind is structural — an app that ever DELIVERED (promoted, or
+            # arrived finished) is being modified; one that never delivered
+            # is being built. NOT keyed on pb_data existence: the scaffold's
+            # superuser bootstrap creates one before any build ran (observed
+            # live 2026-09-08, receipt_record: a first build ran its whole
+            # arc mislabeled as a modify).
+            try:
+                from app.factory.engine import ARC_BUILD, ARC_MODIFY
+                from app.factory.host_craftbot import get_factory_host
+
+                _host = get_factory_host()
+                _host.open_arc(
+                    project_id,
+                    ARC_MODIFY
+                    if _host.delivered_at(project_id) is not None
+                    else ARC_BUILD,
+                )
+            except Exception as e:
+                logger.warning(f"[AGENT_APP] arc open failed for {project_id}: {e}")
+
             if status:
                 self.update_project_status(project_id, status)
                 if status == "creating":
@@ -3639,7 +3900,7 @@ UI in {project.path}/frontend/src/app/."""
             f"Why (declared): {trig_def.get('description', '(no description)')}\n"
             f"INSTRUCTION (authored at build time, trusted):\n"
             f"{str(trig_def.get('instruction')).strip()}\n\n"
-            f"PROTOCOL — operate the app via the lui CLI (run_shell, ABSOLUTE paths):\n"
+            f"PROTOCOL — operate the app via the agent-app CLI (run_shell, ABSOLUTE paths):\n"
             f"1. Read the request row: "
             f"node {cli} data {project.path} agent_requests get {request_id}\n"
             f"   (get by id — a paged list can miss the row among older ones.) "
@@ -3932,8 +4193,18 @@ UI in {project.path}/frontend/src/app/."""
         Returns:
             project_id if token is valid, None otherwise.
         """
+        if not token:
+            return None
+        # Constant-time: this compares a caller-supplied header against a live
+        # secret, and a plain == leaks how many leading characters matched.
+        # Compared as bytes because compare_digest's str form rejects
+        # non-ASCII, and this value arrives from an HTTP header.
+        presented = token.encode("utf-8", "surrogateescape")
         for project_id, project in self.projects.items():
-            if project.bridge_token and project.bridge_token == token:
+            if not project.bridge_token:
+                continue
+            expected = project.bridge_token.encode("utf-8", "surrogateescape")
+            if hmac.compare_digest(presented, expected):
                 return project_id
         return None
 
@@ -3967,6 +4238,8 @@ UI in {project.path}/frontend/src/app/."""
             logger.error(f"[AGENT_APP] Project not found: {project_id}")
             return False
 
+        live = self.instances.live(project_id)
+
         # External teardown FIRST: the in-process A2App proxy holds the
         # project port — a kill-by-port on that listener would be killing
         # CraftBot itself. Stop the proxy, then free the app's hidden
@@ -3991,9 +4264,17 @@ UI in {project.path}/frontend/src/app/."""
             self._terminate_process(project.process)
             project.process = None
 
-        # Also kill by port in case process reference is stale
+        # Also kill by port in case process reference is stale (the project's
+        # OWN sticky port — not a cross-project lookup).
         if project.port and self._is_port_in_use(project.port):
             self._kill_process_on_port(project.port)
+
+        # Drop the live instance from the registry. The sticky live port stays
+        # reserved (the project keeps its address across stop/start); a shadow
+        # dev boot, if any, is left running — stopping the live app does not
+        # end a modify in progress.
+        if live is not None:
+            self.instances.remove(live.instance_id)
 
         project.url = None
 
@@ -4031,8 +4312,8 @@ UI in {project.path}/frontend/src/app/."""
                     f"[AGENT_APP:BACKUP] backup cleanup failed for {project_id}: {e}"
                 )
 
-        # Stop tunnel if active
-        await self.stop_tunnel(project_id)
+        # Close every share link
+        await self.sharing.close_all(project)
 
         # Stop if running
         if project.status == "running":
@@ -4060,11 +4341,21 @@ UI in {project.path}/frontend/src/app/."""
                     f"{project_id}: {e} — deleting without a final backup"
                 )
 
-        # Release ports
+        # Tear down every running instance of this project. The live app was
+        # already stopped above; a shadow dev boot is killed and swept HERE so
+        # delete can never leak an orphan process holding a shadow port (the
+        # old delete-while-shadow-up leak). clear_project releases the shadow
+        # ports; the sticky live port is released explicitly below.
+        from app.agent_app.instances import ROLE_SHADOW
+
+        for inst in self.instances.for_project(project_id):
+            if inst.role == ROLE_SHADOW:
+                self.lifecycle.provisioner.destroy(project_id, inst)
+        self.instances.clear_project(project_id)
+
+        # Release the sticky live port back to the pool.
         if project.port:
             self._release_port(project.port)
-        if project.backend_port:
-            self._release_port(project.backend_port)
 
         # Delete project directory. SAFETY: only ever delete inside the
         # Agent App workspace. A never-adopted placeholder has path "" and
@@ -4163,9 +4454,9 @@ UI in {project.path}/frontend/src/app/."""
             "credentials.json",
             "token.json",
             ".jwt_secret",
-            # Host-local, tunnel-lifetime state: an exported app must not
+            # Host-local, share-lifetime state: an exported app must not
             # arrive somewhere else already trusting a foreign origin.
-            ".tunnel-origin",
+            *SHARE_STATE_FILES,
         }
 
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -4191,380 +4482,43 @@ UI in {project.path}/frontend/src/app/."""
         return None
 
     # ------------------------------------------------------------------
-    # LAN & Tunnel sharing
+    # Sharing (private LAN link / public tunnel link) — see sharing.py
     # ------------------------------------------------------------------
 
     @staticmethod
-    def get_lan_ip() -> Optional[str]:
-        """Get the machine's LAN IP address."""
-        try:
-            # Connect to a public IP to determine the right interface
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(1)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            try:
-                return socket.gethostbyname(socket.gethostname())
-            except Exception:
-                return None
-
-    @staticmethod
     def _serving_port(project: AgentAppProject) -> Optional[int]:
-        """The port the app ACTUALLY listens on.
+        """The port the app ACTUALLY listens on: always `project.port`.
 
-        `port` — never `backend_port`. Under the unified lifecycle the app is
-        one PocketBase process serving API and frontend together, launched as
-        `runner.start(project_dir, project.port)`; for an external app the
-        A2App proxy holds `project.port` in front of the foreign process.
-        `backend_port` is a survivor of the old vite+backend split: it is still
-        allocated and persisted, but NOTHING binds it. Sharing preferred it and
-        so pointed cloudflared at a port that answered every connection with
-        "connection refused" — the app was up on :3100 the whole time.
-        """
-        return project.port or project.backend_port
+        Under the unified lifecycle the app is one PocketBase process serving
+        API and frontend together (`runner.start(project_dir, project.port)`);
+        for an external app the A2App proxy holds `project.port` in front of
+        the foreign process. `backend_port` was the old vite+backend split's
+        second port — nothing binds it, so nothing is allocated for it or
+        served from it any more."""
+        return project.port
 
-    def get_lan_url(self, project_id: str) -> Optional[str]:
-        """Get the LAN-accessible URL for a running project.
-
-        One port for everything: the app serves its API and its frontend
-        static files from the same listener.
-        """
+    async def open_share(self, project_id: str, channel: str) -> str:
+        """Open a share channel ("lan" | "tunnel") for a running project and
+        return its share link. Raises ShareError with an owner-facing reason."""
         project = self.projects.get(project_id)
         if not project or project.status != "running":
-            return None
+            raise ShareError("Start the app before sharing it.")
         port = self._serving_port(project)
         if not port:
-            return None
-        ip = self.get_lan_ip()
-        if not ip or ip.startswith("127."):
-            return None
-        return f"http://{ip}:{port}"
+            raise ShareError("The app has no port to share.")
+        return await self.sharing.open(project, channel, port)
 
-    # Cloudflared binary download URLs per platform
-    _CLOUDFLARED_URLS = {
-        "win32": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        "darwin": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz",
-        "linux": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
-    }
-
-    def _get_cloudflared_path(self) -> Optional[str]:
-        """Find cloudflared — check PATH first, then our local bin directory."""
-        system_path = shutil.which("cloudflared")
-        if system_path:
-            return system_path
-        # Check our local bin
-        import sys
-
-        ext = ".exe" if sys.platform == "win32" else ""
-        local_bin = Path(__file__).parent.parent / "bin" / f"cloudflared{ext}"
-        if local_bin.exists():
-            return str(local_bin)
-        return None
-
-    async def _ensure_cloudflared(self) -> Optional[str]:
-        """Find cloudflared or auto-install it. Returns the binary path or None."""
-        path = self._get_cloudflared_path()
-        if path:
-            return path
-
-        logger.info("[AGENT_APP] cloudflared not found, auto-installing...")
-        import sys
-        import urllib.request
-
-        platform_key = sys.platform
-        if platform_key not in self._CLOUDFLARED_URLS:
-            logger.error(f"[AGENT_APP] Unsupported platform: {platform_key}")
-            return None
-
-        bin_dir = Path(__file__).parent.parent / "bin"
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        ext = ".exe" if platform_key == "win32" else ""
-        target = bin_dir / f"cloudflared{ext}"
-
-        try:
-            url = self._CLOUDFLARED_URLS[platform_key]
-            req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
-            resp = urllib.request.urlopen(req, timeout=60)
-
-            if platform_key == "darwin":
-                import tarfile
-                import io
-
-                with tarfile.open(fileobj=io.BytesIO(resp.read()), mode="r:gz") as tar:
-                    for member in tar.getmembers():
-                        if "cloudflared" in member.name:
-                            f = tar.extractfile(member)
-                            if f:
-                                target.write_bytes(f.read())
-                                break
-            else:
-                target.write_bytes(resp.read())
-
-            if platform_key != "win32":
-                target.chmod(0o755)
-
-            logger.info(f"[AGENT_APP] cloudflared installed at {target}")
-            return str(target)
-        except Exception as e:
-            logger.error(f"[AGENT_APP] Failed to download cloudflared: {e}")
-            if target.exists():
-                target.unlink()
-            return None
-
-    async def start_tunnel(
-        self, project_id: str, provider: str = "cloudflared"
-    ) -> Optional[str]:
-        """Start a cloudflare tunnel for remote access. Returns the public URL."""
-        logger.info(f"[AGENT_APP] start_tunnel called for {project_id}")
+    async def close_share(self, project_id: str, channel: str) -> None:
         project = self.projects.get(project_id)
-        if not project or project.status != "running":
-            logger.warning(
-                f"[AGENT_APP] Cannot start tunnel: project={project is not None}, status={project.status if project else 'N/A'}"
-            )
-            return None
+        if project:
+            await self.sharing.close(project, channel)
 
-        logger.info("[AGENT_APP] Stopping any existing tunnel...")
-        await self.stop_tunnel(project_id)
-
-        # Only kill orphans on first tunnel start (no other tunnels active)
-        other_tunnels = any(
-            p.tunnel_process is not None and p.id != project_id
-            for p in self.projects.values()
-        )
-        if not other_tunnels:
-            logger.info(
-                "[AGENT_APP] No other tunnels active, cleaning orphan cloudflared processes..."
-            )
-            try:
-                if os.name == "nt":
-                    subprocess.run(
-                        [
-                            "powershell",
-                            "-Command",
-                            "Stop-Process -Name cloudflared -Force -ErrorAction SilentlyContinue",
-                        ],
-                        capture_output=True,
-                        timeout=5,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                        if hasattr(subprocess, "CREATE_NO_WINDOW")
-                        else 0,
-                    )
-                else:
-                    subprocess.run(["pkill", "-f", "cloudflared"], capture_output=True)
-                await asyncio.sleep(1)
-            except Exception:
-                pass
-
-        port = self._serving_port(project)
-        if not port:
-            return None
-
-        cloudflared = await self._ensure_cloudflared()
-        if not cloudflared:
-            logger.error("[AGENT_APP] cloudflared binary not found")
-            return None
-
-        # cloudflared writes to stderr for the WHOLE life of the tunnel, not
-        # just at startup. Piping that into this process and then not draining
-        # it — which is what "find the URL, return from the reader thread"
-        # did — fills the OS pipe buffer (4 KB by default on Windows) and
-        # cloudflared then BLOCKS forever on its next write. The tunnel stops
-        # proxying while the process still looks perfectly alive, so remote
-        # visitors hang until their client times out, and every byte that would
-        # explain why is stuck unread in that buffer. A file sink has no such
-        # backpressure, and doubles as the log this had no way to produce.
-        log_handle, log_path, log_offset = self._open_tunnel_log(project, port)
-        if log_handle is None:
-            logger.error("[AGENT_APP] No writable location for the cloudflared log")
-            return None
-
-        # 127.0.0.1, NOT localhost: PocketBase binds --http=127.0.0.1:<port>
-        # (runner.start) and the external-app proxy binds the same, so neither
-        # ever listens on ::1. cloudflared resolves 'localhost' to ::1 first on
-        # Windows and got "connectex: No connection could be made" on every
-        # single request — the tunnel came up healthy, announced its URL, and
-        # then refused every visitor.
-        origin_url = f"http://127.0.0.1:{port}"
-        logger.info(
-            f"[AGENT_APP] Starting cloudflared: {cloudflared} tunnel "
-            f"--url {origin_url} (log: {log_path})"
-        )
-        proc = subprocess.Popen(
-            [cloudflared, "tunnel", "--url", origin_url],
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW
-            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-            else 0,
-        )
-        logger.info(f"[AGENT_APP] cloudflared started, PID={proc.pid}, parsing URL...")
-        url = await self._parse_cloudflare_url(proc, log_path, log_offset)
-        logger.info(f"[AGENT_APP] cloudflared URL parse result: {url}")
-
-        if url:
-            project.tunnel_process = proc
-            project.tunnel_log = log_handle
-            project.tunnel_url = url
-            self._publish_tunnel_origin(project, url)
-            self._save_projects()
-            logger.info(f"[AGENT_APP] Tunnel started for {project.name}: {url}")
-            return url
-        else:
-            self._terminate_process(proc)
-            self._close_tunnel_log(log_handle)
-            logger.error(
-                f"[AGENT_APP] Failed to get tunnel URL; cloudflared's own "
-                f"output is in {log_path}"
-            )
-            return None
-
-    async def stop_tunnel(self, project_id: str) -> None:
-        """Stop the tunnel for a project."""
+    def share_links(self, project_id: str) -> Dict[str, Optional[str]]:
+        """{channel: share link, or None while that channel is closed}."""
         project = self.projects.get(project_id)
         if not project:
-            return
-        if project.tunnel_process:
-            self._terminate_process(project.tunnel_process)
-            project.tunnel_process = None
-        self._close_tunnel_log(project.tunnel_log)
-        project.tunnel_log = None
-        project.tunnel_url = None
-        self._publish_tunnel_origin(project, None)
-        self._save_projects()
-        logger.info(f"[AGENT_APP] Tunnel stopped for {project.name}")
-
-    @staticmethod
-    def _tunnel_log_path(project: AgentAppProject) -> Path:
-        return Path(project.path) / "logs" / "cloudflared.log"
-
-    def _open_tunnel_log(
-        self, project: AgentAppProject, port: int
-    ) -> Tuple[Optional[Any], Path, int]:
-        """Open cloudflared's output sink. Returns (handle, path, offset).
-
-        The sink is not optional — it is both the tunnel's only log and the
-        only place the public URL is announced — so an unwritable project
-        directory falls back to the temp dir rather than failing the share.
-        """
-        candidates = [
-            self._tunnel_log_path(project),
-            Path(tempfile.gettempdir()) / f"cloudflared-{project.id}.log",
-        ]
-        for path in candidates:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                # Append across restarts, but never grow without bound: this
-                # file collects everything cloudflared logs while sharing.
-                too_big = path.exists() and path.stat().st_size > 2_000_000
-                handle = open(
-                    path,
-                    "w" if too_big else "a",
-                    encoding="utf-8",
-                    errors="replace",
-                )
-                handle.write(
-                    f"\n=== cloudflared start "
-                    f"{datetime.now().isoformat(timespec='seconds')} "
-                    f"port={port} ===\n"
-                )
-                handle.flush()
-                return handle, path, path.stat().st_size
-            except Exception as e:
-                logger.warning(f"[AGENT_APP] Tunnel log unusable at {path}: {e}")
-        return None, candidates[-1], 0
-
-    @staticmethod
-    def _close_tunnel_log(handle: Optional[Any]) -> None:
-        if handle is None:
-            return
-        try:
-            handle.close()
-        except Exception:
-            pass
-
-    @staticmethod
-    def _tunnel_origin_file(project: AgentAppProject) -> Path:
-        return Path(project.path) / ".tunnel-origin"
-
-    def _publish_tunnel_origin(
-        self, project: AgentAppProject, url: Optional[str]
-    ) -> None:
-        """Tell the app which public origin to trust, or that there is none.
-
-        The app's origin guard (pb/pb_hooks/_system.pb.js) allows loopback
-        origins only — right for a loopback app, fatal for a shared one:
-        browsers send `Origin` on same-origin writes too, so through a tunnel
-        the app LOADED (GET carries no Origin) and then 403'd every save. The
-        guard reads this file per request, so the grant appears and disappears
-        with the tunnel, with no app restart in between.
-        """
-        path = self._tunnel_origin_file(project)
-        try:
-            if url:
-                origin = url.rstrip("/")
-                path.write_text(origin + "\n", encoding="utf-8")
-                logger.info(f"[AGENT_APP] Shared origin published: {origin}")
-            elif path.exists():
-                path.unlink()
-                logger.info(f"[AGENT_APP] Shared origin revoked for {project.name}")
-        except Exception as e:
-            logger.warning(f"[AGENT_APP] Could not update {path.name}: {e}")
-
-    async def _parse_cloudflare_url(
-        self,
-        proc: subprocess.Popen,
-        log_path: Path,
-        start_offset: int = 0,
-        timeout: int = 30,
-    ) -> Optional[str]:
-        """Wait for cloudflared to announce its public URL in its log file.
-
-        Tails the file rather than reading the process pipes — see the note in
-        start_tunnel about the pipe-buffer deadlock that cost us the tunnel.
-        """
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
-        deadline = time.time() + timeout
-        offset = start_offset
-        seen = ""
-
-        while True:
-            # Sample liveness BEFORE reading, so a process that dies between
-            # the two still gets its final bytes examined.
-            exited = proc.poll() is not None
-            try:
-                with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
-                    fh.seek(offset)
-                    seen += fh.read()
-                    offset = fh.tell()
-            except FileNotFoundError:
-                pass
-
-            match = pattern.search(seen)
-            if match:
-                logger.info(f"[AGENT_APP] Parsed cloudflare URL: {match.group(0)}")
-                return match.group(0)
-
-            # cloudflared boxes the URL inside an ASCII banner, so it can land
-            # split across two reads: keep a tail long enough to re-match.
-            if len(seen) > 8192:
-                seen = seen[-1024:]
-
-            if exited:
-                logger.error(
-                    f"[AGENT_APP] cloudflared exited (code {proc.returncode}) "
-                    f"before announcing a URL; see {log_path}"
-                )
-                return None
-            if time.time() >= deadline:
-                logger.error(
-                    f"[AGENT_APP] Failed to parse cloudflare URL within "
-                    f"{timeout}s; see {log_path}"
-                )
-                return None
-            await asyncio.sleep(0.3)
+            return {name: None for name in self.sharing.channels}
+        return self.sharing.links(project)
 
     async def auto_launch_projects(self, project_ids: List[str] = None) -> None:
         """Auto-launch projects on startup.
@@ -4582,11 +4536,7 @@ UI in {project.path}/frontend/src/app/."""
             # Launch all projects with auto_launch enabled
             project_ids = [p.id for p in self.projects.values() if p.auto_launch]
 
-        targets = [
-            pid
-            for pid in project_ids
-            if self.projects.get(pid) and self.projects[pid].status != "error"
-        ]
+        targets = [pid for pid in project_ids if self.projects.get(pid)]
         if not targets:
             return
 
@@ -4601,7 +4551,6 @@ UI in {project.path}/frontend/src/app/."""
                     f"[AGENT_APP] Auto-launching: {project.name} ({project_id})"
                 )
                 project.status = "launching"
-                self._save_projects()
                 try:
                     await self.launch_project(project_id)
                 except Exception as e:
@@ -4613,6 +4562,5 @@ UI in {project.path}/frontend/src/app/."""
                     )
                     project.status = "error"
                     project.error = str(e)[:500]
-                    self._save_projects()
 
         await asyncio.gather(*(_launch_one(pid) for pid in targets))

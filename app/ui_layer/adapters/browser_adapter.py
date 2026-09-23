@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import json
 import os
 import re
@@ -11,8 +12,9 @@ import shutil
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from aiohttp.client_exceptions import ClientConnectionResetError
@@ -124,16 +126,81 @@ from app.ui_layer.components.types import (
 from app.ui_layer.events import UIEvent, UIEventType
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
+from app.ui_layer.diagnostics import LoopStallMonitor
+from app.ui_layer.adapters.ws_channel import ClientChannel
+from app.ui_layer.adapters.ws_lanes import message_lane
+from app.ui_layer.adapters.ws_auth import WS_PROTOCOL, WsAuth
+from app.ui_layer.adapters.session_buffer import (
+    SESSION_BUFFER_LIMIT,
+    SESSION_BUFFER_SLACK,
+    trim_per_session,
+)
+from contextvars import ContextVar
+from app.ui_layer.events.change_detection import ChangeDetection
+
+# `requestId` of the browser message being handled (task-local). Replies sent
+# while handling it echo the id, so the tab that asked can match its reply
+# and other tabs can ignore it (plan §A4.5).
+_REQUEST_ID: ContextVar[Optional[str]] = ContextVar("ui_request_id", default=None)
+
+
+def _with_request_id(message: Dict[str, Any]) -> Dict[str, Any]:
+    """``message`` with the current request's id added to its data, if any."""
+    request_id = _REQUEST_ID.get()
+    data = message.get("data")
+    if request_id is None or not isinstance(data, dict) or "requestId" in data:
+        return message
+    return {**message, "data": {**data, "requestId": request_id}}
+from app.ui_layer.events.resource_changes import (
+    get_notifier as get_resource_notifier,
+    Resource,
+    notify_resource_changed,
+    resource_changes_for_message,
+)
 from app.agent_app import (
     AgentAppManager,
     set_agent_app_manager,
     register_broadcast_callbacks,
     make_todo_broadcast_hook,
 )
+from app.agent_app.sharing import ShareError
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
     from aiohttp import web
+
+
+def _make_static_or_spa(dist: Path):
+    """Build the catch-all handler: serve a file from dist/, else index.html.
+
+    Every request path is resolved and must land inside the resolved dist/
+    (symlinks included); anything else is a 404, never a file from elsewhere.
+    """
+    from aiohttp import web
+
+    dist_root = dist.resolve()
+    index_path = dist_root / "index.html"
+
+    async def _static_or_spa(request: web.Request) -> web.StreamResponse:
+        req_path = request.match_info.get("path", "")
+        if not req_path:
+            return web.FileResponse(index_path)
+        # Refuse drive/root/UNC paths before touching the filesystem: joining
+        # an absolute path replaces dist/ outright, and resolving //host/share
+        # makes Windows authenticate to that host.
+        if PureWindowsPath(req_path).anchor or PurePosixPath(req_path).anchor:
+            raise web.HTTPNotFound()
+        try:
+            file_path = (dist_root / req_path).resolve()
+        except (OSError, ValueError):
+            raise web.HTTPNotFound()
+        if not file_path.is_relative_to(dist_root):
+            raise web.HTTPNotFound()
+        if file_path.is_file():
+            return web.FileResponse(file_path)
+        return web.FileResponse(index_path)
+
+    return _static_or_spa
 
 
 class BrowserThemeAdapter(ThemeAdapter):
@@ -206,6 +273,12 @@ class BrowserChatComponent(ChatComponentProtocol):
     def __init__(self, adapter: "BrowserAdapter") -> None:
         self._adapter = adapter
         self._messages: List[ChatMessage] = []
+        self._trim_at = SESSION_BUFFER_LIMIT
+        # Chat SQLite calls run off the event loop on ONE worker thread, so
+        # they execute in the order they were issued: a history read sees
+        # earlier inserts, and an option update never lands before the
+        # insert of its message.
+        self._db = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ui-chat-db")
         self._storage = None
         self._init_storage()
 
@@ -271,6 +344,7 @@ class BrowserChatComponent(ChatComponentProtocol):
     async def append_message(self, message: ChatMessage) -> None:
         """Append message and broadcast to clients."""
         self._messages.append(message)
+        self._trim_buffer()
 
         # Persist to storage
         if self._storage:
@@ -310,7 +384,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                     allow_free_text=message.allow_free_text,
                     details=message.details,
                 )
-                self._storage.insert_message(stored)
+                await self.run_storage(self._storage.insert_message, stored)
             except Exception:
                 pass
 
@@ -332,7 +406,7 @@ class BrowserChatComponent(ChatComponentProtocol):
         # Clear from storage
         if self._storage:
             try:
-                self._storage.clear_messages(session_id)
+                await self.run_storage(self._storage.clear_messages, session_id)
             except Exception:
                 pass
 
@@ -355,6 +429,35 @@ class BrowserChatComponent(ChatComponentProtocol):
     def get_messages(self) -> List[ChatMessage]:
         """Get all loaded messages."""
         return self._messages.copy()
+
+    def get_recent_messages(self) -> List[ChatMessage]:
+        """Loaded messages capped to the last SESSION_BUFFER_LIMIT per session."""
+        return self._capped(self._messages)
+
+    @staticmethod
+    def _capped(messages: List[ChatMessage]) -> List[ChatMessage]:
+        # Unanswered questions stay: the UI pins them until answered, and
+        # _handle_question_response reads their text from this buffer.
+        return trim_per_session(
+            messages,
+            SESSION_BUFFER_LIMIT,
+            session_of=lambda m: m.session_id,
+            keep=lambda m: m.is_question and not m.option_selected,
+        )
+
+    def _trim_buffer(self) -> None:
+        """Bound the buffer (RS-1.8); older history stays in storage."""
+        if len(self._messages) <= self._trim_at:
+            return
+        self._messages = self._capped(self._messages)
+        self._trim_at = len(self._messages) + SESSION_BUFFER_SLACK
+
+    async def run_storage(self, fn, *args, **kwargs):
+        """Run a blocking chat-storage call on the ordered storage worker."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._db, functools.partial(fn, *args, **kwargs)
+        )
 
     def get_messages_before(
         self,
@@ -400,6 +503,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
     def __init__(self, adapter: "BrowserAdapter") -> None:
         self._adapter = adapter
         self._items: List[ActionItem] = []
+        self._trim_at = SESSION_BUFFER_LIMIT
         self._storage = None
         self._init_storage()
 
@@ -489,6 +593,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 return
 
         self._items.append(item)
+        self._trim_buffer()
         self._persist_item(item)
 
         await self._adapter._broadcast(
@@ -648,6 +753,27 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         """Get all loaded items."""
         return self._items.copy()
 
+    def get_recent_items(self) -> List[ActionItem]:
+        """Loaded items capped to the last SESSION_BUFFER_LIMIT per session."""
+        return self._capped(self._items)
+
+    @staticmethod
+    def _capped(items: List[ActionItem]) -> List[ActionItem]:
+        # Running items stay: later status updates look them up here.
+        return trim_per_session(
+            items,
+            SESSION_BUFFER_LIMIT,
+            session_of=lambda i: i.session_id,
+            keep=lambda i: i.status == "running",
+        )
+
+    def _trim_buffer(self) -> None:
+        """Bound the buffer (RS-1.8); older items stay in storage."""
+        if len(self._items) <= self._trim_at:
+            return
+        self._items = self._capped(self._items)
+        self._trim_at = len(self._items) + SESSION_BUFFER_SLACK
+
 
 class BrowserStatusBarComponent(StatusBarProtocol):
     """Browser status bar component."""
@@ -747,6 +873,8 @@ class BrowserAdapter(InterfaceAdapter):
         super().__init__(controller, "browser")
         self._host = host
         self._port = int(os.environ.get("BROWSER_PORT", port))
+        # Origin allowlist + per-process session token for /ws (ws_auth.py).
+        self._ws_auth = WsAuth(self._port)
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
@@ -754,6 +882,13 @@ class BrowserAdapter(InterfaceAdapter):
         self._footage = BrowserFootageComponent(self)
         self._app: Optional["web.Application"] = None
         self._ws_clients: Set = set()
+        # Per-connection outbound queues (ws_channel.py) and message lanes
+        # (ws_lanes.py): slow clients and slow requests don't hold up others.
+        self._channels: Dict[Any, ClientChannel] = {}
+        self._lane_locks: Dict[tuple, asyncio.Lock] = {}
+        self._lane_tasks: Set[asyncio.Task] = set()
+        # Latest build todo list per Agent App, replayed to reconnecting tabs.
+        self._agent_app_todos: Dict[str, list] = {}
         self._metrics_subscribers: Set = set()
         self._runner: Optional["web.AppRunner"] = None
         self._started_at: float = 0.0
@@ -762,6 +897,9 @@ class BrowserAdapter(InterfaceAdapter):
         # Dashboard metrics collector
         self._metrics_collector = MetricsCollector(controller.agent)
         self._metrics_task: Optional[asyncio.Task] = None
+
+        # Logs event-loop stalls with the blocking stack (observation only)
+        self._loop_monitor = LoopStallMonitor()
 
         # Track active OAuth tasks for cancellation support
         self._oauth_tasks: Dict[str, asyncio.Task] = {}
@@ -795,7 +933,6 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_ready=self.broadcast_agent_app_ready,
             broadcast_progress=self.broadcast_agent_app_progress,
             broadcast_todos=self.broadcast_agent_app_todos,
-            broadcast_data_changed=self.broadcast_agent_app_data_changed,
             broadcast_created=self.broadcast_agent_app_created,
             broadcast_build_event=self.broadcast_agent_app_build_event,
             broadcast_wizard_open=self.broadcast_agent_app_wizard_open,
@@ -872,7 +1009,7 @@ class BrowserAdapter(InterfaceAdapter):
             enhanced: str = await self._controller.handle_prompt_enhance(
                 user_message=content
             )
-            await ws.send_json({"type": "prompt_enhanced", "content": enhanced.strip()})
+            await self._send_to(ws, {"type": "prompt_enhanced", "content": enhanced.strip()})
             return
         except Exception as e:
             logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
@@ -937,11 +1074,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             self._chat._messages.insert(0, welcome_message)
 
-        self._app = web.Application()
+        self._app = web.Application(middlewares=[self._api_guard()])
 
         # API and WebSocket routes (must be registered first)
         self._app.router.add_get("/ws", self._websocket_handler)
+        self._app.router.add_get("/api/session-token", self._session_token_handler)
         self._app.router.add_get("/api/state", self._state_handler)
+        self._app.router.add_get("/api/debug/loop", self._debug_loop_handler)
+        if os.getenv("CRAFTBOT_DEBUG_ENDPOINTS") == "1":
+            # Dev-only load and stall generators; never registered otherwise.
+            self._app.router.add_post("/api/debug/flood", self._debug_flood_handler)
+            self._app.router.add_post("/api/debug/block", self._debug_block_handler)
         self._app.router.add_get("/api/theme.css", self._theme_css_handler)
         self._app.router.add_get(
             "/api/workspace/{path:.*}", self._workspace_file_handler
@@ -991,19 +1134,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Serve static files from dist/ (public/ files copied by Vite build)
             # This must come before the SPA catch-all so images, fonts, etc. are served directly
-            _dist = frontend_dist  # capture for closure
-
-            async def _static_or_spa(request: web.Request) -> web.StreamResponse:
-                """Serve static file from dist/ if it exists, otherwise index.html for SPA routing."""
-                req_path = request.match_info.get("path", "")
-                if req_path:
-                    file_path = _dist / req_path
-                    if file_path.is_file():
-                        return web.FileResponse(file_path)
-                return web.FileResponse(_dist / "index.html")
-
             self._app.router.add_get("/", self._spa_handler)
-            self._app.router.add_get("/{path:.*}", _static_or_spa)
+            self._app.router.add_get(
+                "/{path:.*}", _make_static_or_spa(frontend_dist)
+            )
         else:
             # Fallback to inline HTML for development without build
             self._app.router.add_get("/", self._index_handler)
@@ -1019,10 +1153,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         site = web.TCPSite(self._runner, self._host, self._port)
         await site.start()
         self._started_at = time.monotonic()
+        self._loop_monitor.start()
+        get_resource_notifier().bind(asyncio.get_running_loop(), self._broadcast)
+        # Changes the agent and background jobs make outside UI handlers.
+        try:
+            self._change_detection = ChangeDetection(self._controller.event_bus)
+            self._change_detection.start()
+        except Exception as e:
+            self._change_detection = None
+            logger.warning(f"[BROWSER ADAPTER] change detection unavailable: {e}")
 
         # Only print URL info if not using browser startup UI (run.py handles it)
-        import os
-
         if os.getenv("BROWSER_STARTUP_UI", "0") != "1":
             print(
                 f"\nCraftBot Browser Interface running at http://{self._host}:{self._port}"
@@ -1066,10 +1207,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except asyncio.CancelledError:
                 pass
 
+        self._loop_monitor.stop()
+        if getattr(self, "_change_detection", None) is not None:
+            self._change_detection.stop()
+            self._change_detection = None
+        get_resource_notifier().unbind()
+
         # Close all WebSocket connections
         for ws in self._ws_clients.copy():
             await ws.close()
         self._ws_clients.clear()
+        for channel in list(self._channels.values()):
+            await channel.close()
+        self._channels.clear()
 
         # Shut down the aiohttp server and release the port
         if self._runner:
@@ -1083,9 +1233,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web, WSMsgType
         import asyncio
 
+        # Reject foreign pages before upgrading (browsers apply no CORS here).
+        rejected = self._ws_auth.check_ws_handshake(request.headers)
+        if rejected:
+            logger.warning(
+                f"[BROWSER ADAPTER] Rejected /ws handshake ({rejected}): "
+                f"origin={request.headers.get('Origin')!r} "
+                f"host={request.headers.get('Host')!r}"
+            )
+            raise web.HTTPForbidden(reason="WebSocket handshake not allowed")
+
         ws = web.WebSocketResponse(
             max_msg_size=100 * 1024 * 1024,
             heartbeat=30.0,  # Send ping every 30s to keep connection alive
+            protocols=(WS_PROTOCOL,),
         )
 
         try:
@@ -1124,6 +1285,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         is_first_client = len(self._ws_clients) == 0
         self._ws_clients.add(ws)
+        channel = ClientChannel(ws)
+        self._channels[ws] = channel
 
         # Trigger soft onboarding on first client connection so the UI
         # is ready to receive the onboarding messages.
@@ -1137,16 +1300,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                     asyncio.create_task(agent.trigger_soft_onboarding())
 
-        # Send initial state
+        # Send initial state (through the channel, so it stays ordered with
+        # broadcasts queued for this client)
         try:
             initial_state = self._get_initial_state()
-            await ws.send_json(
+            channel.send_json(
                 {
                     "type": "init",
                     "data": initial_state,
                 }
             )
-            await ws.send_json(
+            channel.send_json(
                 {
                     "type": "skill_meta",
                     "data": self._get_skill_meta(),
@@ -1158,7 +1322,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # opens before that (middleware connects during store bootstrap),
             # the request was never sent and the side panel stayed empty
             # until the next reconnect.
-            await ws.send_json(
+            channel.send_json(
                 {
                     "type": "agent_app_list",
                     "data": {
@@ -1169,12 +1333,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
-        except (ConnectionResetError, ClientConnectionResetError, RuntimeError):
-            # Gracefully handle connection closing
-            self._ws_clients.discard(ws)
-            return ws
         except Exception:
             self._ws_clients.discard(ws)
+            self._channels.pop(ws, None)
+            await channel.close()
             return ws
 
         # Message loop
@@ -1183,7 +1345,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 try:
                     if msg.type == WSMsgType.TEXT:
                         data = json.loads(msg.data)
-                        await self._handle_ws_message(data, ws)
+                        if data.get("type") == "ping":
+                            # Liveness probe, answered by the reader itself: the
+                            # reply only fails to arrive when the loop is blocked.
+                            channel.send_json({"type": "pong"})
+                        else:
+                            self._dispatch_in_lane(ws, data)
                     elif msg.type == WSMsgType.ERROR:
                         break
                     elif msg.type == WSMsgType.CLOSE:
@@ -1217,8 +1384,38 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         finally:
             self._ws_clients.discard(ws)
             self._metrics_subscribers.discard(ws)
+            closing = self._channels.pop(ws, None)
+            if closing is not None:
+                await closing.close()
+            for key in [k for k in self._lane_locks if k[0] == id(ws)]:
+                del self._lane_locks[key]
 
         return ws
+
+    def _dispatch_in_lane(self, ws: Any, data: Dict[str, Any]) -> None:
+        """Handle a browser message as its own task, serialized only with
+        earlier messages from this connection in the same lane (ws_lanes.py)."""
+        key = (id(ws), message_lane(data))
+        lock = self._lane_locks.get(key)
+        if lock is None:
+            lock = self._lane_locks[key] = asyncio.Lock()
+        task = asyncio.create_task(self._run_in_lane(lock, data, ws))
+        self._lane_tasks.add(task)
+        task.add_done_callback(self._lane_tasks.discard)
+
+    async def _run_in_lane(self, lock: asyncio.Lock, data: Dict[str, Any], ws: Any) -> None:
+        request_id = data.get("requestId")
+        _REQUEST_ID.set(request_id if isinstance(request_id, str) else None)
+        async with lock:
+            try:
+                await self._handle_ws_message(data, ws)
+            except Exception as e:
+                # Report and carry on; one failing message never stops others.
+                import traceback
+
+                error_detail = f"WebSocket message error: {type(e).__name__}: {e}\n{traceback.format_exc()}"
+                print(f"[BROWSER ADAPTER] {error_detail}")
+                await self._broadcast_error_to_chat(error_detail)
 
     async def _handle_ws_message(self, data: Dict[str, Any], ws=None) -> None:
         """Handle incoming WebSocket message."""
@@ -1539,7 +1736,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._handle_memory_process_trigger()
 
         elif msg_type == "memory_schedule_get":
-            await self._handle_memory_schedule_get()
+            await self._handle_memory_schedule_get(ws)
 
         elif msg_type == "memory_schedule_set":
             await self._handle_memory_schedule_set(data)
@@ -1668,6 +1865,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # Slash command list (for autocomplete)
         elif msg_type == "command_list":
             await self._handle_command_list()
+
+        # Same payload the connect handler pushes, on request (refetch).
+        elif msg_type == "skill_meta_get":
+            await self._send_to(
+                ws, {"type": "skill_meta", "data": self._get_skill_meta()}
+            )
 
         # Skill settings operations
         elif msg_type == "skill_list":
@@ -1921,14 +2124,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "agent_app_state_update":
             await self._handle_agent_app_state_update(data)
 
-        elif msg_type == "agent_app_tunnel_start":
-            project_id = data.get("projectId", "")
-            provider = data.get("provider", "cloudflared")
-            await self._handle_agent_app_tunnel_start(project_id, provider)
+        elif msg_type == "agent_app_share_open":
+            await self._handle_agent_app_share(
+                data.get("projectId", ""), data.get("channel", ""), open_it=True
+            )
 
-        elif msg_type == "agent_app_tunnel_stop":
-            project_id = data.get("projectId", "")
-            await self._handle_agent_app_tunnel_stop(project_id)
+        elif msg_type == "agent_app_share_close":
+            await self._handle_agent_app_share(
+                data.get("projectId", ""), data.get("channel", ""), open_it=False
+            )
 
         elif msg_type == "agent_app_sharing_info":
             project_id = data.get("projectId", "")
@@ -2008,7 +2212,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except ValueError:
                 period_enum = TimePeriod.TOTAL
 
-            filtered_metrics = self._metrics_collector.get_filtered_metrics(period_enum)
+            filtered_metrics = await asyncio.to_thread(
+                self._metrics_collector.get_filtered_metrics, period_enum
+            )
 
             await self._broadcast(
                 {
@@ -2173,7 +2379,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     ollama_url = (value or "http://localhost:11434").strip()
                     from app.ui_layer.local_llm_setup import test_ollama_connection_sync
 
-                    test_result = test_ollama_connection_sync(ollama_url)
+                    test_result = await asyncio.to_thread(
+                        test_ollama_connection_sync, ollama_url
+                    )
                     if not test_result.get("success"):
                         err = test_result.get("error", "Cannot reach Ollama")
                         await self._broadcast(
@@ -2219,7 +2427,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 or_model = _OR_MODEL_MAP.get(provider, {}).get(
                                     native_model
                                 ) or _to_openrouter_slug(provider, native_model)
-                            test_result = test_connection(
+                            test_result = await asyncio.to_thread(
+                                test_connection,
                                 provider="openrouter",
                                 api_key=actual_key,
                                 model=or_model,
@@ -2229,7 +2438,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             native_model = MODEL_REGISTRY.get(provider, {}).get(
                                 InterfaceType.LLM
                             )
-                            test_result = test_connection(
+                            test_result = await asyncio.to_thread(
+                                test_connection,
                                 provider=provider,
                                 api_key=actual_key,
                                 model=native_model,
@@ -2249,7 +2459,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         default_model = MODEL_REGISTRY.get(provider, {}).get(
                             InterfaceType.LLM
                         )
-                        test_result = test_connection(
+                        test_result = await asyncio.to_thread(
+                            test_connection,
                             provider=provider,
                             api_key=actual_key,
                             model=default_model,
@@ -2511,7 +2722,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             from app.ui_layer.local_llm_setup import get_ollama_status
 
-            status = get_ollama_status()
+            status = await asyncio.to_thread(get_ollama_status)
             await self._broadcast(
                 {
                     "type": "local_llm_check",
@@ -2532,7 +2743,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             from app.ui_layer.local_llm_setup import test_ollama_connection_sync
 
-            result = test_ollama_connection_sync(url)
+            result = await asyncio.to_thread(test_ollama_connection_sync, url)
             await self._broadcast(
                 {
                     "type": "local_llm_test",
@@ -2940,6 +3151,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             theme = data.get("theme")
             if project_id:
                 self._agent_app_manager.set_project_ui_theme(project_id, theme)
+                # Other tabs and browsers refetch the list, which carries uiTheme.
+                notify_resource_changed(Resource.AGENT_APPS, [project_id])
         except Exception as e:
             logger.debug(f"[AGENT_APP] theme update failed: {e}")
 
@@ -3006,7 +3219,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         Path(self._agent_app_manager.agent_app_dir) / "_staging"
                     )
                     if src.exists() and staging_root in src.parents:
-                        shutil.move(str(src), str(ref_dir / src.name))
+                        await asyncio.to_thread(
+                            shutil.move, str(src), str(ref_dir / src.name)
+                        )
 
             # Create the session BEFORE broadcasting so the project snapshot
             # carries sessionId (the Agent App page's chat panel keys on it;
@@ -3106,9 +3321,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             try:
                 from app.agent_app import construction_events
 
+                live_ids = {p.id for p in projects}
+                for stale_id in [pid for pid in self._agent_app_todos if pid not in live_ids]:
+                    del self._agent_app_todos[stale_id]
                 for p in projects:
                     if getattr(p, "status", None) not in ("creating", "error"):
                         continue
+                    todos = self._agent_app_todos.get(p.id)
+                    if todos:
+                        await self._broadcast(
+                            {"type": "agent_app_todos", "data": {"projectId": p.id, "todos": todos}}
+                        )
                     events = construction_events.get_buffered_events(p.id)
                     if events:
                         await self._broadcast(
@@ -3505,9 +3728,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
 
         try:
-            name = (
-                request.rel_url.query.get("name", "attachment").strip() or "attachment"
-            )
+            # A display name, never a path: keep only the final component, or
+            # "../../x" walks out of download/ (Windows collapses ".." without
+            # the intermediate directory existing).
+            name = Path(
+                request.rel_url.query.get("name", "").strip().replace("\\", "/")
+            ).name
+            if name in ("", ".", ".."):
+                name = "attachment"
             file_type = (
                 request.rel_url.query.get("type", "application/octet-stream").strip()
                 or "application/octet-stream"
@@ -3567,7 +3795,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         description = request.query.get("description", "")
         try:
-            result = export_profile(description=description)
+            result = await asyncio.to_thread(export_profile, description=description)
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Export failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)
@@ -3579,12 +3807,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         bundle_path = Path(result["path"])
         filename = result["filename"]
-        try:
-            payload = bundle_path.read_bytes()
-        finally:
-            # Clean up the temp file + its parent dir immediately. Bundles are
-            # small enough (no node_modules) to hold in memory briefly.
-            shutil.rmtree(bundle_path.parent, ignore_errors=True)
+
+        def _take_bundle() -> bytes:
+            try:
+                return bundle_path.read_bytes()
+            finally:
+                # Clean up the temp file + its parent dir immediately. Bundles are
+                # small enough (no node_modules) to hold in memory briefly.
+                shutil.rmtree(bundle_path.parent, ignore_errors=True)
+
+        payload = await asyncio.to_thread(_take_bundle)
 
         return web.Response(
             body=payload,
@@ -3629,10 +3861,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return web.json_response(
                     {"error": tui("agentapp_no_bundle")}, status=400
                 )
-            result = inspect_bundle(bundle_path)
+            result = await asyncio.to_thread(inspect_bundle, bundle_path)
             # Read bytes into memory and delete the temp file immediately so a
             # cancelled import (user closes modal) never leaks a file to %TEMP%.
-            bundle_bytes = Path(bundle_path).read_bytes()
+            bundle_bytes = await asyncio.to_thread(Path(bundle_path).read_bytes)
             token = str(uuid.uuid4())
             self._staged_bundles[token] = bundle_bytes
             result["bundle_token"] = token
@@ -3726,68 +3958,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(f"[AGENT_APP] Error handling state update: {e}")
 
-    async def _handle_agent_app_sharing_info(self, project_id: str) -> None:
-        """Return sharing info (LAN URL, tunnel URL)."""
-        lan_url = self._agent_app_manager.get_lan_url(project_id)
-        project = self._agent_app_manager.get_project(project_id)
+    async def _handle_agent_app_sharing_info(
+        self, project_id: str, error: Optional[Dict[str, str]] = None
+    ) -> None:
+        """Broadcast the project's share links: {channel: link | None}. A
+        link carries its secret — the bare URL admits nobody."""
         await self._broadcast(
             {
                 "type": "agent_app_sharing_info",
                 "data": {
                     "projectId": project_id,
-                    "lanUrl": lan_url,
-                    "tunnelUrl": project.tunnel_url if project else None,
+                    "links": self._agent_app_manager.share_links(project_id),
+                    "error": error,
                 },
             }
         )
 
-    async def _handle_agent_app_tunnel_start(
-        self, project_id: str, provider: str
+    async def _handle_agent_app_share(
+        self, project_id: str, channel: str, open_it: bool
     ) -> None:
-        """Start a tunnel for a Agent App project."""
-        logger.info(
-            f"[AGENT_APP] Tunnel start requested: project={project_id}, provider={provider}"
-        )
+        """Open or close one share channel ("lan" | "tunnel"), then answer
+        with the current links (and why, if opening failed)."""
+        error = None
         try:
-            url = await self._agent_app_manager.start_tunnel(project_id, provider)
-            await self._broadcast(
-                {
-                    "type": "agent_app_tunnel_status",
-                    "data": {
-                        "projectId": project_id,
-                        "tunnelUrl": url,
-                        "success": url is not None,
-                        "error": None if url else f"Failed to start {provider} tunnel",
-                    },
-                }
-            )
+            if open_it:
+                await self._agent_app_manager.open_share(project_id, channel)
+            else:
+                await self._agent_app_manager.close_share(project_id, channel)
         except Exception as e:
-            logger.error(f"[AGENT_APP] Tunnel start error: {e}", exc_info=True)
-            await self._broadcast(
-                {
-                    "type": "agent_app_tunnel_status",
-                    "data": {
-                        "projectId": project_id,
-                        "tunnelUrl": None,
-                        "success": False,
-                        "error": str(e),
-                    },
-                }
+            logger.error(
+                f"[AGENT_APP] Share {channel} {'open' if open_it else 'close'} "
+                f"failed for {project_id}: {e}",
+                exc_info=not isinstance(e, ShareError),
             )
-
-    async def _handle_agent_app_tunnel_stop(self, project_id: str) -> None:
-        """Stop a tunnel for a Agent App project."""
-        await self._agent_app_manager.stop_tunnel(project_id)
-        await self._broadcast(
-            {
-                "type": "agent_app_tunnel_status",
-                "data": {
-                    "projectId": project_id,
-                    "tunnelUrl": None,
-                    "success": True,
-                },
-            }
-        )
+            error = {"channel": channel, "message": str(e)}
+        await self._handle_agent_app_sharing_info(project_id, error)
 
     async def broadcast_agent_app_ready(
         self, project_id: str, url: str, port: int
@@ -3926,6 +4131,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         Fired from the SessionManager's post-update-todos hook whenever the
         agent updates its todos during a Agent App build run.
         """
+        self._agent_app_todos[project_id] = todos
         await self._broadcast(
             {
                 "type": "agent_app_todos",
@@ -3951,16 +4157,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             }
         )
 
-    async def broadcast_agent_app_data_changed(self, project_id: str) -> None:
-        """Tell the browser that a Agent App's backend data was just modified
-        by the agent, so it should refresh the iframe to display new state."""
-        await self._broadcast(
-            {
-                "type": "agent_app_data_changed",
-                "data": {"projectId": project_id},
-            }
-        )
-
     async def _handle_option_click(
         self, value: str, session_id: str, message_id: str
     ) -> None:
@@ -3970,7 +4166,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if self._chat and message_id:
                 if self._chat._storage:
                     try:
-                        self._chat._storage.update_option_selected(message_id, value)
+                        await self._chat.run_storage(
+                            self._chat._storage.update_option_selected, message_id, value
+                        )
                     except Exception:
                         pass
                 # Update in-memory message so refreshes reflect the selection
@@ -4005,13 +4203,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         question_text = m.content
                         m.option_selected = recorded
                         break
-                if self._chat._storage:
-                    try:
-                        self._chat._storage.update_option_selected(message_id, recorded)
+                storage = self._chat._storage
+                if storage:
+
+                    def _record_answer() -> list:
+                        storage.update_option_selected(message_id, recorded)
                         # After marking this one, whatever question messages
                         # remain unanswered are still pinned in the user's UI.
-                        pending_questions = self._chat._storage.get_pending_questions(
-                            session_id
+                        return storage.get_pending_questions(session_id)
+
+                    try:
+                        pending_questions = await self._chat.run_storage(
+                            _record_answer
                         )
                     except Exception:
                         pass
@@ -4105,7 +4308,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             from app.usage import get_action_storage, get_chat_storage
 
             try:
-                get_chat_storage().clear_messages(session_id)
+                # Ordered storage worker: runs after any insert still queued
+                # for this session, so no message resurfaces after the clear.
+                await self._chat.run_storage(
+                    get_chat_storage().clear_messages, session_id
+                )
             except Exception:
                 pass
             try:
@@ -4129,7 +4336,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             },
         }
         if ws is not None:
-            await ws.send_json(message)
+            await self._send_to(ws, message)
         else:
             await self._broadcast(message)
 
@@ -4174,7 +4381,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             result = get_general_settings()
             settings = {
                 "agentName": result.get("agent_name", "CraftBot"),
-                "theme": "dark",  # Theme is managed client-side
                 "language": result.get("language", "en"),
                 "agentProfilePictureUrl": result.get(
                     "agent_profile_picture_url", "/api/agent-profile-picture"
@@ -4283,7 +4489,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after file change
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -4314,7 +4520,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after file change
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -5208,7 +5414,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after adding
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -5249,7 +5455,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after updating
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -5280,7 +5486,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Update memory index after removing
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.update()
+                await asyncio.to_thread(agent.memory_manager.update)
 
             await self._broadcast(
                 {
@@ -5320,7 +5526,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             agent = self._controller.agent
             if hasattr(agent, "memory_manager"):
-                agent.memory_manager.index_all(force=True)
+                await asyncio.to_thread(agent.memory_manager.index_all, force=True)
 
             await self._broadcast(
                 {
@@ -5424,13 +5630,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_memory_schedule_get(self) -> None:
-        """Send the auto-processing schedule + threshold to the panel."""
+    async def _handle_memory_schedule_get(self, ws=None) -> None:
+        """Send the auto-processing schedule + threshold to the panel that
+        asked. The panel polls this for the live "events waiting" count, so
+        it goes only to the requesting tab, not every connection."""
         try:
             agent = self._controller.agent
             task = agent.scheduler.get_schedule("memory-processing")
             if task is None:
-                await self._broadcast(
+                await self._send_to(
+                    ws,
                     {
                         "type": "memory_schedule_get",
                         "data": {"success": False, "error": tui("schedule_not_found")},
@@ -5439,7 +5648,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return
 
             sched = task.schedule
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "memory_schedule_get",
                     "data": {
@@ -5459,7 +5669,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
         except Exception as e:
-            await self._broadcast(
+            await self._send_to(
+                ws,
                 {
                     "type": "memory_schedule_get",
                     "data": {"success": False, "error": str(e)},
@@ -5771,7 +5982,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 # frontend's test-before-save — with no model the tester
                 # falls back to a different auth-only probe and the two can
                 # contradict each other.
-                test_result = test_connection(
+                test_result = await asyncio.to_thread(
+                    test_connection,
                     provider=new_provider,
                     api_key=test_api_key,
                     base_url=base_url,
@@ -5933,7 +6145,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     ) -> None:
         """Test connection to a model provider."""
         try:
-            result = test_connection(
+            result = await asyncio.to_thread(
+                test_connection,
                 provider=provider,
                 api_key=api_key,
                 base_url=base_url,
@@ -5992,7 +6205,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not base_url:
                 settings_data = get_model_settings()
                 base_url = settings_data.get("base_urls", {}).get("remote")
-            result = get_ollama_models(base_url=base_url)
+            result = await asyncio.to_thread(get_ollama_models, base_url=base_url)
             await self._broadcast({"type": "ollama_models_get", "data": result})
         except Exception as e:
             await self._broadcast(
@@ -6325,7 +6538,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         ``_activate_provider_via_settings``.
         """
         try:
-            success, message = complete_subscription(provider, code, attempt_id)
+            success, message = await asyncio.to_thread(
+                complete_subscription, provider, code, attempt_id
+            )
             active_provider = self._activate_provider_via_settings(success, provider)
             await self._broadcast(
                 {
@@ -6784,9 +6999,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             # Check if it's a git URL
             if source.startswith("http") or source.startswith("git@"):
-                success, message = install_skill_from_git(source)
+                install = install_skill_from_git
             else:
-                success, message = install_skill_from_path(source)
+                install = install_skill_from_path
+            # Clone/copy in a thread; the skill registry reload stays on the
+            # loop, where the agent reads that registry.
+            success, message = await asyncio.to_thread(install, source, reload=False)
+            if success:
+                reload_skills()
 
             await self._broadcast(
                 {
@@ -8023,6 +8243,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return
 
+        # A second copy of an app you already have is a legitimate thing to
+        # want, and a very easy thing to install by accident. Either way the
+        # user has to KNOW: the two run on different ports, and work done on
+        # one never appears in the other (observed live 2026-09-02).
+        try:
+            existing = self._agent_app_manager.find_marketplace_installs(app_id)
+        except Exception as e:
+            logger.debug(f"[AGENT_APP] duplicate-install check skipped: {e}")
+            existing = []
+        if existing:
+            logger.warning(
+                f"[AGENT_APP] '{app_id}' is already installed as "
+                + ", ".join(f"{p.name} ({p.id})" for p in existing)
+                + " — installing an additional separate copy."
+            )
+
         # Spawn a placeholder tab immediately so the user sees the install is
         # underway (the install itself is synchronous and can take a while).
         # install_from_marketplace adopts this id so the same tab becomes the
@@ -8070,23 +8306,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Mirror the install into chat as a system message so the request
             # is visible in the conversation (not just the new tab).
             body = f"{app_description}\n\n" if app_description else ""
+            note = "Installed from the marketplace — open it in the new tab."
+            if existing:
+                others = ", ".join(f"**{p.name}**" for p in existing)
+                note = (
+                    "Installed from the marketplace as a **second, separate "
+                    f"copy** — you already have {others}. The two run "
+                    "independently on different ports, so changes I make to "
+                    "one will not appear in the other. Open the new tab to "
+                    "use this copy."
+                )
             try:
                 await self._display_chat_message(
                     "System",
-                    f"**Agent App: {app_name}**\n\n{body}"
-                    "Installed from the marketplace — open it in the new tab.",
+                    f"**Agent App: {app_name}**\n\n{body}{note}",
                     "system",
                 )
             except Exception as e:
                 logger.debug(f"[AGENT_APP] marketplace chat message failed: {e}")
         else:
-            # Install failed — surface the error on the spawned tab.
+            # Install failed — surface the error on the spawned tab. The
+            # placeholder must be settled in the manager too, or the next
+            # agent_app_list overwrites the error state with the stale
+            # "creating" record and the spinner comes back for good.
+            error_msg = result.get("error", "Marketplace install failed")
+            self._agent_app_manager.fail_placeholder_project(project_id, error_msg)
             await self._broadcast(
                 {
                     "type": "agent_app_error",
                     "data": {
                         "projectId": project_id,
-                        "error": result.get("error", "Marketplace install failed"),
+                        "error": error_msg,
                     },
                 }
             )
@@ -8111,6 +8361,45 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # happens"), because failures only broadcast a generic error the
         # already-closed modal never saw.
         logger.info(f"[AGENT_APP] import requested: {source!r} (name={name!r})")
+        # Mirror progress to the browser for the duration of THIS import.
+        # The fetch/extract/copy run on a worker thread (they used to block
+        # the event loop for 13 minutes), so the sink has to hop back onto
+        # the loop — run_coroutine_threadsafe, never a bare await.
+        from app.agent_app.manager import set_import_progress_sink
+
+        loop = asyncio.get_running_loop()
+
+        def _sink(event: Dict[str, Any]) -> None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast(
+                        {
+                            "type": "agent_app_import_progress",
+                            "data": {**event, "source": source, "name": name},
+                        }
+                    ),
+                    loop,
+                )
+            except Exception:
+                pass
+
+        set_import_progress_sink(_sink)
+        # Tell the UI the import is under way NOW, so the modal can close and
+        # hand the outcome to a toast instead of holding a dialog open for
+        # the length of a 300MB download.
+        await self._broadcast(
+            {
+                "type": "agent_app_import_progress",
+                "data": {
+                    "phase": "starting",
+                    "done": 0,
+                    "total": 0,
+                    "unit": "files",
+                    "source": source,
+                    "name": name,
+                },
+            }
+        )
         try:
             project = await self._agent_app_manager.import_project_source(
                 source, name or None
@@ -8155,17 +8444,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": {"projectId": "", "error": f"Import failed: {e}"},
                 }
             )
+        finally:
+            set_import_progress_sink(None)
         return
 
     async def _send_to(self, ws, message: Dict[str, Any]) -> None:
         """Send to one connection (session-scoped flows); falls back to a
         broadcast when the requesting socket is unknown/closed."""
-        if ws is not None:
-            try:
-                await ws.send_json(message)
-                return
-            except Exception:
-                pass
+        channel = self._channels.get(ws) if ws is not None else None
+        if channel is not None and not channel.closed:
+            channel.send_json(_with_request_id(message))
+            return
         await self._broadcast(message)
 
     async def _handle_whatsapp_start_qr(self, ws=None, force: bool = False) -> None:
@@ -8255,25 +8544,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
     async def _broadcast(self, message: Dict[str, Any]) -> None:
-        """Broadcast message to all connected clients."""
-        if not self._ws_clients:
+        """Queue a message for every connected client.
+
+        Never waits on a slow client: each connection has its own outbound
+        queue and writer task (ws_channel.py).
+        """
+        message = _with_request_id(message)
+        # Mutation replies and status events also tell every view caching
+        # that resource to refetch (resource_changes.py).
+        for resource, ids in resource_changes_for_message(message):
+            notify_resource_changed(resource, ids)
+        if not self._channels:
             return
-
-        json_msg = json.dumps(message)
-        disconnected = set()
-
-        for ws in self._ws_clients.copy():
-            try:
-                await ws.send_str(json_msg)
-            except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
-                # Silently handle expected connection errors
-                disconnected.add(ws)
-            except Exception:
-                # Log unexpected errors
-                disconnected.add(ws)
-
-        # Clean up disconnected clients
-        self._ws_clients -= disconnected
+        text = json.dumps(message)
+        for channel in list(self._channels.values()):
+            channel.send_text(text)
 
     async def _broadcast_error_to_chat(self, error_message: str) -> None:
         """Broadcast an error message to the chat panel for debugging."""
@@ -8304,13 +8589,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if self._metrics_subscribers:
                     metrics = self._metrics_collector.get_metrics()
                     payload = {"type": "dashboard_metrics", "data": metrics.to_dict()}
-                    disconnected: Set = set()
+                    text = json.dumps(payload)
                     for ws in self._metrics_subscribers.copy():
-                        try:
-                            await ws.send_json(payload)
-                        except Exception:
-                            disconnected.add(ws)
-                    self._metrics_subscribers -= disconnected
+                        channel = self._channels.get(ws)
+                        if channel is None or channel.closed:
+                            self._metrics_subscribers.discard(ws)
+                        else:
+                            channel.send_text(text)
                 await asyncio.sleep(2)  # Update every 2 seconds
             except asyncio.CancelledError:
                 break
@@ -8332,8 +8617,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             target = workspace / file_path
         target = target.resolve()
 
-        # Security check - ensure path is within workspace
-        if not str(target).startswith(str(workspace)):
+        # Security check - ensure path is within workspace. Containment by
+        # path components, never by string prefix: "../workspace_x/f" resolves
+        # to a SIBLING whose string starts with the workspace's.
+        if not target.is_relative_to(workspace):
             raise ValueError(f"Path '{file_path}' is outside workspace")
 
         return target
@@ -8374,21 +8661,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not target.is_dir():
                 raise ValueError(f"Path is not a directory: {directory}")
 
-            # Collect and sort all files
-            all_files = sorted(
-                target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
-            )
+            def _list_page():
+                # Collect and sort all files (a stat per entry: off the loop)
+                all_files = sorted(
+                    target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
+                )
 
-            # Apply search filter
-            if search:
-                search_lower = search.lower()
-                all_files = [f for f in all_files if search_lower in f.name.lower()]
+                # Apply search filter
+                if search:
+                    search_lower = search.lower()
+                    all_files = [f for f in all_files if search_lower in f.name.lower()]
 
-            total = len(all_files)
+                # Apply pagination
+                paginated = all_files[offset : offset + limit]
+                return len(all_files), [self._get_file_info(item) for item in paginated]
 
-            # Apply pagination
-            paginated = all_files[offset : offset + limit]
-            files = [self._get_file_info(item) for item in paginated]
+            total, files = await asyncio.to_thread(_list_page)
 
             await self._broadcast(
                 {
@@ -8551,9 +8839,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 raise FileNotFoundError(f"Path not found: {file_path}")
 
             if target.is_dir():
-                shutil.rmtree(target)
+                await asyncio.to_thread(shutil.rmtree, target)
             else:
-                target.unlink()
+                await asyncio.to_thread(target.unlink)
 
             await self._broadcast(
                 {
@@ -8638,9 +8926,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     continue
 
                 if target.is_dir():
-                    shutil.rmtree(target)
+                    await asyncio.to_thread(shutil.rmtree, target)
                 else:
-                    target.unlink()
+                    await asyncio.to_thread(target.unlink)
 
                 results.append({"path": file_path, "success": True})
             except Exception as e:
@@ -8672,7 +8960,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if dest.exists():
                 raise ValueError(f"Destination already exists: {dest_path}")
 
-            shutil.move(str(src), str(dest))
+            await asyncio.to_thread(shutil.move, str(src), str(dest))
 
             file_info = self._get_file_info(dest)
 
@@ -8719,10 +9007,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 raise ValueError(f"Destination already exists: {dest_path}")
 
             if src.is_dir():
-                shutil.copytree(str(src), str(dest))
+                await asyncio.to_thread(shutil.copytree, str(src), str(dest))
             else:
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(src), str(dest))
+                await asyncio.to_thread(shutil.copy2, str(src), str(dest))
 
             file_info = self._get_file_info(dest)
 
@@ -8752,18 +9040,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    @staticmethod
+    def _write_b64_file(path: Path, content_b64: str) -> int:
+        """Decode base64 content and write it to ``path`` (creating parent
+        dirs); returns the byte count. Blocking: call via asyncio.to_thread."""
+        content = base64.b64decode(content_b64)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return len(content)
+
     async def _handle_file_upload(self, file_path: str, content_b64: str) -> None:
         """Upload a file (content is base64 encoded)."""
         try:
             target = self._validate_path(file_path)
 
-            # Decode base64 content
-            content = base64.b64decode(content_b64)
-
-            # Ensure parent directory exists
-            target.parent.mkdir(parents=True, exist_ok=True)
-
-            target.write_bytes(content)
+            # Decode and write off the loop (uploads can be up to 100 MB)
+            await asyncio.to_thread(self._write_b64_file, target, content_b64)
 
             file_info = self._get_file_info(target)
 
@@ -8800,9 +9092,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if target.is_dir():
                 raise ValueError(f"Cannot download directory: {file_path}")
 
+            def _read_b64() -> str:
+                return base64.b64encode(target.read_bytes()).decode("utf-8")
+
             # Read and encode as base64
-            content = target.read_bytes()
-            content_b64 = base64.b64encode(content).decode("utf-8")
+            content_b64 = await asyncio.to_thread(_read_b64)
 
             file_info = self._get_file_info(target)
 
@@ -8841,26 +9135,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         async def _reply(payload: Dict[str, Any]) -> None:
             message = {"type": "chat_history", "data": payload}
             if ws is not None:
-                await ws.send_json(message)
+                await self._send_to(ws, message)
             else:
                 await self._broadcast(message)
 
-        try:
+        def _load_page() -> List[ChatMessage]:
             if before_timestamp is not None:
-                messages = self._chat.get_messages_before(
+                return self._chat.get_messages_before(
                     before_timestamp, session_id=session_id, limit=limit
                 )
-            else:
-                # Initial page: most recent messages for the session.
-                storage = self._chat._storage
-                stored = (
-                    storage.get_recent_messages(session_id=session_id, limit=limit)
-                    if storage
-                    else []
-                )
-                messages = [
-                    BrowserChatComponent._stored_to_chat_message(s) for s in stored
-                ]
+            # Initial page: most recent messages for the session.
+            storage = self._chat._storage
+            stored = (
+                storage.get_recent_messages(session_id=session_id, limit=limit)
+                if storage
+                else []
+            )
+            return [BrowserChatComponent._stored_to_chat_message(s) for s in stored]
+
+        try:
+            messages = await self._chat.run_storage(_load_page)
 
             await _reply(
                 {
@@ -8917,9 +9211,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     # file that was already uploaded via HTTP pre-upload.
                     if content_b64:
                         try:
-                            file_content = base64.b64decode(content_b64)
-                            file_path.write_bytes(file_content)
-                            size = len(file_content)
+                            size = await asyncio.to_thread(
+                                self._write_b64_file, file_path, content_b64
+                            )
                         except Exception as e:
                             print(
                                 f"[BROWSER ADAPTER] Error saving attachment {name}: {e}"
@@ -9041,9 +9335,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             file_path = download_dir / unique_name
             relative_path = f"download/{unique_name}"
 
-            # Decode and save file
-            file_content = base64.b64decode(content_b64)
-            file_path.write_bytes(file_content)
+            # Decode and save file (off the loop)
+            size = await asyncio.to_thread(
+                self._write_b64_file, file_path, content_b64
+            )
 
             # Build response
             await self._broadcast(
@@ -9055,7 +9350,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "name": name,
                             "path": relative_path,
                             "type": file_type,
-                            "size": len(file_content),
+                            "size": size,
                             "url": f"/api/workspace/{relative_path}",
                         },
                     },
@@ -9157,11 +9452,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Open file with default application based on OS
             system = platform.system()
             if system == "Windows":
-                os.startfile(str(target))
+                await asyncio.to_thread(os.startfile, str(target))
             elif system == "Darwin":  # macOS
-                subprocess.run(["open", str(target)], check=True)
+                await asyncio.to_thread(
+                    subprocess.run, ["open", str(target)], check=True
+                )
             else:  # Linux and others
-                subprocess.run(["xdg-open", str(target)], check=True)
+                await asyncio.to_thread(
+                    subprocess.run, ["xdg-open", str(target)], check=True
+                )
 
             await self._broadcast(
                 {
@@ -9203,16 +9502,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if system == "Windows":
                 # Use explorer with /select to highlight the file
                 if target.is_file():
-                    subprocess.run(["explorer", "/select,", str(target)], check=True)
+                    cmd = ["explorer", "/select,", str(target)]
                 else:
-                    subprocess.run(["explorer", str(folder)], check=True)
+                    cmd = ["explorer", str(folder)]
             elif system == "Darwin":  # macOS
                 if target.is_file():
-                    subprocess.run(["open", "-R", str(target)], check=True)
+                    cmd = ["open", "-R", str(target)]
                 else:
-                    subprocess.run(["open", str(folder)], check=True)
+                    cmd = ["open", str(folder)]
             else:  # Linux and others
-                subprocess.run(["xdg-open", str(folder)], check=True)
+                cmd = ["xdg-open", str(folder)]
+            await asyncio.to_thread(subprocess.run, cmd, check=True)
 
             await self._broadcast(
                 {
@@ -9458,12 +9758,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Sessions with a run currently in flight — seeds the per-session
             # typing indicator on connect/reload.
             "busySessions": sorted(self._controller.agent.busy_sessions),
-            # ChatMessage.to_dict() always carries sessionId.
-            "messages": [m.to_dict() for m in self._chat.get_messages()],
+            # Recent messages only (D17 cap per session); each Chat view pages
+            # older history through chat_history. ChatMessage.to_dict() always
+            # carries sessionId.
+            "messages": [m.to_dict() for m in self._chat.get_recent_messages()],
             # Recent activity items (per-session inline feed); each carries sessionId.
             "actions": [
                 BrowserActionPanelComponent._item_payload(a)
-                for a in self._action_panel.get_items()
+                for a in self._action_panel.get_recent_items()
             ],
             "status": self._status_bar.get_status(),
             "dashboardMetrics": metrics.to_dict(),
@@ -9495,11 +9797,146 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         html = self._get_index_html()
         return web.Response(text=html, content_type="text/html")
 
+    def _api_guard(self):
+        """Middleware: /api/* refuses rebinding Hosts and foreign-origin writes
+        (ws_auth.check_api_request). /ws guards its own handshake."""
+        from aiohttp import web
+
+        @web.middleware
+        async def api_guard(request, handler):
+            if request.path == "/api" or request.path.startswith("/api/"):
+                rejected = self._ws_auth.check_api_request(
+                    request.method, request.headers
+                )
+                if rejected:
+                    logger.warning(
+                        f"[BROWSER ADAPTER] Refused {request.method} {request.path} "
+                        f"({rejected}): origin={request.headers.get('Origin')!r} "
+                        f"host={request.headers.get('Host')!r}"
+                    )
+                    raise web.HTTPForbidden(reason="Request not allowed")
+            return await handler(request)
+
+        return api_guard
+
+    async def _session_token_handler(self, request: "web.Request") -> "web.Response":
+        """Hand the /ws session token to CraftBot's own UI.
+
+        No CORS headers are ever set here, so a cross-origin page can't read
+        the response; ws_auth also refuses rebinding Hosts and cross-site
+        fetches outright.
+        """
+        from aiohttp import web
+
+        rejected = self._ws_auth.check_token_request(request.headers)
+        if rejected:
+            logger.warning(
+                f"[BROWSER ADAPTER] Refused session token ({rejected}): "
+                f"origin={request.headers.get('Origin')!r} "
+                f"host={request.headers.get('Host')!r}"
+            )
+            raise web.HTTPForbidden()
+        return web.json_response(
+            {"token": self._ws_auth.token},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     async def _state_handler(self, request: "web.Request") -> "web.Response":
         """API endpoint for current state."""
         from aiohttp import web
 
         return web.json_response(self._get_initial_state())
+
+    async def _debug_loop_handler(self, request: "web.Request") -> "web.Response":
+        """Event-loop stall statistics (app/ui_layer/diagnostics/loop_monitor.py)."""
+        from aiohttp import web
+
+        return web.json_response(self._loop_monitor.snapshot())
+
+    async def _debug_flood_handler(self, request: "web.Request") -> "web.Response":
+        """Dev-only: broadcast a synthetic burst of activity frames to every browser.
+
+        Reproduces browser-side render load without the agent or an LLM. The
+        frames are never persisted; a page reload clears them. Registered only
+        with CRAFTBOT_DEBUG_ENDPOINTS=1.
+
+        Query: sessionId (default "main"), count (1-5000, default 300),
+        seconds (0-120, default 10).
+        """
+        from aiohttp import web
+
+        try:
+            count = max(1, min(int(request.query.get("count", 300)), 5000))
+            seconds = max(0.0, min(float(request.query.get("seconds", 10)), 120.0))
+        except ValueError:
+            return web.json_response(
+                {"error": "count and seconds must be numbers"}, status=400
+            )
+        session_id = request.query.get("sessionId", "main")
+        asyncio.create_task(self._run_debug_flood(session_id, count, seconds))
+        return web.json_response(
+            {"started": True, "sessionId": session_id, "count": count, "seconds": seconds}
+        )
+
+    async def _debug_block_handler(self, request: "web.Request") -> "web.Response":
+        """Dev-only: block the event loop for ``seconds`` (0-30, default 5).
+
+        Exercises the busy banner and the loop-stall detector. Registered only
+        with CRAFTBOT_DEBUG_ENDPOINTS=1.
+        """
+        from aiohttp import web
+
+        try:
+            seconds = max(0.0, min(float(request.query.get("seconds", 5)), 30.0))
+        except ValueError:
+            return web.json_response({"error": "seconds must be a number"}, status=400)
+        # Scheduled after the response is sent, so the caller gets its reply.
+        asyncio.get_running_loop().call_later(0.2, time.sleep, seconds)
+        return web.json_response({"blocking": True, "seconds": seconds})
+
+    async def _run_debug_flood(self, session_id: str, count: int, seconds: float) -> None:
+        run_id = uuid.uuid4().hex[:8]
+        interval = seconds / count
+        for index in range(count):
+            now_ms = int(time.time() * 1000)
+            item_id = f"debug-flood-{run_id}-{index}"
+            await self._broadcast(
+                {
+                    "type": "action_add",
+                    "data": {
+                        "id": item_id,
+                        "name": "debug_flood",
+                        "status": "running",
+                        "itemType": "action",
+                        "sessionId": session_id,
+                        "createdAt": now_ms,
+                        "completedAt": None,
+                        "duration": None,
+                        "input": None,
+                        "output": None,
+                        "error": None,
+                    },
+                }
+            )
+            await self._broadcast(
+                {
+                    "type": "action_update",
+                    "data": {
+                        "id": item_id,
+                        "status": "completed",
+                        "sessionId": session_id,
+                        "completedAt": now_ms,
+                        "duration": 0.0,
+                        "output": None,
+                        "error": None,
+                    },
+                }
+            )
+            if interval:
+                await asyncio.sleep(interval)
 
     async def _theme_css_handler(self, request: "web.Request") -> "web.Response":
         """Serve theme CSS variables."""
@@ -9725,9 +10162,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         let ws;
         let state = { messages: [], actions: [], status: 'Connecting...' };
 
-        function connect() {
+        async function connect() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws`);
+            let token;
+            try {
+                const resp = await fetch('/api/session-token', { cache: 'no-store' });
+                token = (await resp.json()).token;
+            } catch (err) {
+                setTimeout(connect, 2000);
+                return;
+            }
+            ws = new WebSocket(`${protocol}//${location.host}/ws`, ['craftbot', `craftbot-auth.${token}`]);
 
             ws.onopen = () => {
                 console.log('Connected to CraftBot');

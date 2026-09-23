@@ -23,7 +23,14 @@ import {
   selectSubscriptionPasteback,
 } from '../../store/selectors/modelSettings'
 import { setSubscriptionPending, clearSubscriptionPasteback } from '../../store/slices/modelSettingsSlice'
-import { selectOnboardingFinishing } from '../../store/selectors/onboarding'
+import {
+  selectOnboardingError,
+  selectOnboardingFinishing,
+  selectOnboardingLoading,
+  selectOnboardingStep,
+} from '../../store/selectors/onboarding'
+import { selectConnected } from '../../store/selectors/connection'
+import { selectLocalLlm } from '../../store/selectors/localLlm'
 import { markComplete } from '../../store/slices/onboardingSlice'
 import type { OnboardingStepOption, OnboardingFormField } from '../../types'
 import { OnboardingMascot, type OutroPhase } from './OnboardingMascot'
@@ -55,7 +62,8 @@ interface OllamaSetupProps {
 
 function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
   const { t } = useTranslation(['onboarding', 'common'])
-  const { localLLM, checkLocalLLM, testLocalLLMConnection, installLocalLLM, startLocalLLM, pullOllamaModel } = useWebSocket()
+  const { checkLocalLLM, testLocalLLMConnection, installLocalLLM, startLocalLLM, pullOllamaModel } = useWebSocket()
+  const localLLM = useAppSelector(selectLocalLlm)
   const [url, setUrl] = useState(defaultUrl)
   const [selectedModel, setSelectedModel] = useState('llama3.2:3b')
   const [modelSearch, setModelSearch] = useState('')
@@ -459,16 +467,16 @@ function ProviderWheel({ options, value, onChange }: ProviderWheelProps) {
 export function OnboardingPage() {
   const { t } = useTranslation(['onboarding', 'common'])
   const {
-    connected,
-    onboardingStep,
-    onboardingError,
-    onboardingLoading,
     requestOnboardingStep,
     submitOnboardingStep,
     skipOnboardingStep,
     goBackOnboardingStep,
-    localLLM,
   } = useWebSocket()
+  const connected = useAppSelector(selectConnected)
+  const onboardingStep = useAppSelector(selectOnboardingStep)
+  const onboardingError = useAppSelector(selectOnboardingError)
+  const onboardingLoading = useAppSelector(selectOnboardingLoading)
+  const localLLM = useAppSelector(selectLocalLlm)
 
   // Providers that route through OpenRouter - model slug is configurable.
   const OR_PROXIED = ['moonshot', 'minimax']

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useWebSocket } from '../../browser/frontend/src/contexts/WebSocketContext'
+import { useAppSelector } from '../../browser/frontend/src/store/hooks'
+import { selectActivityOverview } from '../../browser/frontend/src/store/selectors/activity'
+import { selectConnected } from '../../browser/frontend/src/store/selectors/connection'
+import { selectLatestMessage } from '../../browser/frontend/src/store/selectors/messages'
 import { useDerivedAgentStatus } from '../../browser/frontend/src/hooks/useDerivedAgentStatus'
 import type { ActionItem } from '../../browser/frontend/src/types'
 import type { MascotState } from './types'
@@ -40,28 +43,28 @@ const IDLE_TICK_MS = 60_000
 // reads from the browser frontend, never the other direction) — when a CLI
 // mascot lands it'll get its own equivalent hook reading from its own state.
 export function useMascotState(): MascotStateSnapshot {
-  const { actions, messages, connected } = useWebSocket()
-  const status = useDerivedAgentStatus({ actions, messages, connected })
+  // Cheap cross-session summary: in-progress items + counts, no global sort.
+  const activity = useAppSelector(selectActivityOverview)
+  const lastMessage = useAppSelector(selectLatestMessage)
+  const connected = useAppSelector(selectConnected)
+  const status = useDerivedAgentStatus({ activity, lastMessage, connected })
 
   // Compute the "raw" snapshot — the state the agent's signals point to,
   // before the sleep-delay rule kicks in. If raw state is 'idle', the
   // gating logic below decides whether to surface it as 'idle' (sleeping)
   // or 'resting' (awake-but-quiet).
   const raw = useMemo(() => {
-    const running = actions
+    // Running and paused items are always in `live`.
+    const running = activity.live
       .filter(a => a.itemType === 'action' && a.status === 'running')
       .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
     const currentAction = running[0] ?? null
 
-    const completedCount = actions.filter(
-      a => a.itemType === 'action' && a.status === 'completed'
-    ).length
+    const completedCount = activity.completedActions
 
-    const abortedTaskCount = actions.filter(
-      a => a.status === 'cancelled' || a.status === 'error'
-    ).length
+    const abortedTaskCount = activity.abortedItems
 
-    const hasPaused = actions.some(a => a.status === 'paused')
+    const hasPaused = activity.live.some(a => a.status === 'paused')
 
     // Priority resolution: error > waiting > paused > working/thinking > idle.
     let rawState: MascotState
@@ -80,7 +83,7 @@ export function useMascotState(): MascotStateSnapshot {
     }
 
     return { rawState, currentAction, completedCount, abortedTaskCount }
-  }, [actions, messages, connected, status])
+  }, [activity, status])
 
   // With per-task lifecycle events gone, a "successful run" is the agent
   // transitioning from busy (working/thinking) to quiet (idle/resting) with

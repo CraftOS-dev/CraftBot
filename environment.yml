@@ -24,7 +24,7 @@ dependencies:
   #   conda run -n craftbot python -c "import ssl; ssl.create_default_context()"
   - openssl=3.6.2
 
-  # Agent App builds: the lui CLI is TypeScript run by Node's native type
+  # Agent App builds: the agent-app CLI is TypeScript run by Node's native type
   # stripping — needs Node >= 24 (older majors ERR_UNKNOWN_FILE_EXTENSION).
   # Inside the env this leads PATH when CraftBot runs, so node_runtime
   # resolves it and the sidecar download is skipped.
@@ -33,3 +33,6 @@ dependencies:
   # The tesseract BINARY (pytesseract, the Python wrapper, is in the lock).
   # Conda is the only one of our install paths that can provide it.
   - tesseract=5.5.2
+  # conda-forge's tesseract build links libcurl.dll but doesn't declare it —
+  # without this, tesseract.exe dies with 0xC0000135 (DLL not found) on Windows.
+  - libcurl

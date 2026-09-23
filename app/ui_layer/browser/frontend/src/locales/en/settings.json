@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "Changed elsewhere",
+    "loadLatest": "Load latest"
+  },
   "general": {
     "title": "General Settings",
     "subtitle": "Configure basic agent settings and preferences",
@@ -396,6 +400,8 @@
     "noDescription": "No description",
     "actionsLabel": "Actions:",
     "viewDetails": "View details",
+    "systemBadge": "System",
+    "systemLocked": "System skills are always enabled and can't be disabled.",
     "remove": "Remove",
     "installSkill": "Install Skill",
     "createSkill": "Create Skill",
@@ -677,7 +683,9 @@
     "deleteBackupMessage": "Permanently delete the backup from {{date}}?",
     "lan": "LAN",
     "public": "Public",
-    "notShared": "Not shared",
+    "lanHint": "Devices on your network, with the link",
+    "publicHint": "Anyone on the internet, with the link",
+    "createLanLink": "Create LAN Link",
     "starting": "Starting...",
     "createTunnel": "Create Tunnel"
   }

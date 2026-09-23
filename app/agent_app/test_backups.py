@@ -615,7 +615,7 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§7 settings surface: OK")
 
 # ── §8 capture_running against a REAL PocketBase ───────────────────────────
-# Uses the pinned binary from the lui cache (fetched by any prior Agent App
+# Uses the pinned binary from the agent-app cache (fetched by any prior Agent App
 # build on this machine). Skipped when absent — §1-§7 stay deterministic.
 import json as _json  # noqa: E402
 import os as _os  # noqa: E402
@@ -656,7 +656,7 @@ else:
         proj_dir = living / "app_pbe2e001"
         pb_data = proj_dir / "pb" / "pb_data"
         pb_data.mkdir(parents=True)
-        email, password = "agent@lui.local", "e2e-test-password-123"
+        email, password = "agent@agent-app.local", "e2e-test-password-123"
         assert (
             _sp.run(
                 [

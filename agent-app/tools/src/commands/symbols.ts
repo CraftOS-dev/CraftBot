@@ -1,5 +1,5 @@
 /**
- * lui symbols <file.ts|.tsx|.js> — exact symbol table for scoped walk-verify.
+ * agent-app symbols <file.ts|.tsx|.js> — exact symbol table for scoped walk-verify.
  *
  * Prints JSON: [{ name, start, end, depth, kind }] (1-based inclusive lines)
  * for every named declaration — functions, arrow-function consts, classes,
@@ -59,7 +59,7 @@ export const summary = 'Print the symbol table of a TS/TSX/JS file as JSON (scop
 export async function run(args: string[]): Promise<number> {
   const file = args[0];
   if (file === undefined || !existsSync(file)) {
-    log.error('Usage: lui symbols <file.ts|.tsx|.js|.jsx>');
+    log.error('Usage: agent-app symbols <file.ts|.tsx|.js|.jsx>');
     return 1;
   }
   const ts = loadTypescript(file);

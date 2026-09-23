@@ -25,10 +25,10 @@ interface HostThemeMessage {
 }
 
 const CUSTOM_PROP_MAP: Record<string, string> = {
-  bg: '--lui-bg',
-  surface: '--lui-surface',
-  text: '--lui-text',
-  accent: '--lui-accent',
+  bg: '--agent-app-bg',
+  surface: '--agent-app-surface',
+  text: '--agent-app-text',
+  accent: '--agent-app-accent',
 };
 
 export class ThemeBridge {

@@ -10,11 +10,13 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedState, useServerDraft } from '../../hooks'
 import i18n from '../../i18n/config'
 import { formatNumber, formatDate, formatTime } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { RemoteChangeHint } from './RemoteChangeHint'
+import { RESOURCES, useResource } from '../../store/resources'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
   setTaskEnabled,
@@ -28,6 +30,7 @@ import {
   selectProactiveHasLoadedConfig,
   selectProactiveHasLoadedTasks,
 } from '../../store/selectors/proactiveSettings'
+import { UI_STATE } from '../../store/uiState'
 
 // Convert cron expression to human-readable format. Uses the i18n instance
 // directly (module scope, no hook available); components re-render on language
@@ -113,20 +116,46 @@ interface TaskFormModalProps {
   onSave: (taskData: Partial<ProactiveTask>) => void
 }
 
+interface TaskForm {
+  name: string
+  frequency: string
+  instruction: string
+  enabled: boolean
+  priorityLevel: PriorityLevel
+  notifyBeforeRunning: boolean
+  time: string
+  day: string
+}
+
+function taskToForm(task: ProactiveTask | null): TaskForm {
+  return {
+    name: task?.name || '',
+    frequency: task?.frequency || 'daily',
+    instruction: task?.instruction || '',
+    enabled: task?.enabled ?? true,
+    priorityLevel: task ? getPriorityLevel(task.priority) : 'medium',
+    notifyBeforeRunning: task ? task.permissionTier >= 1 : true,
+    time: task?.time || '',
+    day: task?.day || '',
+  }
+}
+
 function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
   const { t } = useTranslation(['settings', 'common'])
-  const [name, setName] = useState(task?.name || '')
-  const [frequency, setFrequency] = useState(task?.frequency || 'daily')
-  const [instruction, setInstruction] = useState(task?.instruction || '')
-  const [enabled, setEnabled] = useState(task?.enabled ?? true)
-  const [priorityLevel, setPriorityLevel] = useState<PriorityLevel>(
-    task ? getPriorityLevel(task.priority) : 'medium'
-  )
-  const [notifyBeforeRunning, setNotifyBeforeRunning] = useState(
-    task ? task.permissionTier >= 1 : true
-  )
-  const [time, setTime] = useState(task?.time || '')
-  const [day, setDay] = useState(task?.day || '')
+  // Drafted over the live task, so an edit made elsewhere (another tab, the
+  // agent) is flagged instead of silently lost on save.
+  const form = useServerDraft(taskToForm(task))
+  const { name, frequency, instruction, enabled, priorityLevel, notifyBeforeRunning, time, day } = form.value
+  const setField = <K extends keyof TaskForm>(key: K) => (value: TaskForm[K]) =>
+    form.set(prev => ({ ...prev, [key]: value }))
+  const setName = setField('name')
+  const setFrequency = setField('frequency')
+  const setInstruction = setField('instruction')
+  const setEnabled = setField('enabled')
+  const setPriorityLevel = setField('priorityLevel')
+  const setNotifyBeforeRunning = setField('notifyBeforeRunning')
+  const setTime = setField('time')
+  const setDay = setField('day')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -258,6 +287,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
           </div>
 
           <div className={styles.modalFooter}>
+            {form.remoteChanged && <RemoteChangeHint onLoadLatest={form.acceptRemote} />}
             <Button variant="secondary" type="button" onClick={onClose}>
               {t('common:actions.cancel')}
             </Button>
@@ -273,7 +303,7 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
 
 export function ProactiveSettings() {
   const { t } = useTranslation(['settings', 'common'])
-  const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const { send, onMessage } = useSettingsWebSocket()
   const dispatch = useAppDispatch()
 
   // Slice-backed
@@ -286,68 +316,43 @@ export function ProactiveSettings() {
   const isLoadingScheduler = !hasLoadedMode || !hasLoadedConfig
   const isLoadingTasks = !hasLoadedTasks
 
+  // The slice caches mode, schedules and tasks; ResourceSync fetches them when
+  // unloaded or stale and refetches them whenever they change (any tab, a reset).
+  useResource(RESOURCES.proactiveMode)
+  useResource(RESOURCES.schedulerConfig)
+  useResource(RESOURCES.proactiveTasks)
+
   // UI state (transient)
   const [showTaskForm, setShowTaskForm] = useState(false)
   const [editingTask, setEditingTask] = useState<ProactiveTask | null>(null)
+  // The form drafts over the live task; the snapshot stands in if it's removed.
+  const liveEditingTask = editingTask ? tasks.find(x => x.id === editingTask.id) ?? editingTask : null
   const [isResettingTasks, setIsResettingTasks] = useState(false)
-  const [, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  // Set while this tab's add/update is in flight, so another tab's save
+  // doesn't close this tab's form.
+  const savingTaskRef = React.useRef(false)
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Side-effect handlers (success animations, modal close, list refresh).
-  // List state is owned by proactiveSettingsSlice via the registry.
+  // Results of this view's own actions (close the form, clear the reset
+  // spinner). List state is owned by proactiveSettingsSlice via the registry.
   useEffect(() => {
-    if (!isConnected) return
-
+    const closeFormOnSaved = (data: unknown) => {
+      if (!savingTaskRef.current) return
+      savingTaskRef.current = false
+      if ((data as { success: boolean }).success) {
+        setShowTaskForm(false)
+        setEditingTask(null)
+      }
+    }
     const cleanups = [
-      onMessage('proactive_mode_set', (data: unknown) => {
-        const d = data as { success: boolean }
-        if (d.success) {
-          setSaveStatus('success')
-          setTimeout(() => setSaveStatus('idle'), 2000)
-        }
-      }),
-      onMessage('scheduler_config_update', (data: unknown) => {
-        const d = data as { success: boolean }
-        if (d.success) {
-          setSaveStatus('success')
-          setTimeout(() => setSaveStatus('idle'), 2000)
-        }
-      }),
-      onMessage('proactive_task_add', (data: unknown) => {
-        const d = data as { success: boolean }
-        if (d.success) {
-          send('proactive_tasks_get')
-          setShowTaskForm(false)
-          setEditingTask(null)
-        }
-      }),
-      onMessage('proactive_task_update', (data: unknown) => {
-        const d = data as { success: boolean }
-        if (d.success) {
-          send('proactive_tasks_get')
-          setShowTaskForm(false)
-          setEditingTask(null)
-        }
-      }),
-      onMessage('proactive_task_remove', (data: unknown) => {
-        const d = data as { success: boolean }
-        if (d.success) send('proactive_tasks_get')
-      }),
-      onMessage('proactive_tasks_reset', (data: unknown) => {
-        const d = data as { success: boolean }
-        setIsResettingTasks(false)
-        if (d.success) send('proactive_tasks_get')
-      }),
+      onMessage('proactive_task_add', closeFormOnSaved),
+      onMessage('proactive_task_update', closeFormOnSaved),
+      onMessage('proactive_tasks_reset', () => setIsResettingTasks(false)),
     ]
-
-    if (!hasLoadedMode) send('proactive_mode_get')
-    if (!hasLoadedConfig) send('scheduler_config_get')
-    if (!hasLoadedTasks) send('proactive_tasks_get')
-
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage, hasLoadedMode, hasLoadedConfig, hasLoadedTasks])
+  }, [onMessage])
 
   const getSchedule = (id: string) => schedules.find(s => s.id === id)
 
@@ -400,7 +405,7 @@ export function ProactiveSettings() {
   }
 
   // Search state for proactive tasks
-  const [taskSearchQuery, setTaskSearchQuery] = useState('')
+  const [taskSearchQuery, setTaskSearchQuery] = usePersistedState(UI_STATE.settings.proactiveTaskSearch)
 
   const filteredTasks = taskSearchQuery
     ? tasks.filter(t =>
@@ -650,12 +655,13 @@ export function ProactiveSettings() {
       {/* Task Form Modal */}
       {showTaskForm && (
         <TaskFormModal
-          task={editingTask}
+          task={liveEditingTask}
           onClose={() => {
             setShowTaskForm(false)
             setEditingTask(null)
           }}
           onSave={(taskData) => {
+            savingTaskRef.current = true
             if (editingTask) {
               send('proactive_task_update', { taskId: editingTask.id, updates: taskData })
             } else {

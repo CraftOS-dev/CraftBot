@@ -67,7 +67,7 @@ def _builder_hints(project_path: Path) -> List[str]:
 
 
 def _exact_symbols_factory(manager, store_dir: Path):
-    """symbols_for(rel, text) backed by `lui symbols` (the project's own
+    """symbols_for(rel, text) backed by `agent-app symbols` (the project's own
     TypeScript when reachable). Returns None on any failure so attribution
     falls back to the heuristic parser. Synchronous and short: one node
     process per changed code file, 20 s cap each."""
@@ -139,6 +139,28 @@ def _exact_symbols_factory(manager, store_dir: Path):
     return symbols_for
 
 
+def _disputed_verdicts(project) -> List[str]:
+    """What the builder reproduced and says the last verdict got wrong.
+
+    A verifier drives a feature once; the builder can run it as many times as
+    it likes, read the server log while it does, and inspect the record
+    afterwards. So when the two disagree, the builder's evidence is worth
+    something, and a verifier repeating a verdict should have to answer it
+    rather than re-run blind. Never raises.
+    """
+    try:
+        from app.factory.host_craftbot import get_factory_host
+
+        return [
+            str(e.get("what", "")).strip()
+            for e in get_factory_host().disputed(project.id)[-5:]
+            if str(e.get("what", "")).strip()
+        ]
+    except Exception as e:
+        logger.debug(f"[WALK_VERIFY] disputed ledger unavailable: {e}")
+        return []
+
+
 def build_verify_evidence(
     project,
     verify_path: Path,
@@ -205,6 +227,16 @@ def build_verify_evidence(
             blocks.append(
                 "BUILDER'S HINT (a claim by an interested party — read it, do not "
                 "trust it): touches " + "; ".join(hints)
+            )
+        disputes = _disputed_verdicts(project)
+        if disputes:
+            blocks.append(
+                "DISPUTED BY THE BUILDER (it reproduced these and reports the "
+                "last verdict was wrong — its evidence, not mine). Put every "
+                "one IN SCOPE and exercise it yourself. Then either confirm "
+                "the failure with what YOU observed this time, or change the "
+                "verdict. Do not repeat a verdict without answering the "
+                "evidence below:\n  - " + "\n  - ".join(disputes)
             )
         blocks.append(
             "COVERAGE RECORDING: before exercising EACH feature, call "
@@ -321,7 +353,7 @@ async def run_walk_verify(
         manager = None
 
     # Evidence building hashes the watched tree and may shell out to
-    # `lui symbols` per changed code file — off the event loop.
+    # `agent-app symbols` per changed code file — off the event loop.
     import asyncio as _asyncio
 
     evidence = await _asyncio.get_running_loop().run_in_executor(
@@ -379,149 +411,211 @@ async def run_walk_verify(
         remove_subagent_log_sink(sink_id)
 
     raw = (getattr(sub, "result", None) or "").strip()
+    if str(getattr(sub, "status", "") or "").lower() in ("failed", "timeout", "error"):
+        # The verifier ENDED ITSELF (structural refusal, cap, or its own LLM
+        # dying), not a verdict. Told apart by the RUNNER's own abort sentinel
+        # (a control string we emit, not the model's prose): a provider outage
+        # is `throttled` (retry later, do not advance the machine); anything
+        # else is a setup `failed`. Parsing its apology as a report classified
+        # these as "unparseable", burned the one re-verify on the identical
+        # wall, and stuck-capped healthy arcs (observed live 2026-09-08).
+        kind = "throttled" if _LLM_ABORT_SENTINEL in raw else "failed"
+        return {
+            "kind": kind,
+            "passed": [],
+            "defects": [],
+            "raw": raw or "the verifier sub-agent ended without a verdict",
+        }
     report = parse_check_report(raw)
     record_walk(project, report, evidence, Path(target_path) if project_path else None)
     return report
 
 
 # ---------------------------------------------------------------------------
-# Check-report parsing (ported from PR #388 — pure, testable, no I/O).
+# Structured verdict (typed — NO free-text pattern matching)
+#
+# The walk_verify sub-agent ends by emitting a JSON verdict object (schema
+# below) as its sub_task_end `result`. Classification is DERIVED from typed
+# fields (verdict/status enums), never scraped from prose, so a verdict's
+# wording can never change how it routes. This replaced a regex/substring
+# parser whose six-string BLOCKED test decided promote-vs-stuck from phrasing.
 # ---------------------------------------------------------------------------
 
-_BLOCKED_MARKERS = (
-    "mcp server connection lost",
-    "browser mcp",
-    "browser is unavailable",
-    "browser tool",
-    "no features could be tested",
-    "could not launch a browser",
+# The RUNNER (not the model) emits this exact substring when the sub-agent's
+# own LLM died. Matching OUR OWN control string is not pattern-matching the
+# model's reply — it is how a provider outage is told apart from a structural
+# verifier failure (both arrive with status="failed").
+_LLM_ABORT_SENTINEL = "sub-agent aborted"
+
+# One source of truth for the contract, reused by the sub-agent prompt and the
+# guard's rejection message.
+VERDICT_SCHEMA = (
+    '{"scope": {"mode": "full" | "delta", "excluded": '
+    '[{"feature": "<name>", "reason": "<why the diff cannot reach it>"}]}, '
+    '"verdict": "pass" | "fail" | "blocked", '
+    '"blocked_reason": "<what stopped you>"   // only when verdict is "blocked", '
+    '"features": [{"name": "<feature>", "status": "pass" | "fail" | "not_reached", '
+    '"evidence": "<the flow you ran and what you saw>", '
+    '"unreached_reason": "code_present" | "tooling" | null}]}'
 )
 
-
-def _reads_as_blocked(result_text: str) -> bool:
-    body = (result_text or "").lower()
-    return any(marker in body for marker in _BLOCKED_MARKERS)
+_STATUS_LABEL = {"pass": "PASS", "fail": "FAIL", "not_reached": "NOT REACHED"}
 
 
-def _scope_fields(text: str) -> Dict[str, Any]:
-    """The verifier's SCOPE decision + per-feature verdicts, always present
-    in a parsed report (empty when the report carries none)."""
+def load_verdict(text: str) -> Optional[Dict[str, Any]]:
+    """json.loads the sub-agent's result, tolerating a code fence or a stray
+    prose prefix. Returns None when nothing parses as a JSON object."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("```"):
+        nl = raw.find("\n")
+        raw = raw[nl + 1 :] if nl != -1 else raw
+        if raw.endswith("```"):
+            raw = raw[:-3]
+        raw = raw.strip()
     try:
-        from app.agent_app.verify_scope import feature_verdicts, parse_scope
-
-        return {"scope": parse_scope(text), "features": feature_verdicts(text)}
+        obj = json.loads(raw)
     except Exception:
-        return {"scope": None, "features": {}}
+        obj = _first_json_object(raw)
+    return obj if isinstance(obj, dict) else None
+
+
+def _first_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """First balanced {...} in `text` that parses as a dict (string-aware)."""
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_str = esc = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[start : i + 1])
+                    except Exception:
+                        break
+                    return obj if isinstance(obj, dict) else None
+        start = text.find("{", start + 1)
+    return None
+
+
+def valid_verdict(obj: Dict[str, Any]) -> bool:
+    """Structural shape check: a verdict enum plus a features list whose every
+    entry carries a name and a status enum. Nothing about wording."""
+    if not isinstance(obj, dict):
+        return False
+    if str(obj.get("verdict") or "").lower() not in ("pass", "fail", "blocked"):
+        return False
+    feats = obj.get("features")
+    if not isinstance(feats, list):
+        return False
+    for f in feats:
+        if not isinstance(f, dict) or not str(f.get("name") or "").strip():
+            return False
+        if str(f.get("status") or "").lower() not in ("pass", "fail", "not_reached"):
+            return False
+    return True
+
+
+def _scope_and_features(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive the recorded `scope` dict and `features` map from typed fields."""
+    raw_scope = obj.get("scope") if isinstance(obj.get("scope"), dict) else {}
+    mode = "DELTA" if str(raw_scope.get("mode") or "").lower() == "delta" else "FULL"
+    excluded: List[Any] = []
+    excluded_without_reason: List[str] = []
+    for e in raw_scope.get("excluded") or []:
+        if not isinstance(e, dict):
+            continue
+        name = str(e.get("feature") or "").strip()
+        if not name:
+            continue
+        reason = str(e.get("reason") or "").strip()
+        (excluded if reason else excluded_without_reason).append(
+            (name, reason) if reason else name
+        )
+    feats = obj.get("features") or []
+    named = [f for f in feats if str(f.get("name") or "").strip()]
+    return {
+        "scope": {
+            "mode": mode,
+            "included": [str(f["name"]).strip() for f in named],
+            "excluded": excluded,
+            "excluded_without_reason": excluded_without_reason,
+        },
+        "features": {
+            str(f["name"]).strip(): _STATUS_LABEL[str(f["status"]).lower()]
+            for f in named
+        },
+    }
 
 
 def parse_check_report(text: str) -> Dict[str, Any]:
-    """Classify a walk_verify result. kinds:
+    """Classify the sub-agent's STRUCTURED verdict into a kind:
     pass | defects | incomplete (NOT REACHED, defect-free) | blocked |
-    throttled (the verifier's own LLM died — not the app, not the report).
-    Every result also carries `scope` (the verifier's SCOPE block, or None)
-    and `features` ({feature: PASS|FAIL|NOT REACHED})."""
-    text = text or ""
-    extra = _scope_fields(text)
+    unparseable (the JSON is absent or shape-invalid — re-run the verifier).
+    `throttled`/`failed` are decided in run_walk_verify from the runner's
+    status, not here. Every result also carries `scope` and `features`.
 
-    # A sub the runner aborted on consecutive LLM failures returns
-    # "(sub-agent aborted — LLM unavailable: …)". That is neither an app
-    # verdict nor an unparseable report: retrying LATER can succeed, and
-    # counting it toward stuck punishes the app for the provider (observed
-    # live 2026-08-06: two walkers died on rate limits 4 seconds apart and a
-    # healthy modify went STUCK).
-    if "sub-agent aborted" in text and "LLM unavailable" in text:
-        return {"kind": "throttled", "passed": [], "defects": [], "raw": text, **extra}
-    # The contract allows PASS|FAIL|BLOCKED, but sub-agents invent softeners —
-    # "VERDICT: INCOMPLETE" and "VERDICT: PARTIAL VERIFICATION" both observed
-    # live. An unknown word must NOT fall through to "blocked" (which
-    # announces the app with a misleading tooling-issue warning): treat the
-    # softeners as FAIL and let the defect / NOT-REACHED logic classify the
-    # report into the honest "incomplete" kind.
-    m = re.search(
-        r"VERDICT:\s*(PASS|FAIL|BLOCKED|INCOMPLETE|PARTIAL(?:\s+\w+)?)",
-        text,
-        re.IGNORECASE,
-    )
-    verdict = m.group(1).upper() if m else None
-    if verdict is not None and verdict.startswith(("INCOMPLETE", "PARTIAL")):
-        verdict = "FAIL"
-
-    # A FAIL whose body describes a blockage is a blockage wearing a FAIL
-    # costume — never dispatch fixes for defects nobody observed.
-    if verdict == "FAIL" and _reads_as_blocked(text):
-        verdict = "BLOCKED"
-
-    # The mirror image: a BLOCKED verdict with NO tooling evidence but real
-    # per-feature lines is a partial walk wearing a BLOCKED costume (observed
-    # live 2026-08-05: "BLOCKED BY: limited turns" with 1 PASS + 6 NOT
-    # REACHED — it was classified unparseable and a working app went stuck
-    # with 0 missions). Route it through the FAIL branch so the FEATURES
-    # evidence decides: FAIL lines → defects, NOT-REACHED-only → incomplete
-    # (delivered with the coverage caveat). Evidence-free BLOCKED stays
-    # blocked — the caller's no-markers second-guess makes it unparseable.
-    if verdict == "BLOCKED" and not _reads_as_blocked(text):
-        if re.search(
-            r"^-\s+.*\b(?:FAIL|NOT REACHED)\b", text, re.MULTILINE | re.IGNORECASE
-        ):
-            verdict = "FAIL"
-
-    if verdict == "PASS":
+    Purely typed derivation: the top-level `verdict` decides blocked; the
+    per-feature `status` enums decide pass/defects/incomplete. No prose is
+    inspected, so how a verdict is WORDED cannot change how it routes.
+    """
+    obj = load_verdict(text)
+    if obj is None or not valid_verdict(obj):
         return {
-            "kind": "pass",
-            "passed": _passed(text),
+            "kind": "unparseable",
+            "passed": [],
             "defects": [],
-            "raw": text,
-            **extra,
+            "raw": text or "",
+            "scope": None,
+            "features": {},
         }
 
-    if verdict == "FAIL":
-        # Feature lines come from the FEATURES section ONLY — prose in
-        # FAILURES/BLOCKED BY must never become a work order.
-        feature_section = re.split(
-            r"^\s*(?:FAILURES|BLOCKED BY)\b",
-            text,
-            maxsplit=1,
-            flags=re.MULTILINE | re.IGNORECASE,
-        )[0]
-        passed = _passed(feature_section)
-        defects = [
-            d.strip()
-            for d in re.findall(
-                r"^-\s+(?!.*\bNOT REACHED\b).*(?:—|–|:|-+)\s*FAIL\b.*$",
-                feature_section,
-                re.MULTILINE,
-            )
-        ]
-        if not defects and re.search(r"NOT REACHED", feature_section, re.IGNORECASE):
-            return {
-                "kind": "incomplete",
-                "passed": passed,
-                "defects": [],
-                "raw": text,
-                **extra,
-            }
+    sf = _scope_and_features(obj)
+    feats = [f for f in (obj.get("features") or []) if str(f.get("name") or "").strip()]
+    verdict = str(obj.get("verdict")).lower()
+    passed = [str(f["name"]).strip() for f in feats if str(f["status"]).lower() == "pass"]
+
+    if verdict == "blocked":
         return {
-            "kind": "defects",
-            "passed": passed,
-            "defects": defects,
+            "kind": "blocked",
+            "passed": [],
+            "defects": [],
+            "blocked_reason": str(obj.get("blocked_reason") or "").strip(),
             "raw": text,
-            **extra,
+            **sf,
         }
 
-    return {"kind": "blocked", "passed": [], "defects": [], "raw": text, **extra}
+    fails = [f for f in feats if str(f["status"]).lower() == "fail"]
+    if fails:
+        defects = [
+            f"- {str(f['name']).strip()} — FAIL — {str(f.get('evidence') or '').strip()}"
+            for f in fails
+        ]
+        return {"kind": "defects", "passed": passed, "defects": defects, "raw": text, **sf}
 
+    if any(str(f["status"]).lower() == "not_reached" for f in feats):
+        return {"kind": "incomplete", "passed": passed, "defects": [], "raw": text, **sf}
 
-def _passed(section: str) -> list:
-    # The FEATURES section only — a SCOPE/EXCLUDED bullet must never count as
-    # a verified feature.
-    section = section.split("FEATURES:", 1)[-1] if "FEATURES:" in section else section
-    return [
-        f.strip()
-        for f in re.findall(
-            r"^-\s+(.{1,120}?)\s*(?:—|–|:|-+)\s*PASS\b", section, re.MULTILINE
-        )
-        if f.strip()
-    ]
+    if not passed:
+        # A "pass" that verified nothing did not judge the app: treat the
+        # report as non-compliant (re-run) rather than promote on air.
+        return {"kind": "unparseable", "passed": [], "defects": [], "raw": text, **sf}
+    return {"kind": "pass", "passed": passed, "defects": [], "raw": text, **sf}
 
 
 def describe_scope(report: Dict[str, Any]) -> str:

@@ -65,33 +65,65 @@ this skill covers only what differs.
 ## Finish
 
 ```
-agent_app_notify_ready(project_id="<PROJECT_ID>")   # gate + boot DEV env
-agent_app_walk_verify(project_id="<PROJECT_ID>")    # verify dev + PROMOTE
+agent_app_notify_ready(project_id="<PROJECT_ID>")   # gate + boot SHADOW env
+agent_app_walk_verify(project_id="<PROJECT_ID>")    # verify + PROMOTE
 ```
 
-These run in the **dev environment**: `notify_ready` gates and boots a
-disposable copy of your new CODE on a hidden port with a **FRESH, EMPTY
-database** — migrations replay at boot, so only data your migrations seed
-exists. The user's live app keeps running the previous version, untouched,
-and its data is NEVER cloned into dev. Test freely against the dev URL it
-returns (create whatever test records you need — they are thrown away).
-`walk_verify` drives the dev instance in a real (headless) browser; a clean
+walk_verify drives the app in a real browser (Playwright) against the
+requirements and PROMOTES on a clean verdict. notify_ready also auto-invokes
+the server ops your change touched and reports any failure with its response
+body — fix those before you call walk_verify.
+
+These run in the **shadow environment**: `notify_ready` gates your code and
+boots the project's OWN tree a second time on a hidden port with a **FRESH,
+EMPTY database** — migrations replay at boot, so only data your migrations
+seed exists. Nothing is copied: your edits ARE the running candidate. The
+user's live app keeps serving the previously promoted build, untouched, and
+its data is NEVER cloned. Test freely against the shadow URL it returns
+(create whatever test records you need — they are thrown away).
+`walk_verify` drives the shadow in a real (headless) browser; a clean
 verdict is what PROMOTES your change to the live app (new migrations apply
 to the real data at its boot) and announces it.
 
-- **The dev DB starts empty every time.** If a feature needs data to be
+- **The shadow DB starts empty every time.** If a feature needs data to be
   visible, either seed it in a migration (survives promote) or create test
-  records through the app/API after `notify_ready` (dev-only, disposable).
-- **Never run `lui validate` or `lui dev` against the real project dir** —
-  the build overwrites the served frontend in place and blanks the user's
-  live UI. `notify_ready` gates the dev copy for you.
+  records through the app/API after `notify_ready` (shadow-only,
+  disposable).
+- **While a shadow is up, `agent-app ops/run/data <project_path>` target IT
+  automatically** — you never pass the hidden port yourself.
+- **Never run `agent-app validate` (without --outRoot) or `agent-app dev` against the
+  real project dir of a RUNNING app** — the in-place build overwrites the
+  served frontend. `notify_ready` gates safely for you.
 - **Never write test data to the live app** (its DB is the user's real
-  data; agent test writes outside the dev env are refused). Do all testing
-  after `notify_ready`, against the dev URL. `GET /api/_a2app` answers
-  `env: "dev"` or `env: "live"` if you need to confirm which instance a
-  port is.
+  data; agent test writes outside the shadow are refused). Do all testing
+  after `notify_ready`, against the shadow URL. `GET /api/_a2app` answers
+  `env: "dev"` (= shadow) or `env: "live"` if you need to confirm which
+  instance a port is.
 
 HONESTY RULE: the change is live only when `agent_app_walk_verify` returns
 `status: success` — never tell the user a change is live when the relaunch,
 verification or deploy failed. On failure the user's app still runs the
 previous working version.
+
+## When verification comes back with defects
+
+Failing features come back as a fix brief: defect cards with evidence, plus
+an **ATTEMPT LOG** — every previous round, the cause signature of each
+defect, what moved between rounds (`cause identical`, `cause changed`,
+`gone`, `new`) and any streak across them. It reports and stops; reading it
+is yours, and so is how you spend the round.
+
+Two things you can write into that record. Each round is a fresh run that
+remembers nothing of the last one, so what is not written here is not known
+next round:
+
+- `agent_app_report_finding(project_id="<ID>", ruled_out=["not the grant —
+  dry-run of send_gmail returns 200"])` — causes you eliminated, and what
+  eliminated them. Quoted back in every later brief.
+- `agent_app_report_finding(project_id="<ID>", blocked_question="Which
+  calendar should bookings write to?")` — ends the work and puts one
+  question to the user. For something you cannot GET (a decision, an
+  account, a credential), not something you have not solved. It is also the
+  only way to stop that the tracker does not read as walking out.
+
+Repeating a failure does not end the work; only the mission budget does.

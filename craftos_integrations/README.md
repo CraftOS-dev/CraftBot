@@ -1,6 +1,6 @@
 # craftos_integrations
 
-A plug-and-play package of 23 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Stripe, HubSpot, Notion, LinkedIn, Outlook, Twitter, WhatsApp Web/Business, LINE, Lark + Lark Calendar/Drive, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
+A plug-and-play package of 24 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Stripe, HubSpot, Notion, LinkedIn, Outlook, PostHog, Twitter, WhatsApp Web/Business, LINE, Lark + Lark Calendar/Drive, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
 
 The package owns:
 
@@ -371,12 +371,23 @@ integration_registry()  # snapshot dict {id: metadata}
 
 ## Adding a new integration
 
-An integration is **two folders** that get auto-wired — no central registry edits, no frontend changes (UI metadata flows from `get_metadata()`):
+**A new integration is one folder.** `craftos_integrations/providers/<name>/` holds everything, gets auto-wired, and needs no central registry edits and no frontend changes (UI metadata flows from `get_metadata()`):
 
-1. **Provider package** — `craftos_integrations/providers/<name>/` holds `provider.py` (the contract: metadata, auth, account identity, listener) and `client.py` (the API surface, decorated `@register_client`). Add the provider to `default_providers()`; the autoloader imports `client.py` at startup.
-2. **Action surface** — `app/data/action/integrations/<name>/<name>_actions.py` holds the `@action`-decorated wrappers the agent calls. One wrapper per client method.
+| File | Holds |
+|------|-------|
+| `provider.py` | the contract — metadata, auth, account identity, listener, `operations()` |
+| `client.py` | the API surface, decorated `@register_client` |
+| `operations.py` | the agent-facing operations, declared with `client_op` |
+| `INTEGRATION.md` | gotchas: identifier shapes, auth failure modes, rate limits |
+| `GUIDANCE.md` | how the agent should *use* the integration |
 
-The two have separate audiences: folder 1 is for the **human** connecting the account and the **listener** receiving inbound events; folder 2 is for the **agent** calling the API on the user's behalf. You need both.
+Add the provider to `default_providers()`; the autoloader imports `client.py` at startup. This is the **full port** shape — gmail, google_*, hubspot, linkedin, notion, outlook, slack, posthog. Build every new integration this way.
+
+#### The older two-folder shape (auth-layer bridge)
+
+Some integrations — github, jira, line, stripe, whatsapp_business, discord, lark*, telegram*, twitter — predate the multi-account port. Their provider returns `operations() -> []` and their agent surface still lives in a second folder, `app/data/action/integrations/<name>/<name>_actions.py`, as `@action`-decorated wrappers made account-aware centrally by `account_bridge.py`.
+
+**Do not copy this shape for a new integration.** It exists so the port could land without rewriting 700 working actions. The sections below that describe `@action` wrappers apply to maintaining those integrations, not to building new ones — for a new one, the same content, tags and conventions go into `operations.py` via `client_op` instead. `client_op` takes the same `name` / `description` / `input_schema` / `parallelizable` you would have passed to `@action`, plus `tags` in place of `action_sets` and `destructive` in place of `irreversible`. One more difference worth knowing: the "import helpers inside the function body" rule below is an `@action` dispatch quirk and does not apply to `client_op`.
 
 ### Recipe at a glance
 
@@ -390,8 +401,8 @@ For a production-level integration, produce in this order:
 | 4 | Build the client — one method per endpoint, using `helpers.arequest`, returning `Result` | client in `__init__.py` |
 | 5 | Optional: `start_listening` / `stop_listening` (webhook / polling / WebSocket) | client |
 | 6 | Write `INTEGRATION.md` — identifier shape, silent-drop config flags, auth gotchas | integration root |
-| 7 | Mirror each client method as an `@action` wrapper with sub-set + umbrella tags | `<name>_actions.py` |
-| 8 | Verify — import check + AST action-count audit + live smoke test | see "Verification" |
+| 7 | Mirror each client method as a `client_op` with sub-set + umbrella tags | `operations.py` |
+| 8 | Verify — `scripts/verify_integration.py <name>`, then a live smoke test | see "Verification" |
 
 **Don't ship halfway.** An integration that can `list_*` but not `update_*` / `delete_*` / `reply_*` is the #1 source of agent failure: the LLM picks the integration confidently, then can't complete the user's intent. Mirror the full verb set the API exposes. The detailed "production-level expectations" subsection below makes this concrete.
 
@@ -702,9 +713,16 @@ craftos_integrations/providers/
 Only `client.py` is imported by the autoloader — that is what fires
 `@register_client`. Everything else is reached through the provider.
 
-### File 2: agent actions (the `@action` wrappers)
+### Agent actions, bridge-port style (the `@action` wrappers)
 
-File 1 lets a human connect the account and lets the listener receive inbound events. File 2 is what makes the integration **usable by the agent**. It lives at:
+> **Applies to the older two-folder integrations only.** For a new integration,
+> put this surface in `operations.py` with `client_op` — see "Adding a new
+> integration" above. The conventions (naming, descriptions, schemas,
+> `parallelizable`, sub-set + umbrella tags) are identical either way, so this
+> section is still the reference for *what* to write; only the decorator and
+> the file differ.
+
+The provider folder lets a human connect the account and lets the listener receive inbound events. This second folder is what makes a bridge-port integration **usable by the agent**. It lives at:
 
 ```
 app/data/action/integrations/<name>/<name>_actions.py
@@ -905,7 +923,18 @@ The agent doesn't load every action up front — it loads the **action sets** it
 
 ### Verification
 
-Before declaring an integration done, run these three checks. Don't skip any.
+Run the offline gates with one command:
+
+```bash
+python scripts/verify_integration.py <name>      # one integration
+python scripts/verify_integration.py --all       # every shipped integration
+```
+
+It runs checks 1–3 below and exits non-zero on failure. Check 4 — the live
+smoke test — still needs a human with a real account. **Don't skip it:**
+without it, "production-ready" is a guess.
+
+The checks, if you want to run them by hand:
 
 1. **Imports cleanly and registers** — both must print `True`:
 
@@ -921,7 +950,7 @@ Before declaring an integration done, run these three checks. Don't skip any.
 
    If either is False, a decorator didn't fire — usually because the module raised on import. Check the autoloader warning log line.
 
-2. **AST action-count audit** — confirms the sub-set / umbrella distribution matches the design:
+2. **Operation / action count audit** — confirms the sub-set / umbrella distribution matches the design. For a full port, count `provider.operations()` and group by `tags` (this is what `verify_integration.py` does). For a bridge port, the equivalent AST sweep over the `@action` calls:
 
    ```bash
    python -c "
@@ -944,7 +973,15 @@ Before declaring an integration done, run these three checks. Don't skip any.
 
    Expected shape: the umbrella set should be 15–25; fine-grained sets sum to the total; no set under 3 actions (merge it if so).
 
-3. **Live smoke test** — the only check that catches "the code runs but the API doesn't actually accept what we send". Connect with a real account and run one action per sub-set:
+3. **Conformance suite** — `tests/integrations/test_<name>_conformance.py`, a
+   subclass of `ProviderConformance` with captured credential fixtures. It runs
+   offline (network monkeypatched) and enforces what actually breaks in
+   production: unique snake_case operation names, no operation declaring its own
+   `account` input, destructive operations flagged, `identity_of` lowercase-stable
+   and junk-tolerant, a missing OAuth chooser declared *and* documented. Every
+   provider has one; a new integration without one is not done.
+
+4. **Live smoke test** — the only check that catches "the code runs but the API doesn't actually accept what we send". Connect with a real account and run one action per sub-set:
 
    ```
    /<name> login <credential>

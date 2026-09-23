@@ -110,7 +110,7 @@ def shell_exec(input_data: dict) -> dict:
         }
 
     # Resolved Node runtime leads PATH: the agent is instructed to run the
-    # lui CLI (TypeScript, needs node >= 24) via bare `node` through this
+    # agent-app CLI (TypeScript, needs node >= 24) via bare `node` through this
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 
@@ -346,7 +346,7 @@ def shell_exec_windows(input_data: dict) -> dict:
         }
 
     # Resolved Node runtime leads PATH: the agent is instructed to run the
-    # lui CLI (TypeScript, needs node >= 24) via bare `node` through this
+    # agent-app CLI (TypeScript, needs node >= 24) via bare `node` through this
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 
@@ -594,7 +594,7 @@ def shell_exec_darwin(input_data: dict) -> dict:
         }
 
     # Resolved Node runtime leads PATH: the agent is instructed to run the
-    # lui CLI (TypeScript, needs node >= 24) via bare `node` through this
+    # agent-app CLI (TypeScript, needs node >= 24) via bare `node` through this
     # action — the system default may be an older major (app/node_runtime.py).
     from app import node_runtime
 

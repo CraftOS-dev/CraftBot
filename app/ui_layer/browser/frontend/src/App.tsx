@@ -11,8 +11,11 @@ import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { AgentAppPage } from './pages/AgentApp'
 import { useWebSocket } from './contexts/WebSocketContext'
+import { useAppSelector } from './store/hooks'
+import { selectNeedsHardOnboarding } from './store/selectors/onboarding'
 import { TourProvider } from './tour'
 import { LoadingMascot } from '@mascot'
+import { AgentAppImportToast } from './components/ui/AgentAppImportToast'
 
 // Forces AgentAppPage to remount per-project so useState initializers
 // (theme, custom colors) always start fresh - not carried over from a previous project.
@@ -33,7 +36,8 @@ function SessionChatRoute() {
 
 function App() {
   const { t } = useTranslation(['nav', 'common'])
-  const { initReceived, needsHardOnboarding } = useWebSocket()
+  const { initReceived } = useWebSocket()
+  const needsHardOnboarding = useAppSelector(selectNeedsHardOnboarding)
 
   // Fade the main interface in once, right after the onboarding outro hands off
   // (the wizard sets this flag just before completing). One-shot via
@@ -100,6 +104,10 @@ function App() {
   // the router, so the tour can navigate between pages.
   return (
     <TourProvider autoStartEnabled>
+    {/* Root-level: an import outlives the modal that started it, so the
+        progress/outcome toast has to be mounted somewhere that never
+        unmounts. Renders nothing. */}
+    <AgentAppImportToast />
     <Layout>
       <Routes>
         <Route path="/" element={<ChatPage key="main" sessionId="main" />} />

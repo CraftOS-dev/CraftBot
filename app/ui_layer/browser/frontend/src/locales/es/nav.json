@@ -51,7 +51,10 @@
   },
   "connection": {
     "disconnectedReconnecting": "Desconectado. Reconectando...",
-    "notConnectedRetry": "Sin conexión. Espera un momento y reinténtalo."
+    "notConnectedRetry": "Sin conexión. Espera un momento y reinténtalo.",
+    "actionsNotSent_one": "No se pudo conectar con CraftBot: 1 acción no se envió.",
+    "actionsNotSent_other": "No se pudo conectar con CraftBot: {{count}} acciones no se enviaron.",
+    "backendBusy": "CraftBot está ocupado: las actualizaciones se reanudarán automáticamente"
   },
   "agentStatus": {
     "waiting": "El agente espera tu respuesta",

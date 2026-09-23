@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "Modificado en otro lugar",
+    "loadLatest": "Cargar lo más reciente"
+  },
   "general": {
     "title": "Ajustes generales",
     "subtitle": "Configura los ajustes y preferencias básicos del agente",
@@ -396,6 +400,8 @@
     "noDescription": "Sin descripción",
     "actionsLabel": "Acciones:",
     "viewDetails": "Ver detalles",
+    "systemBadge": "Sistema",
+    "systemLocked": "Las habilidades del sistema siempre están activadas y no se pueden desactivar.",
     "remove": "Quitar",
     "installSkill": "Instalar habilidad",
     "createSkill": "Crear habilidad",
@@ -677,7 +683,9 @@
     "deleteBackupMessage": "¿Eliminar permanentemente la copia de seguridad del {{date}}?",
     "lan": "LAN",
     "public": "Público",
-    "notShared": "No compartido",
+    "lanHint": "Dispositivos de tu red, con el enlace",
+    "publicHint": "Cualquiera en internet, con el enlace",
+    "createLanLink": "Crear enlace LAN",
     "starting": "Iniciando...",
     "createTunnel": "Crear túnel"
   }

@@ -5,6 +5,17 @@
  * enforces it) so any agent can discover it via GET /api/_ops.
  */
 
+/* GOJA ENGINE — this is NOT Node. Before writing ops:
+ * - No npm / fetch / Buffer / fs / process. Use $http, $os, $app, and
+ *   require ONLY local modules: require(`${__hooks}/x.js`).
+ * - Top-level helper functions are INVISIBLE inside routerAdd callbacks.
+ *   Put shared helpers in their own file and require() them INSIDE the handler.
+ * - A `required` number field REJECTS 0 ("cannot be blank"). If a value can
+ *   be 0 (counts, flags), make that field optional in the migration.
+ * - Dates: new Date().toISOString(). No luxon/moment.
+ * - Files: $os.readFile / $os.writeFile with octal modes (0o600). No fs.
+ */
+
 // READING A REQUEST BODY — the ONLY correct way in PB hooks:
 //   const data = e.requestInfo().body;   // pre-parsed object
 // NEVER use e.request.body / toString(e.request.body): that is a Go stream

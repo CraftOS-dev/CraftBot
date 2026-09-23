@@ -76,6 +76,7 @@
     "quota": "Quota",
     "model": "Model",
     "badRequest": "Request",
+    "contextOverflow": "Context window exceeded",
     "blocked": "Blocked",
     "server": "Service unavailable",
     "connection": "Connection",

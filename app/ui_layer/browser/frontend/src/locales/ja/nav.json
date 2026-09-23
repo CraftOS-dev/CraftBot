@@ -51,7 +51,9 @@
   },
   "connection": {
     "disconnectedReconnecting": "切断されました。再接続中...",
-    "notConnectedRetry": "接続されていません。少し待ってから再試行してください。"
+    "notConnectedRetry": "接続されていません。少し待ってから再試行してください。",
+    "actionsNotSent_other": "CraftBot に接続できませんでした。{{count}} 件の操作が送信されませんでした。",
+    "backendBusy": "CraftBot は処理中です。更新は自動的に再開されます"
   },
   "agentStatus": {
     "waiting": "エージェントがあなたの返信を待っています",

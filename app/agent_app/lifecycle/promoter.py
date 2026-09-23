@@ -23,17 +23,22 @@ except ImportError:
 
     logger = logging.getLogger(__name__)
 
+from pathlib import Path
+
 from app.agent_app.lifecycle.environment import has_live_env
-from app.agent_app.lifecycle.provisioner import DevProvisioner
+from app.agent_app.lifecycle.provisioner import ShadowProvisioner
 
 LaunchLive = Callable[[str], Awaitable[Dict[str, Any]]]
 BeforeLiveBoot = Callable[[Any], None]
 
 
 class Promoter:
-    def __init__(self, provisioner: DevProvisioner, launch_live: LaunchLive) -> None:
+    def __init__(
+        self, provisioner: ShadowProvisioner, launch_live: LaunchLive, registry
+    ) -> None:
         self._provisioner = provisioner
         self._launch_live = launch_live
+        self._registry = registry
         self._before_live_boot: List[BeforeLiveBoot] = []
 
     def add_before_live_boot_hook(self, hook: BeforeLiveBoot) -> None:
@@ -73,7 +78,7 @@ class Promoter:
 
         if is_external:
             # External apps run their new code live already (they have no
-            # dev copy — notify_ready relaunched them in place); promoting
+            # shadow env — notify_ready relaunched them in place); promoting
             # is pure bookkeeping.
             result: Dict[str, Any] = {
                 "status": "success",
@@ -84,12 +89,15 @@ class Promoter:
             result = await self._launch_live(project.id)
             if result.get("status") != "success":
                 return result
+            shadow = self._registry.shadow(project.id)
             try:
-                self._provisioner.destroy(
-                    project.id, host.get_staging_record(project.id)
-                )
+                self._provisioner.destroy(project.id, shadow)
             finally:
-                host.clear_staging_record(project.id)
+                # Agent traffic goes back to the live app the moment the
+                # shadow instance is gone — including the agent-app CLI's routing.
+                if shadow is not None:
+                    self._registry.remove(shadow.instance_id)
+                self._provisioner.unroute_cli(Path(project.path))
 
         result["first"] = first
         host.stamp_delivered(project.id)
@@ -116,15 +124,6 @@ class Promoter:
             host.set_triggers_approved(project.id)
         except Exception as e:
             logger.warning(f"[AGENT_APP:PROMOTE] trigger approval failed: {e}")
-
-        # A tab still showing the pre-promote app must refetch (realtime
-        # keeps old rows painted through a server restart).
-        try:
-            from app.agent_app.broadcast import dispatch_agent_app_data_changed
-
-            dispatch_agent_app_data_changed(project.id)
-        except Exception:
-            pass
 
         logger.info(
             f"[AGENT_APP:PROMOTE] {project.id} promoted "

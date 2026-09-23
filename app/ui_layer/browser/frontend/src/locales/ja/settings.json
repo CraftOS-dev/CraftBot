@@ -1,4 +1,8 @@
 {
+  "draft": {
+    "changedElsewhere": "別の場所で変更されました",
+    "loadLatest": "最新を読み込む"
+  },
   "general": {
     "title": "一般設定",
     "subtitle": "エージェントの基本設定と環境設定を構成します",
@@ -396,6 +400,8 @@
     "noDescription": "説明なし",
     "actionsLabel": "アクション:",
     "viewDetails": "詳細を表示",
+    "systemBadge": "システム",
+    "systemLocked": "システムスキルは常に有効で、無効にできません。",
     "remove": "削除",
     "installSkill": "スキルをインストール",
     "createSkill": "スキルを作成",
@@ -677,7 +683,9 @@
     "deleteBackupMessage": "{{date}} のバックアップを完全に削除しますか？",
     "lan": "LAN",
     "public": "公開",
-    "notShared": "未共有",
+    "lanHint": "同じネットワーク上の端末(リンクが必要)",
+    "publicHint": "インターネット上の誰でも(リンクが必要)",
+    "createLanLink": "LANリンクを作成",
     "starting": "起動中...",
     "createTunnel": "トンネルを作成"
   }
