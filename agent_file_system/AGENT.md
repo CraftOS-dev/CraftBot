@@ -1,5 +1,5 @@
 ---
-version: 8
+version: 9
 purpose: agent operations manual
 ---
 
@@ -23,7 +23,7 @@ set API key             → ## Models
 delegate web research    → ## Sub-Agents
 lock the deliverable spec→ ## Runs  (set_requirement)
 generate document       → ## Documents
-build Living UI         → ## Living UI
+build Agent App         → ## Agent App
 schedule / defer work   → ## Runs (schedule_task), ## Proactive
 edit config file        → ## Configs
 handle an error         → ## Errors
@@ -41,7 +41,7 @@ look up a term          → ## Glossary
 
 ## Runtime
 
-You run inside `AgentBase.react(trigger)` at [app/agent_base.py](app/agent_base.py). The unit of work is a **session** (main, chat, or living_ui). A **run** is one wake of a session: it starts on a run-start trigger and continues turn by turn until the only action(s) you select are terminal — a final `send_message` (without `continue_work`) or `end_turn`. There is no routing, no task lifecycle, and no modes: every turn runs the same select → prepare → execute → finalize pipeline.
+You run inside `AgentBase.react(trigger)` at [app/agent_base.py](app/agent_base.py). The unit of work is a **session** (main, chat, or agent_app). A **run** is one wake of a session: it starts on a run-start trigger and continues turn by turn until the only action(s) you select are terminal — a final `send_message` (without `continue_work`) or `end_turn`. There is no routing, no task lifecycle, and no modes: every turn runs the same select → prepare → execute → finalize pipeline.
 
 ### Sessions
 
@@ -73,7 +73,7 @@ MEMORY                        memory-processing workflow
 PROACTIVE_HEARTBEAT /
 PROACTIVE_PLANNER             proactive workflows
 ONBOARDING / SKILL_WORKFLOW /
-LIVING_UI_*                   other workflow sources
+AGENT_APP_*                   other workflow sources
 RESTART_NOTICE                app restarted; react() returns early
 ```
 
@@ -81,7 +81,7 @@ Trigger producers: the scheduler ([app/config/scheduler_config.json](app/config/
 
 ### Trigger aggregation
 
-When a session's loop claims work, ALL triggers currently due for that session fold into ONE turn (`_merge_triggers`, [app/triggers/runtime.py](app/triggers/runtime.py)). The merged query is a numbered checklist: address EVERY item, in order. A later user message supersedes an earlier one only if it explicitly corrects it. The payload carries `queued_user_messages` and `aggregated_triggers` (the structured cause list).
+When a session's loop claims work, ALL triggers currently due for that session fold into ONE turn (`_merge_triggers`, [app/triggers/runtime.py](app/triggers/runtime.py)). The exception is EXCLUSIVE_SOURCES (currently the Agent-App crash-fix source): they always take their own turn and are never merged in either direction. The merged query is a numbered checklist: address EVERY item, in order. A later user message supersedes an earlier one only if it explicitly corrects it. The payload carries `queued_user_messages` and `aggregated_triggers` (the structured cause list).
 
 ### react() order
 
@@ -103,9 +103,10 @@ When a session's loop claims work, ALL triggers currently due for that session f
 Memory and proactive work run IN the main session — no separate task objects. The workflow's skills and action sets are loaded onto the session at run start and unloaded at run end.
 
 **memory**
-- Source: scheduler `memory-processing` (daily 3am) or startup replay if EVENT_UNPROCESSED.md is non-empty.
-- Loads the `memory-processor` skill. Reads EVENT_UNPROCESSED.md, distills important events into MEMORY.md, clears the buffer. Pruning (when MEMORY.md exceeds `max_items`) is folded into the same run's instruction.
-- During the run, `event_stream_manager.set_skip_unprocessed_logging(True)` is on so the run's own events do not loop back into EVENT_UNPROCESSED.md; reset at run end.
+- Trigger: the scheduler `memory-processing` job (runs once a day at a user-configurable time, 3am by default), or a startup replay when any session's unprocessed buffer is non-empty.
+- Gate: the run proceeds only when total unprocessed events reach `memory.processing_threshold`, or when a prune is due (MEMORY.md over `max_items`).
+- Work: loads the `memory-processor` skill, merges every session's EVENT_UNPROCESSED.md into one time-ordered staging file, distills the important events into the single MEMORY.md, then clears only the processed events from each session's buffer. A due prune folds into the same run.
+- During the run, `event_stream_manager.set_skip_unprocessed_logging(True)` keeps the run's own events out of the buffers; it is reset at run end.
 - Skipped entirely if `is_memory_enabled()` is False. See `## Memory`.
 
 **proactive heartbeat**
@@ -142,7 +143,7 @@ SessionRuntimeManager  per-session serial consumer loops
 TriggerService/Store   durable per-session trigger queues
 ContextEngine          builds system + user prompt each turn (KV cache aware)
 MemoryManager          hybrid vector+BM25 retrieval over agent_file_system
-EventStreamManager     appends to EVENT.md / EVENT_UNPROCESSED.md / session streams
+EventStreamManager     appends to each session's EVENT.md / EVENT_UNPROCESSED.md (per-session workspace dir)
 MCPClient              external MCP tool servers
 SkillManager           SKILL.md discovery + selection + reload
 Scheduler              cron-driven trigger fires from scheduler_config.json
@@ -178,7 +179,7 @@ The input needs a short answer or 1-3 actions:
 2. Final send_message with the result       ← this ends the run
 ```
 
-The input needs no reply at all (emoji-only ack, third-party noise): `end_turn` — ends the run silently. Guard: `end_turn` refuses to fire while a Living UI project is still `creating`.
+The input needs no reply at all (emoji-only ack, third-party noise): `end_turn` — ends the run silently. Guard: `end_turn` refuses to fire while a Agent App project is still `creating`.
 
 Do not refuse computer-based requests by claiming a limitation without checking — expand your action surface (below) and verify first. The same applies to information requests — see `## Use What You Have`.
 
@@ -279,6 +280,7 @@ Rules:
 ### Output destinations
 
 - Files the user should keep across sessions → `agent_file_system/workspace/`
+- Working notes that must survive event-stream summarization (plans, intermediate results, decisions) → `agent_file_system/workspace/sessions/{session_id}/NOTE.md` (a per-session scratchpad you own, seeded automatically)
 - Drafts, sketches, intermediate state → `agent_file_system/workspace/sessions/{session_id}/` (persists for the session's life; removed when the session is deleted)
 - Mission-scale, multi-run initiatives → `agent_file_system/workspace/missions/<mission_name>/INDEX.md`
 
@@ -312,8 +314,8 @@ docs, CRM, chat, repo, ...)                      list_available_integrations. If
                                                  the user to do it themselves, refuse, or web-search
                                                  around it.
 
-sounds like something an app of yours already    Living UI. living_ui_list_projects; on a match,
-does                                             living_ui_usage + the lui CLI/ops to read its data
+sounds like something an app of yours already    Agent App. agent_app_list_projects; on a match,
+does                                             agent_app_usage + the agent-app CLI/ops to read its data
                                                  or perform the operation instead of redoing the
                                                  work by hand.
 ```
@@ -330,11 +332,11 @@ On any turn you can delegate a self-contained chunk of work to a sub-agent with 
 
 ```
 Online research (search the web, fetch pages, gather facts)  → spawn_subagent("research_agent", ...)
-Living UI browser verification                               → walk_verify (usually via living_ui_walk_verify)
+Agent App browser verification                               → walk_verify (usually via agent_app_walk_verify)
 Local work (read files, grep the repo, memory_search)        → do it yourself, don't delegate
 ```
 
-Registered types today: `research_agent` (gathers source-cited facts and returns a brief — it does not interpret or make decisions) and `walk_verify` (drives a running Living UI app in a headless browser). The `agent_type` enum is built dynamically from the registry; if a type is rejected, it isn't registered — do the work yourself or ask the user. Sub-agents run with iteration and wall-clock caps and end themselves via their own `sub_task_end` action.
+Registered types today: `research_agent` (gathers source-cited facts and returns a brief — it does not interpret or make decisions) and `walk_verify` (drives a running Agent App app in a headless browser). The `agent_type` enum is built dynamically from the registry; if a type is rejected, it isn't registered — do the work yourself or ask the user. Sub-agents run with iteration and wall-clock caps and end themselves via their own `sub_task_end` action.
 
 ### How to write a good `query`
 
@@ -474,6 +476,10 @@ RATE_LIMIT /  provider throttling / usage cap        Retryable after a delay. Co
 QUOTA                                                 (see ## Models).
 SERVER        provider 5xx, temporary                Retryable. Usually transient.
 CONNECTION    timeout / network                      Retryable once connectivity is back.
+CONTEXT_      request exceeds context window         Auto-handled: the harness folds (summarizes)
+OVERFLOW                                             the event stream once, then retries. Still too
+                                                     big means model.context_window is set too
+                                                     small; surface that, do not hand-retry.
 BAD_REQUEST / other                                  Investigate before retrying.
 UNKNOWN
 ```
@@ -548,11 +554,11 @@ When the action's `status=error` message does not tell you enough to recover, dr
 **Three log surfaces. Know which to use for what.**
 
 ```
-EVENT.md                       agent_file_system/EVENT.md
-                               your perspective: events you produced/observed
+EVENT.md                       agent_file_system/workspace/sessions/<id>/EVENT.md
+                               THIS session's events you produced/observed
                                (action_start, action_end, send_message, error,
-                               warning, action_error, internal). Already on disk
-                               and indexed by memory_search.
+                               warning, action_error, internal). On disk, but NOT
+                               in the memory index; grep it, don't memory_search it.
 
 logs/<run>/                    project_root/logs/<timestamp>/  (ONE FOLDER PER APP RUN)
                                runtime perspective: harness internals, every
@@ -759,8 +765,8 @@ You're blocked when you don't know what to do next AND retrying won't help. The 
 
 ### read_file
 - Returns `cat -n` formatted lines plus a `has_more` flag.
-- Default limit is 500 lines. Use `offset` and `limit` for targeted reads.
-- For files larger than 500 lines: read the head first to learn structure, then `grep_files` for the section you need, then `read_file` with the right offset and limit.
+- Default limit is 2000 lines (and 2000 chars per line before truncation). Use `offset` and `limit` for targeted reads.
+- For files larger than 2000 lines: read the head first to learn structure, then `grep_files` for the section you need, then `read_file` with the right offset and limit.
 - Full input schema: [app/data/action/read_file.py](app/data/action/read_file.py).
 
 ### grep_files
@@ -837,10 +843,8 @@ agent_file_system/
 ├── FORMAT.md                 Document / design standards
 ├── MEMORY.md                 Distilled facts                     DO NOT EDIT
 ├── ENTITIES.md               Entity-graph registry               DO NOT EDIT
-├── EVENT.md                  Full event log                      DO NOT EDIT
-├── EVENT_UNPROCESSED.md      Memory-pipeline staging buffer      DO NOT EDIT
 ├── PROACTIVE.md              Recurring tasks + Goals/Plan/Status
-├── GLOBAL_LIVING_UI.md       Global Living UI design rules
+├── GLOBAL_AGENT_APP.md       Global Agent App design rules
 ├── MISSION_INDEX_TEMPLATE.md Template for mission INDEX.md files
 └── workspace/                Sandbox for task outputs (see ## Workspace)
 ```
@@ -854,7 +858,6 @@ AGENT.md
 PROACTIVE.md
 MEMORY.md
 USER.md
-EVENT_UNPROCESSED.md
 ENTITIES.md
 ```
 
@@ -900,22 +903,30 @@ plus any user-added extras from `memory.indexed_files` in settings.json. Editing
 - Read pattern: `read_file` / `grep_files` to inspect the graph when troubleshooting retrieval. See `## Memory` "The entity graph".
 - Format: `## Entities` (one name per line) and `## Connections` (`[chunk-id] [pending|judged] names :: preview`; marks: plain = confirmed, `!` = rejected, `?` = pending judgment).
 
-### EVENT.md
-- Purpose: complete chronological event log. Append-only.
-- Write access: EventStreamManager. Hard rule: DO NOT edit.
-- Read pattern: `read_file` / `grep_files` for self-troubleshooting. See `## Errors` for log workflow.
-- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines.
-- Auto-rotated when size threshold is exceeded.
+### EVENT.md, EVENT_UNPROCESSED.md, NOTE.md (per-session)
 
-### EVENT_UNPROCESSED.md
-- Purpose: staging buffer for events awaiting memory distillation.
+These three files are PER-SESSION and live in THIS session's workspace dir,
+`agent_file_system/workspace/sessions/{session_id}/` (the concrete path is given
+to you each turn in the `<session>` state block — do not guess it). There is no
+longer a global EVENT.md at the `agent_file_system/` root.
+
+**EVENT.md** — this session's complete chronological event log. Append-only.
+- Write access: EventStreamManager. Hard rule: DO NOT edit.
+- Read pattern: `read_file` / `grep_files` on THIS session's copy for self-troubleshooting. Your live context only carries a summarized slice, so grep here to recover full detail. See `## Errors`.
+- Format: `[YYYY-MM-DD HH:MM:SS] [event_type]: payload`. Multi-line payloads continue on subsequent lines. Auto-rotated when the size threshold is exceeded.
+
+**EVENT_UNPROCESSED.md** — this session's staging buffer for events awaiting memory distillation.
 - Write access: EventStreamManager (filtered subset of EVENT.md events). Hard rule: DO NOT edit.
-- Read pattern: the memory processor reads it daily 3am. See `## Memory`.
-- Cleared: after each successful memory-processing run.
-- Filter: events of kind `action_start`, `action_end`, `todos`, `error`, `waiting_for_user`, `gui_action`, `agent reasoning`, `screen_description`, `relevant_memories` are NOT staged. The pipeline focuses on user-facing dialogue and important state changes.
+- Read pattern: the memory processor aggregates every session's copy (oldest event first) into one staging file daily at 3am. See `## Memory`.
+- Cleared: this session's processed events are removed after each successful memory-processing run.
+- Filter: events of kind `action_start`, `action_end`, `todos`, `error`, `waiting_for_user`, `gui_action`, `agent reasoning`, `screen_description`, `relevant_memories` are NOT staged.
 - Skip flag: during memory-processing runs, `set_skip_unprocessed_logging(True)` prevents the run's own events from looping back. Reset automatically at run end.
 
-To review past dialogue or past run outcomes, grep EVENT.md (the complete history) or use `memory_search`.
+**NOTE.md** — YOUR scratchpad for this session. You may freely read AND write it (the only per-session file you may write).
+- Purpose: record plans, intermediate results, key facts, decisions, and running state so they survive event-stream summarization (NOTE.md is never summarized).
+- Use it whenever you have working state you must not lose across turns. It persists for the life of the session and is removed only when the session is deleted.
+
+To review past dialogue or past run outcomes, grep THIS session's EVENT.md or use `memory_search`.
 
 ### PROACTIVE.md
 - Purpose: recurring proactive task definitions plus the planner-maintained Goals / Plan / Status section.
@@ -924,10 +935,10 @@ To review past dialogue or past run outcomes, grep EVENT.md (the complete histor
 - Format: YAML blocks between `<!-- PROACTIVE_TASKS_START -->` and `<!-- PROACTIVE_TASKS_END -->` markers, followed by a Goals / Plan / Status section.
 - Authority: PROACTIVE.md is the source of truth for the Decision Rubric, Permission Tiers, and recurring-task YAML schema. Do NOT duplicate that content elsewhere.
 
-### GLOBAL_LIVING_UI.md
-- Purpose: global design rules applied to every Living UI project.
+### GLOBAL_AGENT_APP.md
+- Purpose: global design rules applied to every Agent App project.
 - Write access: user (primarily). You only when the user supplies a new universal rule with confirmation.
-- Read pattern: before creating any Living UI project. See `## Living UI`.
+- Read pattern: before creating any Agent App project. See `## Agent App`.
 - Sections: Design Preferences (colors, theme, font, border radius, spacing), Always Enforced rules, Optional rules, Custom rules.
 
 ### MISSION_INDEX_TEMPLATE.md
@@ -936,14 +947,14 @@ To review past dialogue or past run outcomes, grep EVENT.md (the complete histor
 - Read pattern: when starting a mission, copy this template into the mission directory and fill it in.
 - Fields: Goal, Status, Key Findings, What's Been Tried, Next Steps, Resources & References, Constraints & Notes.
 
-### Living UI projects (workspace/living_ui/)
+### Agent App projects (workspace/agent_app/)
 
-Living UI projects live at `agent_file_system/workspace/living_ui/<project_name>_<hash>/`. Every project is a React frontend + a single PocketBase backend process. Standard layout:
+Agent App projects live at `agent_file_system/workspace/agent_app/<project_name>_<hash>/`. Every project is a React frontend + a single PocketBase backend process. Standard layout:
 
 ```
-workspace/living_ui/<name>_<hash>/
-├── manifest.json            Identity, ports, capabilities (livingUIVersion 2). Root, not config/.
-├── LIVING_UI.md             Per-project plan/index + file-ownership map
+workspace/agent_app/<name>_<hash>/
+├── manifest.json            Identity, ports, capabilities (agentAppVersion 2). Root, not config/.
+├── AGENT_APP.md             Per-project plan/index + file-ownership map
 ├── operations.json          Declared ops (discoverable at GET /api/_ops)
 ├── reference/
 │   └── requirements.md      BINDING spec. walk_verify checks the app against this file.
@@ -962,7 +973,7 @@ workspace/living_ui/<name>_<hash>/
 - `logs/pocketbase.log` (server-side) and `logs/frontend_console.log` (browser console): first place to grep when a project misbehaves.
 - Imported non-V2 apps register as **external** apps: they carry `craftbot.json` (install/build/start/health verbs, `{{PORT}}`) instead of `manifest.json` and log to `logs/app.log`.
 
-The fresh-project scaffold lives at [living-ui/blueprint/](living-ui/blueprint/). For lifecycle, see `## Living UI`.
+The fresh-project scaffold lives at [agent-app/blueprint/](agent-app/blueprint/). For lifecycle, see `## Agent App`.
 
 ### Files outside agent_file_system/
 
@@ -972,7 +983,6 @@ Some persistent state the agent interacts with lives outside this directory:
 app/config/settings.json              model, API keys, OAuth, cache              (## Configs)
 app/config/mcp_config.json            MCP server registry                         (## MCP)
 app/config/skills_config.json         enabled / disabled skills                   (## Skills)
-app/config/external_comms_config.json platform listener configs                   (## Integrations)
 app/config/scheduler_config.json      cron schedules                              (## Proactive)
 app/config/onboarding_config.json     first-run state                             (## Onboarding)
 skills/<name>/SKILL.md                installed skills                            (## Skills)
@@ -996,13 +1006,16 @@ agent_file_system/workspace/
 ├── <files at root>           Persistent outputs the user should keep
 ├── sessions/
 │   └── {session_id}/         Per-session scratch directory. Persists for the
-│                             session's life; removed when the session is deleted.
+│       │                     session's life; removed when the session is deleted.
+│       ├── EVENT.md          This session's full event log        DO NOT EDIT
+│       ├── EVENT_UNPROCESSED.md  This session's memory buffer      DO NOT EDIT
+│       └── NOTE.md           Your scratchpad (read AND write it)
 ├── missions/
 │   └── <mission_name>/       Multi-run initiative. Persists indefinitely.
 │       ├── INDEX.md          Required (template at MISSION_INDEX_TEMPLATE.md)
 │       └── <mission files>
-└── living_ui/
-    └── <name>_<hash>/        Living UI projects. See ## File System.
+└── agent_app/
+    └── <name>_<hash>/        Agent App projects. See ## File System.
 ```
 
 ### Where to put a file
@@ -1011,8 +1024,9 @@ agent_file_system/workspace/
 Type of file                                      → Destination
 final document the user should keep               → workspace/<filename>
 draft, sketch, intermediate state, scratch        → workspace/sessions/{session_id}/<filename>
+working notes that must survive summarization     → workspace/sessions/{session_id}/NOTE.md
 mission deliverable (multi-run initiative)        → workspace/missions/<mission_name>/<filename>
-Living UI project file                            → workspace/living_ui/<name>_<hash>/...
+Agent App project file                            → workspace/agent_app/<name>_<hash>/...
 ```
 
 ### Lifecycle rules
@@ -1020,7 +1034,7 @@ Living UI project file                            → workspace/living_ui/<name>
 - `workspace/` (root): never auto-cleaned. Anything you save here persists until the user deletes it.
 - `workspace/sessions/{session_id}/`: created automatically when a session is created. Removed only when the session is deleted — NOT cleaned between runs, so scratch from earlier runs of the same session is still there.
 - `workspace/missions/<name>/`: never auto-cleaned. The mission's `INDEX.md` is what future-you reads to restore context.
-- `workspace/living_ui/<name>_<hash>/`: managed via the `living_ui` actions. Do not rename or delete by hand. See `## Living UI`.
+- `workspace/agent_app/<name>_<hash>/`: managed via the `agent_app` actions. Do not rename or delete by hand. See `## Agent App`.
 
 ### Path discipline
 
@@ -1184,28 +1198,29 @@ DO NOT silently change FORMAT.md. The user owns their style guide.
 
 ---
 
-## Living UI
+## Agent App
 
-"Living UI" = generated web apps served from CraftBot. Every project is a React frontend (vendored kit, shadcn-conventional components) plus one PocketBase backend process. Lifecycle is driven through the `living_ui` action set ([app/data/action/living_ui_actions.py](app/data/action/living_ui_actions.py)). The fresh-project scaffold lives at [living-ui/blueprint/](living-ui/blueprint/). File layout: see `## File System` "Living UI projects".
+"Agent App" = generated web apps served from CraftBot. Every project is a React frontend (vendored kit, shadcn-conventional components) plus one PocketBase backend process. Lifecycle is driven through the `agent_app` action set ([app/data/action/agent_app_actions.py](app/data/action/agent_app_actions.py)). The fresh-project scaffold lives at [agent-app/blueprint/](agent-app/blueprint/). File layout: see `## File System` "Agent App projects".
 
-### Action surface (`living_ui` set)
+### Action surface (`agent_app` set)
 
 ```
-living_ui_scaffold(name, description, ...)  Create a project: copies the blueprint, allocates ports,
+agent_app_scaffold(name, description, ...)  Create a project: copies the blueprint, allocates ports,
                                             runs the requirements interview, then dispatches the build
-                                            to the project's own dedicated session (lui_<id>). After
+                                            to the project's own dedicated session (agentapp_<id>). After
                                             scaffold, do NOT write project files or call notify_ready
                                             yourself — the build session owns that.
-living_ui_list_projects()                   {id, name, description, status, url, path, delivered}.
+agent_app_list_projects()                   {id, name, description, status, url, path, delivered}.
                                             Resolve "the app" to an id here, never by filesystem search.
-living_ui_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
-                                            build, migrations, ops manifest) → boot the DEV environment
+agent_app_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
+                                            build, migrations, op smoke [changed ops run against the
+                                            boot]) → boot the DEV environment
                                             (your code on a hidden port with a FRESH schema-only DB —
                                             migrations replay; live data is never cloned). The live app
                                             (if any) keeps running untouched. Gate failures come back
                                             in test_errors. Circuit breaker: identical error ×3 warns,
                                             ×6 stops.
-living_ui_walk_verify(project_id, scope?)   Headless-browser sub-agent drives the DEV instance
+agent_app_walk_verify(project_id, scope?)   Headless-browser sub-agent drives the DEV instance
                                             feature-by-feature against reference/requirements.md.
                                             scope="auto" (default): the verifier decides which features
                                             the change can reach (it is handed the diff since the last
@@ -1218,56 +1233,63 @@ living_ui_walk_verify(project_id, scope?)   Headless-browser sub-agent drives th
                                             the code to the live app (first build → live DB created
                                             fresh from migrations; update → new migrations apply to the
                                             real data) and destroys the dev copy. 35-minute ceiling.
-living_ui_restart(project_id)               Stop + full launch pipeline.
-living_ui_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
-living_ui_usage(project_id)                 Returns the project's operating manual: path, live data
-                                            schema, exact lui CLI commands. Call this FIRST when
+agent_app_restart(project_id)               Stop + full launch pipeline.
+agent_app_report_progress(project_id, ...)  Creation-phase progress. No-op once the project runs.
+agent_app_report_finding(project_id,        Inside a factory FIX round. ruled_out: causes you PROVED
+  ruled_out?, blocked_question?)            innocent, with the evidence that killed each — every later
+                                            round is a fresh run and re-tests anything you did not
+                                            record. blocked_question: ends the build cleanly and puts
+                                            ONE question to the user (a design decision, an account
+                                            that is not connected, a credential). Never use it to
+                                            escape a hard bug — a bug is yours while budget remains.
+agent_app_usage(project_id)                 Returns the project's operating manual: path, live data
+                                            schema, exact agent-app CLI commands. Call this FIRST when
                                             working on an existing project.
-living_ui_http(project_id, method, path)    FALLBACK HTTP access — prefer the lui CLI. PocketBase
+agent_app_http(project_id, method, path)    FALLBACK HTTP access — prefer the agent-app CLI. PocketBase
                                             admin endpoints (/api/collections) are superuser-only;
                                             use /api/collections/<name>/records.
-living_ui_marketplace_list() /
-living_ui_marketplace_install(app_id, ...)  Install pre-built marketplace apps. As-is installs skip
+agent_app_marketplace_list() /
+agent_app_marketplace_install(app_id, ...)  Install pre-built marketplace apps. As-is installs skip
                                             walk_verify. Marketplace source branch: settings.json
-                                            living_ui.marketplace_ref (default "" = main; env
+                                            agent_app.marketplace_ref (default "" = main; env
                                             CRAFTBOT_MARKETPLACE_REF overrides one run). Only touch
                                             it to test a non-main marketplace branch.
-living_ui_import_zip(zip_path) /
-living_ui_import(source)                    Import a Living UI project from ZIP / local folder / git URL.
-                                            Non-Living-UI sources register as external apps: craftbot.json
+agent_app_import_zip(zip_path) /
+agent_app_import(source)                    Import a Agent App project from ZIP / local folder / git URL.
+                                            Non-Agent-App sources register as external apps: craftbot.json
                                             (install/build/start/health verbs) + an operations.json that
                                             maps declared ops onto the app's own endpoints via an A2App
-                                            adapter on the assigned port. lui ops / lui run (and raw HTTP
-                                            with the project's .agent-token) work against them; lui data
+                                            adapter on the assigned port. agent-app ops / agent-app run (and raw HTTP
+                                            with the project's .agent-token) work against them; agent-app data
                                             does not. If the app has no server API, leave operations
                                             empty — never invent verbs or map direct DB writes.
-living_ui_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operations.json against the
+agent_app_ops_verify(project_id, op_names?) EXTERNAL apps only: verifies operations.json against the
                                             RUNNING app — invokes every non-destructive op FOR REAL
                                             through the adapter (destructive ops are shape-checked).
                                             Run during adoption after notify_ready and after every
                                             operations.json edit; the import isn't done until it passes.
-living_ui_approve_triggers(project_id)      Record the USER'S consent for an app's declared agent
+agent_app_approve_triggers(project_id)      Record the USER'S consent for an app's declared agent
                                             triggers (triggers.json — requests the app may fire at you).
                                             Call ONLY after the user explicitly agreed in chat. Apps
                                             built here are pre-approved; marketplace/imported apps'
                                             fires are refused until approved.
-living_ui_convert(source, ...)              Rebuild a foreign app as a Living UI: fresh scaffold, original kept
+agent_app_convert(source, ...)              Rebuild a foreign app as a Agent App: fresh scaffold, original kept
                                             in reference/source/, requirements synthesized,
-                                            supervised build dispatched. Non-Living-UI sources register as external apps (craftbot.json).
+                                            supervised build dispatched. Non-Agent-App sources register as external apps (craftbot.json).
 ```
 
-### Data and ops: the lui CLI
+### Data and ops: the agent-app CLI
 
-Read/write a project's live data with the lui CLI via `run_shell` (absolute paths required):
+Read/write a project's live data with the agent-app CLI via `run_shell` (absolute paths required):
 
 ```
-node <craftbot_root>/living-ui/tools/src/cli.ts data <project_path> schema
-node <craftbot_root>/living-ui/tools/src/cli.ts data <project_path> <collection> list|create|update|delete ...
-node <craftbot_root>/living-ui/tools/src/cli.ts run  <project_path> <op-name> --param value
-node <craftbot_root>/living-ui/tools/src/cli.ts ops  <project_path>
+node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> schema
+node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> <collection> list|create|update|delete ...
+node <craftbot_root>/agent-app/tools/src/cli.ts run  <project_path> <op-name> --param value
+node <craftbot_root>/agent-app/tools/src/cli.ts ops  <project_path>
 ```
 
-`living_ui_usage(project_id)` returns the exact commands for a given project. Use `living_ui_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
+`agent_app_usage(project_id)` returns the exact commands for a given project. Use `agent_app_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
 
 ### Build / delivery lifecycle (one flow for builds and modifies)
 
@@ -1283,28 +1305,28 @@ write code in the project dir → notify_ready (validation gate + boot of the
 - The factory host owns retries, fix-mission dispatch, and the "ready" announcement. Do not author success status messages for a build yourself.
 - Any modify must append a dated bullet to the `## Changes` section of `reference/requirements.md` — walk_verify checks the app against that file, so a stale spec means a wrong verdict.
 - **Live data lives at `<project>/pb/pb_data/data.db`, and its PRESENCE is what decides first-build vs update** (there is no "delivered" flag anymore). NEVER hand-delete or reset `pb/pb_data/` — that turns the next promote into a "first build" and the live DB is recreated empty.
-- **Backups**: every native app's live data is auto-backed-up to `workspace/living_ui/_backups/<project_id>/` (scheduled daily + a pre-update backup taken right before every deploy onto existing live data — if that backup fails, the deploy is ABORTED; fix the backup error, don't bypass). Backups survive app deletion. Restore is a user-only operation from the UI; you cannot trigger it.
+- **Backups**: every native app's live data is auto-backed-up to `workspace/agent_app/_backups/<project_id>/` (scheduled daily + a pre-update backup taken right before every deploy onto existing live data — if that backup fails, the deploy is ABORTED; fix the backup error, don't bypass). Backups survive app deletion. Restore is a user-only operation from the UI; you cannot trigger it.
 
 ### Skills
 
 ```
-living-ui-creator     start a new project (wizard, requirements, scaffold)
-living-ui-modify      change an existing project (features, layout, fixes)
-living-ui-manager     list, inspect, restart projects
-living-ui-importer    marketplace install + import from ZIP / folder / git
+agent-app-creator     start a new project (wizard, requirements, scaffold)
+agent-app-modify      change an existing project (features, layout, fixes)
+agent-app-manager     list, inspect, restart projects
+agent-app-importer    marketplace install + import from ZIP / folder / git
 ```
 
-Prefer these via slash (`/living-ui-creator`) or LLM selection — they encode the right action sequence.
+Prefer these via slash (`/agent-app-creator`) or LLM selection — they encode the right action sequence.
 
 ### Design rules
 
-Before creating any project, read `GLOBAL_LIVING_UI.md` (colors, theme behavior, always-enforced component/UX rules, optional rules, user custom rules). Apply global rules first; override only on explicit user instruction, and record project-specific overrides in the project's own `LIVING_UI.md`. Edit GLOBAL_LIVING_UI.md only when the user gives a new universal rule — confirm scope first, same pattern as FORMAT.md.
+Before creating any project, read `GLOBAL_AGENT_APP.md` (colors, theme behavior, always-enforced component/UX rules, optional rules, user custom rules). Apply global rules first; override only on explicit user instruction, and record project-specific overrides in the project's own `AGENT_APP.md`. Edit GLOBAL_AGENT_APP.md only when the user gives a new universal rule — confirm scope first, same pattern as FORMAT.md.
 
 ### Editing an existing project
 
 ```
-1. living_ui_usage(project_id) — get the operating manual.
-2. Read the project's LIVING_UI.md (plan/index + file-ownership map) and reference/requirements.md.
+1. agent_app_usage(project_id) — get the operating manual.
+2. Read the project's AGENT_APP.md (plan/index + file-ownership map) and reference/requirements.md.
 3. Respect ownership: frontend/src/app/, pb/pb_hooks/ops.pb.js, pb/pb_migrations/ are editable;
    frontend/src/kit/ and _-prefixed pb_hooks are system-managed — never edit.
 4. Append the change to requirements.md "## Changes", then notify_ready → walk_verify.
@@ -1314,13 +1336,13 @@ When a project misbehaves: grep `logs/pocketbase.log` (server side) and `logs/fr
 
 ### Pitfalls
 
-- Hand-writing a scaffold instead of `living_ui_scaffold`. Manual scaffolds miss the kit, ports, and registration.
+- Hand-writing a scaffold instead of `agent_app_scaffold`. Manual scaffolds miss the kit, ports, and registration.
 - Editing `frontend/src/kit/` or system-managed pb_hooks. They are re-vendored and your edits are lost.
 - Skipping the `reference/requirements.md` update on modify. walk_verify then verifies against a stale spec.
 - Renaming a project directory by hand. `manifest.json` (project root) is the source of truth for identity and ports.
-- Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the lui CLI.
-- Using `living_ui_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the lui CLI.
-- Putting project-specific design changes in GLOBAL_LIVING_UI.md instead of the project's LIVING_UI.md.
+- Deleting or resetting `pb/pb_data/` to "fix" a data problem. Its existence is the first-build-vs-update signal; removing it makes the next promote recreate the live DB from scratch. Data problems go through migrations or the agent-app CLI.
+- Using `agent_app_http` against `/api/collections` admin endpoints. Superuser-only; use record endpoints or the agent-app CLI.
+- Putting project-specific design changes in GLOBAL_AGENT_APP.md instead of the project's AGENT_APP.md.
 
 ---
 
@@ -1382,14 +1404,14 @@ output_schema    dict  JSON-schema-like description of return shape. Read this t
 requirement      list  pip packages auto-installed in sandbox before execution.
 test_payload     dict  test input for diagnostic harness. The "simulated_mode" key bypasses real execution.
 action_sets      list  set names this action belongs to. Determines when it's loaded.
-parallelizable   bool  default True. False = action runs alone in its turn (write ops, state changes).
+parallelizable   bool  default True. False = action runs alone in its turn (e.g. set/skill changes, end_turn).
 irreversible     bool  default False. True = outward-facing side effect (send email/message,
                        public post). Guarded by an activity ledger: intent recorded before
                        execution, completed runs never silently re-executed.
 ```
 
 Key implications when reading an action:
-- `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `add_action_sets`, `remove_action_sets`, `end_turn`, `stream_edit`.
+- `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `add_action_sets`, `remove_action_sets`, `end_turn`.
 - `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. Most actions are `internal` (run in-process).
 - `default=True` means the action is in the action list regardless of which sets are loaded. Common defaults: `send_message`, `update_todos`, `set_requirement`, `spawn_subagent`, `run_shell`, `generate_image`, `generate_video`.
 - `mode="GUI"` actions (`clipboard_read`, `clipboard_write`) are filtered out of the CLI runtime's action list even when their set is loaded.
@@ -1420,12 +1442,12 @@ proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggl
                          remove_scheduled_task, recurring_add, recurring_read,
                          recurring_update_task, recurring_remove
 
-living_ui                living_ui_scaffold, living_ui_list_projects, living_ui_notify_ready,
-                         living_ui_walk_verify, living_ui_restart, living_ui_report_progress,
-                         living_ui_http, living_ui_usage, living_ui_marketplace_list,
-                         living_ui_marketplace_install, living_ui_import_zip, living_ui_import,
-                         living_ui_convert, living_ui_ops_verify, living_ui_approve_triggers,
-                         browser_probe
+agent_app                agent_app_scaffold, agent_app_list_projects, agent_app_notify_ready,
+                         agent_app_walk_verify, agent_app_restart, agent_app_report_progress,
+                         agent_app_report_finding, agent_app_http, agent_app_usage,
+                         agent_app_marketplace_list,
+                         agent_app_marketplace_install, agent_app_import_zip, agent_app_import,
+                         agent_app_convert, agent_app_ops_verify, agent_app_approve_triggers
 
 per-integration sets     Discord, Slack, Telegram (bot/user), Notion, LinkedIn, Jira, GitHub,
                          Outlook, WhatsApp, Twitter, HubSpot, Stripe, LINE, Lark (+calendar/drive),
@@ -1498,7 +1520,7 @@ Any set name not in `DEFAULT_SET_DESCRIPTIONS` is presented to the LLM as `Custo
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
 content_creation      generate_image, generate_video
-living_ui             the full Living UI surface (see ## Living UI) + browser_probe
+agent_app             the full Agent App surface (see ## Agent App)
 
 per-integration sets (loaded only when the user has the integration connected):
 umbrella set = <name> (15-25 high-value actions), plus fine-grained
@@ -1536,7 +1558,7 @@ After loading, the new actions ARE in your prompt the next turn. You do not need
 ```
 Document generation               document_processing
 Image / video generation          content_creation (or image / video)
-Living UI work                    living_ui
+Agent App work                    agent_app
 Recurring / proactive setup       proactive
 Per-platform integration          <integration_name>  (e.g. slack), or a
                                   fine-grained <name>_<resource> set for narrow work
@@ -1648,7 +1670,7 @@ For each integration registered in the `craftos_integrations` package, a slash c
 plus handler-specific subcommands (e.g. login-qr for whatsapp_web, invite for OAuth flows)
 ```
 
-There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (23 integrations) and each one's credential fields live in `craftos_integrations/providers/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
+There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (24 integrations) and each one's credential fields live in `craftos_integrations/providers/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
 
 ### Agent-provided commands
 
@@ -1677,7 +1699,6 @@ app/config/settings.json              model, API keys, OAuth, cache, browser, me
 app/config/mcp_config.json            MCP server registry                                     hot-reload
 app/config/skills_config.json         enabled / disabled skills                               hot-reload
 app/config/scheduler_config.json      cron schedules                                          hot-reload
-app/config/external_comms_config.json telegram + whatsapp listener configs                    NOT watched — restart required
 app/config/onboarding_config.json     first-run state                                         NOT watched
 app/config/connection_test_models.json  per-provider cheap test models                        NOT watched
 ```
@@ -1749,11 +1770,6 @@ skills_config.json
                   Already-loaded skills on the current run are unaffected until reloaded.
   log signature   [SKILL] Reloaded skills_config ...
 
-external_comms_config.json
-  NOT watched. Editing it requires a restart to take effect. Telegram and whatsapp
-  listener configs live here; other platforms are managed by .credentials/ +
-  /<integration> commands.
-
 scheduler_config.json
   callback        scheduler.reload  (async)
   effect          schedules re-parsed. New entries fire on their first matching window.
@@ -1772,7 +1788,6 @@ onboarding_config.json
 - The live LLM client's provider/model (requires a reinitialize — `/provider` or Settings UI save, see `## Models`).
 - An LLM call already in flight (uses the old config; next turn uses the new one).
 - A loaded skill's body/metadata on the current run (unload and re-load the skill to pick up changes).
-- `external_comms_config.json` (not watched — restart required).
 - New built-in actions added by creating a new `.py` file under `app/data/action/` (code change, requires restart).
 - Changes to OS environment variables not stored in any config file (requires restart).
 - Code changes anywhere in `app/`, `agent_core/` (requires restart).
@@ -1796,9 +1811,6 @@ skills_config.json
   - run /skill list (user-side) or
   - call list_skills action  → confirms enabled/disabled state
   - new /<skill_name> slash commands appear after sync_skill_commands fires
-
-external_comms_config.json
-  - not hot-reloaded; verify after a restart (listener connection messages in the log)
 
 scheduler_config.json
   - check logs:  grep_files "[SCHEDULER]" logs/<run>/all.log -A 2
@@ -1830,6 +1842,11 @@ memory:
   max_items: int                 (default 200; cap on MEMORY.md before pruning)
   prune_target: int              (default 135; how many items remain after a prune)
   item_word_limit: int           (default 150; words per stored memory item)
+  processing_threshold: int      (default 25; min total unprocessed events before a memory run fires)
+
+context:                         (event-stream budget; a fold is decided on the WHOLE request)
+  reserve_tokens: int            (default 16384; headroom the fold/summary request itself needs)
+  keep_recent_tokens: int        (default 20000; recent events kept verbatim after a fold)
 
 model:
   llm_provider: any provider key registered in the code (see ## Models);
@@ -1841,6 +1858,9 @@ model:
   image_gen_model / video_gen_model: string | null
   slow_mode: bool                (true throttles requests for rate-limited providers)
   slow_mode_tpm_limit: int       (default 30000; tokens per minute when slow_mode is true)
+  context_window: int            (default 128000; the configured model's context window in tokens;
+                                  drives the context-overflow fold; set it to match your model or
+                                  requests get force-summarized, then rejected. See ## Errors.)
 
 api_keys:
   openai: string                 (sk-...)
@@ -1909,6 +1929,8 @@ mcp_servers: [
     args: [string]                                 stdio command arguments
     url: string                                    required for sse / websocket
     env: { KEY: VALUE }                            environment variables passed to the server process
+    cwd: string                                    (stdio only) working directory for the subprocess;
+                                                   default = the agent workspace (see ## MCP)
     enabled: bool                                  controls whether the server connects on load/reload
     action_set_name: string                        default "mcp_<name>"; the action set tools register under
   }
@@ -1948,37 +1970,6 @@ To remove a skill entirely: also delete the directory under skills/.
 SKILL.md frontmatter fields: see ## Skills.
 ```
 <!-- /schema:skills_config.json -->
-
-<!-- schema:external_comms_config.json -->
-```
-File: app/config/external_comms_config.json
-
-telegram:
-  enabled: bool                  master switch for the telegram listener
-  mode: "bot" | "mtproto"        bot = Bot API; mtproto = user-account API
-  bot_token: string              required for mode=bot (from @BotFather)
-  bot_username: string           the bot's @username (without the @)
-  api_id: string                 required for mode=mtproto (from my.telegram.org)
-  api_hash: string               required for mode=mtproto
-  phone_number: string           required for mode=mtproto (E.164 format)
-  auto_reply: bool               if true, incoming messages route to the agent
-
-whatsapp:
-  enabled: bool                  master switch for whatsapp listener
-  mode: "web" | "business"       web = WhatsApp Web (Playwright); business = Cloud API
-  session_id: string             web mode: cached browser session
-  phone_number_id: string        business mode (from Meta business)
-  access_token: string           business mode
-  auto_reply: bool
-
-NOTE: Other platforms (discord, slack, gmail, notion, linkedin, outlook,
-google, jira, github, twitter) do NOT live in this file.
-- Their credentials live under .credentials/<platform>.json.
-- OAuth client_id/secret for some live in settings.json's "oauth" section.
-- Connect/disconnect via /<platform> commands.
-See ## Integrations and ## Slash Commands.
-```
-<!-- /schema:external_comms_config.json -->
 
 <!-- schema:scheduler_config.json -->
 ```
@@ -2135,7 +2126,7 @@ The action set name is `mcp_<name>` by default, or whatever `action_set_name` is
 
 ### Pre-defined servers in this codebase
 
-The shipped `mcp_config.json` contains roughly 157 server entries (most `enabled: false`). Examples of always-shipped, commonly-enabled ones:
+The shipped `mcp_config.json` contains roughly 158 server entries (most `enabled: false`). Examples of always-shipped, commonly-enabled ones:
 
 ```
 filesystem            @modelcontextprotocol/server-filesystem      file ops on cwd
@@ -2147,6 +2138,8 @@ github-mcp            @modelcontextprotocol/server-github           GitHub API
 Categories present in the shipped config: filesystem, browser automation, calendar/email/notes, finance/markets/crypto, productivity, OS integrations, fitness, search, media, AI/image, e-commerce, dev tools, security, design, analytics, real estate. To enumerate: `grep_files '"name":' app/config/mcp_config.json` returns the full list.
 
 Before adding a NEW server, check the existing entries. The capability you need may already be there as `enabled: false` — flipping the flag is safer than adding a duplicate.
+
+Stdio server cwd: unless an entry sets `cwd`, stdio MCP subprocesses run from the agent workspace (`agent_file_system/workspace/`). Cwd-relative artifacts land there; e.g. `playwright-mcp` writes screenshots to `agent_file_system/workspace/.playwright-mcp/`, reachable by your file tools.
 
 ### Add or enable a server (recipe)
 
@@ -2543,9 +2536,9 @@ predict-stock-next-week      stock prediction workflow
 docx, pptx, xlsx, pdf        document generation per file format
 file-format                  format normalization
 playwright-mcp               browser automation steering
-living-ui-creator,
-living-ui-modify,
-living-ui-manager            Living UI project lifecycle
+agent-app-creator,
+agent-app-modify,
+agent-app-manager            Agent App project lifecycle
 compile-report-advance       multi-source report compilation
 ```
 
@@ -2561,7 +2554,7 @@ Code: the standalone [craftos_integrations/](craftos_integrations/) package owns
 
 ### What's wired in
 
-23 integrations. Each has an `auth_type` that determines how connection happens:
+24 integrations. Each has an `auth_type` that determines how connection happens:
 
 ```
 id                  auth_type                description
@@ -2589,6 +2582,7 @@ twitter             token                    Tweets, timeline
 stripe              token                    Payments
 line                token                    LINE Messaging API
 lark                token                    Lark messaging
+posthog             token                    Product analytics, feature flags, dashboards
 ```
 
 To enumerate at runtime: call the `list_available_integrations` action. To check what's already connected: `check_integration_status`. Guessed ids get normalized via an alias map (e.g. `gdrive` → `google_drive`, `gcal` → `google_calendar`).
@@ -2740,6 +2734,16 @@ twitter
     1. Go to https://developer.twitter.com → Projects & Apps → create an app.
     2. Keys and tokens tab: regenerate Consumer Keys, then Access Token and Secret.
     3. Apps need at least Read+Write user-context permissions for posting.
+
+posthog
+  api_key             (required: Personal API Key "phx_..."; scope it to the
+                       resources the agent may touch; it can only do what the key allows)
+  host                (optional: "us", "eu", or a self-host URL; default US Cloud)
+  project_id          (optional: auto-detected from the key if omitted)
+  Where to get it:
+    1. PostHog → your avatar (top right) → Personal API keys.
+    2. Create personal API key; grant read+write on Query, Insight, Dashboard,
+       Feature flag, Cohort, Person, Annotation. Copy it (shown once, "phx_...").
 ```
 
 For OAuth integrations: shipped client credentials are embedded ([agent_core/core/credentials/embedded_credentials.py](agent_core/core/credentials/embedded_credentials.py)) — Google services, Slack, Notion, HubSpot, Outlook connect one-click without the user registering an app. The `settings.json` `oauth.<platform>` block (google / linkedin / slack / notion / outlook) is an optional override for users who bring their own OAuth app; only walk a user through developer-console registration if they explicitly want their own app or the embedded flow is unavailable.
@@ -2803,7 +2807,7 @@ Remember: Google is per-service. "Connect my Google account" → ask which servi
 
 ### Listener auto-start
 
-After a successful `connect_integration` call, the connect dispatcher auto-starts the platform's listener generically (`manager.start_platform(handler.spec.platform_id)`) for platforms that support push-style messaging. Telegram/WhatsApp listener runtime configs live in `external_comms_config.json` (restart to change).
+After a successful `connect_integration` call, the connect dispatcher auto-starts the platform's listener generically (`manager.start_platform(handler.spec.platform_id)`) for platforms that support push-style messaging.
 
 ### Verifying a connection
 
@@ -3206,29 +3210,34 @@ Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manag
 1. Action / message / system event happens
         |
         v
-2. EventStreamManager appends to EVENT.md           (full chronological log)
+2. EventStreamManager appends to the writing         (per-session full log,
+   session's EVENT.md                                 workspace/sessions/<id>/)
         |
         v
-3. EventStreamManager appends filtered subset to    (memory pipeline staging
-   EVENT_UNPROCESSED.md                              buffer; see filter below)
+3. EventStreamManager appends filtered subset to    (that session's memory
+   the same session's EVENT_UNPROCESSED.md            staging buffer; filter below)
         |
         v
-4. Daily at the configured time (default 3am) the    (or on startup if buffer
-   scheduler fires a MEMORY-source trigger — but      is non-empty)
-   the run proceeds ONLY if unprocessed events ≥
+4. Daily at the configured time (default 3am) the    (or on startup if buffers
+   scheduler fires a MEMORY-source trigger — but      are non-empty)
+   the run proceeds ONLY if unprocessed events
+   (summed across ALL sessions) ≥
    memory.processing_threshold (default 25) OR
    MEMORY.md pruning is due; otherwise the fire
    is skipped (idle days cost nothing)
         |
         v
-5. Run loads the memory-processor skill             (set_skip_unprocessed_logging
-   reads EVENT_UNPROCESSED.md                        is True so the run's own
-   applies the Future Utility Test                   events do not loop back)
-   (SAVE / NEVER-save condition lists)
-   distills passing events to MEMORY.md
+5. The run assembles EVERY session's                (oldest event first, one
+   EVENT_UNPROCESSED.md into one time-ordered         merged staging file)
+   staging file, then loads the memory-processor     (set_skip_unprocessed_logging
+   skill, applies the Future Utility Test             is True so the run's own
+   (SAVE / NEVER-save lists), and distills            events do not loop back)
+   passing events into the single global MEMORY.md
         |
         v
-6. EVENT_UNPROCESSED.md is cleared
+6. On success, the processed events are cleared      (an interrupted run clears
+   from each source session's EVENT_UNPROCESSED.md    nothing, so events are
+   and the staging file is removed                    reprocessed next time)
         |
         v
 7. memory_file_watcher detects MEMORY.md changed,
@@ -3304,9 +3313,9 @@ AGENT.md
 PROACTIVE.md
 MEMORY.md
 USER.md
-EVENT_UNPROCESSED.md
 ENTITIES.md
 ```
+(EVENT_UNPROCESSED.md is deliberately NOT indexed: it is a per-session transient buffer, cleared once memory processing consumes it. Grep it, don't memory_search it.)
 
 plus any extra files the user has added via `memory.indexed_files` in settings.json (managed from the Memory settings panel; merged in at runtime).
 
@@ -3338,7 +3347,7 @@ The watcher at [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/c
 3. cache the new hash
 ```
 
-Chunking: MEMORY.md and EVENT_UNPROCESSED.md are chunked per ITEM (one chunk per `[ts] [category] content` line); AGENT.md, USER.md, and PROACTIVE.md are chunked per markdown section. The watcher debounces changes by 30 seconds. Logs:
+Chunking: MEMORY.md is chunked per ITEM (one chunk per `[ts] [category] content` line); AGENT.md, USER.md, and PROACTIVE.md are chunked per markdown section. The watcher debounces changes by 30 seconds. Logs:
 
 ```
 [MemoryFileWatcher] Started watching: <agent_file_system path>
@@ -3355,7 +3364,7 @@ Question                                         Tool
 "Show me all entries of a specific type"         grep_files "[type]" MEMORY.md
 "What's in USER.md right now?"                   read_file USER.md
 "Find specific text in PROACTIVE.md"             grep_files "<text>" PROACTIVE.md
-"What past runs involved <subject>?"             grep_files "<subject>" agent_file_system/EVENT.md
+"What past runs involved <subject>?"             grep_files "<subject>" workspace/sessions/<id>/EVENT.md
 ```
 
 memory_search is for "what do I know about" questions. Grep is for "find this exact string". Pick the right tool.
@@ -3386,7 +3395,7 @@ Option 1: Add to USER.md
   USER.md is in INDEX_TARGET_FILES, so memory_search picks it up.
 
 Option 2: Wait for next pipeline run
-  Every interaction is in EVENT_UNPROCESSED.md. The 3am job will distill it.
+  Every interaction is in this session's EVENT_UNPROCESSED.md; the next qualifying memory run aggregates all sessions and distills it.
   Tell the user: "I'll remember that — it'll be distilled into long-term
   memory in the next memory cycle."
 
@@ -4069,7 +4078,7 @@ Operational manual (this file)         AGENT.md                                 
 User preferences                       USER.md                                       ## Self-Edit
 Personality / tone                     SOUL.md                                       ## Self-Edit
 Document formatting standards          FORMAT.md                                     ## Documents
-Living UI global design                GLOBAL_LIVING_UI.md                           ## Living UI
+Agent App global design                GLOBAL_AGENT_APP.md                           ## Agent App
 Hot-reload behavior                    config files (auto-applies)                   ## Configs
 ```
 
@@ -4172,7 +4181,7 @@ Switch model / set API key               →  ## Models "Switching provider or m
 Add a recurring task                     →  ## Proactive "Setting up a proactive task — chat-driven flow"
 Schedule a one-shot                       →  ## Proactive "One-time / immediate proactive tasks"
 Edit FORMAT.md                            →  ## Documents
-Edit GLOBAL_LIVING_UI.md                  →  ## Living UI
+Edit GLOBAL_AGENT_APP.md                  →  ## Agent App
 Edit AGENT.md / USER.md / SOUL.md         →  ## Self-Edit
 Adjust memory settings                    →  ## Memory "Settings that affect memory" + ## Configs
 Adjust scheduler entries                  →  ## Configs (## scheduler_config.json schema)
@@ -4387,7 +4396,7 @@ Personality / tone / behavior style                     SOUL.md           explic
 Document / file generation standards                    FORMAT.md         confirm scope (global vs
   (colors, fonts, layouts per file type)                                   per-doctype)
 
-Living UI design rules                                  GLOBAL_LIVING_UI  ask if non-trivial
+Agent App design rules                                  GLOBAL_AGENT_APP  ask if non-trivial
   (palette, components, responsive rules)               .md
 
 Per-mission state, multi-task continuity                workspace/        no consent needed
@@ -4525,13 +4534,13 @@ If you can't pick one cleanly, the change isn't well-scoped yet. Ask the user be
 - Don't put operational rules here. Operational rules go in AGENT.md. SOUL.md is voice and behavior style only.
 - If the user says "stop doing X" repeatedly and X feels personality-driven, ASK before editing SOUL.md. They might just want a one-task fix, not a permanent voice change.
 
-### FORMAT.md and GLOBAL_LIVING_UI.md
+### FORMAT.md and GLOBAL_AGENT_APP.md
 
-These are not strictly "self" files (they're for output design, not agent behavior), but the agent edits them under similar discipline. See `## Documents` and `## Living UI` for the per-file procedures.
+These are not strictly "self" files (they're for output design, not agent behavior), but the agent edits them under similar discipline. See `## Documents` and `## Agent App` for the per-file procedures.
 
 Quick rules:
 - FORMAT.md: edit when the user gives a durable formatting preference. Confirm scope (global vs file-type-specific) before writing.
-- GLOBAL_LIVING_UI.md: edit when the user supplies a new universal UI rule. For project-specific overrides, edit the per-project `LIVING_UI.md` instead.
+- GLOBAL_AGENT_APP.md: edit when the user supplies a new universal UI rule. For project-specific overrides, edit the per-project `AGENT_APP.md` instead.
 
 ### AGENT.md ↔ template sync
 
@@ -4650,18 +4659,18 @@ EVENT.md                  complete chronological event log (do not edit)        
 EVENT_UNPROCESSED.md      memory pipeline staging buffer (do not edit)                     ## File System / ## Memory
 event pipeline            flow from event -> EVENT_UNPROCESSED -> MEMORY.md                ## Memory
 FORMAT.md                 document/design standards file                                   ## Documents
-GLOBAL_LIVING_UI.md       global Living UI design rules                                    ## Living UI
+GLOBAL_AGENT_APP.md       global Agent App design rules                                    ## Agent App
 heartbeat                 scheduler entry firing every 30 min to run due proactive tasks   ## Proactive
 heartbeat-processor       skill that executes due tasks during a heartbeat                 ## Proactive
 hot-reload                config-watcher debounced 0.5s reload of /app/config/             ## Configs
 INDEX_TARGET_FILES        the six files indexed by memory_search (+ user extras)           ## Memory
 integration               external-service connection (Slack, GitHub, Jira, ...)           ## Integrations
 INTEGRATION.md            per-integration reference doc; ## Essentials auto-injected       ## Integrations
-LIVING_UI.md              per-project doc inside a Living UI project                       ## Living UI / ## File System
-Living UI                 generated React + PocketBase apps served from CraftBot           ## Living UI
+AGENT_APP.md              per-project doc inside a Agent App project                       ## Agent App / ## File System
+Agent App                 generated React + PocketBase apps served from CraftBot           ## Agent App
 LLM                       large language model used for text generation                    ## Models
 LLMConsecutiveFailureError  circuit-breaker on repeated LLM failures                       ## Errors / ## Models
-lui CLI                   node CLI for Living UI data/ops (living-ui/tools)             ## Living UI
+agent-app CLI                   node CLI for Agent App data/ops (agent-app/tools)             ## Agent App
 manage_integration_account  account admin action: set_primary / set_alias / set_listening  ## Integrations
 MCP                       Model Context Protocol; external tool servers                    ## MCP
 mcp_<server_name>         action set name registered when an MCP server connects           ## MCP / ## Action Sets
@@ -4685,7 +4694,7 @@ reinitialize_llm          internal call that rebuilds LLMInterface after a model
 run                       one wake of a session; ends on final send_message or end_turn    ## Runtime / ## Runs
 schedule_task             action to add immediate / one-shot / recurring scheduled task    ## Proactive
 scheduler_config.json     cron schedules for system + user one-shot tasks                  ## Configs / ## Proactive
-session                   work lane (main / chat / living_ui) with its own event stream,
+session                   work lane (main / chat / agent_app) with its own event stream,
                           trigger queue, and workspace dir                                 ## Runtime
 set_requirement           action recording the deliverable contract for a run              ## Runs
 SKILL.md                  skill definition file with YAML frontmatter + body               ## Skills
@@ -4698,7 +4707,7 @@ trigger aggregation       all due triggers for a session fold into one turn     
 update_todos              action maintaining the run's todo plan                           ## Runs
 USER.md                   user profile file (preferences, identity, goals)                  ## Self-Edit / ## File System
 VLM                       vision-language model used for image actions                      ## Models
-walk_verify               sub-agent that drives a Living UI app in a headless browser      ## Living UI / ## Sub-Agents
+walk_verify               sub-agent that drives a Agent App app in a headless browser      ## Agent App / ## Sub-Agents
 workspace/                per-agent sandbox under agent_file_system/                        ## Workspace
 ```
 

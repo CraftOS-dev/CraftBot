@@ -10,7 +10,7 @@ or extend the protected hooks.
 CraftBot is an open-source, light version of AI agent developed by CraftOS.
 
 Session-native architecture:
-- Every lane of work is a persistent Session (main / chat / living_ui).
+- Every lane of work is a persistent Session (main / chat / agent_app).
 - Each session has its own event stream, its own durable trigger queue and
   its own serial agent loop (SessionRuntimeManager).
 - A "run" is one wake of a session: trigger → turns → final message. A run
@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import shutil
 import traceback
 import time
@@ -158,11 +157,11 @@ RUN_START_SOURCES = {
     TriggerSource.PROACTIVE_PLANNER.value,
     TriggerSource.ONBOARDING.value,
     TriggerSource.SKILL_WORKFLOW.value,
-    TriggerSource.LIVING_UI_DEV.value,
-    TriggerSource.LIVING_UI_CRASH_FIX.value,
-    TriggerSource.LIVING_UI_IMPORT.value,
-    TriggerSource.LIVING_UI_CREATED.value,
-    TriggerSource.LIVING_UI_APP_REQUEST.value,
+    TriggerSource.AGENT_APP_DEV.value,
+    TriggerSource.AGENT_APP_CRASH_FIX.value,
+    TriggerSource.AGENT_APP_IMPORT.value,
+    TriggerSource.AGENT_APP_CREATED.value,
+    TriggerSource.AGENT_APP_APP_REQUEST.value,
 }
 
 # Payload keys propagated turn-to-turn across a run's continuation triggers.
@@ -181,8 +180,8 @@ RUN_CARRY_KEYS = (
 # turn start: source value → (emoji, label). Without this, non-chat runs
 # (scheduler fires, background workflows) just start streaming actions
 # with no visible cause. Sources absent here stay silent — user messages
-# have their own chat bubble; continuations, restart notices, living-ui
-# creation (adapter posts its own richer summary) and living-ui import are
+# have their own chat bubble; continuations, restart notices, agent-app
+# creation (adapter posts its own richer summary) and agent-app import are
 # handled elsewhere. Closed set keyed on the typed source enum.
 TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED.value: ("⏰", "Scheduled task"),
@@ -316,9 +315,8 @@ class AgentBase:
         )
 
         # A2APP claim gate (spec A2APP-PLAN Phase 1 B10): what this run has
-        # actually written to a Living UI, and how many messages have been
+        # actually written to a Agent App, and how many messages have been
         # withheld for misreporting it. Both reset when the run ends.
-        self._lui_run_writes: Dict[str, list] = {}
 
         # action layer
         self.action_library = ActionLibrary(self.llm, db_interface=self.db_interface)
@@ -367,7 +365,7 @@ class AgentBase:
         # (will be updated again in run() based on selected interface)
         self._interface_mode: str = "cli"
 
-        # Restore persisted sessions (main + chats + living UI) from the
+        # Restore persisted sessions (main + chats + agent app) from the
         # previous run, then guarantee the main session exists.
         self._restore_sessions()
         self.session_manager.ensure_main()
@@ -387,6 +385,12 @@ class AgentBase:
         self.context_engine.set_memory_manager(self.memory_manager)
         # Serializes entity-judge pipeline invocations (_run_entity_judge_pipeline).
         self._entity_judge_lock = asyncio.Lock()
+        # Snapshot of {session_queue_path: events_taken} captured when a memory
+        # run assembles the staging file. Consumed at run-end to clear exactly
+        # the processed events from each per-session EVENT_UNPROCESSED.md. None
+        # when no memory run is in flight — a premature exit thus clears
+        # nothing, so events survive for the next run.
+        self._memory_run_snapshot: Optional[Dict[str, int]] = None
 
         # ── Register components with shared registries ──
         # This enables shared code to access components via get_*() functions
@@ -707,18 +711,13 @@ class AgentBase:
             logger.info("[MEMORY] Memory is disabled, skipping trigger")
             return None
 
-        unprocessed_file = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-        event_lines: list[str] = []
-        if unprocessed_file.exists():
-            try:
-                content = unprocessed_file.read_text(encoding="utf-8")
-                event_lines = [
-                    line
-                    for line in content.strip().split("\n")
-                    if line.strip() and line.strip().startswith("[")
-                ]
-            except Exception as e:
-                logger.warning(f"[MEMORY] Failed to read EVENT_UNPROCESSED.md: {e}")
+        # Assemble every session's EVENT_UNPROCESSED.md into one time-ordered
+        # staging file (oldest event first) that the memory-processor skill
+        # reads. build_staging() rebuilds the file fresh, so a stale staging
+        # file left by an interrupted run is overwritten here, never reused.
+        from app.memory.unprocessed_queue import STAGING_FILE, build_staging
+
+        event_count, snapshot = build_staging()
 
         # Inspect MEMORY.md purely for the pruning need (item cap). Entity
         # work is NOT the memory-processor's job — the entity-judge
@@ -736,19 +735,25 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[MEMORY] Failed to inspect MEMORY.md: {e}")
 
-        if not event_lines and not needs_pruning:
+        if not event_count and not needs_pruning:
             logger.info("[MEMORY] No unprocessed events and no pruning needed")
             return None
 
-        # Freeze the unprocessed buffer so this run's own events don't loop
-        # back into it. Reset when the run ends (_on_run_end).
+        # Remember which events came from which session queue so run-end can
+        # clear exactly the processed prefix from each (see _on_run_end). Empty
+        # when this run is pruning-only.
+        self._memory_run_snapshot = snapshot or None
+
+        # Freeze the unprocessed buffers so this run's own events don't loop
+        # back into them. Reset when the run ends (_on_run_end).
         self.event_stream_manager.set_skip_unprocessed_logging(True)
 
         parts = []
-        if event_lines:
+        if event_count:
             parts.append(
-                f"Process the {len(event_lines)} unprocessed event(s) in "
-                f"EVENT_UNPROCESSED.md into long-term memory."
+                f"Process the {event_count} unprocessed event(s) in the "
+                f"EVENT_UNPROCESSED.md staging file at {STAGING_FILE} into "
+                f"long-term memory."
             )
         parts.append("Follow the memory-processor skill instructions.")
         instruction = " ".join(parts)
@@ -764,7 +769,7 @@ class AgentBase:
             "workflow_action_sets": ["file_operations"],
         }
         logger.info(
-            f"[MEMORY] Memory run: {len(event_lines)} events, pruning={needs_pruning}"
+            f"[MEMORY] Memory run: {event_count} events, pruning={needs_pruning}"
         )
         return instruction, workflow
 
@@ -1183,169 +1188,116 @@ class AgentBase:
             is_running_task=True,
         )
 
-        # A2APP: when the agent writes to a Living UI, the SYSTEM reports what
-        # actually landed. See spec/A2APP-PLAN.md Phase 1 B10/B11.
-        self._report_living_ui_writes(session_id, actions_with_input, results)
-
         return self._merge_action_outputs(results)
 
-    # Recognises a WRITE through the lui CLI. Reads (list/get) are ignored:
-    # they change nothing and need no receipt.
-    _LUI_WRITE = re.compile(
-        r"cli\.ts\s+(?:data\s+\S+\s+(?P<collection>\S+)\s+(?P<verb>create|update|delete)"
-        r"|run\s+\S+\s+(?P<op>[\w.\-]+))"
-    )
+    async def _warn_if_undeployed(self, session) -> None:
+        """A run ending with un-shipped source changes must say so.
 
-    def _report_living_ui_writes(
-        self, session_id: str, actions_with_input: list, results: list
-    ) -> None:
-        """Report what a turn changed, IN CRAFTBOT'S VOICE, and refresh the app.
+        Editing a file is not shipping it: the running app serves whatever the
+        project tree held when it was last launched or promoted, so a run can
+        edit, tick its own "Verify" todo, say "Done" and end while the user
+        looks at the old build. Observed live 2026-09-02 (brainstorm_graph
+        f1eb1c85): three rounds of edits, three "Done" messages, zero deploys,
+        and a user replying "i dont see suggestions" after each one.
 
-        Why the system writes it: in the incident that motivated A2APP the
-        agent wrote a card with an empty due date, read `"due_date":""` in its
-        own tool output, and told the user "scheduled for tomorrow". Guarding
-        the write stops the bad data; it does not stop the false sentence.
-
-        Why it is not a separate "System" speaker: it was, and it read badly —
-        the user saw a grey robot line restating what the assistant then said
-        again, less precisely ("due tomorrow" against the receipt's "due Fri 31
-        Jul") and padded with filler. Delivering the fact AS CraftBot removes
-        the duplication and the extra narration turn, and keeps the guarantee:
-        the words come from the stored record, not from the model.
-
-        One line per turn, not per write, so a turn that changes three things
-        does not produce three bubbles. (A bulk run spread over many turns
-        still yields many lines — see A2APP-PLAN for the open case.)
-
-        Also the only place `dispatch_living_ui_data_changed` fires on the CLI
-        path — previously it fired solely from the deprecated `living_ui_http`
-        action, so agent writes never refreshed the iframe.
+        The question "is anything unshipped?" is answered by comparing the
+        tree against the verify baseline, which is stamped in exactly the two
+        places an app ships — Promoter.promote and every live launch. That
+        makes this a CONTENT comparison against the system's own record,
+        rather than a guess assembled from which action names ran: it needs no
+        list of edit actions to maintain, it sees an edit made with `sed`
+        through run_shell, and it cannot disagree with the verifier about what
+        counts as changed, because it reads the same snapshot the verifier does.
         """
-        try:
-            session = self.session_manager.get(session_id)
-        except Exception:
-            session = None
-        project_id = getattr(session, "living_ui_project_id", None) if session else None
+        project_id = getattr(session, "agent_app_project_id", None)
         if not project_id:
             return
-
-        summaries = []
-        for (action, params), result in zip(actions_with_input, results):
-            try:
-                if getattr(action, "name", None) != "run_shell":
-                    continue
-                command = str((params or {}).get("command") or "")
-                match = self._LUI_WRITE.search(command)
-                if match is None:
-                    continue
-                # Trigger-plane bookkeeping is not user data: claim/done
-                # updates on agent_requests already have their user-facing
-                # output — the ⚡ fired event and the agent's final message.
-                # Receipting them produced three noise bubbles per fire
-                # ("claimed by craftbot… status claimed", then "…status
-                # done") between the ⚡ and the actual answer (observed live
-                # 2026-08-06, user: "bad UX to get so many status messages").
-                if match.group("collection") == "agent_requests":
-                    continue
-                summary = self._describe_write(session_id, project_id, match, result)
-                if summary:
-                    summaries.append(summary)
-            except Exception as e:  # a receipt must never break the turn
-                logger.debug(f"[A2APP] receipt skipped: {e}")
-
-        if not summaries:
-            return
-
-        if self.event_stream_manager:
-            text = (
-                summaries[0]
-                if len(summaries) == 1
-                else "\n".join(f"• {s}" for s in summaries)
-            )
-            self.event_stream_manager.log(
-                kind="living_ui_write",
-                message=text,
-                event_type=EventType.AGENT_MESSAGE,
-                display_message=text,
-                task_id=session_id,
-            )
-
         try:
-            from app.living_ui import dispatch_living_ui_data_changed
+            from app.agent_app import get_agent_app_manager
+            from app.factory.host_craftbot import get_factory_host
 
-            dispatch_living_ui_data_changed(project_id)
+            mgr = get_agent_app_manager()
+            project = mgr.get_project(project_id) if mgr else None
+            if project is None or not project.path:
+                return
+            if getattr(project, "status", "") == "creating":
+                return  # an unfinished build is the factory arc's business
+            host = get_factory_host()
+            arc = host.arc_for(project_id)
+            if arc is not None and arc.is_open:
+                # An open arc means the supervisor is already carrying this
+                # change to a deploy or a blocked/stuck report; this warning
+                # would only duplicate or contradict those announcements
+                # ("tell me to deploy it" mid-fix-mission — observed twice
+                # per failed walk, kanban 1aaa15d2 2026-09-16). Speak only
+                # for ORPHANED changes: no machine left to ship them.
+                return
+            unshipped = await asyncio.to_thread(self._unshipped_fingerprint, project)
+            announced = getattr(self, "_undeployed_announced", None)
+            if announced is None:
+                announced = {}
+                self._undeployed_announced = announced
+            if unshipped is None:
+                announced.pop(project_id, None)
+                return
+            if announced.get(project_id) == unshipped:
+                return  # the same unshipped state was already said once
+            announced[project_id] = unshipped
+            name = getattr(project, "name", None) or project_id
+            logger.warning(
+                "[AGENT_APP] run ended with un-deployed source changes in "
+                f"{name} ({project_id}) — telling the user."
+            )
+            host.announce_undeployed(project_id, str(name))
         except Exception as e:
-            logger.debug(f"[A2APP] data-changed dispatch skipped: {e}")
+            logger.debug(f"[AGENT_APP] undeployed check skipped: {e}")
 
-    def _describe_write(
-        self, session_id: str, project_id: str, match, result: dict
-    ) -> Optional[str]:
-        """One CLI write result -> one plain sentence, or None if there is
-        nothing the user needs to read."""
-        import json as _json
+    @staticmethod
+    def _unshipped_fingerprint(project) -> Optional[str]:
+        """What the project tree holds that the running app does not.
 
-        collection = match.group("collection")
-        verb = match.group("verb")
-        target = match.group("op") or f"{collection}.{verb}"
-        stdout = str((result or {}).get("stdout") or "")
-        stderr = str((result or {}).get("stderr") or "")
-        failed = (result or {}).get("status") == "error" or (result or {}).get(
-            "return_code"
-        ) not in (0, None)
+        Returns a stable digest of the differing files, or None when the tree
+        matches the last thing shipped. A digest rather than a bool so the
+        caller can tell "still the same unshipped work" from "something new",
+        and speak up only for the second.
 
-        # A failure the agent goes on to recover from is NOT an event in the
-        # user's world — it is an internal retry, and putting it in the chat
-        # reads like the assistant arguing with itself. The agent still sees it
-        # (action_end carries the full stderr) and so does anyone who opens the
-        # actions detail; the conversation stays about what the user asked for.
-        if failed:
-            logger.info(
-                f"[A2APP] {target} rejected: {(stderr or stdout).strip()[:200]}"
-            )
-            return None
+        Synchronous and hashes the watched tree, so callers run it off the
+        event loop. No baseline means the app has never shipped at all, which
+        is the build arc's problem, not this warning's.
+        """
+        import hashlib
 
-        record = None
-        try:
-            parsed = _json.loads(stdout)
-            if isinstance(parsed, dict) and "id" in parsed:
-                record = parsed
-        except Exception:
-            record = None
-
-        summary = f"{target} ok"
-        if record is not None and collection:
-            try:
-                from app.living_ui import get_living_ui_manager
-                from app.living_ui.agent_view import humanise_write
-
-                mgr = get_living_ui_manager()
-                proj = mgr.get_project(project_id) if mgr else None
-                base = (proj.backend_url or proj.url) if proj else None
-                if base:
-                    summary = humanise_write(
-                        base.rstrip("/"), collection, verb or "create", record
-                    )
-            except Exception as e:
-                logger.debug(f"[A2APP] could not humanise receipt: {e}")
-
-        self._lui_run_writes.setdefault(session_id, []).append(
-            {
-                "collection": collection,
-                "verb": verb,
-                "record": record,
-                "summary": summary,
-            }
+        from app.agent_app.verify_scope import (
+            read_baseline,
+            snapshot_files,
+            verify_store_dir,
         )
-        return summary
+
+        baseline = read_baseline(verify_store_dir(project))
+        if baseline is None:
+            return None
+        now = snapshot_files(Path(project.path))
+        then = baseline.get("files") or {}
+        if now == then:
+            return None
+        differing = sorted(
+            path for path in set(now) | set(then) if now.get(path) != then.get(path)
+        )
+        return hashlib.sha256(
+            "\n".join(f"{p}:{now.get(p, '-')}" for p in differing).encode()
+        ).hexdigest()[:16]
 
     def _merge_action_outputs(self, outputs: list) -> dict:
         """
         Merge outputs from parallel actions into single response.
 
         Preserves all individual results and extracts key fields for run
-        control. A turn ends the run only when EVERY executed action signals
-        ``end_turn`` (send_message without continue_work, end_turn) — any
-        working action means the run continues.
+        control. A turn ends the run as soon as ANY executed action signals
+        ``end_turn`` (a terminal send_message without continue_work, or the
+        end_turn action). A terminal message batched with a working action
+        therefore ends the run and waits for the next trigger, instead of
+        spawning a continuation that would only re-message the user. Only
+        ``continue_work=true`` messages keep the run alive.
         """
         if not outputs:
             return {}
@@ -1359,7 +1311,12 @@ class AgentBase:
             "fire_at_delay": max(
                 (output.get("fire_at_delay", 0.0) for output in outputs), default=0.0
             ),
-            "run_ends": all(output.get("end_turn", False) for output in outputs),
+            "run_ends": any(output.get("end_turn", False) for output in outputs),
+            # Any action in the batch parking on an answerable question makes
+            # the whole run a wait, not a surrender.
+            "awaiting_answer": any(
+                output.get("awaiting_answer", False) for output in outputs
+            ),
         }
 
         errors = [o for o in outputs if o.get("status") == "error"]
@@ -1384,20 +1341,22 @@ class AgentBase:
         run_ends = bool(action_output.get("run_ends", False))
 
         if run_ends:
-            # The claim gate is scoped to a run: what was written for THIS
-            # request says nothing about the next one.
-            self._lui_run_writes.pop(session.id, None)
-            # FACTORY Phase 1 (closes I6): if this run belonged to a Living UI
+            # Files edited but never deployed: the user hears it from the
+            # system, not from an agent that believes "written" means "live".
+            await self._warn_if_undeployed(session)
+            # FACTORY Phase 1 (closes I6): if this run belonged to a Agent App
             # build and the machine says work should be in flight but isn't,
             # the machine redispatches a fresh mission. The agent surrendering
             # is no longer a terminal event — the system carries the arc.
             try:
-                lui_project = getattr(session, "living_ui_project_id", None)
-                if lui_project:
+                agent_app_project = getattr(session, "agent_app_project_id", None)
+                if agent_app_project:
                     from app.factory.host_craftbot import get_factory_host
 
                     get_factory_host().on_run_end(
-                        lui_project, (trigger.payload or {}) if trigger else {}
+                        agent_app_project,
+                        (trigger.payload or {}) if trigger else {},
+                        awaiting_answer=bool(action_output.get("awaiting_answer")),
                     )
             except Exception as e:
                 logger.debug(f"[FACTORY] run-end hook failed: {e}")
@@ -1449,11 +1408,26 @@ class AgentBase:
         # Unload temporary workflow skills loaded at run start.
         self._remove_workflow_capabilities(session, run_payload)
 
-        # Memory runs freeze the unprocessed buffer while they work —
-        # release it when the run ends.
+        # Memory runs freeze the unprocessed buffers while they work —
+        # release them when the run ends.
         if run_source == TriggerSource.MEMORY.value:
             if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
                 self.event_stream_manager.set_skip_unprocessed_logging(False)
+
+            # Removal is gated on ACTUAL processing: reconcile each source
+            # queue against what the processor left in the staging file, so an
+            # event is removed only after it was distilled (whatever remains in
+            # staging was not processed and stays in its source queue). Then
+            # drop the throwaway staging file.
+            if self._memory_run_snapshot is not None:
+                from app.memory.unprocessed_queue import (
+                    reconcile_sources,
+                    discard_staging,
+                )
+
+                reconcile_sources(self._memory_run_snapshot)
+                discard_staging()
+                self._memory_run_snapshot = None
 
             # The entity judge runs AFTER memory processing — a direct
             # pipeline (single-shot LLM calls + deterministic ENTITIES.md
@@ -1526,19 +1500,45 @@ class AgentBase:
         """A run was force-stopped by the user: settle state for the session.
 
         Called by the session runtime after the turn task is cancelled and
-        queued continuations are purged. Deliberately does NOT run the
-        Living UI factory redispatch hook — the user just killed this work;
-        resurrecting it immediately would make the stop button a no-op.
+        queued continuations are purged.
         """
-        self._lui_run_writes.pop(session_id, None)
 
-        # A force-stopped memory run must not leave the unprocessed buffer
-        # frozen forever.
+        # FACTORY: the stop is recorded as INTENT. A paused arc never
+        # auto-resumes — without this, the machine later read the phantom
+        # half-done work as a surrender and resurrected the very job the
+        # user killed (the stop button was a deferral, not a stop).
+        try:
+            session = self.session_manager.get(session_id)
+            agent_app_project = getattr(session, "agent_app_project_id", None)
+            if agent_app_project:
+                from app.factory.host_craftbot import get_factory_host
+
+                get_factory_host().pause_by_user(str(agent_app_project))
+        except Exception as e:
+            logger.debug(f"[FACTORY] stop-pause failed: {e}")
+
+        # A force-stopped memory run must not leave the unprocessed buffers
+        # frozen forever. Reconcile the source queues against the staging
+        # remainder first: events the processor already distilled (removed from
+        # staging) are cleared, and every un-processed event is kept for the
+        # next run. Removal stays gated on processing even on a hard stop.
         if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
             try:
                 self.event_stream_manager.set_skip_unprocessed_logging(False)
             except Exception:
                 pass
+        if self._memory_run_snapshot is not None:
+            try:
+                from app.memory.unprocessed_queue import (
+                    reconcile_sources,
+                    discard_staging,
+                )
+
+                reconcile_sources(self._memory_run_snapshot)
+                discard_staging()
+            except Exception:
+                pass
+            self._memory_run_snapshot = None
 
         # One event, two audiences: the SYSTEM bubble tells the user the stop
         # landed; the stream copy tells the next turn's LLM why work halted
@@ -2181,26 +2181,26 @@ class AgentBase:
         self.state_manager.bump_event_stream()
 
     @staticmethod
-    def _build_living_ui_note(living_ui_project_id: str) -> str:
+    def _build_agent_app_note(agent_app_project_id: str) -> str:
         """Interaction-context note appended (stream-only) to user messages
-        sent in a Living UI project's dedicated session, so the agent knows
+        sent in a Agent App project's dedicated session, so the agent knows
         the request concerns that app. Falls back to a minimal tag when the
-        Living UI manager / project lookup is unavailable."""
+        Agent App manager / project lookup is unavailable."""
         try:
-            from app.living_ui import get_living_ui_manager
+            from app.agent_app import get_agent_app_manager
 
             from app.config import PROJECT_ROOT
 
-            _lui_cli = f"{PROJECT_ROOT}/living-ui/tools/src/cli.ts"
-            mgr = get_living_ui_manager()
+            _agent_app_cli = f"{PROJECT_ROOT}/agent-app/tools/src/cli.ts"
+            mgr = get_agent_app_manager()
             if mgr:
-                proj = mgr.get_project(living_ui_project_id)
+                proj = mgr.get_project(agent_app_project_id)
                 if proj and getattr(proj, "project_type", "native") == "external":
                     # EXTERNAL app: foreign code running as-is in its own
-                    # runtime — none of the Living UI tooling below (lui CLI, PB
+                    # runtime — none of the Agent App tooling below (agent-app CLI, PB
                     # schema, bridge grants) applies to it.
                     return (
-                        f"[Living UI context] This chat belongs to the "
+                        f"[Agent App context] This chat belongs to the "
                         f"EXTERNAL app '{proj.name}' ({proj.id}) — foreign "
                         f"code running AS-IS in its own runtime "
                         f"({proj.app_runtime or 'unknown'}), at "
@@ -2210,23 +2210,23 @@ class AgentBase:
                         f"verbs install/build/start/health; {{{{PORT}}}} = "
                         f"{proj.port})\n"
                         f"- Runtime log: {proj.path}/logs/app.log\n"
-                        f"- What it is / features: {proj.path}/LIVING_UI.md\n"
+                        f"- What it is / features: {proj.path}/AGENT_APP.md\n"
                         f"To change its code or fix it, load the "
-                        f"living-ui-importer skill (use_skill) — edit, then "
-                        f'living_ui_notify_ready(project_id="{proj.id}") to '
+                        f"agent-app-importer skill (use_skill) — edit, then "
+                        f'agent_app_notify_ready(project_id="{proj.id}") to '
                         f"relaunch (changes apply LIVE — there is no staging "
                         f"for external apps)."
                     )
                 if proj:
                     # The DATA MODEL goes in the prompt, not behind a pointer.
-                    # Twice now the agent has ignored "Read LIVING_UI.md", never
-                    # run `lui ops`, and guessed collection names instead
+                    # Twice now the agent has ignored "Read AGENT_APP.md", never
+                    # run `agent-app ops`, and guessed collection names instead
                     # (`items`, then `tasks`) — and once invented an enum value
                     # (`priority: "normal"`) it could not have known was wrong.
                     # Advisory text does not work on a weak model; context does.
                     schema = None
                     try:
-                        from app.living_ui.agent_view import schema_block
+                        from app.agent_app.agent_view import schema_block
 
                         base = proj.backend_url or proj.url
                         if base:
@@ -2237,7 +2237,7 @@ class AgentBase:
                     model = (
                         f"Data model (field(type), * = required):\n{schema}\n"
                         if schema
-                        else f"Data model: run  node {_lui_cli} data {proj.path} schema\n"
+                        else f"Data model: run  node {_agent_app_cli} data {proj.path} schema\n"
                     )
                     # Same principle as the schema: capabilities go IN the
                     # prompt. Three builds stubbed the user's email feature
@@ -2245,7 +2245,7 @@ class AgentBase:
                     # context said send_gmail exists.
                     caps = ""
                     try:
-                        from app.living_ui.agent_view import capability_block
+                        from app.agent_app.agent_view import capability_block
 
                         cap = capability_block()
                         if cap:
@@ -2253,31 +2253,32 @@ class AgentBase:
                     except Exception:
                         caps = ""
                     return (
-                        f"[INTERACTING WITH LIVING UI: {proj.name} ({living_ui_project_id})]\n"
+                        f"[INTERACTING WITH AGENT APP: {proj.name} ({agent_app_project_id})]\n"
                         f"Project path: {proj.path}\n"
                         f"{model}"
                         f"{caps}"
                         f"Values: dates as ISO or 'tomorrow'/'next monday' (the CLI resolves them);\n"
-                        f'references by name, e.g. --list "To Do". Only set fields the user asked for.\n'
-                        f"AFTER A SUCCESSFUL WRITE the user is ALREADY shown exactly what changed, in\n"
-                        f"your voice, generated from the stored record. Do NOT send a message repeating\n"
-                        f"it — end the turn. Send a message only to add something that report does not\n"
-                        f"cover: a failure, a question, an answer to a question, or a summary of many\n"
-                        f"changes.\n"
-                        f"To OPERATE the app, use the lui CLI via run_shell with ABSOLUTE paths\n"
+                        f'references by name, e.g. --list "To Do". \n'
+                        f"To OPERATE the app, use the agent-app CLI via run_shell with ABSOLUTE paths\n"
                         f"(the shell's cwd is NOT the repo root):\n"
-                        f'  node {_lui_cli} data {proj.path} <collection> create --field "value"\n'
+                        f'  node {_agent_app_cli} data {proj.path} <collection> create --field "value"\n'
                         f"  ALWAYS quote values — an unquoted # starts a shell comment and\n"
                         f"  silently drops the rest of the command.\n"
-                        f"  node {_lui_cli} data {proj.path} <collection> list --limit 20\n"
-                        f"  node {_lui_cli} run {proj.path} <op-name> --param value\n"
+                        f"  node {_agent_app_cli} data {proj.path} <collection> list --limit 20\n"
+                        f"  node {_agent_app_cli} run {proj.path} <op-name> --param value\n"
                         f"If debugging, read {proj.path}/logs/pocketbase.log and logs/frontend_console.log.\n"
                         f"Using the app needs no skill. To CHANGE its code, or import/diagnose one,\n"
-                        f"load the right Living UI skill first (use_skill); list_skills shows all skills."
+                        f"load the right Agent App skill first (use_skill); list_skills shows all skills.\n"
+                        f"EDITING FILES IS NOT SHIPPING THEM. This app serves the last PROMOTED\n"
+                        f"build, so after a code change run\n"
+                        f'  agent_app_notify_ready(project_id="{proj.id}")   # build + boot a dev copy\n'
+                        f'  agent_app_walk_verify(project_id="{proj.id}")    # verify, then PROMOTE\n'
+                        f"The change reaches the user only when walk_verify returns success. Until\n"
+                        f"then the app they are looking at is unchanged, whatever the files say."
                     )
         except Exception:
             pass
-        return f"[INTERACTING WITH LIVING UI: {living_ui_project_id}]"
+        return f"[INTERACTING WITH AGENT APP: {agent_app_project_id}]"
 
     async def _handle_chat_message(self, payload: Dict):
         """Deliver an incoming chat message to its session.
@@ -2318,14 +2319,14 @@ class AgentBase:
                 "is_self_message", False
             )
 
-            # Living UI session: append the interaction context (project
+            # Agent App session: append the interaction context (project
             # name, path, docs and log locations) to the STREAM copy of the
             # message so the agent knows the request concerns this Living
-            # UI. Mirrors the pre-redesign living_ui prefix; display_message
+            # UI. Mirrors the pre-redesign agent_app prefix; display_message
             # stays the raw text so the chat bubble is clean.
             stream_content = chat_content
-            if session is not None and getattr(session, "living_ui_project_id", None):
-                note = self._build_living_ui_note(session.living_ui_project_id)
+            if session is not None and getattr(session, "agent_app_project_id", None):
+                note = self._build_agent_app_note(session.agent_app_project_id)
                 if note:
                     stream_content = f"{chat_content}\n\n{note}"
 
@@ -2642,7 +2643,7 @@ class AgentBase:
         "memory",
         "workspace",
         "triggers",
-        "livingui",
+        "agentapp",
     )
 
     async def reset_agent_state(
@@ -2711,7 +2712,7 @@ class AgentBase:
         return "Agent state reset. Agent file system reinitialized."
 
     async def _delete_all_chat_sessions(self) -> int:
-        """Delete every non-main, non-living-ui session. Returns count."""
+        """Delete every non-main, non-agent-app session. Returns count."""
         deleted = 0
         for session in list(self.session_manager.sessions.values()):
             if session.type == SessionType.CHAT:
@@ -2747,8 +2748,8 @@ class AgentBase:
 
         done: list[str] = []
 
-        # Chats: delete extra chat sessions, empty Main, and wipe Living UI
-        # conversation history only (apps stay unless "livingui" is selected).
+        # Chats: delete extra chat sessions, empty Main, and wipe Agent App
+        # conversation history only (apps stay unless "agentapp" is selected).
         if "sessions" in selected:
             try:
                 from app.usage import (
@@ -2763,7 +2764,7 @@ class AgentBase:
                 get_usage_storage().clear_events()
                 self.session_manager.clear_session(MAIN_SESSION_ID)
                 for session in list(self.session_manager.sessions.values()):
-                    if session.type == SessionType.LIVING_UI:
+                    if session.type == SessionType.AGENT_APP:
                         self.session_manager.clear_session(session.id)
                 done.append(f"sessions ({count} chats deleted)")
             except Exception as e:
@@ -2808,25 +2809,25 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[RESET] triggers reset failed: {e}")
 
-        # LivingUI: delete every registered project (dirs, ports, registry).
-        if "livingui" in selected:
+        # AgentApp: delete every registered project (dirs, ports, registry).
+        if "agentapp" in selected:
             try:
-                count = await self._delete_all_living_ui_projects()
-                done.append(f"livingui ({count} app(s))")
+                count = await self._delete_all_agent_app_projects()
+                done.append(f"agentapp ({count} app(s))")
             except Exception as e:
-                logger.warning(f"[RESET] livingui reset failed: {e}")
+                logger.warning(f"[RESET] agentapp reset failed: {e}")
 
         if not done:
             return "Reset failed for the selected items — see logs."
         return "Reset complete: " + ", ".join(done) + "."
 
-    async def _delete_all_living_ui_projects(self) -> int:
-        """Delete all registered Living UI projects. Returns the count deleted."""
+    async def _delete_all_agent_app_projects(self) -> int:
+        """Delete all registered Agent App projects. Returns the count deleted."""
         try:
-            from app.living_ui import get_living_ui_manager
+            from app.agent_app import get_agent_app_manager
         except Exception:
             return 0
-        mgr = get_living_ui_manager()
+        mgr = get_agent_app_manager()
         if not mgr:
             return 0
         deleted = 0
@@ -2836,7 +2837,7 @@ class AgentBase:
                     deleted += 1
             except Exception as e:
                 logger.warning(
-                    f"[RESET] Failed to delete LivingUI project {project_id}: {e}"
+                    f"[RESET] Failed to delete AgentApp project {project_id}: {e}"
                 )
         return deleted
 
@@ -2917,13 +2918,13 @@ class AgentBase:
             logger.debug(f"[RESET] Copied template {template_file.name}")
 
     # Workspace entries owned by other subsystems that a "workspace files"
-    # reset must NOT delete. LivingUI stores its registry
-    # (``living_ui_projects.json``) and app directories (``living_ui/``) under
+    # reset must NOT delete. AgentApp stores its registry
+    # (``agent_app_projects.json``) and app directories (``agent_app/``) under
     # the workspace root; blindly wiping them out from under the running
-    # manager corrupts LivingUI. Session workspace dirs are owned by the
+    # manager corrupts AgentApp. Session workspace dirs are owned by the
     # SessionManager and reset via the sessions component instead.
     _WORKSPACE_PRESERVE = frozenset(
-        {"living_ui", "living_ui_projects.json", "sessions"}
+        {"agent_app", "agent_app_projects.json", "sessions"}
     )
 
     def _reset_workspace_sync(self) -> None:
@@ -3166,8 +3167,8 @@ class AgentBase:
         sessions can load via add_action_sets.
         """
         try:
-            from app.mcp import mcp_client
-            from app.config import PROJECT_ROOT
+            from app.mcp import mcp_client, set_default_stdio_cwd
+            from app.config import PROJECT_ROOT, AGENT_WORKSPACE_ROOT
 
             config_path = PROJECT_ROOT / "app" / "config" / "mcp_config.json"
 
@@ -3178,6 +3179,12 @@ class AgentBase:
                 return
 
             logger.info(f"[MCP] Loading config from {config_path}")
+
+            # Stdio servers run from the agent workspace so cwd-relative
+            # artifacts (playwright screenshots, .playwright-mcp/) land where
+            # the agent's file tools look, not in the install root.
+            AGENT_WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+            set_default_stdio_cwd(str(AGENT_WORKSPACE_ROOT))
 
             # Initialize MCP client (loads config and connects to servers)
             await mcp_client.initialize(config_path)
@@ -3596,23 +3603,16 @@ class AgentBase:
             return
 
         try:
-            unprocessed_file = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
-            if not unprocessed_file.exists():
-                return
+            from app.memory.unprocessed_queue import count_unprocessed_events
 
-            content = unprocessed_file.read_text(encoding="utf-8")
-            event_lines = [
-                line
-                for line in content.strip().split("\n")
-                if line.strip() and line.strip().startswith("[")
-            ]
-            if not event_lines:
+            event_count = count_unprocessed_events()
+            if not event_count:
                 logger.info("[MEMORY] No unprocessed events found at startup")
                 return
 
             logger.info(
-                f"[MEMORY] Found {len(event_lines)} unprocessed events at startup, "
-                f"firing processing trigger"
+                f"[MEMORY] Found {event_count} unprocessed events at startup "
+                f"(across sessions), firing processing trigger"
             )
 
             await self.trigger_service.emit(
@@ -3751,6 +3751,17 @@ class AgentBase:
 
         await self.session_runtime.start()
 
+        # FACTORY: the supervisor is the ONE dispatch decision point for
+        # Agent App arcs. Started here (event loop is up); its immediate
+        # first tick finds arcs frozen by the restart instead of waiting
+        # for the next accidental run-end in their sessions.
+        try:
+            from app.factory.host_craftbot import get_factory_host
+
+            get_factory_host().start_supervisor(self.session_runtime)
+        except Exception as e:
+            logger.warning(f"[FACTORY] supervisor start failed: {e}")
+
         # Consolidated restart notice: one message in main when pending work
         # from the previous run was restored.
         if requeued:
@@ -3771,6 +3782,30 @@ class AgentBase:
                 )
             except Exception as e:
                 logger.warning(f"[RESTORE] Failed to enqueue restart notice: {e}")
+
+        self._signal_ready()
+
+    @staticmethod
+    def _signal_ready() -> None:
+        """Announce that boot() has finished, for whoever launched us.
+
+        run.py waits on this before printing the ready banner and opening the
+        browser. It cannot watch our output (we inherit its stdout, so there
+        is nothing for it to read), and it used to settle for "the backend
+        port answers" — which happens long before this line, while the model
+        download, MCP servers, skills and scheduler are still starting. That
+        is why the browser opened at step 2 of 8.
+
+        Best-effort: a failure here must never take down a working agent, so
+        the worst case is falling back to the old timeout behaviour.
+        """
+        try:
+            from app import paths
+
+            paths.AGENT_READY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            paths.AGENT_READY_FILE.write_text(str(os.getpid()), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"[BOOT] Could not write the ready marker: {e}")
 
     def _start_index_prewarm(self) -> None:
         """Warm the find_files index for every local drive in a background thread.
@@ -3874,15 +3909,15 @@ class AgentBase:
             self._persist_all_sessions()
             # Shutdown scheduler (handles all periodic tasks including memory processing)
             await self.scheduler.shutdown()
-            # Stop all Living UI projects (kill backend/frontend processes)
+            # Stop all Agent App projects (kill backend/frontend processes)
             try:
-                from app.living_ui import get_living_ui_manager
+                from app.agent_app import get_agent_app_manager
 
-                lui_mgr = get_living_ui_manager()
-                if lui_mgr:
-                    await lui_mgr.stop_all_projects()
+                agent_app_mgr = get_agent_app_manager()
+                if agent_app_mgr:
+                    await agent_app_mgr.stop_all_projects()
             except Exception as e:
-                logger.warning(f"[SHUTDOWN] Living UI cleanup error: {e}")
+                logger.warning(f"[SHUTDOWN] Agent App cleanup error: {e}")
             # Gracefully shutdown MCP connections
             await self._shutdown_mcp()
             # Stop the v2 per-account listeners (whatsapp_web sessions get a

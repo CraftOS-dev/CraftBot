@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import styles from './SettingsPage.module.css'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
+import { usePersistedState, useScrollRestoration } from '../../hooks'
+import { UI_STATE } from '../../store/uiState'
 import { SettingsCategory, categories } from './types'
 
 // Settings tabs the guided tour highlights individually.
@@ -16,10 +19,19 @@ import { ModelSettings } from './ModelSettings'
 import { MCPSettings } from './MCPSettings'
 import { SkillsSettings } from './SkillsSettings'
 import { IntegrationsSettings } from './IntegrationsSettings'
-import { LivingUISettings } from './LivingUISettings'
+import { AgentAppSettings } from './AgentAppSettings'
 
 export function SettingsPage() {
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('general')
+  const { t } = useTranslation(['settings', 'common'])
+  const [savedCategory, setActiveCategory] = usePersistedState(UI_STATE.settings.activeCategory)
+  // A remembered tab that no longer exists falls back to General.
+  const activeCategory: SettingsCategory = categories.some(c => c.id === savedCategory)
+    ? savedCategory
+    : 'general'
+
+  // The page itself is the scroll container; each tab keeps its own offset.
+  const pageRef = useRef<HTMLDivElement>(null)
+  useScrollRestoration(UI_STATE.settings.scrollTop(activeCategory), pageRef)
 
   // Let the guided tour open a specific tab so its panel is shown, not just its
   // rail button highlighted.
@@ -45,15 +57,15 @@ export function SettingsPage() {
         return <SkillsSettings />
       case 'integrations':
         return <IntegrationsSettings />
-      case 'living_ui':
-        return <LivingUISettings />
+      case 'agent_app':
+        return <AgentAppSettings />
       default:
         return null
     }
   }
 
   return (
-    <div className={styles.settingsPage}>
+    <div ref={pageRef} className={styles.settingsPage}>
       {/* Category rail — sits flush against the content, no separate
           background/border. Compact icon + label, no description/chevron. */}
       <nav className={styles.sidebar}>
@@ -68,7 +80,7 @@ export function SettingsPage() {
                 {...(tourAnchor ? tourAnchorProps(tourAnchor) : {})}
               >
                 <span className={styles.categoryIcon}>{cat.icon}</span>
-                <span className={styles.categoryLabel}>{cat.label}</span>
+                <span className={styles.categoryLabel}>{t(`settings:nav.${cat.id}`)}</span>
               </button>
             )
           })}

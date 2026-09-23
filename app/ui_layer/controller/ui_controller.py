@@ -10,6 +10,10 @@ from agent_core.utils.logger import logger
 from app.ui_layer.events.event_bus import EventBus
 from app.ui_layer.events.event_types import UIEvent, UIEventType
 from app.ui_layer.events.transformer import EventTransformer
+from app.ui_layer.controller.event_cursor import (
+    EventStreamCursors,
+    event_dedup_key,
+)
 from app.ui_layer.state.store import UIStateStore
 from app.ui_layer.state.ui_state import AgentStateType
 from app.ui_layer.commands.registry import CommandRegistry
@@ -98,6 +102,16 @@ class UIController:
         self._running = False
         self._adapter: Optional["InterfaceAdapter"] = None
         self._event_task: Optional[asyncio.Task] = None
+        # Per-stream read positions for the event pump. Owned here (not
+        # local to the pump task) so a stream being torn down can be drained
+        # through the same cursors before it disappears.
+        self._cursors = EventStreamCursors()
+        self._removal_listener_registered = False
+
+        # Settle activity rows whose action_end never reached the UI.
+        self._event_bus.subscribe(
+            UIEventType.RUN_STATE_CHANGED, self._on_run_state_changed
+        )
 
         # Register built-in commands
         self._register_builtin_commands()
@@ -421,53 +435,110 @@ class UIController:
     # Event Processing
     # ─────────────────────────────────────────────────────────────────────
 
+    def _process_event(self, task_id: str, event, *, emit: bool) -> None:
+        """Deliver ONE event to the UI, isolating its failures.
+
+        The cursor advances past a whole batch the moment it is read, so a
+        raise anywhere in here used to abandon every remaining event of that
+        tick — permanently, because those events were never marked seen and
+        the cursor had already passed them. A parallel action batch puts all
+        its ``action_end`` records in one tick, which is exactly when the loss
+        showed up: the rows stayed "running" forever, with nothing in the log
+        because the pump swallowed the exception. Failures are now contained
+        to their own event, and always logged.
+
+        Args:
+            task_id: The owning stream's session id.
+            event: The raw event-stream record's event.
+            emit: False during the restore pass, which rebuilds UI state
+                without re-announcing history to the interface.
+        """
+        key = event_dedup_key(task_id, event)
+        if key in self._state_store.state.seen_event_keys:
+            return
+        self._state_store.dispatch("MARK_EVENT_SEEN", key)
+
+        ui_event = EventTransformer.transform(event, task_id)
+        if ui_event is None:
+            return
+        if emit:
+            self._event_bus.emit(ui_event)
+        self._update_state_from_event(ui_event)
+
+    def _drain_stream(self, task_id: str, stream, cursors) -> None:
+        """Read and deliver one stream's new events. Never raises."""
+        try:
+            events = cursors.new_events(task_id, stream)
+        except Exception:
+            logger.exception(f"[UI] Failed to read new events for stream {task_id}")
+            return
+        for event in events:
+            try:
+                self._process_event(task_id, event, emit=True)
+            except Exception:
+                logger.exception(
+                    f"[UI] Failed to deliver event from stream {task_id} "
+                    f"(kind={getattr(event, 'kind', '?')}, "
+                    f"action_id={getattr(event, 'action_id', None)})"
+                )
+
+    def _on_stream_removed(self, task_id: str, stream) -> None:
+        """Drain a stream that is about to be dropped.
+
+        Registered with EventStreamManager.add_removal_listener and called
+        synchronously by whatever tears the stream down — a sub-agent
+        finishing, a session being deleted. Without it, everything logged
+        since the last 50 ms poll dies with the stream.
+        """
+        if not self._running:
+            return
+        self._drain_stream(task_id, stream, self._cursors)
+
     async def _watch_agent_events(self) -> None:
         """Watch and transform agent events to UI events."""
         # Mark all pre-existing events as seen so restored events
         # from previous sessions are not emitted as new UI messages.
         # State-updating events (action_start/action_end) are still processed
         # to rebuild UI state (e.g., show a restored in-flight action).
+        # Each tick reads only events added since the previous one; the
+        # stream is never modified (event_cursor.py).
+        cursors = self._cursors
         streams = self._agent.event_stream_manager.get_all_streams_with_ids()
         for task_id, stream in streams:
-            for event in stream.as_list():
-                key = (task_id, event.iso_ts, event.kind, event.message)
-                self._state_store.dispatch("MARK_EVENT_SEEN", key)
-                # Rebuild UI state from restored events without emitting to UI
-                ui_event = EventTransformer.transform(event, task_id)
-                if ui_event:
-                    self._update_state_from_event(ui_event)
+            for event in cursors.new_events(task_id, stream):
+                try:
+                    self._process_event(task_id, event, emit=False)
+                except Exception:
+                    logger.exception(
+                        f"[UI] Failed to restore event from stream {task_id}"
+                    )
+
+        # A stream can disappear between two polls; drain it before it goes.
+        # Registered once per controller, not once per start/stop cycle.
+        if not self._removal_listener_registered:
+            try:
+                self._agent.event_stream_manager.add_removal_listener(
+                    self._on_stream_removed
+                )
+                self._removal_listener_registered = True
+            except AttributeError:
+                # Event-stream manager without the hook: the polling loop
+                # below is still the primary path.
+                logger.debug("[UI] Event stream manager has no removal hook")
 
         while self._running and self._agent.is_running:
             try:
                 # Get all event streams
                 streams = self._agent.event_stream_manager.get_all_streams_with_ids()
+                cursors.retain(task_id for task_id, _ in streams)
 
                 for task_id, stream in streams:
-                    for event in stream.as_list():
-                        # Create deduplication key. task_id (the session id)
-                        # must be part of the key: iso_ts is seconds-precision,
-                        # so two sessions emitting a generic event in the same
-                        # second would otherwise collide and the second event
-                        # would be dropped.
-                        key = (task_id, event.iso_ts, event.kind, event.message)
-
-                        # Skip if already seen
-                        if key in self._state_store.state.seen_event_keys:
-                            continue
-
-                        # Mark as seen
-                        self._state_store.dispatch("MARK_EVENT_SEEN", key)
-
-                        # Transform and emit
-                        ui_event = EventTransformer.transform(event, task_id)
-                        if ui_event:
-                            self._event_bus.emit(ui_event)
-                            self._update_state_from_event(ui_event)
+                    self._drain_stream(task_id, stream, cursors)
 
                 await asyncio.sleep(0.05)  # 50ms polling interval
 
             except Exception:
-                # Log but don't crash
+                logger.exception("[UI] Event pump tick failed")
                 await asyncio.sleep(0.1)
 
     def _update_state_from_event(self, event: UIEvent) -> None:
@@ -480,7 +551,7 @@ class UIController:
                     "display_name": event.data.get("action_name", "Action"),
                     "item_type": "action",
                     "status": "running",
-                    "task_id": event.data.get("task_id"),
+                    "task_id": event.task_id or event.data.get("session_id"),
                 },
             )
 
@@ -509,6 +580,123 @@ class UIController:
             self._state_store.dispatch(
                 "SET_GUI_MODE", event.data.get("gui_mode", False)
             )
+
+    # ──────────────────────────────────────────────────────────────────
+    # End-of-run reconciliation
+    # ──────────────────────────────────────────────────────────────────
+
+    # Grace period after a run settles before reconciling, so the normal
+    # delivery path gets to finish first (the pump polls every 50 ms, and
+    # its handlers are scheduled as tasks).
+    _RECONCILE_DELAY_SECONDS = 2.0
+
+    def _on_run_state_changed(self, event: UIEvent) -> None:
+        """When a session's run settles, schedule a reconciliation pass."""
+        if (event.data.get("state") or "") != "idle":
+            return
+        session_id = event.data.get("session_id") or "main"
+        try:
+            asyncio.create_task(self._settle_stale_actions(session_id))
+        except RuntimeError:
+            # No running loop (emitted off the loop); nothing to reconcile.
+            pass
+
+    async def _settle_stale_actions(self, session_id: str) -> None:
+        """Settle activity rows left "running" after the run finished.
+
+        The UI mirrors action state by replaying event-stream records. Every
+        delivery path has failure modes that end in the same place — a row
+        spinning forever — and because the status is persisted, a reload
+        brings it right back. ``ActionManager`` knows what is actually still
+        executing, so once a run settles anything it does not hold is over.
+
+        Recovery order: replay the real ``action_end`` from the session's
+        event stream (keeps the true status and output), and only fall back
+        to a flat "completed" for rows whose end event is no longer there.
+        """
+        await asyncio.sleep(self._RECONCILE_DELAY_SECONDS)
+
+        panel = self._adapter.action_panel if self._adapter else None
+        get_items = getattr(panel, "get_items", None)
+        if panel is None or get_items is None:
+            return
+
+        try:
+            live = self._agent.action_manager.inflight_ids(session_id)
+        except Exception:
+            logger.exception("[UI] Could not read in-flight actions")
+            return
+
+        stale = {
+            item.id: item
+            for item in get_items()
+            if item.item_type == "action"
+            and item.status == "running"
+            and (item.session_id or "main") == session_id
+            and item.id
+            and item.id not in live
+        }
+        if not stale:
+            return
+
+        logger.warning(
+            f"[UI] {len(stale)} action(s) still marked running after session "
+            f"{session_id} went idle; reconciling: "
+            f"{[item.name for item in stale.values()]}"
+        )
+
+        for event in self._recover_action_ends(session_id, set(stale)):
+            action_id = event.action_id
+            try:
+                ui_event = EventTransformer.transform(event, session_id)
+                if ui_event is None:
+                    continue
+                self._event_bus.emit(ui_event)
+                self._update_state_from_event(ui_event)
+                stale.pop(action_id, None)
+            except Exception:
+                logger.exception(f"[UI] Failed to replay action_end for {action_id}")
+
+        # Whatever is left has lost its end event for good (folded out of the
+        # stream, or never logged). The action is not running — say so.
+        for item in stale.values():
+            try:
+                await panel.update_item_by_name(
+                    action_name=item.name,
+                    session_id=session_id,
+                    status="completed",
+                    action_id=item.id,
+                )
+                logger.warning(
+                    f"[UI] Force-settled action {item.name} ({item.id}): its "
+                    "action_end event is no longer in the event stream"
+                )
+            except Exception:
+                logger.exception(f"[UI] Failed to settle action {item.id}")
+
+    def _recover_action_ends(self, session_id: str, action_ids: set) -> list:
+        """The session stream's ``action_end`` events for these run ids."""
+        if not action_ids:
+            return []
+        try:
+            manager = self._agent.event_stream_manager
+            if not manager.has_stream(session_id):
+                return []
+            events = manager.get_stream_by_id(session_id).as_list()
+        except Exception:
+            logger.exception(
+                f"[UI] Could not read the event stream for session {session_id}"
+            )
+            return []
+
+        from agent_core.core.event_stream.event import EventType
+
+        return [
+            event
+            for event in events
+            if event.event_type == EventType.ACTION_END
+            and event.action_id in action_ids
+        ]
 
     # ─────────────────────────────────────────────────────────────────────
     # Command Registration

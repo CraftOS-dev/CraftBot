@@ -1,0 +1,82 @@
+{
+  "dateDivider": {
+    "today": "Hoy",
+    "yesterday": "Ayer"
+  },
+  "unread": {
+    "aria": "Mensajes nuevos",
+    "label": "Nuevo"
+  },
+  "history": {
+    "loadingOlder": "Cargando mensajes anteriores..."
+  },
+  "working": {
+    "label": "Trabajando",
+    "aria": "El agente está trabajando"
+  },
+  "composer": {
+    "placeholder": "¿Qué puedo hacer por ti?",
+    "listening": "Escuchando... habla ahora",
+    "attachAndTools": "Adjuntar y herramientas",
+    "attachFiles": "Adjuntar archivos",
+    "aiEnhance": "Mejorar con IA",
+    "enhancing": "Mejorando…",
+    "voiceInput": "Entrada de voz",
+    "stopListening": "Dejar de escuchar",
+    "speechLanguage": "Idioma de voz",
+    "send": "Enviar",
+    "sendMessage": "Enviar mensaje",
+    "stop": "Detener",
+    "stopping": "Deteniendo…",
+    "stopRun": "Detener ejecución",
+    "stoppingRun": "Deteniendo la ejecución"
+  },
+  "reply": {
+    "replyingTo": "Respondiendo a: <1>{{name}}</1>",
+    "cancel": "Cancelar respuesta"
+  },
+  "scrollToLatest": "Ir al último mensaje",
+  "dismiss": "Descartar",
+  "playbooks": {
+    "all": "Todas las guías"
+  },
+  "attachment": {
+    "preview": "Haz clic para previsualizar",
+    "tooManyFiles": "Se permiten como máximo {{max}} archivos.",
+    "tooManyFilesDetailed": "Se permiten como máximo {{max}} archivos. Tienes {{have}} archivos.",
+    "totalSizeExceeds": "El tamaño total ({{size}}) supera el límite de 200 MB.",
+    "fileExceedsLimit": "El archivo \"{{name}}\" ({{size}}) supera el límite de 200 MB.",
+    "addWouldExceed": "Añadir \"{{name}}\" superaría el límite de tamaño total de 200 MB.",
+    "uploadFailed": "Error al subir \"{{name}}\".",
+    "uploadFailedNetwork": "Error al subir \"{{name}}\": error de red.",
+    "readFailed": "Error al leer el archivo \"{{name}}\"."
+  },
+  "toast": {
+    "enhanceTimedOut": "Se agotó el tiempo de la mejora con IA. Inténtalo de nuevo.",
+    "reconnecting": "Reconectando. Tu mensaje se enviará cuando se restablezca la conexión."
+  },
+  "voice": {
+    "notSupported": "Este navegador no admite el reconocimiento de voz.",
+    "micDenied": "Acceso al micrófono denegado. Concede el permiso del micrófono en los ajustes de tu navegador."
+  },
+  "question": {
+    "aria": "Pregunta del agente",
+    "asking": "{{sender}} está preguntando",
+    "queuePosition": "1 de {{total}}",
+    "dismissHint": "Descartar. El agente continuará sin respuesta.",
+    "dismissAria": "Descartar pregunta",
+    "recommended": "(recomendado)",
+    "freeTextPlaceholder": "O escribe tu propia respuesta...",
+    "sendAnswer": "Enviar respuesta"
+  },
+  "message": {
+    "hideReceived": "Ocultar mensaje recibido",
+    "showReceived": "Mostrar mensaje recibido",
+    "hideMessage": "Ocultar mensaje",
+    "showMessage": "Mostrar mensaje",
+    "selectResponse": "Selecciona una respuesta para continuar:",
+    "replyTooltip": "Responder a este mensaje",
+    "copyTooltip": "Copiar mensaje",
+    "copiedTooltip": "¡Copiado!"
+  }
+}

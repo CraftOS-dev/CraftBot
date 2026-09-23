@@ -1,0 +1,82 @@
+{
+  "dateDivider": {
+    "today": "Hari ini",
+    "yesterday": "Kemarin"
+  },
+  "unread": {
+    "aria": "Pesan baru",
+    "label": "Baru"
+  },
+  "history": {
+    "loadingOlder": "Memuat pesan lama..."
+  },
+  "working": {
+    "label": "Bekerja",
+    "aria": "Agen sedang bekerja"
+  },
+  "composer": {
+    "placeholder": "Ada yang bisa saya bantu?",
+    "listening": "Mendengarkan... silakan bicara",
+    "attachAndTools": "Lampiran dan alat",
+    "attachFiles": "Lampirkan berkas",
+    "aiEnhance": "Sempurnakan dengan AI",
+    "enhancing": "Menyempurnakan…",
+    "voiceInput": "Input suara",
+    "stopListening": "Berhenti mendengarkan",
+    "speechLanguage": "Bahasa ucapan",
+    "send": "Kirim",
+    "sendMessage": "Kirim pesan",
+    "stop": "Hentikan",
+    "stopping": "Menghentikan…",
+    "stopRun": "Hentikan proses",
+    "stoppingRun": "Menghentikan proses"
+  },
+  "reply": {
+    "replyingTo": "Membalas: <1>{{name}}</1>",
+    "cancel": "Batalkan balasan"
+  },
+  "scrollToLatest": "Gulir ke pesan terbaru",
+  "dismiss": "Tutup",
+  "playbooks": {
+    "all": "Semua playbook"
+  },
+  "attachment": {
+    "preview": "Klik untuk pratinjau",
+    "tooManyFiles": "Maksimal {{max}} berkas.",
+    "tooManyFilesDetailed": "Maksimal {{max}} berkas. Anda memiliki {{have}} berkas.",
+    "totalSizeExceeds": "Ukuran total ({{size}}) melebihi batas 200 MB.",
+    "fileExceedsLimit": "Berkas \"{{name}}\" ({{size}}) melebihi batas 200 MB.",
+    "addWouldExceed": "Menambahkan \"{{name}}\" akan melebihi batas ukuran total 200 MB.",
+    "uploadFailed": "Gagal mengunggah \"{{name}}\".",
+    "uploadFailedNetwork": "Gagal mengunggah \"{{name}}\": kesalahan jaringan.",
+    "readFailed": "Gagal membaca berkas \"{{name}}\"."
+  },
+  "toast": {
+    "enhanceTimedOut": "Penyempurnaan AI kehabisan waktu. Silakan coba lagi.",
+    "reconnecting": "Menyambungkan kembali. Pesan Anda akan terkirim saat koneksi pulih."
+  },
+  "voice": {
+    "notSupported": "Pengenalan ucapan tidak didukung di peramban ini.",
+    "micDenied": "Akses mikrofon ditolak. Mohon izinkan mikrofon di pengaturan peramban Anda."
+  },
+  "question": {
+    "aria": "Pertanyaan dari agen",
+    "asking": "{{sender}} sedang bertanya",
+    "queuePosition": "1 dari {{total}}",
+    "dismissHint": "Tutup. Agen akan melanjutkan tanpa jawaban.",
+    "dismissAria": "Tutup pertanyaan",
+    "recommended": "(disarankan)",
+    "freeTextPlaceholder": "Atau ketik jawaban Anda sendiri...",
+    "sendAnswer": "Kirim jawaban"
+  },
+  "message": {
+    "hideReceived": "Sembunyikan pesan yang diterima",
+    "showReceived": "Tampilkan pesan yang diterima",
+    "hideMessage": "Sembunyikan pesan",
+    "showMessage": "Tampilkan pesan",
+    "selectResponse": "Silakan pilih respons untuk melanjutkan:",
+    "replyTooltip": "Balas pesan ini",
+    "copyTooltip": "Salin pesan",
+    "copiedTooltip": "Tersalin!"
+  }
+}

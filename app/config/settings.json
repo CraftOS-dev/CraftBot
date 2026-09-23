@@ -1,8 +1,9 @@
 {
-  "version": "1.4.2",
+  "version": "1.4.3",
   "general": {
     "agent_name": "CraftBot",
-    "os_language": "en"
+    "os_language": "en",
+    "ui_language": "en"
   },
   "proactive": {
     "enabled": true
@@ -11,15 +12,21 @@
     "enabled": true,
     "max_items": 200,
     "prune_target": 135,
-    "item_word_limit": 150
+    "item_word_limit": 150,
+    "processing_threshold": 23
   },
   "context": {
-    "summarize_at_tokens": 100000,
-    "tail_keep_after_summarize_tokens": 10000
+    "reserve_tokens": 16384,
+    "keep_recent_tokens": 20000
   },
   "model": {
     "slow_mode": true,
-    "slow_mode_tpm_limit": 25000
+    "slow_mode_tpm_limit": 25000,
+    "llm_provider": "anthropic",
+    "vlm_provider": "anthropic",
+    "llm_model": null,
+    "vlm_model": null,
+    "context_window": 128000
   },
   "api_keys": {
     "openai": "",
@@ -89,7 +96,7 @@
     "grok": "subscription",
     "openai": "subscription"
   },
-  "living_ui": {
+  "agent_app": {
     "marketplace_ref": ""
   }
 }

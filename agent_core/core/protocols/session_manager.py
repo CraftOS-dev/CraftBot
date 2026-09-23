@@ -35,7 +35,7 @@ class SessionManagerProtocol(Protocol):
         session_id: Optional[str] = None,
         action_sets: Optional[List[str]] = None,
         selected_skills: Optional[List[str]] = None,
-        living_ui_project_id: Optional[str] = None,
+        agent_app_project_id: Optional[str] = None,
         gui_mode: bool = False,
     ) -> "Session":
         """Create a new persistent session."""

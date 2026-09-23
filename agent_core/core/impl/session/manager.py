@@ -2,7 +2,7 @@
 """
 Shared SessionManager for agent_core.
 
-Owns the registry of persistent sessions (main / chat / living_ui), their
+Owns the registry of persistent sessions (main / chat / agent_app), their
 loaded capabilities (action sets + skills), todos, run budgets, workspace
 directories, and their LLM session caches. Runtime-specific behavior is
 injected via hooks:
@@ -103,12 +103,12 @@ class SessionManager:
         return self.sessions.get(MAIN_SESSION_ID)
 
     def list_sessions(self, include_archived: bool = False) -> List[Session]:
-        """All sessions: main first, then living_ui, then chats newest-first."""
+        """All sessions: main first, then agent_app, then chats newest-first."""
         sessions = [
             s for s in self.sessions.values() if include_archived or not s.archived
         ]
 
-        type_rank = {SessionType.MAIN: 0, SessionType.LIVING_UI: 1, SessionType.CHAT: 2}
+        type_rank = {SessionType.MAIN: 0, SessionType.AGENT_APP: 1, SessionType.CHAT: 2}
 
         # Newest-first within each type bucket (two-pass stable sort)
         sessions.sort(key=lambda s: s.last_active_at, reverse=True)
@@ -135,19 +135,19 @@ class SessionManager:
         session_id: Optional[str] = None,
         action_sets: Optional[List[str]] = None,
         selected_skills: Optional[List[str]] = None,
-        living_ui_project_id: Optional[str] = None,
+        agent_app_project_id: Optional[str] = None,
         gui_mode: bool = False,
     ) -> Session:
         """
         Create a new persistent session.
 
         Args:
-            session_type: main | chat | living_ui.
+            session_type: main | chat | agent_app.
             title: Sidebar title ("New chat" placeholder until auto-titled).
-            session_id: Explicit id (main / living-ui); random hex otherwise.
+            session_id: Explicit id (main / agent-app); random hex otherwise.
             action_sets: Extra action sets to load on top of core.
-            selected_skills: Skills to preload (slash-command entry, Living UI).
-            living_ui_project_id: Backing project for living_ui sessions.
+            selected_skills: Skills to preload (slash-command entry, Agent App).
+            agent_app_project_id: Backing project for agent_app sessions.
             gui_mode: Whether the session starts in GUI mode.
 
         Returns:
@@ -177,7 +177,7 @@ class SessionManager:
             compiled_actions=compiled_actions,
             selected_skills=list(selected_skills or []),
             workspace_dir=str(workspace_dir),
-            living_ui_project_id=living_ui_project_id,
+            agent_app_project_id=agent_app_project_id,
             gui_mode=gui_mode,
         )
         self.sessions[sid] = session

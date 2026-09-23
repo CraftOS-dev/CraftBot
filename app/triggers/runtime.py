@@ -6,7 +6,7 @@ SessionRuntimeManager — one trigger queue + one serial agent loop per session.
 
 Every session is a standalone agent lane: its triggers are processed strictly
 in order by its own consumer loop, while different sessions run their turns
-concurrently (bounded by a global turn semaphore so a Living UI build can't
+concurrently (bounded by a global turn semaphore so a Agent App build can't
 starve the main chat, and N sessions can't stampede the LLM provider).
 
 Durability stays in TriggerService/TriggerStore: the runtime claims a row
@@ -77,6 +77,15 @@ class _StopSignal:
     def __init__(self) -> None:
         self.requested = False
         self.settled = asyncio.Event()
+
+
+# Sources that must never be folded into another trigger's turn.
+EXCLUSIVE_SOURCES: frozenset[str] = frozenset({TriggerSource.AGENT_APP_CRASH_FIX.value})
+
+# Payload keys that identify WHICH work a trigger belongs to. Unlike routing
+# fields these are not interchangeable, so they are carried across a merge
+# rather than silently dropped with the rest of an extra's payload.
+_IDENTITY_KEYS = ("project_id", "factory_mission_id")
 
 
 def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
@@ -156,6 +165,13 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
         for key in ("platform", "contact_id", "channel_id"):
             if p.get(key):
                 base.payload[key] = p[key]
+        # Work identity, not routing: without these the factory cannot tell
+        # which mission this run belonged to, so it can neither close it nor
+        # redispatch it (see EXCLUSIVE_SOURCES). Never overwrite the base's
+        # own identity — first one in the batch wins.
+        for key in _IDENTITY_KEYS:
+            if p.get(key) and not base.payload.get(key):
+                base.payload[key] = p[key]
         if p.get("is_self_message"):
             base.payload["is_self_message"] = True
         for list_key in ("workflow_skills", "workflow_action_sets"):
@@ -199,6 +215,18 @@ class SessionRuntimeManager:
     def set_stop_finalizer(self, finalizer: StopFinalizer) -> None:
         """Register the run-stopped hook (AgentBase._on_run_stopped)."""
         self._on_stopped = finalizer
+
+    def is_session_active(self, session_id: str) -> bool:
+        """A turn is executing right now, or triggers are queued for this
+        session. The factory supervisor's structural 'is work in flight'
+        check — replaces mission-id attribution bookkeeping."""
+        if session_id in self._turns:
+            return True
+        queue = self._queues.get(session_id)
+        try:
+            return bool(queue and queue.pending_count() > 0)
+        except Exception:
+            return False
 
     # ─────────────────────── Lifecycle ──────────────────────────────────────
 
@@ -361,10 +389,13 @@ class SessionRuntimeManager:
     async def _consume(self, session_id: str, queue: SessionTriggerQueue) -> None:
         """The serial agent loop for one session: claim → react → settle.
 
-        Aggregation: after claiming a trigger of an aggregatable source,
-        any same-source triggers already due (they piled up while the
-        previous turn was running) are drained and merged into the SAME
-        turn. All merged rows are claimed together and settle together.
+        Aggregation: after claiming a trigger, everything else already due
+        (it piled up while the previous turn was running) is drained and
+        merged into the SAME turn, whatever its source. All merged rows are
+        claimed together and settle together. The exception is
+        EXCLUSIVE_SOURCES, which keep their own turn in both directions:
+        they are never drained into someone else's batch, and when one is
+        the claimed trigger nothing is drained into it.
         """
         # Give this session its own log folder/sink and tag every line emitted
         # during its turns with the session id, so each session's logs land in
@@ -387,13 +418,22 @@ class SessionRuntimeManager:
                 except asyncio.CancelledError:
                     raise
 
-                # Drain EVERYTHING else that is due — all sources — and
-                # aggregate the whole batch into this one turn.
+                # Drain everything else that is due and aggregate the whole
+                # batch into this one turn — except the sources that must not
+                # share a turn with anything (see EXCLUSIVE_SOURCES).
                 extras: list[Trigger] = []
-                try:
-                    extras = await queue.pop_due_batch()
-                except Exception as e:
-                    logger.warning(f"[SessionRuntime] Batch drain failed: {e}")
+                if trig.source in EXCLUSIVE_SOURCES:
+                    logger.info(
+                        f"[SessionRuntime] {trig.source} runs alone — not "
+                        f"aggregating other due triggers into it ({session_id})"
+                    )
+                else:
+                    try:
+                        extras = await queue.pop_due_batch(
+                            exclude_sources=EXCLUSIVE_SOURCES
+                        )
+                    except Exception as e:
+                        logger.warning(f"[SessionRuntime] Batch drain failed: {e}")
                 group = [trig] + extras
 
                 if self._service:

@@ -1,9 +1,14 @@
 import React, { memo, useState, useRef, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Copy, Check, Reply, ChevronRight } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
-import { useWebSocket } from '../../contexts/WebSocketContext'
+import { usePersistedState } from '../../hooks'
+import { useAppSelector } from '../../store/hooks'
+import { selectAgentProfilePictureUrl } from '../../store/selectors/agent'
+import { UI_STATE } from '../../store/uiState'
 import { getErrorCategoryStyle } from '../../constants/errorCategories'
+import { formatTime } from '../../i18n/format'
 import styles from './ChatPage.module.css'
 
 interface ChatMessageProps {
@@ -37,11 +42,16 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   onOptionClick,
   onReply,
 }: ChatMessageProps) {
+  const { t } = useTranslation(['chat', 'common'])
   const [isHovered, setIsHovered] = useState(false)
   const [copied, setCopied] = useState(false)
   // Disclosure for message.details (e.g. the raw body of an incoming
-  // integration message behind the "📩 Incoming …" stub).
-  const [detailsExpanded, setDetailsExpanded] = useState(false)
+  // integration message behind the "📩 Incoming …" stub). Persisted per
+  // message: rows unmount on navigation and when scrolled out of the
+  // virtualized list.
+  const [detailsExpanded, setDetailsExpanded] = usePersistedState(
+    UI_STATE.chat.messageDetailsExpanded(message.messageId),
+  )
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
   // The selection is owned by the message prop (the single source of truth).
   // The ref is a one-shot guard to suppress double-dispatch between the click
@@ -52,7 +62,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   useEffect(() => {
     dispatchLockRef.current = !!selected
   }, [selected])
-  const { agentProfilePictureUrl } = useWebSocket()
+  const agentProfilePictureUrl = useAppSelector(selectAgentProfilePictureUrl)
 
   const canCopy = message.style === 'user' || message.style === 'agent'
 
@@ -108,7 +118,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
             {message.sender}
           </span>
           <span className={styles.timestamp}>
-            {new Date(message.timestamp * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+            {formatTime(new Date(message.timestamp * 1000), { hour: 'numeric', minute: '2-digit' })}
           </span>
         </div>
         {/* Reply context callout — the quoted agent message, shown above
@@ -127,13 +137,13 @@ export const ChatMessageItem = memo(function ChatMessageItem({
               className={styles.detailsToggle}
               onClick={() => setDetailsExpanded(v => !v)}
               aria-expanded={detailsExpanded}
-              title={detailsExpanded ? 'Hide received message' : 'Show received message'}
+              title={detailsExpanded ? t('chat:message.hideReceived') : t('chat:message.showReceived')}
             >
               <ChevronRight
                 size={14}
                 className={`${styles.detailsChevron} ${detailsExpanded ? styles.detailsChevronOpen : ''}`}
               />
-              <span>{detailsExpanded ? 'Hide message' : 'Show message'}</span>
+              <span>{detailsExpanded ? t('chat:message.hideMessage') : t('chat:message.showMessage')}</span>
             </button>
             {detailsExpanded && (
               <div className={styles.detailsBody}>{message.details}</div>
@@ -146,7 +156,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         {message.options && message.options.length > 0 && !message.isQuestion && (
           <div className={styles.messageOptions}>
             {message.requiresChoice !== false && (
-              <span className={styles.optionsPrompt}>Please select a response to continue:</span>
+              <span className={styles.optionsPrompt}>{t('chat:message.selectResponse')}</span>
             )}
             {message.options.map((opt, index) => (
               <button
@@ -189,7 +199,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
               variant="ghost"
               size="sm"
               onClick={handleReply}
-              tooltip="Reply to this message"
+              tooltip={t('chat:message.replyTooltip')}
             />
           )}
           {canCopy && (
@@ -198,7 +208,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
               variant="ghost"
               size="sm"
               onClick={handleCopy}
-              tooltip={copied ? 'Copied!' : 'Copy message'}
+              tooltip={copied ? t('chat:message.copiedTooltip') : t('chat:message.copyTooltip')}
             />
           )}
         </div>

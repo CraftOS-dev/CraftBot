@@ -13,6 +13,8 @@ Options:
     --frontend-port PORT      Set frontend port (default: 7925)
     --backend-port PORT       Set backend port (default: 7926)
     --no-open-browser         Start servers but do not auto-open the browser (used by service mode)
+    --dev-ui                  Serve the frontend with the Vite dev server (hot reload) instead of
+                              the production build (default; rebuilt automatically when sources change)
 
 Note: The installation method (conda/pip) is saved from install.py and reused here.
 """
@@ -48,50 +50,41 @@ CRAFTBOT_READY_MARKER = "CRAFTBOT IS READY"
 # No .env file is used - all settings come from app/config/settings.json
 
 # --- Base directory ---
-# In a PyInstaller --onefile binary, bundled data is extracted to sys._MEIPASS
-if getattr(sys, "frozen", False):
-    BASE_DIR = sys._MEIPASS
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# app.paths is the single answer to code-vs-state (see app/paths.py). It is
+# stdlib-only, so importing it here — before dependencies exist — is safe.
+from app import paths as _paths  # noqa: E402
+
+BASE_DIR = str(_paths.CODE_ROOT)
 
 
-def _bootstrap_frozen():
-    """Copy bundled config/data from _MEIPASS to the user data dir on first run.
+def _bootstrap_state():
+    """Seed the per-user state directory from the shipped defaults.
 
-    PyInstaller extracts bundled files into a temp directory (sys._MEIPASS)
-    which is read-only and deleted on exit. The app expects mutable config
-    and data directories that persist between runs. We target a per-user
-    data dir (NOT the install dir, NOT cwd) so:
-      - User data lives outside Program Files / install location
-      - Uninstall + reinstall preserves history
-      - Direct double-click of CraftBotAgent.exe doesn't dump runtime files
-        next to the binary
+    A managed install keeps CODE in the install directory (replaced wholesale
+    by the next upgrade, and on Windows not reliably writable) and STATE in
+    the per-user data dir. The app expects mutable app/config, app/data,
+    agents, assets and skills trees, so on first run they are copied across.
+
+    Only ever copies what is ABSENT — a user's edited settings.json or their
+    customised skills must survive every upgrade.
+
+    A dev checkout is skipped: there, code and state are the same tree, which
+    is what makes a checkout convenient to work in.
     """
-    if not getattr(sys, "frozen", False):
+    if _paths.is_dev_checkout():
         return
 
     import shutil as _shutil
 
-    # Per-user data root — same convention as the installer wizard
-    # (craftbot._user_data_dir() / app.config._frozen_user_data_root()).
-    if sys.platform == "win32":
-        _root = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
-        user_data = os.path.join(_root, "CraftBot")
-    elif sys.platform == "darwin":
-        user_data = os.path.expanduser("~/Library/Application Support/CraftBot")
-    else:
-        _root = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-        user_data = os.path.join(_root, "craftbot")
+    user_data = str(_paths.STATE_ROOT)
     os.makedirs(user_data, exist_ok=True)
 
-    # Switch CWD so any code that still uses os.getcwd() / relative paths
-    # ends up writing into user_data instead of the install dir.
+    # Switch CWD so any code still using relative paths writes into the state
+    # dir rather than the install dir.
     os.chdir(user_data)
 
-    meipass = sys._MEIPASS
-    cwd = user_data
+    src_root = str(_paths.CODE_ROOT)
 
-    # Directories to bootstrap (source relative to _MEIPASS)
     dirs_to_copy = [
         "app/config",
         "app/data",
@@ -99,29 +92,28 @@ def _bootstrap_frozen():
         "assets",
         "skills",
     ]
-    # Individual files to bootstrap
     files_to_copy = [
         "config.json",
         ".env.example",
     ]
 
     for rel_dir in dirs_to_copy:
-        src = os.path.join(meipass, rel_dir)
-        dst = os.path.join(cwd, rel_dir)
+        src = os.path.join(src_root, rel_dir)
+        dst = os.path.join(user_data, rel_dir)
         if os.path.isdir(src) and not os.path.isdir(dst):
             print(f"  Bootstrapping {rel_dir}/...")
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             _shutil.copytree(src, dst)
 
     for rel_file in files_to_copy:
-        src = os.path.join(meipass, rel_file)
-        dst = os.path.join(cwd, rel_file)
+        src = os.path.join(src_root, rel_file)
+        dst = os.path.join(user_data, rel_file)
         if os.path.isfile(src) and not os.path.isfile(dst):
             print(f"  Bootstrapping {rel_file}...")
             _shutil.copy2(src, dst)
 
 
-_bootstrap_frozen()
+_bootstrap_state()
 
 # --- Configuration ---
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
@@ -347,59 +339,85 @@ def cleanup_background_processes():
 atexit.register(cleanup_background_processes)
 
 
-def _kill_stale_port_process(port: int) -> bool:
-    """Kill any process listening on the given port (stale leftovers from previous runs).
-
-    Returns True if a stale process was found and killed.
-    """
-    if sys.platform != "win32":
-        try:
-            result = subprocess.run(
-                ["lsof", "-ti", f":{port}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            for pid_str in result.stdout.strip().split():
-                pid = int(pid_str)
-                if pid != os.getpid():
-                    subprocess.run(["kill", "-9", str(pid)], timeout=5)
-                    return True
-        except Exception:
-            pass
-        return False
-
-    # Windows: parse netstat to find the PID, then taskkill it
+def _launcher_ledger():
+    """Processes this launcher started (frontend, agent backend), recorded by
+    pid + start time so a later run can free our ports without touching
+    anything else. None if the ledger cannot load — then nothing is killed."""
     try:
-        result = subprocess.run(
-            ["netstat", "-ano"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        for line in result.stdout.splitlines():
-            # Match LISTENING lines for our port on any address
-            if f":{port}" in line and "LISTENING" in line:
-                parts = line.split()
-                pid = int(parts[-1])
-                if pid and pid != os.getpid():
-                    subprocess.run(
-                        ["taskkill", "/PID", str(pid), "/F"],
-                        capture_output=True,
-                        timeout=10,
-                    )
-                    return True
+        from app.process_ledger import get_ledger
+
+        return get_ledger("launcher")
     except Exception:
-        pass
-    return False
+        return None
 
 
-def _free_ports(*ports: int) -> None:
-    """Kill stale processes on the given ports before startup."""
+def _record_launched(process, label: str) -> None:
+    ledger = _launcher_ledger()
+    pid = getattr(process, "pid", None)
+    if ledger is not None and pid:
+        from app.process_ledger import ROLE_LAUNCHER
+
+        ledger.register(pid, ROLE_LAUNCHER, label=label)
+
+
+def _adopt_port_listeners(*ports: int) -> None:
+    """Record the servers on our ports once they are up — only ones descended
+    from a process we launched, plus this launcher itself (it serves the
+    static frontend in-process, and in frozen mode the agent too). That is what lets the NEXT run
+    free a port a crashed run left bound, without ever adopting a foreign
+    service that happened to answer on it."""
+    ledger = _launcher_ledger()
+    if ledger is None:
+        return
+    from app.process_ledger import ROLE_LAUNCHER
+
     for port in ports:
-        if _kill_stale_port_process(port):
-            # Give the OS a moment to release the socket
-            time.sleep(0.5)
+        ledger.adopt_listeners(
+            port,
+            ROLE_LAUNCHER,
+            label=f"listener :{port}",
+            # This process serves the static frontend in-process (and, when
+            # frozen, the agent too), so it is itself a port holder.
+            include_self=True,
+        )
+
+
+def _free_ports(*ports: int) -> List[str]:
+    """Free our ports of leftovers, and describe whatever still holds one.
+
+    Two kinds of leftover, and they need different evidence:
+
+      * a process THIS install recorded starting — the ledger stops it;
+      * a CraftBot from a PREVIOUS install. Uninstall deleted the ledger that
+        recorded it, so nothing here can vouch for it, and it used to survive
+        every reinstall while squatting :7925 forever. identify_craftbot
+        proves what it is from the process itself; see its docstring for why
+        that is not the port-killing this module exists to prevent.
+
+    What is left after both is genuinely not ours, and is returned rather than
+    killed. The caller refuses to start and says so — previously this printed
+    a Warning and carried on into launch_frontend(), whose readiness probe
+    then got a 200 from the OLD server still on the port, declared the
+    frontend up, and left the user with a splash screen and a log full of
+    'Agent backend crashed'.
+    """
+    from app.process_ledger import craftbot_listeners, describe_pid
+    from app.process_ledger import kill_tree, listening_pids
+
+    ledger = _launcher_ledger()
+    blockers: List[str] = []
+    for port in ports:
+        freed = ledger.kill_port_listeners(port) if ledger is not None else False
+        for pid, description in craftbot_listeners(port):
+            print(f"  Stopping an older CraftBot on port {port} — {description}")
+            kill_tree(pid)
+            freed = True
+        if freed:
+            time.sleep(0.5)  # let the OS release the socket
+        for pid in listening_pids(port):
+            if pid != os.getpid():
+                blockers.append(f"port {port} is held by {describe_pid(pid)}")
+    return blockers
 
 
 def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
@@ -472,8 +490,19 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
 
                 # Build proxy request
                 req = urllib.request.Request(target_url, data=body, method=self.command)
-                # Forward relevant headers
-                for header in ("Content-Type", "Authorization", "Accept"):
+                # Forward relevant headers. Host, Origin and Sec-Fetch-Site are
+                # what the backend's /api guard judges (ws_auth.py): dropping
+                # them would turn this proxy into a way around it — a
+                # cross-site upload would arrive Origin-less, and a
+                # DNS-rebinding Host would arrive as localhost.
+                for header in (
+                    "Content-Type",
+                    "Authorization",
+                    "Accept",
+                    "Host",
+                    "Origin",
+                    "Sec-Fetch-Site",
+                ):
                     if self.headers.get(header):
                         req.add_header(header, self.headers[header])
 
@@ -491,11 +520,25 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             except Exception as e:
                 self.send_error(502, f"Backend proxy error: {e}")
 
+        def end_headers(self):
+            # Hashed /assets/ files are immutable; everything else (index.html
+            # via SPA fallback) must revalidate so a rebuild shows up at once.
+            if not self.path.startswith("/api") and self.command != "OPTIONS":
+                if self.path.startswith("/assets/"):
+                    self.send_header(
+                        "Cache-Control", "public, max-age=31536000, immutable"
+                    )
+                else:
+                    self.send_header("Cache-Control", "no-cache")
+            super().end_headers()
+
         def log_message(self, format, *args):
             pass  # Suppress request logging
 
-    class _QuietHTTPServer(http.server.HTTPServer):
-        """Swallows ConnectionAbortedError / ConnectionResetError /
+    class _QuietHTTPServer(http.server.ThreadingHTTPServer):
+        """Threaded, so a slow proxied /api request never blocks static files.
+
+        Swallows ConnectionAbortedError / ConnectionResetError /
         BrokenPipeError. These happen when a browser closes a connection
         mid-response (page reload, tab close, fetch().abort, devtools
         refresh, etc.) — completely normal and harmless, but the default
@@ -517,7 +560,8 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
         httpd = _QuietHTTPServer(("localhost", FRONTEND_PORT), FrontendHandler)
     except OSError as e:
         if not silent:
-            print(f"Error: Could not start static frontend server: {e}")
+            print(f"Error: could not serve the UI on port {FRONTEND_PORT}: {e}")
+            print("  Another CraftBot instance may already hold that port.")
         return None
 
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -599,23 +643,130 @@ def _ensure_frontend_deps_fresh(npm_cmd: str, silent: bool = False) -> bool:
     return True
 
 
-def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
-    """Launch the frontend dev server for browser mode."""
-    # If running as a PyInstaller binary, serve pre-built static files
-    # instead of launching npm dev server (node/npm won't be available)
-    dist_dir = os.path.join(FRONTEND_DIR, "dist")
-    is_frozen = getattr(sys, "frozen", False)
+# Frontend sources; a change to any of them makes the production build stale.
+_FRONTEND_BUILD_INPUTS = (
+    "src",
+    "public",
+    "index.html",
+    "package.json",
+    "package-lock.json",
+    "vite.config.ts",
+    "tsconfig.json",
+)
+_FRONTEND_BUILD_STAMP = ".craftbot-build.json"
 
-    if is_frozen:
-        if os.path.exists(dist_dir):
+
+def _newest_mtime(paths: List[str]) -> float:
+    newest = 0.0
+    for path in paths:
+        if os.path.isfile(path):
+            newest = max(newest, os.path.getmtime(path))
+        elif os.path.isdir(path):
+            for root, dirs, files in os.walk(path):
+                dirs[:] = [d for d in dirs if d not in ("node_modules", "dist")]
+                for name in files:
+                    newest = max(newest, os.path.getmtime(os.path.join(root, name)))
+    return newest
+
+
+def _ensure_frontend_build(silent: bool = False) -> bool:
+    """Build the production frontend unless dist/ is current.
+
+    dist/ is current when it is newer than every frontend source and was built
+    for the same backend port (the port is baked into the bundle).
+    """
+    dist_dir = os.path.join(FRONTEND_DIR, "dist")
+    dist_index = os.path.join(dist_dir, "index.html")
+    stamp_path = os.path.join(dist_dir, _FRONTEND_BUILD_STAMP)
+    backend_port = os.environ.get("VITE_BACKEND_PORT", str(BACKEND_PORT))
+
+    inputs = [os.path.join(FRONTEND_DIR, name) for name in _FRONTEND_BUILD_INPUTS]
+    # Shared mascot components are compiled in through the @mascot alias.
+    inputs.append(os.path.join(BASE_DIR, "app", "ui_layer", "components", "Mascot"))
+    try:
+        with open(stamp_path, encoding="utf-8") as f:
+            built_port = str(json.load(f).get("backendPort"))
+    except (OSError, ValueError):
+        built_port = None
+    if (
+        os.path.isfile(dist_index)
+        and built_port == backend_port
+        and os.path.getmtime(dist_index) >= _newest_mtime(inputs)
+    ):
+        return True
+
+    node_exe = node_runtime.node_cmd()
+    vite_script = os.path.join(FRONTEND_DIR, "node_modules", "vite", "bin", "vite.js")
+    if not node_exe or not os.path.isfile(vite_script):
+        return False
+    if not silent:
+        print("Building the frontend (first start after a change)...")
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        result = subprocess.run(
+            [node_exe, vite_script, "build"],
+            cwd=FRONTEND_DIR,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env=node_runtime.child_env(),
+            timeout=600,
+            **kwargs,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        if not silent:
+            print(f"Error building frontend: {e}")
+        return False
+    if result.returncode != 0 or not os.path.isfile(dist_index):
+        if not silent:
+            print(
+                "Error building frontend:\n"
+                + result.stderr.decode("utf-8", errors="replace")[-2000:]
+            )
+        return False
+    try:
+        with open(stamp_path, "w", encoding="utf-8") as f:
+            json.dump({"backendPort": backend_port}, f)
+    except OSError:
+        pass
+    return True
+
+
+def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
+    """Serve the browser UI: prebuilt files for an install, Vite for a checkout.
+
+    The choice used to be "am I a PyInstaller binary?". That question no
+    longer means anything — the agent is never frozen — and getting it wrong
+    was expensive: a managed install fell through to the Vite dev-server
+    path, which demands node_modules the install has no reason to have. The
+    install payload already ships a COMPILED dist/, so it needs neither npm
+    nor a build step to show a working UI.
+
+    The real question is what this tree is:
+      * managed install → serve the prebuilt dist statically. No Node, no
+        npm, no network.
+      * dev checkout    → run Vite, so hot reload works while editing.
+
+    In a dev checkout the production build is still the default (rebuilt when
+    sources change): the Vite dev server's React dev mode, StrictMode double
+    rendering and Redux dev checks made everyday use noticeably slower.
+    ``--dev-ui`` keeps the dev server with hot reload for frontend work, and
+    it's also the fallback when a build isn't possible.
+    """
+    dist_dir = os.path.join(FRONTEND_DIR, "dist")
+    prebuilt = os.path.isfile(os.path.join(dist_dir, "index.html"))
+
+    if not _paths.is_dev_checkout():
+        if prebuilt:
             return _launch_static_frontend(silent)
-        else:
-            # Binary mode but no dist folder bundled — can't start frontend
-            if not silent:
-                print(f"Error: Frontend dist not found at {dist_dir}")
-                print(f"  BASE_DIR: {BASE_DIR}")
-                print(f"  FRONTEND_DIR: {FRONTEND_DIR}")
-            return None
+        if not silent:
+            print(f"Error: Frontend dist not found at {dist_dir}")
+            print(f"  BASE_DIR: {BASE_DIR}")
+            print(f"  FRONTEND_DIR: {FRONTEND_DIR}")
+            print("  The install payload should contain a prebuilt frontend.")
+        return None
 
     if not os.path.exists(FRONTEND_DIR):
         if not silent:
@@ -650,6 +801,12 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
     # Vite so start/restart self-heals instead of erroring on an unresolved import.
     if not _ensure_frontend_deps_fresh(npm_cmd, silent=silent):
         return None
+
+    if "--dev-ui" not in sys.argv[1:]:
+        if _ensure_frontend_build(silent=silent):
+            return _launch_static_frontend(silent)
+        if not silent:
+            print("Warning: production frontend build failed; using the dev server")
 
     # Build command for npm run dev
     # On Windows, bypass npm/cmd.exe and invoke node directly with the vite script.
@@ -689,6 +846,7 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             )
         process = subprocess.Popen(cmd, **popen_kwargs)
         _background_processes.append(process)
+        _record_launched(process, "frontend dev server")
         return process
     except FileNotFoundError:
         if not silent:
@@ -800,6 +958,11 @@ def print_ready_banner(url: str):
     print(f"{ORANGE}║{RESET}{ORANGE}{_r2.ljust(W)}{RESET}{ORANGE}║{RESET}")
     print(f"{ORANGE}║{' ' * W}║{RESET}")
     print(f"{ORANGE}╚{'═' * W}╝{RESET}\n")
+    # MUST flush. When craftbot.py starts us as a service our stdout is a log
+    # FILE, not a terminal, so Python block-buffers it — and this banner is
+    # only ~400 bytes into an 8 KB buffer. Anything watching the log for the
+    # ready marker would wait forever while the text sat in memory.
+    sys.stdout.flush()
 
 
 def wait_for_backend_silent(timeout: int = 60) -> bool:
@@ -874,7 +1037,7 @@ def launch_agent_background(
         return None
 
     # Filter flags (--browser passes through to agent)
-    skip_flags = {"--gui", "--conda", "--no-conda"}
+    skip_flags = {"--gui", "--conda", "--no-conda", "--dev-ui"}
     # Also skip port flags and their values
     pass_args = []
     skip_next = False
@@ -982,6 +1145,7 @@ def launch_agent_background(
             stderr=sys.stderr,
         )
         _background_processes.append(process)
+        _record_launched(process, "agent backend")
         return process
     except Exception as e:
         if not silent:
@@ -1197,7 +1361,109 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
 # ==========================================
 # MAIN
 # ==========================================
+#: How long to wait for the agent to finish booting before giving up and
+#: showing the UI anyway. Generous on purpose: a first run downloads the
+#: embedding model, which on a slow connection is genuinely minutes. Timing
+#: out is not an error — it just means we stop waiting to open the browser.
+AGENT_READY_TIMEOUT_S = 900
+
+
+def _clear_agent_ready() -> None:
+    """Remove a previous run's readiness marker."""
+    try:
+        from app import paths
+
+        paths.AGENT_READY_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _wait_for_agent_ready(process=None, timeout: float = AGENT_READY_TIMEOUT_S) -> bool:
+    """Block until the agent says boot() finished. See app/paths.py.
+
+    Returns True if the marker appeared, False if the agent died or the
+    timeout expired — the caller proceeds either way, because refusing to
+    show the UI just because the agent was slow would be worse than showing
+    it early.
+
+    Watching `process` matters: the marker is only written on a *successful*
+    boot, so an agent that crashes part-way through would otherwise leave us
+    sitting here for the full timeout with nothing to show for it.
+    """
+    try:
+        from app import paths
+
+        marker = paths.AGENT_READY_FILE
+    except Exception:
+        return True  # cannot check; do not block the boot on it
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if marker.is_file():
+                return True
+        except OSError:
+            pass
+        if process is not None and process.poll() is not None:
+            print(
+                f"\n  Agent exited during startup (code {process.returncode}).",
+                flush=True,
+            )
+            return False
+        time.sleep(0.4)
+    print(
+        f"\n  Agent still starting after {int(timeout)}s — continuing anyway.",
+        flush=True,
+    )
+    return False
+
+
+def _suppress_child_consoles() -> None:
+    """Stop console children opening their own terminal windows.
+
+    craftbot.py spawns run.py detached, so it has no console of its own. On
+    Windows a *console* application launched from a process with no console
+    gets a brand new console window — so npm, node, conda and the agent
+    process each popped up a terminal during an installed start.
+
+    The frozen agent never showed this: PyInstaller ran
+    rthooks/rthook-windows-noflash.py, which patched subprocess for exactly
+    this reason. The agent is no longer a frozen bundle, so that hook now
+    applies only to the installer EXE and nothing covered run.py any more.
+    This restores the behaviour at the same choke point.
+
+    Only patch when we genuinely have no console. A developer running
+    `python run.py` in a terminal has one, and there the children *should*
+    inherit it — that is where the output is meant to go.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        if ctypes.windll.kernel32.GetConsoleWindow():
+            return  # we have a console; children should inherit it
+    except Exception:
+        return
+
+    CREATE_NO_WINDOW = 0x08000000
+    _original_init = subprocess.Popen.__init__
+
+    def _patched_init(self, *args, **kwargs):
+        flags = kwargs.get("creationflags", 0) or 0
+        # Idempotent: Windows ignores CREATE_NO_WINDOW when DETACHED_PROCESS
+        # is already set, and the call sites that set it stay correct.
+        kwargs["creationflags"] = flags | CREATE_NO_WINDOW
+        return _original_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = _patched_init
+
+
 if __name__ == "__main__":
+    # Before anything spawns a child. See the docstring for why this is not
+    # simply always-on.
+    _suppress_child_consoles()
+
     # Whatever `python` launched us is a trampoline: hop onto the project's
     # interpreter (the one the dependencies live in) before doing anything.
     python_runtime.reexec_if_needed()
@@ -1295,7 +1561,24 @@ if __name__ == "__main__":
     # Browser mode: start frontend + agent, wait for both, then open browser
     if browser_mode:
         # Kill stale processes from previous runs that may still hold our ports
-        _free_ports(FRONTEND_PORT, BACKEND_PORT)
+        blockers = _free_ports(FRONTEND_PORT, BACKEND_PORT)
+        if blockers:
+            # Stop here rather than launching into a port we cannot bind. The
+            # readiness checks below probe a URL, not our own socket, so a
+            # foreign server on :7925 answers them and the run reports
+            # success for someone else's process — which is exactly how this
+            # failed silently before.
+            print("\n" + "=" * 52)
+            print("ERROR: CraftBot cannot start — its ports are in use.")
+            print("=" * 52)
+            for blocker in blockers:
+                print(f"   {blocker}")
+            print(
+                "\n   Close that program, or choose different ports:"
+                "\n     python run.py --frontend-port 8925 --backend-port 8926"
+            )
+            print("=" * 52 + "\n")
+            sys.exit(1)
 
         # Print browser mode header
         print_browser_header()
@@ -1303,7 +1586,12 @@ if __name__ == "__main__":
         # Step 1: Start frontend server (0% -> 10%)
         # Step 1: Start frontend server
         print_step(1, 8, "Starting frontend server")
-        frontend_process = launch_frontend(silent=not getattr(sys, "frozen", False))
+        # Not silent. This used to be `silent=not sys.frozen`, which made
+        # sense while the agent shipped as a PyInstaller binary; nothing is
+        # frozen since that was retired, so the flag was always True and every
+        # specific reason this can fail — a busy port, a missing dist/ — was
+        # swallowed in favour of the generic "install Node.js" advice below.
+        frontend_process = launch_frontend()
         if not frontend_process:
             print(" ✗")
             print("\nError: Failed to start browser frontend.")
@@ -1326,6 +1614,9 @@ if __name__ == "__main__":
 
         # Step 2: Start agent backend
         print_step(2, 8, "Starting agent backend")
+        # Clear last run's marker first, or we would read it as this run's
+        # readiness and open the browser instantly.
+        _clear_agent_ready()
         agent_process = launch_agent_background(env_name, use_conda, silent=True)
         if not agent_process:
             print(" ✗")
@@ -1368,6 +1659,23 @@ if __name__ == "__main__":
             except Exception:
                 pass
             time.sleep(0.5)
+
+        # Record the listeners into the owned-process ledger BEFORE waiting on
+        # agent readiness: a port that answered is a process we spawned, and
+        # the readiness wait below can still turn backend_ready off. Adopting
+        # first is what keeps that process killable instead of orphaned.
+        _adopt_port_listeners(
+            *([FRONTEND_PORT] if frontend_ready else []),
+            *([BACKEND_PORT] if backend_ready else []),
+        )
+
+        # The backend port answering is NOT the agent being ready: it binds
+        # early, while steps 3-7 (model download, MCP servers, skills,
+        # integrations, scheduler) are still running. Treating the port as
+        # readiness is what printed the ready banner — and opened the browser
+        # — at step 2 of 8, onto a backend that could not serve yet.
+        if backend_ready:
+            backend_ready = _wait_for_agent_ready(agent_process)
 
         # Small delay to ensure agent's stdout is flushed before we print
         # The agent prints steps 3-8, and we want them to appear before the ready banner

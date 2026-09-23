@@ -66,7 +66,7 @@ from agent_core.core.impl.memory.tuning import (
 # Files that are flat lists of "[timestamp] [category] content" items.
 # These get per-item chunking so each fact has its own embedding, instead of
 # the whole list collapsing into a single section chunk under "## Memory".
-PER_ITEM_FILES = frozenset({"MEMORY.md", "EVENT_UNPROCESSED.md"})
+PER_ITEM_FILES = frozenset({"MEMORY.md"})
 
 # Matches a memory item line: "[stamp] [category] content". The stamp slot
 # accepts any bracketed token — stamp validity is METADATA, never a gate on
@@ -1865,7 +1865,10 @@ class MemoryManager:
         "PROACTIVE.md",
         "MEMORY.md",
         "USER.md",
-        "EVENT_UNPROCESSED.md",
+        # EVENT_UNPROCESSED.md is deliberately NOT indexed: it is now a
+        # per-session transient buffer (agent_file_system/workspace/sessions/
+        # <id>/EVENT_UNPROCESSED.md) that the graph already discards, so
+        # indexing every session's churning copy would be pure overhead.
         # Entity registry (entity-judge pipeline output). Indexed so the
         # file watcher picks up registry edits and dirties the graph.
         "ENTITIES.md",

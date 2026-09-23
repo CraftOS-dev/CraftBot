@@ -12,9 +12,9 @@ export type TourEnvActionId =
   | 'openNewChat'
   | 'ensureChatsExpanded'
   | 'openSettingsTab'
-  | 'openLivingUIModal'
-  | 'closeLivingUIModal'
-  | 'openLivingUITab'
+  | 'openAgentAppModal'
+  | 'closeAgentAppModal'
+  | 'openAgentAppTab'
 
 // A step's environment entry: an action id on its own, or that id paired with a
 // string argument (e.g. which Settings tab to open).
@@ -32,9 +32,13 @@ export interface TourStep {
   route?: string
   /** Environment actions to run before highlighting. Must be idempotent. */
   env?: TourEnvAction[]
-  popover: {
-    title: string
-    description: string
+  /**
+   * Popover placement only. The title/description copy is looked up from the
+   * `tour` namespace by step id (`tour:steps.<id>.title` / `.description`), so
+   * it stays translatable. Omit for a centered modal step with default
+   * placement (welcome / done).
+   */
+  popover?: {
     side?: Side
     align?: Alignment
   }

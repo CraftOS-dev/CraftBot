@@ -240,6 +240,10 @@ class ActivityLogGuard:
 
     def __init__(self, log: ActivityLog):
         self._log = log
+        # idem_keys with an INTENT this process recorded and hasn't yet
+        # complete()'d, so begin() can tell a live batch mate apart from a
+        # crash-then-restart, which a fresh empty set never carries.
+        self._in_flight: set[str] = set()
 
     def begin(
         self,
@@ -254,6 +258,7 @@ class ActivityLogGuard:
             # Fresh attempt, or deliberate retake after a failed/uncertain
             # run — record intent BEFORE the side effect.
             self._log.record_intent(idem_key, action_name, session_id)
+            self._in_flight.add(idem_key)
             return GuardDecision(proceed=True, idem_key=idem_key)
 
         if row["status"] == STATUS_DONE:
@@ -265,6 +270,7 @@ class ActivityLogGuard:
                 done_at = 0.0
             if time.time() - done_at > DONE_DEDUP_WINDOW_SECONDS:
                 self._log.record_intent(idem_key, action_name, session_id)
+                self._in_flight.add(idem_key)
                 return GuardDecision(proceed=True, idem_key=idem_key)
             # This exact side effect just completed — return its stored
             # output instead of doing it again.
@@ -280,6 +286,23 @@ class ActivityLogGuard:
             )
             logger.info(f"[ActivityLog] Skipped duplicate {action_name} ({idem_key})")
             return GuardDecision(proceed=False, idem_key=idem_key, stored_output=stored)
+
+        if idem_key in self._in_flight:
+            # A batch mate is still executing this exact call, not crashed;
+            # refuse without touching the row so it can record the outcome.
+            logger.info(
+                f"[ActivityLog] {action_name} ({idem_key}) already in "
+                f"flight in this batch, refusing the duplicate"
+            )
+            return GuardDecision(
+                proceed=False,
+                idem_key=idem_key,
+                note=(
+                    f"{action_name} is already running with these exact "
+                    f"inputs. Wait for it to finish instead of calling it "
+                    f"again."
+                ),
+            )
 
         # Stale INTENT: a previous attempt was interrupted between starting
         # the side effect and recording its outcome. Surface once; the next
@@ -306,6 +329,7 @@ class ActivityLogGuard:
         status: str,
         outputs: Optional[Dict[str, Any]],
     ) -> None:
+        self._in_flight.discard(idem_key)
         ledger_status = STATUS_DONE if status == "success" else STATUS_FAILED
 
         provider_ref = None

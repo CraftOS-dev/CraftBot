@@ -29,16 +29,19 @@ def load_actions_from_directories(
     Importing them triggers the @action decorator, registering them in the registry.
 
     Args:
-        base_dir: Base directory to scan from. Defaults to current working directory.
-                  Supports PyInstaller frozen executables (uses sys._MEIPASS).
+        base_dir: Base directory to scan from. Defaults to PROJECT_ROOT, the
+                  state directory where app/data/action is bootstrapped.
         paths_to_scan: List of relative paths to scan. Defaults to DEFAULT_ACTION_PATHS.
     """
     if base_dir is None:
-        if getattr(sys, "frozen", False):
-            # PyInstaller bundles action files inside the temp _MEIPASS directory
-            base_dir = sys._MEIPASS  # type: ignore
-        else:
-            base_dir = os.getcwd()
+        # PROJECT_ROOT, not the working directory. Action files live under
+        # app/data/action, which is bootstrapped into the state directory so
+        # a user can edit them; resolving from cwd only found them because
+        # run.py happens to chdir there first. Anything that changed the
+        # working directory would have silently discovered zero actions.
+        from app.config import PROJECT_ROOT
+
+        base_dir = str(PROJECT_ROOT)
 
     if paths_to_scan is None:
         paths_to_scan = DEFAULT_ACTION_PATHS.copy()

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Waypoints,
   RefreshCw,
@@ -24,10 +24,14 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { Button, ConfirmModal } from '../../components/ui'
+import { useTranslation, Trans } from 'react-i18next'
+import { formatNumber, formatDate, formatDateTime, formatList } from '../../i18n/format'
 import { useToast } from '../../contexts/ToastContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, usePersistedSet, usePersistedState, useScrollRestoration } from '../../hooks'
 import { useSettingsWebSocket } from '../Settings/useSettingsWebSocket'
 import { useAppSelector } from '../../store/hooks'
+import { UI_STATE } from '../../store/uiState'
+import { RESOURCES, resourceSync, useResource } from '../../store/resources'
 import {
   selectMemoryEnabled,
   selectMemoryItems,
@@ -46,7 +50,8 @@ const CATEGORY_OPTIONS = [
   'fact', 'preference', 'event', 'decision', 'learning', 'project', 'contact',
 ]
 
-// Sidebar width bounds (resizable like the Living UI chat panel).
+
+// Sidebar width bounds (resizable like the Agent App chat panel).
 const PANEL_MIN_WIDTH = 280
 const PANEL_MAX_WIDTH = 600
 
@@ -59,6 +64,17 @@ interface ItemFormModalProps {
 }
 
 function ItemFormModal({ item, onClose, onSave }: ItemFormModalProps) {
+  const { t } = useTranslation(['memory', 'common'])
+  // Translated label for a known category; custom values pass through verbatim.
+  const categoryLabel = (c: string): string => ({
+    fact: t('memory:category.fact'),
+    preference: t('memory:category.preference'),
+    event: t('memory:category.event'),
+    decision: t('memory:category.decision'),
+    learning: t('memory:category.learning'),
+    project: t('memory:category.project'),
+    contact: t('memory:category.contact'),
+  } as Record<string, string>)[c] ?? c
   const [category, setCategory] = useState(item?.category || 'fact')
   const [content, setContent] = useState(item?.content || '')
   const [superseded, setSuperseded] = useState(item?.superseded || false)
@@ -73,39 +89,38 @@ function ItemFormModal({ item, onClose, onSave }: ItemFormModalProps) {
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h3>{item ? 'Edit memory' : 'Add memory'}</h3>
-          <button className={styles.iconButton} onClick={onClose} aria-label="Close">
+          <h3>{item ? t('memory:item.editTitle') : t('memory:item.addTitle')}</h3>
+          <button className={styles.iconButton} onClick={onClose} aria-label={t('common:actions.close')}>
             <X size={16} />
           </button>
         </div>
         <form onSubmit={submit}>
           <div className={styles.modalBody}>
-            <label className={styles.fieldLabel}>Category</label>
+            <label className={styles.fieldLabel}>{t('memory:field.category')}</label>
             <select
               className={styles.select}
               value={category}
               onChange={e => setCategory(e.target.value)}
             >
               {CATEGORY_OPTIONS.map(c => (
-                <option key={c} value={c}>{c}</option>
+                <option key={c} value={c}>{categoryLabel(c)}</option>
               ))}
               {!CATEGORY_OPTIONS.includes(category) && (
-                <option value={category}>{category}</option>
+                <option value={category}>{categoryLabel(category)}</option>
               )}
             </select>
 
-            <label className={styles.fieldLabel}>Content</label>
+            <label className={styles.fieldLabel}>{t('memory:field.content')}</label>
             <textarea
               className={styles.textarea}
               value={content}
               onChange={e => setContent(e.target.value)}
               rows={4}
-              placeholder="e.g. John prefers concise replies"
+              placeholder={t('memory:item.contentPlaceholder')}
               autoFocus
             />
             <span className={styles.hint}>
-              Entities are identified and linked automatically the next time
-              memory processing runs.
+              {t('memory:item.entitiesHint')}
             </span>
 
             {item && (
@@ -115,16 +130,16 @@ function ItemFormModal({ item, onClose, onSave }: ItemFormModalProps) {
                   checked={superseded}
                   onChange={e => setSuperseded(e.target.checked)}
                 />
-                Superseded (kept as history, excluded from recall)
+                {t('memory:item.supersededLabel')}
               </label>
             )}
           </div>
           <div className={styles.modalFooter}>
             <Button variant="secondary" type="button" size="sm" onClick={onClose}>
-              Cancel
+              {t('common:actions.cancel')}
             </Button>
             <Button variant="primary" type="submit" size="sm">
-              {item ? 'Save' : 'Add'}
+              {item ? t('common:actions.save') : t('common:actions.add')}
             </Button>
           </div>
         </form>
@@ -136,6 +151,17 @@ function ItemFormModal({ item, onClose, onSave }: ItemFormModalProps) {
 // ── Page ─────────────────────────────────────────────────────────────────
 
 export function MemoryPage() {
+  const { t } = useTranslation(['memory', 'common'])
+  // Translated label for a known category; custom values pass through verbatim.
+  const categoryLabel = (c: string): string => ({
+    fact: t('memory:category.fact'),
+    preference: t('memory:category.preference'),
+    event: t('memory:category.event'),
+    decision: t('memory:category.decision'),
+    learning: t('memory:category.learning'),
+    project: t('memory:category.project'),
+    contact: t('memory:category.contact'),
+  } as Record<string, string>)[c] ?? c
   const { send, onMessage } = useSettingsWebSocket()
   const { showToast } = useToast()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
@@ -146,27 +172,38 @@ export function MemoryPage() {
   const indexedFiles = useAppSelector(selectMemoryIndexedFiles)
   const candidates = useAppSelector(selectMemoryIndexCandidates)
 
-  const [selected, setSelected] = useState<MemoryGraphNode | null>(null)
-  const [search, setSearch] = useState('')
+  // The selection is persisted by node id and resolved against the current
+  // graph, so it survives navigation and always shows the latest node data.
+  const [selectedId, setSelectedId] = usePersistedState(UI_STATE.memory.selectedNodeId)
+  const selected = useMemo(
+    () => (selectedId ? graph?.nodes.find(n => n.id === selectedId) ?? null : null),
+    [graph, selectedId],
+  )
+  const setSelected = useCallback(
+    (node: MemoryGraphNode | null) => setSelectedId(node?.id ?? null),
+    [setSelectedId],
+  )
+  const [search, setSearch] = usePersistedState(UI_STATE.memory.search)
   const [showItemForm, setShowItemForm] = useState(false)
   const [editingItem, setEditingItem] = useState<MemoryItem | null>(null)
   const [fitNonce, setFitNonce] = useState(0)
   const [refreshNonce, setRefreshNonce] = useState(0)
   // Hide the default (core) indexed files and their chunk memories from
   // the graph — MEMORY.md's items and ENTITIES.md stay visible.
-  const [hideCoreFiles, setHideCoreFiles] = useState(false)
+  // The filters and the sidebar width below are persisted preferences.
+  const [hideCoreFiles, setHideCoreFiles] = usePersistedState(UI_STATE.memory.hideCoreFiles)
   // Header stat chips double as visibility toggles for the graph.
-  const [showMemories, setShowMemories] = useState(true)
-  const [showEntities, setShowEntities] = useState(true)
-  const [showFiles, setShowFiles] = useState(true)
+  const [showMemories, setShowMemories] = usePersistedState(UI_STATE.memory.showMemories)
+  const [showEntities, setShowEntities] = usePersistedState(UI_STATE.memory.showEntities)
+  const [showFiles, setShowFiles] = usePersistedState(UI_STATE.memory.showFiles)
   // Two link kinds toggle independently: memory→entity ("entity links") and
   // memory→file ("file links", the radial branch lines). Render-only.
-  const [showEntityLinks, setShowEntityLinks] = useState(true)
-  const [showFileLinks, setShowFileLinks] = useState(true)
+  const [showEntityLinks, setShowEntityLinks] = usePersistedState(UI_STATE.memory.showEntityLinks)
+  const [showFileLinks, setShowFileLinks] = usePersistedState(UI_STATE.memory.showFileLinks)
 
-  // Sidebar resize (same pointer-drag pattern as the Living UI chat panel).
+  // Sidebar resize (same pointer-drag pattern as the Agent App chat panel).
   const pageRef = useRef<HTMLDivElement>(null)
-  const [panelWidth, setPanelWidth] = useState(340)
+  const [panelWidth, setPanelWidth] = usePersistedState(UI_STATE.memory.panelWidth)
   const [isResizing, setIsResizing] = useState(false)
 
   const handleResizeStart = (e: React.PointerEvent) => {
@@ -193,26 +230,17 @@ export function MemoryPage() {
     }
   }, [isResizing])
 
-  const refreshAll = () => {
-    send('memory_graph_get')
-    send('memory_items_get')
-    send('memory_indexed_files_get')
-    send('memory_mode_get')
-  }
+  // The slice caches graph, items, indexed files and mode. ResourceSync
+  // fetches them when unloaded or stale and refetches them whenever memory
+  // changes: item edits from any tab, a reset, the mode toggle (the backend
+  // re-indexes synchronously before broadcasting, so the refetch is fresh).
+  useResource(RESOURCES.memoryGraph)
+  useResource(RESOURCES.memoryItems)
+  useResource(RESOURCES.memoryIndexedFiles)
+  useResource(RESOURCES.memoryMode)
 
-  useEffect(() => {
-    refreshAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Any mutation re-syncs the graph and item list (the backend re-indexes
-  // synchronously before broadcasting, so an immediate refetch is fresh).
   useEffect(() => {
     const unsubs = [
-      onMessage('memory_item_add', () => { send('memory_items_get'); send('memory_graph_get') }),
-      onMessage('memory_item_update', () => { send('memory_items_get'); send('memory_graph_get') }),
-      onMessage('memory_item_remove', () => { send('memory_items_get'); send('memory_graph_get') }),
-      onMessage('memory_reset', () => refreshAll()),
       // Per-file add/remove completion: clear ONLY the finished file's
       // spinner so other still-pending files keep spinning. (The old full
       // replace cleared every spinner on the first response, masking the
@@ -231,9 +259,9 @@ export function MemoryPage() {
             })
           }
           if (!d.success) {
-            showToast('error', d.error || 'Failed to update indexed files')
+            showToast('error', d.error || t('memory:toast.updateFailed'))
           } else if (d.rejected && d.rejected.length > 0) {
-            showToast('error', `Skipped ${d.rejected[0].path}: ${d.rejected[0].reason}`)
+            showToast('error', t('memory:toast.skipped', { path: d.rejected[0].path, reason: d.rejected[0].reason }))
           }
           // No memory_graph_get / memory_indexed_files_get round-trip here:
           // the response already carries the fresh graph, files, and
@@ -393,7 +421,9 @@ export function MemoryPage() {
         name: f.path.slice(f.path.lastIndexOf('/') + 1),
         core: f.core,
         indexed: true,
-        meta: f.exists ? `${f.chunk_count} chunks` : 'missing',
+        meta: f.exists
+          ? t('memory:tree.chunks', { count: f.chunk_count, formatted: formatNumber(f.chunk_count) })
+          : t('memory:tree.missing'),
       })
     }
     for (const c of candidates) {
@@ -402,7 +432,9 @@ export function MemoryPage() {
         name: c.path.slice(c.path.lastIndexOf('/') + 1),
         core: false,
         indexed: false,
-        meta: `${(c.size / 1024).toFixed(1)} KB`,
+        meta: t('memory:tree.sizeKb', {
+          size: formatNumber(c.size / 1024, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        }),
       })
     }
 
@@ -413,21 +445,15 @@ export function MemoryPage() {
     }
     sortTree(root)
     return root
-  }, [indexedFiles, candidates])
+  }, [indexedFiles, candidates, t])
 
   // Folders are collapsed by default; only paths in this set render expanded.
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
+  const [expandedFolders, , toggleFolder] = usePersistedSet(UI_STATE.memory.expandedFolders)
+  const treeRef = useRef<HTMLDivElement>(null)
+  useScrollRestoration(UI_STATE.memory.fileTreeScrollTop, treeRef)
   // Files whose index/unindex request is in flight — their tree rows show
   // a spinner until the backend confirms (memory_indexed_files_set).
   const [pendingPaths, setPendingPaths] = useState<Set<string>>(new Set())
-  const toggleFolder = (path: string) => {
-    setExpandedFolders(prev => {
-      const next = new Set(prev)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
-  }
 
   const renderFolder = (folder: TreeFolder, depth: number): React.ReactNode => {
     const isRoot = folder.path === ''
@@ -462,9 +488,9 @@ export function MemoryPage() {
                 <span className={styles.treeName} title={file.path}>{file.name}</span>
                 <span className={styles.treeMeta}>{file.meta}</span>
                 {file.core ? (
-                  <span title="Always indexed"><Lock size={11} className={styles.treeIcon} /></span>
+                  <span title={t('memory:tree.alwaysIndexed')}><Lock size={11} className={styles.treeIcon} /></span>
                 ) : pendingPaths.has(file.path) ? (
-                  <span title="Indexing…" aria-label="Indexing">
+                  <span title={t('memory:tree.indexing')} aria-label={t('memory:tree.indexing')}>
                     <Loader2 size={13} className={styles.treeSpinner} />
                   </span>
                 ) : (
@@ -472,8 +498,8 @@ export function MemoryPage() {
                     className={styles.iconButton}
                     onClick={() =>
                       file.indexed ? handleRemoveFile(file.path) : handleAddFile(file.path)}
-                    aria-label={file.indexed ? `Stop indexing ${file.path}` : `Index ${file.path}`}
-                    title={file.indexed ? 'Indexed — click to remove' : 'Index this file'}
+                    aria-label={file.indexed ? t('memory:tree.stopIndexing', { path: file.path }) : t('memory:tree.indexFile', { path: file.path })}
+                    title={file.indexed ? t('memory:tree.indexedRemove') : t('memory:tree.indexThis')}
                   >
                     {file.indexed
                       ? <Check size={13} className={styles.treeIndexed} />
@@ -512,9 +538,9 @@ export function MemoryPage() {
   const handleDeleteItem = (item: MemoryItem) => {
     confirm(
       {
-        title: 'Delete memory',
-        message: 'This permanently removes the memory item. Consider marking it superseded instead to keep history.',
-        confirmText: 'Delete',
+        title: t('memory:item.deleteTitle'),
+        message: t('memory:item.deleteMessage'),
+        confirmText: t('common:actions.delete'),
         variant: 'danger',
       },
       () => {
@@ -555,60 +581,60 @@ export function MemoryPage() {
         <div className={styles.graphHeader}>
           <div className={styles.titleGroup}>
             <Waypoints size={18} />
-            <h2>Memory</h2>
-            {!enabled && <span className={`${styles.tag} ${styles.tagWarning}`}>Memory disabled</span>}
+            <h2>{t('memory:page.title')}</h2>
+            {!enabled && <span className={`${styles.tag} ${styles.tagWarning}`}>{t('memory:page.disabled')}</span>}
           </div>
           <div className={styles.statChips}>
             <button
               type="button"
               className={`${styles.statChip} ${styles.statChipToggle} ${showMemories ? '' : styles.statChipOff}`}
               onClick={() => setShowMemories(v => !v)}
-              title={showMemories ? 'Hide memories' : 'Show memories'}
+              title={showMemories ? t('memory:toggle.hideMemories') : t('memory:toggle.showMemories')}
               aria-pressed={showMemories}
             >
-              {displayCounts.memories} memories
+              {t('memory:stats.memories', { count: displayCounts.memories, formatted: formatNumber(displayCounts.memories) })}
             </button>
             <button
               type="button"
               className={`${styles.statChip} ${styles.statChipToggle} ${showEntities ? '' : styles.statChipOff}`}
               onClick={() => setShowEntities(v => !v)}
-              title={showEntities ? 'Hide entities' : 'Show entities'}
+              title={showEntities ? t('memory:toggle.hideEntities') : t('memory:toggle.showEntities')}
               aria-pressed={showEntities}
             >
-              {displayCounts.entities} entities
+              {t('memory:stats.entities', { count: displayCounts.entities, formatted: formatNumber(displayCounts.entities) })}
             </button>
             <button
               type="button"
               className={`${styles.statChip} ${styles.statChipToggle} ${showFiles ? '' : styles.statChipOff}`}
               onClick={() => setShowFiles(v => !v)}
-              title={showFiles ? 'Hide files' : 'Show files'}
+              title={showFiles ? t('memory:toggle.hideFiles') : t('memory:toggle.showFiles')}
               aria-pressed={showFiles}
             >
-              {displayCounts.files} {displayCounts.files === 1 ? 'file' : 'files'}
+              {t('memory:stats.files', { count: displayCounts.files, formatted: formatNumber(displayCounts.files) })}
             </button>
             <button
               type="button"
               className={`${styles.statChip} ${styles.statChipToggle} ${showEntityLinks ? '' : styles.statChipOff}`}
               onClick={() => setShowEntityLinks(v => !v)}
-              title={showEntityLinks ? 'Hide memory→entity links' : 'Show memory→entity links'}
+              title={showEntityLinks ? t('memory:toggle.hideEntityLinks') : t('memory:toggle.showEntityLinks')}
               aria-pressed={showEntityLinks}
             >
-              {displayCounts.entityLinks} entity links
+              {t('memory:stats.entityLinks', { count: displayCounts.entityLinks, formatted: formatNumber(displayCounts.entityLinks) })}
             </button>
             <button
               type="button"
               className={`${styles.statChip} ${styles.statChipToggle} ${showFileLinks ? '' : styles.statChipOff}`}
               onClick={() => setShowFileLinks(v => !v)}
-              title={showFileLinks ? 'Hide memory→file links' : 'Show memory→file links'}
+              title={showFileLinks ? t('memory:toggle.hideFileLinks') : t('memory:toggle.showFileLinks')}
               aria-pressed={showFileLinks}
             >
-              {displayCounts.fileLinks} file links
+              {t('memory:stats.fileLinks', { count: displayCounts.fileLinks, formatted: formatNumber(displayCounts.fileLinks) })}
             </button>
             <button
               className={`${styles.iconButton} ${hideCoreFiles ? styles.iconButtonActive : ''}`}
               onClick={() => setHideCoreFiles(v => !v)}
-              title={hideCoreFiles ? 'Show default files' : 'Hide default files (AGENT.md, PROACTIVE.md)'}
-              aria-label="Toggle default files"
+              title={hideCoreFiles ? t('memory:toggle.showDefaultFiles') : t('memory:toggle.hideDefaultFiles')}
+              aria-label={t('memory:toggle.toggleDefaultFiles')}
               aria-pressed={hideCoreFiles}
             >
               <EyeOff size={14} />
@@ -616,19 +642,20 @@ export function MemoryPage() {
             <button
               className={styles.iconButton}
               onClick={() => setFitNonce(n => n + 1)}
-              title="Fit view"
-              aria-label="Fit view"
+              title={t('memory:toggle.fitView')}
+              aria-label={t('memory:toggle.fitView')}
             >
               <Maximize2 size={14} />
             </button>
             <button
               className={styles.iconButton}
               onClick={() => {
-                send('memory_graph_get')
+                // Refetch everything this page shows, not only the graph.
+                resourceSync.handleChanged('memory')
                 setRefreshNonce(n => n + 1)
               }}
-              title="Refresh graph"
-              aria-label="Refresh graph"
+              title={t('memory:toggle.refreshGraph')}
+              aria-label={t('memory:toggle.refreshGraph')}
             >
               <RefreshCw size={14} />
             </button>
@@ -648,10 +675,9 @@ export function MemoryPage() {
         {graph && graph.nodes.length === 0 && (
           <div className={styles.emptyOverlay}>
             <Waypoints size={32} />
-            <p>No memories yet</p>
+            <p>{t('memory:empty.title')}</p>
             <span>
-              As you chat, CraftBot distills what matters into memory and it
-              appears here as a living graph.
+              {t('memory:empty.body')}
             </span>
           </div>
         )}
@@ -663,7 +689,7 @@ export function MemoryPage() {
         onPointerDown={handleResizeStart}
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize panel"
+        aria-label={t('memory:a11y.resizePanel')}
       />
 
       {/* ── Right panel: selection/memories on top, files below ── */}
@@ -679,15 +705,15 @@ export function MemoryPage() {
                 <span className={`${styles.kindDot} ${styles[`kind_${selected.kind}`]}`} />
                 <span className={styles.kindLabel}>
                   {selected.kind === 'item'
-                    ? (selected.source === 'file' ? 'File memory' : 'Memory')
-                    : selected.kind === 'entity' ? 'Entity' : 'File'}
+                    ? (selected.source === 'file' ? t('memory:kind.fileMemory') : t('memory:kind.memory'))
+                    : selected.kind === 'entity' ? t('memory:kind.entity') : t('memory:kind.file')}
                 </span>
-                {selected.superseded && <span className={`${styles.tag} ${styles.tagWarning}`}>superseded</span>}
+                {selected.superseded && <span className={`${styles.tag} ${styles.tagWarning}`}>{t('memory:tag.superseded')}</span>}
                 <button
                   className={`${styles.iconButton} ${styles.detailClose}`}
                   onClick={() => setSelected(null)}
-                  aria-label="Close details"
-                  title="Close"
+                  aria-label={t('memory:detail.closeAria')}
+                  title={t('common:actions.close')}
                 >
                   <X size={14} />
                 </button>
@@ -704,18 +730,18 @@ export function MemoryPage() {
                   <>
                     <div className={styles.metaRow}>
                       <Tag size={12} />
-                      <span>{selected.category || 'fact'}</span>
+                      <span>{categoryLabel(selected.category || 'fact')}</span>
                     </div>
                     {selected.timestamp && (
                       <div className={styles.metaRow}>
                         <Clock size={12} />
-                        <span>{selected.timestamp}</span>
+                        <span>{formatDateTime(new Date(selected.timestamp))}</span>
                       </div>
                     )}
                     {(selectedItem?.entities?.length ?? 0) > 0 && (
                       <div className={styles.metaRow}>
                         <Link2 size={12} />
-                        <span>{(selectedItem?.entities ?? []).join(', ')}</span>
+                        <span>{formatList(selectedItem?.entities ?? [])}</span>
                       </div>
                     )}
                   </>
@@ -737,13 +763,13 @@ export function MemoryPage() {
                 {selected.kind === 'entity' && (
                   <div className={styles.metaRow}>
                     <Link2 size={12} />
-                    <span>{selected.size ?? neighboursOfSelected.length} mention{(selected.size ?? 0) === 1 ? '' : 's'}</span>
+                    <span>{t('memory:meta.mentions', { count: selected.size ?? neighboursOfSelected.length, formatted: formatNumber(selected.size ?? neighboursOfSelected.length) })}</span>
                   </div>
                 )}
                 {selected.kind === 'file' && (
                   <div className={styles.metaRow}>
                     <Layers size={12} />
-                    <span>{selected.size ?? neighboursOfSelected.length} section{(selected.size ?? 0) === 1 ? '' : 's'}</span>
+                    <span>{t('memory:meta.sections', { count: selected.size ?? neighboursOfSelected.length, formatted: formatNumber(selected.size ?? neighboursOfSelected.length) })}</span>
                   </div>
                 )}
               </div>
@@ -752,7 +778,7 @@ export function MemoryPage() {
               {neighboursOfSelected.length > 0 && (
                 <div className={styles.detailSection}>
                   <div className={styles.sectionLabel}>
-                    Connected · {neighboursOfSelected.length}
+                    {t('memory:detail.connected', { value: formatNumber(neighboursOfSelected.length) })}
                   </div>
                   <div className={styles.chipsScroll}>
                     {neighboursOfSelected.map(n => (
@@ -779,7 +805,7 @@ export function MemoryPage() {
                     icon={<Pencil size={13} />}
                     onClick={() => { setEditingItem(selectedItem); setShowItemForm(true) }}
                   >
-                    Edit
+                    {t('common:actions.edit')}
                   </Button>
                   <Button
                     variant="ghost"
@@ -787,7 +813,7 @@ export function MemoryPage() {
                     icon={<Trash2 size={13} />}
                     onClick={() => handleDeleteItem(selectedItem)}
                   >
-                    Delete
+                    {t('common:actions.delete')}
                   </Button>
                 </div>
               )}
@@ -801,7 +827,7 @@ export function MemoryPage() {
                   <input
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    placeholder="Search memories…"
+                    placeholder={t('memory:toolbar.searchPlaceholder')}
                   />
                 </div>
                 <Button
@@ -810,7 +836,7 @@ export function MemoryPage() {
                   icon={<Plus size={13} />}
                   onClick={() => { setEditingItem(null); setShowItemForm(true) }}
                 >
-                  Add
+                  {t('common:actions.add')}
                 </Button>
               </div>
 
@@ -819,7 +845,7 @@ export function MemoryPage() {
                 // inventory list.
                 <div className={styles.itemList}>
                   {filteredItems.length === 0 && fileMemoryGroups.length === 0 && (
-                    <div className={styles.emptyList}>No matches.</div>
+                    <div className={styles.emptyList}>{t('memory:list.noMatches')}</div>
                   )}
                   {filteredItems.map(item => (
                     <div
@@ -829,13 +855,13 @@ export function MemoryPage() {
                     >
                       <div className={styles.itemTop}>
                         <span className={`${styles.chipDot} ${styles.kind_item}`} />
-                        <span className={styles.itemKind}>{item.category}</span>
+                        <span className={styles.itemKind}>{categoryLabel(item.category)}</span>
                         {item.superseded && (
                           <span className={styles.supersededTag}>
-                            <Archive size={11} /> superseded
+                            <Archive size={11} /> {t('memory:tag.superseded')}
                           </span>
                         )}
-                        <span className={styles.itemTime}>{item.timestamp.slice(0, 10)}</span>
+                        <span className={styles.itemTime}>{formatDate(new Date(item.timestamp))}</span>
                       </div>
                       <div className={styles.itemContent}>
                         {item.displayContent || item.content}
@@ -845,7 +871,7 @@ export function MemoryPage() {
                   {fileMemoryGroups.map(([filePath, nodes]) => (
                     <React.Fragment key={filePath}>
                       <div className={`${styles.sectionLabel} ${styles.sectionLabelClip}`}>
-                        <FileText size={11} /> {filePath} · {nodes.length}
+                        <FileText size={11} /> {filePath} · {formatNumber(nodes.length)}
                       </div>
                       {nodes.map(node => (
                         <div
@@ -858,7 +884,7 @@ export function MemoryPage() {
                             <span className={styles.itemKind} title={node.section}>
                               {node.section
                                 ? (node.section.length > 40 ? `${node.section.slice(0, 40)}…` : node.section)
-                                : 'section'}
+                                : t('memory:list.sectionFallback')}
                             </span>
                           </div>
                           <div className={styles.itemContent}>{node.label}</div>
@@ -871,8 +897,7 @@ export function MemoryPage() {
                 <div className={styles.paneEmpty}>
                   <Waypoints size={22} />
                   <span>
-                    Select a node in the graph to see its details, or search
-                    your memories above.
+                    {t('memory:paneEmpty')}
                   </span>
                 </div>
               )}
@@ -883,28 +908,23 @@ export function MemoryPage() {
         {/* ── Bottom: agent file system tree ── */}
         <div className={styles.bottomPane}>
           <div className={styles.sectionLabel}>
-            Agent files
-            <span className={styles.infoTip} aria-label="About file indexing">
+            {t('memory:files.title')}
+            <span className={styles.infoTip} aria-label={t('memory:files.aboutAria')}>
               <Info size={11} />
               <span className={styles.infoTooltip} role="tooltip">
-                <strong>What is indexing?</strong>
-                Indexed files become part of CraftBot's memory: their
-                content is split into sections, made searchable, and shown
-                in the graph as file memories.
-                <br /><br />
-                After indexing, a background task reads each file and
-                identifies the people, projects, and tools it mentions —
-                linking it into the same knowledge graph as conversation
-                memories, so recall draws on both.
+                <Trans
+                  ns="memory"
+                  i18nKey="files.indexingTooltip"
+                  components={{ 1: <strong />, 2: <br />, 3: <br /> }}
+                />
               </span>
             </span>
           </div>
-          <div className={styles.tree}>
+          <div ref={treeRef} className={styles.tree}>
             {renderFolder(fileTree, 0)}
           </div>
           <span className={styles.hint}>
-            Check a file to index it into memory. Locked files are always
-            indexed.
+            {t('memory:files.hint')}
           </span>
         </div>
       </aside>

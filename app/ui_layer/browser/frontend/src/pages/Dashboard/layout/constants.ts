@@ -1,8 +1,5 @@
 import type { Breakpoint } from './types'
 
-export const STORAGE_KEY_LAYOUTS = 'craftbot.dashboard.layouts'
-export const STORAGE_KEY_ACTIVE_ID = 'craftbot.dashboard.activeLayoutId'
-
 /**
  * Storage version. There is exactly one valid standard — the current one.
  * Stored layouts under any other version are discarded on read and the

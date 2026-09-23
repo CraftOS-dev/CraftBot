@@ -276,8 +276,13 @@ async def run_scenario(
         overall_deadline = loop.time() + max_iterations * per_iter_timeout
         idle_since: float | None = None
         while loop.time() < overall_deadline:
+            # A claimed trigger leaves the queue the moment its turn starts, so
+            # "nothing queued" is also true mid-turn — count in-flight turns
+            # too, or the drain exits while the agent is still reacting.
+            runtime = agent.session_runtime
             pending = any(
-                q.has_pending() for q in agent.session_runtime._queues.values()
+                runtime.is_session_active(sid)
+                for sid in set(runtime._queues) | set(runtime._turns)
             )
             if pending:
                 idle_since = None

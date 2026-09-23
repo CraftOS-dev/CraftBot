@@ -1,11 +1,14 @@
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useTranslation } from 'react-i18next'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
 import { Badge } from '../../../components/ui'
 import { TimePeriodSelector, formatTokenCount, useMetricsPeriod } from './shared'
 import styles from './widgets.module.css'
 
 export function TokenUsageWidget() {
-  const { dashboardMetrics } = useWebSocket()
-  const { period, onChange, filteredData } = useMetricsPeriod()
+  const { t } = useTranslation(['dashboard'])
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
+  const { period, onChange, filteredData } = useMetricsPeriod('tokenUsage')
 
   const rawInputTokens = filteredData?.token.input ?? (dashboardMetrics?.token.input ?? 0)
   const outputTokens = filteredData?.token.output ?? (dashboardMetrics?.token.output ?? 0)
@@ -36,31 +39,31 @@ export function TokenUsageWidget() {
         <div className={styles.tokenRatioLabels}>
           <div className={styles.tokenRatioItem}>
             <span className={styles.tokenInputDot} />
-            <span>Input</span>
+            <span>{t('dashboard:widgets.tokenUsage.input')}</span>
             <span className={styles.tokenRatioValue}>{inputRatio}%</span>
           </div>
           <div className={styles.tokenRatioItem}>
             <span className={styles.tokenOutputDot} />
-            <span>Output</span>
+            <span>{t('dashboard:widgets.tokenUsage.output')}</span>
             <span className={styles.tokenRatioValue}>{outputRatio}%</span>
           </div>
           <div className={styles.tokenRatioItem}>
             <span className={styles.tokenCachedDot} />
-            <span>Cached</span>
+            <span>{t('dashboard:widgets.tokenUsage.cached')}</span>
             <span className={styles.tokenRatioValue}>{cachedRatio}%</span>
           </div>
         </div>
         <div className={styles.tokenDetails}>
         <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Input</span>
+          <span className={styles.tokenDetailLabel}>{t('dashboard:widgets.tokenUsage.input')}</span>
           <span className={styles.tokenDetailValue}>{formatTokenCount(inputTokens)}</span>
         </div>
         <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Output</span>
+          <span className={styles.tokenDetailLabel}>{t('dashboard:widgets.tokenUsage.output')}</span>
           <span className={styles.tokenDetailValue}>{formatTokenCount(outputTokens)}</span>
         </div>
         <div className={styles.tokenDetail}>
-          <span className={styles.tokenDetailLabel}>Cached</span>
+          <span className={styles.tokenDetailLabel}>{t('dashboard:widgets.tokenUsage.cached')}</span>
           <span className={styles.tokenDetailValue}>{formatTokenCount(cachedTokens)}</span>
         </div>
       </div>
@@ -74,7 +77,8 @@ export function TokenUsageWidget() {
 // for why this always shows the all-time total rather than the currently
 // selected period.
 export function TokenUsageHeaderBadge() {
-  const { dashboardMetrics } = useWebSocket()
+  const { t } = useTranslation(['dashboard'])
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   // Derived rather than read from `token.total`, which is rawInput + output and
   // so double-counts cache reads. Counts new tokens only, matching the tiles.
   const rawInput = dashboardMetrics?.token.input ?? 0
@@ -83,5 +87,5 @@ export function TokenUsageHeaderBadge() {
   const total = Math.max(0, rawInput - cached) + output
   // Same abbreviation as the tiles — the badge is the same quantity and
   // shouldn't disagree with them about how it's written.
-  return <Badge variant="default">{formatTokenCount(total)} total</Badge>
+  return <Badge variant="default">{t('dashboard:widgets.tokenUsage.total', { total: formatTokenCount(total) })}</Badge>
 }

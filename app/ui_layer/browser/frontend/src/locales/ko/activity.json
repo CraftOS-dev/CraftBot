@@ -1,0 +1,165 @@
+{
+  "chunk": {
+    "working": "작업 중",
+    "hideSteps": "단계 숨기기",
+    "showSteps": "단계 보기",
+    "actionsExecuted_one": "작업 {{count}}개 실행됨",
+    "actionsExecuted_other": "작업 {{count}}개 실행됨"
+  },
+  "reasoning": {
+    "thinking": "생각 중…"
+  },
+  "count": {
+    "lines_one": "{{formatted}}줄",
+    "lines_other": "{{formatted}}줄",
+    "linesOutput_one": "{{formatted}}줄 출력",
+    "linesOutput_other": "{{formatted}}줄 출력",
+    "items_one": "{{formatted}}개 항목",
+    "items_other": "{{formatted}}개 항목",
+    "elements_one": "{{formatted}}개 요소",
+    "elements_other": "{{formatted}}개 요소",
+    "chars_one": "{{formatted}}자",
+    "chars_other": "{{formatted}}자",
+    "characters_one": "{{formatted}}자",
+    "characters_other": "{{formatted}}자",
+    "attachmentsPlus_one": "+ 첨부 {{formatted}}개",
+    "attachmentsPlus_other": "+ 첨부 {{formatted}}개"
+  },
+  "action": {
+    "streamEdit": {
+      "editing": "파일 편집 중",
+      "edited": "파일 편집됨",
+      "failed": "편집 실패",
+      "cancelled": "편집 취소됨"
+    },
+    "readFile": {
+      "reading": "파일 읽는 중",
+      "read": "파일 읽음",
+      "failed": "읽기 실패",
+      "cancelled": "읽기 취소됨"
+    },
+    "findFiles": {
+      "finding": "파일 찾는 중",
+      "failed": "찾기 실패",
+      "cancelled": "찾기 취소됨",
+      "found_one": "파일 {{formatted}}개 찾음",
+      "found_other": "파일 {{formatted}}개 찾음"
+    },
+    "listFolder": {
+      "listing": "폴더 목록 표시 중",
+      "listed": "폴더 목록 표시됨",
+      "failed": "목록 표시 실패",
+      "cancelled": "목록 표시 취소됨"
+    },
+    "convertToPdf": {
+      "creating": "PDF 생성 중",
+      "created": "PDF 생성됨",
+      "failed": "PDF 생성 실패",
+      "cancelled": "PDF 생성 취소됨"
+    },
+    "readPdf": {
+      "reading": "PDF 읽는 중",
+      "read": "PDF 읽음",
+      "failed": "PDF 읽기 실패",
+      "cancelled": "PDF 읽기 취소됨"
+    },
+    "convertToMarkdown": {
+      "converting": "마크다운으로 변환 중",
+      "converted": "마크다운으로 변환됨",
+      "failed": "변환 실패",
+      "cancelled": "변환 취소됨"
+    },
+    "runPython": {
+      "running": "Python 실행 중",
+      "ran": "Python 실행됨",
+      "failed": "Python 실패",
+      "cancelled": "Python 취소됨"
+    },
+    "runShell": {
+      "running": "명령 실행 중",
+      "ran": "명령 실행됨",
+      "failed": "명령 실패",
+      "cancelled": "명령 취소됨"
+    },
+    "webSearch": {
+      "searching": "웹 검색 중",
+      "failed": "검색 실패",
+      "cancelled": "검색 취소됨",
+      "found_one": "결과 {{formatted}}개 찾음",
+      "found_other": "결과 {{formatted}}개 찾음"
+    },
+    "webFetch": {
+      "fetching": "페이지 가져오는 중",
+      "failed": "가져오기 실패",
+      "cancelled": "가져오기 취소됨",
+      "fetchedTitle": "{{title}} 가져옴",
+      "fetchedPage": "페이지 가져옴"
+    },
+    "httpRequest": {
+      "request": "{{method}} 요청",
+      "failed": "{{method}} 실패",
+      "cancelled": "{{method}} 취소됨",
+      "response": "{{method}} 응답"
+    },
+    "generateImage": {
+      "generating": "이미지 생성 중",
+      "failed": "생성 실패",
+      "cancelled": "생성 취소됨",
+      "generated_one": "이미지 {{formatted}}개 생성됨",
+      "generated_other": "이미지 {{formatted}}개 생성됨"
+    },
+    "describeImage": {
+      "describing": "이미지 설명 중",
+      "described": "이미지 설명됨",
+      "failed": "설명 실패",
+      "cancelled": "설명 취소됨"
+    },
+    "performOcr": {
+      "reading": "이미지 텍스트 읽는 중",
+      "extracted": "텍스트 추출됨",
+      "failed": "OCR 실패",
+      "cancelled": "OCR 취소됨"
+    },
+    "understandVideo": {
+      "analyzing": "동영상 분석 중",
+      "analyzed": "동영상 분석됨",
+      "failed": "분석 실패",
+      "cancelled": "분석 취소됨"
+    },
+    "grepFiles": {
+      "grepping": "검색 중",
+      "failed": "검색 실패",
+      "cancelled": "검색 취소됨",
+      "foundIn_one": "파일 {{formatted}}개에서 찾음",
+      "foundIn_other": "파일 {{formatted}}개에서 찾음"
+    },
+    "memorySearch": {
+      "searching": "메모리 검색 중",
+      "failed": "메모리 검색 실패",
+      "cancelled": "메모리 검색 취소됨",
+      "found_one": "메모리 {{formatted}}개 찾음",
+      "found_other": "메모리 {{formatted}}개 찾음"
+    },
+    "sendMessage": {
+      "sending": "메시지 보내는 중",
+      "sent": "메시지 보냄",
+      "failed": "보내기 실패",
+      "cancelled": "보내기 취소됨"
+    },
+    "updateTodos": {
+      "updating": "할 일 업데이트 중",
+      "updated": "할 일 업데이트됨",
+      "failed": "업데이트 실패",
+      "cancelled": "업데이트 취소됨",
+      "progress": "{{total}}개 중 {{done}}개 완료",
+      "progressWithTask": "{{progress}} · {{task}}"
+    }
+  },
+  "generic": {
+    "actionNoun": "작업",
+    "running": "{{name}} 실행 중",
+    "completed": "{{name}} 완료됨",
+    "failed": "{{name}} 실패",
+    "cancelled": "{{name}} 취소됨"
+  }
+}

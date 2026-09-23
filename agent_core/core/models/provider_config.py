@@ -119,7 +119,7 @@ class ProviderProfile:
     uses_max_completion_tokens: bool = False
     # Whether the chat_completions session path accumulates a growing
     # [user, assistant, ...] history for this provider (the
-    # _openai_compat_session_messages buffer). False preserves the
+    # session history). False preserves the
     # historical behavior for minimax/moonshot, whose session turns fall
     # through to stateless generation. Only meaningful on the
     # chat_completions wire.

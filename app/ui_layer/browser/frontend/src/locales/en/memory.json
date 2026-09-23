@@ -1,0 +1,113 @@
+{
+  "page": {
+    "title": "Memory",
+    "disabled": "Memory disabled"
+  },
+  "stats": {
+    "memories_one": "{{formatted}} memory",
+    "memories_other": "{{formatted}} memories",
+    "entities_one": "{{formatted}} entity",
+    "entities_other": "{{formatted}} entities",
+    "files_one": "{{formatted}} file",
+    "files_other": "{{formatted}} files",
+    "entityLinks_one": "{{formatted}} entity link",
+    "entityLinks_other": "{{formatted}} entity links",
+    "fileLinks_one": "{{formatted}} file link",
+    "fileLinks_other": "{{formatted}} file links"
+  },
+  "toggle": {
+    "hideMemories": "Hide memories",
+    "showMemories": "Show memories",
+    "hideEntities": "Hide entities",
+    "showEntities": "Show entities",
+    "hideFiles": "Hide files",
+    "showFiles": "Show files",
+    "hideEntityLinks": "Hide memory→entity links",
+    "showEntityLinks": "Show memory→entity links",
+    "hideFileLinks": "Hide memory→file links",
+    "showFileLinks": "Show memory→file links",
+    "showDefaultFiles": "Show default files",
+    "hideDefaultFiles": "Hide default files (AGENT.md, PROACTIVE.md)",
+    "toggleDefaultFiles": "Toggle default files",
+    "fitView": "Fit view",
+    "refreshGraph": "Refresh graph"
+  },
+  "empty": {
+    "title": "No memories yet",
+    "body": "As you chat, CraftBot distills what matters into memory and it appears here as a living graph."
+  },
+  "a11y": {
+    "resizePanel": "Resize panel"
+  },
+  "kind": {
+    "memory": "Memory",
+    "fileMemory": "File memory",
+    "entity": "Entity",
+    "file": "File"
+  },
+  "tag": {
+    "superseded": "superseded"
+  },
+  "detail": {
+    "closeAria": "Close details",
+    "connected": "Connected · {{value}}"
+  },
+  "meta": {
+    "mentions_one": "{{formatted}} mention",
+    "mentions_other": "{{formatted}} mentions",
+    "sections_one": "{{formatted}} section",
+    "sections_other": "{{formatted}} sections"
+  },
+  "toolbar": {
+    "searchPlaceholder": "Search memories…"
+  },
+  "list": {
+    "noMatches": "No matches.",
+    "sectionFallback": "section"
+  },
+  "paneEmpty": "Select a node in the graph to see its details, or search your memories above.",
+  "category": {
+    "fact": "Fact",
+    "preference": "Preference",
+    "event": "Event",
+    "decision": "Decision",
+    "learning": "Learning",
+    "project": "Project",
+    "contact": "Contact"
+  },
+  "field": {
+    "category": "Category",
+    "content": "Content"
+  },
+  "item": {
+    "addTitle": "Add memory",
+    "editTitle": "Edit memory",
+    "deleteTitle": "Delete memory",
+    "deleteMessage": "This permanently removes the memory item. Consider marking it superseded instead to keep history.",
+    "entitiesHint": "Entities are identified and linked automatically the next time memory processing runs.",
+    "supersededLabel": "Superseded (kept as history, excluded from recall)",
+    "contentPlaceholder": "e.g. John prefers concise replies"
+  },
+  "files": {
+    "title": "Agent files",
+    "aboutAria": "About file indexing",
+    "indexingTooltip": "<1>What is indexing?</1> Indexed files become part of CraftBot's memory: their content is split into sections, made searchable, and shown in the graph as file memories.<2/><3/>After indexing, a background task reads each file and identifies the people, projects, and tools it mentions, linking it into the same knowledge graph as conversation memories, so recall draws on both.",
+    "hint": "Check a file to index it into memory. Locked files are always indexed."
+  },
+  "tree": {
+    "chunks_one": "{{formatted}} chunk",
+    "chunks_other": "{{formatted}} chunks",
+    "sizeKb": "{{size}} KB",
+    "missing": "missing",
+    "alwaysIndexed": "Always indexed",
+    "indexing": "Indexing…",
+    "stopIndexing": "Stop indexing {{path}}",
+    "indexFile": "Index {{path}}",
+    "indexedRemove": "Indexed (click to remove)",
+    "indexThis": "Index this file"
+  },
+  "toast": {
+    "updateFailed": "Failed to update indexed files",
+    "skipped": "Skipped {{path}}: {{reason}}"
+  }
+}

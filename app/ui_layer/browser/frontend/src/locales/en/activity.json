@@ -1,0 +1,165 @@
+{
+  "chunk": {
+    "working": "Working",
+    "hideSteps": "Hide steps",
+    "showSteps": "Show steps",
+    "actionsExecuted_one": "{{count}} action executed",
+    "actionsExecuted_other": "{{count}} actions executed"
+  },
+  "reasoning": {
+    "thinking": "Thinking…"
+  },
+  "count": {
+    "lines_one": "{{formatted}} line",
+    "lines_other": "{{formatted}} lines",
+    "linesOutput_one": "{{formatted}} line output",
+    "linesOutput_other": "{{formatted}} lines output",
+    "items_one": "{{formatted}} item",
+    "items_other": "{{formatted}} items",
+    "elements_one": "{{formatted}} element",
+    "elements_other": "{{formatted}} elements",
+    "chars_one": "{{formatted}} char",
+    "chars_other": "{{formatted}} chars",
+    "characters_one": "{{formatted}} character",
+    "characters_other": "{{formatted}} characters",
+    "attachmentsPlus_one": "+ {{formatted}} attachment",
+    "attachmentsPlus_other": "+ {{formatted}} attachments"
+  },
+  "action": {
+    "streamEdit": {
+      "editing": "Editing file",
+      "edited": "Edited file",
+      "failed": "Edit failed",
+      "cancelled": "Edit cancelled"
+    },
+    "readFile": {
+      "reading": "Reading file",
+      "read": "Read file",
+      "failed": "Read failed",
+      "cancelled": "Read cancelled"
+    },
+    "findFiles": {
+      "finding": "Finding files",
+      "failed": "Find failed",
+      "cancelled": "Find cancelled",
+      "found_one": "Found {{formatted}} file",
+      "found_other": "Found {{formatted}} files"
+    },
+    "listFolder": {
+      "listing": "Listing folder",
+      "listed": "Listed folder",
+      "failed": "List failed",
+      "cancelled": "List cancelled"
+    },
+    "convertToPdf": {
+      "creating": "Creating PDF",
+      "created": "Created PDF",
+      "failed": "PDF creation failed",
+      "cancelled": "PDF creation cancelled"
+    },
+    "readPdf": {
+      "reading": "Reading PDF",
+      "read": "Read PDF",
+      "failed": "PDF read failed",
+      "cancelled": "PDF read cancelled"
+    },
+    "convertToMarkdown": {
+      "converting": "Converting to markdown",
+      "converted": "Converted to markdown",
+      "failed": "Convert failed",
+      "cancelled": "Convert cancelled"
+    },
+    "runPython": {
+      "running": "Running Python",
+      "ran": "Ran Python",
+      "failed": "Python failed",
+      "cancelled": "Python cancelled"
+    },
+    "runShell": {
+      "running": "Running command",
+      "ran": "Ran command",
+      "failed": "Command failed",
+      "cancelled": "Command cancelled"
+    },
+    "webSearch": {
+      "searching": "Searching web",
+      "failed": "Search failed",
+      "cancelled": "Search cancelled",
+      "found_one": "Found {{formatted}} result",
+      "found_other": "Found {{formatted}} results"
+    },
+    "webFetch": {
+      "fetching": "Fetching page",
+      "failed": "Fetch failed",
+      "cancelled": "Fetch cancelled",
+      "fetchedTitle": "Fetched {{title}}",
+      "fetchedPage": "Fetched page"
+    },
+    "httpRequest": {
+      "request": "{{method}} request",
+      "failed": "{{method}} failed",
+      "cancelled": "{{method}} cancelled",
+      "response": "{{method}} response"
+    },
+    "generateImage": {
+      "generating": "Generating image",
+      "failed": "Generation failed",
+      "cancelled": "Generation cancelled",
+      "generated_one": "Generated {{formatted}} image",
+      "generated_other": "Generated {{formatted}} images"
+    },
+    "describeImage": {
+      "describing": "Describing image",
+      "described": "Described image",
+      "failed": "Describe failed",
+      "cancelled": "Describe cancelled"
+    },
+    "performOcr": {
+      "reading": "Reading image text",
+      "extracted": "Extracted text",
+      "failed": "OCR failed",
+      "cancelled": "OCR cancelled"
+    },
+    "understandVideo": {
+      "analyzing": "Analyzing video",
+      "analyzed": "Analyzed video",
+      "failed": "Analysis failed",
+      "cancelled": "Analysis cancelled"
+    },
+    "grepFiles": {
+      "grepping": "Grepping",
+      "failed": "Grep failed",
+      "cancelled": "Grep cancelled",
+      "foundIn_one": "Found in {{formatted}} file",
+      "foundIn_other": "Found in {{formatted}} files"
+    },
+    "memorySearch": {
+      "searching": "Searching memory",
+      "failed": "Memory search failed",
+      "cancelled": "Memory search cancelled",
+      "found_one": "Found {{formatted}} memory",
+      "found_other": "Found {{formatted}} memories"
+    },
+    "sendMessage": {
+      "sending": "Sending message",
+      "sent": "Sent message",
+      "failed": "Send failed",
+      "cancelled": "Send cancelled"
+    },
+    "updateTodos": {
+      "updating": "Updating todos",
+      "updated": "Updated todos",
+      "failed": "Update failed",
+      "cancelled": "Update cancelled",
+      "progress": "{{done}}/{{total}} done",
+      "progressWithTask": "{{progress}} · {{task}}"
+    }
+  },
+  "generic": {
+    "actionNoun": "action",
+    "running": "Running {{name}}",
+    "completed": "{{name}} completed",
+    "failed": "{{name}} failed",
+    "cancelled": "{{name}} cancelled"
+  }
+}

@@ -10,6 +10,8 @@ not the presentation.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
+from app.i18n import tui
+
 
 @dataclass
 class StepOption:
@@ -98,13 +100,15 @@ class IntroStep:
     """
 
     name = "intro"
-    title = "Nice to meet you, I'm CraftBot!"
-    description = (
-        "Nice to meet you, I am CraftBot! I am here to help you with work or "
-        "life. Now before we begin, there are some baseline settings we need "
-        "to configure."
-    )
     required = True
+
+    @property
+    def title(self) -> str:
+        return tui("onboarding_intro_title")
+
+    @property
+    def description(self) -> str:
+        return tui("onboarding_intro_desc")
 
     def get_options(self) -> List[StepOption]:
         return []
@@ -120,9 +124,15 @@ class ProviderStep:
     """LLM provider selection step."""
 
     name = "provider"
-    title = "Select LLM Provider"
-    description = "Choose which AI provider to use for the agent."
     required = True
+
+    @property
+    def title(self) -> str:
+        return tui("onboarding_provider_title")
+
+    @property
+    def description(self) -> str:
+        return tui("onboarding_provider_desc")
 
     # Provider options with their display names
     PROVIDERS = [
@@ -144,7 +154,7 @@ class ProviderStep:
             StepOption(
                 value=provider_id,
                 label=label,
-                description=desc,
+                description=tui(f"onboarding_provider_desc_{provider_id}"),
                 default=(provider_id == "openai"),
             )
             for provider_id, label, desc in self.PROVIDERS
@@ -154,7 +164,9 @@ class ProviderStep:
         valid_providers = [p[0] for p in self.PROVIDERS]
         if value in valid_providers:
             return True, None
-        return False, f"Invalid provider. Choose from: {', '.join(valid_providers)}"
+        return False, tui(
+            "onboarding_provider_invalid", providers=", ".join(valid_providers)
+        )
 
     def get_default(self) -> str:
         # Check settings.json for existing provider
@@ -231,26 +243,20 @@ class ApiKeyStep:
     @property
     def title(self) -> str:
         if self.provider == "remote":
-            return "Connect Ollama"
+            return tui("onboarding_apikey_title_ollama")
         if self.provider in self.OPENROUTER_PROXIED:
             display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
-            return f"Enter {display} API Key"
-        return "Enter API Key"
+            return tui("onboarding_apikey_title_openrouter", display=display)
+        return tui("onboarding_apikey_title_default")
 
     @property
     def description(self) -> str:
         if self.provider == "remote":
-            return (
-                "Connect to your local Ollama instance.\n"
-                "If Ollama isn't installed yet, we'll help you set it up."
-            )
+            return tui("onboarding_apikey_desc_ollama")
         if self.provider in self.OPENROUTER_PROXIED:
             display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
-            return (
-                f"Enter your {display} API key. If your region doesn't have direct access, "
-                f"you can use OpenRouter as a fallback instead."
-            )
-        return "Enter your API key for the selected provider."
+            return tui("onboarding_apikey_desc_openrouter", display=display)
+        return tui("onboarding_apikey_desc_default")
 
     def get_options(self) -> List[StepOption]:
         # Free-form input, no options
@@ -263,14 +269,14 @@ class ApiKeyStep:
                 return True, None  # Empty = use default URL
             v = value.strip()
             if not (v.startswith("http://") or v.startswith("https://")):
-                return False, "Please enter a valid URL (e.g. http://localhost:11434)"
+                return False, tui("onboarding_validate_invalid_url")
             return True, None
 
         # Proxied providers submit {api_key, via, or_model?} dict
         if self.provider in self.OPENROUTER_PROXIED and isinstance(value, dict):
             api_key = value.get("api_key", "")
             if not api_key or len(str(api_key).strip()) < 10:
-                return False, "API key is required"
+                return False, tui("onboarding_validate_api_key_required")
             return True, None
 
         # A connected subscription (ChatGPT Plus/Pro, SuperGrok) authorizes the
@@ -281,10 +287,10 @@ class ApiKeyStep:
             return True, None
 
         if not value or not isinstance(value, str):
-            return False, "API key is required"
+            return False, tui("onboarding_validate_api_key_required")
 
         if len(value.strip()) < 10:
-            return False, "API key seems too short"
+            return False, tui("onboarding_validate_api_key_too_short")
 
         return True, None
 
@@ -305,18 +311,24 @@ class AgentNameStep:
     """Agent name configuration step (name only, no avatar)."""
 
     name = "agent_name"
-    title = "Name your agent"
-    description = "Give your agent a name."
     required = False
+
+    @property
+    def title(self) -> str:
+        return tui("onboarding_agent_name_title")
+
+    @property
+    def description(self) -> str:
+        return tui("onboarding_agent_name_desc")
 
     def get_form_fields(self) -> List[FormField]:
         return [
             FormField(
                 name="agent_name",
-                label="Agent Name",
+                label=tui("onboarding_field_agent_name_label"),
                 field_type="text",
                 default="CraftBot",
-                placeholder="Enter a name",
+                placeholder=tui("onboarding_field_agent_name_placeholder"),
             ),
         ]
 
@@ -327,14 +339,14 @@ class AgentNameStep:
         # Accept legacy string submissions (plain text name) for backward compat.
         if isinstance(value, str):
             if len(value) > 20:
-                return False, "Agent name must be 20 characters or fewer"
+                return False, tui("onboarding_validate_agent_name_too_long")
             return True, None
         if isinstance(value, dict):
             agent_name = value.get("agent_name")
             if agent_name and len(str(agent_name)) > 20:
-                return False, "Agent name must be 20 characters or fewer"
+                return False, tui("onboarding_validate_agent_name_too_long")
             return True, None
-        return False, "Invalid agent name submission"
+        return False, tui("onboarding_validate_agent_name_invalid")
 
     def get_default(self) -> Dict[str, Any]:
         return {"agent_name": "CraftBot"}
@@ -350,9 +362,15 @@ class UserProfileStep:
     """
 
     name = "user_profile"
-    title = "Your Name"
-    description = "What should your agent call you?"
     required = False
+
+    @property
+    def title(self) -> str:
+        return tui("onboarding_user_profile_title")
+
+    @property
+    def description(self) -> str:
+        return tui("onboarding_user_profile_desc")
 
     @staticmethod
     def fetch_geolocation() -> str:
@@ -388,9 +406,9 @@ class UserProfileStep:
         return [
             FormField(
                 name="user_name",
-                label="Your Name",
+                label=tui("onboarding_field_user_name_label"),
                 field_type="text",
-                placeholder="Your name",
+                placeholder=tui("onboarding_field_user_name_placeholder"),
                 default="",
             ),
         ]
@@ -424,10 +442,10 @@ class UserProfileStep:
     def validate(self, value: Any) -> tuple[bool, Optional[str]]:
         """Validate the form data dict. The name is optional."""
         if not isinstance(value, dict):
-            return False, "Expected a dictionary of form values"
+            return False, tui("onboarding_validate_expected_dict")
         user_name = value.get("user_name")
         if user_name and len(str(user_name)) > 20:
-            return False, "Name must be 20 characters or fewer"
+            return False, tui("onboarding_validate_user_name_too_long")
         return True, None
 
     def get_default(self) -> Dict[str, Any]:

@@ -1,0 +1,113 @@
+{
+  "page": {
+    "title": "メモリー",
+    "disabled": "メモリーは無効です"
+  },
+  "stats": {
+    "memories_one": "{{formatted}} 件のメモリー",
+    "memories_other": "{{formatted}} 件のメモリー",
+    "entities_one": "{{formatted}} 件のエンティティ",
+    "entities_other": "{{formatted}} 件のエンティティ",
+    "files_one": "{{formatted}} 件のファイル",
+    "files_other": "{{formatted}} 件のファイル",
+    "entityLinks_one": "{{formatted}} 件のエンティティリンク",
+    "entityLinks_other": "{{formatted}} 件のエンティティリンク",
+    "fileLinks_one": "{{formatted}} 件のファイルリンク",
+    "fileLinks_other": "{{formatted}} 件のファイルリンク"
+  },
+  "toggle": {
+    "hideMemories": "メモリーを非表示",
+    "showMemories": "メモリーを表示",
+    "hideEntities": "エンティティを非表示",
+    "showEntities": "エンティティを表示",
+    "hideFiles": "ファイルを非表示",
+    "showFiles": "ファイルを表示",
+    "hideEntityLinks": "メモリー→エンティティのリンクを非表示",
+    "showEntityLinks": "メモリー→エンティティのリンクを表示",
+    "hideFileLinks": "メモリー→ファイルのリンクを非表示",
+    "showFileLinks": "メモリー→ファイルのリンクを表示",
+    "showDefaultFiles": "デフォルトファイルを表示",
+    "hideDefaultFiles": "デフォルトファイルを非表示 (AGENT.md, PROACTIVE.md)",
+    "toggleDefaultFiles": "デフォルトファイルの表示切り替え",
+    "fitView": "表示を合わせる",
+    "refreshGraph": "グラフを更新"
+  },
+  "empty": {
+    "title": "まだメモリーがありません",
+    "body": "チャットするにつれて、CraftBot は重要な内容をメモリーに凝縮し、ここに生きたグラフとして表示します。"
+  },
+  "a11y": {
+    "resizePanel": "パネルのサイズを変更"
+  },
+  "kind": {
+    "memory": "メモリー",
+    "fileMemory": "ファイルメモリー",
+    "entity": "エンティティ",
+    "file": "ファイル"
+  },
+  "tag": {
+    "superseded": "置き換え済み"
+  },
+  "detail": {
+    "closeAria": "詳細を閉じる",
+    "connected": "接続済み · {{value}}"
+  },
+  "meta": {
+    "mentions_one": "{{formatted}} 件の言及",
+    "mentions_other": "{{formatted}} 件の言及",
+    "sections_one": "{{formatted}} 個のセクション",
+    "sections_other": "{{formatted}} 個のセクション"
+  },
+  "toolbar": {
+    "searchPlaceholder": "メモリーを検索…"
+  },
+  "list": {
+    "noMatches": "一致するものがありません。",
+    "sectionFallback": "セクション"
+  },
+  "paneEmpty": "グラフ内のノードを選択して詳細を表示するか、上でメモリーを検索してください。",
+  "category": {
+    "fact": "事実",
+    "preference": "好み",
+    "event": "イベント",
+    "decision": "決定",
+    "learning": "学習",
+    "project": "プロジェクト",
+    "contact": "連絡先"
+  },
+  "field": {
+    "category": "カテゴリー",
+    "content": "内容"
+  },
+  "item": {
+    "addTitle": "メモリーを追加",
+    "editTitle": "メモリーを編集",
+    "deleteTitle": "メモリーを削除",
+    "deleteMessage": "このメモリー項目を完全に削除します。履歴を残すには、代わりに置き換え済みとしてマークすることを検討してください。",
+    "entitiesHint": "エンティティは次回のメモリー処理実行時に自動的に識別・リンクされます。",
+    "supersededLabel": "置き換え済み（履歴として保持、想起からは除外）",
+    "contentPlaceholder": "例: John は簡潔な返信を好む"
+  },
+  "files": {
+    "title": "エージェントファイル",
+    "aboutAria": "ファイルのインデックスについて",
+    "indexingTooltip": "<1>インデックスとは？</1> インデックスされたファイルは CraftBot のメモリーの一部になります。内容はセクションに分割され、検索可能になり、グラフにファイルメモリーとして表示されます。<2/><3/>インデックス後、バックグラウンドタスクが各ファイルを読み込み、言及されている人物、プロジェクト、ツールを識別して、会話メモリーと同じナレッジグラフにリンクします。これにより、想起は両方を活用します。",
+    "hint": "ファイルにチェックを入れるとメモリーにインデックスされます。ロックされたファイルは常にインデックスされます。"
+  },
+  "tree": {
+    "chunks_one": "{{formatted}} 個のチャンク",
+    "chunks_other": "{{formatted}} 個のチャンク",
+    "sizeKb": "{{size}} KB",
+    "missing": "見つかりません",
+    "alwaysIndexed": "常にインデックス",
+    "indexing": "インデックス中…",
+    "stopIndexing": "{{path}} のインデックスを停止",
+    "indexFile": "{{path}} をインデックス",
+    "indexedRemove": "インデックス済み（クリックで削除）",
+    "indexThis": "このファイルをインデックス"
+  },
+  "toast": {
+    "updateFailed": "インデックスされたファイルの更新に失敗しました",
+    "skipped": "{{path}} をスキップしました: {{reason}}"
+  }
+}

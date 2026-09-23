@@ -1,0 +1,165 @@
+{
+  "chunk": {
+    "working": "Trabajando",
+    "hideSteps": "Ocultar pasos",
+    "showSteps": "Mostrar pasos",
+    "actionsExecuted_one": "{{count}} acción ejecutada",
+    "actionsExecuted_other": "{{count}} acciones ejecutadas"
+  },
+  "reasoning": {
+    "thinking": "Pensando…"
+  },
+  "count": {
+    "lines_one": "{{formatted}} línea",
+    "lines_other": "{{formatted}} líneas",
+    "linesOutput_one": "{{formatted}} línea de salida",
+    "linesOutput_other": "{{formatted}} líneas de salida",
+    "items_one": "{{formatted}} elemento",
+    "items_other": "{{formatted}} elementos",
+    "elements_one": "{{formatted}} elemento",
+    "elements_other": "{{formatted}} elementos",
+    "chars_one": "{{formatted}} car.",
+    "chars_other": "{{formatted}} car.",
+    "characters_one": "{{formatted}} carácter",
+    "characters_other": "{{formatted}} caracteres",
+    "attachmentsPlus_one": "+ {{formatted}} adjunto",
+    "attachmentsPlus_other": "+ {{formatted}} adjuntos"
+  },
+  "action": {
+    "streamEdit": {
+      "editing": "Editando archivo",
+      "edited": "Archivo editado",
+      "failed": "Error al editar",
+      "cancelled": "Edición cancelada"
+    },
+    "readFile": {
+      "reading": "Leyendo archivo",
+      "read": "Archivo leído",
+      "failed": "Error al leer",
+      "cancelled": "Lectura cancelada"
+    },
+    "findFiles": {
+      "finding": "Buscando archivos",
+      "failed": "Error en la búsqueda",
+      "cancelled": "Búsqueda cancelada",
+      "found_one": "Se encontró {{formatted}} archivo",
+      "found_other": "Se encontraron {{formatted}} archivos"
+    },
+    "listFolder": {
+      "listing": "Listando carpeta",
+      "listed": "Carpeta listada",
+      "failed": "Error al listar",
+      "cancelled": "Listado cancelado"
+    },
+    "convertToPdf": {
+      "creating": "Creando PDF",
+      "created": "PDF creado",
+      "failed": "Error al crear el PDF",
+      "cancelled": "Creación del PDF cancelada"
+    },
+    "readPdf": {
+      "reading": "Leyendo PDF",
+      "read": "PDF leído",
+      "failed": "Error al leer el PDF",
+      "cancelled": "Lectura del PDF cancelada"
+    },
+    "convertToMarkdown": {
+      "converting": "Convirtiendo a markdown",
+      "converted": "Convertido a markdown",
+      "failed": "Error al convertir",
+      "cancelled": "Conversión cancelada"
+    },
+    "runPython": {
+      "running": "Ejecutando Python",
+      "ran": "Python ejecutado",
+      "failed": "Error en Python",
+      "cancelled": "Python cancelado"
+    },
+    "runShell": {
+      "running": "Ejecutando comando",
+      "ran": "Comando ejecutado",
+      "failed": "Error en el comando",
+      "cancelled": "Comando cancelado"
+    },
+    "webSearch": {
+      "searching": "Buscando en la web",
+      "failed": "Error en la búsqueda",
+      "cancelled": "Búsqueda cancelada",
+      "found_one": "Se encontró {{formatted}} resultado",
+      "found_other": "Se encontraron {{formatted}} resultados"
+    },
+    "webFetch": {
+      "fetching": "Obteniendo página",
+      "failed": "Error al obtener",
+      "cancelled": "Obtención cancelada",
+      "fetchedTitle": "Se obtuvo {{title}}",
+      "fetchedPage": "Página obtenida"
+    },
+    "httpRequest": {
+      "request": "Solicitud {{method}}",
+      "failed": "Error en {{method}}",
+      "cancelled": "{{method}} cancelada",
+      "response": "Respuesta {{method}}"
+    },
+    "generateImage": {
+      "generating": "Generando imagen",
+      "failed": "Error en la generación",
+      "cancelled": "Generación cancelada",
+      "generated_one": "Se generó {{formatted}} imagen",
+      "generated_other": "Se generaron {{formatted}} imágenes"
+    },
+    "describeImage": {
+      "describing": "Describiendo imagen",
+      "described": "Imagen descrita",
+      "failed": "Error al describir",
+      "cancelled": "Descripción cancelada"
+    },
+    "performOcr": {
+      "reading": "Leyendo el texto de la imagen",
+      "extracted": "Texto extraído",
+      "failed": "Error de OCR",
+      "cancelled": "OCR cancelado"
+    },
+    "understandVideo": {
+      "analyzing": "Analizando vídeo",
+      "analyzed": "Vídeo analizado",
+      "failed": "Error en el análisis",
+      "cancelled": "Análisis cancelado"
+    },
+    "grepFiles": {
+      "grepping": "Buscando con grep",
+      "failed": "Error en grep",
+      "cancelled": "Grep cancelado",
+      "foundIn_one": "Se encontró en {{formatted}} archivo",
+      "foundIn_other": "Se encontró en {{formatted}} archivos"
+    },
+    "memorySearch": {
+      "searching": "Buscando en la memoria",
+      "failed": "Error en la búsqueda en memoria",
+      "cancelled": "Búsqueda en memoria cancelada",
+      "found_one": "Se encontró {{formatted}} recuerdo",
+      "found_other": "Se encontraron {{formatted}} recuerdos"
+    },
+    "sendMessage": {
+      "sending": "Enviando mensaje",
+      "sent": "Mensaje enviado",
+      "failed": "Error al enviar",
+      "cancelled": "Envío cancelado"
+    },
+    "updateTodos": {
+      "updating": "Actualizando tareas pendientes",
+      "updated": "Tareas pendientes actualizadas",
+      "failed": "Error al actualizar",
+      "cancelled": "Actualización cancelada",
+      "progress": "{{done}}/{{total}} hechas",
+      "progressWithTask": "{{progress}} · {{task}}"
+    }
+  },
+  "generic": {
+    "actionNoun": "acción",
+    "running": "Ejecutando {{name}}",
+    "completed": "{{name}} completada",
+    "failed": "{{name}} falló",
+    "cancelled": "{{name}} cancelada"
+  }
+}

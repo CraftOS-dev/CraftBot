@@ -1,11 +1,16 @@
-import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Activity, CheckCircle } from 'lucide-react'
-import { useWebSocket } from '../../../contexts/WebSocketContext'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDashboardMetrics } from '../../../store/selectors/dashboard'
+import { usePersistedState } from '../../../hooks'
+import { formatNumber } from '../../../i18n/format'
+import { UI_STATE } from '../../../store/uiState'
 import styles from './widgets.module.css'
 
 export function SkillsWidget() {
-  const { dashboardMetrics } = useWebSocket()
-  const [showAll, setShowAll] = useState(false)
+  const { t } = useTranslation(['dashboard', 'common'])
+  const dashboardMetrics = useAppSelector(selectDashboardMetrics)
+  const [showAll, setShowAll] = usePersistedState(UI_STATE.dashboard.showAll('skills'))
 
   const skillEnabled = dashboardMetrics?.skill?.enabledSkills ?? 0
   const skillTotalInvocations = dashboardMetrics?.skill?.totalInvocations ?? 0
@@ -16,34 +21,34 @@ export function SkillsWidget() {
       <div className={styles.compactStats}>
         <div className={styles.compactStatItem}>
           <CheckCircle size={14} className={styles.successIcon} />
-          <span className={styles.compactStatValue}>{skillEnabled}</span>
-          <span className={styles.compactStatLabel}>Enabled</span>
+          <span className={styles.compactStatValue}>{formatNumber(skillEnabled)}</span>
+          <span className={styles.compactStatLabel}>{t('common:status.enabled')}</span>
         </div>
         <div className={styles.compactStatItem}>
           <Activity size={14} className={styles.primaryIcon} />
-          <span className={styles.compactStatValue}>{skillTotalInvocations}</span>
-          <span className={styles.compactStatLabel}>Invocations</span>
+          <span className={styles.compactStatValue}>{formatNumber(skillTotalInvocations)}</span>
+          <span className={styles.compactStatLabel}>{t('dashboard:widgets.skills.invocations')}</span>
         </div>
       </div>
       <div className={styles.usageSection}>
-        <div className={styles.usageSectionHeader}>Top Skills</div>
+        <div className={styles.usageSectionHeader}>{t('dashboard:widgets.skills.topSkills')}</div>
         {topSkills.length > 0 ? (
           <div className={styles.usageList}>
             {(showAll ? topSkills : topSkills.slice(0, 3)).map((skill, index) => (
               <div key={skill.name} className={styles.usageItem}>
                 <span className={styles.usageRank}>#{index + 1}</span>
                 <span className={styles.usageName}>{skill.name}</span>
-                <span className={styles.usageCount}>{skill.count}</span>
+                <span className={styles.usageCount}>{formatNumber(skill.count)}</span>
               </div>
             ))}
             {topSkills.length > 3 && (
               <button className={styles.viewAllButton} onClick={() => setShowAll(!showAll)}>
-                {showAll ? 'Show less' : `View all (${topSkills.length})`}
+                {showAll ? t('common:actions.showLess') : t('dashboard:widgets.common.viewAllCount', { count: topSkills.length })}
               </button>
             )}
           </div>
         ) : (
-          <div className={styles.emptyUsage}>No usage yet</div>
+          <div className={styles.emptyUsage}>{t('dashboard:widgets.common.noUsage')}</div>
         )}
       </div>
     </>

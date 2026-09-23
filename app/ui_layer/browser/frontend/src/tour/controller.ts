@@ -2,6 +2,13 @@ import { driver, type Config, type DriveStep, type Driver } from 'driver.js'
 import type { TourDefinition, TourEnvActionId, TourStep } from './types'
 import { tourSelector } from './anchors'
 import { markTourCompleted } from './storage'
+import i18n from '../i18n/config'
+
+// A step's title/description live in the `tour` namespace keyed by its id
+// (`tour:steps.<id>.title`). Keys are built dynamically, so they're validated
+// against the catalog at runtime rather than by the compiler.
+const tourText = (key: string): string =>
+  (i18n.t as unknown as (k: string) => string)(key)
 
 // How long to wait for a step's anchor to mount (after navigation and any
 // environment actions) before giving up and skipping the step.
@@ -110,11 +117,15 @@ export class TourController {
       disableActiveInteraction: true,
       popoverClass: 'cb-tour',
       showProgress: true,
-      progressText: '{{current}} of {{total}}',
+      // driver.js substitutes {{current}}/{{total}} itself, so override
+      // i18next's delimiters here to leave those braces untouched.
+      progressText: i18n.t('tour:progressText', {
+        interpolation: { prefix: '{|', suffix: '|}' },
+      }),
       showButtons: ['next', 'previous', 'close'],
-      nextBtnText: 'Next',
-      prevBtnText: 'Back',
-      doneBtnText: 'Done',
+      nextBtnText: i18n.t('common:actions.next'),
+      prevBtnText: i18n.t('common:actions.back'),
+      doneBtnText: i18n.t('common:actions.done'),
       // We own all navigation between steps, so intercept the buttons and drive
       // the transition ourselves.
       onNextClick: () => { void this.advance(1) },
@@ -129,10 +140,10 @@ export class TourController {
     return {
       element: step.anchor ? tourSelector(step.anchor) : undefined,
       popover: {
-        title: step.popover.title,
-        description: step.popover.description,
-        side: step.popover.side,
-        align: step.popover.align,
+        title: tourText(`tour:steps.${step.id}.title`),
+        description: tourText(`tour:steps.${step.id}.description`),
+        side: step.popover?.side,
+        align: step.popover?.align,
       },
     }
   }

@@ -189,7 +189,7 @@ class ActionManagerProtocol(Protocol):
     Protocol for action orchestration.
 
     This defines the minimal interface for managing action execution
-    lifecycles, including observation steps and history logging.
+    lifecycles and history logging.
     """
 
     async def execute_action(

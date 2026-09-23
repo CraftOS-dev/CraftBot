@@ -9,8 +9,6 @@ either atomic (directly executable code) or divisible (containing sub-actions).
 import datetime
 from typing import Optional, List, Dict, Any
 
-from agent_core.core.action.observe import Observe
-
 
 class Action:
     """
@@ -30,7 +28,6 @@ class Action:
         input_schema: Schema describing expected inputs
         output_schema: Schema describing expected outputs
         sub_actions: Child actions for divisible actions
-        observer: Optional observation step for validation
         platforms: List of supported platforms
         platform_overrides: Platform-specific code/schema overrides
         requirements: List of pip packages required
@@ -53,7 +50,6 @@ class Action:
         input_schema: Optional[dict] = None,
         output_schema: Optional[dict] = None,
         sub_actions: Optional[List["Action"]] = None,
-        observer: Optional[Observe] = None,
         last_use: bool = None,
         default: bool = False,
         platforms: List[str] = ["windows", "linux", "darwin"],
@@ -87,7 +83,6 @@ class Action:
             output_schema: Schema describing expected outputs in the same format as
                 input_schema.
             sub_actions: Child actions to run when action_type is "divisible".
-            observer: Optional observation step to validate outputs after execution.
             last_use: Timestamp or marker for last usage, used for analytics.
             default: Whether this action should be offered as a default choice in
                 routing flows.
@@ -120,7 +115,6 @@ class Action:
         self.output_schema = output_schema or {}
 
         self.sub_actions = sub_actions or []
-        self.observer = observer
         self.created_at = datetime.datetime.utcnow().isoformat()
         self.updated_at = self.created_at
         self.last_use = last_use
@@ -163,7 +157,6 @@ class Action:
             "input_schema": self.input_schema,
             "output_schema": self.output_schema,
             "subActions": [sub_action.to_dict() for sub_action in self.sub_actions],
-            "observer": self.observer.to_dict() if self.observer else None,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
             "lastUse": self.last_use,
@@ -189,8 +182,6 @@ class Action:
             Action instance
         """
         sub_actions = [cls.from_dict(sub) for sub in data.get("subActions", [])]
-        observer_data = data.get("observer")
-        observer = Observe.from_dict(observer_data) if observer_data else None
 
         # Fallback logic for older fields if input_schema/output_schema not present
         input_schema = data.get("input_schema") or data.get("input") or {}
@@ -210,7 +201,6 @@ class Action:
             input_schema=input_schema,
             output_schema=output_schema,
             sub_actions=sub_actions,
-            observer=observer,
             default=data.get("default", False),
             platforms=data.get("platforms", ["windows", "linux", "darwin"]),
             platform_overrides=data.get("platform_overrides", {}),

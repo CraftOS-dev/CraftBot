@@ -57,11 +57,13 @@ async def record_llm_calls(agent: AgentBase):
     orig_gen = agent.llm.generate_response_async
     orig_session_gen = getattr(agent.llm, "generate_response_with_session_async", None)
 
-    async def _spy_gen(system_prompt=None, user_prompt=None, log_response=True):
+    # Pass-through of any extra kwargs (e.g. ``prompt_name``) — a fixed
+    # signature here broke every live run once the LLM API grew a parameter.
+    async def _spy_gen(system_prompt=None, user_prompt=None, **kwargs):
         resp = await orig_gen(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            log_response=log_response,
+            **kwargs,
         )
         agent._test_llm_calls.append(
             {

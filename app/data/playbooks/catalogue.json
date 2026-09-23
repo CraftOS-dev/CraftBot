@@ -25,7 +25,7 @@
           "twitter-mcp",
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read the product brief",
@@ -59,7 +59,7 @@
           "insta-business-mcp",
           "facebook-mcp-server"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm brand voice, audience, and active campaigns",
@@ -91,7 +91,7 @@
           "firecrawl-mcp",
           "brightdata-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm product + segment",
@@ -125,7 +125,7 @@
         "mcp_servers": [
           "firecrawl-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Clarify topic, audience, depth, and constraints",
@@ -157,7 +157,7 @@
           "postgresql-mcp",
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read the configured data sources",
@@ -189,7 +189,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read calendar and todos",
@@ -220,7 +220,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Clarify topic, audience, angle, target length",
@@ -249,7 +249,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read recent unresolved tickets",
@@ -282,7 +282,7 @@
           "notion-mcp",
           "twitter-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull transcript and chapter markers",
@@ -315,7 +315,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Clean the lead list",
@@ -346,7 +346,7 @@
         "mcp_servers": [
           "filesystem"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Map the repo structure and tech stack",
@@ -377,7 +377,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read the JD and extract keywords",
@@ -406,7 +406,7 @@
           "vale-brand-voice"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm 痛点 / 产品 / 目标人群",
@@ -435,7 +435,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull unread email in the window",
@@ -465,7 +465,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read the latest filings and recent news",
@@ -495,7 +495,7 @@
           "file-organizer"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Scope a viable niche from my interests + skills",
@@ -524,7 +524,7 @@
           "vale-brand-voice"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read property data and photos",
@@ -553,7 +553,7 @@
         "mcp_servers": [
           "filesystem"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Locate the failing code from the trace",
@@ -586,7 +586,7 @@
           "filesystem",
           "github-api"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read the issue + repo context",
@@ -616,7 +616,7 @@
         "mcp_servers": [
           "filesystem"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Acknowledge and frame the alert",
@@ -650,7 +650,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Define niche + cities",
@@ -683,7 +683,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pick sector + prospect list",
@@ -713,7 +713,7 @@
           "notion-mcp",
           "twitter-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Transcribe and chapter the episode",
@@ -746,7 +746,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull rankings, traffic, engagement",
@@ -777,7 +777,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Audit subscribers + engagement vs benchmark",
@@ -808,7 +808,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull last quarter's closed deals",
@@ -839,7 +839,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull KPIs + deltas vs plan",
@@ -871,7 +871,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read every transcript end-to-end",
@@ -902,7 +902,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull recent detractor responses",
@@ -933,7 +933,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull calendar, journal, todos",
@@ -964,7 +964,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read 12 months of journals + calendar",
@@ -995,7 +995,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Tier and score contacts",
@@ -1022,7 +1022,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Scan pantry + freezer + fridge",
@@ -1052,7 +1052,7 @@
           "vale-brand-voice"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Diagnose 90-day performance vs comps",
@@ -1081,7 +1081,7 @@
           "docx"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read the bible + last chapter end-to-end",
@@ -1112,7 +1112,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Lock the transformation",
@@ -1142,7 +1142,7 @@
         "mcp_servers": [
           "filesystem"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read recent task history",
@@ -1172,7 +1172,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Do the visa / vaccine / advisory research first",
@@ -1204,7 +1204,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull likers/commenters",
@@ -1234,7 +1234,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Research each prospect's site + offerings",
@@ -1264,7 +1264,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Audit GMB + NAP consistency + schema",
@@ -1292,7 +1292,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull yesterday's call log",
@@ -1322,7 +1322,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read transcript and structure",
@@ -1352,7 +1352,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull keyword research + competitor SERP",
@@ -1381,7 +1381,7 @@
           "vale-brand-voice"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Audit the SKU batch",
@@ -1410,7 +1410,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Propose 3 niche options + recommend one",
@@ -1440,7 +1440,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Research topics with high views-per-day",
@@ -1468,7 +1468,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Keyword research for the niche",
@@ -1501,7 +1501,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Map keyword clusters into pillar + supporting",
@@ -1531,7 +1531,7 @@
           "vale-brand-voice"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Generate 10 hooks across 10 patterns",
@@ -1559,7 +1559,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read the current best ad",
@@ -1588,7 +1588,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Structure the 12 page sections",
@@ -1619,7 +1619,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Brief title + format + promise",
@@ -1648,7 +1648,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Translate idea to a testable signal",
@@ -1678,7 +1678,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull transcripts + 10-Qs + analyst notes",
@@ -1708,7 +1708,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull listing data + comps",
@@ -1738,7 +1738,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Read the brief + decide bid/skip",
@@ -1767,7 +1767,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Lock the story arc",
@@ -1798,7 +1798,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Lock the narrative + why-now",
@@ -1829,7 +1829,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Build a 50-60 fund target list",
@@ -1858,7 +1858,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Model the current cap stack",
@@ -1889,7 +1889,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Build the folder structure",
@@ -1919,7 +1919,7 @@
           "pptx"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull KPIs vs plan + last Q + benchmark",
@@ -1950,7 +1950,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Lay out the quarter's spine",
@@ -1981,7 +1981,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Draft the V2MOM",
@@ -2012,7 +2012,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Build the role scorecard",
@@ -2041,7 +2041,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Project ARR + revenue plan",
@@ -2071,7 +2071,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Set the mission + 12-month outcomes",
@@ -2099,7 +2099,7 @@
           "vale-brand-voice"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pick the right value metric",
@@ -2126,7 +2126,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Design the reverse-trial mechanic",
@@ -2155,7 +2155,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Define the persona segments",
@@ -2185,7 +2185,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "List competitive alternatives",
@@ -2217,7 +2217,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pick a candidate NSM",
@@ -2247,7 +2247,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Write the CAB charter + objectives",
@@ -2279,7 +2279,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Audit current proof assets + gaps",
@@ -2311,7 +2311,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Run the first 50 sales calls personally",
@@ -2339,7 +2339,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Map current product usage signals",
@@ -2370,7 +2370,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Identify active-user cohort",
@@ -2400,7 +2400,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Define each of the 3 moments concretely",
@@ -2431,7 +2431,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pick the launch date + category",
@@ -2463,7 +2463,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pick the 2-dimension matrix",
@@ -2494,7 +2494,7 @@
         "mcp_servers": [
           "twitter-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Audit current audience + funnel",
@@ -2522,7 +2522,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Audit current OSS community + usage",
@@ -2551,7 +2551,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Identify the supply concentration unit (city / niche / time)",
@@ -2583,7 +2583,7 @@
           "gmail-mcp",
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Log activity in 30-min blocks for 5 workdays",
@@ -2612,7 +2612,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull current P&L + cash position",
@@ -2641,7 +2641,7 @@
           "vale-brand-voice"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Interview every closed-lost deal within 7 days",
@@ -2671,7 +2671,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Map cancel-reason taxonomy",
@@ -2700,7 +2700,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull 30 days of biometric data",
@@ -2731,7 +2731,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Build the symptom timeline",
@@ -2761,7 +2761,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Daily check-in (mood + thought)",
@@ -2789,7 +2789,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm goal + 1RMs + constraints",
@@ -2818,7 +2818,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull habit check-ins + notes",
@@ -2845,7 +2845,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Identify load-bearing concepts",
@@ -2872,7 +2872,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm target language + CEFR level + time budget",
@@ -2900,7 +2900,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Take a diagnostic + score per topic",
@@ -2927,7 +2927,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm role + company + interview type",
@@ -2958,7 +2958,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull goals + peer feedback + 1:1 notes",
@@ -2987,7 +2987,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull current comp + tenure + perf rating",
@@ -3016,7 +3016,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm business reason + impacted roster",
@@ -3045,7 +3045,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull accomplishments + impact + peer feedback",
@@ -3072,7 +3072,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm NDA scope (mutual vs one-way)",
@@ -3100,7 +3100,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Inventory the product + data collected",
@@ -3131,7 +3131,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm scope (Trust Services Criteria)",
@@ -3160,7 +3160,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Describe the invention precisely",
@@ -3188,7 +3188,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm requirements + scale + SLO",
@@ -3215,7 +3215,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm the decision being captured",
@@ -3244,7 +3244,7 @@
         "mcp_servers": [
           "filesystem"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Inventory entities + relationships",
@@ -3272,7 +3272,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm the rubric + weights",
@@ -3302,7 +3302,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull current spend + 90-day trend",
@@ -3336,7 +3336,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Phase 1 — Metalearning week (research how to learn it)",
@@ -3366,7 +3366,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Filter universe by liquidity + market cap",
@@ -3393,7 +3393,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Confirm ticker + bias + risk budget",
@@ -3421,7 +3421,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Select wallet watchlist",
@@ -3449,7 +3449,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull contract + LP + holder data",
@@ -3476,7 +3476,7 @@
           "concise-planning"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Define token universe + DEX list",
@@ -3505,7 +3505,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Audit all taxable lots for unrealized losses",
@@ -3534,7 +3534,7 @@
           "pdf"
         ],
         "mcp_servers": [],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull market-implied probabilities (Fed Funds Futures)",
@@ -3567,7 +3567,7 @@
         "mcp_servers": [
           "gmail-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Pull overnight global news + futures",
@@ -3598,7 +3598,7 @@
         "mcp_servers": [
           "notion-mcp"
         ],
-        "living_ui_apps": []
+        "agent_app_apps": []
       },
       "steps": [
         "Ingest broker statement",

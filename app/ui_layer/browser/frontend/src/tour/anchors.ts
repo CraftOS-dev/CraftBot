@@ -13,11 +13,11 @@ export type TourAnchorId =
   | 'nav-new-chat'
   | 'nav-chats'
   | 'nav-main-session'
-  | 'nav-living-ui'
-  // Tabs inside the "Add Living UI" modal.
-  | 'livingui-tab-marketplace'
-  | 'livingui-tab-custom'
-  | 'livingui-tab-import'
+  | 'nav-agent-app'
+  // Tabs inside the "Add Agent App" modal.
+  | 'agentapp-tab-marketplace'
+  | 'agentapp-tab-custom'
+  | 'agentapp-tab-import'
   | 'nav-dashboard'
   | 'nav-memory'
   | 'nav-workspace'

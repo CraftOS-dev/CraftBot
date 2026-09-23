@@ -54,8 +54,15 @@ class SkillLoader:
                 try:
                     skill = SkillLoader.parse_skill_file(skill_file)
 
-                    # Check if skill is enabled via config
-                    if config and not config.is_skill_enabled(skill.name):
+                    # Check if skill is enabled via config. System skills
+                    # (non-user-invocable) are exempt: the runtime loads them
+                    # for its own workflows, so the user's enable/disable list
+                    # must never turn them off — they are always enabled.
+                    if (
+                        not skill.is_system
+                        and config
+                        and not config.is_skill_enabled(skill.name)
+                    ):
                         skill.enabled = False
                         logger.debug(f"Skill '{skill.name}' is disabled by config")
 
