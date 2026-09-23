@@ -259,8 +259,15 @@ def guard_request(
         }
 
     remote = is_remote_request(headers)
-    # Preflights never carry credentials (browsers strip them by spec).
-    if method == "OPTIONS" or not (mutating or remote):
+    # A browser strips credentials from a preflight by spec, so requiring one
+    # would break every legitimate cross-origin call the app's own UI makes —
+    # locally, OPTIONS is therefore let through. Through a share channel it is
+    # NOT: the app's own UI is same-origin there (same host, same port) and so
+    # never preflights, while an uncredentialed OPTIONS that reached the app
+    # would carry its body upstream and return its response — every native
+    # route readable and drivable by anyone holding the bare share origin,
+    # which is the one thing the channel guard exists to prevent.
+    if (method == "OPTIONS" and not remote) or not (mutating or remote):
         return None
     expected = _read_secret(project_dir, ".agent-token")
     if not expected:
