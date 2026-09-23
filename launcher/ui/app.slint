@@ -1,15 +1,21 @@
 // CraftBot setup window.
 //
-// The layout is the one the Tk window used — one mark, one line of status,
-// one primary button, a quiet row of secondary actions — drawn from
-// primitives so it looks identical on all three platforms. Every colour is a
-// Palette token; the values are the ones from installer/ui/theme.py.
+// One mark, one line of status, then the actions: the quiet row of secondary
+// actions first, the primary button under it, and the install location under
+// that. Drawn from primitives so it looks identical on all three platforms.
+//
+// The vertical rhythm is an 8pt scale applied by proximity: elements that
+// belong together sit 6px apart (title/status, path/link), elements inside
+// one group 12px apart (the primary button and the row above it), and
+// separate groups 36px apart. The stack is a VerticalLayout with explicit
+// spacers rather than absolute y values, so changing one gap does not mean
+// re-deriving every number below it.
 //
 // Everything here is presentation. State lives in Rust (src/main.rs), which
 // sets the `in` properties below and receives the callbacks.
 
 export global Palette {
-    out property <color> base: #14141F;
+    out property <color> base: #141517;
     // Raised surfaces are a white film over the base. Slint composites for
     // real, so these are the films themselves rather than pre-blended hexes.
     out property <color> surface: #FFFFFF0E;        // 5.5%
@@ -27,9 +33,10 @@ export global Palette {
     out property <color> red: #F87171;
 }
 
-// A pill. `primary` is the one accent-filled control in the window; the
-// rest are glass outlines that only brighten on hover.
-component PillButton inherits Rectangle {
+// A 6px-radius button. `primary` is the one accent-filled control in the
+// window; the rest sit flat on the background and are read by their border,
+// lifting a little on hover so they still answer a pointer.
+component ActionButton inherits Rectangle {
     in property <string> label;
     in property <bool> enabled: true;
     in property <bool> primary: false;
@@ -39,12 +46,12 @@ component PillButton inherits Rectangle {
     in property <length> font-size: 12px;
     callback clicked;
 
-    border-radius: self.height / 2;
+    border-radius: 6px;
     border-width: primary ? 0px : 1px;
     border-color: Palette.hairline;
     background: primary
         ? (busy ? Palette.surface-raised : (touch.has-hover && enabled ? Palette.accent-hover : Palette.accent))
-        : (touch.has-hover && enabled ? Palette.surface-raised : Palette.surface);
+        : (touch.has-hover && enabled ? Palette.surface : Palette.base);
     animate background { duration: 120ms; }
 
     touch := TouchArea {
@@ -65,31 +72,66 @@ component PillButton inherits Rectangle {
     }
 }
 
-// Clickable text with no surface of its own.
-component Link inherits Text {
+// Clickable text with no surface of its own. Slint has no text-decoration,
+// so `underline` is a hairline drawn under the label; the layout sizes it to
+// the glyphs rather than to the available width.
+component Link inherits VerticalLayout {
+    in property <string> text;
     in property <bool> enabled: true;
+    in property <bool> underline: false;
+    in property <length> font-size: 11px;
     callback clicked;
-    font-size: 11px;
-    color: enabled ? (area.has-hover ? Palette.text-dim : Palette.text-faint) : Palette.text-faint;
-    opacity: enabled ? 1.0 : 0.55;
-    animate color { duration: 120ms; }
-    area := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
-        clicked => { root.clicked(); }
+
+    property <color> ink: root.enabled
+        ? (area.has-hover ? Palette.text-dim : Palette.text-faint)
+        : Palette.text-faint;
+
+    spacing: 3px;
+    opacity: root.enabled ? 1.0 : 0.55;
+
+    Text {
+        text: root.text;
+        font-size: root.font-size;
+        color: root.ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        animate color { duration: 120ms; }
+
+        area := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+            clicked => { root.clicked(); }
+        }
+    }
+
+    Rectangle {
+        visible: root.underline;
+        height: 1px;
+        background: root.ink;
+        animate background { duration: 120ms; }
     }
 }
 
 export component InstallerWindow inherits Window {
     title: "CraftBot Setup";
     icon: @image-url("../assets/craftbot_mark_192.png");
-    // Fixed size: an installer is a fixed-size dialog on every OS.
+    // Fixed size: an installer is a fixed-size dialog on every OS. The
+    // height is the content height plus its margins — 540px was sized for
+    // the older stack and left a void above the footer.
     width: 440px;
-    height: 540px;
+    height: 492px;
     background: Palette.base;
     default-font-size: 12px;
 
-    // ── State set from Rust ─────────────────────────────────────────────
+    // The primary button width is the measure the whole action block is
+    // built from: the secondary row matches it exactly.
+    property <length> action-width: 240px;
+    // The whitespace that separates the three groups — identity, actions,
+    // footer. One value, used above the actions and above the footer, so
+    // the two gaps stay equal by construction rather than by arithmetic.
+    property <length> group-gap: 52px;
+
+    // State set from Rust
     in property <string> status: "Checking…";
     in property <color> status-color: Palette.text-dim;
     in property <string> install-path: "";
@@ -109,7 +151,7 @@ export component InstallerWindow inherits Window {
 
     in property <string> version-label: "";
 
-    // ── Actions ─────────────────────────────────────────────────────────
+    // Actions
     callback primary-clicked();
     callback stop-clicked();
     callback repair-clicked();
@@ -117,7 +159,7 @@ export component InstallerWindow inherits Window {
     callback change-location-clicked();
     callback open-log-clicked();
 
-    // ── The mark, which blinks ──────────────────────────────────────────
+    // The mark blinks.
     property <bool> eyes-closed: false;
     Timer {
         interval: 4200ms;
@@ -129,140 +171,180 @@ export component InstallerWindow inherits Window {
         running: root.eyes-closed;
         triggered => { root.eyes-closed = false; }
     }
-    Image {
-        source: @image-url("../assets/craftbot_mark_192.png");
-        width: 96px;
-        height: 96px;
-        x: (root.width - self.width) / 2;
-        y: 112px - self.height / 2;
-        visible: !root.eyes-closed;
-    }
-    Image {
-        source: @image-url("../assets/craftbot_mark_192_blink3.png");
-        width: 96px;
-        height: 96px;
-        x: (root.width - self.width) / 2;
-        y: 112px - self.height / 2;
-        visible: root.eyes-closed;
-    }
 
-    // ── Identity + status ───────────────────────────────────────────────
-    Text {
-        text: "CraftBot";
-        font-size: 23px;
-        font-weight: 700;
-        color: Palette.text;
-        horizontal-alignment: center;
-        x: 0; width: root.width;
-        y: 204px - self.height / 2;
-    }
-    Text {
-        text: root.status;
-        font-size: 11px;
-        color: root.status-color;
-        horizontal-alignment: center;
-        overflow: elide;
-        x: 28px; width: root.width - 56px;
-        y: 228px - self.height / 2;
-        animate color { duration: 200ms; }
-    }
-
-    // ── Progress ────────────────────────────────────────────────────────
-    // Sits under the status line, shown only while something is happening:
-    // a bar at zero for two minutes reads as "stuck".
     property <float> sweep: root.progress-indeterminate && root.progress-visible ? 1.0 : 0.0;
     animate sweep { duration: 1400ms; iteration-count: -1; easing: ease-in-out; }
-    Rectangle {
-        visible: root.progress-visible;
-        x: (root.width - 240px) / 2;
-        y: 252px;
-        width: 240px;
-        height: 5px;
-        border-radius: 2.5px;
-        background: Palette.track;
-        clip: true;
+
+    VerticalLayout {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        padding-top: 40px;
+        padding-left: 28px;
+        padding-right: 28px;
+        padding-bottom: 20px;
+        spacing: 0px;
+        // Pack at preferred heights. Without this the layout hands its
+        // slack to the text rows and to the Link, which pulls the underline
+        // away from its label.
+        alignment: start;
+
+        // The mark
         Rectangle {
-            border-radius: 2.5px;
-            background: Palette.accent;
-            height: parent.height;
-            width: root.progress-indeterminate ? 80px : parent.width * max(0.0, min(1.0, root.progress));
-            x: root.progress-indeterminate ? (parent.width + 80px) * root.sweep - 80px : 0px;
-            animate width { duration: 150ms; }
+            height: 96px;
+            vertical-stretch: 0;
+            Image {
+                source: @image-url("../assets/craftbot_mark_192.png");
+                width: 96px;
+                height: 96px;
+                x: (parent.width - self.width) / 2;
+                visible: !root.eyes-closed;
+            }
+            Image {
+                source: @image-url("../assets/craftbot_mark_192_blink3.png");
+                width: 96px;
+                height: 96px;
+                x: (parent.width - self.width) / 2;
+                visible: root.eyes-closed;
+            }
         }
-    }
 
-    // ── Install location ────────────────────────────────────────────────
-    Text {
-        text: root.install-path;
-        font-size: 11px;
-        color: Palette.text-faint;
-        horizontal-alignment: center;
-        overflow: elide;
-        x: 28px; width: root.width - 56px;
-        y: 296px - self.height / 2;
-    }
-    Link {
-        text: "Change location";
-        enabled: root.change-enabled;
-        horizontal-alignment: center;
-        x: 0; width: root.width;
-        y: 318px - self.height / 2;
-        clicked => { root.change-location-clicked(); }
-    }
+        Rectangle { height: 20px; vertical-stretch: 0; }
 
-    // ── Actions ─────────────────────────────────────────────────────────
-    PillButton {
-        label: root.busy ? "Working…" : root.primary-label;
-        primary: true;
-        busy: root.busy;
-        enabled: root.primary-enabled && !root.busy;
-        font-size: 14px;
-        width: 240px;
-        height: 46px;
-        x: (root.width - self.width) / 2;
-        y: 378px;
-        clicked => { root.primary-clicked(); }
-    }
+        // Identity + status
+        Text {
+            text: "CraftBot";
+            font-size: 23px;
+            font-weight: 700;
+            color: Palette.text;
+            horizontal-alignment: center;
+        }
 
-    HorizontalLayout {
-        x: (root.width - 302px) / 2;
-        y: 440px;
-        width: 302px;
-        height: 30px;
-        spacing: 10px;
-        PillButton {
-            label: "Stop";
-            enabled: root.stop-enabled && !root.busy;
+        Rectangle { height: 6px; vertical-stretch: 0; }
+
+        Text {
+            text: root.status;
             font-size: 11px;
-            clicked => { root.stop-clicked(); }
+            color: root.status-color;
+            horizontal-alignment: center;
+            overflow: elide;
+            animate color { duration: 200ms; }
         }
-        PillButton {
-            label: "Repair";
-            enabled: root.repair-enabled && !root.busy;
-            font-size: 11px;
-            clicked => { root.repair-clicked(); }
-        }
-        PillButton {
-            label: "Uninstall";
-            enabled: root.uninstall-enabled && !root.busy;
-            font-size: 11px;
-            clicked => { root.uninstall-clicked(); }
-        }
-    }
 
-    // ── Footer ──────────────────────────────────────────────────────────
-    Text {
-        text: root.version-label;
-        font-size: 11px;
-        color: Palette.text-faint;
-        x: 28px;
-        y: root.height - 24px - self.height / 2;
-    }
-    Link {
-        text: "Open log";
-        horizontal-alignment: right;
-        x: root.width - 28px - self.width;
-        y: root.height - 24px - self.height / 2;
-        clicked => { root.open-log-clicked(); }
+        // The gap between the identity block and the actions. The progress
+        // bar lives inside it, centred, so the whitespace stays exactly
+        // group-gap whether the bar is showing or not — the controls below
+        // never shift at the moment the user clicks Install.
+        Rectangle {
+            height: root.group-gap;
+            vertical-stretch: 0;
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: root.action-width;
+                height: 5px;
+                border-radius: 2.5px;
+                background: root.progress-visible ? Palette.track : transparent;
+                clip: true;
+                Rectangle {
+                    visible: root.progress-visible;
+                    border-radius: 2.5px;
+                    background: Palette.accent;
+                    height: parent.height;
+                    width: root.progress-indeterminate ? 80px : parent.width * max(0.0, min(1.0, root.progress));
+                    x: root.progress-indeterminate ? (parent.width + 80px) * root.sweep - 80px : 0px;
+                    animate width { duration: 150ms; }
+                }
+            }
+        }
+
+        // Secondary actions, the same width as the primary button
+        HorizontalLayout {
+            alignment: center;
+            HorizontalLayout {
+                width: root.action-width;
+                height: 36px;
+                spacing: 8px;
+                ActionButton {
+                    label: "Stop";
+                    enabled: root.stop-enabled && !root.busy;
+                    font-size: 11px;
+                    clicked => { root.stop-clicked(); }
+                }
+                ActionButton {
+                    label: "Repair";
+                    enabled: root.repair-enabled && !root.busy;
+                    font-size: 11px;
+                    clicked => { root.repair-clicked(); }
+                }
+                ActionButton {
+                    label: "Uninstall";
+                    enabled: root.uninstall-enabled && !root.busy;
+                    font-size: 11px;
+                    clicked => { root.uninstall-clicked(); }
+                }
+            }
+        }
+
+        Rectangle { height: 12px; vertical-stretch: 0; }
+
+        // The primary action
+        HorizontalLayout {
+            alignment: center;
+            ActionButton {
+                label: root.busy ? "Working…" : root.primary-label;
+                primary: true;
+                busy: root.busy;
+                enabled: root.primary-enabled && !root.busy;
+                font-size: 14px;
+                width: root.action-width;
+                height: 46px;
+                clicked => { root.primary-clicked(); }
+            }
+        }
+
+        Rectangle { height: 24px; vertical-stretch: 0; }
+
+        // Install location
+        Text {
+            text: root.install-path;
+            font-size: 11px;
+            color: Palette.text-faint;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+
+        Rectangle { height: 6px; vertical-stretch: 0; }
+
+        HorizontalLayout {
+            alignment: center;
+            Link {
+                text: "Change location";
+                underline: true;
+                enabled: root.change-enabled;
+                clicked => { root.change-location-clicked(); }
+            }
+        }
+
+        // The same gap that separates the identity block from the actions.
+        Rectangle { height: root.group-gap; vertical-stretch: 0; }
+
+        // Footer
+        HorizontalLayout {
+            height: 16px;
+            vertical-stretch: 0;
+            alignment: space-between;
+            Text {
+                text: root.version-label;
+                font-size: 11px;
+                color: Palette.text-faint;
+                vertical-alignment: center;
+            }
+            Link {
+                text: "Open log";
+                clicked => { root.open-log-clicked(); }
+            }
+        }
     }
 }
