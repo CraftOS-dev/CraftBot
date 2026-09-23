@@ -12,6 +12,7 @@ Manages the lifecycle of Agent App projects:
 
 import asyncio
 import errno
+import hmac
 import json
 import os
 import re
@@ -33,7 +34,6 @@ from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 from app import node_runtime
 from app.process_ledger import (
     ROLE_AGENT_APP,
-    ROLE_TUNNEL,
     get_ledger,
     kill_tree,
     listening_pids,
@@ -4172,8 +4172,18 @@ UI in {project.path}/frontend/src/app/."""
         Returns:
             project_id if token is valid, None otherwise.
         """
+        if not token:
+            return None
+        # Constant-time: this compares a caller-supplied header against a live
+        # secret, and a plain == leaks how many leading characters matched.
+        # Compared as bytes because compare_digest's str form rejects
+        # non-ASCII, and this value arrives from an HTTP header.
+        presented = token.encode("utf-8", "surrogateescape")
         for project_id, project in self.projects.items():
-            if project.bridge_token and project.bridge_token == token:
+            if not project.bridge_token:
+                continue
+            expected = project.bridge_token.encode("utf-8", "surrogateescape")
+            if hmac.compare_digest(presented, expected):
                 return project_id
         return None
 
