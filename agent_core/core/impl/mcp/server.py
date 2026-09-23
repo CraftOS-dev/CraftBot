@@ -58,6 +58,39 @@ def get_default_stdio_cwd() -> Optional[str]:
     return _default_stdio_cwd
 
 
+# Windows runs a .cmd/.bat through cmd.exe however it is spawned, and cmd.exe
+# re-parses the whole command line — so an argument carrying one of these
+# escapes into a second command even when the arguments are passed as a list.
+# No quoting closes it (this is the "BatBadBut" class, CVE-2024-24576 in other
+# runtimes), so the argument is refused rather than pretended to be escaped.
+# `^` and `%` are deliberately absent: `^` only escapes the next character and
+# cannot start a command, and rejecting `%` would break percent-encoded URLs,
+# which are ordinary MCP arguments. The worst `%` can do is expand an
+# environment variable into a value the same config already controls.
+_CMD_METACHARACTERS = '"&|<>\r\n'
+
+
+def _reject_unsafe_batch_args(command: str, args: List[str]) -> None:
+    """Refuse arguments cmd.exe would reinterpret when the target is a batch
+    wrapper. No-op off Windows and for real executables, where the argument
+    list reaches the process untouched."""
+    if sys.platform != "win32":
+        return
+    if os.path.splitext(command)[1].lower() not in (".cmd", ".bat"):
+        return
+    for arg in args:
+        found = sorted({c for c in str(arg) if c in _CMD_METACHARACTERS})
+        if found:
+            shown = "".join(c if c not in "\r\n" else repr(c).strip("'") for c in found)
+            raise ValueError(
+                f"MCP server argument {arg!r} contains {shown!r}, which cmd.exe "
+                f"would interpret while running the batch wrapper "
+                f"{os.path.basename(command)} — it could run a second command. "
+                f"Rewrite the argument, or point the server at the real "
+                f"executable instead of the .cmd shim."
+            )
+
+
 @dataclass
 class MCPTool:
     """Represents an MCP tool discovered from a server."""
@@ -177,41 +210,25 @@ class StdioTransport(MCPTransport):
                 f" (cwd={cwd or os.getcwd()})"
             )
 
-            # Start the subprocess
+            # Start the subprocess. One exec path for both platforms: the
+            # arguments reach the OS as a list, so an argument can never be
+            # read back as part of the command line. _resolve_command has
+            # already turned `command` into a concrete path (npx.cmd, uvx.exe,
+            # ...), so there is nothing left for a shell to look up.
+            _reject_unsafe_batch_args(command, self.args)
             try:
-                if sys.platform == "win32":
-                    # On Windows, use shell=True to properly resolve commands like npx
-                    # This allows Windows to find npx.cmd in PATH
-                    full_command = f'"{command}" ' + " ".join(
-                        f'"{arg}"' for arg in self.args
-                    )
-                    logger.debug(
-                        f"[StdioTransport] Windows shell command: {full_command}"
-                    )
-                    self._process = await asyncio.create_subprocess_shell(
-                        full_command,
-                        stdin=asyncio.subprocess.PIPE,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        env=full_env,
-                        cwd=cwd,
-                        limit=10
-                        * 1024
-                        * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
-                    )
-                else:
-                    self._process = await asyncio.create_subprocess_exec(
-                        command,
-                        *self.args,
-                        stdin=asyncio.subprocess.PIPE,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        env=full_env,
-                        cwd=cwd,
-                        limit=10
-                        * 1024
-                        * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
-                    )
+                self._process = await asyncio.create_subprocess_exec(
+                    command,
+                    *self.args,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=full_env,
+                    cwd=cwd,
+                    limit=10
+                    * 1024
+                    * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
+                )
             except FileNotFoundError as e:
                 logger.error(
                     f"[StdioTransport] Command not found: '{command}'. Make sure it is installed and in PATH. Error: {e}"

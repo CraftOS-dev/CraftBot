@@ -3,8 +3,6 @@
 __pycache__
 *.py[cod]
 *.log
-.env
-.env.*
 .venv
 venv
 node_modules
@@ -23,3 +21,41 @@ install.bat
 OmniParser_CraftOS
 debug_images
 workspace
+
+# ---------------------------------------------------------------------------
+# Secrets and per-install state. `COPY . .` runs against a developer's working
+# tree, and the release workflow pushes the resulting image to a public
+# registry — anything listed here would otherwise be baked into a layer and
+# published. Layers are permanent: deleting the file in a later layer does not
+# remove it. Keep this list in step with .gitignore.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+.credentials
+.credentials/
+config.json
+app/config/settings.json
+app/config/mcp_config.json
+app/config/skills_config.json
+app/config/scheduler_config.json
+app/data/.usage
+app/data/.file_index
+agent_file_system
+agent_bundle
+.craftbot
+**/.craftbot
+**/logs
+**/agent_logs.txt
+**/memory.txt
+**/USER.md
+**/CONVERSATION_HISTORY.md
+**/EVENT.md
+**/EVENT_UNPROCESSED.md
+**/onboarding_config.json
+**/gui/config
+**/.whatsapp_web_sessions
+.playwright-mcp
+.claude
+.vscode
+.idea
+runtime
