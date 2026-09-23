@@ -177,7 +177,7 @@ Playwright Chromium 的安裝為選用項目。即使失敗:
 ---
 ## 🐳 使用容器執行
 
-儲存庫根目錄包含一份 Docker 設定,內含 Python 3.10、關鍵系統套件(含用於 OCR 的 Tesseract),以及 `environment.yml`/`requirements.txt` 中定義的所有 Python 相依套件,讓 Agent 在隔離環境中也能穩定運作。
+儲存庫根目錄包含一份 Docker 設定,內含 Python 3.10、關鍵系統套件(含用於 OCR 的 Tesseract),以及 `requirements.txt` 中定義的所有 Python 相依套件,讓 Agent 在隔離環境中也能穩定運作。
 
 以下是使用容器執行 Agent 的步驟。
 
@@ -205,7 +205,7 @@ docker run --rm -it --env-file .env craftbot
 
 透過 `-v` 掛載需要持久化到容器外的目錄(例如資料或快取資料夾),並依部署需求調整 port 或其他參數。映像檔內建了 OCR(`tesseract`)所需的系統套件以及常見的 HTTP 客戶端,讓 Agent 可以直接在容器中處理檔案和網路 API。
 
-映像檔預設使用 Python 3.10,並打包好 `environment.yml`/`requirements.txt` 中的相依套件,所以 `python -m app.main` 可以直接運作。
+映像檔預設使用 Python 3.10,並打包好 `requirements.txt` 中的相依套件,所以 `python -m app.main` 可以直接運作。
 
 ---
 

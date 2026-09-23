@@ -177,7 +177,7 @@ Playwright Chromium 설치는 선택 사항입니다. 실패하더라도:
 ---
 ## 🐳 컨테이너로 실행
 
-저장소 루트에는 Python 3.10, 주요 시스템 패키지(OCR을 위한 Tesseract 포함), 그리고 `environment.yml`/`requirements.txt`에 정의된 모든 Python 의존성을 포함하는 Docker 구성이 들어 있어, 격리된 환경에서도 에이전트를 일관되게 실행할 수 있습니다. 
+저장소 루트에는 Python 3.10, 주요 시스템 패키지(OCR을 위한 Tesseract 포함), 그리고 `requirements.txt`에 정의된 모든 Python 의존성을 포함하는 Docker 구성이 들어 있어, 격리된 환경에서도 에이전트를 일관되게 실행할 수 있습니다. 
 
 다음은 컨테이너로 에이전트를 실행하는 방법입니다.
 
@@ -205,7 +205,7 @@ docker run --rm -it --env-file .env craftbot
 
 컨테이너 바깥에 유지되어야 할 디렉터리(데이터, 캐시 등)는 `-v`로 마운트하고, 포트나 추가 플래그는 배포 환경에 맞춰 조정하세요. 이미지에는 OCR(`tesseract`)에 필요한 시스템 의존성과 흔히 쓰이는 HTTP 클라이언트가 포함되어 있어, 에이전트가 컨테이너 안에서도 파일과 네트워크 API를 다룰 수 있습니다.
 
-이미지는 기본적으로 Python 3.10을 사용하며 `environment.yml`/`requirements.txt`의 Python 의존성을 함께 패키징해 두었기 때문에, `python -m app.main`이 곧바로 동작합니다.
+이미지는 기본적으로 Python 3.10을 사용하며 `requirements.txt`의 Python 의존성을 함께 패키징해 두었기 때문에, `python -m app.main`이 곧바로 동작합니다.
 
 ---
 

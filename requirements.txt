@@ -1,3 +1,6 @@
+# Single source of truth for CraftBot's Python dependencies - used by pip mode
+# (install.py), conda mode (environment.yml pulls this file in via `-r`),
+# the Dockerfile and the release build. Add/bump packages HERE only.
 requests
 pyyaml
 loguru

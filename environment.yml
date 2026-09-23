@@ -2,20 +2,16 @@ name: craftbot
 channels:
   - conda-forge
   - defaults
+# Conda-level runtime only: interpreter, system binaries and pins pip can't
+# express. Python packages are NOT listed here — see the pip section below.
 dependencies:
   - python=3.10.19
   - pip=26.0.1
-  - requests=2.32.5
-  - pyyaml=6.0.3
-  - loguru=0.7.3
-  - psutil
-  - nest-asyncio=1.6.0
-  - pymongo=4.16.0
-  - tzlocal=5.3.1
-  - pillow=12.1.1
-  - pytesseract=0.3.13
+  # tesseract binary (pytesseract's backend) — conda-only, no pip wheel.
   - tesseract=5.5.2
-  - aiohttp=3.13.3
+  # conda-forge's tesseract build links libcurl.dll but doesn't declare it —
+  # without this, tesseract.exe dies with 0xC0000135 (DLL not found) on Windows.
+  - libcurl
   # PINNED: openssl 3.6.3 / 3.5.7 regress the Windows cert-store load
   # (ssl.SSLError ASN1: NOT_ENOUGH_DATA in _load_windows_store_certs, crashes
   # aiohttp at import). Broke 2026-06-22 and AGAIN 2026-08-19 when a nodejs
@@ -25,36 +21,9 @@ dependencies:
   # Agent App builds: the agent-app CLI is TypeScript run by Node's native type
   # stripping — needs Node >= 24 (older majors ERR_UNKNOWN_FILE_EXTENSION).
   - nodejs>=24
-  - beautifulsoup4=4.14.3
-  - chardet=5.2.0
-  - lxml=6.0.2
-  - scikit-learn=1.7.2
+  # Every Python package comes from requirements.txt — the single source for
+  # pip mode, conda mode, Docker and the release build. Only add a package to
+  # this file if pip cannot provide it (interpreter, system binaries, pins
+  # that protect the interpreter itself like openssl above).
   - pip:
-      - croniter
-      - openai==2.21.0
-      - google-genai==1.0.0
-      - anthropic==0.83.0
-      - chromadb==1.5.1
-      - tiktoken==0.12.0
-      - langgraph==1.0.9
-      - neo4j==6.1.0
-      - mss==10.1.0
-      - httpx==0.28.1
-      - trafilatura==2.0.0
-      - markdown2==2.5.4
-      - python-docx==1.2.0
-      - fake-useragent==2.2.0
-      - fpdf2==2.8.6
-      - googlesearch-python==1.3.0
-      - pyautogui==0.9.54
-      - pygetwindow==0.0.9
-      - python3-xlib==0.15
-      - tenacity==9.1.4
-      - docling==2.74.0
-      - gradio_client==2.1.0
-      - python-dotenv==1.2.1
-      - watchdog==6.0.0
-      - telethon==1.42.0
-      - playwright==1.58.0
-      - qrcode==8.2
-      - sentence-transformers==6.0.0
+      - -r requirements.txt

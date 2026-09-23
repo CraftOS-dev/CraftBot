@@ -177,7 +177,7 @@ Playwright Chromiumのインストールは任意です。失敗しても:
 ---
 ## 🐳 コンテナで実行する
 
-リポジトリのルートには、Python 3.10、主要なシステムパッケージ(OCR用のTesseractを含む)、そして`environment.yml`/`requirements.txt`で定義されたすべてのPython依存関係を含むDocker構成が用意されており、隔離された環境でもエージェントを一貫して動かせます。
+リポジトリのルートには、Python 3.10、主要なシステムパッケージ(OCR用のTesseractを含む)、そして`requirements.txt`で定義されたすべてのPython依存関係を含むDocker構成が用意されており、隔離された環境でもエージェントを一貫して動かせます。
 
 以下は、コンテナでエージェントを動かすための手順です。
 
@@ -205,7 +205,7 @@ docker run --rm -it --env-file .env craftbot
 
 コンテナ外に永続化したいディレクトリ(データやキャッシュなど)は`-v`でマウントし、ポートやその他のフラグもデプロイ要件に応じて調整してください。コンテナにはOCR用(`tesseract`)や一般的なHTTPクライアントなどのシステム依存が同梱されているので、ファイル操作やネットワークAPIをコンテナ内でそのまま扱えます。
 
-既定ではPython 3.10を使い、`environment.yml`/`requirements.txt`のPython依存関係を取り込んでいるので、`python -m app.main`がすぐに動きます。
+既定ではPython 3.10を使い、`requirements.txt`のPython依存関係を取り込んでいるので、`python -m app.main`がすぐに動きます。
 
 ---
 

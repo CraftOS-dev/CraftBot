@@ -177,7 +177,7 @@ Eine ausführliche Fehlerbehebung findest du in [INSTALLATION_FIX.md](INSTALLATI
 ---
 ## 🐳 Mit Container ausführen
 
-Im Repository-Root liegt eine Docker-Konfiguration mit Python 3.10, wichtigen System-Paketen (inklusive Tesseract für OCR) und allen Python-Abhängigkeiten aus `environment.yml`/`requirements.txt`, damit der Agent auch in isolierten Umgebungen konsistent läuft. 
+Im Repository-Root liegt eine Docker-Konfiguration mit Python 3.10, wichtigen System-Paketen (inklusive Tesseract für OCR) und allen Python-Abhängigkeiten aus `requirements.txt`, damit der Agent auch in isolierten Umgebungen konsistent läuft. 
 
 Hier sind die Schritte, um unseren Agent im Container zu starten.
 
@@ -205,7 +205,7 @@ docker run --rm -it --env-file .env craftbot
 
 Mounte mit `-v` Verzeichnisse, die außerhalb des Containers persistieren sollen (etwa Daten- oder Cache-Ordner), und passe Ports und weitere Flags an deine Deployment-Anforderungen an. Das Image bringt die System-Abhängigkeiten für OCR (`tesseract`) sowie gängige HTTP-Clients mit, damit der Agent im Container direkt mit Dateien und Netzwerk-APIs arbeiten kann.
 
-Standardmäßig nutzt das Image Python 3.10 und bündelt die Python-Abhängigkeiten aus `environment.yml`/`requirements.txt`, daher funktioniert `python -m app.main` sofort.
+Standardmäßig nutzt das Image Python 3.10 und bündelt die Python-Abhängigkeiten aus `requirements.txt`, daher funktioniert `python -m app.main` sofort.
 
 ---
 

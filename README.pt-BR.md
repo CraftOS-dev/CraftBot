@@ -177,7 +177,7 @@ Para uma solução de problemas mais detalhada, veja [INSTALLATION_FIX.md](INSTA
 ---
 ## 🐳 Rodar com container
 
-A raiz do repositório inclui uma configuração Docker com Python 3.10, pacotes de sistema essenciais (incluindo Tesseract para OCR) e todas as dependências Python definidas em `environment.yml`/`requirements.txt`, para que o agente rode de forma consistente em ambientes isolados. 
+A raiz do repositório inclui uma configuração Docker com Python 3.10, pacotes de sistema essenciais (incluindo Tesseract para OCR) e todas as dependências Python definidas em `requirements.txt`, para que o agente rode de forma consistente em ambientes isolados. 
 
 Abaixo estão as instruções para rodar nosso agente em container.
 
@@ -205,7 +205,7 @@ docker run --rm -it --env-file .env craftbot
 
 Monte com `-v` os diretórios que precisam persistir fora do container (por exemplo, pastas de dados ou cache) e ajuste portas ou outras flags conforme seu deploy. A imagem traz dependências de sistema para OCR (`tesseract`) e clientes HTTP comuns, para o agente trabalhar com arquivos e APIs de rede dentro do container.
 
-Por padrão, a imagem usa Python 3.10 e empacota as dependências Python de `environment.yml`/`requirements.txt`, então `python -m app.main` funciona de cara.
+Por padrão, a imagem usa Python 3.10 e empacota as dependências Python de `requirements.txt`, então `python -m app.main` funciona de cara.
 
 ---
 
