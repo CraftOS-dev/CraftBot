@@ -13,6 +13,7 @@ set, in the same order, with the same idempotence.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import sysconfig
 from pathlib import Path
@@ -81,6 +82,32 @@ def find_wheelhouse(code_root: str) -> Optional[Path]:
     return local if local.is_dir() else None
 
 
+def find_pip_bootstrap(code_root: str) -> Optional[Path]:
+    """The pinned-pip requirements file, or None.
+
+    Not per platform: pip is a pure-Python wheel, so one file serves every
+    (platform, python) the locks are split across.
+    """
+    candidate = Path(code_root) / "requirements" / "pip-bootstrap.txt"
+    return candidate if candidate.is_file() else None
+
+
+def _pinned_pip_version(bootstrap: Path) -> Optional[str]:
+    """The version pip-bootstrap.txt pins, read from the file itself.
+
+    Read rather than duplicated as a constant here: two places to edit is how
+    the pin and the stage that enforces it drift apart.
+    """
+    try:
+        for line in bootstrap.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^pip==(\S+?)(?:\s|\\|$)", line.strip() + "\n")
+            if match:
+                return match.group(1)
+    except OSError:
+        pass
+    return None
+
+
 def npm_tree_stale(tree_dir: str) -> Optional[str]:
     """Why node_modules does NOT satisfy the current package.json, or None.
 
@@ -134,6 +161,131 @@ def npm_tree_stale(tree_dir: str) -> Optional[str]:
             return f"{filename} changed after the last npm install"
 
     return None
+
+
+class PipStage:
+    """Pin pip itself, before anything reads a lock.
+
+    The locks exist so every machine installs the same 239 packages. But a
+    lock is a set of constraints, and what those constraints MEAN is decided
+    by the pip that reads them — which was, until this stage, whatever
+    happened to be on the machine. pip 23.1 rejects the committed lock outright
+    (see requirements/pip-bootstrap.txt for the mechanism); pip 23.3.2 installs
+    it. Nothing in the repo chose between them.
+
+    Two independent sources of that drift:
+      * the sidecar's pip is whatever python-build-standalone bundled on the
+        day it was downloaded, and the release tag is resolved from
+        /releases/latest rather than pinned;
+      * PythonStage may hand the install to an interpreter already on the
+        machine (steps 2 and 3 of its resolution order), bringing that
+        machine's pip with it.
+
+    So this runs between PythonStage and PythonDepsStage: after the
+    interpreter is settled, before any lock is read.
+
+    Not skipped for conda. PythonStage defers to conda's own interpreter, but
+    PythonDepsStage still installs the lock into it, so the pip that reads it
+    matters there for exactly the same reason.
+    """
+
+    name = "pip"
+    description = "pip (pinned)"
+    optional = False
+
+    def _installed_version(self, ctx: Context) -> Optional[str]:
+        try:
+            res = proc.run(
+                ctx.python() + ["-m", "pip", "--version"], lambda _m: None, timeout=120
+            )
+        except OSError:
+            # The interpreter itself is gone or unrunnable. "no pip" is the
+            # honest answer; PythonStage owns diagnosing the interpreter, and
+            # raising here would take the whole pipeline down with a
+            # traceback instead of a stage result.
+            return None
+        if res.returncode != 0:
+            return None
+        # "pip 26.2.1 from C:\...\pip (python 3.10)"
+        match = re.search(r"\bpip\s+(\S+)", res.stdout or "")
+        return match.group(1) if match else None
+
+    def check(self, ctx: Context) -> StageResult:
+        bootstrap = find_pip_bootstrap(ctx.code_root)
+        if bootstrap is None:
+            # Nothing to enforce. Degraded rather than failed: the install can
+            # still proceed on the machine's pip, which is what happened
+            # before this stage existed.
+            return StageResult(
+                Status.DEGRADED, "requirements/pip-bootstrap.txt is missing"
+            )
+        want = _pinned_pip_version(bootstrap)
+        if want is None:
+            return StageResult(Status.DEGRADED, f"no pip== pin in {bootstrap.name}")
+        have = self._installed_version(ctx)
+        if have is None:
+            return StageResult(Status.MISSING, "pip is not available", {"want": want})
+        if have == want:
+            return StageResult(
+                Status.SATISFIED, f"pip {have}", {"pip": have, "want": want}
+            )
+        return StageResult(
+            Status.DEGRADED, f"pip {have}, want {want}", {"pip": have, "want": want}
+        )
+
+    def apply(self, ctx: Context, log: LogFn) -> StageResult:
+        py = ctx.python()
+        bootstrap = find_pip_bootstrap(ctx.code_root)
+        if bootstrap is None:
+            return self.check(ctx)
+
+        # No pip at all: bootstrap one from the stdlib before pinning it.
+        # python-build-standalone ships pip, but a system interpreter picked
+        # up by PythonStage may be a distro build with it split into a
+        # separate package.
+        if self._installed_version(ctx) is None:
+            log("    no pip found — bootstrapping with ensurepip")
+            proc.run(py + ["-m", "ensurepip", "--default-pip"], log, stream=True)
+
+        wheelhouse = find_wheelhouse(ctx.code_root)
+        wheel_args: List[str] = []
+        if wheelhouse:
+            wheel_args = ["--no-index", "--find-links", str(wheelhouse)]
+        elif ctx.offline:
+            # Leave the machine's pip in place rather than failing the whole
+            # install: PythonDepsStage reports the offline problem with the
+            # actionable message (build a wheelhouse), and duplicating it here
+            # would just bury it.
+            return StageResult(
+                Status.SKIPPED, "offline and no wheelhouse — keeping the current pip"
+            )
+
+        # --no-deps because pip has none, so the single pinned entry is the
+        # whole requirement set; -m so pip is not replacing a running pip.exe,
+        # which fails on Windows.
+        res = proc.run(
+            py
+            + [
+                "-u",
+                "-m",
+                "pip",
+                "install",
+                "--no-color",
+                "--progress-bar",
+                "off",
+                "--disable-pip-version-check",
+                "--require-hashes",
+                "--no-deps",
+                "-r",
+                str(bootstrap),
+            ]
+            + wheel_args,
+            log,
+            stream=True,
+        )
+        if res.returncode != 0:
+            return StageResult(Status.FAILED, proc.failure_detail(res, "pip failed"))
+        return self.check(ctx)
 
 
 class PythonDepsStage:

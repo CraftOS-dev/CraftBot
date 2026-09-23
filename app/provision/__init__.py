@@ -33,6 +33,7 @@ from typing import List, Optional
 from app import paths
 from app.provision.deps import (
     FrontendStage,
+    PipStage,
     PlaywrightStage,
     PythonDepsStage,
     WhatsAppBridgeStage,
@@ -69,6 +70,9 @@ def default_stages() -> List[Stage]:
         # here beats failing three downloads later with an ENOSPC.
         DiskSpaceStage(),
         PythonStage(),
+        # Between the interpreter and the locks, deliberately: it pins the
+        # pip that decides what the locks mean. See PipStage.
+        PipStage(),
         PythonDepsStage(),
         NativeRuntimeStage(),
         SmokeStage(),
