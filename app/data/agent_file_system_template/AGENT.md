@@ -1,5 +1,5 @@
 ---
-version: 8
+version: 9
 purpose: agent operations manual
 ---
 
@@ -81,7 +81,7 @@ Trigger producers: the scheduler ([app/config/scheduler_config.json](app/config/
 
 ### Trigger aggregation
 
-When a session's loop claims work, ALL triggers currently due for that session fold into ONE turn (`_merge_triggers`, [app/triggers/runtime.py](app/triggers/runtime.py)). The merged query is a numbered checklist: address EVERY item, in order. A later user message supersedes an earlier one only if it explicitly corrects it. The payload carries `queued_user_messages` and `aggregated_triggers` (the structured cause list).
+When a session's loop claims work, ALL triggers currently due for that session fold into ONE turn (`_merge_triggers`, [app/triggers/runtime.py](app/triggers/runtime.py)). The exception is EXCLUSIVE_SOURCES (currently the Agent-App crash-fix source): they always take their own turn and are never merged in either direction. The merged query is a numbered checklist: address EVERY item, in order. A later user message supersedes an earlier one only if it explicitly corrects it. The payload carries `queued_user_messages` and `aggregated_triggers` (the structured cause list).
 
 ### react() order
 
@@ -103,9 +103,10 @@ When a session's loop claims work, ALL triggers currently due for that session f
 Memory and proactive work run IN the main session — no separate task objects. The workflow's skills and action sets are loaded onto the session at run start and unloaded at run end.
 
 **memory**
-- Source: scheduler `memory-processing` (daily 3am) or startup replay if EVENT_UNPROCESSED.md is non-empty.
-- Loads the `memory-processor` skill. Reads EVENT_UNPROCESSED.md, distills important events into MEMORY.md, clears the buffer. Pruning (when MEMORY.md exceeds `max_items`) is folded into the same run's instruction.
-- During the run, `event_stream_manager.set_skip_unprocessed_logging(True)` is on so the run's own events do not loop back into EVENT_UNPROCESSED.md; reset at run end.
+- Trigger: the scheduler `memory-processing` job (runs once a day at a user-configurable time, 3am by default), or a startup replay when any session's unprocessed buffer is non-empty.
+- Gate: the run proceeds only when total unprocessed events reach `memory.processing_threshold`, or when a prune is due (MEMORY.md over `max_items`).
+- Work: loads the `memory-processor` skill, merges every session's EVENT_UNPROCESSED.md into one time-ordered staging file, distills the important events into the single MEMORY.md, then clears only the processed events from each session's buffer. A due prune folds into the same run.
+- During the run, `event_stream_manager.set_skip_unprocessed_logging(True)` keeps the run's own events out of the buffers; it is reset at run end.
 - Skipped entirely if `is_memory_enabled()` is False. See `## Memory`.
 
 **proactive heartbeat**
@@ -142,7 +143,7 @@ SessionRuntimeManager  per-session serial consumer loops
 TriggerService/Store   durable per-session trigger queues
 ContextEngine          builds system + user prompt each turn (KV cache aware)
 MemoryManager          hybrid vector+BM25 retrieval over agent_file_system
-EventStreamManager     appends to EVENT.md / EVENT_UNPROCESSED.md / session streams
+EventStreamManager     appends to each session's EVENT.md / EVENT_UNPROCESSED.md (per-session workspace dir)
 MCPClient              external MCP tool servers
 SkillManager           SKILL.md discovery + selection + reload
 Scheduler              cron-driven trigger fires from scheduler_config.json
@@ -279,6 +280,7 @@ Rules:
 ### Output destinations
 
 - Files the user should keep across sessions → `agent_file_system/workspace/`
+- Working notes that must survive event-stream summarization (plans, intermediate results, decisions) → `agent_file_system/workspace/sessions/{session_id}/NOTE.md` (a per-session scratchpad you own, seeded automatically)
 - Drafts, sketches, intermediate state → `agent_file_system/workspace/sessions/{session_id}/` (persists for the session's life; removed when the session is deleted)
 - Mission-scale, multi-run initiatives → `agent_file_system/workspace/missions/<mission_name>/INDEX.md`
 
@@ -474,6 +476,10 @@ RATE_LIMIT /  provider throttling / usage cap        Retryable after a delay. Co
 QUOTA                                                 (see ## Models).
 SERVER        provider 5xx, temporary                Retryable. Usually transient.
 CONNECTION    timeout / network                      Retryable once connectivity is back.
+CONTEXT_      request exceeds context window         Auto-handled: the harness folds (summarizes)
+OVERFLOW                                             the event stream once, then retries. Still too
+                                                     big means model.context_window is set too
+                                                     small; surface that, do not hand-retry.
 BAD_REQUEST / other                                  Investigate before retrying.
 UNKNOWN
 ```
@@ -548,11 +554,11 @@ When the action's `status=error` message does not tell you enough to recover, dr
 **Three log surfaces. Know which to use for what.**
 
 ```
-EVENT.md                       agent_file_system/EVENT.md
-                               your perspective: events you produced/observed
+EVENT.md                       agent_file_system/workspace/sessions/<id>/EVENT.md
+                               THIS session's events you produced/observed
                                (action_start, action_end, send_message, error,
-                               warning, action_error, internal). Already on disk
-                               and indexed by memory_search.
+                               warning, action_error, internal). On disk, but NOT
+                               in the memory index; grep it, don't memory_search it.
 
 logs/<run>/                    project_root/logs/<timestamp>/  (ONE FOLDER PER APP RUN)
                                runtime perspective: harness internals, every
@@ -759,8 +765,8 @@ You're blocked when you don't know what to do next AND retrying won't help. The 
 
 ### read_file
 - Returns `cat -n` formatted lines plus a `has_more` flag.
-- Default limit is 500 lines. Use `offset` and `limit` for targeted reads.
-- For files larger than 500 lines: read the head first to learn structure, then `grep_files` for the section you need, then `read_file` with the right offset and limit.
+- Default limit is 2000 lines (and 2000 chars per line before truncation). Use `offset` and `limit` for targeted reads.
+- For files larger than 2000 lines: read the head first to learn structure, then `grep_files` for the section you need, then `read_file` with the right offset and limit.
 - Full input schema: [app/data/action/read_file.py](app/data/action/read_file.py).
 
 ### grep_files
@@ -1207,7 +1213,8 @@ agent_app_scaffold(name, description, ...)  Create a project: copies the bluepri
 agent_app_list_projects()                   {id, name, description, status, url, path, delivered}.
                                             Resolve "the app" to an id here, never by filesystem search.
 agent_app_notify_ready(project_id)          Launch pipeline: install deps → validation gate (types,
-                                            build, migrations, ops manifest) → boot the DEV environment
+                                            build, migrations, op smoke [changed ops run against the
+                                            boot]) → boot the DEV environment
                                             (your code on a hidden port with a FRESH schema-only DB —
                                             migrations replay; live data is never cloned). The live app
                                             (if any) keeps running untouched. Gate failures come back
@@ -1397,14 +1404,14 @@ output_schema    dict  JSON-schema-like description of return shape. Read this t
 requirement      list  pip packages auto-installed in sandbox before execution.
 test_payload     dict  test input for diagnostic harness. The "simulated_mode" key bypasses real execution.
 action_sets      list  set names this action belongs to. Determines when it's loaded.
-parallelizable   bool  default True. False = action runs alone in its turn (write ops, state changes).
+parallelizable   bool  default True. False = action runs alone in its turn (e.g. set/skill changes, end_turn).
 irreversible     bool  default False. True = outward-facing side effect (send email/message,
                        public post). Guarded by an activity ledger: intent recorded before
                        execution, completed runs never silently re-executed.
 ```
 
 Key implications when reading an action:
-- `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `add_action_sets`, `remove_action_sets`, `end_turn`, `stream_edit`.
+- `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `add_action_sets`, `remove_action_sets`, `end_turn`.
 - `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. Most actions are `internal` (run in-process).
 - `default=True` means the action is in the action list regardless of which sets are loaded. Common defaults: `send_message`, `update_todos`, `set_requirement`, `spawn_subagent`, `run_shell`, `generate_image`, `generate_video`.
 - `mode="GUI"` actions (`clipboard_read`, `clipboard_write`) are filtered out of the CLI runtime's action list even when their set is loaded.
@@ -1663,7 +1670,7 @@ For each integration registered in the `craftos_integrations` package, a slash c
 plus handler-specific subcommands (e.g. login-qr for whatsapp_web, invite for OAuth flows)
 ```
 
-There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (23 integrations) and each one's credential fields live in `craftos_integrations/providers/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
+There is no single `google` integration — Google is split into `gmail`, `google_calendar`, `google_drive`, `google_docs`, `google_youtube`, each its own integration. Telegram is split into `telegram_bot` (token) and `telegram_user` (interactive). The full registry (24 integrations) and each one's credential fields live in `craftos_integrations/providers/<name>/`; use `/help <integration>` or `list_available_integrations` to see what a given one expects.
 
 ### Agent-provided commands
 
@@ -1835,6 +1842,11 @@ memory:
   max_items: int                 (default 200; cap on MEMORY.md before pruning)
   prune_target: int              (default 135; how many items remain after a prune)
   item_word_limit: int           (default 150; words per stored memory item)
+  processing_threshold: int      (default 25; min total unprocessed events before a memory run fires)
+
+context:                         (event-stream budget; a fold is decided on the WHOLE request)
+  reserve_tokens: int            (default 16384; headroom the fold/summary request itself needs)
+  keep_recent_tokens: int        (default 20000; recent events kept verbatim after a fold)
 
 model:
   llm_provider: any provider key registered in the code (see ## Models);
@@ -1846,6 +1858,9 @@ model:
   image_gen_model / video_gen_model: string | null
   slow_mode: bool                (true throttles requests for rate-limited providers)
   slow_mode_tpm_limit: int       (default 30000; tokens per minute when slow_mode is true)
+  context_window: int            (default 128000; the configured model's context window in tokens;
+                                  drives the context-overflow fold; set it to match your model or
+                                  requests get force-summarized, then rejected. See ## Errors.)
 
 api_keys:
   openai: string                 (sk-...)
@@ -1914,6 +1929,8 @@ mcp_servers: [
     args: [string]                                 stdio command arguments
     url: string                                    required for sse / websocket
     env: { KEY: VALUE }                            environment variables passed to the server process
+    cwd: string                                    (stdio only) working directory for the subprocess;
+                                                   default = the agent workspace (see ## MCP)
     enabled: bool                                  controls whether the server connects on load/reload
     action_set_name: string                        default "mcp_<name>"; the action set tools register under
   }
@@ -2109,7 +2126,7 @@ The action set name is `mcp_<name>` by default, or whatever `action_set_name` is
 
 ### Pre-defined servers in this codebase
 
-The shipped `mcp_config.json` contains roughly 157 server entries (most `enabled: false`). Examples of always-shipped, commonly-enabled ones:
+The shipped `mcp_config.json` contains roughly 158 server entries (most `enabled: false`). Examples of always-shipped, commonly-enabled ones:
 
 ```
 filesystem            @modelcontextprotocol/server-filesystem      file ops on cwd
@@ -2121,6 +2138,8 @@ github-mcp            @modelcontextprotocol/server-github           GitHub API
 Categories present in the shipped config: filesystem, browser automation, calendar/email/notes, finance/markets/crypto, productivity, OS integrations, fitness, search, media, AI/image, e-commerce, dev tools, security, design, analytics, real estate. To enumerate: `grep_files '"name":' app/config/mcp_config.json` returns the full list.
 
 Before adding a NEW server, check the existing entries. The capability you need may already be there as `enabled: false` — flipping the flag is safer than adding a duplicate.
+
+Stdio server cwd: unless an entry sets `cwd`, stdio MCP subprocesses run from the agent workspace (`agent_file_system/workspace/`). Cwd-relative artifacts land there; e.g. `playwright-mcp` writes screenshots to `agent_file_system/workspace/.playwright-mcp/`, reachable by your file tools.
 
 ### Add or enable a server (recipe)
 
@@ -2535,7 +2554,7 @@ Code: the standalone [craftos_integrations/](craftos_integrations/) package owns
 
 ### What's wired in
 
-23 integrations. Each has an `auth_type` that determines how connection happens:
+24 integrations. Each has an `auth_type` that determines how connection happens:
 
 ```
 id                  auth_type                description
@@ -2563,6 +2582,7 @@ twitter             token                    Tweets, timeline
 stripe              token                    Payments
 line                token                    LINE Messaging API
 lark                token                    Lark messaging
+posthog             token                    Product analytics, feature flags, dashboards
 ```
 
 To enumerate at runtime: call the `list_available_integrations` action. To check what's already connected: `check_integration_status`. Guessed ids get normalized via an alias map (e.g. `gdrive` → `google_drive`, `gcal` → `google_calendar`).
@@ -2714,6 +2734,16 @@ twitter
     1. Go to https://developer.twitter.com → Projects & Apps → create an app.
     2. Keys and tokens tab: regenerate Consumer Keys, then Access Token and Secret.
     3. Apps need at least Read+Write user-context permissions for posting.
+
+posthog
+  api_key             (required: Personal API Key "phx_..."; scope it to the
+                       resources the agent may touch; it can only do what the key allows)
+  host                (optional: "us", "eu", or a self-host URL; default US Cloud)
+  project_id          (optional: auto-detected from the key if omitted)
+  Where to get it:
+    1. PostHog → your avatar (top right) → Personal API keys.
+    2. Create personal API key; grant read+write on Query, Insight, Dashboard,
+       Feature flag, Cohort, Person, Annotation. Copy it (shown once, "phx_...").
 ```
 
 For OAuth integrations: shipped client credentials are embedded ([agent_core/core/credentials/embedded_credentials.py](agent_core/core/credentials/embedded_credentials.py)) — Google services, Slack, Notion, HubSpot, Outlook connect one-click without the user registering an app. The `settings.json` `oauth.<platform>` block (google / linkedin / slack / notion / outlook) is an optional override for users who bring their own OAuth app; only walk a user through developer-console registration if they explicitly want their own app or the embedded flow is unavailable.
@@ -3283,9 +3313,9 @@ AGENT.md
 PROACTIVE.md
 MEMORY.md
 USER.md
-EVENT_UNPROCESSED.md
 ENTITIES.md
 ```
+(EVENT_UNPROCESSED.md is deliberately NOT indexed: it is a per-session transient buffer, cleared once memory processing consumes it. Grep it, don't memory_search it.)
 
 plus any extra files the user has added via `memory.indexed_files` in settings.json (managed from the Memory settings panel; merged in at runtime).
 
@@ -3317,7 +3347,7 @@ The watcher at [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/c
 3. cache the new hash
 ```
 
-Chunking: MEMORY.md and EVENT_UNPROCESSED.md are chunked per ITEM (one chunk per `[ts] [category] content` line); AGENT.md, USER.md, and PROACTIVE.md are chunked per markdown section. The watcher debounces changes by 30 seconds. Logs:
+Chunking: MEMORY.md is chunked per ITEM (one chunk per `[ts] [category] content` line); AGENT.md, USER.md, and PROACTIVE.md are chunked per markdown section. The watcher debounces changes by 30 seconds. Logs:
 
 ```
 [MemoryFileWatcher] Started watching: <agent_file_system path>
@@ -3334,7 +3364,7 @@ Question                                         Tool
 "Show me all entries of a specific type"         grep_files "[type]" MEMORY.md
 "What's in USER.md right now?"                   read_file USER.md
 "Find specific text in PROACTIVE.md"             grep_files "<text>" PROACTIVE.md
-"What past runs involved <subject>?"             grep_files "<subject>" agent_file_system/EVENT.md
+"What past runs involved <subject>?"             grep_files "<subject>" workspace/sessions/<id>/EVENT.md
 ```
 
 memory_search is for "what do I know about" questions. Grep is for "find this exact string". Pick the right tool.
@@ -3365,7 +3395,7 @@ Option 1: Add to USER.md
   USER.md is in INDEX_TARGET_FILES, so memory_search picks it up.
 
 Option 2: Wait for next pipeline run
-  Every interaction is in EVENT_UNPROCESSED.md. The 3am job will distill it.
+  Every interaction is in this session's EVENT_UNPROCESSED.md; the next qualifying memory run aggregates all sessions and distills it.
   Tell the user: "I'll remember that — it'll be distilled into long-term
   memory in the next memory cycle."
 
