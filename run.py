@@ -474,8 +474,19 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
 
                 # Build proxy request
                 req = urllib.request.Request(target_url, data=body, method=self.command)
-                # Forward relevant headers
-                for header in ("Content-Type", "Authorization", "Accept"):
+                # Forward relevant headers. Host, Origin and Sec-Fetch-Site are
+                # what the backend's /api guard judges (ws_auth.py): dropping
+                # them would turn this proxy into a way around it — a
+                # cross-site upload would arrive Origin-less, and a
+                # DNS-rebinding Host would arrive as localhost.
+                for header in (
+                    "Content-Type",
+                    "Authorization",
+                    "Accept",
+                    "Host",
+                    "Origin",
+                    "Sec-Fetch-Site",
+                ):
                     if self.headers.get(header):
                         req.add_header(header, self.headers[header])
 

@@ -129,6 +129,7 @@ from app.ui_layer.metrics import MetricsCollector
 from app.ui_layer.diagnostics import LoopStallMonitor
 from app.ui_layer.adapters.ws_channel import ClientChannel
 from app.ui_layer.adapters.ws_lanes import message_lane
+from app.ui_layer.adapters.ws_auth import WS_PROTOCOL, WsAuth
 from app.ui_layer.adapters.session_buffer import (
     SESSION_BUFFER_LIMIT,
     SESSION_BUFFER_SLACK,
@@ -871,6 +872,8 @@ class BrowserAdapter(InterfaceAdapter):
         super().__init__(controller, "browser")
         self._host = host
         self._port = int(os.environ.get("BROWSER_PORT", port))
+        # Origin allowlist + per-process session token for /ws (ws_auth.py).
+        self._ws_auth = WsAuth(self._port)
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
@@ -1070,10 +1073,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             self._chat._messages.insert(0, welcome_message)
 
-        self._app = web.Application()
+        self._app = web.Application(middlewares=[self._api_guard()])
 
         # API and WebSocket routes (must be registered first)
         self._app.router.add_get("/ws", self._websocket_handler)
+        self._app.router.add_get("/api/session-token", self._session_token_handler)
         self._app.router.add_get("/api/state", self._state_handler)
         self._app.router.add_get("/api/debug/loop", self._debug_loop_handler)
         if os.getenv("CRAFTBOT_DEBUG_ENDPOINTS") == "1":
@@ -1228,9 +1232,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web, WSMsgType
         import asyncio
 
+        # Reject foreign pages before upgrading (browsers apply no CORS here).
+        rejected = self._ws_auth.check_ws_handshake(request.headers)
+        if rejected:
+            logger.warning(
+                f"[BROWSER ADAPTER] Rejected /ws handshake ({rejected}): "
+                f"origin={request.headers.get('Origin')!r} "
+                f"host={request.headers.get('Host')!r}"
+            )
+            raise web.HTTPForbidden(reason="WebSocket handshake not allowed")
+
         ws = web.WebSocketResponse(
             max_msg_size=100 * 1024 * 1024,
             heartbeat=30.0,  # Send ping every 30s to keep connection alive
+            protocols=(WS_PROTOCOL,),
         )
 
         try:
@@ -3711,9 +3726,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
 
         try:
-            name = (
-                request.rel_url.query.get("name", "attachment").strip() or "attachment"
-            )
+            # A display name, never a path: keep only the final component, or
+            # "../../x" walks out of download/ (Windows collapses ".." without
+            # the intermediate directory existing).
+            name = Path(
+                request.rel_url.query.get("name", "").strip().replace("\\", "/")
+            ).name
+            if name in ("", ".", ".."):
+                name = "attachment"
             file_type = (
                 request.rel_url.query.get("type", "application/octet-stream").strip()
                 or "application/octet-stream"
@@ -8585,8 +8605,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             target = workspace / file_path
         target = target.resolve()
 
-        # Security check - ensure path is within workspace
-        if not str(target).startswith(str(workspace)):
+        # Security check - ensure path is within workspace. Containment by
+        # path components, never by string prefix: "../workspace_x/f" resolves
+        # to a SIBLING whose string starts with the workspace's.
+        if not target.is_relative_to(workspace):
             raise ValueError(f"Path '{file_path}' is outside workspace")
 
         return target
@@ -9763,6 +9785,53 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         html = self._get_index_html()
         return web.Response(text=html, content_type="text/html")
 
+    def _api_guard(self):
+        """Middleware: /api/* refuses rebinding Hosts and foreign-origin writes
+        (ws_auth.check_api_request). /ws guards its own handshake."""
+        from aiohttp import web
+
+        @web.middleware
+        async def api_guard(request, handler):
+            if request.path == "/api" or request.path.startswith("/api/"):
+                rejected = self._ws_auth.check_api_request(
+                    request.method, request.headers
+                )
+                if rejected:
+                    logger.warning(
+                        f"[BROWSER ADAPTER] Refused {request.method} {request.path} "
+                        f"({rejected}): origin={request.headers.get('Origin')!r} "
+                        f"host={request.headers.get('Host')!r}"
+                    )
+                    raise web.HTTPForbidden(reason="Request not allowed")
+            return await handler(request)
+
+        return api_guard
+
+    async def _session_token_handler(self, request: "web.Request") -> "web.Response":
+        """Hand the /ws session token to CraftBot's own UI.
+
+        No CORS headers are ever set here, so a cross-origin page can't read
+        the response; ws_auth also refuses rebinding Hosts and cross-site
+        fetches outright.
+        """
+        from aiohttp import web
+
+        rejected = self._ws_auth.check_token_request(request.headers)
+        if rejected:
+            logger.warning(
+                f"[BROWSER ADAPTER] Refused session token ({rejected}): "
+                f"origin={request.headers.get('Origin')!r} "
+                f"host={request.headers.get('Host')!r}"
+            )
+            raise web.HTTPForbidden()
+        return web.json_response(
+            {"token": self._ws_auth.token},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     async def _state_handler(self, request: "web.Request") -> "web.Response":
         """API endpoint for current state."""
         from aiohttp import web
@@ -10081,9 +10150,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         let ws;
         let state = { messages: [], actions: [], status: 'Connecting...' };
 
-        function connect() {
+        async function connect() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws`);
+            let token;
+            try {
+                const resp = await fetch('/api/session-token', { cache: 'no-store' });
+                token = (await resp.json()).token;
+            } catch (err) {
+                setTimeout(connect, 2000);
+                return;
+            }
+            ws = new WebSocket(`${protocol}//${location.host}/ws`, ['craftbot', `craftbot-auth.${token}`]);
 
             ws.onopen = () => {
                 console.log('Connected to CraftBot');
