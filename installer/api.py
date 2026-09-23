@@ -293,6 +293,37 @@ class _BridgeWriter:
         return False
 
 
+class _NullStream:
+    """Stand-in for a process stream that does not exist.
+
+    The installer is frozen with console=False (packaging/CraftBotInstaller.spec),
+    so under pythonw sys.stdout and sys.stderr are None. CPython's print()
+    treats a None stream as a silent no-op, so anything WRAPPING it has to do
+    the same -- wrapping None directly turns every stray library print on a
+    non-routed thread into AttributeError: 'NoneType' has no attribute 'write',
+    and sys.stdout.encoding into a crash on a very common attribute read."""
+
+    def write(self, text: str) -> int:
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+    def isatty(self) -> bool:
+        return False
+
+    @property
+    def encoding(self) -> str:
+        return "utf-8"
+
+    @property
+    def errors(self) -> str:
+        return "replace"
+
+    def fileno(self) -> int:
+        raise OSError("stream has no file descriptor")
+
+
 class _ThreadRoutedStream:
     """Process stream that sends writes from a routed thread to that
     thread's sink, and everything else to the original stream.
@@ -302,7 +333,7 @@ class _ThreadRoutedStream:
     is process-wide, so every other thread's output would be captured too."""
 
     def __init__(self, fallback) -> None:
-        self._fallback = fallback
+        self._fallback = fallback if fallback is not None else _NullStream()
         self._local = threading.local()
 
     def route_current_thread(self, sink) -> None:
