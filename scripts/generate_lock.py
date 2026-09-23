@@ -55,7 +55,6 @@ import os
 import re
 import subprocess
 import sys
-import sysconfig
 import tempfile
 from typing import Dict, List
 
@@ -64,22 +63,43 @@ REQUIREMENTS = os.path.join(REPO_ROOT, "requirements.txt")
 LOCK_DIR = os.path.join(REPO_ROOT, "requirements")
 
 #: Platforms a release ships an installer for, as lock-filename prefixes.
-#: Matched by prefix because the macOS tag carries an OS version and arch
-#: (macosx_11_0_arm64-py310), so the exact filename is not fixed.
+#:
+#: "macosx" is a PREFIX, and deliberately still a loose one: it is satisfied
+#: by lock-macosx_arm64 alone, so --require-all passes for a release whose
+#: Intel Mac users have no lock at all and stop at the python-deps stage.
+#: Tightening it to ("macosx_arm64", "macosx_x86_64") is the honest check and
+#: would block releases until someone generates the x86_64 lock on an Intel
+#: Mac (or under Rosetta) — a deliberate call, not an oversight.
 #:
 #: Keep in step with the launcher matrix in .github/workflows/release.yml.
 SHIPPED_PLATFORMS = ("win_amd64", "linux_x86_64", "macosx")
 
 
+def _load_locktag():
+    """app/provision/locktag.py, loaded by path rather than imported.
+
+    `from app.provision import locktag` would execute app/provision/__init__.py
+    and pull the whole stage pipeline in with it. This script deliberately
+    needs nothing but the stdlib — it is what you run to CREATE the dependency
+    set, so it has to work in an environment where that set does not exist yet.
+    """
+    import importlib.util
+
+    path = os.path.join(REPO_ROOT, "app", "provision", "locktag.py")
+    spec = importlib.util.spec_from_file_location("_craftbot_locktag", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def lock_tag() -> str:
     """Identify the (platform, python) this lock is valid for.
 
-    sysconfig's platform tag rather than sys.platform: it distinguishes
-    macosx arm64 from x86_64, which matters because the wheels differ.
+    Defined by app/provision/locktag.py, which app.provision.deps reads locks
+    with. Writer and reader deriving the name separately is how a committed
+    macOS lock became invisible to half the Pythons that needed it.
     """
-    plat = sysconfig.get_platform().replace(".", "_").replace("-", "_")
-    py = f"py{sys.version_info.major}{sys.version_info.minor}"
-    return f"{plat}-{py}"
+    return _load_locktag().current()
 
 
 def lock_path() -> str:

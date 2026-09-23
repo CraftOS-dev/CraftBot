@@ -14,13 +14,11 @@ from __future__ import annotations
 
 import os
 import re
-import sys
-import sysconfig
 from pathlib import Path
 from typing import List, Optional
 
 from app import paths
-from app.provision import proc
+from app.provision import locktag, proc
 from app.provision.types import Context, LogFn, StageResult, Status
 
 
@@ -32,23 +30,19 @@ def _lock_tag(python: Optional[List[str]] = None) -> str:
     the system 3.14 while provisioning a 3.10 sidecar, and reading the current
     process's version there picks a lock that does not exist (or worse, one
     that does and is wrong).
+
+    The tag itself is app.provision.locktag's to define — it is the one rule
+    that scripts/generate_lock.py must agree with exactly.
     """
     if python:
-        probe = (
-            "import sysconfig,sys;"
-            "print(sysconfig.get_platform(), sys.version_info[0], sys.version_info[1])"
-        )
         try:
-            out = proc.python(python, probe, timeout=60)
+            out = proc.python(python, locktag.PROBE, timeout=60)
             if out.returncode == 0:
-                raw_plat, major, minor = out.stdout.strip().split()[-3:]
-                plat = raw_plat.replace(".", "_").replace("-", "_")
-                return f"{plat}-py{major}{minor}"
+                return locktag.parse_probe(out.stdout)
         except Exception:
             pass  # fall through to this process's tag
 
-    plat = sysconfig.get_platform().replace(".", "_").replace("-", "_")
-    return f"{plat}-py{sys.version_info.major}{sys.version_info.minor}"
+    return locktag.current()
 
 
 def find_lock(code_root: str, python: Optional[List[str]] = None) -> Optional[Path]:
