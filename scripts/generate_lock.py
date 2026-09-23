@@ -15,6 +15,7 @@ one has to be generated on the platform it describes.
 Usage:
     python scripts/generate_lock.py                  # write this platform's lock
     python scripts/generate_lock.py --check          # verify committed locks
+    python scripts/generate_lock.py --retag          # re-stamp unchanged locks
 
 ## What --check means
 
@@ -30,6 +31,17 @@ run — the opposite of what a lock is for.
 Stale therefore means "someone edited requirements.txt without regenerating",
 which is the thing worth catching. Upgrading dependencies is a deliberate act:
 run this script without --check.
+
+## What --retag means
+
+One edit to requirements.txt does not change the resolved set at all: making
+an existing transitive dependency direct. The package and version are already
+in the lock, so there is nothing to re-resolve — only the digest is stale.
+--retag re-stamps the digest after verifying, offline, that every declared
+requirement is already pinned in every lock; if one is not, it refuses.
+
+Use it for that case only. Regenerating instead would bump every unrelated
+package to whatever the index serves today, and would fix just one platform.
 """
 
 from __future__ import annotations
@@ -162,6 +174,131 @@ def _source_digest() -> str:
     return "sha256:" + hashlib.sha256(body.encode()).hexdigest()[:16]
 
 
+def _normalize(name: str) -> str:
+    """PEP 503 name normalization, so Pillow/pillow and mail_parser/mail-parser
+    are not mistaken for different packages."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+#: `name==version` at the start of a lock entry. The renderer always writes a
+#: space before the line-continuation backslash, so the version never carries
+#: one and there is nothing to strip.
+_PIN_RE = re.compile(r"^([A-Za-z0-9._-]+)==([^ \t]+)")
+
+
+def _lock_pins(path: str) -> Dict[str, str]:
+    """The normalized name -> pinned version map a lock file declares."""
+    pins: Dict[str, str] = {}
+    with io.open(path, encoding="utf-8") as fh:
+        for line in fh:
+            match = _PIN_RE.match(line)
+            if match:
+                pins[_normalize(match.group(1))] = match.group(2)
+    return pins
+
+
+def _retag_committed_locks() -> int:
+    """Re-stamp the committed locks with the current requirements digest.
+
+    For the one case where requirements.txt changed but the RESOLVED SET did
+    not: a package already in the closure as a transitive dependency is
+    promoted to a direct declaration. The digest goes stale, --check fails,
+    and the obvious fix — regenerate — is the wrong one twice over. A
+    regenerate re-resolves against today's index and bumps a hundred unrelated
+    packages (the drift this module's docstring warns about), and it can only
+    write THIS platform's lock, so the other platforms would stay red with no
+    machine to fix them from.
+
+    Retagging is only honest if the locks really do still cover
+    requirements.txt, so that is verified first, offline and with no resolve:
+    every declared requirement must already be pinned in every lock at a
+    version its specifier accepts. If one is not, the closure genuinely
+    changed and no amount of re-stamping can cover it — this refuses and
+    sends you to a real regenerate.
+
+    Deliberately NOT an error: a requirement REMOVED from requirements.txt
+    leaves its package pinned, so the lock stays a superset of what is
+    declared. That installs something no longer asked for, which is worth
+    saying out loud but is not the kind of wrong that breaks an install.
+    """
+    try:
+        from packaging.requirements import Requirement
+    except ImportError:
+        print("--retag needs the `packaging` package: pip install packaging")
+        return 1
+
+    declared = []
+    with io.open(REQUIREMENTS, encoding="utf-8") as fh:
+        for line in fh:
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            try:
+                declared.append(Requirement(text))
+            except Exception as exc:
+                print(f"UNPARSEABLE requirement {text!r}: {exc}")
+                return 1
+
+    locks = sorted(glob.glob(os.path.join(LOCK_DIR, "lock-*.txt")))
+    if not locks:
+        print("MISSING: no lock files at all — run this script without --check")
+        return 1
+
+    # Verify BEFORE touching anything: a partial retag would leave the locks
+    # disagreeing with each other about which requirements.txt they came from.
+    blocked: List[str] = []
+    for path in locks:
+        name = os.path.relpath(path, REPO_ROOT)
+        pins = _lock_pins(path)
+        for req in declared:
+            key = _normalize(req.name)
+            if key not in pins:
+                blocked.append(f"{name}: {req.name} is not pinned in this lock")
+            elif req.specifier and not req.specifier.contains(
+                pins[key], prereleases=True
+            ):
+                blocked.append(f"{name}: {req} not satisfied by {pins[key]}")
+
+    if blocked:
+        print("Cannot retag — the resolved set really did change:")
+        for line in blocked:
+            print(f"  {line}")
+        print()
+        print("Run `python scripts/generate_lock.py` on each affected platform.")
+        return 1
+
+    digest = _source_digest()
+    retagged = 0
+    for path in locks:
+        name = os.path.relpath(path, REPO_ROOT)
+        with io.open(path, encoding="utf-8") as fh:
+            body = fh.read()
+        new_body, count = re.subn(
+            r"^# Source: requirements\.txt \(sha256:[0-9a-f]+\)$",
+            # A function replacement, so nothing in the digest can be read as
+            # a backreference.
+            lambda _m: f"# Source: requirements.txt ({digest})",
+            body,
+            count=1,
+            flags=re.M,
+        )
+        if count == 0:
+            print(f"UNREADABLE: {name} has no source digest — regenerate it")
+            return 1
+        if new_body == body:
+            print(f"OK: {name} already current")
+            continue
+        with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(new_body)
+        print(f"RETAGGED: {name}")
+        retagged += 1
+
+    print()
+    print(f"{retagged} lock(s) re-stamped to {digest}.")
+    print("Pinned versions and hashes are untouched; only the digest moved.")
+    return 0
+
+
 def _check_committed_locks(require_all: bool = False) -> int:
     """Verify every committed lock came from the current requirements.txt.
 
@@ -237,7 +374,16 @@ def main() -> int:
         action="store_true",
         help="with --check, also fail when a shipped platform has no lock",
     )
+    ap.add_argument(
+        "--retag",
+        action="store_true",
+        help="re-stamp the committed locks when requirements.txt changed but "
+        "the resolved set did not (refuses if it did)",
+    )
     args = ap.parse_args()
+
+    if args.retag:
+        return _retag_committed_locks()
 
     if args.check:
         return _check_committed_locks(require_all=args.require_all)

@@ -5,7 +5,7 @@
 # Locks are per platform+python: torch means CPU wheels on Windows and
 # CUDA libraries on Linux, so one lock cannot serve every runner.
 #
-# Source: requirements.txt (sha256:bf6bd04ea6a2588c)
+# Source: requirements.txt (sha256:276192760ff67fa2)
 # Packages: 241
 
 --require-hashes
