@@ -1677,6 +1677,13 @@ def cmd_install(extra_args: List[str]) -> bool:
             )
             return False
 
+        # install.py just recorded the interpreter it provisioned (often a
+        # downloaded sidecar). This process resolved — and cached — before
+        # that existed, so drop the cache or the check, start and auto-start
+        # below all fall back to the launcher Python (e.g. a system 3.14).
+        if _python_runtime is not None:
+            _python_runtime.resolve(refresh=True)
+
         # Verify critical packages are actually importable with the interpreter
         # that will run the service. install.py may exit 0 while packages ended
         # up in a different site-packages. In conda mode they live in the env

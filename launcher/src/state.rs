@@ -61,8 +61,36 @@ pub fn poll() -> Snapshot {
     }
 }
 
+/// craftbot.py writes `{"pid": N, "started": T}` (the start time lets it
+/// tell its own process from a reused pid); older files hold a bare integer.
 fn read_pid(path: &Path) -> Option<u32> {
-    std::fs::read_to_string(path).ok()?.trim().parse().ok()
+    parse_pid(&std::fs::read_to_string(path).ok()?)
+}
+
+fn parse_pid(raw: &str) -> Option<u32> {
+    let raw = raw.trim();
+    if raw.starts_with('{') {
+        let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+        return value.get("pid")?.as_u64()?.try_into().ok();
+    }
+    raw.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_pid;
+
+    #[test]
+    fn reads_json_and_legacy_pid_files() {
+        assert_eq!(
+            parse_pid(r#"{"pid": 2244, "started": 1790000000.5}"#),
+            Some(2244)
+        );
+        assert_eq!(parse_pid(r#"{"pid": 2244, "started": null}"#), Some(2244));
+        assert_eq!(parse_pid("2244\n"), Some(2244));
+        assert_eq!(parse_pid(r#"{"started": 1.0}"#), None);
+        assert_eq!(parse_pid("garbage"), None);
+    }
 }
 
 #[cfg(unix)]
