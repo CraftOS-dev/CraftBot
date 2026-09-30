@@ -2526,11 +2526,21 @@ class AgentBase:
                 location_parts.append(f"channel {channel_id}")
             location_str = f" in {' / '.join(location_parts)}" if location_parts else ""
 
-            # Facts only: the agent decides whether it needs the full body.
+            # Tell the agent the body above is partial and how to get the
+            # rest; whether the rest is needed stays the agent's call.
             truncation_note = ""
             if truncated:
-                id_part = f" Message ID: {message_id}" if message_id else ""
-                truncation_note = f"(Body truncated.{id_part})\n"
+                fetch_hint = (
+                    f" If the rest matters, read the full message with the "
+                    f"{integration_type} action that gets a message by ID "
+                    f"(message ID: {message_id})."
+                    if message_id
+                    else ""
+                )
+                truncation_note = (
+                    f"[This message is truncated: only the beginning is shown "
+                    f"above.{fetch_hint}]\n"
+                )
 
             if is_self_message:
                 # Self-message = user is directly talking to the agent via their own platform.

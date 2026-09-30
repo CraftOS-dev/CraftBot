@@ -331,7 +331,15 @@ def test_truncated_body_marks_cut_for_chat_and_gives_agent_facts():
     assert chat["message_body"] == "Subject: Hi\nYou probably also…"
     # Agent prompt: the same text plus the facts to fetch the rest.
     assert "You probably also…" in chat["text"]
-    assert "(Body truncated. Message ID: m1)" in chat["text"]
+    assert "[This message is truncated" in chat["text"]
+    assert "gmail action that gets a message by ID (message ID: m1)" in chat["text"]
+
+
+def test_truncated_body_without_id_still_tells_agent():
+    chat = _ingest({**_EMAIL_EVENT, "messageId": "", "truncated": True})
+    assert "[This message is truncated: only the beginning is shown above.]" in (
+        chat["text"]
+    )
 
 
 def test_untruncated_body_is_unchanged():
