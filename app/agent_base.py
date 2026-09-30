@@ -2446,6 +2446,16 @@ class AgentBase:
             integration_type = payload.get("integrationType", "").lower()
             is_self_message = payload.get("is_self_message", False)
 
+            message_id = payload.get("messageId", "")
+
+            # The listener capped a long body (PlatformMessage.truncated):
+            # mark the cut where both the agent and the chat details see it.
+            # The agent additionally gets the facts to fetch the rest itself
+            # (docs/plans/inbound-message-fidelity-plan.md).
+            truncated = bool(payload.get("truncated")) and bool(message_body)
+            if truncated:
+                message_body = f"{message_body}…"
+
             # Normalized attachments (PlatformMessage.attachments) become
             # descriptor lines with retrieval hints — appended to the body,
             # or standing in for it on media-only messages so they are no
@@ -2518,11 +2528,18 @@ class AgentBase:
                 location_parts.append(f"channel {channel_id}")
             location_str = f" in {' / '.join(location_parts)}" if location_parts else ""
 
+            # Facts only: the agent decides whether it needs the full body.
+            truncation_note = ""
+            if truncated:
+                id_part = f" Message ID: {message_id}" if message_id else ""
+                truncation_note = f"(Body truncated.{id_part})\n"
+
             if is_self_message:
                 # Self-message = user is directly talking to the agent via their own platform.
                 event_content = (
                     f"[USER SELF-MESSAGE via {source}]\n"
-                    f"{message_body}\n\n"
+                    f"{message_body}\n"
+                    f"{truncation_note}\n"
                     f"INSTRUCTIONS: Reply to the message to the user on {source}"
                     f"{account_note}"
                 )
@@ -2538,7 +2555,8 @@ class AgentBase:
                     f"From: {contact_name} ({contact_id}){location_str}\n"
                     f"Platform: {source}\n"
                     f"{received_on}"
-                    f'Message: "{message_body}"\n\n'
+                    f'Message: "{message_body}"\n'
+                    f"{truncation_note}\n"
                     f"INSTRUCTIONS: Notify the user about this message on their "
                     f"preferred platform (check USER.md 'Preferred Messaging "
                     f"Platform'). If USER.md does not name one, notify via "

@@ -10,15 +10,19 @@ Submodules:
           ``status_code → {ok, result} | {error, details}`` envelope shape.
     result: ``Result`` / ``Ok`` / ``Err`` TypedDict aliases for the envelope —
             use as return annotations for static type-checking benefits.
+    text: ``clip`` — word-boundary length cap for listener message bodies
+          that reports whether it cut (→ ``PlatformMessage.truncated``).
 """
 
 from .http import arequest, request
 from .result import Err, Ok, Result
+from .text import clip
 
 __all__ = [
     "Err",
     "Ok",
     "Result",
     "arequest",
+    "clip",
     "request",
 ]

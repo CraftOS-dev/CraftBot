@@ -169,8 +169,17 @@ has `listen` enabled, and reconciles whenever accounts change.
     "messageId": "<platform message id>",
     "is_self_message": False,
     "raw": {...},  # full original platform event
+    "attachments": [...],  # normalized non-text payloads ({kind, id, name, mime, size, url, extra})
+    "truncated": False,  # True when the listener capped messageBody
 }
 ```
+
+`messageBody` is plain, decoded text built from the real message body —
+listeners unescape HTML entities and render platform markup before
+emitting, and never forward an API preview field (Gmail `snippet`,
+Outlook `bodyPreview`) as the body. A listener that caps the length uses
+`helpers.clip` and sets `truncated`; the host then marks the cut and tells
+the agent the message id (`docs/plans/inbound-message-fidelity-plan.md`).
 
 ---
 
@@ -399,7 +408,7 @@ For a production-level integration, produce in this order:
 | 2 | Implement `verify_token` (token auth) or `oauth_spec` (OAuth), plus `identity_of` | `provider.py` |
 | 3 | Optional: `config_class` + `config_fields` for post-connect knobs | `provider.py` |
 | 4 | Build the client — one method per endpoint, using `helpers.arequest`, returning `Result` | client in `__init__.py` |
-| 5 | Optional: `start_listening` / `stop_listening` (webhook / polling / WebSocket) | client |
+| 5 | Optional: `start_listening` / `stop_listening` (webhook / polling / WebSocket). Emit **plain, decoded** text from the real body (unescape entities, render platform markup like `<@U…>`; no API preview fields); cap long bodies with `helpers.clip` and pass its flag as `PlatformMessage.truncated` | client |
 | 6 | Write `INTEGRATION.md` — identifier shape, silent-drop config flags, auth gotchas | integration root |
 | 7 | Mirror each client method as a `client_op` with sub-set + umbrella tags | `operations.py` |
 | 8 | Verify — `scripts/verify_integration.py <name>`, then a live smoke test | see "Verification" |

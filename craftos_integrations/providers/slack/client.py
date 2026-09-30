@@ -20,6 +20,7 @@ from ... import (
 )
 from ...helpers import arequest, request as http_request
 from ...logger import get_logger
+from .formatting import to_plain_text
 
 logger = get_logger(__name__)
 
@@ -121,6 +122,8 @@ class SlackClient(BasePlatformClient):
         self._bot_user_id: Optional[str] = None
         self._last_timestamps: Dict[str, str] = {}
         self._catchup_done: bool = False
+        # user id → display name; one entry per workspace member seen.
+        self._user_names: Dict[str, str] = {}
 
     def has_credentials(self) -> bool:
         return has_credential(self.spec.cred_file)
@@ -307,16 +310,8 @@ class SlackClient(BasePlatformClient):
         if (not text and not attachments) or user_id == self._bot_user_id:
             return
 
-        sender_name = user_id
-        try:
-            info = self.get_user_info(user_id)
-            if info.get("ok"):
-                profile = info.get("user", {}).get("profile", {})
-                sender_name = (
-                    profile.get("display_name") or profile.get("real_name") or user_id
-                )
-        except Exception:
-            pass
+        sender_name = self._display_name(user_id) or user_id
+        text = to_plain_text(text, self._display_name)
 
         ts_float = float(msg.get("ts", "0"))
         timestamp = (
@@ -337,6 +332,27 @@ class SlackClient(BasePlatformClient):
                     attachments=attachments,
                 )
             )
+
+    def _display_name(self, user_id: str) -> str:
+        """User id → display name, "" when unknown. Memoized per client:
+        the sender lookup and every ``<@U…>`` mention share one cache.
+        Failures are not cached, so a transient API error retries."""
+        if not user_id:
+            return ""
+        cached = self._user_names.get(user_id)
+        if cached:
+            return cached
+        name = ""
+        try:
+            info = self.get_user_info(user_id)
+            if info.get("ok"):
+                profile = info.get("user", {}).get("profile", {})
+                name = profile.get("display_name") or profile.get("real_name") or ""
+        except Exception:
+            pass
+        if name:
+            self._user_names[user_id] = name
+        return name
 
     # ----- API -----
     async def send_message(self, recipient: str, text: str, **kwargs) -> Dict[str, Any]:

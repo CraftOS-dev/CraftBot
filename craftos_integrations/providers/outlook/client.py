@@ -19,7 +19,7 @@ from ... import (
     register_client,
     save_credential,
 )
-from ...helpers import Result, arequest, request as http_request
+from ...helpers import Result, arequest, clip, request as http_request
 from ...logger import get_logger
 
 logger = get_logger(__name__)
@@ -30,6 +30,11 @@ OUTLOOK_SCOPES = "Mail.Read Mail.Send Mail.ReadWrite User.Read offline_access"
 
 POLL_INTERVAL = 5
 RETRY_DELAY = 10
+
+# Incoming mail is forwarded to the agent with its body capped at this many
+# chars (token cost); a longer body is flagged as PlatformMessage.truncated
+# and the agent can read the rest with get_outlook_email.
+_INBOUND_BODY_CHARS = 2000
 
 
 @dataclass
@@ -203,15 +208,20 @@ class OutlookClient(BasePlatformClient):
     async def _check_new_messages(self) -> None:
         if not self._last_poll_time:
             return
+        # The full body as plain text, not `bodyPreview` (a 255-char
+        # preview that reads as the whole message — issue #444).
         result = await arequest(
             "GET",
             f"{GRAPH_API_BASE}/me/messages",
-            headers=self._auth_header(),
+            headers={
+                **self._auth_header(),
+                "Prefer": 'outlook.body-content-type="text"',
+            },
             params={
                 "$filter": f"receivedDateTime ge {self._last_poll_time}",
                 "$orderby": "receivedDateTime asc",
                 "$top": "50",
-                "$select": "id,from,subject,bodyPreview,receivedDateTime,conversationId,hasAttachments",
+                "$select": "id,from,subject,body,receivedDateTime,conversationId,hasAttachments",
             },
             expected=(200,),
         )
@@ -248,8 +258,11 @@ class OutlookClient(BasePlatformClient):
             return
 
         subject = msg.get("subject", "(no subject)")
-        snippet = msg.get("bodyPreview", "")
-        text = f"Subject: {subject}\n{snippet}" if snippet else f"Subject: {subject}"
+        body, truncated = clip(
+            ((msg.get("body") or {}).get("content") or "").strip(),
+            _INBOUND_BODY_CHARS,
+        )
+        text = f"Subject: {subject}\n{body}" if body else f"Subject: {subject}"
 
         timestamp = None
         try:
@@ -294,6 +307,7 @@ class OutlookClient(BasePlatformClient):
                     timestamp=timestamp,
                     raw=msg,
                     attachments=attachments,
+                    truncated=truncated,
                 )
             )
 

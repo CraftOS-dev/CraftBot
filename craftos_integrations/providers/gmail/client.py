@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import mimetypes
 import os
 import re
@@ -27,7 +28,7 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from html.parser import HTMLParser
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ... import (
     BasePlatformClient,
@@ -36,7 +37,7 @@ from ... import (
     load_config,
     register_client,
 )
-from ...helpers import Result, arequest, request as http_request
+from ...helpers import Result, arequest, clip, request as http_request
 from ...logger import get_logger
 from .._google_common import (
     GoogleApiClientMixin,
@@ -48,6 +49,11 @@ logger = get_logger(__name__)
 GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1"
 POLL_INTERVAL = 5
 RETRY_DELAY = 10
+
+# Incoming mail is forwarded to the agent with its body capped at this many
+# chars (token cost); a longer body is flagged as PlatformMessage.truncated
+# and the agent can read the rest with get_gmail.
+_INBOUND_BODY_CHARS = 2000
 
 # Headers worth showing the agent. Everything else Gmail returns under
 # format=full is transport/anti-spam machinery (Received chains, ARC-*, DKIM
@@ -190,6 +196,12 @@ def _clean_spaces(text: str) -> str:
     return _SPACE_RUN.sub(" ", text).strip()
 
 
+def clean_snippet(raw: str) -> str:
+    """Gmail's ``snippet`` arrives HTML-escaped (``&#39;`` ``&amp;``);
+    decode it and collapse filler whitespace."""
+    return _clean_spaces(html.unescape(raw or ""))
+
+
 def _html_to_text(html: str) -> str:
     parser = _HtmlText()
     try:
@@ -199,6 +211,51 @@ def _html_to_text(html: str) -> str:
         pass
     lines = [_clean_spaces(ln) for ln in "".join(parser.out).splitlines()]
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _walk_payload(
+    payload: Dict[str, Any],
+) -> Tuple[Dict[str, str], List[Dict[str, Any]]]:
+    """One pass over a ``format=full`` payload: the first decoded
+    text/plain + text/html bodies (by mime), and every attachmentId part."""
+    texts: Dict[str, str] = {}
+    attachments: List[Dict[str, Any]] = []
+
+    def _visit(part: Dict[str, Any]) -> None:
+        body = part.get("body", {}) or {}
+        mime = part.get("mimeType", "")
+        if body.get("attachmentId"):
+            attachments.append(
+                {
+                    "filename": part.get("filename", ""),
+                    "attachment_id": body["attachmentId"],
+                    "mimeType": mime,
+                    "size": body.get("size", 0),
+                }
+            )
+        elif (
+            mime in ("text/plain", "text/html")
+            and "data" in body
+            and not part.get("filename")  # inline-data text attachment
+            and mime not in texts
+        ):
+            texts[mime] = _decode_part(part)
+        for nested in part.get("parts", []) or []:
+            _visit(nested)
+
+    _visit(payload)
+    return texts, attachments
+
+
+def _readable_body(texts: Dict[str, str]) -> Tuple[str, str]:
+    """``(body, body_format)`` from ``_walk_payload`` texts. Prefers the
+    plain-text alternative; HTML-only mail (most newsletters/notifications)
+    is converted rather than coming back empty."""
+    if texts.get("text/plain", "").strip():
+        return texts["text/plain"], "text"
+    if texts.get("text/html"):
+        return _html_to_text(texts["text/html"]), "html_converted"
+    return "", "none"
 
 
 GMAIL = IntegrationSpec(
@@ -368,13 +425,15 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         if not cfg.process_incoming:
             return
 
-        # format=full + a fields partial-response mask: returns headers,
-        # snippet, and ONLY the parts skeleton (filename/mimeType/
-        # attachmentId/size — no body data), staying ~1-3KB. Quota cost is
+        # format=full + a fields partial-response mask: headers plus the
+        # parts skeleton with inline body data (the text/plain + text/html
+        # bodies we read; part headers carry their charset). Attachment bytes never come inline — those parts
+        # carry only an attachmentId — so the response stays the size of
+        # the text. The body, not `snippet`, is what we forward: the snippet
+        # is an HTML-escaped ~200-char preview (issue #444). Quota cost is
         # flat regardless of format. Three explicit nesting levels cover
-        # mixed / mixed-inside-signed / one spare; a bare `payload/parts`
-        # selector would pull body.data too — keep the sub-selection.
-        _part_sel = "partId,mimeType,filename,body(attachmentId,size)"
+        # mixed / mixed-inside-signed / one spare.
+        _part_sel = "partId,mimeType,filename,headers,body(attachmentId,size,data)"
         result = await arequest(
             "GET",
             f"{GMAIL_API_BASE}/users/me/messages/{msg_id}",
@@ -383,7 +442,8 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                 ("format", "full"),
                 (
                     "fields",
-                    "id,threadId,snippet,labelIds,historyId,payload(mimeType,headers,"
+                    "id,threadId,labelIds,historyId,payload(mimeType,headers,"
+                    "body(size,data),"
                     f"parts({_part_sel},parts({_part_sel},parts({_part_sel}))))",
                 ),
             ],
@@ -398,7 +458,8 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         }
         from_header = headers.get("From", "")
         subject = headers.get("Subject", "(no subject)")
-        snippet = msg.get("snippet", "")
+        texts, _ = _walk_payload(msg.get("payload", {}) or {})
+        body, truncated = clip(_readable_body(texts)[0].strip(), _INBOUND_BODY_CHARS)
 
         sender_name = from_header
         sender_email = from_header
@@ -421,7 +482,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         except Exception:
             pass
 
-        text = f"Subject: {subject}\n{snippet}" if snippet else f"Subject: {subject}"
+        text = f"Subject: {subject}\n{body}" if body else f"Subject: {subject}"
 
         # Real attachments carry a non-empty filename + attachmentId
         # (Gmail's own paperclip heuristic); nameless attachmentId parts
@@ -459,6 +520,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                     timestamp=timestamp,
                     raw=msg,
                     attachments=attachments,
+                    truncated=truncated,
                 )
             )
 
@@ -551,7 +613,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                 # always present and not set by the sender.
                 "internalDate": msg.get("internalDate"),
                 "sizeEstimate": msg.get("sizeEstimate"),
-                "snippet": _clean_spaces(msg.get("snippet", "")),
+                "snippet": clean_snippet(msg.get("snippet", "")),
                 # The `metadataHeaders` request param is honoured ONLY for
                 # format=metadata — with format=full (full_body=True) Gmail returns
                 # the entire raw MIME header block. That is ~55% of the payload and
@@ -562,44 +624,8 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                 "headers": _filter_headers(msg.get("payload", {}).get("headers", [])),
             }
             if full_body:
-                attachments: List[Dict[str, Any]] = []
-                texts: Dict[str, str] = {}
-
-                def _visit(part):
-                    body = part.get("body", {}) or {}
-                    mime = part.get("mimeType", "")
-                    if body.get("attachmentId"):
-                        attachments.append(
-                            {
-                                "filename": part.get("filename", ""),
-                                "attachment_id": body["attachmentId"],
-                                "mimeType": mime,
-                                "size": body.get("size", 0),
-                            }
-                        )
-                    elif (
-                        mime in ("text/plain", "text/html")
-                        and "data" in body
-                        and not part.get("filename")  # inline-data text attachment
-                        and mime not in texts
-                    ):
-                        texts[mime] = _decode_part(part)
-                    for nested in part.get("parts", []) or []:
-                        _visit(nested)
-
-                _visit(msg.get("payload", {}) or {})
-
-                # Prefer the plain-text alternative; HTML-only mail (most
-                # newsletters/notifications) used to come back with no body.
-                if texts.get("text/plain", "").strip():
-                    email_info["body"] = texts["text/plain"]
-                    email_info["body_format"] = "text"
-                elif texts.get("text/html"):
-                    email_info["body"] = _html_to_text(texts["text/html"])
-                    email_info["body_format"] = "html_converted"
-                else:
-                    email_info["body"] = ""
-                    email_info["body_format"] = "none"
+                texts, attachments = _walk_payload(msg.get("payload", {}) or {})
+                email_info["body"], email_info["body_format"] = _readable_body(texts)
                 email_info["attachments"] = attachments
             return email_info
 

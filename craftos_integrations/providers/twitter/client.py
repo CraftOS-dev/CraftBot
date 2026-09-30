@@ -7,6 +7,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import html
 import secrets as _secrets
 import time
 import urllib.parse
@@ -335,7 +336,9 @@ class TwitterClient(BasePlatformClient):
                 att["name"] = media["alt_text"]
             attachments.append(att)
 
-        text = tweet.get("text", "")
+        # v2 tweet text arrives with & < > HTML-escaped. Decode before the
+        # watch_tag match too — tags are typed as plain text.
+        text = html.unescape(tweet.get("text", ""))
         author_id = tweet.get("author_id", "")
         author_info = users_map.get(author_id, {})
         author_username = author_info.get("username", "")
