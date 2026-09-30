@@ -41,6 +41,9 @@ class TriggerSource(str, Enum):
     # tells that agent the wizard finalized and which project resulted, so
     # later references ("add data to it") resolve without asking the user.
     AGENT_APP_CREATED = "agent_app_created"
+    # Also lands in the ORIGIN session: the user cancelled a pending chat
+    # setup (pending_setups.py), so the agent stops asking for answers.
+    AGENT_APP_SETUP_CANCELLED = "agent_app_setup_cancelled"
     # An Agent App app fired a declared trigger at the agent (spec
     # TRIGGERS-PLAN): a validated agent_requests row exists and the bridge's
     # capability/consent/era gates all passed. Lands in the project's session.

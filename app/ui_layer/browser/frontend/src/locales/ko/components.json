@@ -155,6 +155,10 @@
   "createAgentApp": {
     "addTitle": "Agent App 추가",
     "setupQuestions": "{{name}} — 설정 질문",
+    "cancelSetupTitle": "설정을 취소할까요?",
+    "cancelSetupMessage": "{{name}}의 설정 질문이 삭제되고 앱이 생성되지 않습니다. 취소했다는 사실이 에이전트에게 전달됩니다.",
+    "cancelSetupConfirm": "설정 취소",
+    "keepSetup": "설정 유지",
     "tabMarketplace": "마켓플레이스",
     "tabCustom": "사용자 지정 만들기",
     "tabImport": "가져오기",

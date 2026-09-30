@@ -15,8 +15,11 @@ The Add Agent App modal's Create Custom tab runs a three-step wizard:
      saved to <project>/reference/requirements.md.
 
 Everything here runs BEFORE the project or its session exists — no
-project is created until the wizard finalizes, so a cancelled wizard
+project is created until the wizard finalizes, so a cancelled modal wizard
 leaves nothing behind except its staging folder (swept opportunistically).
+The chat path (agent_app_scaffold) is the exception: its unfinished
+interview is kept as a PendingSetup (pending_setups.py) until the user
+finishes or cancels it, so closing the popup never loses it.
 
 Attachments upload to a staging area (agent_app/_staging/wizard/<id>)
 and move into the project at finalize time.

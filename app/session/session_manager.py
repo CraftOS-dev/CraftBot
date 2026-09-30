@@ -122,6 +122,16 @@ def _on_session_delete(session_id: str) -> None:
         logger.warning(
             f"[SessionManager] Failed to clear activity rows for {session_id}: {e}"
         )
+    try:
+        from app.agent_app.pending_setups import get_pending_setups
+
+        registry = get_pending_setups()
+        if registry is not None:
+            registry.remove_for_session(session_id)
+    except Exception as e:
+        logger.warning(
+            f"[SessionManager] Failed to drop pending setups for {session_id}: {e}"
+        )
 
 
 class SessionManager(_SessionManager):

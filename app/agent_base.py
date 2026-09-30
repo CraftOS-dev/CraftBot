@@ -161,6 +161,7 @@ RUN_START_SOURCES = {
     TriggerSource.AGENT_APP_CRASH_FIX.value,
     TriggerSource.AGENT_APP_IMPORT.value,
     TriggerSource.AGENT_APP_CREATED.value,
+    TriggerSource.AGENT_APP_SETUP_CANCELLED.value,
     TriggerSource.AGENT_APP_APP_REQUEST.value,
 }
 

@@ -155,6 +155,10 @@
   "createAgentApp": {
     "addTitle": "Agent App を追加",
     "setupQuestions": "{{name}} — セットアップの質問",
+    "cancelSetupTitle": "セットアップをキャンセルしますか？",
+    "cancelSetupMessage": "{{name}} のセットアップの質問は破棄され、アプリは作成されません。キャンセルしたことはエージェントに通知されます。",
+    "cancelSetupConfirm": "セットアップをキャンセル",
+    "keepSetup": "セットアップを続ける",
     "tabMarketplace": "マーケットプレイス",
     "tabCustom": "カスタム作成",
     "tabImport": "インポート",

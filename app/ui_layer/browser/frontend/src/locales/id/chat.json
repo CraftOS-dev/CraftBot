@@ -69,6 +69,14 @@
     "freeTextPlaceholder": "Atau ketik jawaban Anda sendiri...",
     "sendAnswer": "Kirim jawaban"
   },
+  "setupResume": {
+    "aria": "Penyiapan Agent App tertunda",
+    "title": "Pertanyaan penyiapan untuk {{name}} sedang menunggu",
+    "hint": "Aplikasi dibuat setelah Anda menjawabnya.",
+    "resume": "Lanjutkan penyiapan",
+    "cancel": "Batalkan penyiapan",
+    "queuePosition": "1 dari {{total}}"
+  },
   "message": {
     "hideReceived": "Sembunyikan pesan yang diterima",
     "showReceived": "Tampilkan pesan yang diterima",

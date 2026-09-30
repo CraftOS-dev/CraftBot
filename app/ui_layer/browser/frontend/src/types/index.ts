@@ -197,6 +197,9 @@ export type WSMessageType =
   | 'agent_app_build_event'
   | 'agent_app_build_events_replay'
   | 'agent_app_error'
+  // Pending chat-started setups (agentAppSetupSlice)
+  | 'agent_app_setup_list'
+  | 'agent_app_setup_cancel'
   | 'prompt_enhanced'
 
 export interface WSMessage {
@@ -835,6 +838,39 @@ export interface AgentAppComponentState {
   name: string
   props: Record<string, unknown>
   children?: AgentAppComponentState[]
+}
+
+/** One setup-interview question (option chips + free text). */
+export interface AgentAppInterviewQuestion {
+  id: string
+  question: string
+  why?: string
+  multiSelect: boolean
+  options: string[]
+}
+
+/**
+ * A chat-started Agent App setup the user has not finished: the questions
+ * agent_app_scaffold generated, persisted server-side until finalize or
+ * cancel (app/agent_app/pending_setups.py).
+ */
+export interface PendingAgentAppSetup {
+  wizardId: string
+  /** The chat that ran agent_app_scaffold; its Resume card lives there. */
+  originSessionId: string
+  name: string
+  config: Record<string, any>
+  questions: AgentAppInterviewQuestion[]
+  createdAt: number
+}
+
+/** How far the user got through a setup interview (kept per browser tab). */
+export interface AgentAppSetupProgress {
+  /** Round-1 questions plus any follow-up round the backend appended. */
+  questions: AgentAppInterviewQuestion[]
+  answers: Record<string, string[]>
+  qIndex: number
+  followupDone: boolean
 }
 
 // Response types for Agent App operations

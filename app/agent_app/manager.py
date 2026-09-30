@@ -267,6 +267,14 @@ class AgentAppManager:
             self.workspace_root / "agent_app_instances.json", self.ports
         )
 
+        # Chat-started setup interviews not yet finalized or cancelled
+        # (pending_setups.py). Persisted so a closed popup can be resumed.
+        from app.agent_app.pending_setups import PendingSetupRegistry
+
+        self.pending_setups = PendingSetupRegistry(
+            self.workspace_root / "agent_app_pending_setups.json"
+        )
+
         # Session and trigger management (set via bind_session_manager)
         self._session_manager: Optional["SessionManager"] = None
         self._trigger_service: Optional["TriggerService"] = None

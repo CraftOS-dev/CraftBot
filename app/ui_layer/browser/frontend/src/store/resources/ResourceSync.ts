@@ -5,6 +5,7 @@
  */
 export type ResourceName =
   | 'agent_apps'
+  | 'agent_app_setups'
   | 'sessions'
   | 'workspace_files'
   | 'skills'

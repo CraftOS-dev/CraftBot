@@ -88,7 +88,10 @@ def _stub_adapter() -> BrowserAdapter:
     adapter._ws_prepare_failures = 0
     adapter._get_initial_state = lambda: {"stub": True}
     adapter._get_skill_meta = lambda: {}
-    adapter._agent_app_manager = SimpleNamespace(list_projects=lambda: [])
+    adapter._agent_app_manager = SimpleNamespace(
+        list_projects=lambda: [],
+        pending_setups=SimpleNamespace(list=lambda: []),
+    )
     return adapter
 
 

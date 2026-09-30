@@ -41,6 +41,9 @@ import {
   selectPendingQuestions,
 } from '../../store/selectors/messages'
 import { QuestionBox } from './QuestionBox'
+import { ResumeSetupCard } from './ResumeSetupCard'
+import { selectSetupsForSession } from '../../store/selectors/agentAppSetup'
+import { requestCancelSetup, showSetup } from '../../store/slices/agentAppSetupSlice'
 import { mergeTimeline, type TimelineEntry } from './timeline'
 import { selectSessionActivity } from '../../store/selectors/activity'
 import { selectSessionBusy, selectSessionRunState } from '../../store/selectors/agent'
@@ -187,6 +190,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // Unanswered agent questions (oldest first). The first one is pinned in a
   // QuestionBox above the composer; answering/dismissing advances the queue.
   const pendingQuestions = useAppSelector(state => selectPendingQuestions(state, sessionId))
+  // Agent App setups this chat started and the user hasn't finished: the
+  // oldest gets a Resume card under the question box (ChatSetupHost shows it).
+  const pendingSetups = useAppSelector(state => selectSetupsForSession(state, sessionId))
   const hasMoreMessages = useAppSelector(state => selectSessionHasMoreMessages(state, sessionId))
   const historyStatus = useAppSelector(state => selectSessionHistoryStatus(state, sessionId))
   const loadingOlderMessages = useAppSelector(state => selectSessionLoadingOlderMessages(state, sessionId))
@@ -1427,6 +1433,15 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
             queueTotal={pendingQuestions.length}
             onAnswer={handleQuestionAnswer}
             onDismiss={handleQuestionDismiss}
+          />
+        )}
+        {pendingSetups.length > 0 && (
+          <ResumeSetupCard
+            key={pendingSetups[0].wizardId}
+            setup={pendingSetups[0]}
+            queueTotal={pendingSetups.length}
+            onResume={() => dispatch(showSetup(pendingSetups[0].wizardId))}
+            onCancel={() => dispatch(requestCancelSetup(pendingSetups[0].wizardId))}
           />
         )}
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />

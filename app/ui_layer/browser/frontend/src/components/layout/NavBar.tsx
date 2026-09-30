@@ -33,6 +33,7 @@ import { ConfirmModal } from '../ui/ConfirmModal'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
 import { usePersistedState, useSkillCreator } from '../../hooks'
 import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
+import { ChatSetupHost } from '../ui/ChatSetupHost'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
 import { AgentAppIcon } from '../ui/AgentAppIcon'
 import type { SessionInfo } from '../../types'
@@ -966,6 +967,10 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         onClose={() => setShowCreateModal(false)}
         onInstalled={handleProjectCreated}
       />
+
+      {/* Setups the agent started from a chat: independent of the "+" modal,
+          so neither can hide the other. */}
+      <ChatSetupHost onCreated={handleProjectCreated} />
 
       <ConfirmModal
         isOpen={agentDelete !== null}

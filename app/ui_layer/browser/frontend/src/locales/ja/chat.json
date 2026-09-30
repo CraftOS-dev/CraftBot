@@ -69,6 +69,14 @@
     "freeTextPlaceholder": "または自分の回答を入力...",
     "sendAnswer": "回答を送信"
   },
+  "setupResume": {
+    "aria": "保留中の Agent App セットアップ",
+    "title": "{{name}} のセットアップの質問が回答を待っています",
+    "hint": "回答するとアプリが作成されます。",
+    "resume": "セットアップを再開",
+    "cancel": "セットアップをキャンセル",
+    "queuePosition": "1 / {{total}}"
+  },
   "message": {
     "hideReceived": "受信メッセージを非表示",
     "showReceived": "受信メッセージを表示",

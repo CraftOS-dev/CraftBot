@@ -69,6 +69,14 @@
     "freeTextPlaceholder": "Or type your own answer...",
     "sendAnswer": "Send answer"
   },
+  "setupResume": {
+    "aria": "Pending Agent App setup",
+    "title": "Setup questions for {{name}} are waiting",
+    "hint": "The app is created once you answer them.",
+    "resume": "Resume setup",
+    "cancel": "Cancel setup",
+    "queuePosition": "1 of {{total}}"
+  },
   "message": {
     "hideReceived": "Hide received message",
     "showReceived": "Show received message",
