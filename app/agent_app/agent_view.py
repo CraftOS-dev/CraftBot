@@ -2,8 +2,9 @@
 """
 What the agent and the user each SEE of a Agent App.
 
-`schema_block()` and `capability_block()` inline the app's data model and its
-callable operations into the agent's prompt. Advisory pointers do not work on
+`schema_block()`, `operations_block()` and `capability_block()` inline the
+app's data model, its declared operations and the integrations it can reach
+into the agent's prompt. Advisory pointers do not work on
 weak models: across two recorded incidents the agent ignored "Read
 AGENT_APP.md", never ran `agent-app ops`, and guessed collection names instead
 (`items`, `tasks`). It cannot ignore what is already in its context. They read
@@ -103,6 +104,53 @@ def schema_block(base_url: str, max_chars: int = 2000) -> Optional[str]:
         block = "\n".join(
             f"  {n}: {len((e.get('fields') or {}))} fields" for n, e in entities.items()
         )
+    return block
+
+
+def operations_block(base_url: str, max_chars: int = 6000) -> Optional[str]:
+    """The app's declared operations, grouped by area, one line per area.
+
+    Same reason as the schema: an app whose operations were only reachable by
+    running `agent-app ops` got driven through raw `data` writes instead, which
+    skip every rule the app's own routes apply (currency conversion, cascades,
+    workbook write-backs). Each verb shows its required params in parentheses
+    and a trailing `!` when it is destructive, e.g.
+        notes: list, get(name), create(title), update(name), delete(name)!
+    """
+    described = _describe(base_url)
+    if not described:
+        return None
+    groups: Dict[str, List[tuple]] = {}
+    for op in described.get("operations") or []:
+        if not isinstance(op, dict) or op.get("system"):
+            continue
+        name = str(op.get("name") or "")
+        area, _, verb = name.rpartition(".")
+        if not area:
+            area, verb = name, name
+        params = op.get("params") or {}
+        required = [
+            k for k, spec in params.items() if isinstance(spec, dict) and spec.get("required")
+        ]
+        groups.setdefault(area, []).append((verb, required, bool(op.get("destructive"))))
+    if not groups:
+        return None
+
+    def render(with_params: bool) -> str:
+        lines = []
+        for area, verbs in groups.items():
+            labels = [
+                verb
+                + (f"({', '.join(req)})" if with_params and req else "")
+                + ("!" if destructive else "")
+                for verb, req, destructive in verbs
+            ]
+            lines.append(f"  {area}: {', '.join(labels)}")
+        return "\n".join(lines)
+
+    block = render(True)
+    if len(block) > max_chars:  # very large apps: verbs only
+        block = render(False)
     return block
 
 

@@ -1283,13 +1283,13 @@ agent_app_convert(source, ...)              Rebuild a foreign app as a Agent App
 Read/write a project's live data with the agent-app CLI via `run_shell` (absolute paths required):
 
 ```
+node <craftbot_root>/agent-app/tools/src/cli.ts run  <project_path> <op-name> --param value
+node <craftbot_root>/agent-app/tools/src/cli.ts ops  <project_path> [area]
 node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> schema
 node <craftbot_root>/agent-app/tools/src/cli.ts data <project_path> <collection> list|create|update|delete ...
-node <craftbot_root>/agent-app/tools/src/cli.ts run  <project_path> <op-name> --param value
-node <craftbot_root>/agent-app/tools/src/cli.ts ops  <project_path>
 ```
 
-`agent_app_usage(project_id)` returns the exact commands for a given project. Use `agent_app_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
+Prefer a declared operation (`run`) over a raw `data` write: an operation runs the app's own rules (conversions, cascades, file and workbook write-backs), while `data` writes the record as-is. `ops <project_path> <area>` explains every param of one area (e.g. `notes`), including allowed values; operations take dates as YYYY-MM-DD. `agent_app_usage(project_id)` returns the exact commands for a given project, with its operations listed. Use `agent_app_http` only when the CLI cannot do it. While a code change is in progress, agent writes are routed to the dev instance — test writes to an app's real data are refused.
 
 ### Build / delivery lifecycle (one flow for builds and modifies)
 

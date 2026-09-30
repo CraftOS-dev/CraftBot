@@ -21,17 +21,27 @@ export class OSAdapter {
     this.arch = arch === 'arm64' ? 'arm64' : 'amd64';
   }
 
+  /** Per-user cache root of the agent-app tooling. */
+  private cacheRoot(): string {
+    return {
+      darwin: join(homedir(), 'Library', 'Caches', 'craftos-agent-app'),
+      linux: join(homedir(), '.cache', 'craftos-agent-app'),
+      win32: join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'craftos-agent-app'),
+    }[this.platform];
+  }
+
   /** Central per-host PocketBase binary cache, versioned (spec B1). */
   pbCacheDir(version: string): string {
-    const override = process.env['AGENT_APP_PB_CACHE'];
-    const base =
-      override ??
-      {
-        darwin: join(homedir(), 'Library', 'Caches', 'craftos-agent-app', 'pb'),
-        linux: join(homedir(), '.cache', 'craftos-agent-app', 'pb'),
-        win32: join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'craftos-agent-app', 'pb'),
-      }[this.platform];
+    const base = process.env['AGENT_APP_PB_CACHE'] ?? join(this.cacheRoot(), 'pb');
     const dir = join(base, version);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  /** Where the CLI keeps each app's superuser session between commands. Kept
+   *  out of the project folder so it never travels with an exported app. */
+  cliSessionDir(): string {
+    const dir = join(this.cacheRoot(), 'cli-sessions');
     mkdirSync(dir, { recursive: true });
     return dir;
   }

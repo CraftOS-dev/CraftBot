@@ -77,6 +77,27 @@ def read_superuser_creds(project_dir: Path):
     return None
 
 
+def _superuser_stamp(db_path: Path, email: str) -> Optional[str]:
+    """The `updated` stamp of the superuser row for `email` in a PocketBase
+    data.db, or None when the database or the row does not exist. Read-only;
+    used to confirm that `superuser upsert` really saved."""
+    import sqlite3
+
+    if not Path(db_path).exists():
+        return None
+    try:
+        con = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "SELECT updated FROM _superusers WHERE email = ?", (email,)
+            ).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    return str(row[0]) if row else None
+
+
 class AgentAppRunner:
     """Drives Agent App projects through scaffold → install → gate → serve."""
 
@@ -355,34 +376,48 @@ class AgentAppRunner:
         creds = read_superuser_creds(project_dir)
         email = creds[0] if creds else "agent@agent-app.local"
         password = creds[1] if creds else secrets.token_urlsafe(18)
+        db_path = (data_dir if data_dir is not None else pb_dir / "pb_data") / "data.db"
+        stamp_before = _superuser_stamp(db_path, email)
 
+        # Flags first, then `--`, then the positional email and password: a
+        # token_urlsafe password can start with "-", and without the
+        # separator PocketBase's CLI parses it as an unknown flag, prints an
+        # error, saves NOTHING and still exits 0 (IP Manager 2026-09-29: the
+        # .superuser file and the database disagreed from then on, every
+        # CLI read ran unauthenticated and came back "not found").
         code, out = await self._run(
             [
                 str(pb_bin),
                 "superuser",
                 "upsert",
-                email,
-                password,
                 "--dir",
                 str(data_dir if data_dir is not None else pb_dir / "pb_data"),
                 "--migrationsDir",
                 str(pb_dir / "pb_migrations"),
                 "--hooksDir",
                 str(pb_dir / "pb_hooks"),
+                "--",
+                email,
+                password,
             ],
             timeout=60,
         )
-        if code != 0:
+        # PocketBase's CLI exits 0 even when a command fails, so the exit
+        # code alone proves nothing: the save is confirmed from the database
+        # itself (the superuser row exists and its `updated` stamp moved).
+        saved = code == 0 and _superuser_stamp(db_path, email) not in (None, stamp_before)
+        if not saved:
             # FAIL CLOSED. A serve without a superuser makes PocketBase pop
             # the user's SYSTEM BROWSER with a one-time /_/#/pbinstall/…
             # admin-installer token (observed live 2026-08-05, kanban_board
             # marketplace install) — a jarring tab AND an unauthenticated
             # admin takeover link. A failed launch with evidence beats that.
             # Never include the password in the error.
+            tail = out[-300:].replace(password, "<password>")
             raise RuntimeError(
                 f"superuser upsert failed for {project_dir.name} — refusing "
                 f"to serve without one (PocketBase would open its installer "
-                f"page in the user's browser): {out[-300:]}"
+                f"page in the user's browser): {tail}"
             )
         try:
             cred_file.write_text(

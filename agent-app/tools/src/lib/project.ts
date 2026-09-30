@@ -1,6 +1,8 @@
 /** Operate-command helpers: resolve a project, its port, ops, and auth. */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+
+import { osAdapter } from './os-adapter.ts';
 
 export interface ProjectRef {
   dir: string;
@@ -84,7 +86,7 @@ export interface Operation {
   description: string;
   system?: boolean;
   destructive?: boolean;
-  params?: Record<string, { type: string; description?: string; required?: boolean }>;
+  params?: Record<string, { type: string; description?: string; required?: boolean; enum?: (string | number)[] }>;
   executor: { type: string; method?: string; path?: string; collection?: string; action?: string };
 }
 
@@ -104,17 +106,72 @@ export function readAgentToken(project: ProjectRef): string | null {
 }
 
 /** Superuser token via the project-local .superuser file (absent on imports). */
-export async function authToken(project: ProjectRef): Promise<string | null> {
+/**
+ * Superuser session for projects that have a `.superuser` file. A failed
+ * sign-in is an error, never a silent fallback: carrying on unauthenticated
+ * turned protected reads into a bare "not found", which agents took to mean
+ * "already handled by someone else" (IP Manager, 2026-09-29).
+ */
+export async function authToken(project: ProjectRef, fresh = false): Promise<string | null> {
   const credFile = join(project.dir, '.superuser');
   if (!existsSync(credFile)) return null;
+  if (!fresh) {
+    const cached = cachedSession(project);
+    if (cached !== null) return cached;
+  }
   const { email, password } = JSON.parse(readFileSync(credFile, 'utf8'));
   const res = await fetch(`${project.baseUrl}/api/collections/_superusers/auth-with-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identity: email, password }),
   });
-  if (!res.ok) return null;
-  return ((await res.json()) as { token: string }).token;
+  if (res.status === 429) {
+    throw new Error(
+      `Could not sign in to ${project.name}: PocketBase rate-limits sign-ins (HTTP 429, too many in the ` +
+        `last minute), so nothing was read or changed. Wait a minute, then retry.`,
+    );
+  }
+  if (!res.ok) {
+    throw new Error(
+      `Could not sign in to ${project.name} as its superuser (HTTP ${res.status}): the credentials in ` +
+        `.superuser do not match the app's database, so nothing was read or changed. ` +
+        `Relaunch the app from CraftBot to re-apply them, then retry.`,
+    );
+  }
+  const token = ((await res.json()) as { token: string }).token;
+  saveSession(project, token);
+  return token;
+}
+
+/**
+ * The superuser session is cached per app instance (id + port, so a shadow
+ * keeps its own) until shortly before it expires. Every CLI command is a new
+ * process, so without the cache each one signed in again, and PocketBase
+ * allows 30 sign-ins a minute: an agent working through a batch (filing 30
+ * SOPs, say) started failing mid-way.
+ */
+function sessionFile(project: ProjectRef): string {
+  return join(osAdapter.cliSessionDir(), `${project.id || 'app'}-${project.port}.json`);
+}
+
+function cachedSession(project: ProjectRef): string | null {
+  try {
+    const { token } = JSON.parse(readFileSync(sessionFile(project), 'utf8')) as { token: string };
+    const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as {
+      exp?: number;
+    };
+    return typeof payload.exp === 'number' && payload.exp * 1000 > Date.now() + 60_000 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(project: ProjectRef, token: string): void {
+  try {
+    writeFileSync(sessionFile(project), JSON.stringify({ token }), { mode: 0o600 });
+  } catch {
+    /* no cache: the next command signs in again */
+  }
 }
 
 export async function request(
@@ -151,6 +208,12 @@ export async function request(
   if (extraHeaders !== undefined) Object.assign(headers, extraHeaders);
   const init: RequestInit = { method, headers };
   if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await fetch(`${project.baseUrl}${path}`, init);
+  let res = await fetch(`${project.baseUrl}${path}`, init);
+  if (res.status === 401 && token !== null) {
+    // A cached session the app no longer accepts (app data reset, secret
+    // rotated): sign in once more and repeat. A 401 means nothing was done.
+    headers['Authorization'] = (await authToken(project, true)) ?? '';
+    res = await fetch(`${project.baseUrl}${path}`, init);
+  }
   return { status: res.status, body: await res.text() };
 }

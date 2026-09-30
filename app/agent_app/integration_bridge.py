@@ -694,6 +694,10 @@ class IntegrationBridge:
         "slack": ("https://slack.com", ("slack.com",)),
         "discord": ("https://discord.com", ("discord.com", "discordapp.com")),
         "notion": ("https://api.notion.com", ("api.notion.com",)),
+        # PostHog's host lives on the credential (US or EU cloud); the suffix
+        # match admits both. Self-hosted installs are denied for raw proxying,
+        # while PostHog actions still resolve their own host.
+        "posthog": ("https://us.posthog.com", ("posthog.com",)),
         "hubspot": ("https://api.hubapi.com", ("api.hubapi.com",)),
         "jira": ("https://api.atlassian.com", ("atlassian.net", "api.atlassian.com")),
         "linkedin": ("https://api.linkedin.com", ("api.linkedin.com",)),

@@ -2239,6 +2239,28 @@ class AgentBase:
                         if schema
                         else f"Data model: run  node {_agent_app_cli} data {proj.path} schema\n"
                     )
+                    # Operations go in the prompt too: an app whose verbs were
+                    # only discoverable by running `agent-app ops` got driven
+                    # through raw `data` writes, which skip the rules the app's
+                    # own routes apply (conversions, cascades, write-backs).
+                    ops = None
+                    try:
+                        from app.agent_app.agent_view import operations_block
+
+                        base = proj.backend_url or proj.url
+                        if base:
+                            ops = operations_block(base.rstrip("/"))
+                    except Exception:
+                        ops = None
+                    operations = (
+                        f"Operations: USE THESE FIRST. They apply the app's own rules, which a raw\n"
+                        f"`data` write skips. (x) = required params, ! = destructive (confirm with\n"
+                        f"the user first):\n{ops}\n"
+                        f"  Every param with its allowed values, for one area:\n"
+                        f"  node {_agent_app_cli} ops {proj.path} <area>\n"
+                        if ops
+                        else ""
+                    )
                     # Same principle as the schema: capabilities go IN the
                     # prompt. Three builds stubbed the user's email feature
                     # around an invented SMTP requirement because nothing in
@@ -2255,17 +2277,19 @@ class AgentBase:
                     return (
                         f"[INTERACTING WITH AGENT APP: {proj.name} ({agent_app_project_id})]\n"
                         f"Project path: {proj.path}\n"
+                        f"{operations}"
                         f"{model}"
                         f"{caps}"
-                        f"Values: dates as ISO or 'tomorrow'/'next monday' (the CLI resolves them);\n"
-                        f'references by name, e.g. --list "To Do". \n'
+                        f"Values: `data` takes dates as ISO or 'tomorrow'/'next monday' (the CLI resolves\n"
+                        f'them) and references by name, e.g. --list "To Do". Operations (`run`) take\n'
+                        f"dates as YYYY-MM-DD only.\n"
                         f"To OPERATE the app, use the agent-app CLI via run_shell with ABSOLUTE paths\n"
                         f"(the shell's cwd is NOT the repo root):\n"
+                        f'  node {_agent_app_cli} run {proj.path} <op-name> --param "value"\n'
                         f'  node {_agent_app_cli} data {proj.path} <collection> create --field "value"\n'
                         f"  ALWAYS quote values — an unquoted # starts a shell comment and\n"
                         f"  silently drops the rest of the command.\n"
                         f"  node {_agent_app_cli} data {proj.path} <collection> list --limit 20\n"
-                        f"  node {_agent_app_cli} run {proj.path} <op-name> --param value\n"
                         f"If debugging, read {proj.path}/logs/pocketbase.log and logs/frontend_console.log.\n"
                         f"Using the app needs no skill. To CHANGE its code, or import/diagnose one,\n"
                         f"load the right Agent App skill first (use_skill); list_skills shows all skills.\n"

@@ -24,19 +24,23 @@ async function bootstrapSuperuser(projectDir: string): Promise<void> {
   const email = 'agent@agent-app.local';
   const password = randomBytes(18).toString('base64url');
 
+  // Flags first, then `--`, then email and password: a base64url password
+  // can start with "-", which PocketBase's CLI would otherwise parse as an
+  // unknown flag (it then saves nothing and still exits 0).
   execFileSync(
     pbBin,
     [
       'superuser',
       'upsert',
-      email,
-      password,
       '--dir',
       join(pbDir, 'pb_data'),
       '--migrationsDir',
       join(pbDir, 'pb_migrations'),
       '--hooksDir',
       join(pbDir, 'pb_hooks'),
+      '--',
+      email,
+      password,
     ],
     { stdio: 'pipe' },
   );

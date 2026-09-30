@@ -1737,6 +1737,61 @@ with tempfile.TemporaryDirectory() as tmp:
 print("§23 superuser fail-closed: OK")
 
 
+# ── §23b a silent upsert failure (exit 0, nothing saved) also fails closed ──
+# PocketBase's CLI exits 0 even when a command errors. A password starting
+# with "-" was parsed as a flag: nothing saved, launch "succeeded", and every
+# CLI read ran unauthenticated (IP Manager, 2026-09-29). The save is now
+# confirmed from the database, and the password always follows `--`.
+import sqlite3 as _sqlite3
+
+with tempfile.TemporaryDirectory() as tmp:
+    runner23b = AgentAppRunner(Path(tmp))
+    proj23b = Path(tmp) / "proj"
+    (proj23b / "pb" / "pb_data").mkdir(parents=True)
+    (proj23b / ".superuser").write_text(
+        _json.dumps({"email": "agent@agent-app.local", "password": "-Starts-with-a-dash"}) + "\n",
+        encoding="utf-8",
+    )
+    seen_cmds = []
+
+    async def _fake_pb_binary23b():
+        return Path("pocketbase")
+
+    async def _silent_fail(cmd, timeout, cwd=None):
+        seen_cmds.append(cmd)
+        return (0, "Error: unknown shorthand flag: 'S' in -Starts-with-a-dash")
+
+    runner23b.pb_binary = _fake_pb_binary23b
+    runner23b._run = _silent_fail
+    try:
+        asyncio.run(runner23b.ensure_superuser(proj23b))
+        raise AssertionError("an upsert that saved nothing must refuse to serve")
+    except RuntimeError as e:
+        assert "refusing to serve" in str(e)
+        assert "-Starts-with-a-dash" not in str(e), "the password must never appear in the error"
+
+    cmd = seen_cmds[-1]
+    sep = cmd.index("--")
+    assert cmd[sep + 1 :] == ["agent@agent-app.local", "-Starts-with-a-dash"], cmd
+    assert all(not str(a).startswith("--dir") or i < sep for i, a in enumerate(cmd))
+
+    async def _real_save(cmd, timeout, cwd=None):
+        db = proj23b / "pb" / "pb_data" / "data.db"
+        con = _sqlite3.connect(db)
+        con.execute("CREATE TABLE IF NOT EXISTS _superusers (email TEXT, updated TEXT)")
+        con.execute("DELETE FROM _superusers")
+        con.execute("INSERT INTO _superusers VALUES (?, ?)", ("agent@agent-app.local", "2026-09-29 01:00:00.000Z"))
+        con.commit()
+        con.close()
+        return (0, 'Successfully saved superuser "agent@agent-app.local"!')
+
+    runner23b._run = _real_save
+    asyncio.run(runner23b.ensure_superuser(proj23b))
+    stored = _json.loads((proj23b / ".superuser").read_text(encoding="utf-8"))
+    assert stored["password"] == "-Starts-with-a-dash"
+print("§23b superuser silent failure fails closed, password after --: OK")
+
+
 # ── §24 the heartbeat never loses a wakeup (stale build) ───────────────────
 # The old deferred-wakeup bug: a suppressed redispatch with nothing left to
 # re-fire it left a build stale at 'fixing' forever. The supervisor's
