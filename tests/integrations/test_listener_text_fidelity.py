@@ -2,8 +2,8 @@
 
 Listeners emit plain, decoded text built from the real message body, cap
 it with ``clip`` and declare the cut as ``PlatformMessage.truncated``; the
-host marks the cut for the chat and hands the agent the facts to fetch the
-rest (docs/plans/inbound-message-fidelity-plan.md).
+host marks the cut for the chat and tells the agent the message is
+truncated and how to fetch the rest.
 
 No pytest-asyncio in this repo — async paths are driven with asyncio.run.
 """

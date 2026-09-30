@@ -2,8 +2,7 @@
 
 Listeners that cap a body's length (to keep inbound token cost bounded)
 use ``clip`` so every cap cuts the same way and reports that it cut —
-the flag goes to ``PlatformMessage.truncated`` and the host marks the cut
-(docs/plans/inbound-message-fidelity-plan.md).
+the flag goes to ``PlatformMessage.truncated`` and the host marks the cut.
 """
 
 from __future__ import annotations

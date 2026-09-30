@@ -45,8 +45,7 @@ class PlatformMessage:
     attachments: List[Dict[str, Any]] = field(default_factory=list)
     # True when the listener capped ``text`` (``helpers.clip``). The HOST
     # marks the cut and gives the agent the message id to fetch the rest;
-    # listeners only declare the fact
-    # (docs/plans/inbound-message-fidelity-plan.md).
+    # listeners only declare the fact.
     truncated: bool = False
 
 

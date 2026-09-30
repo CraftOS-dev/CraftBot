@@ -3,7 +3,7 @@
 Slack's ``text`` field is not what the user typed: ``& < >`` arrive
 HTML-escaped and every reference is wrapped in angle-bracket markup.
 Forwarded as-is, the agent and the chat details show ``<@U0123ABC>`` and
-``&amp;`` (issue #444; docs/plans/inbound-message-fidelity-plan.md).
+``&amp;``.
 
 Pure module — the only outside knowledge (user id → display name) is
 injected as ``resolve_user``, so it is testable without a client.

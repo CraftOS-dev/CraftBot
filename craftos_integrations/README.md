@@ -179,7 +179,7 @@ listeners unescape HTML entities and render platform markup before
 emitting, and never forward an API preview field (Gmail `snippet`,
 Outlook `bodyPreview`) as the body. A listener that caps the length uses
 `helpers.clip` and sets `truncated`; the host then marks the cut and tells
-the agent the message id (`docs/plans/inbound-message-fidelity-plan.md`).
+the agent the message is truncated and how to read the rest by message id.
 
 ---
 
