@@ -2450,8 +2450,6 @@ class AgentBase:
 
             # The listener capped a long body (PlatformMessage.truncated):
             # mark the cut where both the agent and the chat details see it.
-            # The agent additionally gets the facts to fetch the rest itself
-            # (docs/plans/inbound-message-fidelity-plan.md).
             truncated = bool(payload.get("truncated")) and bool(message_body)
             if truncated:
                 message_body = f"{message_body}…"
@@ -2459,7 +2457,7 @@ class AgentBase:
             # Normalized attachments (PlatformMessage.attachments) become
             # descriptor lines with retrieval hints — appended to the body,
             # or standing in for it on media-only messages so they are no
-            # longer dropped (docs/plans/attachment-reception-plan.md).
+            # longer dropped.
             from app.integrations import format_attachment_descriptors
 
             att_lines = format_attachment_descriptors(
