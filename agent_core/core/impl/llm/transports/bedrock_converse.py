@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from agent_core.decorators import profile, OperationCategory
+from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
 from agent_core.utils.logger import logger
@@ -70,6 +71,10 @@ def generate(
             else [{"role": "user", "content": [{"text": user_prompt}]}]
         )
 
+        # Reasoning default for this exact model (None: no rule, so the
+        # request is shaped exactly as it was before reasoning defaults).
+        reasoning = iface.reasoning_decision()
+
         converse_kwargs: Dict[str, Any] = {
             "modelId": iface.model,
             "messages": converse_messages,
@@ -78,6 +83,19 @@ def generate(
                 "maxTokens": iface.max_tokens,
             },
         }
+        if reasoning is not None:
+            # Claude on Converse takes the Messages-API thinking/effort keys
+            # through additionalModelRequestFields. Thinking tokens count
+            # against maxTokens, and thinking is incompatible with (4.5/4.6)
+            # or rejects (4.7+) a non-default temperature.
+            converse_kwargs["additionalModelRequestFields"] = (
+                reasoning_wire.anthropic_fields(reasoning)
+            )
+            converse_kwargs["inferenceConfig"]["maxTokens"] = reasoning.output_cap(
+                iface.max_tokens
+            )
+            if reasoning.omit_temperature:
+                del converse_kwargs["inferenceConfig"]["temperature"]
 
         if system_prompt:
             # When messages already carry a cachePoint (multi-turn first

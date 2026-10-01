@@ -11,8 +11,10 @@ import json as _json
 
 try:
     import boto3  # type: ignore[import]
+    from botocore.config import Config as _BotocoreConfig  # type: ignore[import]
 except ImportError:  # pragma: no cover — boto3 is an optional extra
     boto3 = None  # type: ignore[assignment]
+    _BotocoreConfig = None  # type: ignore[assignment]
 
 from agent_core.core.models.types import InterfaceType
 from agent_core.core.models.provider_config import PROVIDER_CONFIG
@@ -23,6 +25,12 @@ from agent_core.core.models.registry import (
 from agent_core.core.llm.google_gemini_client import GeminiClient
 
 logger = logging.getLogger(__name__)
+
+# Read timeout for Bedrock Converse calls. botocore's default is 60 seconds,
+# which a Claude response with thinking can exceed; AWS documents a
+# 60-minute server-side limit for Claude 4 and later. 600 seconds matches the
+# Anthropic SDK's default request timeout used by the direct transport.
+_BEDROCK_READ_TIMEOUT_SECONDS = 600
 
 # Derived from provider profiles (Phase 1, docs/PROVIDER_LAYER_CATCHUP.md).
 # OpenRouter proxy routing exists because some direct APIs are geo-restricted
@@ -618,7 +626,12 @@ class ModelFactory:
                 )
 
             try:
-                client_kwargs = {"region_name": region}
+                client_kwargs = {
+                    "region_name": region,
+                    "config": _BotocoreConfig(
+                        read_timeout=_BEDROCK_READ_TIMEOUT_SECONDS
+                    ),
+                }
                 if access_key and secret_key:
                     client_kwargs["aws_access_key_id"] = access_key
                     client_kwargs["aws_secret_access_key"] = secret_key

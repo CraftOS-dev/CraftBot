@@ -42,6 +42,7 @@ from agent_core.core.hooks import (
     RecordLLMCallHook,
 )
 from agent_core.core.impl.llm import transports as _transports
+from agent_core.core.models.reasoning import ReasoningDecision, resolve_reasoning
 from agent_core.core.models.registry import (
     get_registry as _get_registry,
     session_cc_providers as _session_cc_providers,
@@ -227,6 +228,9 @@ class LLMInterface:
         # multi-provider outage terminates instead of nesting
         # primary -> fb -> fb-of-fb recursion.
         self._is_fallback_instance = False
+        # (provider, model, auth_mode) whose reasoning default was last
+        # logged, so the decision is logged once per model, not per call.
+        self._reasoning_logged_for: Optional[tuple] = None
 
         # Defer imports to avoid circular dependency
         from app.models.factory import ModelFactory
@@ -776,7 +780,8 @@ class LLMInterface:
         from app.config import get_context_window
 
         window = get_context_window()
-        budget = window - self.max_tokens
+        reserved = self._output_reservation()
+        budget = window - reserved
 
         total = count_tokens(system_prompt or "")
         if messages:
@@ -795,9 +800,42 @@ class LLMInterface:
         if total > budget:
             raise LLMContextOverflowError(
                 f"Request of ~{total} input tokens exceeds the {budget}-token budget "
-                f"({window} window - {self.max_tokens} reserved for output) for "
+                f"({window} window - {reserved} reserved for output) for "
                 f"{self.provider}/{self.model}."
             )
+
+    def reasoning_decision(self) -> Optional[ReasoningDecision]:
+        """Reasoning default for the current provider and model.
+
+        None means the model has no rule in agent_core/core/models/reasoning.py
+        and its requests carry no reasoning parameter. Resolved on every call
+        so a model switch (reinitialize) or a fallback interface uses its own
+        row; logged once per distinct model.
+        """
+        decision = resolve_reasoning(self.provider, self.model, self._auth_mode)
+        log_key = (self.provider, self.model, self._auth_mode)
+        if log_key != self._reasoning_logged_for:
+            self._reasoning_logged_for = log_key
+            if decision is None:
+                logger.info(
+                    f"[REASONING] {self.provider}/{self.model}: no reasoning rule "
+                    f"for this model, reasoning parameters not sent"
+                )
+            else:
+                logger.info(f"[REASONING] {decision.key}: {decision.describe()}")
+        return decision
+
+    def _output_reservation(self) -> int:
+        """Output tokens a request reserves out of the context window.
+
+        Requests with a reasoning default carry a larger output cap (reasoning
+        tokens count against it), so the window check reserves that cap;
+        otherwise the provider would reject the request for size instead.
+        """
+        decision = self.reasoning_decision()
+        if decision is None:
+            return self.max_tokens
+        return decision.output_cap(self.max_tokens)
 
     def _generate_response_sync(
         self,

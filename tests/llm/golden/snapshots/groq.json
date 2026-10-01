@@ -4,10 +4,7 @@
       "client": "openai_compat",
       "method": "chat.completions.create",
       "payload": {
-        "extra_body": {
-          "prompt_cache_key": "907eed6c3582215b"
-        },
-        "max_completion_tokens": 50000,
+        "max_completion_tokens": 32768,
         "messages": [
           {
             "content": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. ",
@@ -18,21 +15,18 @@
             "role": "user"
           }
         ],
-        "model": "gpt-5.2-2025-12-11",
-        "reasoning_effort": "high",
+        "model": "llama-3.3-70b-versatile",
         "response_format": {
           "type": "json_object"
-        }
+        },
+        "temperature": 0.0
       }
     },
     {
       "client": "openai_compat",
       "method": "chat.completions.create",
       "payload": {
-        "extra_body": {
-          "prompt_cache_key": "reasoning_907eed6c3582215b"
-        },
-        "max_completion_tokens": 50000,
+        "max_completion_tokens": 32768,
         "messages": [
           {
             "content": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. ",
@@ -43,21 +37,18 @@
             "role": "user"
           }
         ],
-        "model": "gpt-5.2-2025-12-11",
-        "reasoning_effort": "high",
+        "model": "llama-3.3-70b-versatile",
         "response_format": {
           "type": "json_object"
-        }
+        },
+        "temperature": 0.0
       }
     },
     {
       "client": "openai_compat",
       "method": "chat.completions.create",
       "payload": {
-        "extra_body": {
-          "prompt_cache_key": "reasoning_907eed6c3582215b"
-        },
-        "max_completion_tokens": 50000,
+        "max_completion_tokens": 32768,
         "messages": [
           {
             "content": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. ",
@@ -76,21 +67,18 @@
             "role": "user"
           }
         ],
-        "model": "gpt-5.2-2025-12-11",
-        "reasoning_effort": "high",
+        "model": "llama-3.3-70b-versatile",
         "response_format": {
           "type": "json_object"
-        }
+        },
+        "temperature": 0.0
       }
     },
     {
       "client": "openai_compat",
       "method": "chat.completions.create",
       "payload": {
-        "extra_body": {
-          "prompt_cache_key": "reasoning_907eed6c3582215b"
-        },
-        "max_completion_tokens": 50000,
+        "max_completion_tokens": 32768,
         "messages": [
           {
             "content": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. ",
@@ -117,11 +105,11 @@
             "role": "user"
           }
         ],
-        "model": "gpt-5.2-2025-12-11",
-        "reasoning_effort": "high",
+        "model": "llama-3.3-70b-versatile",
         "response_format": {
           "type": "json_object"
-        }
+        },
+        "temperature": 0.0
       }
     }
   ],

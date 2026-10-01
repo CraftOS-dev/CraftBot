@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from agent_core.decorators import profile, OperationCategory
+from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error, provider_display_name
 from agent_core.core.models.registry import (
@@ -114,9 +115,14 @@ def generate_openai(
             "model": iface.model,
             "messages": messages,
         }
+        # Reasoning default for this exact model (None: no rule, so the
+        # request is shaped exactly as it was before reasoning defaults).
+        reasoning = iface.reasoning_decision()
         _profile = _get_registry().get(iface.provider)
         _temp = _resolve_temperature(_profile, iface.temperature)
-        if _temp is not _OMIT_TEMPERATURE:
+        if _temp is not _OMIT_TEMPERATURE and not (
+            reasoning is not None and reasoning.omit_temperature
+        ):
             request_kwargs["temperature"] = _temp
 
         # Output tokens: cap the VALUE to the provider's output limit (several
@@ -124,7 +130,13 @@ def generate_openai(
         # when it's exceeded), and pick the FIELD NAME per provider policy
         # (profile.uses_max_completion_tokens: OpenAI/Cerebras/MiniMax/Groq
         # take 'max_completion_tokens'; everyone else legacy 'max_tokens').
-        _max_tokens_value = iface.max_tokens
+        # Reasoning tokens count against this cap, so a reasoning default
+        # raises it (never lowers it) to leave room for the answer.
+        _max_tokens_value = (
+            iface.max_tokens
+            if reasoning is None
+            else reasoning.output_cap(iface.max_tokens)
+        )
         if _profile is not None and _profile.max_output_tokens:
             _max_tokens_value = min(_max_tokens_value, _profile.max_output_tokens)
         uses_max_completion_tokens = (
@@ -198,6 +210,13 @@ def generate_openai(
                 logger.debug(
                     f"[OPENROUTER] Anthropic cache_control: {cache_control} (model={iface.model})"
                 )
+
+        if reasoning is not None:
+            reasoning_top, reasoning_extra = reasoning_wire.chat_completions_fields(
+                reasoning
+            )
+            request_kwargs.update(reasoning_top)
+            extra_body.update(reasoning_extra)
 
         if extra_body:
             request_kwargs["extra_body"] = extra_body

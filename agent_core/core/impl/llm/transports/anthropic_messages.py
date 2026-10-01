@@ -10,9 +10,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from agent_core.decorators import profile, OperationCategory
+from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
 from agent_core.utils.logger import logger
+
+# Anthropic requires max_tokens; 16384 (Claude 4 default) avoids truncation.
+_DEFAULT_MAX_TOKENS = 16384
 
 
 @profile("llm_anthropic_call", OperationCategory.LLM)
@@ -71,11 +75,20 @@ def generate(
         if not iface._anthropic_client:
             raise RuntimeError("Anthropic client was not initialised.")
 
-        # Build the message - use pre-built messages for multi-turn, or single-turn
-        # Anthropic requires max_tokens; use 16384 (Claude 4 default) to avoid truncation
+        # Reasoning default for this exact model (None: no rule, so the
+        # request is shaped exactly as it was before reasoning defaults).
+        reasoning = iface.reasoning_decision()
+
+        # Build the message - use pre-built messages for multi-turn, or single-turn.
+        # Thinking tokens count against max_tokens, so a reasoning default
+        # raises it (staying below the SDK's non-streaming ceiling).
         message_kwargs: Dict[str, Any] = {
             "model": iface.model,
-            "max_tokens": 16384,
+            "max_tokens": (
+                _DEFAULT_MAX_TOKENS
+                if reasoning is None
+                else reasoning.output_cap(_DEFAULT_MAX_TOKENS)
+            ),
             "messages": messages
             if messages is not None
             else [
@@ -109,7 +122,14 @@ def generate(
                 # Short prompt - use simple string format (no caching)
                 message_kwargs["system"] = system_prompt
 
-        message_kwargs["extra_body"] = {"temperature": iface.temperature}
+        if reasoning is not None:
+            message_kwargs.update(reasoning_wire.anthropic_fields(reasoning))
+
+        # Thinking is incompatible with temperature on Claude 4.5/4.6, and
+        # Claude 4.7+ rejects any non-default temperature, so rows with
+        # reasoning drop it (the model then uses its default).
+        if reasoning is None or not reasoning.omit_temperature:
+            message_kwargs["extra_body"] = {"temperature": iface.temperature}
 
         response = iface._anthropic_client.messages.create(**message_kwargs)
 

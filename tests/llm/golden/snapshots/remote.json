@@ -1,0 +1,72 @@
+{
+  "calls": [
+    {
+      "client": "ollama",
+      "method": "requests.post",
+      "payload": {
+        "json": {
+          "format": "json",
+          "model": "llama3.2:3b",
+          "options": {
+            "temperature": 0.0
+          },
+          "prompt": "sessionless turn",
+          "stream": false,
+          "system": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+        },
+        "url": "http://localhost:11434/api/generate"
+      }
+    },
+    {
+      "client": "ollama",
+      "method": "requests.post",
+      "payload": {
+        "json": {
+          "format": "json",
+          "model": "llama3.2:3b",
+          "options": {
+            "temperature": 0.0
+          },
+          "prompt": "session turn 1",
+          "stream": false
+        },
+        "url": "http://localhost:11434/api/generate"
+      }
+    },
+    {
+      "client": "ollama",
+      "method": "requests.post",
+      "payload": {
+        "json": {
+          "format": "json",
+          "model": "llama3.2:3b",
+          "options": {
+            "temperature": 0.0
+          },
+          "prompt": "session turn 2",
+          "stream": false
+        },
+        "url": "http://localhost:11434/api/generate"
+      }
+    },
+    {
+      "client": "ollama",
+      "method": "requests.post",
+      "payload": {
+        "json": {
+          "format": "json",
+          "model": "llama3.2:3b",
+          "options": {
+            "temperature": 0.0
+          },
+          "prompt": "session turn 3",
+          "stream": false
+        },
+        "url": "http://localhost:11434/api/generate"
+      }
+    }
+  ],
+  "session_buffers": {
+    "session_histories": {}
+  }
+}

@@ -18,8 +18,7 @@
             "role": "user"
           }
         ],
-        "model": "gpt-5.2-2025-12-11",
-        "reasoning_effort": "high",
+        "model": "gpt-4o",
         "response_format": {
           "type": "json_object"
         }
@@ -43,8 +42,7 @@
             "role": "user"
           }
         ],
-        "model": "gpt-5.2-2025-12-11",
-        "reasoning_effort": "high",
+        "model": "gpt-4o",
         "response_format": {
           "type": "json_object"
         }
@@ -76,8 +74,7 @@
             "role": "user"
           }
         ],
-        "model": "gpt-5.2-2025-12-11",
-        "reasoning_effort": "high",
+        "model": "gpt-4o",
         "response_format": {
           "type": "json_object"
         }
@@ -117,8 +114,7 @@
             "role": "user"
           }
         ],
-        "model": "gpt-5.2-2025-12-11",
-        "reasoning_effort": "high",
+        "model": "gpt-4o",
         "response_format": {
           "type": "json_object"
         }
