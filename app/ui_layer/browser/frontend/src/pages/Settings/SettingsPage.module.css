@@ -3035,11 +3035,17 @@
   width: 100%;
   box-sizing: border-box;
   height: 8px;
-  margin: 10px 0 4px;
+  /* Top room for the threshold marker's tag, which sits above the bar. */
+  margin: 30px 0 10px;
   border-radius: 999px;
   background: var(--bg-tertiary);
   cursor: pointer;
   touch-action: none;
+  user-select: none;
+}
+
+.gateTrack:not(.gateDisabled):active {
+  cursor: grabbing;
 }
 
 .gateTrack:focus-visible {
@@ -3063,22 +3069,54 @@
   transition: width 0.3s ease;
 }
 
+/* Threshold marker: a red tag above the bar pointing down into a red dashed
+   line that crosses it. The whole 16px-wide column is the grab target, so
+   both the tag and the line drag (pointer-downs on it bubble to the track's
+   handlers). The halo keeps the red readable over the orange fill. */
 .gateThumb {
   position: absolute;
-  top: 50%;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--text-primary);
-  border: 3px solid var(--color-primary);
-  transform: translate(-50%, -50%);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  pointer-events: none;
+  top: -26px;
+  bottom: -6px;
+  width: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--color-error);
+  filter: drop-shadow(0 0 1px var(--bg-primary));
+  cursor: grab;
+}
+
+.gateDisabled .gateThumb {
+  cursor: default;
+}
+
+.gateTag {
+  flex-shrink: 0;
+  fill: currentColor;
+  transform-origin: 50% 100%;
+  transition: transform var(--transition-fast);
+}
+
+.gateTrack:not(.gateDisabled) .gateThumb:hover .gateTag,
+.gateTrack:not(.gateDisabled):active .gateTag {
+  transform: scale(1.15);
+}
+
+/* Dashes drawn with a gradient so their length is exact at this height. */
+.gateLine {
+  flex: 1;
+  width: 2px;
+  background: repeating-linear-gradient(
+    to bottom,
+    currentColor 0 3px,
+    transparent 3px 5px
+  );
 }
 
 /* Legend under the track: names the two things on the bar (orange fill =
-   events waiting, ringed dot = the draggable minimum) so the numbers need
-   no decoding. */
+   events waiting, red tag = the draggable minimum) so the numbers need no
+   decoding. */
 .gateLegend {
   display: flex;
   align-items: center;
@@ -3104,14 +3142,37 @@
   flex-shrink: 0;
 }
 
+/* Miniature of the threshold marker: red tag over a dashed stem. */
 .gateSwatchThumb {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--text-primary);
-  border: 2px solid var(--color-primary);
-  box-sizing: border-box;
+  position: relative;
+  width: 8px;
+  height: 13px;
   flex-shrink: 0;
+}
+
+.gateSwatchThumb::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--color-error);
+  clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%);
+}
+
+.gateSwatchThumb::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--color-error) 0 2px,
+    transparent 2px 3px
+  );
 }
 
 /* One-line verdict on the next scheduled run: green when enough events have

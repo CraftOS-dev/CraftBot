@@ -38,7 +38,9 @@
   justify-content: center;
 }
 
-/* Icon wrapper — solid background so the icon reads cleanly */
+/* Icon wrapper. Transparent: these rows render on several surfaces
+   (white chat, the Agent App's off-white panel, dashboard cards), so any
+   fixed fill would show as a box on all but one of them. */
 .gutterIcon {
   position: relative;
   z-index: 1;
@@ -47,7 +49,6 @@
   justify-content: center;
   width: 22px;
   height: 22px;
-  background: var(--bg-primary);
 }
 
 /* Hollow circle for reasoning items */
@@ -55,7 +56,6 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--bg-primary);
   border: 1.5px solid var(--border-secondary);
   flex-shrink: 0;
 }

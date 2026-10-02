@@ -75,6 +75,7 @@
   margin: 0 auto;
   align-items: center;
   text-align: left;
+  min-width: min(360px, 100%);
 }
 
 .messageWrapper.errorWrapper {
@@ -163,6 +164,9 @@
 
 .message.system {
   background: var(--bg-secondary);
+  /* Light theme's --bg-secondary is near-white, so the border is what
+     separates the bubble from the panel. */
+  border: 1px solid var(--border-primary);
   color: var(--text-secondary);
   font-size: var(--text-sm);
 }
@@ -203,7 +207,6 @@
 .detailsBody {
   margin-top: var(--space-1);
   padding: var(--space-2);
-  border-left: 2px solid var(--border-primary);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
