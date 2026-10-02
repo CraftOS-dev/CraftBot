@@ -78,7 +78,7 @@ class GeminiCacheManager:
         system_prompt: str,
         user_prompt: str,
         call_type: str,
-        temperature: float,
+        temperature: Optional[float],
         max_tokens: int,
         thinking_budget: Optional[int] = None,
         thinking_level: Optional[str] = None,
@@ -89,7 +89,7 @@ class GeminiCacheManager:
             system_prompt: The system prompt to cache.
             user_prompt: The user prompt for this request.
             call_type: Type of LLM call (e.g., "reasoning", "action_selection").
-            temperature: Sampling temperature.
+            temperature: Sampling temperature (None: not sent).
             max_tokens: Maximum output tokens.
             thinking_budget: Reasoning token budget (Gemini 2.5), forwarded
                 to every generation call.

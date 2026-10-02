@@ -52,11 +52,8 @@ def test_llm_bedrock_input_includes_cache_and_cached_is_reads_only():
     iface = LLMInterface.__new__(LLMInterface)
     reported = _stub_common(iface)
     iface._call_log_to_db = lambda *a, **kw: None
-    # Read by the per-model reasoning lookup every transport performs.
-    iface._auth_mode = "api_key"
-    iface._reasoning_logged_for = None
 
-    result = iface._generate_bedrock(None, "hi")
+    result = iface._generate_bedrock(None, "hi", reasoning=None)
 
     assert "error" not in result
     # input = 100 + 900 + 30, the full prompt; cached = reads only

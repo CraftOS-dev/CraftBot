@@ -22,6 +22,7 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error, provider_display_name
+from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.core.models.registry import (
     get_registry as _get_registry,
     supports_prompt_cache_key as _supports_pck,
@@ -51,6 +52,8 @@ def generate_openai(
     call_type: Optional[str] = None,
     messages_override: Optional[List[Dict[str, Any]]] = None,
     json_mode: bool = True,
+    *,
+    reasoning: Optional[ReasoningDecision],
 ) -> Dict[str, Any]:
     """Generate response using OpenAI with automatic prompt caching.
 
@@ -73,6 +76,9 @@ def generate_openai(
             the accumulating prefix via OR's cache_control field. When set,
             it's sent verbatim — system_prompt is still passed in for cache-
             key derivation but the request body uses messages_override.
+        reasoning: This request's reasoning decision, resolved once by the
+            interface (None: the model has no rule, so the request is shaped
+            exactly as it was before per-model rules).
 
     Cache hits are logged when cached_tokens > 0 in the response.
     """
@@ -115,14 +121,10 @@ def generate_openai(
             "model": iface.model,
             "messages": messages,
         }
-        # Reasoning default for this exact model (None: no rule, so the
-        # request is shaped exactly as it was before reasoning defaults).
-        reasoning = iface.reasoning_decision()
+        applied = reasoning_wire.for_chat_completions(reasoning, iface.max_tokens)
         _profile = _get_registry().get(iface.provider)
         _temp = _resolve_temperature(_profile, iface.temperature)
-        if _temp is not _OMIT_TEMPERATURE and not (
-            reasoning is not None and reasoning.omit_temperature
-        ):
+        if _temp is not _OMIT_TEMPERATURE and applied.send_temperature:
             request_kwargs["temperature"] = _temp
 
         # Output tokens: cap the VALUE to the provider's output limit (several
@@ -130,13 +132,8 @@ def generate_openai(
         # when it's exceeded), and pick the FIELD NAME per provider policy
         # (profile.uses_max_completion_tokens: OpenAI/Cerebras/MiniMax/Groq
         # take 'max_completion_tokens'; everyone else legacy 'max_tokens').
-        # Reasoning tokens count against this cap, so a reasoning default
-        # raises it (never lowers it) to leave room for the answer.
-        _max_tokens_value = (
-            iface.max_tokens
-            if reasoning is None
-            else reasoning.output_cap(iface.max_tokens)
-        )
+        # The value starts from the reasoning-raised cap.
+        _max_tokens_value = applied.output_cap
         if _profile is not None and _profile.max_output_tokens:
             _max_tokens_value = min(_max_tokens_value, _profile.max_output_tokens)
         uses_max_completion_tokens = (
@@ -211,12 +208,9 @@ def generate_openai(
                     f"[OPENROUTER] Anthropic cache_control: {cache_control} (model={iface.model})"
                 )
 
-        if reasoning is not None:
-            reasoning_top, reasoning_extra = reasoning_wire.chat_completions_fields(
-                reasoning
-            )
-            request_kwargs.update(reasoning_top)
-            extra_body.update(reasoning_extra)
+        reasoning_top, reasoning_extra = applied.fields
+        request_kwargs.update(reasoning_top)
+        extra_body.update(reasoning_extra)
 
         if extra_body:
             request_kwargs["extra_body"] = extra_body
@@ -338,8 +332,18 @@ def generate_openai(
 
 @profile("llm_ollama_call", OperationCategory.LLM)
 def generate_ollama(
-    iface, system_prompt: str | None, user_prompt: str, json_mode: bool = True
+    iface,
+    system_prompt: str | None,
+    user_prompt: str,
+    json_mode: bool = True,
+    *,
+    reasoning: Optional[ReasoningDecision],
 ) -> Dict[str, Any]:
+    """Generate a response through Ollama's native ``/api/generate``.
+
+    ``reasoning`` is accepted for transport-signature uniformity but unused:
+    no Ollama-served model has a reasoning rule, so it is always None.
+    """
     token_count_input = token_count_output = 0
     total_tokens = 0
     status = "failed"

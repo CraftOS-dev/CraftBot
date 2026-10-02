@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Render a reasoning decision into request fields, one function per transport.
+"""Apply a reasoning decision to one request, one function per transport.
 
 The table, the choices, and the level policy live in
 agent_core/core/models/reasoning.py; this module only knows how each
-transport spells a ``ReasoningDecision``. Callers skip these functions
-entirely when a model has no rule, so a model without a rule never gains a
-field here. A decision that sends nothing (the provider default, or off on a
-model whose default is no reasoning) renders as no fields.
+transport carries a ``ReasoningDecision``. The interface resolves the
+decision once per request and hands the same decision to its context-window
+check and to the transport, whose ``for_*`` function below turns it into the
+request's output cap, temperature permission, and reasoning fields.
+
+A request without a decision (the model has no rule) keeps the transport's
+own cap and temperature and gains no field, so its payload is exactly the
+one sent before per-model rules existed. A decision that sends nothing (the
+provider default, or off on a model whose default is no reasoning) renders
+as no fields.
 
 A decision whose wire the transport cannot express is a bug in the rules
 table (a row filed under the wrong provider, or an explicit off on a wire
@@ -17,12 +23,64 @@ its provider's function, so this never reaches production.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Generic, Optional, Tuple, TypeVar
 
 from agent_core.core.models.reasoning import ReasoningDecision, ReasoningWire
 
 #: The disable value of the OpenAI-style effort parameter.
 EFFORT_OFF = "none"
+
+FieldsT = TypeVar("FieldsT")
+
+
+@dataclass(frozen=True)
+class RequestReasoning(Generic[FieldsT]):
+    """How one request carries its reasoning decision on one transport."""
+
+    #: Output-token cap: the transport's own cap, raised while reasoning
+    #: (reasoning tokens count against it), never lowered.
+    output_cap: int
+    #: Whether the request may carry an explicit temperature.
+    send_temperature: bool
+    #: The transport's reasoning fields; empty when nothing is sent.
+    fields: FieldsT
+
+
+def _for_request(
+    decision: Optional[ReasoningDecision],
+    base_cap: int,
+    render: Callable[[ReasoningDecision], FieldsT],
+    no_fields: FieldsT,
+) -> RequestReasoning[FieldsT]:
+    if decision is None:
+        return RequestReasoning(base_cap, True, no_fields)
+    return RequestReasoning(
+        output_cap=decision.output_cap(base_cap),
+        send_temperature=not decision.omit_temperature,
+        fields=render(decision),
+    )
+
+
+def for_chat_completions(
+    decision: Optional[ReasoningDecision], base_cap: int
+) -> RequestReasoning[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Chat Completions; fields are (top-level kwargs, extra_body)."""
+    return _for_request(decision, base_cap, chat_completions_fields, ({}, {}))
+
+
+def for_anthropic(
+    decision: Optional[ReasoningDecision], base_cap: int
+) -> RequestReasoning[Dict[str, Any]]:
+    """Anthropic Messages, and Claude on Bedrock Converse."""
+    return _for_request(decision, base_cap, anthropic_fields, {})
+
+
+def for_gemini(
+    decision: Optional[ReasoningDecision], base_cap: int
+) -> RequestReasoning[Dict[str, Any]]:
+    """Gemini generateContent; fields are GeminiClient keyword arguments."""
+    return _for_request(decision, base_cap, gemini_thinking_kwargs, {})
 
 
 def _unsupported(decision: ReasoningDecision, transport: str) -> ValueError:

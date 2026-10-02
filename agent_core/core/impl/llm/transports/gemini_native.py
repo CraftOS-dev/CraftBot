@@ -13,6 +13,7 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
+from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.utils.logger import logger
 
 
@@ -24,6 +25,8 @@ def generate(
     call_type: Optional[str] = None,
     contents_override: Optional[List[Dict[str, Any]]] = None,
     json_mode: bool = True,
+    *,
+    reasoning: Optional[ReasoningDecision],
 ) -> Dict[str, Any]:
     """Generate response using Gemini with explicit or implicit caching.
 
@@ -45,6 +48,9 @@ def generate(
             history so Gemini's implicit caching catches the growing
             stable prefix automatically (caching covers more tokens with
             every turn without us needing to manage a named cache object).
+        reasoning: This request's reasoning decision, resolved once by the
+            interface (None: the model has no rule, so Gemini's own default
+            thinking is left untouched).
 
     Returns:
         Dict with tokens_used, content, cached_tokens.
@@ -53,24 +59,19 @@ def generate(
 
     # Per-call reasoning cap, set by callers that pass thinking_budget (e.g. the
     # entity-judge pipeline). Rides the shared per-call context so no transport
-    # signature changes. An explicit per-call budget wins over the model's
-    # reasoning default; otherwise the default for this exact model applies
-    # (None: no rule, so Gemini's own default thinking is left untouched).
+    # signature changes. An explicit per-call budget replaces the request's
+    # reasoning decision.
     from agent_core.core.impl.llm.interface import _llm_call_ctx
 
     caller_budget = (_llm_call_ctx.get() or {}).get("thinking_budget")
-    reasoning = iface.reasoning_decision() if caller_budget is None else None
-    if caller_budget is not None:
-        thinking: Dict[str, Any] = {"thinking_budget": caller_budget}
-    elif reasoning is not None:
-        thinking = reasoning_wire.gemini_thinking_kwargs(reasoning)
-    else:
-        thinking = {}
-    # Thinking tokens count against maxOutputTokens, so a reasoning default
-    # raises the cap (never lowers it) to leave room for the answer.
-    max_output_tokens = (
-        iface.max_tokens if reasoning is None else reasoning.output_cap(iface.max_tokens)
+    applied = reasoning_wire.for_gemini(
+        reasoning if caller_budget is None else None, iface.max_tokens
     )
+    thinking: Dict[str, Any] = (
+        applied.fields if caller_budget is None else {"thinking_budget": caller_budget}
+    )
+    temperature = iface.temperature if applied.send_temperature else None
+    max_output_tokens = applied.output_cap
 
     token_count_input = token_count_output = 0
     cached_tokens = 0
@@ -98,7 +99,7 @@ def generate(
                 iface.model,
                 contents=contents_override,
                 system_prompt=system_prompt,
-                temperature=iface.temperature,
+                temperature=temperature,
                 max_output_tokens=max_output_tokens,
                 json_mode=json_mode,
                 **thinking,
@@ -130,7 +131,7 @@ def generate(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     call_type=call_type,
-                    temperature=iface.temperature,
+                    temperature=temperature,
                     max_tokens=max_output_tokens,
                     **thinking,
                 )
@@ -140,7 +141,7 @@ def generate(
                     iface.model,
                     prompt=user_prompt,
                     system_prompt=system_prompt,
-                    temperature=iface.temperature,
+                    temperature=temperature,
                     max_output_tokens=max_output_tokens,
                     json_mode=json_mode,
                     **thinking,

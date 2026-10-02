@@ -334,7 +334,9 @@ def test_preflight_refuses_a_request_that_does_not_fit():
     iface = _make()
     with patch.object(app_config, "get_settings", return_value=_settings()):
         with pytest.raises(LLMContextOverflowError):
-            iface._check_context_fits("system", "word " * 200_000)
+            iface._check_context_fits(
+                "system", "word " * 200_000, reasoning=iface.reasoning_decision()
+            )
     assert iface._consecutive_failures == 0
 
 

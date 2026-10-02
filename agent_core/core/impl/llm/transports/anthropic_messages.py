@@ -13,6 +13,7 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
+from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.utils.logger import logger
 
 # Anthropic requires max_tokens; 16384 (Claude 4 default) avoids truncation.
@@ -27,6 +28,8 @@ def generate(
     call_type: Optional[str] = None,
     messages: Optional[List[dict]] = None,
     json_mode: bool = True,
+    *,
+    reasoning: Optional[ReasoningDecision],
 ) -> Dict[str, Any]:
     """Generate response using Anthropic with prompt caching.
 
@@ -53,6 +56,9 @@ def generate(
                    When provided, uses extended 1-hour TTL for better cache hit rates.
         messages: Optional pre-built messages list for multi-turn sessions.
                   When provided, used instead of building a single-turn message.
+        reasoning: This request's reasoning decision, resolved once by the
+                   interface (None: the model has no rule, so the request is
+                   shaped exactly as it was before per-model rules).
 
     Cache hits are logged when `cache_read_input_tokens` > 0 in the response.
     """
@@ -75,20 +81,14 @@ def generate(
         if not iface._anthropic_client:
             raise RuntimeError("Anthropic client was not initialised.")
 
-        # Reasoning default for this exact model (None: no rule, so the
-        # request is shaped exactly as it was before reasoning defaults).
-        reasoning = iface.reasoning_decision()
+        # Claude rows' reasoning caps stay below the SDK's non-streaming
+        # ceiling at every level.
+        applied = reasoning_wire.for_anthropic(reasoning, _DEFAULT_MAX_TOKENS)
 
         # Build the message - use pre-built messages for multi-turn, or single-turn.
-        # Thinking tokens count against max_tokens, so a reasoning default
-        # raises it (staying below the SDK's non-streaming ceiling).
         message_kwargs: Dict[str, Any] = {
             "model": iface.model,
-            "max_tokens": (
-                _DEFAULT_MAX_TOKENS
-                if reasoning is None
-                else reasoning.output_cap(_DEFAULT_MAX_TOKENS)
-            ),
+            "max_tokens": applied.output_cap,
             "messages": messages
             if messages is not None
             else [
@@ -122,13 +122,12 @@ def generate(
                 # Short prompt - use simple string format (no caching)
                 message_kwargs["system"] = system_prompt
 
-        if reasoning is not None:
-            message_kwargs.update(reasoning_wire.anthropic_fields(reasoning))
+        message_kwargs.update(applied.fields)
 
         # Thinking is incompatible with temperature on Claude 4.5/4.6, and
-        # Claude 4.7+ rejects any non-default temperature, so rows with
-        # reasoning drop it (the model then uses its default).
-        if reasoning is None or not reasoning.omit_temperature:
+        # Claude 4.7+ rejects any non-default temperature, so those requests
+        # drop it (the model then uses its default).
+        if applied.send_temperature:
             message_kwargs["extra_body"] = {"temperature": iface.temperature}
 
         response = iface._anthropic_client.messages.create(**message_kwargs)

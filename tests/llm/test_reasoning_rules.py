@@ -746,7 +746,7 @@ def test_gemini_caller_budget_wins_over_the_session(monkeypatch, bound_session):
     assert config["maxOutputTokens"] == APP_MAX_TOKENS
 
 
-def test_context_check_reserves_the_reasoning_cap(monkeypatch, bound_session):
+def test_context_check_reserves_the_requests_reasoning_cap(monkeypatch, bound_session):
     import app.config as app_config
 
     monkeypatch.setattr(app_config, "get_context_window", lambda: 40_000)
@@ -754,19 +754,71 @@ def test_context_check_reserves_the_reasoning_cap(monkeypatch, bound_session):
 
     unruled, _ = build_interface(monkeypatch, "openai", "gpt-4o")
     unruled.max_tokens = APP_MAX_TOKENS
-    assert unruled._output_reservation() == APP_MAX_TOKENS
-    unruled._check_context_fits(None, prompt)
+    assert unruled._output_reservation(unruled.reasoning_decision()) == APP_MAX_TOKENS
+    unruled._check_context_fits(None, prompt, reasoning=unruled.reasoning_decision())
 
     ruled, _ = build_interface(monkeypatch, "openai", "gpt-5.2-2025-12-11")
     ruled.max_tokens = APP_MAX_TOKENS
-    assert ruled._output_reservation() == 32_000
+    high = ruled.reasoning_decision()
+    assert ruled._output_reservation(high) == 32_000
     with pytest.raises(LLMContextOverflowError, match="32000 reserved for output"):
-        ruled._check_context_fits(None, prompt)
+        ruled._check_context_fits(None, prompt, reasoning=high)
+    # The request path refuses it before anything is sent.
+    with pytest.raises(LLMContextOverflowError):
+        ruled.generate_response(system_prompt=None, user_prompt=prompt)
 
     # A session that turned reasoning off reserves only the caller's cap.
     with bound_session(C.OFF):
-        assert ruled._output_reservation() == APP_MAX_TOKENS
-        ruled._check_context_fits(None, prompt)
+        off = ruled.reasoning_decision()
+        assert ruled._output_reservation(off) == APP_MAX_TOKENS
+        ruled._check_context_fits(None, prompt, reasoning=off)
+
+
+def test_each_request_resolves_its_reasoning_once(monkeypatch):
+    # The context check and the transport share one decision, so a choice
+    # changed mid-request cannot make them disagree.
+    iface, rec = build_interface(monkeypatch, "openai", "gpt-5.2-2025-12-11")
+    iface.max_tokens = APP_MAX_TOKENS
+    resolutions: List[ReasoningDecision] = []
+    resolve = iface.reasoning_decision
+
+    def counting_resolve():
+        resolutions.append(resolve())
+        return resolutions[-1]
+
+    monkeypatch.setattr(iface, "reasoning_decision", counting_resolve)
+    iface.generate_response(system_prompt=GOLDEN_SYSTEM_PROMPT, user_prompt="hi")
+    assert len(resolutions) == 1
+
+    iface.create_session_cache("task", "action_selection", GOLDEN_SYSTEM_PROMPT)
+    iface.generate_response_with_session(
+        "task", "action_selection", "hi", log_response=False
+    )
+    assert len(resolutions) == 2
+    assert [call["payload"]["reasoning_effort"] for call in rec.calls] == [
+        "high",
+        "high",
+    ]
+
+
+def test_each_model_and_choice_is_logged_once(monkeypatch, bound_session):
+    import agent_core.core.impl.llm.interface as interface_module
+
+    iface, _ = build_interface(monkeypatch, "openai", "gpt-5.2-2025-12-11")
+    with bound_session(C.HIGH, session_id="s-high"):
+        pass
+    with bound_session(C.LOW, session_id="s-low"):
+        pass
+    logged: List[str] = []
+    monkeypatch.setattr(interface_module, "logger", SimpleNamespace(info=logged.append))
+    # Two sessions alternating, as concurrent sessions do.
+    for _ in range(3):
+        with StateSession.bind("s-high"):
+            iface.reasoning_decision()
+        with StateSession.bind("s-low"):
+            iface.reasoning_decision()
+    assert len(logged) == 2
+    assert "choice=high" in logged[0] and "choice=low" in logged[1]
 
 
 def test_fold_check_reserves_the_same_cap_as_the_pre_send_check(

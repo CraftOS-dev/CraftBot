@@ -14,6 +14,7 @@ from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm import reasoning_wire
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
 from agent_core.core.impl.llm.errors import classify_llm_error
+from agent_core.core.models.reasoning import ReasoningDecision
 from agent_core.utils.logger import logger
 
 
@@ -25,6 +26,8 @@ def generate(
     call_type: Optional[str] = None,
     messages: Optional[List[dict]] = None,
     json_mode: bool = True,
+    *,
+    reasoning: Optional[ReasoningDecision],
 ) -> Dict[str, Any]:
     """Generate response via AWS Bedrock Converse API with prompt caching.
 
@@ -47,6 +50,9 @@ def generate(
             needed and placing it in messages lets the cache grow with the
             conversation). When messages is None, falls back to a fresh
             single-turn call with cachePoint on the system block.
+        reasoning: This request's reasoning decision, resolved once by the
+            interface (None: the model has no rule, so the request is shaped
+            exactly as it was before per-model rules).
     """
     token_count_input = token_count_output = 0
     total_tokens = 0
@@ -71,31 +77,22 @@ def generate(
             else [{"role": "user", "content": [{"text": user_prompt}]}]
         )
 
-        # Reasoning default for this exact model (None: no rule, so the
-        # request is shaped exactly as it was before reasoning defaults).
-        reasoning = iface.reasoning_decision()
+        # Claude on Converse takes the Messages-API thinking/effort keys
+        # through additionalModelRequestFields, with the same cap and
+        # temperature consequences.
+        applied = reasoning_wire.for_anthropic(reasoning, iface.max_tokens)
+        inference_config: Dict[str, Any] = {}
+        if applied.send_temperature:
+            inference_config["temperature"] = iface.temperature
+        inference_config["maxTokens"] = applied.output_cap
 
         converse_kwargs: Dict[str, Any] = {
             "modelId": iface.model,
             "messages": converse_messages,
-            "inferenceConfig": {
-                "temperature": iface.temperature,
-                "maxTokens": iface.max_tokens,
-            },
+            "inferenceConfig": inference_config,
         }
-        if reasoning is not None:
-            # Claude on Converse takes the Messages-API thinking/effort keys
-            # through additionalModelRequestFields. Thinking tokens count
-            # against maxTokens, and thinking is incompatible with (4.5/4.6)
-            # or rejects (4.7+) a non-default temperature.
-            reasoning_fields = reasoning_wire.anthropic_fields(reasoning)
-            if reasoning_fields:
-                converse_kwargs["additionalModelRequestFields"] = reasoning_fields
-            converse_kwargs["inferenceConfig"]["maxTokens"] = reasoning.output_cap(
-                iface.max_tokens
-            )
-            if reasoning.omit_temperature:
-                del converse_kwargs["inferenceConfig"]["temperature"]
+        if applied.fields:
+            converse_kwargs["additionalModelRequestFields"] = applied.fields
 
         if system_prompt:
             # When messages already carry a cachePoint (multi-turn first
