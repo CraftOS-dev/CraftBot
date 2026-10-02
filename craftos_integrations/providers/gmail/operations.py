@@ -19,6 +19,7 @@ from typing import Any, Dict, List
 
 from ...contracts import Operation
 from .._shared import client_op
+from .client import clean_snippet
 
 
 def _get_gmail_thread_op() -> Operation:
@@ -80,7 +81,7 @@ def _get_gmail_thread_op() -> Operation:
                             "internalDate": msg.get("internalDate"),
                             "labelIds": labels,
                             "unread": "UNREAD" in labels,
-                            "snippet": msg.get("snippet", ""),
+                            "snippet": clean_snippet(msg.get("snippet", "")),
                         }
                     )
                 res = {
@@ -141,7 +142,7 @@ def _get_gmail_draft_op() -> Operation:
                         "message_id": msg.get("id"),
                         "to": headers.get("To", ""),
                         "subject": headers.get("Subject", ""),
-                        "snippet": msg.get("snippet", ""),
+                        "snippet": clean_snippet(msg.get("snippet", "")),
                     },
                 }
         return res

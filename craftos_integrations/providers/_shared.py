@@ -45,6 +45,7 @@ def platform_message_payload(msg: Any) -> Dict[str, Any]:
         "is_self_message": raw.get("is_self_message", False),
         "raw": raw,
         "attachments": list(getattr(msg, "attachments", None) or []),
+        "truncated": bool(getattr(msg, "truncated", False)),
     }
 
 

@@ -68,21 +68,21 @@ GMAIL_CRED = {
 GMAIL_MESSAGE = {
     "id": "m1",
     "threadId": "t1",
-    "snippet": "hello there",
     "payload": {
         "headers": [
             {"name": "From", "value": "Alice <alice@x.com>"},
             {"name": "Subject", "value": "Hi"},
             {"name": "Date", "value": "Tue, 11 Aug 2026 10:00:00 +0000"},
         ],
-        # fields-mask shape: parts skeleton only, no body.data. The
+        # fields-mask shape: parts skeleton with inline text bodies only
+        # (attachment parts carry an attachmentId, never data). The
         # nameless attachmentId part is an inline image — not reported.
         "parts": [
             {
                 "partId": "0",
                 "mimeType": "text/plain",
                 "filename": "",
-                "body": {"size": 20},
+                "body": {"size": 11, "data": "aGVsbG8gdGhlcmU="},  # "hello there"
             },
             {
                 "partId": "1",
@@ -178,6 +178,7 @@ class TestGmailListener:
                         "extra": {"message_id": "m1"},
                     }
                 ],
+                "truncated": False,
             }
         ]
         assert cursor == {"history_id": "101", "seen_ids": ["m1"]}
@@ -235,7 +236,7 @@ OUTLOOK_MESSAGE = {
     "id": "om1",
     "from": {"emailAddress": {"address": "bob@x.com", "name": "Bob"}},
     "subject": "Yo",
-    "bodyPreview": "preview text",
+    "body": {"contentType": "text", "content": "preview text"},
     "receivedDateTime": "2026-08-12T10:00:00Z",
     "conversationId": "conv1",
 }
@@ -296,6 +297,7 @@ class TestOutlookListener:
                 "is_self_message": False,
                 "raw": OUTLOOK_MESSAGE,
                 "attachments": [],
+                "truncated": False,
             }
         ]
         # Watermark advanced to the newest receivedDateTime; dedup ids kept.
@@ -451,6 +453,7 @@ class TestSlackListener:
                 "is_self_message": False,
                 "raw": message,
                 "attachments": [],
+                "truncated": False,
             }
         ]
         assert cursor == {"last_timestamps": {"C1": msg_ts}}
