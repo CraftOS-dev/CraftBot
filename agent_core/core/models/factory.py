@@ -11,8 +11,10 @@ import json as _json
 
 try:
     import boto3  # type: ignore[import]
+    from botocore.config import Config as _BotocoreConfig  # type: ignore[import]
 except ImportError:  # pragma: no cover — boto3 is an optional extra
     boto3 = None  # type: ignore[assignment]
+    _BotocoreConfig = None  # type: ignore[assignment]
 
 from agent_core.core.models.types import InterfaceType
 from agent_core.core.models.provider_config import PROVIDER_CONFIG
@@ -23,6 +25,12 @@ from agent_core.core.models.registry import (
 from agent_core.core.llm.google_gemini_client import GeminiClient
 
 logger = logging.getLogger(__name__)
+
+# Read timeout for Bedrock Converse calls. botocore's default is 60 seconds,
+# which a Claude response with thinking can exceed; AWS documents a
+# 60-minute server-side limit for Claude 4 and later. 600 seconds matches the
+# Anthropic SDK's default request timeout used by the direct transport.
+_BEDROCK_READ_TIMEOUT_SECONDS = 600
 
 # Derived from provider profiles (Phase 1, docs/PROVIDER_LAYER_CATCHUP.md).
 # OpenRouter proxy routing exists because some direct APIs are geo-restricted
@@ -345,25 +353,18 @@ class ModelFactory:
 
                 access_token, sub_base_url, extra_headers = oauth
 
-                # Codex's accepted-model list lives in the ChatGPT OAuth
-                # backend module so provider-specific knowledge stays
-                # colocated with the flow that authenticates against it.
-                # See ``llm_oauth.chatgpt.CODEX_ACCEPTED_MODELS`` for the
-                # source-of-truth list and the reasoning behind the fallback.
-                from craftos_integrations.llm_oauth.chatgpt import (
-                    CODEX_ACCEPTED_MODELS,
-                    effective_model_for_subscription,
-                )
-
-                effective_model, was_substituted = effective_model_for_subscription(
-                    model
-                )
-                if was_substituted:
+                # The Codex backend serves only the profile's
+                # subscription_models; any other model runs as the
+                # profile's subscription default.
+                if model in cfg.subscription_models:
+                    effective_model = model
+                else:
+                    effective_model = cfg.subscription_default_model
                     logger.warning(
                         f"[FACTORY] ChatGPT subscription mode rejects model "
                         f"{model!r}; substituting {effective_model!r}. "
                         f"Valid Codex-subscription models: "
-                        f"{sorted(CODEX_ACCEPTED_MODELS)}. Set the model in "
+                        f"{list(cfg.subscription_models)}. Set the model in "
                         f"Settings to silence this warning."
                     )
 
@@ -618,7 +619,12 @@ class ModelFactory:
                 )
 
             try:
-                client_kwargs = {"region_name": region}
+                client_kwargs = {
+                    "region_name": region,
+                    "config": _BotocoreConfig(
+                        read_timeout=_BEDROCK_READ_TIMEOUT_SECONDS
+                    ),
+                }
                 if access_key and secret_key:
                     client_kwargs["aws_access_key_id"] = access_key
                     client_kwargs["aws_secret_access_key"] = secret_key

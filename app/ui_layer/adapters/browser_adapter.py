@@ -24,6 +24,7 @@ from agent_core.core.impl.memory.tuning import (
     SCHEDULE_HOUR_DEFAULT,
     SCHEDULE_MINUTE_DEFAULT,
 )
+from agent_core.core.models.reasoning import ReasoningChoice
 from agent_core.utils.logger import logger
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.i18n import tui
@@ -1005,11 +1006,20 @@ class BrowserAdapter(InterfaceAdapter):
             client_id=client_id,
         )
 
-    async def _handle_enhance_prompt(self, content: str, ws) -> None:
-        """Enhance a user's prompt using the LLM for clarity and precision."""
+    async def _handle_enhance_prompt(self, data: Dict[str, Any], ws) -> None:
+        """Enhance a user's prompt using the LLM for clarity and precision.
+
+        The call reasons like the chat the prompt is typed in: its session,
+        or a draft chat's picker value.
+        """
+        session_id = data.get("sessionId") or "main"
         try:
             enhanced: str = await self._controller.handle_prompt_enhance(
-                user_message=content
+                user_message=data["content"],
+                session_id=None if session_id == "new" else session_id,
+                reasoning_choice=(
+                    self._draft_reasoning(data) if session_id == "new" else None
+                ),
             )
             await self._send_to(
                 ws, {"type": "prompt_enhanced", "content": enhanced.strip()}
@@ -1451,7 +1461,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # session_created is broadcast (with the sender's clientId) before
             # the message so the draft view can navigate to the real session.
             if session_id == "new":
-                session = self._controller.agent.create_chat_session()
+                session = self._controller.agent.create_chat_session(
+                    reasoning_effort=self._draft_reasoning(data)
+                )
                 session_id = session.id
                 await self._broadcast(
                     {
@@ -1509,7 +1521,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     name = command.strip().split()[0].lower() if command.strip() else ""
                     cmd = self._controller.command_registry.get(name) if name else None
                     if cmd is not None and cmd.requires_session:
-                        session = self._controller.agent.create_chat_session()
+                        session = self._controller.agent.create_chat_session(
+                            reasoning_effort=self._draft_reasoning(data)
+                        )
                         session_id = session.id
                         await self._broadcast(
                             {
@@ -1530,7 +1544,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "enhance_prompt":
             content = data.get("content", "")
             if content and ws:
-                await self._handle_enhance_prompt(content, ws)
+                await self._handle_enhance_prompt(data, ws)
 
         elif msg_type == "chat_history":
             session_id = data.get("sessionId") or "main"
@@ -1550,6 +1564,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "session_list":
             await self._handle_session_list(ws)
+
+        elif msg_type == "session_reasoning_set":
+            await self._handle_session_reasoning_set(data)
+
+        elif msg_type == "reasoning_options_get":
+            await self._handle_reasoning_options_get(ws)
 
         # File operations
         elif msg_type == "file_list":
@@ -4270,7 +4290,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "createdAt": session.created_at,
             "lastActiveAt": session.last_active_at,
             "agentAppProjectId": session.agent_app_project_id,
+            "reasoningEffort": session.reasoning_effort,
         }
+
+    @staticmethod
+    def _draft_reasoning(data: Dict[str, Any]) -> Optional[ReasoningChoice]:
+        """A draft chat's picker value from a message; None when untouched
+        (the model's default level then applies)."""
+        value = data.get("reasoningEffort")
+        return ReasoningChoice(value) if value is not None else None
 
     async def _handle_session_delete(self, data: Dict[str, Any]) -> None:
         """Delete a session and its chat history. The main session is permanent."""
@@ -4309,6 +4337,49 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self.broadcast_session_updated(session_id)
         except Exception as e:
             logger.error(f"[SESSION] Rename failed for {session_id}: {e}")
+
+    async def _handle_session_reasoning_set(self, data: Dict[str, Any]) -> None:
+        """Set a session's reasoning choice (the chat input's picker)."""
+        session_id = (data.get("sessionId") or "").strip()
+        if not session_id:
+            return
+        try:
+            choice = ReasoningChoice(data.get("reasoningEffort"))
+        except ValueError:
+            logger.warning(
+                f"[SESSION] Unknown reasoning choice {data.get('reasoningEffort')!r} "
+                f"for {session_id}"
+            )
+            return
+        if self._controller.agent.set_session_reasoning_effort(session_id, choice):
+            await self.broadcast_session_updated(session_id)
+
+    async def _handle_reasoning_options_get(self, ws) -> None:
+        """Send what the reasoning picker offers for the model in use.
+
+        Read from the live LLM interface, so it reflects the model actually
+        called (after any subscription substitution), not only the settings.
+        """
+        llm = self._controller.agent.llm
+        options = llm.reasoning_options()
+        data: Dict[str, Any] = {
+            "success": True,
+            "model": llm.model,
+            "configurable": options is not None,
+        }
+        if options is not None:
+            data.update(
+                {
+                    "choices": [choice.value for choice in options.choices],
+                    "defaultLevel": options.default_level,
+                    "providerDefault": options.provider_default,
+                    "resolution": {
+                        requested.value: effective.value
+                        for requested, effective in options.resolution.items()
+                    },
+                }
+            )
+        await self._send_to(ws, {"type": "reasoning_options_get", "data": data})
 
     async def _handle_session_clear(self, data: Dict[str, Any]) -> None:
         """Clear a session's conversation (chat + activity rows and

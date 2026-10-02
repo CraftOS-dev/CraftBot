@@ -31,6 +31,26 @@
     "stopRun": "실행 중지",
     "stoppingRun": "실행 중지하는 중"
   },
+  "reasoning": {
+    "title": "추론",
+    "picker": "추론 강도",
+    "header": "추론 · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "모델이 결정",
+    "defaultTag": "기본값",
+    "notConfigurable": "{{model}}에서는 추론을 조정할 수 없습니다",
+    "clamped": "이 모델에서는 {{requested}}을(를) 사용할 수 없어 {{effective}}을(를) 사용합니다.",
+    "choice": {
+      "provider_default": "제공자 기본값",
+      "off": "끄기",
+      "minimal": "최소",
+      "low": "낮음",
+      "medium": "보통",
+      "high": "높음",
+      "xhigh": "매우 높음",
+      "max": "최대"
+    }
+  },
   "reply": {
     "replyingTo": "답장 대상: <1>{{name}}</1>",
     "cancel": "답장 취소"

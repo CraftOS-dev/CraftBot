@@ -31,6 +31,26 @@
     "stopRun": "実行を停止",
     "stoppingRun": "実行を停止中"
   },
+  "reasoning": {
+    "title": "推論",
+    "picker": "推論の強度",
+    "header": "推論 · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "モデルが決定",
+    "defaultTag": "既定",
+    "notConfigurable": "{{model}} では推論を調整できません",
+    "clamped": "{{requested}} はこのモデルでは使えないため、{{effective}} を使用します。",
+    "choice": {
+      "provider_default": "プロバイダーの既定",
+      "off": "オフ",
+      "minimal": "最小",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "超高",
+      "max": "最大"
+    }
+  },
   "reply": {
     "replyingTo": "返信先: <1>{{name}}</1>",
     "cancel": "返信をキャンセル"

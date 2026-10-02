@@ -206,6 +206,12 @@
   gap: var(--space-2);
 }
 
+.controlsLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .controlsRight {
   display: flex;
   align-items: center;

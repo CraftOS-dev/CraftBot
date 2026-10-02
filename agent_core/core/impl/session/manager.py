@@ -33,6 +33,7 @@ from agent_core.core.session import (
 )
 from agent_core.core.state import StateSession
 from agent_core.core.impl.llm import LLMCallType
+from agent_core.core.models.reasoning import ReasoningChoice, default_choice
 
 from agent_core.utils.logger import logger
 
@@ -137,6 +138,7 @@ class SessionManager:
         selected_skills: Optional[List[str]] = None,
         agent_app_project_id: Optional[str] = None,
         gui_mode: bool = False,
+        reasoning_effort: Optional[ReasoningChoice] = None,
     ) -> Session:
         """
         Create a new persistent session.
@@ -149,6 +151,9 @@ class SessionManager:
             selected_skills: Skills to preload (slash-command entry, Agent App).
             agent_app_project_id: Backing project for agent_app sessions.
             gui_mode: Whether the session starts in GUI mode.
+            reasoning_effort: The session's reasoning choice (the draft
+                chat's picker value when a draft becomes a session); None
+                starts it at the default level of the model in use.
 
         Returns:
             The created Session.
@@ -179,6 +184,7 @@ class SessionManager:
             workspace_dir=str(workspace_dir),
             agent_app_project_id=agent_app_project_id,
             gui_mode=gui_mode,
+            reasoning_effort=(reasoning_effort or self._default_reasoning()).value,
         )
         self.sessions[sid] = session
 
@@ -275,6 +281,18 @@ class SessionManager:
         self._persist(session)
         return True
 
+    def set_reasoning_effort(self, session_id: str, choice: ReasoningChoice) -> bool:
+        """Set a session's reasoning choice (the chat input's picker).
+
+        Takes effect from the session's next LLM request.
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return False
+        session.reasoning_effort = choice.value
+        self._persist(session)
+        return True
+
     # ─────────────────────── Restore ─────────────────────────────────────────
 
     def restore_session(self, session: Session) -> Session:
@@ -299,6 +317,11 @@ class SessionManager:
         StateSession.start(
             session.id, current_session=session, gui_mode=session.gui_mode
         )
+        if session.reasoning_effort is None:
+            # Saved without a valid reasoning choice: start it where a new
+            # session would.
+            session.reasoning_effort = self._default_reasoning().value
+            self._persist(session)
         return session
 
     # ─────────────────────── Todo Management ─────────────────────────────────
@@ -541,6 +564,13 @@ class SessionManager:
             )
 
     # ─────────────────────── Internal Helpers ────────────────────────────────
+
+    def _default_reasoning(self) -> ReasoningChoice:
+        """The reasoning choice a session starts at: the default level of the
+        model in use."""
+        if self.llm_interface is None:
+            return default_choice(None, None)
+        return self.llm_interface.default_reasoning_choice()
 
     def _persist(self, session: Session) -> None:
         """Persist session state via hook."""

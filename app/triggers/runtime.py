@@ -26,6 +26,7 @@ from agent_core.core.impl.trigger.session_queue import (
     QueueClosed,
 )
 from agent_core.core.session import MAIN_SESSION_ID
+from agent_core.core.state.session import StateSession
 from app.triggers.sources import TriggerSource
 
 if TYPE_CHECKING:
@@ -409,7 +410,10 @@ class SessionRuntimeManager:
         )
 
         logger.info(f"[SessionRuntime] Loop started for session {session_id}")
-        with session_ctx:
+        # Bind the session for everything its turns run (actions, sub-agents,
+        # LLM calls): the LLM layer reads the session's reasoning choice
+        # through this binding.
+        with session_ctx, StateSession.bind(session_id):
             while self._running:
                 try:
                     trig = await queue.get()

@@ -1,0 +1,245 @@
+{
+  "calls": [
+    {
+      "client": "bedrock",
+      "method": "converse",
+      "payload": {
+        "additionalModelRequestFields": {
+          "thinking": {
+            "budget_tokens": 12288,
+            "type": "enabled"
+          }
+        },
+        "inferenceConfig": {
+          "maxTokens": 50000
+        },
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "sessionless turn"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "system": [
+          {
+            "text": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+          }
+        ]
+      }
+    },
+    {
+      "client": "bedrock",
+      "method": "converse",
+      "payload": {
+        "additionalModelRequestFields": {
+          "thinking": {
+            "budget_tokens": 12288,
+            "type": "enabled"
+          }
+        },
+        "inferenceConfig": {
+          "maxTokens": 50000
+        },
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "session turn 1"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "system": [
+          {
+            "text": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+          },
+          {
+            "cachePoint": {
+              "type": "default"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "client": "bedrock",
+      "method": "converse",
+      "payload": {
+        "additionalModelRequestFields": {
+          "thinking": {
+            "budget_tokens": 12288,
+            "type": "enabled"
+          }
+        },
+        "inferenceConfig": {
+          "maxTokens": 50000
+        },
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "session turn 1"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "text": "{\"turn\": 2}"
+              },
+              {
+                "cachePoint": {
+                  "type": "default"
+                }
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "text": "session turn 2"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "system": [
+          {
+            "text": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+          }
+        ]
+      }
+    },
+    {
+      "client": "bedrock",
+      "method": "converse",
+      "payload": {
+        "additionalModelRequestFields": {
+          "thinking": {
+            "budget_tokens": 12288,
+            "type": "enabled"
+          }
+        },
+        "inferenceConfig": {
+          "maxTokens": 50000
+        },
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "session turn 1"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "text": "{\"turn\": 2}"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "text": "session turn 2"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "text": "{\"turn\": 3}"
+              },
+              {
+                "cachePoint": {
+                  "type": "default"
+                }
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "text": "session turn 3"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "system": [
+          {
+            "text": "You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. You are CraftBot, a personal always-online agent. You reason step by step, act through a JSON action protocol, and reply with a single JSON object. "
+          }
+        ]
+      }
+    }
+  ],
+  "session_buffers": {
+    "session_histories": {
+      "task-golden:reasoning": [
+        {
+          "content": [
+            {
+              "text": "session turn 1"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "{\"turn\": 2}"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "session turn 2"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "{\"turn\": 3}"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "text": "session turn 3"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "{\"turn\": 4}"
+            }
+          ],
+          "role": "assistant"
+        }
+      ]
+    }
+  }
+}
