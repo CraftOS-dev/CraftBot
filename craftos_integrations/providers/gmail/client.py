@@ -116,12 +116,16 @@ def _part_charset(part: Dict[str, Any]) -> str:
 
 
 def _decode_part(part: Dict[str, Any]) -> str:
-    """Decode a part's base64url body using its declared charset.
+    """Decode a part's base64url body.
+
+    Gmail hands text bodies back already transcoded to UTF-8 but keeps the
+    original Content-Type charset (a Windows-1252 mail's ``=B7`` arrives as
+    ``\\xc2\\xb7``), so decoding by the declared charset turns ``·`` into
+    ``Â·``. Bytes that are not valid UTF-8 were passed through untranscoded
+    and are decoded by the declared charset instead.
 
     Never raises: an unknown charset or undecodable byte degrades to
-    replacement characters instead of failing the whole read (a strict
-    utf-8 decode used to turn any iso-8859-1 / windows-1252 email into an
-    error that also lost its headers).
+    replacement characters instead of failing the whole read.
     """
     data = (part.get("body") or {}).get("data", "")
     if not data:
@@ -130,6 +134,10 @@ def _decode_part(part: Dict[str, Any]) -> str:
         raw = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
     except Exception:
         return ""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
     try:
         return raw.decode(_part_charset(part), errors="replace")
     except LookupError:

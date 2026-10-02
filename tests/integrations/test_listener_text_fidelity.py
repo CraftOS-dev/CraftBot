@@ -131,6 +131,49 @@ def test_gmail_listener_converts_html_only_mail(monkeypatch):
     assert msg.text == "Subject: Top 10 users\nTom & Jerry"
 
 
+_CP1252_PLAIN = [
+    {"name": "Content-Type", "value": 'text/plain; charset="Windows-1252"'}
+]
+
+
+def test_gmail_listener_decodes_transcoded_body_as_utf8(monkeypatch):
+    # Gmail returns the body as UTF-8 but keeps the sender's Windows-1252
+    # header; decoding by the header turned "·" into "Â·".
+    data = base64.urlsafe_b64encode("01 · Map".encode("utf-8")).decode()
+    msg = _gmail_client(
+        monkeypatch,
+        {
+            "headers": _GMAIL_HEADERS,
+            "parts": [
+                {
+                    "mimeType": "text/plain",
+                    "headers": _CP1252_PLAIN,
+                    "body": {"data": data},
+                }
+            ],
+        },
+    )
+    assert msg.text == "Subject: Top 10 users\n01 · Map"
+
+
+def test_gmail_listener_decodes_untranscoded_body_by_declared_charset(monkeypatch):
+    data = base64.urlsafe_b64encode("01 · Map".encode("cp1252")).decode()
+    msg = _gmail_client(
+        monkeypatch,
+        {
+            "headers": _GMAIL_HEADERS,
+            "parts": [
+                {
+                    "mimeType": "text/plain",
+                    "headers": _CP1252_PLAIN,
+                    "body": {"data": data},
+                }
+            ],
+        },
+    )
+    assert msg.text == "Subject: Top 10 users\n01 · Map"
+
+
 def test_gmail_listener_caps_long_body_and_flags_it(monkeypatch):
     long_body = "word " * 1000  # 5000 chars
     msg = _gmail_client(
