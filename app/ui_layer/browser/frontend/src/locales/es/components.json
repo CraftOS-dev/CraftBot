@@ -155,6 +155,10 @@
   "createAgentApp": {
     "addTitle": "Añadir Agent App",
     "setupQuestions": "{{name}} — preguntas de configuración",
+    "cancelSetupTitle": "¿Cancelar la configuración?",
+    "cancelSetupMessage": "Se descartarán las preguntas de configuración de {{name}} y no se creará ninguna app. Se avisará al agente de que cancelaste.",
+    "cancelSetupConfirm": "Cancelar configuración",
+    "keepSetup": "Mantener configuración",
     "tabMarketplace": "Marketplace",
     "tabCustom": "Crear personalizada",
     "tabImport": "Importar",

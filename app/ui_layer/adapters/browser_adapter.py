@@ -1335,6 +1335,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+            # Pending chat setups, pushed for the same reason: a setup summoned
+            # while no tab was open (or before a reload) must still show its
+            # Resume card.
+            channel.send_json(self._agent_app_setup_list_message())
         except Exception:
             self._ws_clients.discard(ws)
             self._channels.pop(ws, None)
@@ -2104,6 +2108,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "agent_app_wizard_finalize":
             await self._handle_agent_app_wizard_finalize(data)
+
+        elif msg_type == "agent_app_setup_list":
+            await self._send_to(ws, self._agent_app_setup_list_message())
+
+        elif msg_type == "agent_app_setup_cancel":
+            await self._handle_agent_app_setup_cancel(data)
 
         elif msg_type == "agent_app_theme_update":
             await self._handle_agent_app_theme_update(data)
@@ -2923,6 +2933,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    def _agent_app_setup_list_message(self) -> Dict[str, Any]:
+        """Every pending chat setup (pending_setups.py), as the reply to
+        ``agent_app_setup_list`` and the connect push."""
+        return {
+            "type": "agent_app_setup_list",
+            "data": {
+                "setups": [
+                    s.to_dict() for s in self._agent_app_manager.pending_setups.list()
+                ],
+            },
+        }
+
+    async def _handle_agent_app_setup_cancel(self, data: Dict[str, Any]) -> None:
+        """The user cancelled a pending chat setup: drop it and tell the chat
+        that started it, so its agent stops asking for answers. Closing the
+        popup is not a cancel (it stays resumable) and never reaches here."""
+        from app.agent_app.origin_notices import notify_setup_cancelled
+
+        wizard_id = str(data.get("wizardId") or "")
+        setup = self._agent_app_manager.pending_setups.remove(wizard_id)
+        if setup is not None:
+            await notify_setup_cancelled(
+                self._agent_app_manager._trigger_service, setup
+            )
+        await self._broadcast(
+            {
+                "type": "agent_app_setup_cancel",
+                "data": {"success": setup is not None, "wizardId": wizard_id},
+            }
+        )
+
     async def _handle_agent_app_wizard_finalize(self, data: Dict[str, Any]) -> None:
         """Wizard step 3: synthesize the requirements document, create the
         project, move staged attachments in, queue the build run in the
@@ -3002,6 +3043,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 auth_mode=auth_mode,
                 style_pack=style_pack,
             )
+            # The project exists, so the setup is finished: drop its pending
+            # record now, before any later step can fail and leave a Resume
+            # card that would create a duplicate. Chat path only; a "+" modal
+            # wizard never had a record, so this is a no-op there.
+            self._agent_app_manager.pending_setups.remove(wizard_id)
 
             # Staged files: uploaded icon → app favicon, references →
             # <project>/reference/. An uploaded icon wins over a lucide pick.
@@ -3100,32 +3146,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     get_factory_host().set_origin_session(project.id, origin_session)
                 except Exception as e:
                     logger.debug(f"[AGENT_APP:WIZARD] origin persist failed: {e}")
-                try:
-                    from app.triggers import TriggerSource, TriggerSpec
+                from app.agent_app.origin_notices import notify_setup_created
 
-                    await self._agent_app_manager._trigger_service.emit(
-                        TriggerSpec(
-                            source=TriggerSource.AGENT_APP_CREATED,
-                            description=(
-                                f"FYI: the setup questions were answered — "
-                                f"Agent App '{project.name}' (project_id "
-                                f"{project.id}) has been created and its "
-                                "build is running in its own session. No "
-                                "action and no message needed: acknowledge "
-                                "silently with end_turn unless the user has "
-                                "asked for something. Remember the "
-                                "project_id for future requests about this "
-                                "app."
-                            ),
-                            priority=10,
-                            session_id=origin_session,
-                            payload={"project_id": project.id},
-                        )
-                    )
-                except Exception as e:
-                    logger.debug(
-                        f"[AGENT_APP:WIZARD] origin-session notify failed: {e}"
-                    )
+                await notify_setup_created(
+                    self._agent_app_manager._trigger_service,
+                    origin_session,
+                    project.id,
+                    project.name,
+                )
 
             await self._broadcast(
                 {

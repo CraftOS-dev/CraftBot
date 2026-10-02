@@ -155,6 +155,10 @@
   "createAgentApp": {
     "addTitle": "Add Agent App",
     "setupQuestions": "{{name}} — setup questions",
+    "cancelSetupTitle": "Cancel setup?",
+    "cancelSetupMessage": "The setup questions for {{name}} will be discarded and no app will be created. The agent will be told you cancelled.",
+    "cancelSetupConfirm": "Cancel setup",
+    "keepSetup": "Keep setup",
     "tabMarketplace": "Marketplace",
     "tabCustom": "Create Custom",
     "tabImport": "Import",

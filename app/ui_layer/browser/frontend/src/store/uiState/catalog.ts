@@ -1,4 +1,4 @@
-import type { MetricsTimePeriod } from '../../types'
+import type { AgentAppSetupProgress, MetricsTimePeriod } from '../../types'
 import type { DashboardLayoutsStorage } from '../../pages/Dashboard/layout/types'
 import type { SettingsCategory } from '../../pages/Settings/types'
 import { defineUiState, defineUiStateFamily, oneOf } from './defineUiState'
@@ -87,6 +87,11 @@ export const UI_STATE = {
     chatPanelWidth: defineUiState('agentApp.chatPanelWidth', 350, 'preference'),
     /** Mobile chat panel height as a share of the page. */
     chatPanelMobileRatio: defineUiState('agentApp.chatPanelMobileRatio', 0.4, 'preference'),
+    /** By wizard id: answers given so far in a chat-started setup, so
+     *  closing and resuming the popup (or reloading) keeps them. */
+    setupProgress: defineUiStateFamily<AgentAppSetupProgress | null>('agentApp.setupProgress', null, 'session', {
+      isValid: value => value === null || typeof value === 'object',
+    }),
   },
 
   memory: {

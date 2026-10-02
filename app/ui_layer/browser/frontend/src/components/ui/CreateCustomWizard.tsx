@@ -8,6 +8,7 @@ import { Button } from './Button'
 import { AGENT_APP_ICONS } from './AgentAppIcon'
 import { PRESET_THEMES, ThemeMiniPreview } from '../../pages/AgentApp/themeCatalog'
 import { formatNumber } from '../../i18n/format'
+import type { AgentAppInterviewQuestion, AgentAppSetupProgress, PendingAgentAppSetup } from '../../types'
 import styles from './CreateCustomWizard.module.css'
 
 /**
@@ -29,28 +30,23 @@ interface CreateCustomWizardProps {
   onMessage: (type: string, handler: (data: any) => void) => () => void
   onClose: () => void
   onCreated?: (projectId: string) => void
-  /** Chat-path entry (agent_app_wizard_open broadcast): the scaffold action
-   *  generated round-1 questions without creating anything — open at the
+  /** Chat-path entry (a pending setup from agent_app_scaffold): round-1
+   *  questions were generated without creating anything — open at the
    *  interview step with config pre-seeded. Finalize then creates the
    *  project exactly as the modal path does (Chat → Interview → Finalize →
-   *  Scaffold); a cancelled popup leaves nothing behind. */
-  initial?: {
-    wizardId: string
-    config: Record<string, any>
-    questions: InterviewQuestion[]
-    /** Session that ran agent_app_scaffold — round-tripped to finalize so
-     *  the backend can tell that agent which project was created. */
-    originSessionId?: string
-  }
+   *  Scaffold). originSessionId is round-tripped to finalize so the backend
+   *  can tell that chat's agent which project was created. */
+  initial?: Pick<PendingAgentAppSetup, 'wizardId' | 'config' | 'questions' | 'originSessionId'>
+  /** Chat path: where the user got to last time, restored on resume. */
+  progress?: AgentAppSetupProgress | null
+  /** Chat path: called as the interview advances, so the caller can keep it. */
+  onProgress?: (progress: AgentAppSetupProgress) => void
+  /** Chat path: the configure step's Cancel ends the setup for good. Without
+   *  it (the "+" modal), Cancel just closes, like the X. */
+  onCancel?: () => void
 }
 
-interface InterviewQuestion {
-  id: string
-  question: string
-  why?: string
-  multiSelect: boolean
-  options: string[]
-}
+type InterviewQuestion = AgentAppInterviewQuestion
 
 const MAX_WORDS = 5000
 
@@ -154,7 +150,9 @@ function newWizardId(): string {
 
 // ── component ───────────────────────────────────────────────────────────────
 
-export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initial }: CreateCustomWizardProps) {
+export function CreateCustomWizard({
+  send, onMessage, onClose, onCreated, initial, progress, onProgress, onCancel,
+}: CreateCustomWizardProps) {
   const { t } = useTranslation(['components', 'common', 'agentapp'])
 
   // Explicit (type-checked) key literals for the configure-step vocabulary.
@@ -199,13 +197,20 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
   // — interview state —
   const [interviewLoading, setInterviewLoading] = useState(false)
   const [interviewError, setInterviewError] = useState<string | null>(null)
-  const [questions, setQuestions] = useState<InterviewQuestion[]>(initial?.questions || [])
-  const [qIndex, setQIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string[]>>({})
+  const [questions, setQuestions] = useState<InterviewQuestion[]>(progress?.questions || initial?.questions || [])
+  const [qIndex, setQIndex] = useState(progress?.qIndex ?? 0)
+  const [answers, setAnswers] = useState<Record<string, string[]>>(progress?.answers || {})
   const [freeText, setFreeText] = useState('')
   // True once the backend has run its one adapt follow-up round — sent back
   // on finalize so it never loops.
-  const [followupDone, setFollowupDone] = useState(false)
+  const [followupDone, setFollowupDone] = useState(progress?.followupDone ?? false)
+
+  // Report interview progress (chat path) so a closed popup resumes here.
+  const onProgressRef = useRef(onProgress)
+  onProgressRef.current = onProgress
+  useEffect(() => {
+    onProgressRef.current?.({ questions, answers, qIndex, followupDone })
+  }, [questions, answers, qIndex, followupDone])
 
   // — creating state —
   const [createError, setCreateError] = useState<string | null>(null)
@@ -731,7 +736,7 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated, initia
       </div>
 
       <div className={styles.footer}>
-        <Button variant="secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</Button>
+        <Button variant="secondary" type="button" onClick={onCancel ?? onClose}>{t('common:actions.cancel')}</Button>
         <Button
           variant="primary"
           type="button"

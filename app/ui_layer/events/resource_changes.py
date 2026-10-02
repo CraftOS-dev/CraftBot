@@ -26,6 +26,7 @@ class Resource(str, Enum):
     ``store/resources`` catalog; extended as views are migrated."""
 
     AGENT_APPS = "agent_apps"
+    AGENT_APP_SETUPS = "agent_app_setups"  # pending chat setups; ids = wizard ids
     SESSIONS = "sessions"
     WORKSPACE_FILES = "workspace_files"  # ids = directory paths
     SKILLS = "skills"  # skill list, skill meta and slash commands
@@ -129,6 +130,15 @@ _RESOURCE_BY_MESSAGE_TYPE: Dict[str, Resource] = {
         ),
         Resource.AGENT_APPS,
     ),
+    # A chat setup opens, is cancelled, or finalizes (pending_setups.py).
+    **dict.fromkeys(
+        (
+            "agent_app_wizard_open",
+            "agent_app_setup_cancel",
+            "agent_app_wizard_finalize",
+        ),
+        Resource.AGENT_APP_SETUPS,
+    ),
     "session_updated": Resource.SESSIONS,
     **dict.fromkeys(
         (
@@ -207,6 +217,7 @@ _ALSO_CHANGED_BY_MESSAGE_TYPE: Dict[str, Tuple[Resource, ...]] = {
 # paths reach into nested objects; the first non-empty value wins.
 _ID_FIELDS: Dict[Resource, Tuple[str, ...]] = {
     Resource.AGENT_APPS: ("projectId", "project.id"),
+    Resource.AGENT_APP_SETUPS: ("wizardId",),
     Resource.SESSIONS: ("sessionId", "session.id"),
     Resource.PROACTIVE: ("taskId",),
     Resource.MEMORY: ("itemId", "item.id"),

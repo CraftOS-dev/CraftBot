@@ -69,6 +69,14 @@
     "freeTextPlaceholder": "或输入你自己的答案…",
     "sendAnswer": "发送答案"
   },
+  "setupResume": {
+    "aria": "待完成的 Agent App 设置",
+    "title": "{{name}} 的设置问题正在等待回答",
+    "hint": "回答后即会创建应用。",
+    "resume": "继续设置",
+    "cancel": "取消设置",
+    "queuePosition": "第 1 个，共 {{total}} 个"
+  },
   "message": {
     "hideReceived": "隐藏收到的消息",
     "showReceived": "显示收到的消息",

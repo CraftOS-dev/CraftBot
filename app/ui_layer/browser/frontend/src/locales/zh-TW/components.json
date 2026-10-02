@@ -155,6 +155,10 @@
   "createAgentApp": {
     "addTitle": "新增 Agent App",
     "setupQuestions": "{{name}} — 設定問題",
+    "cancelSetupTitle": "取消設定？",
+    "cancelSetupMessage": "{{name}} 的設定問題將被捨棄，不會建立應用程式。系統會告知代理你已取消。",
+    "cancelSetupConfirm": "取消設定",
+    "keepSetup": "保留設定",
     "tabMarketplace": "市集",
     "tabCustom": "自訂建立",
     "tabImport": "匯入",

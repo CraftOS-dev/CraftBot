@@ -69,6 +69,14 @@
     "freeTextPlaceholder": "或輸入你自己的回答…",
     "sendAnswer": "傳送回答"
   },
+  "setupResume": {
+    "aria": "待完成的 Agent App 設定",
+    "title": "{{name}} 的設定問題正在等待回答",
+    "hint": "回答後即會建立應用程式。",
+    "resume": "繼續設定",
+    "cancel": "取消設定",
+    "queuePosition": "第 1 個，共 {{total}} 個"
+  },
   "message": {
     "hideReceived": "隱藏收到的訊息",
     "showReceived": "顯示收到的訊息",

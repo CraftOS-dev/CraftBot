@@ -7,6 +7,7 @@ import dashboardReducer from './slices/dashboardSlice'
 import onboardingReducer from './slices/onboardingSlice'
 import localLlmReducer from './slices/localLlmSlice'
 import agentAppReducer from './slices/agentAppSlice'
+import agentAppSetupReducer from './slices/agentAppSetupSlice'
 import agentReducer from './slices/agentSlice'
 import workspaceReducer from './slices/workspaceSlice'
 import mcpSettingsReducer from './slices/mcpSettingsSlice'
@@ -48,6 +49,7 @@ export const store = configureStore({
     onboarding: onboardingReducer,
     localLlm: localLlmReducer,
     agentApp: agentAppReducer,
+    agentAppSetup: agentAppSetupReducer,
     agent: agentReducer,
     workspace: workspaceReducer,
     mcpSettings: mcpSettingsReducer,

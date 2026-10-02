@@ -69,6 +69,14 @@
     "freeTextPlaceholder": "O escribe tu propia respuesta...",
     "sendAnswer": "Enviar respuesta"
   },
+  "setupResume": {
+    "aria": "Configuración pendiente de Agent App",
+    "title": "Las preguntas de configuración de {{name}} están esperando",
+    "hint": "La app se crea cuando las respondas.",
+    "resume": "Reanudar configuración",
+    "cancel": "Cancelar configuración",
+    "queuePosition": "1 de {{total}}"
+  },
   "message": {
     "hideReceived": "Ocultar mensaje recibido",
     "showReceived": "Mostrar mensaje recibido",

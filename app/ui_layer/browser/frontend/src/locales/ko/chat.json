@@ -69,6 +69,14 @@
     "freeTextPlaceholder": "또는 직접 답변을 입력하세요...",
     "sendAnswer": "답변 보내기"
   },
+  "setupResume": {
+    "aria": "대기 중인 Agent App 설정",
+    "title": "{{name}}의 설정 질문이 답변을 기다리고 있습니다",
+    "hint": "답변하면 앱이 생성됩니다.",
+    "resume": "설정 재개",
+    "cancel": "설정 취소",
+    "queuePosition": "{{total}}개 중 1"
+  },
   "message": {
     "hideReceived": "받은 메시지 숨기기",
     "showReceived": "받은 메시지 보기",
