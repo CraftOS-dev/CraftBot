@@ -1223,6 +1223,11 @@ class LLMInterface:
         plus the output reservation, against the window less the headroom the
         summary request needs. On a session's first request there is no
         provider count yet, so the whole prompt is counted locally.
+
+        The output reservation is the one the pre-send check
+        (_check_context_fits) applies, including the reasoning output cap of
+        the session's choice, so the stream folds before that check could
+        refuse the request.
         """
         from app.config import get_context_window, get_reserve_tokens
 
@@ -1232,7 +1237,8 @@ class LLMInterface:
         else:
             projected = last + count_tokens(pending)
         return (
-            projected + self.max_tokens <= get_context_window() - get_reserve_tokens()
+            projected + self._output_reservation()
+            <= get_context_window() - get_reserve_tokens()
         )
 
     def end_all_session_caches(self, task_id: str) -> None:

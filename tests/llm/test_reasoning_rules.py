@@ -727,6 +727,35 @@ def test_context_check_reserves_the_reasoning_cap(monkeypatch, bound_session):
         ruled._check_context_fits(None, prompt)
 
 
+def test_fold_check_reserves_the_same_cap_as_the_pre_send_check(
+    monkeypatch, bound_session
+):
+    import app.config as app_config
+
+    # window 128,000 - reserve 16,384 - the output reservation.
+    monkeypatch.setattr(app_config, "get_context_window", lambda: 128_000)
+    monkeypatch.setattr(app_config, "get_reserve_tokens", lambda: 16_384)
+
+    def assert_folds_after(iface, last_input_tokens: int) -> None:
+        key = "task:action_selection"
+        iface._last_input_tokens[key] = last_input_tokens
+        assert iface.fits_context("task", "action_selection", "s", "")
+        iface._last_input_tokens[key] = last_input_tokens + 1
+        assert not iface.fits_context("task", "action_selection", "s", "")
+
+    unruled, _ = build_interface(monkeypatch, "openai", "gpt-4o")
+    unruled.max_tokens = APP_MAX_TOKENS
+    assert_folds_after(unruled, 103_616)  # the caller's 8,000
+
+    ruled, _ = build_interface(monkeypatch, "openai", "gpt-5.2-2025-12-11")
+    ruled.max_tokens = APP_MAX_TOKENS
+    assert_folds_after(ruled, 79_616)  # default high: 32,000
+    with bound_session(C.XHIGH):
+        assert_folds_after(ruled, 47_616)  # 64,000
+    with bound_session(C.OFF):
+        assert_folds_after(ruled, 103_616)  # no reasoning: the caller's 8,000
+
+
 def test_decision_follows_a_model_switch(monkeypatch):
     iface, _ = build_interface(monkeypatch, "openai", "gpt-4o")
     assert iface.reasoning_decision() is None
