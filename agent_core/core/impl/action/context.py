@@ -9,9 +9,9 @@ every action function signature.
 Scope rules:
   - Set only by the internal executors (``_atomic_action_internal*``),
     reset in a ``finally`` — never leaks across actions.
-  - Sync actions run in a thread pool where the caller's context does NOT
-    propagate, so the executor wraps the call and sets the var inside the
-    worker thread (see ``run_with_input_context``).
+  - Sync actions run in a thread pool inside a copy of the caller's
+    context; the executor wraps the call and sets the var inside the worker
+    thread (see ``run_with_input_context``).
   - Sandboxed (subprocess) actions cannot see it at all — helpers must
     treat a ``None`` value as "no context available".
 """
@@ -31,8 +31,9 @@ def run_with_input_context(
 ) -> dict:
     """Call a sync action with ``current_input_data`` set for its duration.
 
-    Used as the thread-pool target: the worker thread has its own context,
-    so the var must be set (and reset) inside the thread, not the caller.
+    Used as the thread-pool target, run inside a copy of the caller's
+    context: the var is set (and reset) inside the thread so it scopes to
+    this action alone.
     """
     token = current_input_data.set(input_data)
     try:

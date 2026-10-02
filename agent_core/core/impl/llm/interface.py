@@ -42,11 +42,19 @@ from agent_core.core.hooks import (
     RecordLLMCallHook,
 )
 from agent_core.core.impl.llm import transports as _transports
-from agent_core.core.models.reasoning import ReasoningDecision, resolve_reasoning
+from agent_core.core.models.reasoning import (
+    ReasoningChoice,
+    ReasoningDecision,
+    ReasoningOptions,
+    default_choice,
+    reasoning_options as _reasoning_options,
+    resolve_reasoning,
+)
 from agent_core.core.models.registry import (
     get_registry as _get_registry,
     session_cc_providers as _session_cc_providers,
 )
+from agent_core.core.state.session import StateSession
 
 # Logging setup - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
@@ -588,6 +596,7 @@ class LLMInterface:
         call_type: Optional[str] = None,
         task_id: Optional[str] = None,
         thinking_budget: Optional[int] = None,
+        reasoning_choice: Optional[ReasoningChoice] = None,
     ) -> None:
         """Stamp per-call identity + start time into the context for capture.
 
@@ -598,6 +607,9 @@ class LLMInterface:
 
         ``thinking_budget`` (when set) is read by the Gemini transport to cap
         reasoning tokens; other transports never look at it.
+
+        ``reasoning_choice`` (when set) overrides the bound session's choice
+        for this call; see ``reasoning_decision``.
         """
         _llm_call_ctx.set(
             {
@@ -605,6 +617,7 @@ class LLMInterface:
                 "call_type": call_type,
                 "task_id": task_id,
                 "thinking_budget": thinking_budget,
+                "reasoning_choice": reasoning_choice,
                 "start": time.perf_counter(),
             }
         )
@@ -804,16 +817,52 @@ class LLMInterface:
                 f"{self.provider}/{self.model}."
             )
 
+    def reasoning_options(self) -> Optional[ReasoningOptions]:
+        """What the chat-input reasoning picker offers for the model in use.
+
+        None when the model has no rule (its reasoning is not adjustable).
+        """
+        return _reasoning_options(self.provider, self.model, self._auth_mode)
+
+    def default_reasoning_choice(self) -> ReasoningChoice:
+        """The choice a new session starts at with this interface's model."""
+        return default_choice(self.provider, self.model, self._auth_mode)
+
+    def reasoning_choice(self) -> ReasoningChoice:
+        """The reasoning choice that applies to the call in flight.
+
+        A choice passed for this call wins (work for a chat that has no
+        session yet: the draft view); otherwise the choice of the session
+        the context is bound to (StateSession.bind, set around each
+        session's loop); otherwise, for work that belongs to no session,
+        the model's default level.
+        """
+        explicit = _llm_call_ctx.get().get("reasoning_choice")
+        if explicit is not None:
+            return explicit
+        state = StateSession.bound()
+        if (
+            state is not None
+            and state.current_session is not None
+            and state.current_session.reasoning_effort is not None
+        ):
+            return ReasoningChoice(state.current_session.reasoning_effort)
+        return self.default_reasoning_choice()
+
     def reasoning_decision(self) -> Optional[ReasoningDecision]:
-        """Reasoning default for the current provider and model.
+        """What the call in flight sends for reasoning.
 
         None means the model has no rule in agent_core/core/models/reasoning.py
         and its requests carry no reasoning parameter. Resolved on every call
-        so a model switch (reinitialize) or a fallback interface uses its own
-        row; logged once per distinct model.
+        so a model switch (reinitialize), a fallback interface, or a changed
+        session choice applies from the next request; logged once per
+        distinct model and choice.
         """
-        decision = resolve_reasoning(self.provider, self.model, self._auth_mode)
-        log_key = (self.provider, self.model, self._auth_mode)
+        choice = self.reasoning_choice()
+        decision = resolve_reasoning(
+            self.provider, self.model, self._auth_mode, choice
+        )
+        log_key = (self.provider, self.model, self._auth_mode, choice)
         if log_key != self._reasoning_logged_for:
             self._reasoning_logged_for = log_key
             if decision is None:
@@ -1008,6 +1057,7 @@ class LLMInterface:
         prompt_name: Optional[str] = None,
         json_mode: bool = True,
         thinking_budget: Optional[int] = None,
+        reasoning_choice: Optional[ReasoningChoice] = None,
     ) -> str:
         """Async wrapper that defers the blocking call to a worker thread.
 
@@ -1017,10 +1067,18 @@ class LLMInterface:
         ``thinking_budget`` caps reasoning tokens on providers that expose a
         thinking budget (Gemini). It rides the per-call context and is a no-op
         for every other provider; leave it None (the default) for normal calls.
+
+        ``reasoning_choice`` overrides the bound session's reasoning choice
+        for this call; pass it only for work done for a chat that has no
+        session yet.
         """
         # Stamp the context here, in the caller's context, so asyncio.to_thread
         # copies it into the worker thread where the capture runs.
-        self._begin_call(prompt_name=prompt_name, thinking_budget=thinking_budget)
+        self._begin_call(
+            prompt_name=prompt_name,
+            thinking_budget=thinking_budget,
+            reasoning_choice=reasoning_choice,
+        )
         return await asyncio.to_thread(
             self._generate_response_sync,
             system_prompt,

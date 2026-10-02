@@ -88,9 +88,9 @@ def generate(
             # through additionalModelRequestFields. Thinking tokens count
             # against maxTokens, and thinking is incompatible with (4.5/4.6)
             # or rejects (4.7+) a non-default temperature.
-            converse_kwargs["additionalModelRequestFields"] = (
-                reasoning_wire.anthropic_fields(reasoning)
-            )
+            reasoning_fields = reasoning_wire.anthropic_fields(reasoning)
+            if reasoning_fields:
+                converse_kwargs["additionalModelRequestFields"] = reasoning_fields
             converse_kwargs["inferenceConfig"]["maxTokens"] = reasoning.output_cap(
                 iface.max_tokens
             )

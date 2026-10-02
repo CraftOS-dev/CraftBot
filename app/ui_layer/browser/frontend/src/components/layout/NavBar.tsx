@@ -680,6 +680,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     title: 'Main',
     createdAt: '',
     lastActiveAt: '',
+    reasoningEffort: null,
   }
 
   return (

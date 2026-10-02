@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Live check that per-model reasoning defaults are accepted by the providers.
+"""Live check that per-model reasoning settings are accepted by the providers.
 
 The unit and golden tests prove what CraftBot SENDS; only the provider can
 say whether it ACCEPTS it. This script sends one tiny JSON request per model
 through the real LLMInterface (same transports, same output cap as the app)
-and reports, per model, the reasoning default that was applied and whether
-the provider answered or rejected it.
+from inside a probe chat session holding the chosen reasoning choice (the
+same session binding a real chat uses), and reports, per model, what was
+sent and whether the provider answered or rejected it.
 
 Every probe is a real, billed API call (a few hundred tokens each, more for
 models that think). Nothing is sent with --dry-run.
@@ -14,6 +15,7 @@ Usage (from the repository root):
     python scripts/probe_reasoning.py                 # the configured LLM model
     python scripts/probe_reasoning.py --model openai/gpt-5.2 --model anthropic/claude-sonnet-4-6
     python scripts/probe_reasoning.py --all-rows      # every table row with credentials
+    python scripts/probe_reasoning.py --all-rows --choice off   # a session choice
     python scripts/probe_reasoning.py --all-rows --dry-run
 
 Exit status is 1 when any probe was rejected, else 0.
@@ -43,6 +45,9 @@ PROBE_USER_PROMPT = 'Return exactly this JSON object: {"ok": true}'
 
 #: Table surface -> the provider whose interface serves it.
 SUBSCRIPTION_SURFACE = "openai_subscription"
+
+#: Id of the in-memory chat session the probes run in (never persisted).
+PROBE_SESSION_ID = "reasoning-probe"
 
 
 @dataclass
@@ -174,6 +179,10 @@ def _probe(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    from agent_core.core.models.reasoning import ReasoningChoice
+    from agent_core.core.session.session import Session
+    from agent_core.core.state.session import StateSession
+
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
         "--model",
@@ -190,9 +199,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="probe every reasoning-table row whose provider has credentials",
     )
     parser.add_argument(
+        "--choice",
+        type=ReasoningChoice,
+        default=None,
+        choices=list(ReasoningChoice),
+        metavar="CHOICE",
+        help=(
+            "the probe session's reasoning choice "
+            f"({', '.join(choice.value for choice in ReasoningChoice)}); "
+            "default: each model's default level"
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="print the reasoning default per model without calling any API",
+        help="print what each model would be sent without calling any API",
     )
     args = parser.parse_args(argv)
 
@@ -205,16 +226,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         plan = [(None, provider, model)]
 
     results: List[ProbeResult] = []
-    for surface, provider, model in plan:
-        result = _probe(provider, model, surface, args.dry_run)
-        if result is None:
-            continue
-        results.append(result)
-        print(
-            f"{result.status:9s} {result.target:55s} [{result.route}] "
-            f"{result.decision} :: {result.detail}",
-            flush=True,
-        )
+    StateSession.start(
+        PROBE_SESSION_ID,
+        current_session=Session(
+            id=PROBE_SESSION_ID,
+            reasoning_effort=args.choice.value if args.choice else None,
+        ),
+    )
+    try:
+        with StateSession.bind(PROBE_SESSION_ID):
+            for surface, provider, model in plan:
+                result = _probe(provider, model, surface, args.dry_run)
+                if result is None:
+                    continue
+                results.append(result)
+                print(
+                    f"{result.status:9s} {result.target:55s} [{result.route}] "
+                    f"{result.decision} :: {result.detail}",
+                    flush=True,
+                )
+    finally:
+        StateSession.end(PROBE_SESSION_ID)
 
     rejected = [r for r in results if r.status == "REJECTED"]
     ok = sum(r.status == "OK" for r in results)

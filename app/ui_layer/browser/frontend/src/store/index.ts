@@ -17,6 +17,7 @@ import proactiveSettingsReducer from './slices/proactiveSettingsSlice'
 import agentAppSettingsReducer from './slices/agentAppSettingsSlice'
 import generalSettingsReducer from './slices/generalSettingsSlice'
 import modelSettingsReducer from './slices/modelSettingsSlice'
+import reasoningReducer from './slices/reasoningSlice'
 import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
 import chatInputReducer from './slices/chatInputSlice'
 import playbooksReducer from './slices/playbooksSlice'
@@ -58,6 +59,7 @@ export const store = configureStore({
     agentAppSettings: agentAppSettingsReducer,
     generalSettings: generalSettingsReducer,
     modelSettings: modelSettingsReducer,
+    reasoning: reasoningReducer,
     integrationsSettings: integrationsSettingsReducer,
     chatInput: chatInputReducer,
     playbooks: playbooksReducer,

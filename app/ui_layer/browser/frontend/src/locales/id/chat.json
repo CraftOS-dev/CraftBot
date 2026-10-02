@@ -31,6 +31,26 @@
     "stopRun": "Hentikan proses",
     "stoppingRun": "Menghentikan proses"
   },
+  "reasoning": {
+    "title": "Penalaran",
+    "picker": "Tingkat penalaran",
+    "header": "Penalaran · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "Ditentukan model",
+    "defaultTag": "Bawaan",
+    "notConfigurable": "Penalaran tidak dapat diatur untuk {{model}}",
+    "clamped": "{{requested}} tidak tersedia pada model ini, jadi {{effective}} yang digunakan.",
+    "choice": {
+      "provider_default": "Bawaan penyedia",
+      "off": "Mati",
+      "minimal": "Minimal",
+      "low": "Rendah",
+      "medium": "Sedang",
+      "high": "Tinggi",
+      "xhigh": "Sangat tinggi",
+      "max": "Maksimum"
+    }
+  },
   "reply": {
     "replyingTo": "Membalas: <1>{{name}}</1>",
     "cancel": "Batalkan balasan"
