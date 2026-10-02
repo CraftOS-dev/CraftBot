@@ -163,22 +163,23 @@ class _ChatCompletionShim:
 # silently honoring "best-effort" semantics is fine for fields that just
 # don't apply at this backend (e.g. ``max_tokens`` becomes "let the
 # server decide" rather than a hard failure).
-#: Effort for a model the reasoning table has no row for. The Codex backend
-#: requires a ``reasoning`` block on every request, so unlike every other
-#: provider the parameter cannot simply be left out; "medium" is the Codex
-#: CLI default and what this translator always sent before per-model rules.
-_CODEX_UNRULED_EFFORT = "medium"
+#: Effort for a request that carries no ``reasoning_effort``. LLM requests
+#: always carry one (every subscription model has a reasoning row); VLM
+#: requests send none. The Codex backend requires a ``reasoning`` block on
+#: every request, so unlike every other provider the parameter cannot simply
+#: be left out; "medium" is the Codex CLI default.
+_CODEX_DEFAULT_EFFORT = "medium"
 
 
 def _codex_reasoning_config(requested_effort: Any) -> Dict[str, str]:
     """Build the ``reasoning`` block Codex requires on every request.
 
     ``requested_effort`` is the caller's Chat-Completions
-    ``reasoning_effort``: the per-model default the chat_completions
-    transport resolved, or None when the model has no rule.
+    ``reasoning_effort``: the level the chat_completions transport resolved
+    for the session's reasoning choice, or None when the caller sends none.
     ``"auto"`` summary matches the Codex CLI.
     """
-    effort = requested_effort if requested_effort else _CODEX_UNRULED_EFFORT
+    effort = requested_effort if requested_effort else _CODEX_DEFAULT_EFFORT
     return {"effort": str(effort), "summary": "auto"}
 
 

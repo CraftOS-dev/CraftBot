@@ -353,25 +353,18 @@ class ModelFactory:
 
                 access_token, sub_base_url, extra_headers = oauth
 
-                # Codex's accepted-model list lives in the ChatGPT OAuth
-                # backend module so provider-specific knowledge stays
-                # colocated with the flow that authenticates against it.
-                # See ``llm_oauth.chatgpt.CODEX_ACCEPTED_MODELS`` for the
-                # source-of-truth list and the reasoning behind the fallback.
-                from craftos_integrations.llm_oauth.chatgpt import (
-                    CODEX_ACCEPTED_MODELS,
-                    effective_model_for_subscription,
-                )
-
-                effective_model, was_substituted = effective_model_for_subscription(
-                    model
-                )
-                if was_substituted:
+                # The Codex backend serves only the profile's
+                # subscription_models; any other model runs as the
+                # profile's subscription default.
+                if model in cfg.subscription_models:
+                    effective_model = model
+                else:
+                    effective_model = cfg.subscription_default_model
                     logger.warning(
                         f"[FACTORY] ChatGPT subscription mode rejects model "
                         f"{model!r}; substituting {effective_model!r}. "
                         f"Valid Codex-subscription models: "
-                        f"{sorted(CODEX_ACCEPTED_MODELS)}. Set the model in "
+                        f"{list(cfg.subscription_models)}. Set the model in "
                         f"Settings to silence this warning."
                     )
 

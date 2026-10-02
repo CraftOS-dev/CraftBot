@@ -154,6 +154,38 @@ def test_duplicate_model_ids_are_refused():
         reasoning._surface({"m": rule}, {"m": rule})
 
 
+def test_subscription_rows_are_exactly_the_models_subscription_auth_runs():
+    # Codex requires a level on every request, so a subscription model
+    # without a row would run at Codex's fallback, and a row for a model
+    # subscription auth never runs would be dead.
+    profile = get_registry().get("openai")
+    assert set(REASONING_RULES["openai_subscription"]) == set(
+        profile.subscription_models
+    )
+    assert profile.subscription_default_model in profile.subscription_models
+
+
+def test_subscription_runs_an_unlisted_model_as_the_default(monkeypatch):
+    from agent_core.core.models import factory
+    from agent_core.core.models.types import InterfaceType
+
+    monkeypatch.setattr(
+        factory,
+        "_get_oauth_bearer",
+        lambda provider: ("token", "https://chatgpt.com/backend-api/codex", {}),
+    )
+    for requested, runs in (
+        ("gpt-6-sol", "gpt-6-sol"),
+        ("gpt-5.4", "gpt-6.1-sol"),
+        ("gpt-5.2-2025-12-11", "gpt-6.1-sol"),
+    ):
+        ctx = factory.ModelFactory.create(
+            provider="openai", interface=InterfaceType.LLM, model_override=requested
+        )
+        assert ctx["auth_mode"] == "subscription"
+        assert ctx["model"] == runs
+
+
 # ─────────────────────────────── 2. the policy ──────────────────────────────
 
 
@@ -294,16 +326,25 @@ def test_off_sends_the_disable_form_where_the_model_thinks_by_default():
     decision = resolve_reasoning("openai", "gpt-5.5", "api_key", C.OFF)
     assert decision.off and decision.level is None
     assert decision.output_tokens == 0
-    assert not decision.omit_temperature  # gpt-5.5 accepts temperature at "none"
 
 
 def test_provider_default_on_a_model_that_thinks_by_default():
     decision = resolve_reasoning("openai", "gpt-5.5", "api_key", C.PROVIDER_DEFAULT)
     assert decision.level is None and not decision.off
-    # It reasons (at the provider's medium), so it needs the room and the
-    # temperature rule of a reasoning request.
+    # It reasons (at the provider's medium), so it needs the room of a
+    # reasoning request.
     assert decision.output_tokens == 32_000
-    assert decision.omit_temperature
+
+
+def test_temperature_is_dropped_exactly_while_the_request_reasons():
+    # OpenRouter forwards an explicit temperature upstream, where reasoning
+    # rejects it; without reasoning it is accepted.
+    reasoning = resolve_reasoning(
+        "openrouter", "openai/gpt-5.5", "api_key", C.PROVIDER_DEFAULT
+    )
+    assert reasoning.level is None and reasoning.omit_temperature
+    off = resolve_reasoning("openrouter", "openai/gpt-5.5", "api_key", C.OFF)
+    assert off.off and not off.omit_temperature
 
 
 def test_provider_default_sends_the_documented_level_where_one_is_required():
@@ -498,9 +539,10 @@ def test_codex_translator_uses_the_resolved_effort():
         {"model": "gpt-5.5", "messages": messages, "reasoning_effort": "high"}, "k"
     )
     assert ruled["reasoning"] == {"effort": "high", "summary": "auto"}
-    # No rule: the backend still requires the block, so today's medium stays.
-    unruled = _translate_request({"model": "gpt-5.4", "messages": messages}, "k")
-    assert unruled["reasoning"] == {"effort": "medium", "summary": "auto"}
+    # No reasoning_effort (VLM requests send none): the backend still
+    # requires the block, so it gets the Codex default.
+    unset = _translate_request({"model": "gpt-6.1-sol", "messages": messages}, "k")
+    assert unset["reasoning"] == {"effort": "medium", "summary": "auto"}
 
 
 # ────────────────────── 4. transports at CraftBot's settings ─────────────────

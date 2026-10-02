@@ -179,14 +179,24 @@ PROVIDER_CONFIG: Dict[str, ProviderProfile] = {
         settings_key="openai",
         oauth_backend="chatgpt",
         subscription_label="Sign in with ChatGPT",
-        # Codex-accepted models for ChatGPT subscription auth.
+        # The only models ChatGPT-subscription auth runs: the Codex catalogue's
+        # listed models, in its order
+        # (https://github.com/openai/codex/blob/main/codex-rs/models-manager/models.json).
+        # The factory runs any other model as subscription_default_model.
+        # Codex requires a reasoning level on every request, so each of
+        # these has a row in agent_core/core/models/reasoning.py
+        # (tests/llm/test_reasoning_rules.py checks they agree).
         subscription_models=(
-            "gpt-5.4",
+            "gpt-6.1-sol",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "gpt-5.5",
-            "gpt-5.4-mini",
-            "gpt-5.3-codex-spark",
         ),
-        subscription_default_model="gpt-5.4",
+        subscription_default_model="gpt-6.1-sol",
         supports_prompt_cache_key=True,
         # OpenAI deprecated `max_tokens` in favor of `max_completion_tokens`;
         # every current chat model accepts the new field, and reasoning

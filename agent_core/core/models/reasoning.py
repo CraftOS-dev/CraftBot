@@ -466,12 +466,12 @@ _EFFORT_EXTENDED_OUTPUT_TOKENS = 64_000
 
 # ── OpenAI public API (Chat Completions ``reasoning_effort``) ──
 # Values and defaults: https://developers.openai.com/api/docs/models/<id>.
-# Models before gpt-5.1 reject "none" and never accept temperature; gpt-5.1+
-# reject "minimal", default to no reasoning through gpt-5.4, and accept
-# temperature only at "none". xhigh arrived with gpt-5.2. "max" exists only on
-# the Responses API: Chat Completions rejects it on gpt-5.6 and GPT-6 ("Supported
-# values are: 'none', 'low', 'medium', 'high', and 'xhigh'", live API error,
-# 2026-10-02; GPT-6 Astra and 6.1 Sol list the same without 'none').
+# Models before gpt-5.1 reject "none"; gpt-5.1+ reject "minimal" and default
+# to no reasoning through gpt-5.4. xhigh arrived with gpt-5.2. "max" exists
+# only on the Responses API: Chat Completions rejects it on gpt-5.6 and GPT-6
+# ("Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'", live
+# API error, 2026-10-02; GPT-6 Astra and 6.1 Sol list the same without 'none').
+# Temperature is the OpenAI profile's: it omits it on every request.
 
 _OPENAI_DOCS = "https://developers.openai.com/api/docs/models"
 
@@ -481,7 +481,6 @@ _OPENAI_GPT5 = ReasoningRule(
     provider_default="medium",
     source=f"{_OPENAI_DOCS}/gpt-5",
     output_tokens=_EFFORT_OUTPUT_TOKENS,
-    temperature=TemperaturePolicy.OMIT_ALWAYS,
 )
 _OPENAI_O_SERIES = ReasoningRule(
     wire=ReasoningWire.EFFORT,
@@ -489,7 +488,6 @@ _OPENAI_O_SERIES = ReasoningRule(
     provider_default="medium",
     source="https://developers.openai.com/api/docs/guides/reasoning",
     output_tokens=_EFFORT_OUTPUT_TOKENS,
-    temperature=TemperaturePolicy.OMIT_ALWAYS,
 )
 _OPENAI_GPT51 = ReasoningRule(
     wire=ReasoningWire.EFFORT,
@@ -498,7 +496,6 @@ _OPENAI_GPT51 = ReasoningRule(
     source=f"{_OPENAI_DOCS}/gpt-5.1",
     output_tokens=_EFFORT_OUTPUT_TOKENS,
     off=ReasoningOff.OMIT,
-    temperature=TemperaturePolicy.OMIT_WHILE_THINKING,
 )
 _OPENAI_GPT52_TO_54 = ReasoningRule(
     wire=ReasoningWire.EFFORT,
@@ -508,7 +505,6 @@ _OPENAI_GPT52_TO_54 = ReasoningRule(
     output_tokens=_EFFORT_OUTPUT_TOKENS,
     extended_output_tokens=_EFFORT_EXTENDED_OUTPUT_TOKENS,
     off=ReasoningOff.OMIT,
-    temperature=TemperaturePolicy.OMIT_WHILE_THINKING,
 )
 _OPENAI_GPT55 = ReasoningRule(
     wire=ReasoningWire.EFFORT,
@@ -518,7 +514,6 @@ _OPENAI_GPT55 = ReasoningRule(
     output_tokens=_EFFORT_OUTPUT_TOKENS,
     extended_output_tokens=_EFFORT_EXTENDED_OUTPUT_TOKENS,
     off=ReasoningOff.EXPLICIT,
-    temperature=TemperaturePolicy.OMIT_WHILE_THINKING,
 )
 _OPENAI_GPT56_PLUS = ReasoningRule(
     wire=ReasoningWire.EFFORT,
@@ -528,7 +523,6 @@ _OPENAI_GPT56_PLUS = ReasoningRule(
     output_tokens=_EFFORT_OUTPUT_TOKENS,
     extended_output_tokens=_EFFORT_EXTENDED_OUTPUT_TOKENS,
     off=ReasoningOff.EXPLICIT,
-    temperature=TemperaturePolicy.OMIT_WHILE_THINKING,
 )
 #: GPT-6 Astra and GPT-6.1 Sol reject "none" and always reason.
 _OPENAI_GPT6_ALWAYS_REASONING = ReasoningRule(
@@ -538,7 +532,6 @@ _OPENAI_GPT6_ALWAYS_REASONING = ReasoningRule(
     source=f"{_OPENAI_DOCS}/gpt-6-astra",
     output_tokens=_EFFORT_OUTPUT_TOKENS,
     extended_output_tokens=_EFFORT_EXTENDED_OUTPUT_TOKENS,
-    temperature=TemperaturePolicy.OMIT_ALWAYS,
 )
 _OPENAI_GPT61_SOL = replace(
     _OPENAI_GPT6_ALWAYS_REASONING,
@@ -552,6 +545,8 @@ _OPENAI_GPT61_SOL = replace(
 # supported_reasoning_levels minus the client-side "ultra" alias; no model
 # lists "none", so none can be turned off
 # (https://github.com/openai/codex/blob/main/codex-rs/models-manager/models.json).
+# The rows are exactly the OpenAI profile's subscription_models, the only
+# models subscription auth runs.
 
 _CODEX_CATALOG = (
     "https://github.com/openai/codex/blob/main/codex-rs/models-manager/models.json"
