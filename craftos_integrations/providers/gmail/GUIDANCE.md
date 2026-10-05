@@ -19,6 +19,10 @@ Email — read, search, send, drafts, labels, threads.
   empty, don't answer a flat "no updates" — say there's nothing unread and
   either offer or show the most recent messages (`unread_only=false`).
 - `send_gmail` with no `to` sends to the connected account's own address.
+- To show an image inside the email (not as an attachment), pass its local
+  path in `inline_images` and reference it from an HTML body (`html=true`)
+  as `<img src="cid:chart.png">` (cid = the file name). Use `attachments`
+  only when the user wants a downloadable file.
 - Prefer `trash_gmail` (reversible) over `delete_gmail` (permanent).
 - Use Gmail search syntax in `search_gmail` (`from:`, `subject:`,
   `newer_than:7d`, `has:attachment`, ...).

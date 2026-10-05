@@ -21,10 +21,13 @@ import html
 import mimetypes
 import os
 import re
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from datetime import timezone
 from email import encoders
 from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from html.parser import HTMLParser
@@ -264,6 +267,163 @@ def _readable_body(texts: Dict[str, str]) -> Tuple[str, str]:
     if texts.get("text/html"):
         return _html_to_text(texts["text/html"]), "html_converted"
     return "", "none"
+
+
+# ----- Outgoing MIME -----
+
+# <img ... src="..."> — group 3 is the src value.
+_IMG_SRC = re.compile(r"""(<img\b[^>]*?\bsrc\s*=\s*)(["'])(.*?)\2""", re.I | re.S)
+_CID_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _attach_files(msg: MIMEMultipart, paths: Optional[List[str]]) -> None:
+    """Attach local files as regular attachments (missing paths are skipped)."""
+    for file_path in paths or []:
+        if not os.path.isfile(file_path):
+            continue
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if mime_type is None:
+            mime_type = "application/octet-stream"
+        maintype, subtype = mime_type.split("/", 1)
+        with open(file_path, "rb") as f:
+            part = MIMEBase(maintype, subtype)
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition",
+            f'attachment; filename="{os.path.basename(file_path)}"',
+        )
+        msg.attach(part)
+
+
+def _src_to_path(src: str) -> str:
+    """An ``<img src>`` value as a local path (``file://`` URLs decoded)."""
+    if src.lower().startswith("file:"):
+        return urllib.request.url2pathname(urllib.parse.urlparse(src).path)
+    return src
+
+
+def _build_message(
+    body: str,
+    *,
+    as_html: bool = False,
+    inline_images: Optional[List[str]] = None,
+    attachments: Optional[List[str]] = None,
+) -> MIMEMultipart:
+    """The MIME tree every outgoing mail (send / reply / draft) is built on.
+
+    A plain-text body with no images stays a single text/plain part. HTML,
+    or any inline image, gives::
+
+        mixed
+        ├── related                 (only with inline images)
+        │   ├── alternative
+        │   │   ├── text/plain      (derived from the HTML)
+        │   │   └── text/html
+        │   └── image/* parts       (Content-ID, disposition inline)
+        └── attachments
+
+    Inline images come from ``inline_images`` and from any HTML ``<img src>``
+    naming a local file. Each is served as ``cid:<file name>``: an
+    ``<img src>`` holding the image's path or file name is rewritten to its
+    cid, and an image the HTML never references is appended below the body
+    so it still renders inline. A missing or non-image file raises
+    ValueError — not sending beats sending a mail with a broken picture.
+    """
+    if isinstance(inline_images, str):  # a lone path instead of a list
+        inline_images = [inline_images]
+    msg = MIMEMultipart()
+    if not as_html and not inline_images:
+        msg.attach(MIMEText(body, "plain"))
+        _attach_files(msg, attachments)
+        return msg
+
+    html_body = (
+        body
+        if as_html
+        else "<div>" + html.escape(body).replace("\n", "<br>\n") + "</div>"
+    )
+
+    # normalized path -> (path, cid), in embed order; aliases maps the names
+    # a "cid:" reference may use (cid, raw file name) to the cid.
+    images: Dict[str, Tuple[str, str]] = {}
+    aliases: Dict[str, str] = {}
+
+    def _embed(path: str) -> str:
+        key = os.path.normcase(os.path.abspath(path))
+        if key in images:
+            return images[key][1]
+        if not os.path.isfile(path):
+            raise ValueError(f"Inline image not found: {path}")
+        mime_type, _ = mimetypes.guess_type(path)
+        if not (mime_type or "").startswith("image/"):
+            raise ValueError(f"Inline image is not an image file: {path}")
+        name = os.path.basename(path)
+        stem, ext = os.path.splitext(_CID_UNSAFE.sub("_", name))
+        cid, n = stem + ext, 2
+        while cid in aliases.values():
+            cid, n = f"{stem}-{n}{ext}", n + 1
+        images[key] = (path, cid)
+        aliases.setdefault(cid, cid)
+        aliases.setdefault(name, cid)
+        return cid
+
+    for path in inline_images or []:
+        _embed(path)
+
+    referenced: set = set()
+
+    def _rewrite(m: re.Match) -> str:
+        src = html.unescape(m.group(3)).strip()
+        if src.lower().startswith("cid:"):
+            cid = aliases.get(urllib.parse.unquote(src[4:]))
+        else:
+            path = _src_to_path(src)
+            cid = _embed(path) if os.path.isfile(path) else None
+        if cid is None:
+            return m.group(0)
+        referenced.add(cid)
+        return f"{m.group(1)}{m.group(2)}cid:{cid}{m.group(2)}"
+
+    html_body = _IMG_SRC.sub(_rewrite, html_body)
+
+    unplaced = "".join(
+        f'<div><img src="cid:{cid}" alt="{cid}"></div>'
+        for _, cid in images.values()
+        if cid not in referenced
+    )
+    if unplaced:
+        close = html_body.lower().rfind("</body>")
+        html_body = (
+            html_body[:close] + unplaced + html_body[close:]
+            if close >= 0
+            else html_body + unplaced
+        )
+
+    # utf-8 → base64 bodies, so long HTML lines never break the 998-char limit.
+    alternative = MIMEMultipart("alternative")
+    plain = _html_to_text(html_body) if as_html else body
+    alternative.attach(MIMEText(plain, "plain", "utf-8"))
+    alternative.attach(MIMEText(html_body, "html", "utf-8"))
+
+    if images:
+        related = MIMEMultipart("related")
+        related.attach(alternative)
+        for path, cid in images.values():
+            subtype = mimetypes.guess_type(path)[0].split("/", 1)[1]
+            with open(path, "rb") as f:
+                part = MIMEImage(f.read(), _subtype=subtype)
+            part.add_header("Content-ID", f"<{cid}>")
+            part.add_header(
+                "Content-Disposition", "inline", filename=os.path.basename(path)
+            )
+            related.attach(part)
+        msg.attach(related)
+    else:
+        msg.attach(alternative)
+
+    _attach_files(msg, attachments)
+    return msg
 
 
 GMAIL = IntegrationSpec(
@@ -541,31 +701,15 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         subject: str,
         body: str,
         attachments: Optional[List[str]] = None,
+        html: bool = False,
+        inline_images: Optional[List[str]] = None,
     ) -> str:
-        msg = MIMEMultipart()
+        msg = _build_message(
+            body, as_html=html, inline_images=inline_images, attachments=attachments
+        )
         msg["to"] = to_email
         msg["from"] = from_email
         msg["subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-
-        if attachments:
-            for file_path in attachments:
-                if not os.path.isfile(file_path):
-                    continue
-                mime_type, _ = mimetypes.guess_type(file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
-                maintype, subtype = mime_type.split("/", 1)
-                with open(file_path, "rb") as f:
-                    part = MIMEBase(maintype, subtype)
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header(
-                        "Content-Disposition",
-                        f'attachment; filename="{os.path.basename(file_path)}"',
-                    )
-                    msg.attach(part)
-
         return base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
     def send_email(
@@ -575,6 +719,8 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         body: str = "",
         from_email: Optional[str] = None,
         attachments: Optional[List[str]] = None,
+        html: bool = False,
+        inline_images: Optional[List[str]] = None,
     ) -> Result:
         cred = self._load()
         sender = from_email or cred.email
@@ -582,7 +728,12 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         # Agent App's daily digest, an agent self-notification) should never
         # need to know or store the user's address — identity is CraftBot's.
         recipient = to or cred.email
-        raw = self._encode_email(recipient, sender, subject, body, attachments)
+        try:
+            raw = self._encode_email(
+                recipient, sender, subject, body, attachments, html, inline_images
+            )
+        except ValueError as e:
+            return {"error": str(e)}
         return http_request(
             "POST",
             f"{GMAIL_API_BASE}/users/me/messages/send",
@@ -802,7 +953,15 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         body: str,
         reply_all: bool = False,
         attachments: Optional[List[str]] = None,
+        html: bool = False,
+        inline_images: Optional[List[str]] = None,
     ) -> Result:
+        try:
+            msg = _build_message(
+                body, as_html=html, inline_images=inline_images, attachments=attachments
+            )
+        except ValueError as e:
+            return {"error": str(e)}
         info = self._fetch_reply_headers(message_id)
         if info.get("_error"):
             return {"error": info["_error"]}
@@ -828,7 +987,6 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             self_email = (cred.email or "").lower()
             cc_addrs = [a for a in cc_addrs if a and self_email not in a.lower()]
 
-        msg = MIMEMultipart()
         msg["to"] = from_addr
         msg["from"] = cred.email
         msg["subject"] = reply_subject
@@ -839,25 +997,6 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             msg["References"] = (
                 (references + " " + msg_id_hdr).strip() if references else msg_id_hdr
             )
-        msg.attach(MIMEText(body, "plain"))
-
-        if attachments:
-            for file_path in attachments:
-                if not os.path.isfile(file_path):
-                    continue
-                mime_type, _ = mimetypes.guess_type(file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
-                maintype, subtype = mime_type.split("/", 1)
-                with open(file_path, "rb") as f:
-                    part = MIMEBase(maintype, subtype)
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header(
-                        "Content-Disposition",
-                        f'attachment; filename="{os.path.basename(file_path)}"',
-                    )
-                    msg.attach(part)
 
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         payload: Dict[str, Any] = {"raw": raw}
@@ -1026,23 +1165,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             )
             msg.attach(part)
 
-        if attachments:
-            for file_path in attachments:
-                if not os.path.isfile(file_path):
-                    continue
-                mime_type, _ = mimetypes.guess_type(file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
-                maintype, subtype = mime_type.split("/", 1)
-                with open(file_path, "rb") as f:
-                    part = MIMEBase(maintype, subtype)
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header(
-                        "Content-Disposition",
-                        f'attachment; filename="{os.path.basename(file_path)}"',
-                    )
-                    msg.attach(part)
+        _attach_files(msg, attachments)
 
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         payload: Dict[str, Any] = {"raw": raw}
@@ -1179,9 +1302,16 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         cc: Optional[str] = None,
         bcc: Optional[str] = None,
         attachments: Optional[List[str]] = None,
+        html: bool = False,
+        inline_images: Optional[List[str]] = None,
     ) -> Result:
         cred = self._load()
-        msg = MIMEMultipart()
+        try:
+            msg = _build_message(
+                body, as_html=html, inline_images=inline_images, attachments=attachments
+            )
+        except ValueError as e:
+            return {"error": str(e)}
         msg["to"] = to
         msg["from"] = cred.email
         msg["subject"] = subject
@@ -1189,25 +1319,6 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             msg["cc"] = cc
         if bcc:
             msg["bcc"] = bcc
-        msg.attach(MIMEText(body, "plain"))
-
-        if attachments:
-            for file_path in attachments:
-                if not os.path.isfile(file_path):
-                    continue
-                mime_type, _ = mimetypes.guess_type(file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
-                maintype, subtype = mime_type.split("/", 1)
-                with open(file_path, "rb") as f:
-                    part = MIMEBase(maintype, subtype)
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header(
-                        "Content-Disposition",
-                        f'attachment; filename="{os.path.basename(file_path)}"',
-                    )
-                    msg.attach(part)
 
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         return http_request(
@@ -1231,10 +1342,17 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         cc: Optional[str] = None,
         bcc: Optional[str] = None,
         attachments: Optional[List[str]] = None,
+        html: bool = False,
+        inline_images: Optional[List[str]] = None,
     ) -> Result:
         """Replaces the draft content (PUT)."""
         cred = self._load()
-        msg = MIMEMultipart()
+        try:
+            msg = _build_message(
+                body, as_html=html, inline_images=inline_images, attachments=attachments
+            )
+        except ValueError as e:
+            return {"error": str(e)}
         msg["to"] = to
         msg["from"] = cred.email
         msg["subject"] = subject
@@ -1242,25 +1360,6 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             msg["cc"] = cc
         if bcc:
             msg["bcc"] = bcc
-        msg.attach(MIMEText(body, "plain"))
-
-        if attachments:
-            for file_path in attachments:
-                if not os.path.isfile(file_path):
-                    continue
-                mime_type, _ = mimetypes.guess_type(file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
-                maintype, subtype = mime_type.split("/", 1)
-                with open(file_path, "rb") as f:
-                    part = MIMEBase(maintype, subtype)
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header(
-                        "Content-Disposition",
-                        f'attachment; filename="{os.path.basename(file_path)}"',
-                    )
-                    msg.attach(part)
 
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         return http_request(

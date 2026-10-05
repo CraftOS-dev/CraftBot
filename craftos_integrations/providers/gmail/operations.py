@@ -22,6 +22,26 @@ from .._shared import client_op
 from .client import clean_snippet
 
 
+# Body-format inputs shared by every op that composes a message
+# (send / reply / create + update draft).
+_HTML_INPUT = {
+    "type": "boolean",
+    "description": "Treat body as HTML instead of plain text (default false).",
+    "example": False,
+}
+_INLINE_IMAGES_INPUT = {
+    "type": "array",
+    "description": (
+        "Optional local image file paths shown INSIDE the email body (not as "
+        "attachments). Place each in an HTML body with <img src=\"cid:<file "
+        "name>\">, e.g. <img src=\"cid:chart.png\">; an <img src> holding a "
+        "local path is embedded too. Images not placed in the body are shown "
+        "below it, so a plain-text body works as well."
+    ),
+    "example": [],
+}
+
+
 def _get_gmail_thread_op() -> Operation:
     """get_gmail_thread with the lean-shaping of the raw thread."""
     base = client_op(
@@ -180,9 +200,11 @@ def build_operations() -> List[Operation]:
                 },
                 "body": {
                     "type": "string",
-                    "description": "Email body text.",
+                    "description": "Email body (plain text, or HTML with html=true).",
                     "example": "Hi, here are the notes...",
                 },
+                "html": _HTML_INPUT,
+                "inline_images": _INLINE_IMAGES_INPUT,
                 "attachments": {
                     "type": "array",
                     "description": "Optional list of file paths to attach.",
@@ -195,6 +217,8 @@ def build_operations() -> List[Operation]:
                 "subject": d["subject"],
                 "body": d["body"],
                 "attachments": d.get("attachments"),
+                "html": bool(d.get("html", False)),
+                "inline_images": d.get("inline_images"),
             },
         ),
         client_op(
@@ -316,7 +340,7 @@ def build_operations() -> List[Operation]:
                 },
                 "body": {
                     "type": "string",
-                    "description": "Reply body text.",
+                    "description": "Reply body (plain text, or HTML with html=true).",
                     "example": "Thanks — confirmed for Tuesday.",
                 },
                 "reply_all": {
@@ -324,6 +348,8 @@ def build_operations() -> List[Operation]:
                     "description": "Reply to all recipients.",
                     "example": False,
                 },
+                "html": _HTML_INPUT,
+                "inline_images": _INLINE_IMAGES_INPUT,
             },
         ),
         client_op(
@@ -641,9 +667,11 @@ def build_operations() -> List[Operation]:
                 },
                 "body": {
                     "type": "string",
-                    "description": "Draft body text.",
+                    "description": "Draft body (plain text, or HTML with html=true).",
                     "example": "Draft text...",
                 },
+                "html": _HTML_INPUT,
+                "inline_images": _INLINE_IMAGES_INPUT,
             },
         ),
         client_op(
@@ -662,7 +690,13 @@ def build_operations() -> List[Operation]:
                 },
                 "to": {"type": "string", "description": "Recipient.", "example": ""},
                 "subject": {"type": "string", "description": "Subject.", "example": ""},
-                "body": {"type": "string", "description": "Body text.", "example": ""},
+                "body": {
+                    "type": "string",
+                    "description": "Body (plain text, or HTML with html=true).",
+                    "example": "",
+                },
+                "html": _HTML_INPUT,
+                "inline_images": _INLINE_IMAGES_INPUT,
                 "cc": {"type": "string", "description": "Optional CC.", "example": ""},
                 "bcc": {
                     "type": "string",
@@ -683,6 +717,8 @@ def build_operations() -> List[Operation]:
                 "cc": d.get("cc") or None,
                 "bcc": d.get("bcc") or None,
                 "attachments": d.get("attachments"),
+                "html": bool(d.get("html", False)),
+                "inline_images": d.get("inline_images"),
             },
         ),
         client_op(
