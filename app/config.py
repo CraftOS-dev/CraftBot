@@ -654,3 +654,12 @@ HUBSPOT_SHARED_CLIENT_ID: str = get_credential(
 HUBSPOT_SHARED_CLIENT_SECRET: str = get_credential(
     "hubspot", "client_secret", "HUBSPOT_SHARED_CLIENT_SECRET"
 )
+
+# Supabase (confidential OAuth app + PKCE; empty until the app is registered,
+# in which case the integration offers only personal-access-token login)
+SUPABASE_SHARED_CLIENT_ID: str = get_credential(
+    "supabase", "client_id", "SUPABASE_SHARED_CLIENT_ID"
+)
+SUPABASE_SHARED_CLIENT_SECRET: str = get_credential(
+    "supabase", "client_secret", "SUPABASE_SHARED_CLIENT_SECRET"
+)

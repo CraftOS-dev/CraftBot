@@ -1,6 +1,6 @@
 # craftos_integrations
 
-A plug-and-play package of 24 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Stripe, HubSpot, Notion, LinkedIn, Outlook, PostHog, Twitter, WhatsApp Web/Business, LINE, Lark + Lark Calendar/Drive, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
+A plug-and-play package of 25 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Stripe, HubSpot, Notion, LinkedIn, Outlook, PostHog, Supabase, Twitter, WhatsApp Web/Business, LINE, Lark + Lark Calendar/Drive, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
 
 The package owns:
 
@@ -204,6 +204,7 @@ Every OAuth-capable integration reads its credentials via `ConfigStore.get_oauth
 | linkedin          | oauth       | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`                           |
 | notion            | both        | `NOTION_SHARED_CLIENT_ID`, `NOTION_SHARED_CLIENT_SECRET` (only for `invite`) |
 | slack             | both        | `SLACK_SHARED_CLIENT_ID`, `SLACK_SHARED_CLIENT_SECRET` (only for `invite`) |
+| supabase          | token → both | `SUPABASE_SHARED_CLIENT_ID`, `SUPABASE_SHARED_CLIENT_SECRET` (OAuth path; `auth_type` reports `both` only once both are set — personal access token otherwise) |
 
 The discord voice helper additionally reads `extras["openai_api_key"]` (or `OPENAI_API_KEY` env) for STT/TTS.
 
@@ -390,7 +391,7 @@ integration_registry()  # snapshot dict {id: metadata}
 | `INTEGRATION.md` | gotchas: identifier shapes, auth failure modes, rate limits |
 | `GUIDANCE.md` | how the agent should *use* the integration |
 
-Add the provider to `default_providers()`; the autoloader imports `client.py` at startup. This is the **full port** shape — gmail, google_*, hubspot, linkedin, notion, outlook, slack, posthog. Build every new integration this way.
+Add the provider to `default_providers()`; the autoloader imports `client.py` at startup. This is the **full port** shape — gmail, google_*, hubspot, linkedin, notion, outlook, slack, posthog, supabase. Build every new integration this way.
 
 #### The older two-folder shape (auth-layer bridge)
 

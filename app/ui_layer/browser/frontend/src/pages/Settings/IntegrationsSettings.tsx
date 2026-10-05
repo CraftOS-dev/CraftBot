@@ -31,6 +31,7 @@ import {
   YouTube,
   MicrosoftOutlook,
   PostHog,
+  Supabase,
 } from '@ridemountainpig/svgl-react'
 import { useTranslation } from 'react-i18next'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
@@ -98,6 +99,7 @@ const SVGL_BY_ID: Record<string, SvglIcon> = {
   google_youtube: YouTube,
   outlook: MicrosoftOutlook,
   posthog: PostHog,
+  supabase: Supabase,
 }
 
 // Integration icon component. Lookup order:
@@ -1592,6 +1594,11 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                           : isProblem(account) || account.sessionState === 'reconnecting'
                             ? stateLabel(account)
                             : ''
+                      // Nickname first (staged edit wins); the identity can be an
+                      // opaque id (e.g. a token fingerprint), so it stays in the tooltip.
+                      const nickname = staged && account.identity in staged.aliases
+                        ? staged.aliases[account.identity]
+                        : account.alias
                       return (
                         <button
                           key={account.identity}
@@ -1603,7 +1610,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                         >
                           <span className={`${styles.mLive} ${dotClass(account)}`} />
                           <span className={styles.mRowId} title={account.identity}>
-                            {account.identity}
+                            {nickname || account.identity}
                           </span>
                           <span className={styles.mRowSpacer} />
                           {meta && <span className={styles.mRowMeta}>{meta}</span>}
