@@ -27,6 +27,56 @@ DEFAULT_SET_DESCRIPTIONS: Dict[str, str] = {
 }
 
 
+_MAX_NOUNS = 6
+
+
+def _umbrella_of(set_name: str, all_sets: Dict[str, List[str]]) -> Optional[str]:
+    """Longest other set name that prefixes this one (``supabase`` for
+    ``supabase_storage``) — the integration's shortlist set."""
+    best = None
+    for other in all_sets:
+        if other != set_name and set_name.startswith(other + "_"):
+            if best is None or len(other) > len(best):
+                best = other
+    return best
+
+
+def describe_set(
+    set_name: str, actions: List[str], all_sets: Dict[str, List[str]]
+) -> str:
+    """Catalog line for a set with no hand-written description.
+
+    The agent picks sets from this catalog, so the line must say what is
+    inside. Integration sets are named by integration and noun
+    (``supabase_storage``) and their actions by verb + integration + noun
+    (``delete_supabase_bucket``); listing the nouns tells the agent where
+    an action lives without spending tokens on every action name.
+    """
+    sub_sets = sorted(s for s in all_sets if s.startswith(set_name + "_"))
+    if sub_sets:
+        return (
+            f"shortlist of the most-used {set_name} actions ({len(actions)}); "
+            f"not everything — load {set_name}_* sets for the rest"
+        )
+
+    umbrella = _umbrella_of(set_name, all_sets)
+    strip = set(umbrella.split("_")) if umbrella else set()
+    shown_as: Dict[str, str] = {}  # singular key -> display form, in order
+    for action in actions:
+        tokens = [t for t in action.split("_") if t not in strip]
+        noun = "_".join(tokens[1:]) if len(tokens) > 1 else action
+        key = noun[:-2] if noun.endswith(("ches", "shes", "xes", "sses")) else noun.rstrip("s")
+        if not key:
+            continue
+        # Keep first-seen order, but prefer the plural form for display.
+        if key not in shown_as or (noun.endswith("s") and not shown_as[key].endswith("s")):
+            shown_as[key] = noun
+    nouns = list(shown_as.values())
+    shown = ", ".join(nouns[:_MAX_NOUNS])
+    more = ", …" if len(nouns) > _MAX_NOUNS else ""
+    return f"{len(actions)} actions: {shown}{more}"
+
+
 class ActionSetManager:
     """
     Singleton managing action set compilation from the ActionRegistry.
@@ -134,7 +184,7 @@ class ActionSetManager:
         from agent_core import registry_instance, PLATFORM_ALL
 
         current_platform = platform_lib.system().lower()
-        discovered_sets: Dict[str, str] = {}
+        members: Dict[str, List[str]] = {}
 
         # Scan all registered actions to find unique set names
         for action_name, platform_impls in registry_instance._registry.items():
@@ -147,14 +197,13 @@ class ActionSetManager:
 
             action_sets = getattr(impl.metadata, "action_sets", [])
             for set_name in action_sets:
-                if set_name not in discovered_sets:
-                    # Use default description if known, otherwise generate one
-                    desc = DEFAULT_SET_DESCRIPTIONS.get(
-                        set_name, f"Custom action set: {set_name}"
-                    )
-                    discovered_sets[set_name] = desc
+                members.setdefault(set_name, []).append(action_name)
 
-        return discovered_sets
+        return {
+            set_name: DEFAULT_SET_DESCRIPTIONS.get(set_name)
+            or describe_set(set_name, actions, members)
+            for set_name, actions in members.items()
+        }
 
     def get_set_description(self, set_name: str) -> Optional[str]:
         """

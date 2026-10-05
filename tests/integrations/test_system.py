@@ -153,3 +153,59 @@ def test_apply_account_changes_end_to_end(system):
     assert by_id["b@y.com"].is_primary
     assert by_id["a@x.com"].alias == "personal"
     assert run(system.execute("gmail", "whoami", {}))["email"] == "b@y.com"
+
+
+# ── provider-suggested default alias ─────────────────────────────────
+
+
+class NamingProvider(FakeProvider):
+    """A provider whose identity is opaque, suggesting a readable name."""
+
+    def identity_of(self, credential):
+        return credential.get("token_id")
+
+    def default_alias(self, credential):
+        return credential.get("label")
+
+
+def _naming_system(tmp_path):
+    return IntegrationSystem(
+        store=FileCredentialStore(root=tmp_path),
+        providers=[NamingProvider("supa")],
+    )
+
+
+def _alias(sys, pid, identity):
+    return {a.identity: a.alias for a in sys.list_accounts(pid)}[identity]
+
+
+def test_new_account_gets_provider_default_alias(tmp_path):
+    sys = _naming_system(tmp_path)
+    sys.store_credential("supa", "token:abc", {"token_id": "abc", "label": "Test"})
+    assert _alias(sys, "supa", "token:abc") == "Test"
+    # the suggested name resolves like any alias
+    assert sys.resolve("supa", "Test") == "token:abc"
+
+
+def test_default_alias_never_overwrites_a_users_rename(tmp_path):
+    sys = _naming_system(tmp_path)
+    sys.store_credential("supa", "token:abc", {"token_id": "abc", "label": "Test"})
+    sys.set_alias("supa", "token:abc", "work")
+    # re-auth / credential refresh of the same account
+    sys.store_credential("supa", "token:abc", {"token_id": "abc", "label": "Other"})
+    assert _alias(sys, "supa", "token:abc") == "work"
+
+
+def test_taken_default_alias_is_skipped_not_fatal(tmp_path):
+    sys = _naming_system(tmp_path)
+    sys.store_credential("supa", "token:abc", {"token_id": "abc", "label": "Test"})
+    sys.store_credential("supa", "token:def", {"token_id": "def", "label": "Test"})
+    assert _alias(sys, "supa", "token:def") is None
+    assert len(sys.list_accounts("supa")) == 2
+
+
+def test_providers_without_default_alias_are_unchanged(system):
+    assert {a.identity: a.alias for a in system.list_accounts("gmail")} == {
+        "a@x.com": None,
+        "b@y.com": "school",
+    }
