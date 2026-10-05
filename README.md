@@ -110,10 +110,6 @@ Spin it up as a Agent App that runs alongside CraftBot and grows as your needs c
 3. **Import an existing project.** Point CraftBot at a Go, Node.js, Python,
    Rust, or static source code or github repo. It detects the runtime, configures health checks, and wraps it as a Agent App.
 
-<div align="center">
-    <img src="assets/agent-app-import.png" alt="Importing an existing project as a Agent App" width="448"/>
-</div>
-
 ### Keeps evolving with CraftBot inside the loop
 
 A Agent App is never "finished." Ask the agent to add features, redesign
