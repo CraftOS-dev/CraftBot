@@ -31,6 +31,26 @@
     "stopRun": "停止執行",
     "stoppingRun": "正在停止執行"
   },
+  "reasoning": {
+    "title": "推理",
+    "picker": "推理強度",
+    "header": "推理 · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "由模型決定",
+    "defaultTag": "預設",
+    "notConfigurable": "{{model}} 不支援調整推理",
+    "clamped": "此模型不支援「{{requested}}」，因此使用「{{effective}}」。",
+    "choice": {
+      "provider_default": "供應商預設",
+      "off": "關閉",
+      "minimal": "最低",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "超高",
+      "max": "最高"
+    }
+  },
   "reply": {
     "replyingTo": "正在回覆：<1>{{name}}</1>",
     "cancel": "取消回覆"

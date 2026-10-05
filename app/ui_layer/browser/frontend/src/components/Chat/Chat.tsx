@@ -41,6 +41,7 @@ import {
   selectPendingQuestions,
 } from '../../store/selectors/messages'
 import { QuestionBox } from './QuestionBox'
+import { ReasoningPicker } from './ReasoningPicker'
 import { mergeTimeline, type TimelineEntry } from './timeline'
 import { selectSessionActivity } from '../../store/selectors/activity'
 import { selectSessionBusy, selectSessionRunState } from '../../store/selectors/agent'
@@ -881,13 +882,13 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const handleEnhancePrompt = useCallback(() => {
     if (!input.trim() || enhancing) return
     setEnhancing(true)
-    enhancePrompt(input.trim())
+    enhancePrompt(input.trim(), sessionId)
     enhanceTimeoutRef.current = setTimeout(() => {
     enhanceTimeoutRef.current = null
     setEnhancing(false)
     showToast('error', t('chat:toast.enhanceTimedOut'))
   }, ENHANCE_TIMEOUT_MS)
-  }, [input, enhancing, enhancePrompt, showToast, t])
+  }, [input, enhancing, enhancePrompt, sessionId, showToast, t])
 
   useEffect(() => {
   return () => {
@@ -1519,41 +1520,44 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           />
 
           <div className={styles.inputControls}>
-            <div className={styles.plusWrap} ref={plusMenuRef}>
-              <button
-                type="button"
-                className={styles.plusBtn}
-                onClick={() => setPlusOpen(o => !o)}
-                title={t('chat:composer.attachAndTools')}
-                aria-label={t('chat:composer.attachAndTools')}
-                aria-expanded={plusOpen}
-                {...tourAnchorProps('chat-plus')}
-              >
-                {enhancing
-                   ? <Loader2 size={18} className={styles.uploadingSpinner} />
-                   : <Plus size={18} />}
-              </button>
-              {plusOpen && (
-                <div className={styles.plusMenu}>
-                  <button
-                    className={styles.plusMenuItem}
-                    onClick={() => { setPlusOpen(false); handleAttachClick() }}
-                  >
-                    <Paperclip size={15} />
-                    <span>{t('chat:composer.attachFiles')}</span>
-                  </button>
-                  <button
-                    className={styles.plusMenuItem}
-                    onClick={() => { setPlusOpen(false); handleEnhancePrompt() }}
-                    disabled={!input.trim() || enhancing}
-                  >
-                    {enhancing
-                      ? <Loader2 size={15} className={styles.uploadingSpinner} />
-                      : <Sparkles size={15} />}
-                    <span>{enhancing ? t('chat:composer.enhancing') : t('chat:composer.aiEnhance')}</span>
-                  </button>
-                </div>
-              )}
+            <div className={styles.controlsLeft}>
+              <div className={styles.plusWrap} ref={plusMenuRef}>
+                <button
+                  type="button"
+                  className={styles.plusBtn}
+                  onClick={() => setPlusOpen(o => !o)}
+                  title={t('chat:composer.attachAndTools')}
+                  aria-label={t('chat:composer.attachAndTools')}
+                  aria-expanded={plusOpen}
+                  {...tourAnchorProps('chat-plus')}
+                >
+                  {enhancing
+                     ? <Loader2 size={18} className={styles.uploadingSpinner} />
+                     : <Plus size={18} />}
+                </button>
+                {plusOpen && (
+                  <div className={styles.plusMenu}>
+                    <button
+                      className={styles.plusMenuItem}
+                      onClick={() => { setPlusOpen(false); handleAttachClick() }}
+                    >
+                      <Paperclip size={15} />
+                      <span>{t('chat:composer.attachFiles')}</span>
+                    </button>
+                    <button
+                      className={styles.plusMenuItem}
+                      onClick={() => { setPlusOpen(false); handleEnhancePrompt() }}
+                      disabled={!input.trim() || enhancing}
+                    >
+                      {enhancing
+                        ? <Loader2 size={15} className={styles.uploadingSpinner} />
+                        : <Sparkles size={15} />}
+                      <span>{enhancing ? t('chat:composer.enhancing') : t('chat:composer.aiEnhance')}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              <ReasoningPicker sessionId={sessionId} />
             </div>
 
             <div className={styles.controlsRight}>

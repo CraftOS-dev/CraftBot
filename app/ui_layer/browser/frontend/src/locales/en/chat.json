@@ -31,6 +31,26 @@
     "stopRun": "Stop run",
     "stoppingRun": "Stopping run"
   },
+  "reasoning": {
+    "title": "Reasoning",
+    "picker": "Reasoning effort",
+    "header": "Reasoning · {{model}}",
+    "withLevel": "{{choice}} · {{level}}",
+    "dynamic": "Model decides",
+    "defaultTag": "Default",
+    "notConfigurable": "Reasoning isn't adjustable for {{model}}",
+    "clamped": "{{requested}} isn't available on this model, so {{effective}} is used.",
+    "choice": {
+      "provider_default": "Provider default",
+      "off": "Off",
+      "minimal": "Minimal",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "xhigh": "Extra high",
+      "max": "Max"
+    }
+  },
   "reply": {
     "replyingTo": "Replying to: <1>{{name}}</1>",
     "cancel": "Cancel reply"

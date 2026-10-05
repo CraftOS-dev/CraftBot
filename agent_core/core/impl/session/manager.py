@@ -33,6 +33,7 @@ from agent_core.core.session import (
 )
 from agent_core.core.state import StateSession
 from agent_core.core.impl.llm import LLMCallType
+from agent_core.core.models.reasoning import ReasoningChoice
 
 from agent_core.utils.logger import logger
 
@@ -137,6 +138,7 @@ class SessionManager:
         selected_skills: Optional[List[str]] = None,
         agent_app_project_id: Optional[str] = None,
         gui_mode: bool = False,
+        reasoning_effort: Optional[ReasoningChoice] = None,
     ) -> Session:
         """
         Create a new persistent session.
@@ -149,6 +151,10 @@ class SessionManager:
             selected_skills: Skills to preload (slash-command entry, Agent App).
             agent_app_project_id: Backing project for agent_app sessions.
             gui_mode: Whether the session starts in GUI mode.
+            reasoning_effort: The session's reasoning choice (the draft
+                chat's picker value when a draft becomes a session); None
+                stores no choice, so each request runs at the default level
+                of the model serving it.
 
         Returns:
             The created Session.
@@ -179,6 +185,9 @@ class SessionManager:
             workspace_dir=str(workspace_dir),
             agent_app_project_id=agent_app_project_id,
             gui_mode=gui_mode,
+            reasoning_effort=(
+                reasoning_effort.value if reasoning_effort is not None else None
+            ),
         )
         self.sessions[sid] = session
 
@@ -272,6 +281,18 @@ class SessionManager:
         if not session or not title.strip():
             return False
         session.title = title.strip()
+        self._persist(session)
+        return True
+
+    def set_reasoning_effort(self, session_id: str, choice: ReasoningChoice) -> bool:
+        """Set a session's reasoning choice (the chat input's picker).
+
+        Takes effect from the session's next LLM request.
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return False
+        session.reasoning_effort = choice.value
         self._persist(session)
         return True
 

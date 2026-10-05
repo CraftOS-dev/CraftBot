@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
+from agent_core.core.models.reasoning import ReasoningChoice
 from agent_core.utils.logger import logger
 from app.ui_layer.events.event_bus import EventBus
 from app.ui_layer.events.event_types import UIEvent, UIEventType
@@ -428,8 +429,17 @@ class UIController:
         elif value == "abort_limit":
             await self._agent.handle_limit_abort(session_id)
 
-    async def handle_prompt_enhance(self, user_message: str) -> str:
-        return await self._agent._handle_prompt_enhance(user_message=user_message)
+    async def handle_prompt_enhance(
+        self,
+        user_message: str,
+        session_id: Optional[str],
+        reasoning_choice: Optional[ReasoningChoice],
+    ) -> str:
+        return await self._agent._handle_prompt_enhance(
+            user_message=user_message,
+            session_id=session_id,
+            reasoning_choice=reasoning_choice,
+        )
 
     # ─────────────────────────────────────────────────────────────────────
     # Event Processing

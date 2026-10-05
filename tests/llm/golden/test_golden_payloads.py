@@ -12,8 +12,11 @@ human-readable form so a snapshot regression is diagnosable at a glance.
 
 from __future__ import annotations
 
+import pytest
+
 from .conftest import (
     GOLDEN_CALL_TYPE,
+    GOLDEN_SESSION_KEY,
     GOLDEN_SYSTEM_PROMPT,
     GOLDEN_TASK_ID,
     assert_snapshot,
@@ -94,6 +97,16 @@ def test_anthropic(golden):
     assert marked[0][0] == 3  # index of the last assistant message
     assert marked[0][1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
+    # Reasoning default (Claude 4.6 row): adaptive thinking at effort high,
+    # temperature dropped (incompatible with thinking), max_tokens raised
+    # for thinking but kept under the SDK's non-streaming ceiling.
+    for call in creates:
+        payload = call["payload"]
+        assert payload["thinking"] == {"type": "adaptive"}
+        assert payload["output_config"] == {"effort": "high"}
+        assert "extra_body" not in payload
+        assert payload["max_tokens"] == 21000
+
     snapshot_scenario("anthropic", iface, rec)
 
 
@@ -137,6 +150,16 @@ def test_bedrock(golden):
     assert i == 3  # last assistant in [u1, a1, u2, a2, new_user]
     assert j == len(turn3["messages"][i]["content"]) - 1
 
+    # Reasoning default (Claude 4.5 budget row via Converse): budget thinking
+    # at the "high" rung, temperature dropped, maxTokens never lowered.
+    for call in converses:
+        payload = call["payload"]
+        assert payload["additionalModelRequestFields"] == {
+            "thinking": {"type": "enabled", "budget_tokens": 12288}
+        }
+        assert "temperature" not in payload["inferenceConfig"]
+        assert payload["inferenceConfig"]["maxTokens"] == 50000
+
     snapshot_scenario("bedrock", iface, rec)
 
 
@@ -174,6 +197,11 @@ def test_openai(golden):
         assert len(msgs) == 1 + 2 * (n - 1) + 1
         assert msgs[0]["role"] == "system"
         assert msgs[-1]["role"] == "user"
+
+    # Reasoning default (gpt-5.2 row): one level below xhigh. The output cap
+    # is never lowered (this fixture's max_tokens already exceeds the row's).
+    assert all(c["payload"]["reasoning_effort"] == "high" for c in creates)
+    assert all(c["payload"]["max_completion_tokens"] == 50000 for c in creates)
 
     snapshot_scenario("openai", iface, rec)
 
@@ -330,11 +358,18 @@ def test_openrouter_claude(golden):
         assert extra["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
         assert extra["prompt_cache_key"].startswith(f"{GOLDEN_CALL_TYPE}_")
 
-    # Accumulation must use the OpenRouter-Anthropic buffer, not openai_compat.
-    buffers = collect_buffers(iface)
-    key = f"{GOLDEN_TASK_ID}:{GOLDEN_CALL_TYPE}"
-    assert len(buffers["openrouter_anthropic"][key]) == 6  # 3 turns x (u, a)
-    assert buffers["openai_compat"] == {}
+    # Accumulation: 3 turns x (user, assistant) in OpenAI message shape.
+    history = collect_buffers(iface)["session_histories"][GOLDEN_SESSION_KEY]
+    assert [m["role"] for m in history] == ["user", "assistant"] * 3
+
+    # Reasoning default (Claude 4.5 budget row via OpenRouter): a fixed
+    # thinking budget beside cache_control, temperature dropped, and the
+    # request max_tokens strictly above the budget.
+    for call in creates:
+        payload = call["payload"]
+        assert payload["extra_body"]["reasoning"] == {"max_tokens": 12288}
+        assert "temperature" not in payload
+        assert payload["max_tokens"] > 12288
 
     snapshot_scenario("openrouter_claude", iface, rec)
 
@@ -351,10 +386,8 @@ def test_openrouter_non_claude(golden):
         extra = call["payload"].get("extra_body", {})
         assert "cache_control" not in extra
 
-    buffers = collect_buffers(iface)
-    key = f"{GOLDEN_TASK_ID}:{GOLDEN_CALL_TYPE}"
-    assert len(buffers["openai_compat"][key]) == 6
-    assert buffers["openrouter_anthropic"] == {}
+    history = collect_buffers(iface)["session_histories"][GOLDEN_SESSION_KEY]
+    assert [m["role"] for m in history] == ["user", "assistant"] * 3
 
     snapshot_scenario("openrouter_non_claude", iface, rec)
 
@@ -373,9 +406,8 @@ def test_groq_new_provider(golden):
         assert "prompt_cache_key" not in extra
         assert "cache_control" not in extra
 
-    buffers = collect_buffers(iface)
-    key = f"{GOLDEN_TASK_ID}:{GOLDEN_CALL_TYPE}"
-    assert len(buffers["openai_compat"][key]) == 6  # 3 turns x (u, a)
+    history = collect_buffers(iface)["session_histories"][GOLDEN_SESSION_KEY]
+    assert len(history) == 6  # 3 turns x (u, a)
 
     snapshot_scenario("groq", iface, rec)
 
@@ -387,16 +419,27 @@ def test_gemini(golden):
     iface, rec = golden("gemini", "gemini-2.5-pro")
     run_scenario(iface)
 
-    # Sessionless (no call_type) -> single-turn generate_text.
-    assert rec.calls[0]["method"] == "generate_text"
+    posts = [c for c in rec.calls if c["method"] == "generateContent"]
+    assert len(posts) == 4
+    assert all(
+        p["payload"]["path"] == "models/gemini-2.5-pro:generateContent" for p in posts
+    )
+
+    # Sessionless (no call_type) -> single-turn request.
+    assert len(posts[0]["payload"]["body"]["contents"]) == 1
 
     # Session turns -> multiturn contents array growing by 2 per turn.
-    multiturns = [c for c in rec.calls if c["method"] == "generate_text_multiturn"]
-    assert len(multiturns) == 3
-    for n, call in enumerate(multiturns, start=1):
-        contents = call["payload"]["contents"]
+    for n, call in enumerate(posts[1:], start=1):
+        contents = call["payload"]["body"]["contents"]
         assert len(contents) == 2 * (n - 1) + 1
         assert contents[-1]["role"] == "user"
+
+    # Reasoning default (gemini-2.5-pro budget row) on both the single-turn
+    # and the multi-turn request.
+    for post in posts:
+        config = post["payload"]["body"]["generationConfig"]
+        assert config["thinkingConfig"] == {"thinkingBudget": 24576}
+        assert config["maxOutputTokens"] >= 24576 + 8192
 
     snapshot_scenario("gemini", iface, rec)
 
@@ -447,3 +490,27 @@ def test_remote_ollama(golden):
     assert "system" not in posts[3]["payload"]["json"]
 
     snapshot_scenario("remote", iface, rec)
+
+
+# ───────────────────── Models without a reasoning rule ─────────────────────
+#
+# A model the reasoning table (agent_core/core/models/reasoning.py) does not
+# list must keep receiving exactly the payload it received before reasoning
+# defaults existed. These snapshots were recorded before that feature landed
+# and must never drift: one scenario per wire that the feature touches.
+
+UNRULED_MODELS = [
+    ("openai", "gpt-4o", "unruled_openai"),
+    ("anthropic", "claude-3-5-haiku-20241022", "unruled_anthropic"),
+    ("bedrock", "meta.llama3-3-70b-instruct-v1:0", "unruled_bedrock"),
+    ("gemini", "gemini-2.0-flash", "unruled_gemini"),
+    ("openrouter", "anthropic/claude-3.5-sonnet", "unruled_openrouter_claude"),
+    ("grok", "grok-3", "unruled_grok"),
+]
+
+
+@pytest.mark.parametrize("provider, model, snapshot", UNRULED_MODELS)
+def test_unruled_model_payload_is_unchanged(golden, provider, model, snapshot):
+    iface, rec = golden(provider, model)
+    run_scenario(iface)
+    snapshot_scenario(snapshot, iface, rec)

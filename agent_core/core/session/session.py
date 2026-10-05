@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+from agent_core.core.models.reasoning import ReasoningChoice
 from agent_core.core.session.todo import TodoItem
 
 
@@ -32,6 +33,13 @@ class SessionType:
 # The singleton main session id. All ambient input (integrations, scheduler,
 # special workflows, restart notices, dead letters) lands here.
 MAIN_SESSION_ID = "main"
+
+
+def _stored_reasoning_effort(value: Any) -> Optional[str]:
+    """A persisted reasoning choice, or None when absent or no longer valid
+    (no choice: the session runs at the default level of the model in use).
+    """
+    return value if value in {choice.value for choice in ReasoningChoice} else None
 
 
 @dataclass
@@ -54,6 +62,10 @@ class Session:
         workspace_dir: Persistent scratch directory for this session.
         agent_app_project_id: Backing project id for agent_app sessions.
         gui_mode: Whether this session drives the GUI action space.
+        reasoning_effort: The session's reasoning choice (a ReasoningChoice
+            value, picked in the chat input). None while the user has never
+            picked one: each request then runs at the default level of the
+            model serving it, so the session follows a model switch.
         action_count/token_count: Budget counters for the current run
             (reset when a new run starts).
         input_tokens/output_tokens/cache_tokens: LLM usage breakdown for
@@ -79,6 +91,7 @@ class Session:
     workspace_dir: Optional[str] = None
     agent_app_project_id: Optional[str] = None
     gui_mode: bool = False
+    reasoning_effort: Optional[str] = None
     # Per-run budget counters
     action_count: int = 0
     token_count: int = 0
@@ -140,6 +153,7 @@ class Session:
             "workspace_dir": self.workspace_dir,
             "agent_app_project_id": self.agent_app_project_id,
             "gui_mode": self.gui_mode,
+            "reasoning_effort": self.reasoning_effort,
             "action_count": self.action_count,
             "token_count": self.token_count,
             "input_tokens": self.input_tokens,
@@ -168,6 +182,7 @@ class Session:
             workspace_dir=data.get("workspace_dir"),
             agent_app_project_id=data.get("agent_app_project_id"),
             gui_mode=data.get("gui_mode", False),
+            reasoning_effort=_stored_reasoning_effort(data.get("reasoning_effort")),
             action_count=data.get("action_count", 0),
             token_count=data.get("token_count", 0),
             input_tokens=data.get("input_tokens", 0),

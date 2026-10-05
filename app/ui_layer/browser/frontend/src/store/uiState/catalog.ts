@@ -1,4 +1,5 @@
-import type { MetricsTimePeriod } from '../../types'
+import type { MetricsTimePeriod, ReasoningChoice } from '../../types'
+import { REASONING_CHOICES } from '../../types'
 import type { DashboardLayoutsStorage } from '../../pages/Dashboard/layout/types'
 import type { SettingsCategory } from '../../pages/Settings/types'
 import { defineUiState, defineUiStateFamily, oneOf } from './defineUiState'
@@ -65,6 +66,12 @@ export const UI_STATE = {
   chat: {
     /** Speech-recognition language code; '' follows the browser language. */
     micLanguage: defineUiState('chat.micLanguage', '', 'preference'),
+    /** The draft chat's reasoning choice, carried into the session its first
+     *  message creates; null (untouched: the model's default level) again once
+     *  that session exists. */
+    draftReasoningEffort: defineUiState<ReasoningChoice | null>('chat.draftReasoningEffort', null, 'session', {
+      isValid: oneOf([null, ...REASONING_CHOICES]),
+    }),
     /** Sent inputs for ↑/↓ recall, oldest first, shared by all sessions. */
     inputHistory: defineUiState<string[]>('chat.inputHistory', [], 'session'),
     /** By session id: ids of the expanded "Action steps" chunks. */

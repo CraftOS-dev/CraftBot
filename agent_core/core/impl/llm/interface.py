@@ -17,7 +17,7 @@ import asyncio
 import contextvars
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 from agent_core.decorators import profile, OperationCategory
@@ -42,23 +42,23 @@ from agent_core.core.hooks import (
     RecordLLMCallHook,
 )
 from agent_core.core.impl.llm import transports as _transports
+from agent_core.core.models.reasoning import (
+    ReasoningChoice,
+    ReasoningDecision,
+    ReasoningOptions,
+    default_choice,
+    reasoning_options as _reasoning_options,
+    resolve_reasoning,
+)
 from agent_core.core.models.registry import (
     get_registry as _get_registry,
     session_cc_providers as _session_cc_providers,
 )
+from agent_core.core.state.session import StateSession
 
 # Logging setup - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
 from agent_core.utils.token import billable_tokens, count_tokens
-
-# Per-call metadata (prompt identity + start time) propagated from the public
-# entry methods down to the capture chokepoint (_call_log_to_db) without
-# threading it through every provider method. asyncio.to_thread copies the
-# context into the worker thread, so this survives the sync offload, and each
-# asyncio Task / thread gets its own copy so concurrent calls don't clobber.
-_llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
-    "_llm_call_ctx", default={}
-)
 
 # Per-call metadata (prompt identity + start time) propagated from the public
 # entry methods down to the capture chokepoint (_call_log_to_db) without
@@ -227,6 +227,12 @@ class LLMInterface:
         # multi-provider outage terminates instead of nesting
         # primary -> fb -> fb-of-fb recursion.
         self._is_fallback_instance = False
+        # (provider, model, auth_mode, choice) combinations whose reasoning
+        # decision has been logged: each is logged once, not per call, even
+        # while concurrent sessions alternate between different choices.
+        self._reasoning_logged: Set[
+            Tuple[Optional[str], Optional[str], str, ReasoningChoice]
+        ] = set()
 
         # Defer imports to avoid circular dependency
         from app.models.factory import ModelFactory
@@ -584,6 +590,7 @@ class LLMInterface:
         call_type: Optional[str] = None,
         task_id: Optional[str] = None,
         thinking_budget: Optional[int] = None,
+        reasoning_choice: Optional[ReasoningChoice] = None,
     ) -> None:
         """Stamp per-call identity + start time into the context for capture.
 
@@ -594,6 +601,9 @@ class LLMInterface:
 
         ``thinking_budget`` (when set) is read by the Gemini transport to cap
         reasoning tokens; other transports never look at it.
+
+        ``reasoning_choice`` (when set) overrides the bound session's choice
+        for this call; see ``reasoning_decision``.
         """
         _llm_call_ctx.set(
             {
@@ -601,6 +611,7 @@ class LLMInterface:
                 "call_type": call_type,
                 "task_id": task_id,
                 "thinking_budget": thinking_budget,
+                "reasoning_choice": reasoning_choice,
                 "start": time.perf_counter(),
             }
         )
@@ -766,17 +777,21 @@ class LLMInterface:
         system_prompt: Optional[str],
         user_prompt: Optional[str] = None,
         messages: Optional[List[dict]] = None,
+        *,
+        reasoning: Optional[ReasoningDecision],
     ) -> None:
         """Refuse a request that cannot fit the configured context window.
 
         Counts the payload that is about to be sent: the system prompt plus
         either the single user prompt or every accumulated message. Input and
-        the output reservation share the window.
+        the output reservation share the window. ``reasoning`` is the
+        request's decision, the same one its transport sends.
         """
         from app.config import get_context_window
 
         window = get_context_window()
-        budget = window - self.max_tokens
+        reserved = self._output_reservation(reasoning)
+        budget = window - reserved
 
         total = count_tokens(system_prompt or "")
         if messages:
@@ -795,9 +810,80 @@ class LLMInterface:
         if total > budget:
             raise LLMContextOverflowError(
                 f"Request of ~{total} input tokens exceeds the {budget}-token budget "
-                f"({window} window - {self.max_tokens} reserved for output) for "
+                f"({window} window - {reserved} reserved for output) for "
                 f"{self.provider}/{self.model}."
             )
+
+    def reasoning_options(self) -> Optional[ReasoningOptions]:
+        """What the chat-input reasoning picker offers for the model in use.
+
+        None when the model has no rule (its reasoning is not adjustable).
+        """
+        return _reasoning_options(self.provider, self.model, self._auth_mode)
+
+    def default_reasoning_choice(self) -> ReasoningChoice:
+        """The choice a request runs at with this interface's model when its
+        session has none of its own."""
+        return default_choice(self.provider, self.model, self._auth_mode)
+
+    def reasoning_choice(self) -> ReasoningChoice:
+        """The reasoning choice that applies to the call in flight.
+
+        A choice passed for this call wins (work for a chat that has no
+        session yet: the draft view); otherwise the choice of the session
+        the context is bound to (StateSession.bind, set around each
+        session's loop); otherwise, for a session whose user never picked
+        one and for work that belongs to no session, the default level of
+        the model serving this request.
+        """
+        explicit = _llm_call_ctx.get().get("reasoning_choice")
+        if explicit is not None:
+            return explicit
+        state = StateSession.bound()
+        if (
+            state is not None
+            and state.current_session is not None
+            and state.current_session.reasoning_effort is not None
+        ):
+            return ReasoningChoice(state.current_session.reasoning_effort)
+        return self.default_reasoning_choice()
+
+    def reasoning_decision(self) -> Optional[ReasoningDecision]:
+        """What the call in flight sends for reasoning.
+
+        None means the model has no rule in agent_core/core/models/reasoning.py
+        and its requests carry no reasoning parameter. Each request resolves
+        it once, just before its context-window check, and hands the same
+        decision to that check and to its transport; so a model switch
+        (reinitialize), a fallback interface, or a changed session choice
+        applies from the next request. Logged once per distinct model and
+        choice.
+        """
+        choice = self.reasoning_choice()
+        decision = resolve_reasoning(self.provider, self.model, self._auth_mode, choice)
+        log_key = (self.provider, self.model, self._auth_mode, choice)
+        if log_key not in self._reasoning_logged:
+            self._reasoning_logged.add(log_key)
+            if decision is None:
+                logger.info(
+                    f"[REASONING] {self.provider}/{self.model}: no reasoning rule "
+                    f"for this model, reasoning parameters not sent"
+                )
+            else:
+                logger.info(f"[REASONING] {decision.key}: {decision.describe()}")
+        return decision
+
+    def _output_reservation(self, reasoning: Optional[ReasoningDecision]) -> int:
+        """Output tokens a request with this reasoning decision reserves out
+        of the context window.
+
+        A reasoning request carries a larger output cap (reasoning tokens
+        count against it), so the window check reserves that cap; otherwise
+        the provider would reject the request for size instead.
+        """
+        if reasoning is None:
+            return self.max_tokens
+        return reasoning.output_cap(self.max_tokens)
 
     def _generate_response_sync(
         self,
@@ -844,8 +930,15 @@ class LLMInterface:
             )
             if _transport is None:  # pragma: no cover
                 raise RuntimeError(f"Unknown provider {self.provider!r}")
-            self._check_context_fits(system_prompt, user_prompt)
-            response = _transport(self, system_prompt, user_prompt, json_mode=json_mode)
+            reasoning = self.reasoning_decision()
+            self._check_context_fits(system_prompt, user_prompt, reasoning=reasoning)
+            response = _transport(
+                self,
+                system_prompt,
+                user_prompt,
+                json_mode=json_mode,
+                reasoning=reasoning,
+            )
             content = response.get("content", "").strip()
 
             # Check if response is empty and provide diagnostics
@@ -970,6 +1063,7 @@ class LLMInterface:
         prompt_name: Optional[str] = None,
         json_mode: bool = True,
         thinking_budget: Optional[int] = None,
+        reasoning_choice: Optional[ReasoningChoice] = None,
     ) -> str:
         """Async wrapper that defers the blocking call to a worker thread.
 
@@ -979,10 +1073,18 @@ class LLMInterface:
         ``thinking_budget`` caps reasoning tokens on providers that expose a
         thinking budget (Gemini). It rides the per-call context and is a no-op
         for every other provider; leave it None (the default) for normal calls.
+
+        ``reasoning_choice`` overrides the bound session's reasoning choice
+        for this call; pass it only for work done for a chat that has no
+        session yet.
         """
         # Stamp the context here, in the caller's context, so asyncio.to_thread
         # copies it into the worker thread where the capture runs.
-        self._begin_call(prompt_name=prompt_name, thinking_budget=thinking_budget)
+        self._begin_call(
+            prompt_name=prompt_name,
+            thinking_budget=thinking_budget,
+            reasoning_choice=reasoning_choice,
+        )
         return await asyncio.to_thread(
             self._generate_response_sync,
             system_prompt,
@@ -1127,6 +1229,11 @@ class LLMInterface:
         plus the output reservation, against the window less the headroom the
         summary request needs. On a session's first request there is no
         provider count yet, so the whole prompt is counted locally.
+
+        The output reservation is the one the pre-send check
+        (_check_context_fits) applies, including the reasoning output cap of
+        the session's choice, so the stream folds before that check could
+        refuse the request.
         """
         from app.config import get_context_window, get_reserve_tokens
 
@@ -1136,7 +1243,8 @@ class LLMInterface:
         else:
             projected = last + count_tokens(pending)
         return (
-            projected + self.max_tokens <= get_context_window() - get_reserve_tokens()
+            projected + self._output_reservation(self.reasoning_decision())
+            <= get_context_window() - get_reserve_tokens()
         )
 
     def end_all_session_caches(self, task_id: str) -> None:
@@ -1381,12 +1489,16 @@ class LLMInterface:
                 f"sending {len(contents)} total contents"
             )
 
-            self._check_context_fits(effective_system_prompt, messages=contents)
+            reasoning = self.reasoning_decision()
+            self._check_context_fits(
+                effective_system_prompt, messages=contents, reasoning=reasoning
+            )
             response = self._generate_gemini(
                 effective_system_prompt,
                 user_prompt,
                 call_type=call_type,
                 contents_override=contents,
+                reasoning=reasoning,
             )
 
             assistant_content = response.get("content", "")
@@ -1443,12 +1555,16 @@ class LLMInterface:
                     f"{len(history)} history msgs, sending {len(or_messages)} total"
                 )
 
-                self._check_context_fits(None, messages=or_messages)
+                reasoning = self.reasoning_decision()
+                self._check_context_fits(
+                    None, messages=or_messages, reasoning=reasoning
+                )
                 response = self._generate_openai(
                     effective_system_prompt,
                     user_prompt,
                     call_type=call_type,
                     messages_override=or_messages,
+                    reasoning=reasoning,
                 )
 
                 assistant_content = response.get("content", "")
@@ -1485,12 +1601,16 @@ class LLMInterface:
                     f"{len(history)} history msgs, sending {len(oa_messages)} total"
                 )
 
-                self._check_context_fits(None, messages=oa_messages)
+                reasoning = self.reasoning_decision()
+                self._check_context_fits(
+                    None, messages=oa_messages, reasoning=reasoning
+                )
                 response = self._generate_openai(
                     effective_system_prompt,
                     user_prompt,
                     call_type=call_type,
                     messages_override=oa_messages,
+                    reasoning=reasoning,
                 )
 
                 assistant_content = response.get("content", "")
@@ -1565,12 +1685,16 @@ class LLMInterface:
             )
 
             # Call Anthropic with the full multi-turn messages
-            self._check_context_fits(effective_system_prompt, messages=messages)
+            reasoning = self.reasoning_decision()
+            self._check_context_fits(
+                effective_system_prompt, messages=messages, reasoning=reasoning
+            )
             response = self._generate_anthropic(
                 effective_system_prompt,
                 user_prompt,
                 call_type=call_type,
                 messages=messages,
+                reasoning=reasoning,
             )
 
             # On success, accumulate the user message + assistant response in history
@@ -1638,12 +1762,16 @@ class LLMInterface:
                 f"sending {len(messages)} msgs to Converse"
             )
 
-            self._check_context_fits(effective_system_prompt, messages=messages)
+            reasoning = self.reasoning_decision()
+            self._check_context_fits(
+                effective_system_prompt, messages=messages, reasoning=reasoning
+            )
             response = self._generate_bedrock(
                 effective_system_prompt,
                 user_prompt,
                 call_type=call_type,
                 messages=messages,
+                reasoning=reasoning,
             )
 
             # On success, accumulate the user message + assistant response in
@@ -1942,6 +2070,8 @@ class LLMInterface:
         call_type: Optional[str] = None,
         messages_override: Optional[List[Dict[str, Any]]] = None,
         json_mode: bool = True,
+        *,
+        reasoning: Optional[ReasoningDecision],
     ) -> Dict[str, Any]:
         """Delegate to the chat_completions transport (Phase 2)."""
         return _transports.chat_completions.generate_openai(
@@ -1951,15 +2081,7 @@ class LLMInterface:
             call_type=call_type,
             messages_override=messages_override,
             json_mode=json_mode,
-        )
-
-    @profile("llm_ollama_call", OperationCategory.LLM)
-    def _generate_ollama(
-        self, system_prompt: str | None, user_prompt: str, json_mode: bool = True
-    ) -> Dict[str, Any]:
-        """Delegate to the chat_completions transport's Ollama path (Phase 2)."""
-        return _transports.chat_completions.generate_ollama(
-            self, system_prompt, user_prompt, json_mode=json_mode
+            reasoning=reasoning,
         )
 
     @profile("llm_gemini_call", OperationCategory.LLM)
@@ -1970,6 +2092,8 @@ class LLMInterface:
         call_type: Optional[str] = None,
         contents_override: Optional[List[Dict[str, Any]]] = None,
         json_mode: bool = True,
+        *,
+        reasoning: Optional[ReasoningDecision],
     ) -> Dict[str, Any]:
         """Delegate to the gemini_native transport (Phase 2)."""
         return _transports.gemini_native.generate(
@@ -1979,14 +2103,8 @@ class LLMInterface:
             call_type=call_type,
             contents_override=contents_override,
             json_mode=json_mode,
+            reasoning=reasoning,
         )
-
-    @profile("llm_byteplus_call", OperationCategory.LLM)
-    def _generate_byteplus(
-        self, system_prompt: str | None, user_prompt: str
-    ) -> Dict[str, Any]:
-        """Delegate to the byteplus_responses transport (Phase 2)."""
-        return _transports.byteplus_responses.generate(self, system_prompt, user_prompt)
 
     def _parse_responses_api_content(self, result: Dict[str, Any]) -> str:
         """Parse content from BytePlus Responses API response.
@@ -2017,6 +2135,8 @@ class LLMInterface:
         user_prompt: str,
         call_type: Optional[str] = None,
         messages: Optional[List[dict]] = None,
+        *,
+        reasoning: Optional[ReasoningDecision],
     ) -> Dict[str, Any]:
         """Delegate to the anthropic_messages transport (Phase 2)."""
         return _transports.anthropic_messages.generate(
@@ -2025,6 +2145,7 @@ class LLMInterface:
             user_prompt,
             call_type=call_type,
             messages=messages,
+            reasoning=reasoning,
         )
 
     # ─────────── Bedrock model capability detection ───────────────────
@@ -2050,6 +2171,8 @@ class LLMInterface:
         user_prompt: str,
         call_type: Optional[str] = None,
         messages: Optional[List[dict]] = None,
+        *,
+        reasoning: Optional[ReasoningDecision],
     ) -> Dict[str, Any]:
         """Delegate to the bedrock_converse transport (Phase 2)."""
         return _transports.bedrock_converse.generate(
@@ -2058,6 +2181,7 @@ class LLMInterface:
             user_prompt,
             call_type=call_type,
             messages=messages,
+            reasoning=reasoning,
         )
 
     # ─────────────────── CLI helper for ad‑hoc testing ───────────────────

@@ -28,6 +28,7 @@ import shutil
 import traceback
 import time
 import json
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Iterable, Optional
 
@@ -86,6 +87,7 @@ from agent_core import (
     MemoryFileWatcher,
     LLMCallType,
 )
+from agent_core.core.models.reasoning import ReasoningChoice
 from agent_core.core.session import Session, SessionType, MAIN_SESSION_ID
 from agent_core.core.state.session import StateSession
 from app.context_engine import ContextEngine
@@ -502,10 +504,21 @@ class AgentBase:
     # Session API (sidebar surface)
     # =====================================
 
-    def create_chat_session(self, title: str = "New chat") -> Session:
-        """Create a fresh chat session (the "+ New Chat" button)."""
+    def create_chat_session(
+        self,
+        title: str = "New chat",
+        reasoning_effort: Optional[ReasoningChoice] = None,
+    ) -> Session:
+        """Create a fresh chat session (the "+ New Chat" button).
+
+        ``reasoning_effort`` carries the draft chat's picker value into the
+        session the draft becomes; None (picker untouched) leaves the session
+        on the default level of whichever model runs it.
+        """
         return self.session_manager.create_session(
-            session_type=SessionType.CHAT, title=title
+            session_type=SessionType.CHAT,
+            title=title,
+            reasoning_effort=reasoning_effort,
         )
 
     async def delete_session(self, session_id: str) -> bool:
@@ -527,6 +540,12 @@ class AgentBase:
     def rename_session(self, session_id: str, title: str) -> bool:
         """Rename a session's sidebar title."""
         return self.session_manager.rename_session(session_id, title)
+
+    def set_session_reasoning_effort(
+        self, session_id: str, choice: ReasoningChoice
+    ) -> bool:
+        """Set a session's reasoning choice (the chat input's picker)."""
+        return self.session_manager.set_reasoning_effort(session_id, choice)
 
     # =====================================
     # Main Agent Cycle
@@ -1625,15 +1644,18 @@ class AgentBase:
 
         title = ""
         try:
-            response = await self.llm.generate_response_async(
-                system_prompt=(
-                    "Generate a concise 2-5 word title for a conversation "
-                    "that starts with the user request below. Reply with a "
-                    'JSON object: {"title": "<the title>"}. Same language '
-                    "as the request, no punctuation at the end."
-                ),
-                user_prompt=basis[:2000],
-            )
+            # Titling is work for this session: it reasons as the session's
+            # picker says, also when started outside the session's loop.
+            with StateSession.bind(session_id):
+                response = await self.llm.generate_response_async(
+                    system_prompt=(
+                        "Generate a concise 2-5 word title for a conversation "
+                        "that starts with the user request below. Reply with a "
+                        'JSON object: {"title": "<the title>"}. Same language '
+                        "as the request, no punctuation at the end."
+                    ),
+                    user_prompt=basis[:2000],
+                )
             title = self._parse_session_title(response)
         except Exception as e:
             logger.debug(f"[SESSION] Auto-title LLM call failed for {session_id}: {e}")
@@ -2623,15 +2645,31 @@ class AgentBase:
         except Exception as e:
             logger.error(f"Error handling external event: {e}", exc_info=True)
 
-    async def _handle_prompt_enhance(self, user_message: str) -> str:
+    async def _handle_prompt_enhance(
+        self,
+        user_message: str,
+        session_id: Optional[str],
+        reasoning_choice: Optional[ReasoningChoice],
+    ) -> str:
+        """Rewrite a prompt typed in the chat input for clarity.
+
+        The call reasons like the chat the prompt is typed in: the session
+        ``session_id``, or, for a draft chat that has no session yet
+        (``session_id`` None), its picker value ``reasoning_choice``.
+        """
         try:
             from agent_core.core.prompts.reasoning import (
                 PROMPT_ENHANCE_REASONING_PROMPT,
             )
 
-            response = await self.llm.generate_response_async(
-                system_prompt=PROMPT_ENHANCE_REASONING_PROMPT, user_prompt=user_message
-            )
+            with (
+                StateSession.bind(session_id) if session_id is not None else nullcontext()
+            ):
+                response = await self.llm.generate_response_async(
+                    system_prompt=PROMPT_ENHANCE_REASONING_PROMPT,
+                    user_prompt=user_message,
+                    reasoning_choice=reasoning_choice,
+                )
             result = json.loads(response)
             return result.get("enhanced_prompt", "")
         except Exception as e:

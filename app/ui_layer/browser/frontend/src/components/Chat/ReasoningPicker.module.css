@@ -1,0 +1,102 @@
+/* Reasoning picker beside the "+" button; mirrors the "+" menu styling. */
+.wrap {
+  position: relative;
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 15px;
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+.header {
+  padding: 6px 10px 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.itemActive {
+  color: var(--text-primary);
+}
+
+.check {
+  display: flex;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.itemLabel {
+  flex: 1;
+}
+
+.itemDetail {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.note {
+  margin-top: 4px;
+  padding: 6px 10px 4px;
+  border-top: 1px solid var(--border-primary);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}

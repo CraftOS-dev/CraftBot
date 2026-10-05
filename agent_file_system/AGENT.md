@@ -3078,7 +3078,7 @@ Users can authenticate OpenAI or Grok by signing in to their paid subscription (
 
 ChatGPT subscription specifics:
 - Requests route through OpenAI's Codex backend. CraftBot's JSON-mode action decisions work transparently; only native tool-calls (`tools=[...]`) and streaming are unsupported — neither is CraftBot's normal path, so actions run fine.
-- Codex accepts a fixed model set (gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex-spark; default gpt-5.4); any other model name is silently substituted.
+- Codex accepts a fixed model set (gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5; default gpt-6.1-sol); any other model name is silently substituted.
 - The real hard failure is a Free-tier account (no Plus/Pro/Team): `CHATGPT_SUBSCRIPTION_REJECTED`. That's the "upgrade or switch to an API key" case — do not retry.
 - If the credential is disconnected mid-session, the client raises an actionable error telling the user to re-save model settings or reconnect.
 

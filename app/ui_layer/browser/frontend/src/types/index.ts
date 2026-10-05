@@ -51,6 +51,22 @@ export const QUESTION_DISMISSED = '__dismissed__'
 
 export type SessionType = 'main' | 'chat' | 'agent_app'
 
+/** How hard the model reasons, picked per chat session in the chat input
+ *  (agent_core/core/models/reasoning.py ReasoningChoice). */
+export type ReasoningChoice =
+  | 'provider_default'
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+
+export const REASONING_CHOICES: readonly ReasoningChoice[] = [
+  'provider_default', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+]
+
 export interface SessionInfo {
   id: string
   type: SessionType
@@ -58,6 +74,9 @@ export interface SessionInfo {
   createdAt: string
   lastActiveAt: string
   agentAppProjectId?: string | null
+  /** Always set by the backend; null only on the client-side placeholder for
+   *  the main session before the backend has sent it. */
+  reasoningEffort: ReasoningChoice | null
 }
 
 // ─────────────────────────────────────────────────────────────────────

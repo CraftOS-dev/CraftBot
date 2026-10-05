@@ -151,6 +151,13 @@ export const RESOURCES = {
     resource: 'model_settings',
     request: (send) => send({ type: 'slow_mode_get' }),
   },
+  /** Chat input reasoning picker: what the model in use offers. A model or
+   *  sign-in change is a model_settings change, so it refetches with it. */
+  reasoningOptions: {
+    key: 'reasoningOptions',
+    resource: 'model_settings',
+    request: (send) => send({ type: 'reasoning_options_get' }),
+  },
 
   // ── Static catalogs: refreshed after a reconnect ──
   playbooks: {
