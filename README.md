@@ -90,7 +90,7 @@ python craftbot.py uninstall  # Stop, remove auto-start, and uninstall packages
 **Agent App is a system/app/dashboard that evolves with your needs.**
 
 <div align="center">
-    <img src="assets/agent_app_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/agent-app-showcase.gif" alt="CraftBot Banner" width="1280"/>
 </div>
 
 - Need a kanban board with an AI co-pilot built in? 
@@ -105,15 +105,7 @@ Spin it up as a Agent App that runs alongside CraftBot and grows as your needs c
    scaffolds the data model, backend API, and React UI, then iterates with
    you through a structured design process.
 
-<div align="center">
-    <img src="assets/agent-app-custom-build.png" alt="Building a Agent App from scratch" width="448"/>
-</div>
-
 2. **Install from the marketplace.** Browse community-built Agent Apps from [living-ui-marketplace](https://github.com/CraftOS-dev/living-ui-marketplace).
-
-<div align="center">
-    <img src="assets/living-ui-marketplace.png" alt="Agent App marketplace" width="448"/>
-</div>
 
 3. **Import an existing project.** Point CraftBot at a Go, Node.js, Python,
    Rust, or static source code or github repo. It detects the runtime, configures health checks, and wraps it as a Agent App.
