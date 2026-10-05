@@ -31,7 +31,7 @@ import { useTheme } from '../../contexts/ThemeContext'
 import { removeIframe } from '../../pages/AgentApp/iframePool'
 import { ConfirmModal } from '../ui/ConfirmModal'
 import { tourAnchorProps, useTourEnvAction, type TourAnchorId } from '../../tour'
-import { usePersistedState, useSkillCreator } from '../../hooks'
+import { applySavedOrder, usePersistedState, useSkillCreator, useSortableList } from '../../hooks'
 import { CreateAgentAppModal } from '../ui/CreateAgentAppModal'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
 import { AgentAppIcon } from '../ui/AgentAppIcon'
@@ -95,14 +95,63 @@ function AnimatedSessionTitle({ title }: { title: string }) {
   )
 }
 
+// Popup anchored to a sidebar control, portalled to <body> so it can extend
+// past the sidebar's edge instead of being clipped by its scroll area. Opens
+// below the anchor, flips above it when the viewport has no room below, and
+// shifts left if it would run off the right edge.
+function SidebarPopover({
+  anchor,
+  className,
+  role,
+  children,
+}: {
+  anchor: DOMRect
+  className: string
+  role: 'menu' | 'tooltip'
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const { width, height } = el.getBoundingClientRect()
+    const margin = 8
+    const below = anchor.bottom + 4
+    const top = below + height <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, anchor.top - 4 - height)
+    const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - margin - width))
+    setPos({ top, left })
+  }, [anchor])
+
+  return createPortal(
+    <div
+      ref={ref}
+      className={className}
+      role={role}
+      // First pass renders hidden to measure; the layout effect places it
+      // before paint.
+      style={pos ?? { top: 0, left: 0, visibility: 'hidden' }}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      {children}
+    </div>,
+    document.body,
+  )
+}
+
 interface NavBarProps {
   collapsed?: boolean
   onToggleCollapsed?: () => void
 }
 
-// Per-row "…" context menu state: which session's menu is open.
+// Per-row "…" context menu state: which session's menu is open, and where.
 interface SessionMenuState {
   sessionId: string
+  /** The "…" button's rect; the menu opens below it. */
+  anchor: DOMRect
 }
 
 // How many Agent App items show before the "Show more" row takes over.
@@ -135,18 +184,31 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     renameSession,
     clearSession,
   } = useWebSocket()
-  const agentAppProjects = useAppSelector(selectAgentAppProjects)
+  // Both lists follow the user's drag-and-drop order. Items created since the
+  // last reorder land where they always have: new apps last, new chats first.
+  const [agentAppOrder, setAgentAppOrder] = usePersistedState(UI_STATE.nav.agentAppOrder)
+  const [chatOrder, setChatOrder] = usePersistedState(UI_STATE.nav.chatOrder)
+  const unorderedAgentAppProjects = useAppSelector(selectAgentAppProjects)
+  const agentAppProjects = useMemo(
+    () => applySavedOrder(unorderedAgentAppProjects, agentAppOrder, p => p.id, 'last'),
+    [unorderedAgentAppProjects, agentAppOrder],
+  )
   const skillMeta = useAppSelector(selectSkillMeta)
   const [lastSeenBySession] = usePersistedState(UI_STATE.chat.lastSeenMessageIds)
   const { theme } = useTheme()
   const [showCreateModal, setShowCreateModal] = useState(false)
-  // Which Agent App row's "…" menu is open, and the app queued for a delete
-  // confirmation (delete is destructive, so it always confirms).
-  const [agentMenu, setAgentMenu] = useState<string | null>(null)
+  // Which Agent App row's "…" menu is open (and its button's rect), and the
+  // app queued for a delete confirmation (delete is destructive, so it always
+  // confirms).
+  const [agentMenu, setAgentMenu] = useState<{ id: string; anchor: DOMRect } | null>(null)
   const [agentDelete, setAgentDelete] = useState<{ id: string; name: string } | null>(null)
 
   const mainSession = useAppSelector(selectMainSession)
-  const chatSessions = useAppSelector(selectChatSessions)
+  const unorderedChatSessions = useAppSelector(selectChatSessions)
+  const chatSessions = useMemo(
+    () => applySavedOrder(unorderedChatSessions, chatOrder, s => s.id, 'first'),
+    [unorderedChatSessions, chatOrder],
+  )
   const lastMessageIdBySession = useAppSelector(selectLastMessageIdBySession)
   const runStateBySession = useAppSelector(state => state.agent.runStateBySession)
 
@@ -208,6 +270,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   }, [collapsed])
 
   const [menu, setMenu] = useState<SessionMenuState | null>(null)
+  // The Main row's ⓘ icon rect while it's hovered (shows the tooltip).
+  const [mainTip, setMainTip] = useState<DOMRect | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
@@ -226,6 +290,29 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
 
   const [canScrollUp, setCanScrollUp] = useState(false)
   const [canScrollDown, setCanScrollDown] = useState(false)
+
+  const visibleAgentAppProjects = showAllAgentApp
+    ? agentAppProjects
+    : agentAppProjects.slice(0, GROUP_PREVIEW_COUNT)
+  const visibleChatSessions = chatSessions.slice(0, chatVisibleCount)
+
+  // Drag-to-reorder within each group. The rendered rows are always a prefix
+  // of the full list ("Show more" / scroll pagination), so the reordered
+  // prefix followed by the untouched tail is the new full order.
+  const withTail = (prefix: string[], all: string[]) => {
+    const moved = new Set(prefix)
+    return [...prefix, ...all.filter(id => !moved.has(id))]
+  }
+  const agentAppSortable = useSortableList({
+    ids: visibleAgentAppProjects.map(p => p.id),
+    onReorder: ids => setAgentAppOrder(withTail(ids, agentAppProjects.map(p => p.id))),
+    scrollRef,
+  })
+  const chatSortable = useSortableList({
+    ids: visibleChatSessions.map(s => s.id),
+    onReorder: ids => setChatOrder(withTail(ids, chatSessions.map(s => s.id))),
+    scrollRef,
+  })
 
   const isActive = (path: string) => {
     if (path === '/') {
@@ -428,26 +515,31 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     }
   }, [])
 
-  // Flip the "…" menu upward when opening downward would spill past the
-  // visible bottom of the sidebar scroll area — otherwise the menu just
-  // grows the scroll height and the user has to scroll to reach it.
-  const positionSessionMenu = (el: HTMLDivElement | null) => {
-    if (!el) return
-    const container = scrollRef.current
-    const limit = container
-      ? Math.min(container.getBoundingClientRect().bottom, window.innerHeight)
-      : window.innerHeight
-    if (el.getBoundingClientRect().bottom > limit - 4) {
-      el.classList.add(styles.sessionMenuUp)
+  // Popovers are placed once, in viewport coordinates, so they'd drift off
+  // their row if the sidebar scrolled or the window resized: close them.
+  const popoverOpen = menu !== null || agentMenu !== null || mainTip !== null
+  useEffect(() => {
+    if (!popoverOpen) return
+    const el = scrollRef.current
+    const close = () => {
+      setMenu(null)
+      setAgentMenu(null)
+      setMainTip(null)
     }
-  }
+    el?.addEventListener('scroll', close)
+    window.addEventListener('resize', close)
+    return () => {
+      el?.removeEventListener('scroll', close)
+      window.removeEventListener('resize', close)
+    }
+  }, [popoverOpen])
 
   // "…" context menu attached to a session row. `isMain` limits the menu
   // to Clear conversation + Create skill for the pinned Main session.
   const renderSessionMenu = (session: SessionInfo, isMain: boolean) => {
     if (menu?.sessionId !== session.id) return null
     return (
-      <div ref={positionSessionMenu} className={styles.sessionMenu} onMouseDown={e => e.stopPropagation()}>
+      <SidebarPopover anchor={menu.anchor} className={styles.sessionMenu} role="menu">
         {!isMain && (
           <button className={styles.sessionMenuItem} onClick={() => startRename(session)}>
             <Pencil size={13} /> {t('common:actions.rename')}
@@ -467,7 +559,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         <button className={styles.sessionMenuItem} onClick={() => handleCreateSkill(session.id)}>
           <Sparkles size={13} /> {t('nav:sessionMenu.createSkill')}
         </button>
-      </div>
+      </SidebarPopover>
     )
   }
 
@@ -475,11 +567,16 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     const path = sessionPath(session.id)
     const active = isActive(path)
     const renaming = renamingId === session.id
+    // Main stays pinned first; every other chat can be dragged.
+    const sortable = opts.isMain ? null : chatSortable
+    const dragging = chatSortable.draggingId === session.id
 
     return (
       <div
         key={session.id}
-        className={`${styles.sessionRow} ${active ? styles.sessionRowActive : ''} ${opts.isMain ? styles.sessionRowMain : ''}`}
+        ref={sortable?.rowRef(session.id)}
+        style={sortable?.rowStyle(session.id)}
+        className={`${styles.sessionRow} ${active ? styles.sessionRowActive : ''} ${opts.isMain ? styles.sessionRowMain : ''} ${dragging ? styles.rowDragging : ''}`}
         title={opts.isMain ? t('nav:items.main') : session.title}
         {...(opts.isMain ? tourAnchorProps('nav-main-session') : {})}
       >
@@ -501,6 +598,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               className={styles.sessionRowButton}
               onClick={() => navigate(path)}
               title={opts.isMain ? t('nav:items.main') : session.title}
+              {...sortable?.handleProps(session.id)}
             >
               <span className={styles.icon}>
                 {opts.isMain ? <MessageSquare size={16} /> : <MessageCircle size={14} />}
@@ -509,20 +607,28 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                 {opts.isMain ? t('nav:items.main') : <AnimatedSessionTitle title={session.title} />}
               </span>
               {opts.isMain && (
-                <span className={styles.mainInfo} aria-label={t('nav:mainTooltip.aria')} title="">
+                <span
+                  className={styles.mainInfo}
+                  aria-label={t('nav:mainTooltip.aria')}
+                  title=""
+                  onMouseEnter={e => setMainTip(e.currentTarget.getBoundingClientRect())}
+                  onMouseLeave={() => setMainTip(null)}
+                >
                   <Info size={12} />
-                  <span className={styles.mainInfoTooltip} role="tooltip">
-                    <strong>{t('nav:mainTooltip.title')}</strong>
-                    <span className={styles.mainInfoLine}>
-                      {t('nav:mainTooltip.line1')}
-                    </span>
-                    <span className={styles.mainInfoLine}>
-                      {t('nav:mainTooltip.line2')}
-                    </span>
-                    <span className={styles.mainInfoLine}>
-                      {t('nav:mainTooltip.line3')}
-                    </span>
-                  </span>
+                  {mainTip && (
+                    <SidebarPopover anchor={mainTip} className={styles.mainInfoTooltip} role="tooltip">
+                      <strong>{t('nav:mainTooltip.title')}</strong>
+                      <span className={styles.mainInfoLine}>
+                        {t('nav:mainTooltip.line1')}
+                      </span>
+                      <span className={styles.mainInfoLine}>
+                        {t('nav:mainTooltip.line2')}
+                      </span>
+                      <span className={styles.mainInfoLine}>
+                        {t('nav:mainTooltip.line3')}
+                      </span>
+                    </SidebarPopover>
+                  )}
                 </span>
               )}
               {renderSessionDot(session.id)}
@@ -531,10 +637,11 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               className={styles.sessionMenuButton}
               onClick={(e) => {
                 e.stopPropagation()
+                const anchor = e.currentTarget.getBoundingClientRect()
                 setMenu(prev =>
                   prev?.sessionId === session.id
                     ? null
-                    : { sessionId: session.id })
+                    : { sessionId: session.id, anchor })
               }}
               aria-label={t('nav:sessionMenu.sessionOptions')}
               title={t('nav:sessionMenu.options')}
@@ -578,17 +685,21 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     // bridge — so it's only offered for the active app.
     const showTheme = active
     const showKebab = lifecycle !== null || showTheme || canDelete
+    const dragging = agentAppSortable.draggingId === project.id
 
     return (
       <div
         key={project.id}
-        className={`${styles.sessionRow} ${styles.agentAppRow} ${active ? styles.agentAppRowActive : ''} ${dimmed ? styles.agentAppRowDimmed : ''}`}
+        ref={agentAppSortable.rowRef(project.id)}
+        style={agentAppSortable.rowStyle(project.id)}
+        className={`${styles.sessionRow} ${styles.agentAppRow} ${active ? styles.agentAppRowActive : ''} ${dimmed ? styles.agentAppRowDimmed : ''} ${dragging ? styles.rowDragging : ''}`}
         title={project.name}
       >
         <button
           className={`${styles.agentAppTab} ${active ? styles.agentAppTabActive : ''}`}
           onClick={() => navigate(path)}
           title={project.name}
+          {...agentAppSortable.handleProps(project.id)}
         >
           <span className={styles.agentAppTabIcon}>
             {transitional
@@ -605,7 +716,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             onMouseDown={e => e.stopPropagation()}
             onClick={e => {
               e.stopPropagation()
-              setAgentMenu(prev => (prev === project.id ? null : project.id))
+              const anchor = e.currentTarget.getBoundingClientRect()
+              setAgentMenu(prev => (prev?.id === project.id ? null : { id: project.id, anchor }))
             }}
             aria-label={t('nav:sessionMenu.options')}
             title={t('nav:sessionMenu.options')}
@@ -614,12 +726,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
           </button>
         )}
 
-        {agentMenu === project.id && showKebab && (
-          <div
-            ref={positionSessionMenu}
-            className={styles.sessionMenu}
-            onMouseDown={e => e.stopPropagation()}
-          >
+        {agentMenu?.id === project.id && showKebab && (
+          <SidebarPopover anchor={agentMenu.anchor} className={styles.sessionMenu} role="menu">
             {lifecycle === 'stop' && (
               <button
                 className={styles.sessionMenuItem}
@@ -666,7 +774,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                 <Trash2 size={13} /> {t('common:actions.delete')}
               </button>
             )}
-          </div>
+          </SidebarPopover>
         )}
       </div>
     )
@@ -804,10 +912,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             </div>
             {agentAppExpanded && (
               <div className={styles.groupChildren}>
-                {(showAllAgentApp
-                  ? agentAppProjects
-                  : agentAppProjects.slice(0, GROUP_PREVIEW_COUNT)
-                ).map(project => renderAgentAppRow(project))}
+                {visibleAgentAppProjects.map(project => renderAgentAppRow(project))}
                 {agentAppProjects.length > GROUP_PREVIEW_COUNT && (
                   <button
                     className={styles.showMoreRow}
@@ -852,7 +957,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             {chatsExpanded && (
               <div className={styles.groupChildren}>
                 {renderSessionRow(mainSessionInfo, { isMain: true })}
-                {chatSessions.slice(0, chatVisibleCount).map(session =>
+                {visibleChatSessions.map(session =>
                   renderSessionRow(session, { isMain: false })
                 )}
               </div>

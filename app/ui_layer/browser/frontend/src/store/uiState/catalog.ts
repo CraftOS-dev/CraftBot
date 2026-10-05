@@ -51,6 +51,10 @@ export const UI_STATE = {
   nav: {
     chatsExpanded: defineUiState('nav.chatsExpanded', true, 'preference'),
     agentAppExpanded: defineUiState('nav.agentAppExpanded', true, 'preference'),
+    /** Agent App ids in drag-and-drop order; apps created since go last. */
+    agentAppOrder: defineUiState<string[]>('nav.agentAppOrder', [], 'preference'),
+    /** Chat session ids in drag-and-drop order; chats created since go first. */
+    chatOrder: defineUiState<string[]>('nav.chatOrder', [], 'preference'),
   },
 
   tour: {
