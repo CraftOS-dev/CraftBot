@@ -512,8 +512,8 @@ class AgentBase:
         """Create a fresh chat session (the "+ New Chat" button).
 
         ``reasoning_effort`` carries the draft chat's picker value into the
-        session the draft becomes; None (picker untouched) starts it at the
-        default level of the model in use.
+        session the draft becomes; None (picker untouched) leaves the session
+        on the default level of whichever model runs it.
         """
         return self.session_manager.create_session(
             session_type=SessionType.CHAT,

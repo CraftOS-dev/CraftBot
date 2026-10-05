@@ -23,8 +23,10 @@ Each chat session stores a ``ReasoningChoice`` (``Session.reasoning_effort``,
 picked in the chat input), following the pi agent harness: a concrete level,
 ``off``, or ``provider_default`` (no reasoning parameter, so the provider's
 own default applies; on a backend that always needs a level, its documented
-default level is sent). A new session starts at the model's default level
-(see "The default level"), which the picker marks as "Default".
+default level is sent). A session whose user never picked stores no choice
+(None) and runs at the default level of whichever model serves each request
+(see "The default level"), which the picker marks as "Default"; so it follows
+a model switch.
 
 A model offers its levels, plus ``off`` when it can stop reasoning. A stored
 choice the current model lacks is clamped the way pi does it: the nearest
@@ -101,8 +103,7 @@ CHOICE_LADDER: Tuple[ReasoningChoice, ...] = (
 LEVELS_BELOW_MAX = 1
 
 #: The strongest default level (unless the provider's own default is already
-#: stronger; see rule 3 in the module docstring). It is also where a session
-#: starts when it is created while the model in use has no rule.
+#: stronger; see rule 3 in the module docstring).
 LEVEL_CEILING = "high"
 
 #: Levels that are never the default: "minimal" barely reasons.
@@ -340,11 +341,11 @@ def _lookup(
 def default_choice(
     provider: Optional[str], model: Optional[str], auth_mode: str = "api_key"
 ) -> ReasoningChoice:
-    """The choice a new session starts at with this model in use.
+    """The choice a request runs at with this model in use when its session
+    has no choice of its own (the user never picked one).
 
     The model's default level; ``LEVEL_CEILING`` when the model has no rule
-    (the session then takes a level that most models offer, clamped to the
-    next model with a rule).
+    (its requests then carry no reasoning parameter anyway).
     """
     _, rule = _lookup(provider, model, auth_mode)
     return ReasoningChoice(default_level(rule) if rule is not None else LEVEL_CEILING)

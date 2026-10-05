@@ -7,8 +7,8 @@ Five layers:
    carry, and renders every possible choice through its provider's
    transport without error.
 2. The choice policy: the default level (one level below the strongest,
-   never above "high", never below the provider's own default), where new
-   sessions start, pi-style clamping of a
+   never above "high", never below the provider's own default), which a
+   session without a choice runs at, pi-style clamping of a
    choice the model lacks, provider default, off, and the temperature and
    output-cap consequences of each.
 3. Wire rendering: each decision becomes exactly its provider's fields.
@@ -865,8 +865,8 @@ def test_decision_follows_a_model_switch(monkeypatch):
 def test_session_round_trips_its_choice():
     session = Session(id="s1", reasoning_effort=C.XHIGH.value)
     assert Session.from_dict(session.to_dict()).reasoning_effort == "xhigh"
-    # Absent or no longer valid (the retired "auto"): discarded, so the
-    # session manager reseeds it on restore.
+    # Absent or no longer valid (the retired "auto"): no choice, so the
+    # session runs at the model's default level.
     assert Session.from_dict({"id": "s2"}).reasoning_effort is None
     assert (
         Session.from_dict({"id": "s3", "reasoning_effort": "auto"}).reasoning_effort
@@ -889,11 +889,11 @@ def test_session_round_trips_its_choice():
         (None, None, C.HIGH),
     ],
 )
-def test_default_choice_a_new_session_starts_at(provider, model, expected):
+def test_default_choice_of_a_session_without_one(provider, model, expected):
     assert default_choice(provider, model) is expected
 
 
-def test_new_and_restored_sessions_are_seeded_with_the_model_default(
+def test_new_and_restored_sessions_store_no_level_unless_picked(
     monkeypatch, tmp_path: Path
 ):
     iface, _ = build_interface(monkeypatch, "groq", "openai/gpt-oss-120b")
@@ -912,19 +912,42 @@ def test_new_and_restored_sessions_are_seeded_with_the_model_default(
         Session.from_dict({"id": "s-kept", "reasoning_effort": "xhigh"})
     )
     try:
-        assert created.reasoning_effort == "medium"
-        # The retired value is discarded and reseeded, and the seed is saved.
-        assert restored.reasoning_effort == "medium"
-        assert persisted[-1] == {
-            **persisted[-1],
-            "id": "s-restored",
-            "reasoning_effort": "medium",
-        }
+        # Nothing picked: no level is stored, so none is frozen in.
+        assert created.reasoning_effort is None
+        assert persisted[-1]["id"] == created.id
+        assert persisted[-1]["reasoning_effort"] is None
+        # The retired value is discarded: no choice, and nothing is saved.
+        assert restored.reasoning_effort is None
+        assert len(persisted) == 1
         # A valid stored choice is kept as is, even one the model lacks.
         assert kept.reasoning_effort == "xhigh"
     finally:
         for session_id in (created.id, "s-restored", "s-kept"):
             StateSession.end(session_id)
+
+
+def test_an_unpicked_session_follows_a_model_switch(monkeypatch, tmp_path: Path):
+    # A chat started on GLM without touching the picker, then the app is
+    # switched to gemini-2.5-pro: the chat runs at Gemini's default (high),
+    # not GLM's (max) with Gemini's largest thinking budget.
+    iface, _ = build_interface(monkeypatch, "glm", "glm-5.3")
+    manager = SessionManager(
+        event_stream_manager=None, llm_interface=iface, workspace_root=tmp_path
+    )
+    session = manager.create_session()
+    try:
+        with StateSession.bind(session.id):
+            assert iface.reasoning_decision().level == "max"
+            iface.provider, iface.model = "gemini", "gemini-2.5-pro"
+            decision = iface.reasoning_decision()
+        assert decision.level == "high"
+        assert decision.budget_tokens == 24_576
+        # A level the user picked by name stays fixed across the switch.
+        manager.set_reasoning_effort(session.id, C.MAX)
+        with StateSession.bind(session.id):
+            assert iface.reasoning_decision().level == "max"
+    finally:
+        StateSession.end(session.id)
 
 
 def test_work_outside_any_session_uses_the_model_default(monkeypatch):

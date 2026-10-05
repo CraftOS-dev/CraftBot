@@ -822,7 +822,8 @@ class LLMInterface:
         return _reasoning_options(self.provider, self.model, self._auth_mode)
 
     def default_reasoning_choice(self) -> ReasoningChoice:
-        """The choice a new session starts at with this interface's model."""
+        """The choice a request runs at with this interface's model when its
+        session has none of its own."""
         return default_choice(self.provider, self.model, self._auth_mode)
 
     def reasoning_choice(self) -> ReasoningChoice:
@@ -831,8 +832,9 @@ class LLMInterface:
         A choice passed for this call wins (work for a chat that has no
         session yet: the draft view); otherwise the choice of the session
         the context is bound to (StateSession.bind, set around each
-        session's loop); otherwise, for work that belongs to no session,
-        the model's default level.
+        session's loop); otherwise, for a session whose user never picked
+        one and for work that belongs to no session, the default level of
+        the model serving this request.
         """
         explicit = _llm_call_ctx.get().get("reasoning_choice")
         if explicit is not None:

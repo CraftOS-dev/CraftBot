@@ -36,10 +36,8 @@ MAIN_SESSION_ID = "main"
 
 
 def _stored_reasoning_effort(value: Any) -> Optional[str]:
-    """A persisted reasoning choice, or None when absent or no longer valid.
-
-    A None is reseeded with the model's default level by the session manager
-    when the session is restored.
+    """A persisted reasoning choice, or None when absent or no longer valid
+    (no choice: the session runs at the default level of the model in use).
     """
     return value if value in {choice.value for choice in ReasoningChoice} else None
 
@@ -65,9 +63,9 @@ class Session:
         agent_app_project_id: Backing project id for agent_app sessions.
         gui_mode: Whether this session drives the GUI action space.
         reasoning_effort: The session's reasoning choice (a ReasoningChoice
-            value, picked in the chat input). The session manager seeds it
-            with the model's default level when the session is created or
-            restored without a valid one; None only until then.
+            value, picked in the chat input). None while the user has never
+            picked one: each request then runs at the default level of the
+            model serving it, so the session follows a model switch.
         action_count/token_count: Budget counters for the current run
             (reset when a new run starts).
         input_tokens/output_tokens/cache_tokens: LLM usage breakdown for

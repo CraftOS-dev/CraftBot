@@ -33,7 +33,7 @@ from agent_core.core.session import (
 )
 from agent_core.core.state import StateSession
 from agent_core.core.impl.llm import LLMCallType
-from agent_core.core.models.reasoning import ReasoningChoice, default_choice
+from agent_core.core.models.reasoning import ReasoningChoice
 
 from agent_core.utils.logger import logger
 
@@ -153,7 +153,8 @@ class SessionManager:
             gui_mode: Whether the session starts in GUI mode.
             reasoning_effort: The session's reasoning choice (the draft
                 chat's picker value when a draft becomes a session); None
-                starts it at the default level of the model in use.
+                stores no choice, so each request runs at the default level
+                of the model serving it.
 
         Returns:
             The created Session.
@@ -184,7 +185,9 @@ class SessionManager:
             workspace_dir=str(workspace_dir),
             agent_app_project_id=agent_app_project_id,
             gui_mode=gui_mode,
-            reasoning_effort=(reasoning_effort or self._default_reasoning()).value,
+            reasoning_effort=(
+                reasoning_effort.value if reasoning_effort is not None else None
+            ),
         )
         self.sessions[sid] = session
 
@@ -317,11 +320,6 @@ class SessionManager:
         StateSession.start(
             session.id, current_session=session, gui_mode=session.gui_mode
         )
-        if session.reasoning_effort is None:
-            # Saved without a valid reasoning choice: start it where a new
-            # session would.
-            session.reasoning_effort = self._default_reasoning().value
-            self._persist(session)
         return session
 
     # ─────────────────────── Todo Management ─────────────────────────────────
@@ -564,13 +562,6 @@ class SessionManager:
             )
 
     # ─────────────────────── Internal Helpers ────────────────────────────────
-
-    def _default_reasoning(self) -> ReasoningChoice:
-        """The reasoning choice a session starts at: the default level of the
-        model in use."""
-        if self.llm_interface is None:
-            return default_choice(None, None)
-        return self.llm_interface.default_reasoning_choice()
 
     def _persist(self, session: Session) -> None:
         """Persist session state via hook."""
