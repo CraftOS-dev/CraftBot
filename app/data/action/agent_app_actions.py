@@ -19,9 +19,11 @@ logger = logging.getLogger(__name__)
         "allocates ports, registers the project in the user's Agent App list, "
         "and runs a requirements check: if the chat already answers everything "
         "a builder needs, the build is dispatched immediately — otherwise "
-        "setup questions open in a popup in the user's browser (the same "
-        "interview the Create Agent App wizard uses) and the build starts "
-        "automatically when the user answers them. Follow the returned "
+        "setup questions open in the user's browser (the same interview the "
+        "Create Agent App wizard uses, resumable from a card in the chat) and "
+        "the build starts automatically when the user answers them. Calling "
+        "it again for an app whose setup is still pending reopens the same "
+        "questions. Follow the returned "
         "message either way. Do NOT write project files or call "
         "agent_app_notify_ready yourself."
     ),
@@ -89,9 +91,9 @@ logger = logging.getLogger(__name__)
             "type": "string",
             "example": "abc12345",
             "description": (
-                "The created project ID. ABSENT when setup questions opened "
-                "in the user's browser instead — the project is created when "
-                "they answer."
+                "The created project ID. ABSENT when setup questions are "
+                "pending in the user's browser instead — the project is "
+                "created when they answer."
             ),
         },
         "project_path": {
@@ -162,9 +164,44 @@ async def agent_app_scaffold(input_data: dict) -> dict:
         # ONLY what the chat left genuinely open (marketplace reuse check
         # included). Open questions → NO project is created here; the
         # wizard UI is summoned and its finalize creates the project
-        # exactly as the Add Agent App modal does. A cancelled popup, like
-        # a cancelled modal wizard, leaves nothing behind.
-        from app.agent_app import wizard
+        # exactly as the Add Agent App modal does. Until then the setup is
+        # a persisted PendingSetup (app/agent_app/pending_setups.py): the
+        # user can close the popup and resume it from a card pinned in this
+        # chat, or cancel it, which notifies this session.
+        from agent_core.core.session import MAIN_SESSION_ID
+        from app.agent_app import broadcast_agent_app_wizard_open, wizard
+        from app.agent_app.pending_setups import PendingSetup
+
+        origin_session = input_data.get("_session_id") or MAIN_SESSION_ID
+        pending_message = (
+            "No project created yet: {count} setup question(s) are open in "
+            "the user's browser and stay pinned in this chat as a 'Resume "
+            "setup' card until answered or cancelled. The project is created "
+            "and the build starts automatically when the user answers them — "
+            "you will be notified with the project_id then (and "
+            "agent_app_list_projects finds any project later); if they "
+            "cancel, you will be told that instead. Tell the user to answer "
+            "the setup questions, then end your turn. Do NOT relay the "
+            "questions in chat and do NOT build anything. If the user says "
+            "the questions are gone, point them to the Resume setup card "
+            "above the chat input, or call this action again for the same "
+            "app, which reopens the same questions."
+        )
+
+        # Already pending for this app in this chat (the user closed the
+        # popup and asked for it back): reopen the SAME questions. No new
+        # interview call, so the questions cannot change under the user.
+        existing = manager.pending_setups.find(origin_session, name)
+        if existing is not None:
+            try:
+                if await broadcast_agent_app_wizard_open(existing.to_dict()):
+                    return {
+                        "status": "success",
+                        "message": "Reopened the pending setup. "
+                        + pending_message.format(count=len(existing.questions)),
+                    }
+            except Exception:
+                pass
 
         chat_context = str(input_data.get("chat_context") or "").strip()
         wizard_config = {
@@ -194,44 +231,33 @@ async def agent_app_scaffold(input_data: dict) -> dict:
 
         if questions:
             # Summon the SAME Create Custom wizard UI the Add Agent App
-            # modal uses, opened at the interview step. Fail-open: no
-            # browser to show the popup (headless) → fall through and
-            # build without questions.
+            # modal uses, opened at the interview step. Persisted first, so
+            # a tab that connects later (or reloads) still gets it; the
+            # wizard round-trips originSessionId to finalize, which notifies
+            # this session of the created project. Fail-open: no browser
+            # adapter (headless) → drop the record and build without
+            # questions.
             import uuid as _uuid
 
-            from app.agent_app import broadcast_agent_app_wizard_open
-
+            setup = PendingSetup(
+                wizard_id=f"chat_{_uuid.uuid4().hex[:12]}",
+                origin_session_id=origin_session,
+                name=name,
+                config=wizard_config,
+                questions=questions,
+            )
+            manager.pending_setups.add(setup)
             _opened = False
             try:
-                _opened = await broadcast_agent_app_wizard_open(
-                    {
-                        "wizardId": f"chat_{_uuid.uuid4().hex[:12]}",
-                        "config": wizard_config,
-                        "questions": questions,
-                        # Round-tripped through the wizard to finalize, which
-                        # notifies this session of the created project.
-                        "originSessionId": input_data.get("_session_id") or "",
-                    }
-                )
+                _opened = await broadcast_agent_app_wizard_open(setup.to_dict())
             except Exception:
                 _opened = False
             if _opened:
                 return {
                     "status": "success",
-                    "message": (
-                        f"No project created yet: {len(questions)} setup "
-                        "question(s) just opened in a popup in the user's "
-                        "browser. The project is created and the build "
-                        "starts automatically when the user answers them — "
-                        "you will be notified with the project_id then "
-                        "(and agent_app_list_projects finds any project "
-                        "later). Tell the user to answer the setup "
-                        "questions that just appeared, then end your turn. "
-                        "Do NOT relay the questions in chat, do NOT build "
-                        "anything, and do NOT call this action again for "
-                        "the same app."
-                    ),
+                    "message": pending_message.format(count=len(questions)),
                 }
+            manager.pending_setups.remove(setup.wizard_id)
 
         project = await manager.create_project(
             name=name,

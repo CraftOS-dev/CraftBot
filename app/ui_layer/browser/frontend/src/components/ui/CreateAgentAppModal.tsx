@@ -81,25 +81,6 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
     }
   })
 
-  // Chat-path requirements phase: agent_app_scaffold generated setup
-  // questions (creating nothing yet) and the backend summons the SAME
-  // Create Custom wizard, pre-seeded and opened at the interview step
-  // (agent_app_wizard_open); its finalize creates the project as usual.
-  const [chatWizard, setChatWizard] = useState<{
-    wizardId: string
-    config: Record<string, any>
-    questions: any[]
-    originSessionId?: string
-  } | null>(null)
-  useEffect(
-    () =>
-      onMessage('agent_app_wizard_open', (data: any) => {
-        if (data?.wizardId && Array.isArray(data.questions) && data.questions.length > 0) {
-          setChatWizard(data)
-        }
-      }),
-    [onMessage]
-  )
   // Accumulate projectIds from completed installs — navigate only when all installs finish
   const pendingNavigationsRef = useRef<string[]>([])
 
@@ -337,41 +318,8 @@ export function CreateAgentAppModal({ isOpen, onClose, onInstalled }: CreateAgen
 
   // Escape key intentionally does NOT close this modal — user must use the X button
 
-  // Chat-summoned wizard: same component, entered at the interview step.
-  // Renders regardless of isOpen — the summons comes from the backend, not
-  // the "+" button. Closing it mid-interview leaves nothing behind (no
-  // project exists until finalize), same as cancelling the modal wizard.
-  if (chatWizard && !isOpen) {
-    return (
-      <Modal
-        isOpen={true}
-        onClose={() => setChatWizard(null)}
-        size="full"
-        closeOnOverlayClick={false}
-        closeOnEsc={false}
-        title={
-          <>
-            <Sparkles size={20} className={styles.headerIcon} />
-            {t('components:createAgentApp.setupQuestions', { name: String(chatWizard.config?.name || 'Agent App') })}
-          </>
-        }
-      >
-        <CreateCustomWizard
-          send={send}
-          onMessage={onMessage}
-          initial={chatWizard}
-          onClose={() => setChatWizard(null)}
-          onCreated={(projectId: string) => {
-            setChatWizard(null)
-            onInstalledRef.current?.(projectId)
-          }}
-        />
-      </Modal>
-    )
-  }
-
   // Fully unmount when closed and no installs pending; stay mounted (invisible) while installs run
-  if (!isOpen && installingIds.size === 0 && !chatWizard) return null
+  if (!isOpen && installingIds.size === 0) return null
   if (!isOpen) return <></> // mounted but invisible — keeps onMessage listeners alive
 
   const tabsConfig = [

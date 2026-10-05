@@ -190,6 +190,11 @@ def test_mutation_replies_map_to_their_resource_with_ids():
             Resource.AGENT_FILES,
             ["USER.md"],
         ),
+        (
+            {"type": "agent_app_setup_cancel", "data": {"wizardId": "chat_1"}},
+            Resource.AGENT_APP_SETUPS,
+            ["chat_1"],
+        ),
     ]
     for message, resource, ids in cases:
         assert resource_change_for_message(message) == (resource, ids), message["type"]

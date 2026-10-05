@@ -155,6 +155,10 @@
   "createAgentApp": {
     "addTitle": "Tambah Agent App",
     "setupQuestions": "{{name}} — pertanyaan penyiapan",
+    "cancelSetupTitle": "Batalkan penyiapan?",
+    "cancelSetupMessage": "Pertanyaan penyiapan untuk {{name}} akan dibuang dan tidak ada aplikasi yang dibuat. Agen akan diberi tahu bahwa Anda membatalkan.",
+    "cancelSetupConfirm": "Batalkan penyiapan",
+    "keepSetup": "Simpan penyiapan",
     "tabMarketplace": "Pasar",
     "tabCustom": "Buat Kustom",
     "tabImport": "Impor",

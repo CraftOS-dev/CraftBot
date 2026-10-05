@@ -20,6 +20,14 @@ export const RESOURCES = {
     pushedOnConnect: true,
     request: (send) => send({ type: 'agent_app_list' }),
   },
+  /** Pending chat-started setups (Resume setup cards). Pushed on connect. */
+  agentAppSetups: {
+    key: 'agentAppSetups',
+    resource: 'agent_app_setups',
+    liveness: 'always',
+    pushedOnConnect: true,
+    request: (send) => send({ type: 'agent_app_setup_list' }),
+  },
   /** Sidebar sessions (order follows last activity). Pushed in `init`. */
   sessions: {
     key: 'sessions',
