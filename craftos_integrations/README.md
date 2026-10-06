@@ -380,6 +380,12 @@ integration_registry()  # snapshot dict {id: metadata}
 
 ## Adding a new integration
 
+Figma is a native full-port example alongside PostHog: scoped PAT connection,
+optional configured OAuth, account-bound REST clients, 43 declared operations
+(including native design creation/editing through the published Talk to Figma plugin),
+and generated agent actions. See [Figma integration notes](providers/figma/INTEGRATION.md)
+for setup, supported workflows, API limitations, and the live smoke checklist.
+
 **A new integration is one folder.** `craftos_integrations/providers/<name>/` holds everything, gets auto-wired, and needs no central registry edits and no frontend changes (UI metadata flows from `get_metadata()`):
 
 | File | Holds |
