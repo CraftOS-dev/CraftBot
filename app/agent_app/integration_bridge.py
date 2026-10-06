@@ -581,6 +581,9 @@ class IntegrationBridge:
 
         prompt = data.get("prompt", "")
         system_message = data.get("system_message")
+        # Opt-in provider JSON mode for hooks that parse the reply as an
+        # object (bridge.callLLM(prompt, system, { json: true })).
+        json_mode = data.get("json_mode") is True
 
         if not prompt:
             return web.json_response(
@@ -590,7 +593,9 @@ class IntegrationBridge:
         try:
             import app.internal_action_interface as iai
 
-            result = await iai.InternalActionInterface.use_llm(prompt, system_message)
+            result = await iai.InternalActionInterface.use_llm(
+                prompt, system_message, json_mode=json_mode
+            )
             llm_response = result.get("llm_response", "")
             if isinstance(llm_response, dict):
                 response_text = llm_response.get("content", "")

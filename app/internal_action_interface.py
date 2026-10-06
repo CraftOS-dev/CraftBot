@@ -110,20 +110,24 @@ class InternalActionInterface:
 
     @classmethod
     async def use_llm(
-        cls, prompt: str, system_message: Optional[str] = None
+        cls,
+        prompt: str,
+        system_message: Optional[str] = None,
+        json_mode: bool = False,
     ) -> Dict[str, Any]:
         """Generate a response from the configured LLM (async to avoid blocking UI)."""
         if cls.llm_interface is None:
             raise RuntimeError(
                 "InternalActionInterface not initialized with LLMInterface."
             )
-        # json_mode=False: use_llm carries arbitrary agent-authored prompts
-        # (translations, drafts, analyses, ...) whose output is returned as
-        # text. If a prompt wants JSON it says so itself; forcing the
-        # provider's JSON mode onto prose prompts degenerates on several
-        # providers.
+        # json_mode defaults to False: use_llm carries arbitrary agent-authored
+        # prompts (translations, drafts, analyses, ...) whose output is
+        # returned as text, and forcing the provider's JSON mode onto prose
+        # prompts degenerates on several providers. Callers that parse the
+        # reply as a JSON object (Agent App hooks via the bridge) opt in, so
+        # the provider constrains the output instead of the caller scraping it.
         response = await cls.llm_interface.generate_response_async(
-            system_message, prompt, prompt_name="USE_LLM", json_mode=False
+            system_message, prompt, prompt_name="USE_LLM", json_mode=json_mode
         )
         return {"llm_response": response}
 

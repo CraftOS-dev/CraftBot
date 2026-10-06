@@ -76,6 +76,8 @@ system module `pb/pb_hooks/_craftbot_bridge.js` — no API keys in the app:
 ```js
 const bridge = require(`${__hooks}/_craftbot_bridge.js`);
 const summary = bridge.callLLM('Summarize:\n' + text, 'Reply in one sentence.');
+// Parsing the reply? Ask for the provider's JSON mode instead of scraping prose:
+const notes = JSON.parse(bridge.callLLM(prompt, 'Reply with one JSON object.', { json: true }) || 'null');
 const res = bridge.callIntegration('slack', 'POST', '/chat.postMessage', { ... });
 ```
 

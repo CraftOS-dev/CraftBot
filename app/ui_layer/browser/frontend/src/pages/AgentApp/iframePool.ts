@@ -64,6 +64,13 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
   let iframe = pool.get(id)
   if (!iframe) {
     iframe = document.createElement('iframe')
+    // Apps are cross-ORIGIN to the UI (another port), and a cross-origin
+    // frame gets no powerful features unless the embedder delegates them.
+    // Without this, getUserMedia/getDisplayMedia were refused by permissions
+    // policy before the user was ever asked, and clipboard writes failed:
+    // Audio Notes saved 26 minutes of nothing. Delegating only lets the app
+    // ASK; the browser still prompts the user. Must precede navigation.
+    iframe.allow = 'microphone; camera; display-capture; clipboard-read; clipboard-write; fullscreen'
     iframe.src = src
     // The requested src is remembered separately: reading iframe.src back
     // returns the browser-normalized absolute URL, so comparing against it
