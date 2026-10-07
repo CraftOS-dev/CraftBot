@@ -18,6 +18,7 @@ from ..contracts import Provider
 
 def default_providers() -> List[Provider]:
     from .discord import DiscordProvider
+    from .figma import FigmaProvider
     from .github import GitHubProvider
     from .gmail import GmailProvider
     from .google_calendar import GoogleCalendarProvider
@@ -45,6 +46,7 @@ def default_providers() -> List[Provider]:
 
     return [
         # Full ports — operations generated from the provider.
+        FigmaProvider(),
         GmailProvider(),
         GoogleCalendarProvider(),
         GoogleDocsProvider(),

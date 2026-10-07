@@ -548,6 +548,26 @@
       "waitingQrScan": "Waiting for QR scan...",
       "connectNamed": "Connect {{name}}"
     },
+    "figma": {
+      "canvasTitle": "Design in Figma",
+      "canvasIntro": "Use Talk to Figma in your browser. CraftBot runs the connection for you—no Desktop app or extra server to install.",
+      "canvasAccount": "CraftBot account",
+      "canvasStepStart": "Start the connection below.",
+      "canvasPluginLink": "Open Talk to Figma MCP Plugin",
+      "canvasStepPlugin": "in your target Figma design, then click Connect on port 3055.",
+      "canvasStepChannel": "Paste the channel shown by the plugin and connect it to CraftBot.",
+      "canvasConnected": "Connected to {{page}} · channel {{channel}}",
+      "canvasWaiting": "Connection running · waiting for a plugin channel",
+      "canvasStopped": "Canvas connection stopped",
+      "canvasStart": "Start canvas connection",
+      "canvasChannel": "Plugin channel",
+      "canvasConnect": "Connect channel",
+      "canvasStop": "Stop connection",
+      "canvasRefresh": "Refresh status",
+      "canvasTimeout": "Connection check timed out. Refresh the status before trying again.",
+      "canvasTarget": "Edits use the plugin’s open file and page. Keep it open while CraftBot works; reconnect after changing pages or restarting. Your default REST file does not choose the canvas.",
+      "canvasPrivacy": "This community plugin can read and edit the open design and declares usage analytics. CraftBot keeps your Figma token local. Both CraftBot and Figma must run on this computer."
+    },
     "whatsapp": {
       "starting": "Starting WhatsApp Web session...",
       "scanDesc": "Scan this QR code with your WhatsApp mobile app to connect.",

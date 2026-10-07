@@ -72,8 +72,9 @@ def request(
     expected: Iterable[int] = _DEFAULT_EXPECTED,
     transform: Optional[Callable[[Any], Any]] = None,
     timeout: float = 15.0,
+    response_hook: Optional[Callable[[httpx.Response], None]] = None,
 ) -> Result:
-    """Sync REST helper. Returns ``{ok, result}`` or ``{error, details}``."""
+    """REST envelope; an optional hook can capture status/headers before shaping."""
     try:
         r = httpx.request(
             method,
@@ -85,6 +86,8 @@ def request(
             files=files,
             timeout=timeout,
         )
+        if response_hook is not None:
+            response_hook(r)
         return _shape(r, expected, transform)
     except Exception as e:
         return {"error": str(e)}
@@ -102,6 +105,7 @@ async def arequest(
     expected: Iterable[int] = _DEFAULT_EXPECTED,
     transform: Optional[Callable[[Any], Any]] = None,
     timeout: float = 15.0,
+    response_hook: Optional[Callable[[httpx.Response], None]] = None,
 ) -> Result:
     """Async REST helper. Runs sync httpx in a worker thread to avoid anyio.
 
@@ -122,4 +126,5 @@ async def arequest(
         expected=expected,
         transform=transform,
         timeout=timeout,
+        response_hook=response_hook,
     )

@@ -43,6 +43,7 @@ import { RESOURCES, useResource } from '../../store/resources'
 import { formatNumber, localeCompare } from '../../i18n/format'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { FigmaCanvasSettings } from './FigmaCanvasSettings'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
   setDisconnected,
@@ -1637,6 +1638,8 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                     {accountsError && <div className={styles.formError}>{accountsError}</div>}
                   </div>
 
+                  {integration.id === 'figma' && <FigmaCanvasSettings accounts={accounts.filter(a => !staged?.disconnect.includes(a.identity))} />}
+
                   {hasConfig && (
                     <div className={styles.mSettings}>
                       <div>
@@ -1714,7 +1717,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                         </p>
                       </div>
 
-                      <label
+                      {integration.supports_listening !== false && <label
                         className={styles.toggleGroup}
                         htmlFor={`listen-${selectedAccount.identity}`}
                       >
@@ -1731,7 +1734,7 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                           checked={listenValue}
                           onChange={e => stageListen(integration.id, selectedAccount, e.target.checked)}
                         />
-                      </label>
+                      </label>}
 
                       {selectedMarked && (
                         <p className={styles.mRemovalNote}>

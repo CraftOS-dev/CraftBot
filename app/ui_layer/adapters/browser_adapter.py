@@ -2000,6 +2000,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             values = data.get("values") or {}
             await self._handle_integration_update_config(integration_id, values)
 
+        elif msg_type == "figma_canvas_control":
+            await self._handle_figma_canvas_control(data)
+
         # Agent App settings handlers
         elif msg_type == "agent_app_settings_get":
             await self._handle_agent_app_settings_get()
@@ -7962,6 +7965,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # Schema-driven: each integration declares ``config_class`` +
     # ``config_fields`` on its handler. These two handlers work for
     # every integration with no per-id branching.
+
+    async def _handle_figma_canvas_control(self, data: dict) -> None:
+        """Settings can pair/stop a canvas; design writes remain agent actions."""
+        from app.ui_layer.settings.figma_canvas import control_canvas
+
+        result = await control_canvas(self._system_for("figma"), data)
+        await self._broadcast({"type": "figma_canvas_result", "data": result})
 
     async def _handle_integration_get_config(self, integration_id: str) -> None:
         """Send the integration's config schema + current values to the frontend."""
