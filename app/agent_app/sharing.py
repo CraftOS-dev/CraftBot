@@ -21,7 +21,6 @@ from them, so there is nothing to keep in sync on the project object.
 
 import asyncio
 import os
-import re
 import secrets
 import shutil
 import socket
@@ -424,7 +423,7 @@ class TunnelChannel(ShareChannel):
         # visitors hang until their client times out, and every byte that would
         # explain why is stuck unread in that buffer. A file sink has no such
         # backpressure, and doubles as the log this had no way to produce.
-        log_handle, log_path, log_offset = self._open_log(project, port)
+        log_handle, log_path = self._open_log(project, port)
         if log_handle is None:
             raise ShareError("No writable location for the cloudflared log.")
 
@@ -435,12 +434,15 @@ class TunnelChannel(ShareChannel):
         # single request — the tunnel came up healthy, announced its URL, and
         # then refused every visitor.
         origin_url = f"http://127.0.0.1:{port}"
+        # Where cloudflared reports on itself (see _await_ready). Chosen here:
+        # its default port is picked at runtime and only named in its log.
+        metrics = f"127.0.0.1:{self._free_loopback_port()}"
         logger.info(
             f"[AGENT_APP:SHARE] Starting cloudflared: {cloudflared} tunnel "
-            f"--url {origin_url} (log: {log_path})"
+            f"--metrics {metrics} --url {origin_url} (log: {log_path})"
         )
         proc = subprocess.Popen(
-            [cloudflared, "tunnel", "--url", origin_url],
+            [cloudflared, "tunnel", "--metrics", metrics, "--url", origin_url],
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW
@@ -455,13 +457,11 @@ class TunnelChannel(ShareChannel):
             owner=str(getattr(project, "id", "")),
             label=origin_url,
         )
-        url = await self._parse_url(proc, log_path, log_offset)
+        url = await self._await_ready(proc, metrics, log_path)
         if not url:
             self._terminate(proc)
             self._close_log(log_handle)
-            raise ShareError(
-                f"cloudflared didn't come up; its own output is in {log_path}"
-            )
+            raise ShareError(f"cloudflared didn't come up. More info in {log_path}")
         self._running[project.id] = (proc, log_handle)
         return url
 
@@ -571,12 +571,13 @@ class TunnelChannel(ShareChannel):
     def log_path(project: Any) -> Path:
         return Path(project.path) / "logs" / "cloudflared.log"
 
-    def _open_log(self, project: Any, port: int) -> Tuple[Optional[Any], Path, int]:
-        """Open cloudflared's output sink. Returns (handle, path, offset).
+    def _open_log(self, project: Any, port: int) -> Tuple[Optional[Any], Path]:
+        """Open cloudflared's output sink. Returns (handle, path).
 
-        The sink is not optional — it is both the tunnel's only log and the
-        only place the public URL is announced — so an unwritable project
-        directory falls back to the temp dir rather than failing the share.
+        The sink is not optional: a pipe nobody drains wedges cloudflared
+        (see _connect), and this is the tunnel's only log. So an unwritable
+        project directory falls back to the temp dir rather than failing the
+        share.
         """
         candidates = [
             self.log_path(project),
@@ -597,10 +598,10 @@ class TunnelChannel(ShareChannel):
                     f"port={port} ===\n"
                 )
                 handle.flush()
-                return handle, path, path.stat().st_size
+                return handle, path
             except Exception as e:
                 logger.warning(f"[AGENT_APP:SHARE] Tunnel log unusable at {path}: {e}")
-        return None, candidates[-1], 0
+        return None, candidates[-1]
 
     @staticmethod
     def _close_log(handle: Optional[Any]) -> None:
@@ -611,47 +612,63 @@ class TunnelChannel(ShareChannel):
         except Exception:
             pass
 
+    # ── cloudflared readiness ──
+
     @staticmethod
-    async def _parse_url(
-        proc: subprocess.Popen, log_path: Path, start_offset: int = 0, timeout: int = 30
+    def _free_loopback_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    @staticmethod
+    async def _await_ready(
+        proc: subprocess.Popen, metrics: str, log_path: Path, timeout: int = 120
     ) -> Optional[str]:
-        """Wait for cloudflared to announce its public URL in its log file.
-        Tails the file rather than reading the process pipes — see the note
-        in _connect about the pipe-buffer deadlock that cost us the tunnel."""
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
-        deadline = time.time() + timeout
-        offset = start_offset
-        seen = ""
-        while True:
-            # Sample liveness BEFORE reading, so a process that dies between
-            # the two still gets its final bytes examined.
-            exited = proc.poll() is not None
-            try:
-                with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
-                    fh.seek(offset)
-                    seen += fh.read()
-                    offset = fh.tell()
-            except FileNotFoundError:
-                pass
-            match = pattern.search(seen)
-            if match:
-                return match.group(0)
-            # cloudflared boxes the URL inside an ASCII banner, so it can land
-            # split across two reads: keep a tail long enough to re-match.
-            if len(seen) > 8192:
-                seen = seen[-1024:]
-            if exited:
-                logger.error(
-                    f"[AGENT_APP:SHARE] cloudflared exited (code {proc.returncode}) "
-                    f"before announcing a URL; see {log_path}"
-                )
-                return None
-            if time.time() >= deadline:
-                logger.error(
-                    f"[AGENT_APP:SHARE] No cloudflare URL within {timeout}s; see {log_path}"
-                )
-                return None
-            await asyncio.sleep(0.3)
+        """Wait until cloudflared holds a live connection to Cloudflare, then
+        return the public origin it was assigned. Both come from cloudflared's
+        metrics server as structured data: /ready answers 200 once a
+        connection is registered, /quicktunnel names the hostname.
+
+        Never from its log text. The URL used to be scraped from there, and
+        the pattern also matched the API host in cloudflared's own failure
+        line ("failed to request quick Tunnel: Post
+        https://api.trycloudflare.com/tunnel ..."), so a tunnel that never
+        came up was handed out as a link. The metrics server only starts once
+        the tunnel exists; a failed request exits the process instead."""
+        import aiohttp
+
+        # Edge registration can take longer than URL allocation while
+        # cloudflared retries. Wall-clock adjustments must not cut it short.
+        deadline = time.monotonic() + timeout
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=2)
+        ) as session:
+            while True:
+                if proc.poll() is not None:
+                    logger.error(
+                        f"[AGENT_APP:SHARE] cloudflared exited (code {proc.returncode}) "
+                        f"before its tunnel was ready; see {log_path}"
+                    )
+                    return None
+                try:
+                    async with session.get(f"http://{metrics}/ready") as resp:
+                        ready = resp.status == 200
+                    if ready:
+                        async with session.get(f"http://{metrics}/quicktunnel") as resp:
+                            hostname = (await resp.json(content_type=None)).get(
+                                "hostname"
+                            )
+                        if hostname:
+                            return f"https://{hostname}"
+                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+                    pass  # not listening yet: it starts once the tunnel exists
+                if time.monotonic() >= deadline:
+                    logger.error(
+                        f"[AGENT_APP:SHARE] cloudflared tunnel not ready within "
+                        f"{timeout}s; see {log_path}"
+                    )
+                    return None
+                await asyncio.sleep(0.3)
 
 
 # ── the service the manager composes ──────────────────────────────────────
