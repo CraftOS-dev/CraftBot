@@ -1,5 +1,5 @@
 ---
-version: 9
+version: 10
 purpose: agent operations manual
 ---
 
@@ -520,6 +520,8 @@ There are four failure types. Identify which one you are in, then follow the mat
 
 **File / shell / Python action returns `status=error`**
 - Read the `message` field. It often points at the fix (file not found, permission, syntax error, missing dep).
+- On Windows, read `shell`, `shell_executable`, and `guidance` from `run_shell`. For PowerShell source select `shell="powershell"` (or `"pwsh"`) and submit raw source: `command="Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'"`. The tool launches the interpreter; omit `powershell -Command` and `cmd /c` wrappers unless nesting is intentional. Keep `shell="cmd"` for cmd syntax and batch workflows.
+- For quoting/parser failures, correct the shell choice and source instead of guessing escapes or adding wrappers. Check partial side effects before retrying. Verify stdout even with exit code 0: nested shells can expand variables or turn source into a literal string. `guidance` is advisory; the tool never rewrites or retries a command automatically.
 - If the message says a missing dependency while running a script via `run_shell` (e.g. a Python `ModuleNotFoundError`), install it with `pip install`/`npm install` in a follow-up `run_shell` call.
 - If it says path not found, `find_files` or `list_folder` to locate before retry.
 
