@@ -43,6 +43,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 # Windows consoles default to cp1252; the checks print arrows and dashes.
 try:
@@ -321,6 +323,64 @@ async def _check_never_a_dead_link(tmp: Path) -> None:
 print_dead_link = "§6 a tunnel that never came up is an error, never a link: OK"
 
 
+async def _check_delayed_readiness(tmp: Path) -> None:
+    """Edge retries can take over 30 seconds, even across a clock change."""
+    from aiohttp import web
+
+    # Advance only the sharing deadline's clock: real HTTP requests still
+    # exercise both endpoints without making this regression take 35 seconds.
+    for jump_wall_clock in (False, True):
+        elapsed = [0.0]
+        wall_offset = [0.0]
+        statuses = []
+        hostname_requests = []
+
+        async def ready(request):
+            elapsed[0] = min(elapsed[0] + 10, 35)
+            if jump_wall_clock:
+                wall_offset[0] = 86400
+            status = 200 if elapsed[0] >= 35 else 503
+            statuses.append(status)
+            return web.json_response({"status": status}, status=status)
+
+        async def quicktunnel(request):
+            hostname_requests.append(request.path)
+            return web.json_response(
+                {"hostname": "fake-tunnel-for-tests.trycloudflare.com"}
+            )
+
+        app = web.Application()
+        app.router.add_get("/ready", ready)
+        app.router.add_get("/quicktunnel", quicktunnel)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        try:
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            clock = SimpleNamespace(
+                monotonic=lambda: elapsed[0],
+                time=lambda: elapsed[0] + wall_offset[0],
+            )
+            proc = SimpleNamespace(poll=lambda: None)
+            with patch("app.agent_app.sharing.time", clock):
+                url = await TunnelChannel._await_ready(
+                    proc, f"127.0.0.1:{port}", tmp / "delayed.log"
+                )
+            assert url == URL, (
+                f"delayed tunnel failed (clock jump={jump_wall_clock}): {url}"
+            )
+            assert statuses == [503, 503, 503, 200], statuses
+            assert hostname_requests == ["/quicktunnel"], hostname_requests
+        finally:
+            await runner.cleanup()
+
+
+print_delayed = (
+    "§7 readiness after 35s survives edge retries and wall-clock changes: OK"
+)
+
+
 with tempfile.TemporaryDirectory() as _tmp:
     asyncio.run(_check_sink(Path(_tmp)))
     print(print_sink)
@@ -348,5 +408,9 @@ with tempfile.TemporaryDirectory() as _tmp:
 with tempfile.TemporaryDirectory() as _tmp:
     asyncio.run(_check_never_a_dead_link(Path(_tmp)))
     print(print_dead_link)
+
+with tempfile.TemporaryDirectory() as _tmp:
+    asyncio.run(_check_delayed_readiness(Path(_tmp)))
+    print(print_delayed)
 
 print("tunnel: all checks OK")

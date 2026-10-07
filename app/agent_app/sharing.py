@@ -461,9 +461,7 @@ class TunnelChannel(ShareChannel):
         if not url:
             self._terminate(proc)
             self._close_log(log_handle)
-            raise ShareError(
-                f"cloudflared didn't come up. More info in {log_path}"
-            )
+            raise ShareError(f"cloudflared didn't come up. More info in {log_path}")
         self._running[project.id] = (proc, log_handle)
         return url
 
@@ -624,7 +622,7 @@ class TunnelChannel(ShareChannel):
 
     @staticmethod
     async def _await_ready(
-        proc: subprocess.Popen, metrics: str, log_path: Path, timeout: int = 30
+        proc: subprocess.Popen, metrics: str, log_path: Path, timeout: int = 120
     ) -> Optional[str]:
         """Wait until cloudflared holds a live connection to Cloudflare, then
         return the public origin it was assigned. Both come from cloudflared's
@@ -639,7 +637,9 @@ class TunnelChannel(ShareChannel):
         the tunnel exists; a failed request exits the process instead."""
         import aiohttp
 
-        deadline = time.time() + timeout
+        # Edge registration can take longer than URL allocation while
+        # cloudflared retries. Wall-clock adjustments must not cut it short.
+        deadline = time.monotonic() + timeout
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=2)
         ) as session:
@@ -662,7 +662,7 @@ class TunnelChannel(ShareChannel):
                             return f"https://{hostname}"
                 except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
                     pass  # not listening yet: it starts once the tunnel exists
-                if time.time() >= deadline:
+                if time.monotonic() >= deadline:
                     logger.error(
                         f"[AGENT_APP:SHARE] cloudflared tunnel not ready within "
                         f"{timeout}s; see {log_path}"
