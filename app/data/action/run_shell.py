@@ -219,13 +219,8 @@ def shell_exec(input_data: dict) -> dict:
 @action(
     name="run_shell",
     description=(
-        "Executes a command using the selected Windows shell, capturing stdout, "
-        "stderr and exit code. For PowerShell scripts set shell='powershell' "
-        "or 'pwsh' and pass raw source; the tool launches the interpreter, so "
-        "omit powershell -Command and cmd /c wrappers. Default/auto remains cmd. "
-        "Check guidance and verify stdout: nested quoting can return exit code 0 "
-        "with the wrong result. Stdin is closed (EOF). Set background=true for "
-        "dev servers, watchers and other commands that do not terminate."
+        "Executes Windows shell source, capturing stdout, stderr and exit code. "
+        "Stdin is closed. Set background=true for servers/watchers."
     ),
     platforms=["windows"],
     default=True,
@@ -234,12 +229,12 @@ def shell_exec(input_data: dict) -> dict:
         "command": {
             "type": "string",
             "example": "Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'",
-            "description": "Source for the selected shell. For shell='powershell'/'pwsh', send a raw script without an interpreter wrapper. JSON escaping is decoded once; do not add another escaping layer.",
+            "description": "Raw source for the selected shell; the tool starts the interpreter. Omit powershell -Command/cmd /c wrappers unless intentional.",
         },
         "shell": {
             "type": "string",
             "example": "powershell",
-            "description": "Windows: 'cmd' (default/auto), 'powershell', or 'pwsh'. Choose powershell/pwsh for PowerShell source; the tool supplies -Command. Choose cmd for cmd syntax and batch workflows. bash/zsh/sh are unavailable.",
+            "description": "cmd (default/auto), powershell, or pwsh. Use powershell/pwsh for PowerShell source.",
         },
         "timeout": {
             "type": "integer",
@@ -277,7 +272,7 @@ def shell_exec(input_data: dict) -> dict:
         "guidance": {
             "type": "string",
             "example": "",
-            "description": "Advisory for nested interpreters or recognized parser failures. Commands are never rewritten or retried automatically.",
+            "description": "Advisory for nested PowerShell wrappers. Commands are never rewritten or retried automatically.",
         },
         "status": {"type": "string", "example": "success"},
         "stdout": {"type": "string", "example": "Command output text"},
@@ -319,42 +314,19 @@ def shell_exec_windows(input_data: dict) -> dict:
         command,
         re.IGNORECASE | re.DOTALL,
     )
-    script_guidance = (
-        "For PowerShell source, set shell='powershell' (or 'pwsh') and pass "
-        "the raw script as command, without powershell -Command or cmd /c "
-        "wrappers. The tool launches the interpreter."
-    )
 
     def result(output):
         output["shell"] = shell_choice
         output["shell_executable"] = shell_executable
-        guidance = []
-        if nested_shell:
-            guidance.append(
-                "A nested PowerShell -Command wrapper was detected. Outer "
-                "shells can expand variables or interpret quotes before the "
-                "script reaches PowerShell, even with exit code 0. "
-                + script_guidance
-                + " If nesting is intentional, verify stdout matches the intended result."
-            )
-        stderr = output.get("stderr", "").lower()
-        if output.get("return_code", 0) != 0 and any(
-            marker in stderr
-            for marker in (
-                "parsererror",
-                "unexpectedtoken",
-                "terminatorexpectedatendofstring",
-                "missingclosing",
-                "was unexpected at this time",
-            )
-        ):
-            guidance.append(
-                f"The command failed with a possible syntax/quoting error under {shell_choice}. "
-                + script_guidance
-                + " For cmd syntax, keep shell='cmd'. Check for partial side effects "
-                "before issuing a corrected command; this tool has not retried it."
-            )
-        output["guidance"] = " ".join(guidance)
+        # Preserve native stderr and exit status; stderr text is not a reliable
+        # error-type protocol across shells, applications or localized output.
+        output["guidance"] = (
+            "Nested PowerShell -Command detected: outer shells may expand variables "
+            "or quotes, even with exit code 0. Prefer shell='powershell'/'pwsh' with "
+            "raw script; verify stdout if nesting is intentional."
+            if nested_shell
+            else ""
+        )
         return output
 
     simulated_mode = input_data.get("simulated_mode", False)

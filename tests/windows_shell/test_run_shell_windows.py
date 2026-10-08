@@ -49,7 +49,9 @@ class ShellGuidanceTests(unittest.TestCase):
         self.run_shell, self.metadata = load_action()
 
     def test_schema_teaches_raw_powershell(self):
-        self.assertIn("raw source", self.metadata["description"])
+        self.assertIn(
+            "Raw source", self.metadata["input_schema"]["command"]["description"]
+        )
         self.assertEqual(
             self.metadata["input_schema"]["shell"]["example"], "powershell"
         )
@@ -71,29 +73,6 @@ class ShellGuidanceTests(unittest.TestCase):
         self.assertEqual(result["shell"], "cmd")
         self.assertIsNone(result["shell_executable"])
         self.assertEqual(result["message"], "command is required.")
-
-    def test_environment_prompt_can_still_be_formatted(self):
-        tree = ast.parse(
-            (ROOT / "agent_core/core/prompts/context.py").read_text("utf-8")
-        )
-        assignment = next(
-            node
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            and any(
-                isinstance(target, ast.Name)
-                and target.id == "ENVIRONMENTAL_CONTEXT_PROMPT"
-                for target in node.targets
-            )
-        )
-        prompt = ast.literal_eval(assignment.value).format(
-            user_location="UTC",
-            working_directory=".",
-            operating_system="Windows",
-            os_version="11",
-            os_platform="win32",
-        )
-        self.assertIn('shell="powershell"', prompt)
 
 
 @unittest.skipUnless(sys.platform == "win32", "Requires real Windows interpreters")
@@ -205,17 +184,27 @@ class WindowsShellTests(unittest.TestCase):
         self.assertIn("intentional", result["guidance"])
         self.assertEqual(self.cancellation.register_process.call_count, 1)
 
-    def test_parser_failure_has_shell_guidance(self):
+    def test_parser_failure_preserves_native_error(self):
         result = self.execute("$x = (")
         self.assertEqual(result["status"], "error", result)
-        self.assertIn("syntax/quoting error under powershell", result["guidance"])
-        self.assertIn("has not retried", result["guidance"])
+        self.assertNotEqual(result["return_code"], 0)
+        self.assertTrue(result["stderr"])
+        self.assertEqual(result["guidance"], "")
         self.assertEqual(self.cancellation.register_process.call_count, 1)
 
-    def test_ordinary_nonzero_exit_is_preserved(self):
-        result = self.execute("[Console]::Error.WriteLine('sentinel'); exit 7")
+    def test_application_error_text_is_not_classified_as_a_parser_failure(self):
+        stderr = "UnexpectedToken: application-defined failure"
+        result = self.execute(f"[Console]::Error.WriteLine('{stderr}'); exit 7")
         self.assertEqual(result["return_code"], 7)
-        self.assertEqual(result["stderr"], "sentinel")
+        self.assertEqual(result["stderr"], stderr)
+        self.assertEqual(result["guidance"], "")
+
+    def test_successful_stderr_does_not_imply_failure(self):
+        result = self.execute(
+            "[Console]::Error.WriteLine('warning'); Write-Output 'ok'"
+        )
+        self.assert_output(result, "ok")
+        self.assertEqual(result["stderr"], "warning")
         self.assertEqual(result["guidance"], "")
 
     def test_cmd_default_auto_and_explicit_remain_compatible(self):

@@ -4,13 +4,11 @@ on:
   push:
     paths:
       - 'app/data/action/run_shell.py'
-      - 'agent_core/core/prompts/context.py'
       - 'tests/windows_shell/**'
       - '.github/workflows/windows-shell.yml'
   pull_request:
     paths:
       - 'app/data/action/run_shell.py'
-      - 'agent_core/core/prompts/context.py'
       - 'tests/windows_shell/**'
       - '.github/workflows/windows-shell.yml'
 

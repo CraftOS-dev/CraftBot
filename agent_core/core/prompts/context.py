@@ -171,13 +171,6 @@ ENVIRONMENTAL_CONTEXT_PROMPT = """
 - User Location: {user_location}
 - Current Working Directory: {working_directory}
 - Operating System: {operating_system} {os_version} ({os_platform})
-On Windows, run_shell defaults to cmd. For PowerShell source select shell="powershell"
-or "pwsh" and submit the raw script; run_shell launches the interpreter. For example,
-command="Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'" with shell="powershell".
-Omit powershell -Command and cmd /c wrappers unless nesting is intentional. Read
-run_shell's guidance and verify stdout even on success; nested quoting can silently
-change the result. After a quoting failure, check the selected shell and partial
-side effects before correcting the source. Avoid repeated escape-character guesses.
 </agent_environment>
 """
 
