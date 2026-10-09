@@ -1,0 +1,21 @@
+.artifact { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 22px; border-bottom: 1px solid var(--border-primary); }
+.devices, .actions { display: flex; align-items: center; gap: 4px; }
+.toolbar button, .menu summary { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 30px; padding: 5px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.devices button[aria-pressed=true] { background: var(--bg-tertiary); color: var(--text-primary); }
+.toolbar button:hover, .menu summary:hover { background: var(--bg-hover); color: var(--text-primary); }
+.toolbar button:focus-visible, .menu summary:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.canvas { flex: 1; display: flex; justify-content: center; min-height: 0; min-width: 0; background: var(--bg-primary); }
+.preview { position: relative; display: flex; flex-direction: column; width: 100%; min-height: 0; overflow: hidden; background: var(--bg-primary); }
+.phone { padding: 20px; background: var(--bg-secondary); }
+.phone .preview { max-width: 390px; border: 1px solid var(--border-primary); border-radius: 18px; box-shadow: 0 8px 28px rgba(0,0,0,.04); }
+.frame { flex: 1; display: block; border: 0; width: 100%; min-height: 0; height: 100%; }
+.menu { position: relative; }
+.menu summary { list-style: none; }
+.menu summary::-webkit-details-marker { display: none; }
+.menuItems { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 2px; width: 200px; padding: 5px; border: 1px solid var(--border-primary); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--shadow-md); }
+.menuItems button { justify-content: flex-start; padding: 8px 10px; }
+.notice { padding: 20px; margin: 0; color: var(--text-secondary); font-size: 13px; }
+.error { padding: 12px 16px; background: var(--color-warning-bg); color: var(--text-primary); font-size: 12px; }
+.error p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media(max-width: 768px) { .phone { padding: 12px; } .toolbar { padding: 8px 12px; } }

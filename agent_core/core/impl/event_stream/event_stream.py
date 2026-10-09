@@ -232,6 +232,7 @@ class EventStream:
         platform: Optional[str] = None,
         continue_work: Optional[bool] = None,
         question: Optional[dict] = None,
+        ui_artifact: Optional[dict] = None,
     ) -> int:
         """
         Append a new event to the stream and trigger summarization if needed.
@@ -289,6 +290,7 @@ class EventStream:
             platform=platform,
             continue_work=continue_work,
             question=question,
+            ui_artifact=ui_artifact,
         )
         rec = EventRecord(event=ev)
 

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Design playground</title><style>
+* { box-sizing: border-box; } [hidden] { display: none !important; } body { margin: 0; padding: 24px; color: #282c36; background: #f6f5f8; font: 14px/1.5 system-ui, sans-serif; } h1 { margin: 4px 0 20px; font-size: 26px; } small { color: #767285; letter-spacing: .1em; text-transform: uppercase; }
+.layout { display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 24px; } label { display: block; margin-bottom: 18px; } input, select { display: block; margin-top: 6px; max-width: 100%; } #canvas { min-width: 0; overflow: auto; padding: 4px; }
+#card { --accent: #6755b4; width: 100%; max-width: 500px; margin: auto; padding: 24px; border: 1px solid #dedbe7; border-radius: 14px; background: #fff; box-shadow: 0 12px 28px #29213b0a; } #card h2 { font-size: 24px; margin: 12px 0; }
+button { padding: 10px 14px; font: inherit; border: 0; border-radius: 7px; cursor: pointer; background: var(--accent, #6755b4); color: white; } #menu { display: flex; gap: 8px; margin-bottom: 12px; } #menu button { background: #eeeaf7; color: #4b3e7b; }
+#card input { padding: 10px; width: 100%; border: 1px solid #beb7d4; border-radius: 6px; font: inherit; } :focus-visible { outline: 3px solid #b38b3b; outline-offset: 3px; } @media(max-width: 560px) { .layout { grid-template-columns: 1fr; } aside { display: flex; flex-wrap: wrap; gap: 14px; } body { padding: 16px; } }
+</style></head><body><small>Make it yours</small><h1>Design playground</h1><div class="layout"><aside>
+<label>Accent color<input id="accent" type="color" value="#6755b4"></label><label>Card spacing<input id="spacing" type="range" min="12" max="40" value="24"></label>
+<label>Type size<input id="type" type="range" min="12" max="20" value="14"></label><label>Preview width<select id="width"><option value="100%">Responsive</option><option value="320px">Mobile · 320 px</option><option value="500px">Desktop · 500 px</option></select></label></aside>
+<div id="canvas"><article id="card"><button id="toggle" aria-expanded="false">Menu</button><nav id="menu" aria-label="Preview navigation" hidden><button>Overview</button><button>Projects</button></nav><h2>A space for your next idea</h2><p>Try the controls, open the menu, and submit the form to explore its states.</p>
+<form id="form"><label>Email address<input id="email" type="email" required placeholder="you@example.com"></label><button>Join the preview</button><p id="result" role="status"></p></form></article></div></div>
+<script>
+const bridge = window.craftbot || {state: {}, saveState() {}};
+const state = {accent: '#6755b4', spacing: 24, type: 14, width: '100%', menu: false, ...bridge.state};
+const $ = id => document.getElementById(id);
+function render() {
+  ['accent', 'spacing', 'type', 'width'].forEach(key => $(key).value = state[key]);
+  $('card').style.setProperty('--accent', state.accent); $('card').style.padding = state.spacing + 'px'; $('card').style.fontSize = state.type + 'px'; $('card').style.width = state.width;
+  $('menu').hidden = !state.menu; $('toggle').setAttribute('aria-expanded', String(state.menu));
+}
+['accent', 'spacing', 'type', 'width'].forEach(key => $(key).addEventListener('input', () => { state[key] = $(key).value; bridge.saveState(state); render(); }));
+$('toggle').addEventListener('click', () => { state.menu = !state.menu; bridge.saveState(state); render(); });
+$('form').addEventListener('submit', event => { event.preventDefault(); $('result').textContent = 'Preview submitted locally. No email was sent or saved.'; });
+render();
+</script></body></html>

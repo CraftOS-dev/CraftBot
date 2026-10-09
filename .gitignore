@@ -67,6 +67,8 @@ agent_bundle/
 **/.craftbot/
 app/data/.file_index/
 .playwright-mcp
+**/test-results/
+**/playwright-report/
 # Sidecar Node runtime (install.py downloads it when the system Node is too old for Agent App)
 runtime/
 

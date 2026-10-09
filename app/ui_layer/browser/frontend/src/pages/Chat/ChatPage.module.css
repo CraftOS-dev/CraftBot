@@ -693,6 +693,27 @@
   max-width: 100%;
 }
 
+/* Output references span the conversation column; generated documents live
+   outside the virtualized message list in the output workspace. */
+.messageWrapper.artifactWrapper {
+  width: 100%;
+  max-width: 100%;
+}
+
+.artifactWrapper .messageBubbleContainer {
+  flex: 1;
+}
+
+.artifactWrapper .message {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.artifactWrapper .messageHeader {
+  margin-bottom: 16px;
+}
+
 /* Action buttons (copy) outside the bubble - positioned in the
  * wrapper's padding. Stacks vertically when there is more than one. */
 .messageActionsOutside {
