@@ -19,6 +19,7 @@ DEFAULT_SET_DESCRIPTIONS: Dict[str, str] = {
     "core": "Essential actions always available (send_message, task management, set management)",
     "file_operations": "File and folder manipulation (read, write, search, edit)",
     "web_research": "Internet search and browsing (web search, fetch URLs)",
+    "web_agent": "Drive a real web browser — navigate, read pages, click, type, and scroll to complete interactive web tasks (logging in, searching, filling forms, online shopping). Use when the task needs live interaction with a site, not just reading it.",
     "document_processing": "PDF and document handling (read, create, convert)",
     "image": "Image viewing, analysis, and OCR (screenshots, photos, diagrams)",
     "video": "Video analysis and understanding — describe, summarise, or answer questions about video files (MP4, AVI, MOV)",

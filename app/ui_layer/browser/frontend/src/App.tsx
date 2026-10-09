@@ -6,6 +6,7 @@ import { ChatPage } from './pages/Chat'
 import { DashboardPage } from './pages/Dashboard'
 import { MemoryPage } from './pages/Memory'
 import { ScreenPage } from './pages/Screen'
+import { WebAgentPage } from './pages/WebAgent'
 import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
@@ -154,6 +155,7 @@ function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/memory" element={<MemoryPage />} />
         <Route path="/screen" element={<ScreenPage />} />
+        <Route path="/web-agent" element={<WebAgentPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/agent-app/:projectId" element={<AgentAppPageRoute />} />

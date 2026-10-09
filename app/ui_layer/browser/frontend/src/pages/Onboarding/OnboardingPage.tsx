@@ -1076,7 +1076,7 @@ export function OnboardingPage() {
               {onboardingError && (
                 <div className={styles.errorMessage}>
                   <AlertCircle size={16} />
-                  {onboardingError}
+                  <span className={styles.errorText}>{onboardingError}</span>
                 </div>
               )}
 

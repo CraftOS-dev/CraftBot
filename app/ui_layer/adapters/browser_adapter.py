@@ -1615,6 +1615,40 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             file_path = data.get("path", "")
             await self._handle_open_folder(file_path)
 
+        # Web Agent browser — direct human control of the live browser view.
+        elif msg_type == "browser_user_input":
+            await self._handle_browser_user_input(data.get("event", {}))
+
+        elif msg_type == "browser_resize":
+            await self._handle_browser_resize(
+                data.get("width", 0), data.get("height", 0)
+            )
+
+        elif msg_type == "browser_nav":
+            # URL bar / reload / back / forward — drive the page directly.
+            await self._handle_browser_nav(data.get("target", ""))
+
+        elif msg_type == "browser_tab":
+            # Multiple tabs — new / switch / close / list.
+            await self._handle_browser_tab(data)
+
+        elif msg_type == "browser_adblock":
+            # Toggle / query the built-in ad blocker.
+            await self._handle_browser_adblock(data)
+
+        # Password vault (Web Agent) — manage saved website logins.
+        elif msg_type == "vault_list":
+            await self._handle_vault_list()
+
+        elif msg_type == "vault_add":
+            await self._handle_vault_add(data)
+
+        elif msg_type == "vault_update":
+            await self._handle_vault_update(data)
+
+        elif msg_type == "vault_delete":
+            await self._handle_vault_delete(data.get("id", ""))
+
         elif msg_type == "option_click":
             value = data.get("value", "")
             session_id = data.get("sessionId", "")
@@ -4166,6 +4200,118 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 },
             }
         )
+
+    async def _handle_browser_user_input(self, event: Dict[str, Any]) -> None:
+        """Forward a human interaction to the Web Agent's live browser."""
+        try:
+            from app.browser.web_agent import get_session
+
+            await get_session().user_input(event or {})
+        except Exception as e:
+            logger.debug(f"[WebAgent] user input failed: {e}")
+
+    async def _handle_browser_resize(self, width: Any, height: Any) -> None:
+        """Resize the Web Agent browser so the live view fills the panel."""
+        try:
+            from app.browser.web_agent import get_session
+
+            await get_session().set_viewport(int(width or 0), int(height or 0))
+        except Exception as e:
+            logger.debug(f"[WebAgent] resize failed: {e}")
+
+    async def _handle_browser_nav(self, target: str) -> None:
+        """Navigate the Web Agent browser directly (URL bar / reload / back / forward)."""
+        target = (target or "").strip()
+        if not target:
+            return
+        try:
+            from app.browser.web_agent import get_session
+
+            await get_session().navigate(target)
+        except Exception as e:
+            logger.debug(f"[WebAgent] nav failed: {e}")
+
+    async def _handle_browser_tab(self, data: Dict[str, Any]) -> None:
+        """Tab management for the Web Agent browser (new/switch/close/list)."""
+        try:
+            from app.browser.web_agent import get_session
+
+            s = get_session()
+            action = data.get("action", "list")
+            if action == "new":
+                await s.new_tab(data.get("url"))
+            elif action == "switch":
+                await s.switch_tab(int(data.get("index", 0)))
+            elif action == "close":
+                await s.close_tab(int(data.get("index", 0)))
+            else:  # list
+                await s.list_tabs()
+        except Exception as e:
+            logger.debug(f"[WebAgent] tab op failed: {e}")
+
+    async def _handle_browser_adblock(self, data: Dict[str, Any]) -> None:
+        """Toggle the ad blocker (if 'enabled' given) or report current state."""
+        try:
+            from app.browser.web_agent import get_session
+
+            s = get_session()
+            if "enabled" in data:
+                await s.set_adblock(bool(data["enabled"]))
+            else:
+                await s.broadcast_adblock()
+        except Exception as e:
+            logger.debug(f"[WebAgent] adblock op failed: {e}")
+
+    # ── password vault ────────────────────────────────────────────────────────
+
+    async def _handle_vault_list(self) -> None:
+        """Send saved logins (site + username only, never passwords) to the UI."""
+        try:
+            from app.browser.credential_vault import get_vault
+
+            await self._broadcast(
+                {"type": "vault_list", "data": {"entries": get_vault().list_entries()}}
+            )
+        except Exception as e:
+            logger.debug(f"[Vault] list failed: {e}")
+
+    async def _handle_vault_add(self, data: Dict[str, Any]) -> None:
+        try:
+            from app.browser.credential_vault import get_vault
+
+            get_vault().add_entry(
+                data.get("site", ""),
+                data.get("username", ""),
+                data.get("password", ""),
+                data.get("label", ""),
+            )
+            await self._handle_vault_list()
+        except Exception as e:
+            logger.debug(f"[Vault] add failed: {e}")
+
+    async def _handle_vault_update(self, data: Dict[str, Any]) -> None:
+        try:
+            from app.browser.credential_vault import get_vault
+
+            get_vault().update_entry(
+                data.get("id", ""),
+                site=data.get("site"),
+                username=data.get("username"),
+                password=data.get("password"),
+                label=data.get("label"),
+            )
+            await self._handle_vault_list()
+        except Exception as e:
+            logger.debug(f"[Vault] update failed: {e}")
+
+    async def _handle_vault_delete(self, entry_id: str) -> None:
+        try:
+            from app.browser.credential_vault import get_vault
+
+            get_vault().delete_entry(entry_id)
+            await self._handle_vault_list()
+        except Exception as e:
+            logger.debug(f"[Vault] delete failed: {e}")
 
     async def _handle_option_click(
         self, value: str, session_id: str, message_id: str

@@ -283,7 +283,7 @@
 /* Error Message */
 .errorMessage {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-error-light);
@@ -293,6 +293,22 @@
   font-size: var(--text-sm);
   margin-bottom: var(--space-4);
   flex-shrink: 0;
+  min-width: 0;
+}
+
+/* Keep the icon fixed and let the (possibly very long, e.g. a masked API key)
+   error text wrap inside the card instead of overflowing horizontally. */
+.errorMessage > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.errorText {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: var(--leading-normal, 1.5);
 }
 
 /* Buttons */

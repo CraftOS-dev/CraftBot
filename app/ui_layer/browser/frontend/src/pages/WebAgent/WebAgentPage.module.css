@@ -1,0 +1,341 @@
+.webAgentPage {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.webAgentPage.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.chatPanel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--border-primary);
+  overflow: hidden;
+}
+
+.resizeHandle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.resizeHandle:hover,
+.resizing .resizeHandle {
+  background-color: var(--color-primary);
+}
+
+.browserPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+/* ── header: url bar + controls ─────────────────────────────────────────── */
+
+.browserHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.urlForm {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+.urlForm:focus-within {
+  border-color: var(--color-primary);
+}
+
+.urlIcon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.urlBar {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.urlBar::placeholder {
+  color: var(--text-muted);
+}
+
+.urlGo,
+.headerBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.urlGo:hover,
+.headerBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+}
+
+/* Active/on state for a header toggle (e.g. ad blocker enabled). */
+.headerBtnOn {
+  color: var(--color-primary);
+}
+
+.headerBtnOn:hover {
+  color: var(--color-primary);
+}
+
+.interactiveToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.interactiveToggle:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+/* "On" state — your input controls the browser. */
+.interactiveToggle.interactiveOn {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.stopBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stopBtn:hover:not(:disabled) {
+  color: var(--color-error, #ef4444);
+  border-color: var(--color-error, #ef4444);
+}
+
+.stopBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── tab bar ─────────────────────────────────────────────────────────────── */
+
+.tabBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 200px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tabActive {
+  color: var(--text-primary);
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.tabTitle {
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabClose {
+  display: inline-flex;
+  padding: 1px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tabClose:hover {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.tabNew {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tabNew:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+/* ── viewport: the streamed browser screenshot ──────────────────────────── */
+
+.browserViewport {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-black, #0a0a0a);
+  cursor: default;
+  outline: none;
+}
+
+.browserViewport:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-primary);
+}
+
+/* In interactive mode, use a normal arrow pointer (feels like a real browser). */
+.viewportInteractive {
+  cursor: default;
+}
+
+.frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.emptyState {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-secondary);
+  max-width: 420px;
+  padding: var(--space-6);
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-xl);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.emptyState h3 {
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.emptyState p {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* ── status bar ─────────────────────────────────────────────────────────── */
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+}
+
+.statusTitle {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  max-width: 50%;
+}
+
+.statusUrl {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

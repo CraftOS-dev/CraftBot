@@ -85,3 +85,13 @@ npm-cache/
 playwright-browsers/
 
 hf-cache/
+
+# Mini Browser: encrypted password vault + persistent browser profile
+# (cookies/logins). These contain secrets and MUST never be committed.
+**/.mini_browser_vault.key
+**/.mini_browser_vault.enc
+**/mini_browser_profile/
+# Legacy names from the original "Web Agent" prototype.
+**/.web_agent_vault.key
+**/.web_agent_vault.enc
+**/web_agent_profile/
