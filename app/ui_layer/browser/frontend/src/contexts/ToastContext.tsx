@@ -5,6 +5,17 @@ import styles from './ToastContext.module.css'
 
 type ToastType = 'success' | 'error' | 'warning' | 'info'
 
+/** A button on a toast (e.g. "Open" on a finished download). Clicking it
+ *  runs the action and dismisses the toast. */
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
+const DEFAULT_TOAST_MS = 3000
+// Toasts with buttons stay long enough to reach for them.
+const ACTION_TOAST_MS = 10000
+
 interface Toast {
   id: string
   type: ToastType
@@ -17,11 +28,13 @@ interface Toast {
   /** Sticky toasts never auto-dismiss. For work that outlives 3 seconds the
    *  toast has to survive until the outcome is known. */
   sticky?: boolean
+  actions?: ToastAction[]
 }
 
 export interface ToastOptions {
   key?: string
   sticky?: boolean
+  actions?: ToastAction[]
 }
 
 interface ToastContextValue {
@@ -63,18 +76,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   ) => {
     const key = options?.key
     const sticky = !!options?.sticky
+    const actions = options?.actions?.length ? options.actions : undefined
     const existingId = key ? keyToId.current.get(key) : undefined
     if (existingId) {
       setToasts(prev =>
         prev.some(t => t.id === existingId)
-          ? prev.map(t => (t.id === existingId ? { ...t, type, message, category, sticky } : t))
-          : [...prev, { id: existingId, type, message, category, key, sticky }],
+          ? prev.map(t => (t.id === existingId ? { ...t, type, message, category, sticky, actions } : t))
+          : [...prev, { id: existingId, type, message, category, key, sticky, actions }],
       )
       return
     }
     const id = `toast-${++idCounter.current}`
     if (key) keyToId.current.set(key, id)
-    setToasts(prev => [...prev, { id, type, message, category, key, sticky }])
+    setToasts(prev => [...prev, { id, type, message, category, key, sticky, actions }])
   }, [])
 
   // Auto-dismiss lives here rather than inside showToast so that a toast
@@ -104,7 +118,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           timers.current.delete(t.id)
           if (t.key) keyToId.current.delete(t.key)
           setToasts(prev => prev.filter(x => x.id !== t.id))
-        }, 3000),
+        }, t.actions ? ACTION_TOAST_MS : DEFAULT_TOAST_MS),
       )
     })
   }, [toasts])
@@ -151,7 +165,29 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             onClick={() => dismissToast(toast.id)}
           >
             <span className={styles.icon}>{getIcon(toast.type, toast.category)}</span>
-            <span className={styles.message}>{toast.message}</span>
+            {toast.actions ? (
+              <span className={styles.body}>
+                <span className={styles.message}>{toast.message}</span>
+                <span className={styles.actions}>
+                  {toast.actions.map(action => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      className={styles.action}
+                      onClick={e => {
+                        e.stopPropagation()
+                        dismissToast(toast.id)
+                        action.onClick()
+                      }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </span>
+              </span>
+            ) : (
+              <span className={styles.message}>{toast.message}</span>
+            )}
           </div>
         ))}
       </div>

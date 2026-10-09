@@ -7,8 +7,10 @@ All configuration is read from settings.json - no .env file is used.
 
 import json
 import os
+import re
+import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from app import paths
 
@@ -134,6 +136,21 @@ def _get_default_settings() -> Dict[str, Any]:
         },
         "file_index": {
             "prewarm_all_drives": True,
+        },
+        # Read through get_mini_browser_settings(), which validates each value.
+        "mini_browser": {
+            "headless": True,
+            "adblock": True,
+            "humanlike": True,
+            "show_cursor": True,
+            "max_fps": 12,
+            "jpeg_quality": 70,
+            "search_url": "https://duckduckgo.com/?q={query}",
+            "allow_file_urls": False,
+            "max_agent_tabs": 6,
+            "idle_shutdown_minutes": 30,  # 0 = never
+            "locale": "",  # "" = the OS locale
+            "channel": "chromium",  # "" = Playwright's bundled headless shell
         },
     }
 
@@ -493,6 +510,145 @@ def is_prewarm_all_drives_enabled() -> bool:
     """Whether to pre-warm the find_files index for all local drives at startup."""
     settings = get_settings()
     return settings.get("file_index", {}).get("prewarm_all_drives", True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mini Browser settings (settings.json "mini_browser"; consumed by app/mini_browser)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MINI_BROWSER_BOOLS = frozenset(
+    {"headless", "adblock", "humanlike", "show_cursor", "allow_file_urls"}
+)
+# Inclusive range each numeric setting is clamped to.
+_MINI_BROWSER_RANGES: Dict[str, Tuple[int, int]] = {
+    "max_fps": (1, 30),
+    "jpeg_quality": (30, 95),
+    "max_agent_tabs": (1, 20),
+    "idle_shutdown_minutes": (0, 24 * 60),
+}
+# Playwright browser channels ("" = the default headless shell).
+_MINI_BROWSER_CHANNELS = frozenset(
+    {
+        "",
+        "chromium",
+        "chrome",
+        "chrome-beta",
+        "chrome-dev",
+        "chrome-canary",
+        "msedge",
+        "msedge-beta",
+        "msedge-dev",
+        "msedge-canary",
+    }
+)
+_LOCALE_RE = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*")
+_MAX_SEARCH_URL_CHARS = 2048
+# Serializes this module's read-modify-write of settings.json between threads
+# (the Mini Browser saves from its own thread).
+_settings_write_lock = threading.Lock()
+
+
+def _clean_mini_browser_value(key: str, value: Any) -> Tuple[bool, Any]:
+    """``(True, cleaned)`` for a usable value of setting ``key``, else ``(False, None)``.
+
+    Numbers are clamped to their range; anything of the wrong type is unusable.
+    """
+    if key in _MINI_BROWSER_BOOLS:
+        return (True, value) if isinstance(value, bool) else (False, None)
+    if key in _MINI_BROWSER_RANGES:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False, None
+        try:
+            number = round(value)
+        except (OverflowError, ValueError):  # inf / nan
+            return False, None
+        low, high = _MINI_BROWSER_RANGES[key]
+        return True, max(low, min(high, number))
+    if not isinstance(value, str):
+        return False, None
+    text = value.strip()
+    if key == "search_url":
+        if (
+            len(text) > _MAX_SEARCH_URL_CHARS
+            or not text.isprintable()
+            or not text.lower().startswith(("https://", "http://"))
+        ):
+            return False, None
+        try:
+            # Every brace must belong to the {query} slot, and the slot must be there.
+            usable = "\x00" in text.format(query="\x00")
+        except (IndexError, KeyError, ValueError):
+            usable = False
+        return (True, text) if usable else (False, None)
+    if key == "locale":
+        text = text.replace("_", "-")
+        if text and (len(text) > 35 or not _LOCALE_RE.fullmatch(text)):
+            return False, None
+        return True, text
+    if key == "channel":
+        text = text.lower()
+        return (True, text) if text in _MINI_BROWSER_CHANNELS else (False, None)
+    return False, None
+
+
+def get_mini_browser_settings() -> Dict[str, Any]:
+    """The Mini Browser settings: shipped defaults overlaid with settings.json.
+
+    Every value is validated: a value of the wrong type falls back to its
+    default and numbers are clamped to their range, so a hand-edited
+    settings.json can never stop the browser from starting. Never raises.
+    """
+    defaults = _get_default_settings()["mini_browser"]
+    try:
+        stored = get_settings().get("mini_browser")
+    except Exception:
+        stored = None
+    if not isinstance(stored, dict):
+        stored = {}
+    result: Dict[str, Any] = {}
+    for key, default in defaults.items():
+        ok, value = _clean_mini_browser_value(key, stored.get(key, default))
+        result[key] = value if ok else default
+    return result
+
+
+def set_mini_browser_setting(key: str, value: Any) -> None:
+    """Persist one Mini Browser setting to settings.json (clamped first).
+
+    An unknown key or an unusable value is refused with a warning and nothing
+    is written. settings.json is re-read from disk under a lock so concurrent
+    writers never lose each other's changes, and a settings.json that cannot
+    be parsed is left untouched rather than replaced by defaults. Never
+    raises. Blocking file I/O: from an event loop, call it in a worker thread.
+    """
+    from app.logger import logger
+
+    if not isinstance(key, str) or key not in _get_default_settings()["mini_browser"]:
+        logger.warning(f"[SETTINGS] Unknown Mini Browser setting {key!r} not saved")
+        return
+    ok, cleaned = _clean_mini_browser_value(key, value)
+    if not ok:
+        logger.warning(
+            f"[SETTINGS] Invalid value for mini_browser.{key} not saved "
+            f"({type(value).__name__})"
+        )
+        return
+    with _settings_write_lock:
+        try:
+            if SETTINGS_CONFIG_PATH.exists():
+                with open(SETTINGS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+            else:
+                settings = _get_default_settings()
+            if not isinstance(settings, dict):
+                raise ValueError("settings.json is not a JSON object")
+            section = settings.get("mini_browser")
+            if not isinstance(section, dict):
+                section = settings["mini_browser"] = {}
+            section[key] = cleaned
+            save_settings(settings)
+        except (OSError, ValueError) as e:
+            logger.warning(f"[SETTINGS] Could not save mini_browser.{key}: {e}")
 
 
 def get_marketplace_ref() -> Optional[str]:

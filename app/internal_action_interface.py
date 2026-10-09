@@ -7,7 +7,7 @@ framework internal functions.
 
 from __future__ import annotations
 
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Iterable, Optional, List, Tuple, TYPE_CHECKING
 from app.llm import LLMInterface, LLMCallType
 from app.vlm_interface import VLMInterface
 from app.image_gen_interface import ImageGenInterface
@@ -33,6 +33,105 @@ if TYPE_CHECKING:
     from app.event_stream import EventStreamManager
     from agent_core.core.impl.action.manager import ActionManager
     from agent_core.core.impl.action.library import ActionLibrary
+
+
+def _resolve_action_set_names(
+    names: Iterable[Any], known: Iterable[str], aliases: Dict[str, str]
+) -> Tuple[List[str], List[str]]:
+    """Map requested action-set names onto real set names.
+
+    Each name is tried as written, then lowercased, then with '-' and spaces
+    turned into '_' (skill names are hyphenated, set names are not), and each
+    spelling also through ``aliases`` (renamed sets, e.g. ``web_agent``). The
+    exact spelling goes first because MCP set names keep their server's
+    hyphens (``mcp_playwright-mcp``).
+
+    Returns ``(resolved, unknown)``, both de-duplicated in request order.
+    """
+    known_set = set(known)
+    resolved: List[str] = []
+    unknown: List[str] = []
+    for raw in names:
+        text = str(raw).strip() if raw is not None else ""
+        if not text:
+            continue
+        lowered = text.lower()
+        spellings = (text, lowered, lowered.replace("-", "_").replace(" ", "_"))
+        match = None
+        for spelling in spellings:
+            for candidate in (spelling, aliases.get(spelling)):
+                if candidate and candidate in known_set:
+                    match = candidate
+                    break
+            if match:
+                break
+        if match is None:
+            if text not in unknown:
+                unknown.append(text)
+        elif match not in resolved:
+            resolved.append(match)
+    return resolved, unknown
+
+
+def _skill_named(name: str) -> Optional[str]:
+    """The loadable skill a (possibly mis-spelled) name refers to, if any."""
+    try:
+        from agent_core.core.impl.skill.manager import skill_manager
+    except Exception:
+        return None
+    lowered = name.strip().lower()
+    for candidate in (lowered, lowered.replace("_", "-").replace(" ", "-")):
+        skill = skill_manager.get_skill(candidate)
+        if skill is not None and (skill.enabled or skill.is_system):
+            return skill.name
+    return None
+
+
+def _unknown_action_sets_hint(
+    unknown: List[str], known: Iterable[str], curated: Iterable[str] = ()
+) -> str:
+    """Tell the model how to fix set names that matched nothing.
+
+    ``curated`` are the set names with a built-in description: one of those
+    that matched nothing exists in name only (its actions moved to core).
+    """
+    import difflib
+
+    known_sorted = sorted(known)
+    curated_names = set(curated)
+    parts: List[str] = []
+    for name in unknown:
+        skill = _skill_named(name)
+        if skill:
+            parts.append(
+                f"'{name}' is a skill, not an action set: load it with use_skill('{skill}')."
+            )
+            continue
+        guess = name.strip().lower().replace("-", "_").replace(" ", "_")
+        if guess in curated_names:
+            parts.append(
+                f"'{name}' has no actions in this build; check whether an action "
+                "you already have (core) does the job."
+            )
+            continue
+        if guess.startswith("mcp_"):
+            parts.append(
+                f"'{name}' has no actions right now: its MCP server is not "
+                "connected (see ## MCP in AGENT.md)."
+            )
+            continue
+        close = difflib.get_close_matches(guess, known_sorted, n=3, cutoff=0.6)
+        if close:
+            parts.append(
+                f"'{name}' is not an action set; did you mean {', '.join(close)}?"
+            )
+        else:
+            parts.append(f"'{name}' is not an action set.")
+    parts.append(
+        "Use set names exactly as listed in the Capability Catalog "
+        "(list_action_sets shows them all)."
+    )
+    return " ".join(parts)
 
 
 class InternalActionInterface:
@@ -750,7 +849,14 @@ class InternalActionInterface:
         cls, sets_to_add: List[str], session_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Load action sets into a session.
+        Load action sets into a session (the LLM-facing path).
+
+        Names are normalised (case, '-' vs '_', legacy aliases such as
+        ``web_agent`` -> ``mini_browser``) and checked against the sets that
+        actually exist. Unknown names are NOT stored: they come back as
+        ``unknown_sets`` with a ``hint``. ``success`` is False only when no
+        valid name was given. Runtime workflow paths call
+        ``SessionManager.add_action_sets`` directly and stay permissive.
 
         Args:
             sets_to_add: List of action set names to add.
@@ -763,13 +869,56 @@ class InternalActionInterface:
             raise RuntimeError(
                 "InternalActionInterface not initialized with SessionManager."
             )
+        from app.action.action_set import (
+            DEFAULT_SET_DESCRIPTIONS,
+            SET_ALIASES,
+            action_set_manager,
+        )
+
+        if isinstance(sets_to_add, str):
+            sets_to_add = [sets_to_add]
+        known = action_set_manager.get_available_set_names()
+        resolved, unknown = _resolve_action_set_names(
+            sets_to_add or [], known, SET_ALIASES
+        )
+        hint = (
+            _unknown_action_sets_hint(unknown, known, DEFAULT_SET_DESCRIPTIONS)
+            if unknown
+            else ""
+        )
+        if unknown:
+            logger.info(f"[ACTION_SETS] Not loading unknown action set(s): {unknown}")
 
         sid = session_id or cls._get_current_session_id()
-        result = cls.session_manager.add_action_sets(sid, sets_to_add)
+        if not resolved:
+            return {
+                "success": False,
+                "error": "None of the requested action sets exist; nothing was loaded.",
+                "unknown_sets": unknown,
+                "hint": hint,
+                "current_sets": cls.session_manager.get_action_sets(sid),
+            }
+
+        before = set(cls.session_manager.get_action_sets(sid))
+        result = cls.session_manager.add_action_sets(sid, resolved)
 
         # Invalidate session cache - action list has changed
         cls._invalidate_action_selection_caches(sid)
 
+        if result.get("success"):
+            added_sets = [s for s in resolved if s not in before]
+            result["added_sets"] = added_sets
+            if added_sets:
+                result["message"] = (
+                    f"Loaded {', '.join(added_sets)}: "
+                    f"{len(result.get('added_actions') or [])} new actions, "
+                    "available from your next turn."
+                )
+            else:
+                result["message"] = f"Already loaded: {', '.join(resolved)}."
+        if unknown:
+            result["unknown_sets"] = unknown
+            result["hint"] = hint
         return result
 
     @classmethod
@@ -790,9 +939,19 @@ class InternalActionInterface:
             raise RuntimeError(
                 "InternalActionInterface not initialized with SessionManager."
             )
+        from app.action.action_set import SET_ALIASES, action_set_manager
 
+        if isinstance(sets_to_remove, str):
+            sets_to_remove = [sets_to_remove]
         sid = session_id or cls._get_current_session_id()
-        result = cls.session_manager.remove_action_sets(sid, sets_to_remove)
+        # Same spelling tolerance as add_action_sets; names that match nothing
+        # are passed through (removing a set that is not loaded is a no-op).
+        known = set(action_set_manager.get_available_set_names())
+        known.update(cls.session_manager.get_action_sets(sid))
+        resolved, unknown = _resolve_action_set_names(
+            sets_to_remove or [], known, SET_ALIASES
+        )
+        result = cls.session_manager.remove_action_sets(sid, resolved + unknown)
 
         # Invalidate session cache - action list has changed
         cls._invalidate_action_selection_caches(sid)
@@ -859,8 +1018,20 @@ class InternalActionInterface:
 
         from agent_core.core.impl.skill.manager import skill_manager
 
-        # Validate skill exists and is enabled
+        # Validate skill exists and is enabled. Skill names are hyphenated
+        # while action-set names use underscores; accept either spelling.
         skill = skill_manager.get_skill(skill_name)
+        if not skill:
+            normalized = (
+                str(skill_name or "")
+                .strip()
+                .lower()
+                .replace("_", "-")
+                .replace(" ", "-")
+            )
+            skill = skill_manager.get_skill(normalized) if normalized else None
+            if skill:
+                skill_name = skill.name
         if not skill:
             return {"success": False, "error": f"Skill '{skill_name}' not found."}
         # System skills are always loadable (they are runtime-managed and never
@@ -885,18 +1056,20 @@ class InternalActionInterface:
         except Exception:
             pass
 
-        # Add skill-recommended action sets (if any new ones)
-        added_action_sets = []
+        # Add skill-recommended action sets (if any new ones). Names that are
+        # not real sets are skipped by add_action_sets, which then leaves the
+        # caches alone — rebuild them here so the skill text still lands.
+        added_action_sets: List[str] = []
+        caches_rebuilt = False
         recommended_sets = skill_manager.get_skill_action_sets([skill_name])
-        if recommended_sets:
-            current_sets = set(session.action_sets)
-            new_sets = [s for s in recommended_sets if s not in current_sets]
-            if new_sets:
-                cls.add_action_sets(new_sets, session_id=sid)  # invalidates caches
-                added_action_sets = new_sets
-            else:
-                cls._invalidate_action_selection_caches(sid)
-        else:
+        current_sets = set(session.action_sets)
+        new_sets = [s for s in recommended_sets if s not in current_sets]
+        if new_sets:
+            result = cls.add_action_sets(new_sets, session_id=sid)
+            if result.get("success"):
+                added_action_sets = list(result.get("added_sets") or [])
+                caches_rebuilt = True  # add_action_sets invalidated them
+        if not caches_rebuilt:
             cls._invalidate_action_selection_caches(sid)
 
         logger.info(f"[SKILL] Loaded skill '{skill_name}' into session {sid}")

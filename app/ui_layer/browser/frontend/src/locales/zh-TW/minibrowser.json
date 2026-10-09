@@ -1,0 +1,242 @@
+{
+  "page": {
+    "label": "迷你瀏覽器"
+  },
+  "chat": {
+    "placeholder": "請代理幫你瀏覽網頁、搜尋或填寫表單…",
+    "show": "顯示聊天",
+    "hide": "隱藏聊天",
+    "loading": "正在準備聊天…"
+  },
+  "toolbar": {
+    "label": "瀏覽器控制項",
+    "back": "上一頁",
+    "forward": "下一頁",
+    "reload": "重新載入",
+    "stopLoading": "停止載入",
+    "address": "網址列（也可以搜尋）",
+    "addressPlaceholder": "搜尋或輸入網址",
+    "secure": "安全連線（HTTPS）",
+    "notSecure": "不安全（HTTP）",
+    "follow": "自動跟隨代理",
+    "followOnHint": "已開啟：畫面會自動切換到代理正在操作的分頁",
+    "followOffHint": "已關閉：畫面停留在你選擇的分頁",
+    "adblock": "廣告封鎖",
+    "adblockOnHint": "廣告封鎖已開啟。按一下即可關閉。",
+    "adblockOffHint": "廣告封鎖已關閉。按一下即可開啟。",
+    "adblockUnknown": "正在檢查廣告封鎖狀態…",
+    "adblockPending": "正在切換廣告封鎖…",
+    "passwords": "已儲存的密碼",
+    "more": "更多",
+    "copyLink": "複製連結",
+    "linkCopied": "已複製連結",
+    "copyFailed": "無法複製到剪貼簿",
+    "openExternal": "在你的瀏覽器中開啟",
+    "openExternalHint": "在你平常使用的瀏覽器中開啟這個頁面。迷你瀏覽器的登入狀態不會一併帶過去。",
+    "closeBrowser": "關閉瀏覽器",
+    "stopAgent": "停止代理",
+    "stopAgentHint": "停止正在使用這個分頁的代理",
+    "stopping": "正在停止…",
+    "dismiss": "關閉"
+  },
+  "tabs": {
+    "label": "瀏覽器分頁",
+    "newTab": "新分頁",
+    "untitled": "新分頁",
+    "close": "關閉分頁",
+    "closeNamed": "關閉分頁：{{title}}",
+    "loading": "載入中",
+    "busy": "代理正在這個分頁中工作",
+    "crashed": "這個分頁已當掉",
+    "ownerTooltip": "使用者：{{owner}}",
+    "owner": {
+      "you": "你",
+      "main": "主要聊天",
+      "miniBrowser": "這個聊天",
+      "session": "聊天",
+      "subagent": "子代理"
+    },
+    "closeBusyTitle": "要關閉這個分頁嗎？",
+    "closeBusyMessage": "{{owner}} 正在這個分頁中工作。關閉後，代理在這個分頁上的工作會中斷。"
+  },
+  "live": {
+    "label": "即時網頁",
+    "keyboardHint": "你的點擊和輸入會傳送到網頁。連按兩次 Esc 鍵即可回到網址列。",
+    "loading": "正在載入頁面…",
+    "noTab": "目前沒有開啟的分頁。",
+    "agentBrowsing": "{{owner}} 正在瀏覽",
+    "takeControl": "接手操作",
+    "takeControlHint": "暫停代理在這個分頁上的操作，由你親自使用",
+    "inControl": "你正在操作，這個分頁上的代理已暫停",
+    "handBack": "交還給代理",
+    "handBackHint": "讓代理繼續在這個分頁上工作",
+    "reconnecting": "正在重新連線…",
+    "reconnectingHint": "CraftBot 恢復連線後，即時畫面就會繼續。",
+    "crashedTitle": "這個分頁已當掉",
+    "crashedBody": "請重新載入後再試一次。",
+    "reloadTab": "重新載入分頁",
+    "showKeyboard": "顯示鍵盤",
+    "copyFailed": "無法將選取的內容複製到剪貼簿",
+    "pasteTruncated": "文字過長，只貼上了前 {{max}} 個字元。"
+  },
+  "status": {
+    "connecting": "正在連線到迷你瀏覽器…",
+    "starting": "正在啟動瀏覽器…",
+    "installing": "正在安裝瀏覽器…",
+    "installingHint": "正在下載 Chromium，可能需要幾分鐘。",
+    "installLog": "安裝記錄",
+    "installDone": "瀏覽器已安裝",
+    "errorTitle": "瀏覽器發生問題",
+    "stoppedTitle": "和代理一起瀏覽網頁",
+    "stoppedBody": "一個與代理共用的真實瀏覽器。你可以即時觀看它們工作，也可以隨時接手操作。",
+    "start": "啟動瀏覽器",
+    "openSite": "開啟網站",
+    "tryAsking": "試著這樣請代理幫忙",
+    "examples": {
+      "compare": "在三個購物網站上比較降噪耳機的價格",
+      "news": "開啟一個新聞網站，摘要今天的重點新聞",
+      "research": "查一下東京這個週末的天氣預報"
+    },
+    "featureWatchTitle": "即時觀看",
+    "featureWatchBody": "每個代理都在自己的分頁中工作。你可以看到它的每一次點擊、輸入和捲動。",
+    "featureControlTitle": "隨時接手",
+    "featureControlBody": "在頁面上點擊或輸入後，該分頁上的代理會暫停，直到你交還控制權。",
+    "featureLoginsTitle": "儲存登入資訊",
+    "featureLoginsBody": "密碼只需儲存一次，代理就能代你登入，而且永遠看不到密碼本身。",
+    "install": "安裝瀏覽器",
+    "installAgain": "重新安裝",
+    "retry": "重試",
+    "profileInUseHint": "請關閉正在使用迷你瀏覽器的另一個 CraftBot 視窗，然後再試一次。"
+  },
+  "events": {
+    "download": "已下載 {{name}}",
+    "openFile": "開啟",
+    "showInFolder": "在資料夾中顯示",
+    "popup": "網頁開啟了一個新分頁",
+    "dialogGeneric": "網頁跳出了一個對話方塊，已自動處理",
+    "blockedGeneric": "迷你瀏覽器封鎖了一個不允許開啟的頁面",
+    "crash": "有分頁當掉了。下次使用時會自動重新載入。"
+  },
+  "confirm": {
+    "shutdownTitle": "要關閉瀏覽器嗎？",
+    "shutdownMessage": "代理仍在瀏覽中。關閉瀏覽器會中止它的工作，並關閉所有分頁。"
+  },
+  "passwords": {
+    "title": "已儲存的密碼",
+    "intro": "代理會用這些資訊代你登入。密碼在這台電腦上加密儲存，不會顯示給代理，也不會再傳回這個頁面。",
+    "protectionDpapi": "已使用你的 Windows 帳戶加密",
+    "protectionFile": "已使用儲存在這台電腦上的金鑰加密",
+    "listLabel": "已儲存的登入資訊",
+    "count_other": "{{count}} 筆",
+    "filter": "篩選登入資訊",
+    "loading": "正在載入已儲存的登入資訊…",
+    "empty": "還沒有儲存任何登入資訊。在下方新增後，就可以請代理幫你登入。",
+    "emptyUnreadable": "在密碼庫恢復可讀取之前，無法顯示登入資訊。",
+    "noMatches": "沒有符合條件的登入資訊。",
+    "lastUsed": "上次使用：{{date}}",
+    "neverUsed": "尚未使用",
+    "edit": "編輯",
+    "editNamed": "編輯 {{site}} 上 {{username}} 的登入資訊",
+    "delete": "刪除",
+    "deleteNamed": "刪除 {{site}} 上 {{username}} 的登入資訊",
+    "deleteTitle": "要刪除這筆登入資訊嗎？",
+    "deleteMessage": "要刪除 {{site}} 上 {{username}} 的登入資訊嗎？刪除後，代理將無法再用它登入該網站。",
+    "addTitle": "新增登入資訊",
+    "editTitle": "編輯登入資訊",
+    "site": "網站",
+    "sitePlaceholder": "example.com",
+    "siteHint": "只會在這個網站及其子網域、透過安全連線（HTTPS）時使用。",
+    "username": "使用者名稱或電子郵件",
+    "password": "密碼",
+    "passwordKeep": "留空即可保留目前的密碼",
+    "label": "標籤（選填）",
+    "labelPlaceholder": "例如：工作帳戶",
+    "showPassword": "顯示密碼",
+    "hidePassword": "隱藏密碼",
+    "save": "儲存登入資訊",
+    "update": "儲存變更",
+    "cancelEdit": "取消",
+    "saved": "已儲存登入資訊",
+    "updated": "已更新登入資訊",
+    "deleted": "已刪除登入資訊",
+    "required": "必填",
+    "invalidSite": "請輸入類似 example.com 的網站",
+    "tooLong": "太長了（最多 {{max}} 個字元）",
+    "willReplace": "{{site}} 上已有 {{username}} 的登入資訊。儲存後會取代原本的密碼。",
+    "notConnected": "尚未連線到 CraftBot，請稍後再試。",
+    "timeout": "CraftBot 沒有及時回應。請檢查清單後再試一次。",
+    "error": "發生問題，請再試一次。",
+    "unreadableTitle": "無法讀取密碼庫",
+    "unreadableBody": "已儲存的登入資訊仍然存在，但無法在這台電腦上解密（例如加密金鑰已變更）。沒有任何資料被覆寫。重設密碼庫即可重新開始，無法讀取的檔案會保留作為備份。",
+    "reset": "重設密碼庫",
+    "resetTitle": "要重設密碼庫嗎？",
+    "resetMessage": "這會建立一個新的空白密碼庫。無法讀取的密碼庫檔案會保留作為備份。",
+    "resetDone": "已重設密碼庫"
+  },
+  "errors": {
+    "MINI_BROWSER_PLAYWRIGHT_MISSING": {
+      "title": "尚未安裝瀏覽器引擎",
+      "message": "迷你瀏覽器需要的瀏覽器引擎（Playwright）尚未安裝。"
+    },
+    "MINI_BROWSER_CHROMIUM_MISSING": {
+      "title": "尚未安裝瀏覽器",
+      "message": "迷你瀏覽器使用的 Chromium 尚未安裝。可以在這裡安裝，只需下載一次。"
+    },
+    "MINI_BROWSER_PROFILE_IN_USE": {
+      "title": "瀏覽器設定檔使用中",
+      "message": "另一個 CraftBot 視窗正在使用迷你瀏覽器的設定檔。"
+    },
+    "MINI_BROWSER_LAUNCH_FAILED": {
+      "title": "瀏覽器無法啟動",
+      "message": "無法啟動 Chromium。請再試一次；如果一直失敗，請重新安裝瀏覽器。"
+    },
+    "MINI_BROWSER_NOT_RUNNING": {
+      "title": "瀏覽器未執行",
+      "message": "迷你瀏覽器目前沒有執行。請先啟動它。"
+    },
+    "MINI_BROWSER_NAVIGATION_FAILED": {
+      "title": "頁面無法載入",
+      "message": "無法開啟這個頁面。請檢查網址和網路連線。"
+    },
+    "MINI_BROWSER_BLOCKED_URL": {
+      "title": "網址已被封鎖",
+      "message": "迷你瀏覽器不會開啟這類網址。"
+    },
+    "MINI_BROWSER_INVALID_INPUT": {
+      "title": "要求無效",
+      "message": "這個要求的內容無效。"
+    },
+    "MINI_BROWSER_PAGE_UNRESPONSIVE": {
+      "title": "頁面沒有回應",
+      "message": "頁面沒有及時回應。請再試一次、重新載入，或開啟另一個分頁。"
+    },
+    "MINI_BROWSER_TAB_NOT_FOUND": {
+      "title": "找不到分頁",
+      "message": "這個分頁已經關閉。"
+    },
+    "MINI_BROWSER_TIMEOUT": {
+      "title": "已逾時",
+      "message": "花費的時間太長，請再試一次。"
+    },
+    "MINI_BROWSER_VAULT_UNREADABLE": {
+      "title": "無法讀取密碼庫",
+      "message": "無法在這台電腦上解密已儲存密碼的密碼庫。沒有任何資料被覆寫，可以在「已儲存的密碼」中重設。"
+    },
+    "MINI_BROWSER_VAULT_INVALID": {
+      "title": "請檢查登入資訊",
+      "message": "部分登入資訊無效。"
+    },
+    "MINI_BROWSER_VAULT_IO": {
+      "title": "無法儲存密碼庫",
+      "message": "無法將密碼庫寫入磁碟。"
+    },
+    "MINI_BROWSER_INSTALL_FAILED": {
+      "title": "安裝失敗",
+      "message": "Chromium 沒有安裝完成。請檢查網路連線後再試一次。"
+    },
+    "MINI_BROWSER_INTERNAL": {
+      "title": "發生問題",
+      "message": "迷你瀏覽器發生了非預期的問題。"
+    }
+  }
+}

@@ -60,6 +60,8 @@ _SKIP_DIR_NAMES = {
     ".trash",
     ".trashes",
     "lost+found",
+    # The Mini Browser's Chromium profile: constant cache churn, and cookies.
+    "mini_browser_profile",
 }
 
 _build_locks_registry_lock = threading.Lock()

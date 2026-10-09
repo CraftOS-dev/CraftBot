@@ -89,6 +89,14 @@ export const UI_STATE = {
     chatPanelMobileRatio: defineUiState('agentApp.chatPanelMobileRatio', 0.4, 'preference'),
   },
 
+  miniBrowser: {
+    chatPanelOpen: defineUiState('miniBrowser.chatPanelOpen', true, 'preference'),
+    /** Desktop chat panel width in px. */
+    chatPanelWidth: defineUiState('miniBrowser.chatPanelWidth', 380, 'preference'),
+    /** Mobile chat panel height as a share of the page. */
+    chatPanelMobileRatio: defineUiState('miniBrowser.chatPanelMobileRatio', 0.4, 'preference'),
+  },
+
   memory: {
     /** Right sidebar width in px. */
     panelWidth: defineUiState('memory.panelWidth', 340, 'preference'),

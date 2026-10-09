@@ -42,3 +42,48 @@ def test_settings_domains_are_independent_but_internally_serialized():
 def test_unknown_types_keep_one_at_a_time_behaviour():
     assert message_lane({"type": "something_new"}) == GENERAL_LANE
     assert message_lane({}) == GENERAL_LANE
+
+
+def test_mini_browser_lanes():
+    # Live-view input, viewers and controls share one lane: keystroke order.
+    for msg_type in (
+        "mini_browser_input",
+        "mini_browser_subscribe",
+        "mini_browser_unsubscribe",
+        "mini_browser_resize",
+        "mini_browser_view",
+        "mini_browser_control",
+        "mini_browser_start",
+        "mini_browser_copy",
+    ):
+        assert message_lane({"type": msg_type}) == "mini_browser", msg_type
+    # The vault prefix is matched before the general Mini Browser prefix.
+    for msg_type in (
+        "mini_browser_vault_list",
+        "mini_browser_vault_add",
+        "mini_browser_vault_update",
+        "mini_browser_vault_delete",
+        "mini_browser_vault_reset",
+    ):
+        assert message_lane({"type": msg_type}) == "mini_browser_vault", msg_type
+    for msg_type in (
+        "mini_browser_navigate",
+        "mini_browser_history",
+        "mini_browser_tab",
+    ):
+        assert message_lane({"type": msg_type}) == "mini_browser_nav", msg_type
+    assert message_lane({"type": "mini_browser_install"}) == "mini_browser_install"
+
+
+def test_slow_mini_browser_work_never_blocks_input_or_the_vault():
+    lanes = {
+        message_lane({"type": t})
+        for t in (
+            "mini_browser_input",
+            "mini_browser_navigate",
+            "mini_browser_vault_list",
+            "mini_browser_install",
+        )
+    }
+    assert len(lanes) == 4
+    assert GENERAL_LANE not in lanes

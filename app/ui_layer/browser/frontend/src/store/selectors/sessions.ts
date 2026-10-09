@@ -23,3 +23,9 @@ export const selectChatSessions = createSelector(
 
 export const selectSessionById = (state: RootState, sessionId: string): SessionInfo | undefined =>
   state.sessions.sessions.find(s => s.id === sessionId)
+
+/** The dedicated chat behind the Mini Browser page, once the backend created it. */
+export const selectMiniBrowserSession = createSelector(
+  selectSessions,
+  (sessions): SessionInfo | undefined => sessions.find(s => s.type === 'mini_browser'),
+)

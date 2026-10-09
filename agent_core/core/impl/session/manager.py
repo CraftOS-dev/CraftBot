@@ -2,10 +2,10 @@
 """
 Shared SessionManager for agent_core.
 
-Owns the registry of persistent sessions (main / chat / agent_app), their
-loaded capabilities (action sets + skills), todos, run budgets, workspace
-directories, and their LLM session caches. Runtime-specific behavior is
-injected via hooks:
+Owns the registry of persistent sessions (main / chat / agent_app /
+mini_browser), their loaded capabilities (action sets + skills), todos, run
+budgets, workspace directories, and their LLM session caches.
+Runtime-specific behavior is injected via hooks:
 
 State hooks:
 - get_agent_property / set_agent_property: session-scoped state access
@@ -103,16 +103,22 @@ class SessionManager:
         return self.sessions.get(MAIN_SESSION_ID)
 
     def list_sessions(self, include_archived: bool = False) -> List[Session]:
-        """All sessions: main first, then agent_app, then chats newest-first."""
+        """All sessions: main first, then the Mini Browser session, then
+        agent_app, then chats — newest-first within each type."""
         sessions = [
             s for s in self.sessions.values() if include_archived or not s.archived
         ]
 
-        type_rank = {SessionType.MAIN: 0, SessionType.AGENT_APP: 1, SessionType.CHAT: 2}
+        type_rank = {
+            SessionType.MAIN: 0,
+            SessionType.MINI_BROWSER: 1,
+            SessionType.AGENT_APP: 2,
+            SessionType.CHAT: 3,
+        }
 
         # Newest-first within each type bucket (two-pass stable sort)
         sessions.sort(key=lambda s: s.last_active_at, reverse=True)
-        sessions.sort(key=lambda s: type_rank.get(s.type, 3))
+        sessions.sort(key=lambda s: type_rank.get(s.type, len(type_rank)))
         return sessions
 
     # ─────────────────────── Creation ─────────────────────────────────────────
@@ -142,9 +148,10 @@ class SessionManager:
         Create a new persistent session.
 
         Args:
-            session_type: main | chat | agent_app.
+            session_type: main | chat | agent_app | mini_browser.
             title: Sidebar title ("New chat" placeholder until auto-titled).
-            session_id: Explicit id (main / agent-app); random hex otherwise.
+            session_id: Explicit id (main / agent-app / mini-browser); random
+                hex otherwise.
             action_sets: Extra action sets to load on top of core.
             selected_skills: Skills to preload (slash-command entry, Agent App).
             agent_app_project_id: Backing project for agent_app sessions.

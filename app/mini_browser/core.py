@@ -1,0 +1,2682 @@
+"""BrowserCore: the Mini Browser engine.
+
+One persistent Chromium profile, shared by every agent and the user, each
+agent owner in its own tab(s). Lives entirely on the Mini Browser host loop
+(see ``host.py``): never call into it from another loop or thread except
+through ``MiniBrowserHost.call`` / ``submit``.
+
+What the core takes care of:
+
+- lifecycle: single-flight launch with clear error codes, a cross-process
+  profile lock (never two browsers on one profile), clean relaunch after the
+  browser or the Playwright driver dies, idle shutdown;
+- tabs: per-owner tabs and claims, owner labels, popups inheriting their
+  opener's owner, crash recovery in the same tab slot, at least one tab open;
+- pages: viewport on every page, dialogs answered and reported, downloads
+  saved into the owner's workspace, network blocking (ads + CraftBot's own
+  UI) without request interception, a main-frame guard;
+- UI: state publishing (debounced), the live-view stream, raw user input and
+  "take control";
+- agents: :meth:`agent_op` runs one operation from ``ops.OPS`` under the tab
+  lock and turns every outcome into a clean action result.
+
+No password ever leaves through here: every result, event and state payload
+is scrubbed with the secrets autofill typed into a tab.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextvars
+import functools
+import itertools
+import json
+import math
+import os
+import re
+import sys
+import time
+import traceback
+from dataclasses import replace
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Awaitable, Dict, List, Mapping, Optional, Set, Tuple
+
+from app.logger import logger
+from app.mini_browser import (
+    DEFAULT_OWNER,
+    SESSION_ID,
+    SESSION_TITLE,
+    adblock,
+    bridge,
+    config,
+    urls,
+)
+from app.mini_browser.errors import (
+    MiniBrowserError,
+    action_error,
+    first_line,
+    from_exception,
+    scrub,
+    scrub_data,
+    ui_error,
+)
+from app.mini_browser.stream import FrameStreamer
+from app.mini_browser.types import (
+    EVENT_BLOCKED,
+    EVENT_CRASH,
+    EVENT_DIALOG,
+    EVENT_DOWNLOAD,
+    EVENT_ERROR,
+    EVENT_NOTICE,
+    EVENT_POPUP,
+    OWNER_KIND_MAIN,
+    OWNER_KIND_MINI_BROWSER,
+    OWNER_KIND_SESSION,
+    OWNER_KIND_SUBAGENT,
+    OWNER_KIND_USER,
+    Tab,
+)
+
+DEFAULT_VIEWPORT: Tuple[int, int] = (1280, 800)
+VIEWPORT_WIDTH = (320, 3840)
+VIEWPORT_HEIGHT = (240, 2160)
+
+DEFAULT_TIMEOUT_MS = 15_000
+NAVIGATION_TIMEOUT_MS = 30_000
+DRIVER_START_TIMEOUT_S = 60.0
+LAUNCH_TIMEOUT_S = 90.0
+CLOSE_TIMEOUT_S = 10.0
+CONTEXT_CLOSE_TIMEOUT_S = 5.0
+CDP_TIMEOUT_S = 5.0
+PAGE_CALL_TIMEOUT_S = 5.0
+TITLE_TIMEOUT_S = 2.0
+EVALUATE_TIMEOUT_S = 10.0
+NEW_PAGE_TIMEOUT_S = 15.0
+STOP_LOADING_TIMEOUT_S = 2.0
+OBSERVE_TIMEOUT_S = 15.0
+DOWNLOAD_TIMEOUT_S = 30 * 60.0
+OP_TIMEOUT_S = 150.0
+WAIT_OP_TIMEOUT_S = 330.0  # mini_browser_wait(for_user) may wait 300 s
+
+STALE_OWNER_S = 600.0  # an owner idle this long loses its claim on the viewed tab
+USER_ACTIVE_S = 5.0  # a user tab touched this recently is not claimed
+FOLLOW_HOLD_S = 4.0  # follow-view does not leave a tab an agent just used
+USER_HOLD_S = 10.0  # ... or one the user just used
+OWN_PAGE_WAIT_S = 2.0
+MAX_TOTAL_TABS = 40
+POPUP_SLACK = 2  # popups an owner may have beyond max_agent_tabs (OAuth flows)
+EVENTS_PER_TAB = 20
+RETIRED_SECRETS = 50
+POINTER_INTERVAL_S = 1.0 / 30
+STATE_DEBOUNCE_S = 0.05
+WATCHDOG_INTERVAL_S = 2.0
+TITLE_REFRESH_S = 4.0
+MAX_COPY_CHARS = 20_000
+MAX_TEXT_INPUT = 2000
+WHEEL_LIMIT = 5000.0
+# Our own CDP session keeps (almost) no response bodies: Playwright's has them.
+NETWORK_ENABLE = {"maxTotalBufferSize": 1_000_000, "maxResourceBufferSize": 100_000}
+
+RUN_STATES = frozenset({"running", "stopping", "idle"})
+_BUSY_STATES = frozenset({"running", "stopping"})
+
+_EVENT_LEVELS = {
+    EVENT_DIALOG: "info",
+    EVENT_DOWNLOAD: "info",
+    EVENT_POPUP: "info",
+    EVENT_NOTICE: "info",
+    EVENT_BLOCKED: "warning",
+    EVENT_CRASH: "error",
+    EVENT_ERROR: "error",
+}
+# Errors after which the agent gets a fresh look at the page.
+_OBSERVE_ON_ERROR = frozenset(
+    {
+        "MINI_BROWSER_ELEMENT_NOT_FOUND",
+        "MINI_BROWSER_ELEMENT_NOT_INTERACTABLE",
+        "MINI_BROWSER_NAVIGATION_FAILED",
+        "MINI_BROWSER_TIMEOUT",
+        "MINI_BROWSER_LOGIN_FAILED",
+        "MINI_BROWSER_NO_SAVED_LOGIN",
+        "MINI_BROWSER_UPLOAD_DENIED",
+        "MINI_BROWSER_BLOCKED_URL",
+    }
+)
+_MODIFIERS = (("ctrl", "Control"), ("alt", "Alt"), ("shift", "Shift"), ("meta", "Meta"))
+_IGNORED_KEYS = frozenset({"Process", "Dead", "Unidentified", "Compose"})
+_RESERVED_FILE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+_API_PREFIX_RE = re.compile(r"^[A-Za-z]+\.[A-Za-z_]+: ")
+
+# The selected text, also inside text fields; never from a password field.
+_SELECTION_JS = """() => {
+  const el = document.activeElement;
+  if (el && typeof el.value === 'string' && typeof el.selectionStart === 'number'
+      && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT'
+          && /^(text|search|url|tel|email|)$/i.test(el.getAttribute('type') || '')))) {
+    return el.value.substring(el.selectionStart, el.selectionEnd || el.selectionStart);
+  }
+  const sel = window.getSelection();
+  return sel ? sel.toString() : '';
+}"""
+
+# Fallback UI guard when browser-wide request interception is unavailable:
+# blanks any document from CraftBot's own UI before its scripts run.
+_UI_GUARD_JS = (
+    "(() => { try { const blocked = %s;"
+    " if (blocked.includes(String(location.host).toLowerCase())) {"
+    " try { window.stop(); } catch (e) {} location.replace('about:blank'); }"
+    " } catch (e) {} })()"
+)
+
+
+class BrowserCore:
+    """The Mini Browser engine (host loop only)."""
+
+    def __init__(
+        self,
+        settings: Optional[config.MiniBrowserSettings] = None,
+        ops_registry: Optional[Mapping[str, Any]] = None,
+        *,
+        launch_args: Tuple[str, ...] = (),
+    ) -> None:
+        """``ops_registry`` defaults to ``app.mini_browser.ops.OPS`` (imported on
+        first use); ``launch_args`` are extra Chromium switches (diagnostics,
+        tests)."""
+        self.settings: config.MiniBrowserSettings = (
+            settings if settings is not None else config.load_settings()
+        )
+        self.status = "stopped"
+        self.last_error: Optional[Dict[str, str]] = None
+        self.tabs: Dict[str, Tab] = {}
+        self.viewed_tab_id: Optional[str] = None
+        self.follow = True
+        self.viewport: Tuple[int, int] = DEFAULT_VIEWPORT
+
+        self._ops_registry = ops_registry
+        self._launch_args = tuple(launch_args)
+
+        self._pw: Any = None
+        self._context: Any = None
+        self._dead_context: Any = None  # a context whose browser already went away
+        self._browser_cdp: Any = None
+        self._profile_lock: Optional[_ProfileLock] = None
+        self._start_task: Optional[asyncio.Task] = None
+        self._close_task: Optional[asyncio.Task] = None
+        self._watchdog_task: Optional[asyncio.Task] = None
+        self._closing = False
+
+        self._tasks: Set[asyncio.Task] = set()
+        self._page_tabs: Dict[Any, Tab] = {}
+        self._own_pages_pending = 0
+        self._tab_ids = itertools.count(1)
+        self._owner_current: Dict[str, str] = {}
+        self._owner_ops: Dict[str, Set[asyncio.Task]] = {}
+        self._run_state: Dict[str, str] = {}
+        self._parents: Dict[str, str] = {}
+        self._revoked: Set[str] = set()
+        self._parent_stops: Dict[str, datetime] = {}
+        self._retired_secrets: List[str] = []
+        self._main_frames: Dict[str, str] = {}
+        self._pending_docs: Dict[str, Any] = {}
+        # Bumped on every main-frame navigation start/commit, so a refresh that
+        # read navigation state before a newer navigation never acts on it.
+        self._nav_seq: Dict[str, int] = {}
+        self._blocks_reported: Dict[str, Tuple[int, str]] = {}
+        self._nav_refresh: Dict[str, asyncio.Task] = {}
+        self._nav_dirty: Set[str] = set()
+        self._recoveries: Dict[str, asyncio.Task] = {}
+        self._pointer_sent: Dict[str, float] = {}
+        self._blocked_patterns: List[str] = []
+        self._fetch_patterns: List[str] = []
+        self._guard_script_origins: frozenset = frozenset()
+        self._state_handle: Optional[asyncio.TimerHandle] = None
+        self._last_activity = time.monotonic()
+        self._last_title_refresh = 0.0
+        self._downloads_active = 0
+        self._stream = FrameStreamer(self)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Lifecycle
+    # ═════════════════════════════════════════════════════════════════════════
+
+    async def start(self) -> None:
+        """Start Chromium (single-flight). Raises MiniBrowserError on failure."""
+        await self.ensure_started()
+
+    async def ensure_started(self) -> None:
+        """Make sure Chromium runs; concurrent callers share one launch."""
+        close_task = self._close_task
+        if close_task is not None and not close_task.done():
+            await asyncio.shield(close_task)
+        if self._context is not None and self.status == "ready":
+            return
+        task = self._start_task
+        if task is None or task.done():
+            task = self._start_task = self.spawn(self._launch())
+        await asyncio.shield(task)
+
+    async def close(self) -> None:
+        """Close Chromium and forget its tabs. Safe to call repeatedly."""
+        task = self._close_task
+        if task is None or task.done():
+            task = self._close_task = self.spawn(self._close())
+        await asyncio.shield(task)
+
+    def reload_settings(self) -> None:
+        """Re-read settings.json in the background and apply what can be applied
+        live (ad blocking, stream quality); the rest applies at the next launch."""
+        try:
+            self.spawn(self._reload_settings())
+        except RuntimeError:  # no running loop (not on the host loop)
+            self._apply_settings(config.load_settings())
+
+    async def _reload_settings(self) -> None:
+        self._apply_settings(await asyncio.to_thread(config.load_settings))
+
+    def _apply_settings(self, settings: config.MiniBrowserSettings) -> None:
+        old, self.settings = self.settings, settings
+        if self._context is not None:
+            if old.adblock != settings.adblock:
+                self.spawn(self.refresh_network_rules())
+            if old.jpeg_quality != settings.jpeg_quality:
+                self.spawn(self._stream.sync())
+        self._schedule_state()
+
+    async def _launch(self) -> None:
+        if self._context is not None:
+            self._set_status("ready")
+            return
+        self._set_status("starting")
+        try:
+            await self._launch_browser()
+        except MiniBrowserError as exc:
+            await self._teardown()
+            self._set_status("error", ui_error(exc.code, **exc.fields))
+            logger.warning(f"[MiniBrowser] Browser did not start: {exc.code}")
+            raise
+        except asyncio.CancelledError:
+            await self._teardown()
+            self._set_status("stopped")
+            raise
+        except Exception as exc:
+            await self._teardown()
+            detail = _clip(first_line(exc), 200)
+            self._set_status(
+                "error", ui_error("MINI_BROWSER_LAUNCH_FAILED", detail=detail)
+            )
+            logger.warning(
+                f"[MiniBrowser] Browser launch failed: {type(exc).__name__}: {detail}"
+            )
+            raise MiniBrowserError(
+                "MINI_BROWSER_LAUNCH_FAILED", detail=detail
+            ) from None
+        except BaseException:
+            await self._teardown()
+            self._set_status("stopped")
+            raise
+
+    async def _launch_browser(self) -> None:
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            raise MiniBrowserError("MINI_BROWSER_PLAYWRIGHT_MISSING") from None
+
+        profile = config.profile_dir()
+        await asyncio.to_thread(config.ensure_dir, profile)
+        lock = _ProfileLock(profile.parent / f"{profile.name}.lock")
+        if not await _acquire_profile_lock(lock):
+            raise MiniBrowserError("MINI_BROWSER_PROFILE_IN_USE")
+        self._profile_lock = lock
+
+        self._pw = await asyncio.wait_for(
+            async_playwright().start(), DRIVER_START_TIMEOUT_S
+        )
+        channel = self.settings.channel or None
+        if channel == "chromium":
+            full_build = await asyncio.to_thread(
+                os.path.exists, self._pw.chromium.executable_path
+            )
+            # Without the full build, the bundled headless shell may still be there.
+            attempts: List[Optional[str]] = ["chromium", None] if full_build else [None]
+        elif channel:
+            attempts = [channel, None]
+        else:
+            attempts = [None]
+        version = await asyncio.to_thread(_bundled_chromium_version)
+
+        context = None
+        for attempt in attempts:
+            kwargs = self._launch_kwargs(profile, attempt, version)
+            try:
+                context = await asyncio.wait_for(
+                    self._pw.chromium.launch_persistent_context(**kwargs),
+                    LAUNCH_TIMEOUT_S,
+                )
+                break
+            except asyncio.TimeoutError:
+                raise MiniBrowserError(
+                    "MINI_BROWSER_LAUNCH_FAILED",
+                    detail="Chromium did not start in time",
+                ) from None
+            except Exception as exc:
+                if _is_missing_executable(exc):
+                    logger.info(
+                        f"[MiniBrowser] Browser build for channel {attempt or 'default'} not installed"
+                    )
+                    continue
+                if _is_profile_in_use(exc):
+                    raise MiniBrowserError("MINI_BROWSER_PROFILE_IN_USE") from None
+                raise
+        if context is None:
+            raise MiniBrowserError("MINI_BROWSER_CHROMIUM_MISSING")
+
+        self._context = context
+        context.set_default_timeout(DEFAULT_TIMEOUT_MS)
+        context.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
+        context.on("close", _safely(functools.partial(self._on_context_close, context)))
+        context.on("page", _safely(self._on_context_page))
+        self._compute_patterns()
+        await self._apply_ui_guard()
+        for page in list(context.pages):
+            if page not in self._page_tabs and not page.is_closed():
+                await self._setup_page(self._register_tab(page, None))
+        if not self.tabs:
+            await self._open_tab(None)
+        self._set_status("ready")
+        self._touch()
+        self._watchdog_task = self.spawn(self._watchdog())
+        await self._stream.sync()
+        logger.info(
+            f"[MiniBrowser] Chromium started (headless={self.settings.headless}, "
+            f"channel={self.settings.channel or 'default'})"
+        )
+
+    def _launch_kwargs(
+        self, profile: Path, channel: Optional[str], version: Optional[str]
+    ) -> Dict[str, Any]:
+        args = ["--disable-blink-features=AutomationControlled"]
+        if sys.platform.startswith("linux"):
+            args.append("--disable-dev-shm-usage")
+        args.extend(self._launch_args)
+        kwargs: Dict[str, Any] = {
+            "user_data_dir": str(profile),
+            "headless": bool(self.settings.headless),
+            "viewport": {"width": self.viewport[0], "height": self.viewport[1]},
+            "locale": self.settings.locale or config.os_locale(),
+            "accept_downloads": True,
+            "args": args,
+            "timeout": LAUNCH_TIMEOUT_S * 1000,
+        }
+        if channel:
+            kwargs["channel"] = channel
+        if channel in (None, "chromium"):
+            # Headless Chromium says "HeadlessChrome/x.y.z.w"; sites treat that
+            # as a bot. Present the real version the way Chrome does.
+            user_agent = _reduced_user_agent(version)
+            if user_agent:
+                kwargs["user_agent"] = user_agent
+        return kwargs
+
+    async def _close(self) -> None:
+        self._closing = True
+        try:
+            start = self._start_task
+            if start is not None and not start.done():
+                start.cancel()
+                await asyncio.wait({start}, timeout=CLOSE_TIMEOUT_S)
+            had_browser = self._context is not None
+            await self._teardown()
+            self._set_status("stopped")
+            if had_browser:
+                logger.info("[MiniBrowser] Chromium closed")
+        finally:
+            self._closing = False
+
+    async def _teardown(self) -> None:
+        """Release Chromium, the driver and the profile lock. Never raises."""
+        self._stream.reset()
+        current = asyncio.current_task()
+        tasks = [
+            self._watchdog_task,
+            *self._nav_refresh.values(),
+            *self._recoveries.values(),
+        ]
+        for task in tasks:
+            if task is not None and task is not current and not task.done():
+                task.cancel()
+        self._watchdog_task = None
+        self._nav_refresh.clear()
+        self._nav_dirty.clear()
+        self._recoveries.clear()
+        for tab in self.tabs.values():
+            self._retire_secrets(tab)
+        self.tabs.clear()
+        self._page_tabs.clear()
+        self._owner_current.clear()
+        self._main_frames.clear()
+        self._pending_docs.clear()
+        self._nav_seq.clear()
+        self._blocks_reported.clear()
+        self._pointer_sent.clear()
+        self.viewed_tab_id = None
+        context, self._context = self._context, None
+        pw, self._pw = self._pw, None
+        session, self._browser_cdp = self._browser_cdp, None
+        self._guard_script_origins = frozenset()
+        if context is not None and context is not self._dead_context:
+            await self._close_context(context, session)
+        self._dead_context = None
+        if pw is not None:
+            try:
+                await asyncio.wait_for(pw.stop(), CLOSE_TIMEOUT_S)
+            except Exception as exc:
+                logger.debug(f"[MiniBrowser] Playwright stop: {type(exc).__name__}")
+        lock, self._profile_lock = self._profile_lock, None
+        if lock is not None:
+            try:
+                await asyncio.to_thread(lock.release)
+            except Exception as exc:
+                logger.debug(f"[MiniBrowser] Profile unlock: {type(exc).__name__}")
+        self._schedule_state()
+
+    async def _close_context(self, context: Any, session: Any) -> None:
+        """Close Chromium quickly without losing profile data.
+
+        ``context.close()`` waits for the browser process to exit, and full
+        Chromium with a persistent profile lingers ~30 s after it has already
+        flushed and released the profile. So ask it to close over CDP and
+        wait only for the disconnect; stopping the driver then ends the
+        process (cookies and storage verified to survive). Without a CDP
+        session, fall back to a bounded ``context.close()``.
+        """
+        if session is not None:
+            closed = asyncio.Event()
+            context.on("close", _safely(lambda *_: closed.set()))
+            self.spawn(self._cdp_send(session, "Browser.close"))
+            try:
+                await asyncio.wait_for(closed.wait(), CONTEXT_CLOSE_TIMEOUT_S)
+                return
+            except asyncio.TimeoutError:
+                logger.debug("[MiniBrowser] Browser.close did not disconnect in time")
+        try:
+            await asyncio.wait_for(context.close(), CONTEXT_CLOSE_TIMEOUT_S)
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] Context close: {type(exc).__name__}")
+
+    def _on_context_close(self, context: Any, *_: Any) -> None:
+        """The browser went away (crash, killed, window closed)."""
+        self._dead_context = context
+        if context is self._context and not self._closing:
+            logger.warning(
+                "[MiniBrowser] Chromium closed unexpectedly; it restarts on next use"
+            )
+            self.spawn(self.close())
+
+    def _note_failure(self, exc: BaseException, page: Any = None) -> None:
+        """Notice a dead driver/browser behind an error and drop it."""
+        if self._context is None or self._closing:
+            return
+        text = str(exc)
+        dead = "Connection closed" in text or "Browser has been closed" in text
+        if not dead and "has been closed" in text and page is not None:
+            try:
+                dead = not page.is_closed()  # the page is fine: its browser is not
+            except Exception:
+                dead = True
+        if dead:
+            logger.warning(
+                "[MiniBrowser] Lost the browser connection; it restarts on next use"
+            )
+            self.spawn(self.close())
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # State for the UI
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def state(self) -> Dict[str, Any]:
+        """The ``mini_browser_state`` payload."""
+        secrets = self._secrets()
+        tabs = []
+        for tab in self.tabs.values():
+            tabs.append(
+                {
+                    "id": tab.id,
+                    "url": scrub(_clip(tab.url, 2048), secrets),
+                    "title": scrub(_clip(tab.title, 300), secrets),
+                    "loading": tab.loading,
+                    "owner": tab.owner,
+                    "parentOwner": tab.parent_owner,
+                    "ownerLabel": tab.owner_label,
+                    "ownerKind": tab.owner_kind,
+                    "busy": self._tab_busy(tab),
+                    "userControl": tab.user_control,
+                    "canGoBack": tab.can_go_back,
+                    "canGoForward": tab.can_go_forward,
+                    "crashed": tab.crashed,
+                }
+            )
+        return {
+            "status": self.status,
+            "error": self.last_error,
+            "sessionId": SESSION_ID,
+            "adblock": bool(self.settings.adblock),
+            "viewedTabId": self.viewed_tab_id,
+            "follow": self.follow,
+            "viewport": {"width": self.viewport[0], "height": self.viewport[1]},
+            "tabs": tabs,
+            "settings": {
+                "humanlike": bool(self.settings.humanlike),
+                "showCursor": bool(self.settings.show_cursor),
+            },
+        }
+
+    def _set_status(self, status: str, error: Optional[Dict[str, str]] = None) -> None:
+        self.status = status
+        self.last_error = error
+        self._schedule_state()
+
+    def _schedule_state(self) -> None:
+        """Publish the state soon (changes within ~50 ms coalesce)."""
+        if self._state_handle is not None or bridge.current_sink() is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._state_handle = loop.call_later(STATE_DEBOUNCE_S, self._flush_state)
+
+    def _flush_state(self) -> None:
+        self._state_handle = None
+        try:
+            bridge.publish("state", self.state())
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] State publish failed: {type(exc).__name__}")
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Streaming
+    # ═════════════════════════════════════════════════════════════════════════
+
+    async def set_streaming(self, active: bool) -> None:
+        """Re-check the live view: it streams the viewed tab while a viewer exists."""
+        if active:
+            self._touch()
+        await self._stream.sync()
+
+    async def push_frame_now(self) -> None:
+        """Send the viewed tab's latest frame (a viewer just subscribed)."""
+        self._touch()
+        await self._stream.push_now()
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # UI controls
+    # ═════════════════════════════════════════════════════════════════════════
+
+    async def ui_navigate(self, tab_id: Optional[str], text: str) -> None:
+        """The URL bar: open an address or search for the text."""
+        target = self._resolve(text, allow_search=True)
+        await self.ensure_started()
+        if tab_id:
+            tab = self._ui_tab(tab_id)
+        else:
+            tab = (
+                self.tabs.get(self.viewed_tab_id or "") or await self._ensure_one_tab()
+            )
+        await self._recover_if_crashed(tab)
+        self._note_user_input(tab)
+        await self._goto(tab, target.url)
+
+    async def ui_history(self, tab_id: Optional[str], action: str) -> None:
+        """Back / forward / reload / stop on a tab."""
+        tab = self._ui_tab(tab_id)
+        if action == "stop":
+            await self._stop_loading(tab)
+            return
+        if action not in ("back", "forward", "reload"):
+            raise MiniBrowserError(
+                "MINI_BROWSER_INVALID_INPUT",
+                detail="action must be back, forward, reload or stop.",
+            )
+        if tab.crashed:
+            await self._recover_if_crashed(tab)
+            if action == "reload":
+                return
+        self._note_user_input(tab)
+        page = tab.page
+        try:
+            if action == "back":
+                step = page.go_back(wait_until="commit", timeout=NAVIGATION_TIMEOUT_MS)
+            elif action == "forward":
+                step = page.go_forward(
+                    wait_until="commit", timeout=NAVIGATION_TIMEOUT_MS
+                )
+            else:
+                step = page.reload(wait_until="commit", timeout=NAVIGATION_TIMEOUT_MS)
+            await asyncio.wait_for(step, NAVIGATION_TIMEOUT_MS / 1000 + 5)
+        except Exception as exc:
+            self._raise_navigation_error(exc, tab, tab.url)
+        finally:
+            self._schedule_nav_refresh(tab)
+
+    async def ui_input(self, tab_id: str, event: dict) -> None:
+        """Raw user input from the live view (coordinates are 0..1 of the frame)."""
+        tab = self._ui_tab(tab_id)
+        if not isinstance(event, Mapping):
+            return
+        if tab.crashed:
+            await self._recover_if_crashed(tab)
+            return
+        page = tab.page
+        kind = event.get("kind")
+        try:
+            if kind == "mouse":
+                action = event.get("action")
+                point = self._point(tab, event)
+                if action not in ("down", "up", "move") or point is None:
+                    return
+                button = event.get("button")
+                button = button if button in ("left", "middle", "right") else "left"
+                clicks = _clamp_int(event.get("clickCount"), 1, 3, 1)
+                self._note_user_input(tab, takes_control=action != "move")
+                await _within(page.mouse.move(point[0], point[1]), PAGE_CALL_TIMEOUT_S)
+                if action == "down":
+                    await _within(
+                        page.mouse.down(button=button, click_count=clicks),
+                        PAGE_CALL_TIMEOUT_S,
+                    )
+                elif action == "up":
+                    await _within(
+                        page.mouse.up(button=button, click_count=clicks),
+                        PAGE_CALL_TIMEOUT_S,
+                    )
+            elif kind == "wheel":
+                point = self._point(tab, event)
+                if point is None:
+                    return
+                dx = _finite(event.get("dx"), WHEEL_LIMIT)
+                dy = _finite(event.get("dy"), WHEEL_LIMIT)
+                self._note_user_input(tab)
+                await _within(page.mouse.move(point[0], point[1]), PAGE_CALL_TIMEOUT_S)
+                await _within(page.mouse.wheel(dx, dy), PAGE_CALL_TIMEOUT_S)
+            elif kind == "key":
+                combo = _key_combo(event)
+                if combo is None:
+                    return
+                self._note_user_input(tab)
+                await _within(page.keyboard.press(combo), PAGE_CALL_TIMEOUT_S)
+            elif kind == "text":
+                text = event.get("text")
+                if not isinstance(text, str) or not text:
+                    return
+                self._note_user_input(tab)
+                await _within(
+                    page.keyboard.insert_text(text[:MAX_TEXT_INPUT]),
+                    PAGE_CALL_TIMEOUT_S,
+                )
+        except asyncio.TimeoutError:
+            raise MiniBrowserError("MINI_BROWSER_PAGE_UNRESPONSIVE") from None
+        except Exception as exc:
+            if kind == "key" and "Unknown key" in str(exc):
+                logger.debug("[MiniBrowser] Ignored a key Playwright does not know")
+                return
+            self._note_failure(exc, page)
+            raise MiniBrowserError(
+                "MINI_BROWSER_INTERNAL", detail=_clip(first_line(exc), 200)
+            ) from None
+
+    async def ui_new_tab(self, url: Optional[str] = None) -> str:
+        """Open a user tab (optionally at ``url``), view it, return its id."""
+        wanted = isinstance(url, str) and bool(url.strip())
+        target = self._resolve(url, allow_search=True) if wanted else None
+        await self.ensure_started()
+        tab = await self._open_tab(None)
+        tab.touch_user()
+        self.viewed_tab_id = tab.id
+        self.follow = False
+        self._schedule_state()
+        await self._stream.sync()
+        await self._bring_to_front(tab)
+        if target is not None:
+            self.spawn(self._open_in_background(tab, target.url))
+        return tab.id
+
+    async def ui_switch_tab(self, tab_id: str) -> None:
+        """View ``tab_id``; the view stops following agents."""
+        tab = self._ui_tab(tab_id)
+        self.viewed_tab_id = tab.id
+        self.follow = False
+        self._schedule_state()
+        await self._stream.sync()
+        await self._bring_to_front(tab)
+
+    async def ui_close_tab(self, tab_id: str) -> None:
+        """Close a tab (any tab: the user decides). One tab always stays open."""
+        tab = self._ui_tab(tab_id)
+        if len(self.tabs) == 1:
+            await self._open_tab(None)
+        page = tab.page
+        await self._close_page(page)
+        self._on_page_close(page)
+
+    async def ui_view(self, tab_id: Optional[str], follow: Optional[bool]) -> None:
+        """Which tab the UI shows; ``follow`` makes the view track agent activity."""
+        if follow is not None:
+            self.follow = bool(follow)
+        if tab_id:
+            tab = self.tabs.get(tab_id)
+            if tab is None:
+                raise MiniBrowserError("MINI_BROWSER_TAB_NOT_FOUND", tab=tab_id)
+            self.viewed_tab_id = tab.id
+        elif follow:
+            latest = self._latest_agent_tab()
+            if latest is not None:
+                self.viewed_tab_id = latest.id
+        self._schedule_state()
+        await self._stream.sync()
+        viewed = self.tabs.get(self.viewed_tab_id or "")
+        if viewed is not None:
+            await self._bring_to_front(viewed)
+
+    async def ui_control(self, tab_id: str, take: bool) -> None:
+        """The user takes control of a tab (agents pause on it) or hands it back."""
+        tab = self._ui_tab(tab_id)
+        take = bool(take)
+        if tab.user_control == take:
+            return
+        tab.user_control = take
+        if take:
+            tab.touch_user()
+            self._agent_notice(
+                tab,
+                EVENT_NOTICE,
+                "The user took control of this tab; agent actions here wait until they hand it back.",
+            )
+        else:
+            self._agent_notice(
+                tab,
+                EVENT_NOTICE,
+                f"The user handed control back. The tab now shows {_clip(tab.url, 200)}; "
+                "look at the page again before acting.",
+            )
+        self._schedule_state()
+
+    async def ui_copy_selection(self, tab_id: str) -> str:
+        """The text selected in a tab (never from a password field)."""
+        tab = self._ui_tab(tab_id)
+        try:
+            text = await asyncio.wait_for(
+                tab.page.evaluate(_SELECTION_JS), EVALUATE_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            raise MiniBrowserError("MINI_BROWSER_PAGE_UNRESPONSIVE") from None
+        except Exception as exc:
+            self._note_failure(exc, tab.page)
+            return ""
+        if not isinstance(text, str):
+            return ""
+        return scrub(text[:MAX_COPY_CHARS], self._secrets())
+
+    async def set_viewport(self, width: int, height: int) -> None:
+        """The CSS viewport of every tab (and of tabs opened later)."""
+        size = (
+            _clamp_int(width, *VIEWPORT_WIDTH, self.viewport[0]),
+            _clamp_int(height, *VIEWPORT_HEIGHT, self.viewport[1]),
+        )
+        if size == self.viewport:
+            return
+        self.viewport = size
+        if self._context is not None:
+            await asyncio.gather(
+                *(self._apply_viewport(tab) for tab in list(self.tabs.values()))
+            )
+            await self._stream.sync()
+        self._schedule_state()
+
+    async def set_adblock(self, enabled: bool) -> None:
+        """Turn ad blocking on/off for every tab (no reload) and remember it."""
+        enabled = bool(enabled)
+        self.settings = replace(self.settings, adblock=enabled)
+        try:
+            await asyncio.to_thread(config.save_setting, "adblock", enabled)
+        except Exception as exc:
+            logger.warning(
+                f"[MiniBrowser] Could not save the ad-block setting: {type(exc).__name__}"
+            )
+        await self.refresh_network_rules()
+        self._schedule_state()
+
+    def _ui_tab(self, tab_id: Optional[str]) -> Tab:
+        if self._context is None or self.status != "ready":
+            raise MiniBrowserError("MINI_BROWSER_NOT_RUNNING")
+        key = tab_id or self.viewed_tab_id
+        tab = self.tabs.get(key) if key else None
+        if tab is None:
+            raise MiniBrowserError("MINI_BROWSER_TAB_NOT_FOUND", tab=tab_id or "")
+        return tab
+
+    def _point(
+        self, tab: Tab, event: Mapping[str, Any]
+    ) -> Optional[Tuple[float, float]]:
+        """Normalised (0..1) frame coordinates -> CSS px of the tab's own viewport."""
+        x, y = _unit(event.get("x")), _unit(event.get("y"))
+        if x is None or y is None:
+            return None
+        width, height = self._page_size(tab)
+        return x * width, y * height
+
+    def _note_user_input(self, tab: Tab, takes_control: bool = True) -> None:
+        """The user used a tab. Input on a tab whose agent is busy pauses that agent."""
+        tab.touch_user()
+        self._touch()
+        if (
+            takes_control
+            and tab.owner
+            and not tab.user_control
+            and self._owner_busy(tab.owner)
+        ):
+            tab.user_control = True
+            self._agent_notice(
+                tab,
+                EVENT_NOTICE,
+                "The user took control of this tab; agent actions here wait until they hand it back.",
+            )
+            self._schedule_state()
+
+    async def _open_in_background(self, tab: Tab, url: str) -> None:
+        try:
+            await self._goto(tab, url)
+        except MiniBrowserError as exc:
+            message = ui_error(exc.code, self._secrets(), **exc.fields)["message"]
+            self.add_event(tab, EVENT_ERROR, message)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Agents
+    # ═════════════════════════════════════════════════════════════════════════
+
+    async def agent_op(self, owner: str, op: str, params: dict) -> dict:
+        """Run one agent operation in the owner's tab; always returns a result dict."""
+        owner = owner if isinstance(owner, str) and owner else DEFAULT_OWNER
+        params = dict(params or {})
+        task = asyncio.current_task()
+        owner_tasks = self._owner_ops.setdefault(owner, set())
+        if task is not None:
+            owner_tasks.add(task)
+        self._touch()
+        tab: Optional[Tab] = None
+        try:
+            if self._is_revoked(owner):
+                return action_error("MINI_BROWSER_STOPPED")
+            if op == "tabs":
+                return self._finish(await self._op_tabs(owner, params), None)
+            fn = self._lookup_op(op)
+            for _attempt in range(3):
+                tab = await self.tab_for_owner(owner)
+                refused = self._control_refusal(tab, op, params)
+                if refused is not None:
+                    return self._finish(refused, tab)
+                if task is not None:
+                    tab.ops.add(task)
+                try:
+                    async with tab.lock:
+                        if self.tabs.get(tab.id) is tab:
+                            refused = self._control_refusal(tab, op, params)
+                            if refused is not None:
+                                return self._finish(refused, tab)
+                            await self._recover_if_crashed(tab)
+                            self._follow(tab)
+                            result = await asyncio.wait_for(
+                                fn(self, tab, **params), self._op_timeout(op)
+                            )
+                            break
+                finally:
+                    if task is not None:
+                        tab.ops.discard(task)
+            else:
+                raise MiniBrowserError("MINI_BROWSER_TAB_NOT_FOUND", tab="")
+            tab.touch_agent()
+            self._follow(tab)
+            return self._finish(result, tab)
+        except asyncio.CancelledError:
+            if tab is not None and self.tabs.get(tab.id) is tab:
+                self.spawn(self._stop_loading(tab))
+            raise
+        except asyncio.TimeoutError:
+            if tab is not None and self.tabs.get(tab.id) is tab:
+                self.spawn(self._stop_loading(tab))
+            seconds = int(self._op_timeout(op))
+            error = MiniBrowserError(
+                "MINI_BROWSER_TIMEOUT", what=f"The {op} action", seconds=seconds
+            )
+            return await self._error_result(error, tab)
+        except MiniBrowserError as exc:
+            return await self._error_result(exc, tab)
+        except Exception as exc:
+            return self._finish(self._unexpected(op, exc, tab), tab)
+        finally:
+            owner_tasks.discard(task)
+            if not owner_tasks and self._owner_ops.get(owner) is owner_tasks:
+                self._owner_ops.pop(owner, None)
+            self._schedule_state()
+
+    async def tab_for_owner(self, owner: str) -> Tab:
+        """The tab ``owner`` acts in, claiming or opening one if needed.
+
+        1) the owner's current tab (else its most recently used one);
+        2) else the viewed tab if it is an idle user tab or its owner went
+           stale (unused for 10 min and not running);
+        3) else a new tab (at most ``settings.max_agent_tabs`` per owner).
+        """
+        await self.ensure_started()
+        tab = self.tabs.get(self._owner_current.get(owner, ""))
+        if tab is None:
+            mine = [t for t in self.tabs.values() if t.owner == owner]
+            if mine:
+                tab = max(mine, key=lambda t: t.last_agent_use)
+        if tab is None:
+            viewed = self.tabs.get(self.viewed_tab_id or "")
+            if viewed is not None and self._claimable(viewed, owner):
+                tab = viewed
+        if tab is None:
+            count = self._owner_tab_count(owner)
+            if count >= self.settings.max_agent_tabs:
+                raise MiniBrowserError("MINI_BROWSER_TOO_MANY_TABS", count=count)
+            tab = await self._open_tab(owner)
+        self._claim(tab, owner)
+        return tab
+
+    def tabs_payload(self, owner: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Agent-facing tab list: ``[{index, id, url, title, mine, active}]``."""
+        current = self._owner_current.get(owner) if owner else self.viewed_tab_id
+        secrets = self._secrets()
+        return [
+            {
+                "index": index,
+                "id": tab.id,
+                "url": scrub(_clip(tab.url, 300), secrets),
+                "title": scrub(_clip(tab.title, 120), secrets),
+                "mine": owner is not None and tab.owner == owner,
+                "active": tab.id == current,
+            }
+            for index, tab in enumerate(self.tabs.values())
+        ]
+
+    async def _op_tabs(self, owner: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """``mini_browser_tabs``: list / new / switch / close, scoped to the owner."""
+        action = str(params.get("action") or "list").strip().lower()
+        ref = next(
+            (
+                params[k]
+                for k in ("tab", "tab_id", "id", "index")
+                if params.get(k) is not None
+            ),
+            None,
+        )
+        if action == "list":
+            if self._context is None:
+                return {
+                    "status": "success",
+                    "message": "The Mini Browser is not running; it starts with your first navigation.",
+                    "tabs": [],
+                }
+            tabs = self.tabs_payload(owner)
+            mine = sum(1 for t in tabs if t["mine"])
+            return {
+                "status": "success",
+                "message": f"{len(tabs)} tab(s) open, {mine} of them yours.",
+                "tabs": tabs,
+            }
+        if action == "new":
+            url = params.get("url")
+            target: Optional[urls.Target] = None
+            if isinstance(url, urls.Target):
+                target = url if url.kind == urls.KIND_URL else None
+            elif isinstance(url, str) and url.strip():
+                target = self._resolve(url, allow_search=True)
+            await self.ensure_started()
+            count = self._owner_tab_count(owner)
+            if count >= self.settings.max_agent_tabs:
+                raise MiniBrowserError("MINI_BROWSER_TOO_MANY_TABS", count=count)
+            tab = await self._open_tab(owner)
+            self._claim(tab, owner)
+            self._follow(tab)
+            async with tab.lock:
+                try:
+                    if target is not None:
+                        await self._goto(tab, target.url)
+                except MiniBrowserError as exc:
+                    result = from_exception(exc, self._secrets())
+                    result["tabs"] = self.tabs_payload(owner)
+                    return self._finish(result, tab)
+                page = await self._observe(tab)
+            return self._finish(
+                {
+                    "status": "success",
+                    "message": f"Opened tab {self._tab_index(tab)} and made it your active tab.",
+                    "tabs": self.tabs_payload(owner),
+                    "page": page,
+                },
+                tab,
+            )
+        if action == "switch":
+            if ref is None:
+                raise MiniBrowserError(
+                    "MINI_BROWSER_INVALID_INPUT",
+                    detail="Say which tab to switch to (its index).",
+                )
+            if self._context is None:
+                raise MiniBrowserError("MINI_BROWSER_NOT_RUNNING")
+            tab = self._find_tab(ref)
+            if tab.owner != owner and not self._claimable(tab, owner):
+                if tab.user_control or tab.owner is None:
+                    # The user is working in it right now.
+                    return self._finish(
+                        action_error("MINI_BROWSER_USER_IN_CONTROL"), tab
+                    )
+                raise MiniBrowserError(
+                    "MINI_BROWSER_TAB_OWNED",
+                    tab=self._tab_index(tab),
+                    owner=tab.owner_label or "another agent",
+                )
+            self._claim(tab, owner)
+            self._follow(tab)
+            async with tab.lock:
+                await self._recover_if_crashed(tab)
+                page = await self._observe(tab)
+            return self._finish(
+                {
+                    "status": "success",
+                    "message": f"Switched to tab {self._tab_index(tab)}.",
+                    "tabs": self.tabs_payload(owner),
+                    "page": page,
+                },
+                tab,
+            )
+        if action == "close":
+            if self._context is None:
+                raise MiniBrowserError("MINI_BROWSER_NOT_RUNNING")
+            if ref is not None:
+                tab = self._find_tab(ref)
+            else:
+                tab = self.tabs.get(self._owner_current.get(owner, ""))
+                if tab is None:
+                    raise MiniBrowserError("MINI_BROWSER_TAB_NOT_FOUND", tab="")
+            if tab.owner is None:
+                raise MiniBrowserError(
+                    "MINI_BROWSER_INVALID_INPUT",
+                    detail="That tab belongs to the user; close only your own tabs.",
+                )
+            if tab.owner != owner:
+                raise MiniBrowserError(
+                    "MINI_BROWSER_TAB_OWNED",
+                    tab=self._tab_index(tab),
+                    owner=tab.owner_label or "another agent",
+                )
+            index = self._tab_index(tab)
+            if len(self.tabs) == 1:
+                await self._open_tab(None)
+            page = tab.page
+            await self._close_page(page)
+            self._on_page_close(page)
+            return {
+                "status": "success",
+                "message": f"Closed tab {index}.",
+                "tabs": self.tabs_payload(owner),
+            }
+        raise MiniBrowserError(
+            "MINI_BROWSER_INVALID_INPUT",
+            detail="action must be list, new, switch or close.",
+        )
+
+    def _lookup_op(self, op: Any) -> Any:
+        if not isinstance(op, str) or not op:
+            raise MiniBrowserError(
+                "MINI_BROWSER_INVALID_INPUT", detail="Unknown operation."
+            )
+        registry = self._ops_registry
+        if registry is None:
+            try:
+                from app.mini_browser.ops import OPS
+            except Exception as exc:
+                logger.error(
+                    f"[MiniBrowser] Agent operations failed to load: {type(exc).__name__}"
+                )
+                raise MiniBrowserError(
+                    "MINI_BROWSER_INTERNAL",
+                    detail="the browser operations are unavailable",
+                ) from None
+            registry = self._ops_registry = OPS
+        fn = registry.get(op)
+        if fn is None:
+            raise MiniBrowserError(
+                "MINI_BROWSER_INVALID_INPUT",
+                detail=f"Unknown Mini Browser operation: {op}",
+            )
+        return fn
+
+    @staticmethod
+    def _control_refusal(
+        tab: Tab, op: str, params: Mapping[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        if tab.user_control and not (op == "wait" and params.get("for_user")):
+            return action_error("MINI_BROWSER_USER_IN_CONTROL")
+        return None
+
+    @staticmethod
+    def _op_timeout(op: str) -> float:
+        return WAIT_OP_TIMEOUT_S if op == "wait" else OP_TIMEOUT_S
+
+    async def _error_result(
+        self, exc: MiniBrowserError, tab: Optional[Tab]
+    ) -> Dict[str, Any]:
+        result = from_exception(exc, self._secrets())
+        if (
+            exc.code in _OBSERVE_ON_ERROR
+            and tab is not None
+            and self.tabs.get(tab.id) is tab
+            and not tab.crashed
+        ):
+            async with tab.lock:
+                page = await self._observe(tab)
+            if page is not None:
+                result["page"] = page
+        return self._finish(result, tab)
+
+    def _unexpected(
+        self, op: str, exc: BaseException, tab: Optional[Tab]
+    ) -> Dict[str, Any]:
+        secrets = self._secrets()
+        line = scrub(_clip(first_line(exc), 200), secrets)
+        logger.warning(f"[MiniBrowser] {op} failed: {type(exc).__name__}: {line}")
+        logger.debug("[MiniBrowser] " + "".join(traceback.format_tb(exc.__traceback__)))
+        self._note_failure(exc, tab.page if tab is not None else None)
+        if self._context is None or self._closing:
+            return action_error("MINI_BROWSER_NOT_RUNNING")
+        if tab is not None and self.tabs.get(tab.id) is not tab:
+            return action_error("MINI_BROWSER_TAB_NOT_FOUND", tab=tab.id)
+        return action_error("MINI_BROWSER_INTERNAL", secrets=secrets, detail=line)
+
+    def _finish(self, result: Any, tab: Optional[Tab]) -> Dict[str, Any]:
+        """Attach the tab and its pending notices; scrub every string."""
+        if isinstance(result, dict):
+            result = dict(result)
+        else:
+            result = {
+                "status": "success",
+                "message": "Done." if result is None else str(result),
+            }
+        if tab is not None:
+            if tab.events:
+                events, tab.events[:] = list(tab.events), []
+                result["events"] = list(result.get("events") or []) + events
+            index = self._tab_index(tab)
+            if index is not None:
+                result["tab"] = {"id": tab.id, "index": index}
+        return scrub_data(result, self._secrets())
+
+    async def _observe(self, tab: Tab) -> Optional[Dict[str, Any]]:
+        """A compact observation of the tab, or None if it cannot be taken."""
+        try:
+            from app.mini_browser import observe as observe_module
+        except Exception:
+            return None
+        try:
+            return await asyncio.wait_for(
+                observe_module.observe(self, tab, compact=True), OBSERVE_TIMEOUT_S
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] Observation failed: {type(exc).__name__}")
+            return None
+
+    def _find_tab(self, ref: Any) -> Tab:
+        """A tab by its index (as listed) or its id."""
+        if not isinstance(ref, bool):
+            if isinstance(ref, int) or (isinstance(ref, str) and ref.strip().isdigit()):
+                ordered = list(self.tabs.values())
+                index = int(ref)
+                if 0 <= index < len(ordered):
+                    return ordered[index]
+            elif isinstance(ref, str) and ref.strip() in self.tabs:
+                return self.tabs[ref.strip()]
+        raise MiniBrowserError("MINI_BROWSER_TAB_NOT_FOUND", tab=_clip(str(ref), 40))
+
+    # ── owners ───────────────────────────────────────────────────────────────
+
+    def _claimable(self, tab: Tab, owner: str) -> bool:
+        if tab.user_control or tab.ops:
+            return False
+        if tab.owner == owner:
+            return True
+        now = time.monotonic()
+        if tab.owner is None:
+            return now - tab.last_user_input >= USER_ACTIVE_S
+        if self._is_revoked(tab.owner):
+            return True
+        return now - tab.last_agent_use >= STALE_OWNER_S and not self._run_busy(
+            tab.owner
+        )
+
+    def _claim(self, tab: Tab, owner: str) -> None:
+        previous = tab.owner
+        if previous != owner:
+            if previous is not None and self._owner_current.get(previous) == tab.id:
+                self._owner_current.pop(previous, None)
+            # Notices about what happened before belong to the previous owner.
+            tab.events.clear()
+        self._apply_owner(tab, owner)
+        self._owner_current[owner] = tab.id
+        tab.touch_agent()
+        self._schedule_state()
+
+    def _apply_owner(self, tab: Tab, owner: Optional[str]) -> None:
+        if owner is None:
+            tab.owner, tab.owner_label, tab.owner_kind, tab.parent_owner = (
+                None,
+                "",
+                OWNER_KIND_USER,
+                None,
+            )
+            return
+        label, kind, parent = self._owner_info(owner)
+        tab.owner, tab.owner_label, tab.owner_kind, tab.parent_owner = (
+            owner,
+            label,
+            kind,
+            parent,
+        )
+
+    def _owner_info(self, owner: str, depth: int = 0) -> Tuple[str, str, Optional[str]]:
+        """``(label, kind, parent)`` for an owner id, from the agent runtime."""
+        if owner == SESSION_ID:
+            return (
+                self._session_title(owner) or SESSION_TITLE,
+                OWNER_KIND_MINI_BROWSER,
+                None,
+            )
+        if owner == DEFAULT_OWNER:
+            return self._session_title(owner) or "Main", OWNER_KIND_MAIN, None
+        if owner.startswith("sub_"):
+            record = config.subagent_record(owner)
+            parent = record[0] if record else None
+            if parent:
+                self._parents[owner] = parent
+            agent_type = record[1] if record else "sub-agent"
+            parent_label = (
+                self._owner_info(parent, depth + 1)[0] if parent and depth < 3 else ""
+            )
+            label = (
+                f"{agent_type} (sub-agent of {parent_label})"
+                if parent_label
+                else agent_type
+            )
+            return _clip(label, 80), OWNER_KIND_SUBAGENT, parent
+        return self._session_title(owner) or "Chat", OWNER_KIND_SESSION, None
+
+    @staticmethod
+    def _session_title(session_id: str) -> str:
+        title = getattr(config.session_record(session_id), "title", "")
+        return _clip(title, 80) if isinstance(title, str) else ""
+
+    def _parent_of(self, owner: Optional[str]) -> Optional[str]:
+        if not owner or not owner.startswith("sub_"):
+            return None
+        parent = self._parents.get(owner)
+        if parent is None:
+            record = config.subagent_record(owner)
+            if record is not None and record[0]:
+                parent = self._parents[owner] = record[0]
+        return parent
+
+    def _is_revoked(self, owner: str) -> bool:
+        """A sub-agent whose parent run was stopped may never act again."""
+        if owner in self._revoked:
+            return True
+        if not owner.startswith("sub_") or not self._parent_stops:
+            return False
+        record = config.subagent_record(owner)
+        if record is None or not record[0] or record[0] not in self._parent_stops:
+            return False
+        created = record[2]
+        if created is None or created <= self._parent_stops[record[0]]:
+            self._revoked.add(owner)
+            return True
+        return False
+
+    def _run_busy(self, owner: Optional[str]) -> bool:
+        if not owner:
+            return False
+        if self._run_state.get(owner) in _BUSY_STATES:
+            return True
+        parent = self._parent_of(owner)
+        return parent is not None and self._run_state.get(parent) in _BUSY_STATES
+
+    def _owner_busy(self, owner: str) -> bool:
+        if self._run_busy(owner) or self._owner_ops.get(owner):
+            return True
+        return any(t.ops for t in self.tabs.values() if t.owner == owner)
+
+    def _tab_busy(self, tab: Tab) -> bool:
+        return bool(tab.ops) or self._run_busy(tab.owner)
+
+    def _owner_tab_count(self, owner: str) -> int:
+        return sum(1 for t in self.tabs.values() if t.owner == owner)
+
+    def _agent_busy(self) -> bool:
+        return any(self._owner_ops.values()) or any(t.ops for t in self.tabs.values())
+
+    def _latest_agent_tab(self) -> Optional[Tab]:
+        used = [
+            t
+            for t in self.tabs.values()
+            if t.owner is not None and t.last_agent_use > 0
+        ]
+        return max(used, key=lambda t: t.last_agent_use) if used else None
+
+    def _follow(self, tab: Tab) -> None:
+        """Follow-view: show the tab an agent works in, unless the viewed tab
+        is itself in use (by another agent or the user)."""
+        if (
+            not self.follow
+            or self.viewed_tab_id == tab.id
+            or self.tabs.get(tab.id) is not tab
+        ):
+            return
+        viewed = self.tabs.get(self.viewed_tab_id or "")
+        if viewed is not None:
+            now = time.monotonic()
+            if (
+                viewed.ops
+                or now - viewed.last_agent_use < FOLLOW_HOLD_S
+                or now - viewed.last_user_input < USER_HOLD_S
+            ):
+                return
+        self.viewed_tab_id = tab.id
+        self._schedule_state()
+        self.spawn(self._stream.sync())
+
+    # ── lifecycle hooks (via lifecycle.py) ───────────────────────────────────
+
+    def on_run_state(self, owner: str, state: str) -> None:
+        """An agent run started / is stopping / went idle."""
+        if not owner or state not in RUN_STATES:
+            return
+        if state == "idle":
+            self._run_state.pop(owner, None)
+        else:
+            self._run_state[owner] = state
+        self._schedule_state()
+
+    def release_owner(self, owner: str, close_tabs: bool) -> None:
+        """An owner is gone (chat deleted, sub-agent finished).
+
+        Its tabs close, except one the user is working in or looking at, which
+        becomes a user tab (as do all of them with ``close_tabs=False``). The
+        last open tab is never closed: it becomes a user tab too.
+        """
+        if not owner:
+            return
+        viewing = bridge.has_viewers()
+        owned = [tab for tab in self.tabs.values() if tab.owner == owner]
+        closing = [
+            tab
+            for tab in owned
+            if close_tabs
+            and not tab.user_control
+            and not (viewing and tab.id == self.viewed_tab_id)
+        ]
+        if closing and len(closing) == len(self.tabs):
+            keep_last = self.tabs.get(self.viewed_tab_id or "") or closing[-1]
+            closing.remove(keep_last)
+        for tab in owned:
+            if tab in closing:
+                self.spawn(self._close_page(tab.page))
+            else:
+                self._apply_owner(tab, None)
+                tab.user_control = False
+        self._owner_current.pop(owner, None)
+        self._run_state.pop(owner, None)
+        self._schedule_state()
+
+    async def cancel_owner(self, owner: str, include_children: bool = True) -> None:
+        """The user pressed Stop: cancel the owner's in-flight operations.
+
+        With ``include_children``, its sub-agents are cancelled too and revoked
+        for good (their later operations get MINI_BROWSER_STOPPED). Pages stop
+        loading. User tabs are never touched.
+        """
+        if not owner:
+            return
+        owners = {owner}
+        if include_children:
+            self._parent_stops[owner] = datetime.utcnow()
+            known = set(self._owner_ops) | {
+                t.owner for t in self.tabs.values() if t.owner
+            }
+            for other in known:
+                if other != owner and self._parent_of(other) == owner:
+                    self._revoked.add(other)
+                    owners.add(other)
+        for name in owners:
+            for task in list(self._owner_ops.get(name, ())):
+                task.cancel()
+        for tab in list(self.tabs.values()):
+            if tab.owner in owners:
+                for task in list(tab.ops):
+                    task.cancel()
+                self.spawn(self._stop_loading(tab))
+        self._schedule_state()
+
+    # ── helpers for ops ──────────────────────────────────────────────────────
+
+    async def publish_pointer(self, tab: Tab, x: float, y: float, kind: str) -> None:
+        """Show the agent's pointer (CSS px) in the live view (≤ 30 moves/s)."""
+        try:
+            px, py = float(x), float(y)
+        except (TypeError, ValueError):
+            return
+        if not (math.isfinite(px) and math.isfinite(py)):
+            return
+        tab.mouse_x, tab.mouse_y = px, py
+        if tab.id != self.viewed_tab_id or not bridge.has_viewers():
+            return
+        kind = kind if kind in ("move", "down", "up", "click") else "move"
+        now = time.monotonic()
+        if (
+            kind == "move"
+            and now - self._pointer_sent.get(tab.id, 0.0) < POINTER_INTERVAL_S
+        ):
+            return
+        self._pointer_sent[tab.id] = now
+        width, height = self._page_size(tab)
+        bridge.publish(
+            "pointer",
+            {
+                "tabId": tab.id,
+                "x": _clamp_unit(px / width),
+                "y": _clamp_unit(py / height),
+                "kind": kind,
+            },
+        )
+
+    def add_event(self, tab: Tab, kind: str, message: str, **extra: Any) -> None:
+        """A notice for the tab's agent (attached to its next result) and a UI toast."""
+        event = self._agent_notice(tab, kind, message, **extra)
+        payload = {
+            "kind": event["kind"],
+            "level": event.pop("_level"),
+            "message": event["message"],
+            "tabId": tab.id,
+        }
+        if isinstance(event.get("path"), str):
+            # The UI's open-file/show-in-folder actions resolve paths against
+            # the agent workspace, so it gets the workspace-relative form
+            # (the agent's notice keeps the absolute path).
+            payload["path"] = _workspace_relative(event["path"])
+        bridge.publish("event", payload)
+
+    def _agent_notice(
+        self, tab: Tab, kind: str, message: str, **extra: Any
+    ) -> Dict[str, Any]:
+        """Queue a notice for the tab's agent only (no UI toast)."""
+        secrets = self._secrets()
+        level = extra.pop("level", None)
+        event: Dict[str, Any] = {
+            "kind": kind,
+            "message": scrub(_clip(str(message), 500), secrets),
+        }
+        for key, value in extra.items():
+            if isinstance(value, str):
+                event[key] = scrub(_clip(value, 500), secrets)
+            elif isinstance(value, (bool, int, float)) or value is None:
+                event[key] = value
+        tab.events.append(dict(event))
+        del tab.events[:-EVENTS_PER_TAB]
+        event["_level"] = (
+            level
+            if level in ("info", "warning", "error")
+            else _EVENT_LEVELS.get(kind, "info")
+        )
+        return event
+
+    def vault(self) -> Any:
+        """The credential vault (``vault.get_vault()``)."""
+        from app.mini_browser.vault import get_vault
+
+        return get_vault()
+
+    def ui_origins(self) -> frozenset:
+        """CraftBot's own UI origins (``host:port``), never opened in the browser."""
+        return bridge.ui_origins()
+
+    def spawn(self, coro: Awaitable[Any], name: Optional[str] = None) -> asyncio.Task:
+        """Run ``coro`` as a tracked background task in a clean context."""
+        loop = asyncio.get_running_loop()
+        task = contextvars.Context().run(loop.create_task, coro, name=name)
+        self._tasks.add(task)
+        task.add_done_callback(self._task_done)
+        return task
+
+    def _task_done(self, task: asyncio.Task) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None and not isinstance(exc, MiniBrowserError):
+            line = scrub(_clip(first_line(exc), 200), self._secrets())
+            logger.warning(
+                f"[MiniBrowser] Background task failed: {type(exc).__name__}: {line}"
+            )
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Tabs and pages
+    # ═════════════════════════════════════════════════════════════════════════
+
+    async def _open_tab(self, owner: Optional[str]) -> Tab:
+        context = self._context
+        if context is None:
+            raise MiniBrowserError("MINI_BROWSER_NOT_RUNNING")
+        if len(self.tabs) >= MAX_TOTAL_TABS:
+            raise MiniBrowserError("MINI_BROWSER_TOO_MANY_TABS", count=len(self.tabs))
+        self._own_pages_pending += 1
+        try:
+            page = await asyncio.wait_for(context.new_page(), NEW_PAGE_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            raise MiniBrowserError(
+                "MINI_BROWSER_TIMEOUT", what="Opening a tab", seconds=15
+            ) from None
+        except Exception as exc:
+            self._note_failure(exc)
+            raise MiniBrowserError(
+                "MINI_BROWSER_INTERNAL", detail=_clip(first_line(exc), 200)
+            ) from None
+        finally:
+            self._own_pages_pending -= 1
+        tab = self._page_tabs.get(page)
+        if tab is None:
+            tab = self._register_tab(page, owner)
+        elif tab.owner != owner:
+            self._apply_owner(tab, owner)
+        await self._setup_page(tab)
+        return tab
+
+    async def _ensure_one_tab(self) -> Tab:
+        """At least one tab stays open (a headed window would close otherwise)."""
+        if self.tabs:
+            return next(iter(self.tabs.values()))
+        tab = await self._open_tab(None)
+        self.viewed_tab_id = tab.id
+        self._schedule_state()
+        self.spawn(self._stream.sync())
+        return tab
+
+    def _register_tab(self, page: Any, owner: Optional[str]) -> Tab:
+        tab = Tab(id=f"t{next(self._tab_ids)}", page=page)
+        self._apply_owner(tab, owner)
+        self.tabs[tab.id] = tab
+        self._attach_page(tab, page)
+        if self.viewed_tab_id not in self.tabs:
+            self.viewed_tab_id = tab.id
+        self._schedule_state()
+        return tab
+
+    def _attach_page(self, tab: Tab, page: Any) -> None:
+        tab.page = page
+        self._page_tabs[page] = tab
+        safely = _safely
+        page.on("close", safely(lambda *_: self._on_page_close(page)))
+        page.on("crash", safely(lambda *_: self._on_page_crash(page)))
+        page.on(
+            "dialog",
+            safely(lambda dialog: self._spawn_safe(self._handle_dialog(page, dialog))),
+        )
+        page.on(
+            "download",
+            safely(
+                lambda download: self._spawn_safe(self._handle_download(page, download))
+            ),
+        )
+        page.on(
+            "framenavigated",
+            safely(lambda frame: self._on_frame_navigated(page, frame)),
+        )
+        page.on("load", safely(lambda *_: self._on_page_load(page)))
+
+    def _spawn_safe(self, coro: Any) -> None:
+        try:
+            self.spawn(coro)
+        except Exception as exc:  # only without a running loop (teardown)
+            coro.close()
+            logger.debug(
+                f"[MiniBrowser] Could not schedule a handler: {type(exc).__name__}"
+            )
+
+    async def _setup_page(self, tab: Tab) -> None:
+        """Viewport, CDP session (blocking rules, loading tracking) for a page."""
+        page = tab.page
+        await self._apply_viewport(tab)
+        cdp = None
+        if self._context is not None:
+            try:
+                cdp = await asyncio.wait_for(
+                    self._context.new_cdp_session(page), CDP_TIMEOUT_S
+                )
+            except Exception as exc:
+                logger.debug(
+                    f"[MiniBrowser] No CDP session for {tab.id}: {type(exc).__name__}"
+                )
+        if tab.page is not page:
+            return  # replaced meanwhile (crash recovery)
+        tab.cdp = cdp
+        if cdp is not None:
+            cdp.on(
+                "Network.requestWillBeSent",
+                _safely(functools.partial(self._on_request, page)),
+            )
+            cdp.on(
+                "Network.loadingFinished",
+                _safely(functools.partial(self._on_request_done, page)),
+            )
+            cdp.on(
+                "Network.loadingFailed",
+                _safely(functools.partial(self._on_request_done, page)),
+            )
+            await self._cdp_send(cdp, "Network.enable", NETWORK_ENABLE)
+            await self._cdp_send(
+                cdp, "Network.setBlockedURLs", {"urls": self._blocked_patterns}
+            )
+            tree = await self._cdp_send(cdp, "Page.getFrameTree")
+            frame = ((tree or {}).get("frameTree") or {}).get("frame") or {}
+            if isinstance(frame.get("id"), str):
+                self._main_frames[tab.id] = frame["id"]
+        self._schedule_nav_refresh(tab)
+
+    async def _apply_viewport(self, tab: Tab) -> None:
+        try:
+            size = tab.page.viewport_size
+            if size and (size["width"], size["height"]) == tuple(self.viewport):
+                return
+            await asyncio.wait_for(
+                tab.page.set_viewport_size(
+                    {"width": self.viewport[0], "height": self.viewport[1]}
+                ),
+                PAGE_CALL_TIMEOUT_S,
+            )
+        except Exception as exc:
+            logger.debug(
+                f"[MiniBrowser] Viewport not applied to {tab.id}: {type(exc).__name__}"
+            )
+
+    def _page_size(self, tab: Tab) -> Tuple[int, int]:
+        try:
+            size = tab.page.viewport_size
+        except Exception:
+            size = None
+        if size and size.get("width") and size.get("height"):
+            return int(size["width"]), int(size["height"])
+        return self.viewport
+
+    async def _bring_to_front(self, tab: Tab) -> None:
+        """Headed windows only paint their front tab; headless needs nothing."""
+        if self.settings.headless:
+            return
+        try:
+            await asyncio.wait_for(tab.page.bring_to_front(), PAGE_CALL_TIMEOUT_S)
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] bring_to_front: {type(exc).__name__}")
+
+    async def _close_page(self, page: Any) -> None:
+        try:
+            await asyncio.wait_for(page.close(), CLOSE_TIMEOUT_S)
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] Page close: {type(exc).__name__}")
+
+    def _on_page_close(self, page: Any) -> None:
+        tab = self._page_tabs.pop(page, None)
+        if tab is None or tab.page is not page or self.tabs.get(tab.id) is not tab:
+            return
+        self._remove_tab(tab)
+
+    def _remove_tab(self, tab: Tab) -> None:
+        order = list(self.tabs)
+        position = order.index(tab.id)
+        del self.tabs[tab.id]
+        self._retire_secrets(tab)
+        self._stream.forget_tab(tab.id)
+        self._main_frames.pop(tab.id, None)
+        self._pending_docs.pop(tab.id, None)
+        self._nav_seq.pop(tab.id, None)
+        self._blocks_reported.pop(tab.id, None)
+        self._pointer_sent.pop(tab.id, None)
+        self._nav_dirty.discard(tab.id)
+        refresh = self._nav_refresh.pop(tab.id, None)
+        if refresh is not None and refresh is not asyncio.current_task():
+            refresh.cancel()
+        opener = self.tabs.get(tab.opener_id or "")
+        if tab.owner and self._owner_current.get(tab.owner) == tab.id:
+            mine = [t for t in self.tabs.values() if t.owner == tab.owner]
+            fallback = (
+                opener if opener is not None and opener.owner == tab.owner else None
+            )
+            if fallback is None and mine:
+                fallback = max(mine, key=lambda t: t.last_agent_use)
+            if fallback is not None:
+                self._owner_current[tab.owner] = fallback.id
+            else:
+                self._owner_current.pop(tab.owner, None)
+        if self.viewed_tab_id == tab.id:
+            neighbours = [t for t in order if t != tab.id]
+            following = order[position + 1 :] if position + 1 < len(order) else []
+            pick = opener.id if opener is not None else None
+            if pick is None and following:
+                pick = following[0]
+            if pick is None and neighbours:
+                pick = neighbours[-1]
+            self.viewed_tab_id = pick
+            self.spawn(self._stream.sync())
+        if (
+            not self.tabs
+            and self._context is not None
+            and not self._closing
+            and self.status == "ready"
+        ):
+            self.spawn(self._ensure_one_tab())
+        self._schedule_state()
+
+    def _on_page_crash(self, page: Any) -> None:
+        tab = self._page_tabs.get(page)
+        if tab is None or tab.crashed:
+            return
+        tab.crashed = True
+        tab.loading = False
+        self._pending_docs.pop(tab.id, None)
+        self.add_event(
+            tab,
+            EVENT_CRASH,
+            "This tab crashed. It reopens automatically the next time it is used.",
+        )
+        self.spawn(self._stream.sync())
+        self._schedule_state()
+
+    async def _recover_if_crashed(self, tab: Tab) -> None:
+        if not tab.crashed:
+            return
+        task = self._recoveries.get(tab.id)
+        if task is None or task.done():
+            task = self._recoveries[tab.id] = self.spawn(self._recover(tab))
+        await asyncio.shield(task)
+
+    async def _recover(self, tab: Tab) -> None:
+        """Replace a crashed page with a fresh one in the same tab slot."""
+        context = self._context
+        if context is None:
+            raise MiniBrowserError("MINI_BROWSER_NOT_RUNNING")
+        old = tab.page
+        url = tab.url  # before the new page's own about:blank overwrites it
+        self._own_pages_pending += 1
+        try:
+            page = await asyncio.wait_for(context.new_page(), NEW_PAGE_TIMEOUT_S)
+        except Exception:
+            raise MiniBrowserError("MINI_BROWSER_PAGE_UNRESPONSIVE") from None
+        finally:
+            self._own_pages_pending -= 1
+        if self.tabs.get(tab.id) is not tab:
+            await self._close_page(page)
+            return
+        self._page_tabs.pop(old, None)
+        self._attach_page(tab, page)
+        tab.crashed = False
+        tab.cdp = None
+        tab.loading = False
+        self._main_frames.pop(tab.id, None)
+        self._pending_docs.pop(tab.id, None)
+        self.spawn(self._close_page(old))
+        await self._setup_page(tab)
+        reason = urls.blocked_reason(
+            url, allow_file=self.settings.allow_file_urls, ui_origins=self.ui_origins()
+        )
+        if url.startswith(("http://", "https://")) and not reason:
+            try:
+                await self._goto(tab, url)
+            except MiniBrowserError:
+                self.add_event(
+                    tab,
+                    EVENT_ERROR,
+                    f"Could not reload {_clip(url, 200)} after the crash.",
+                )
+        self._agent_notice(
+            tab,
+            EVENT_NOTICE,
+            "The tab was reopened after a crash; look at the page again before acting.",
+        )
+        self.spawn(self._stream.sync())
+        self._schedule_state()
+
+    def _on_context_page(self, page: Any) -> None:
+        self._spawn_safe(self._adopt_page(page))
+
+    async def _adopt_page(self, page: Any) -> None:
+        """A page we did not open ourselves: a popup or a new window."""
+        deadline = time.monotonic() + OWN_PAGE_WAIT_S
+        while (
+            page not in self._page_tabs
+            and self._own_pages_pending > 0
+            and time.monotonic() < deadline
+        ):
+            await asyncio.sleep(0.02)  # our own new_page() registers it itself
+        if page in self._page_tabs or self._context is None or page.is_closed():
+            return
+        try:
+            opener = await asyncio.wait_for(page.opener(), PAGE_CALL_TIMEOUT_S)
+        except Exception:
+            opener = None
+        if page in self._page_tabs or self._context is None or page.is_closed():
+            return
+        opener_tab = self._page_tabs.get(opener) if opener is not None else None
+        owner = opener_tab.owner if opener_tab is not None else None
+        if len(self.tabs) >= MAX_TOTAL_TABS or (
+            owner is not None
+            and self._owner_tab_count(owner)
+            >= self.settings.max_agent_tabs + POPUP_SLACK
+        ):
+            if opener_tab is not None:
+                self.add_event(
+                    opener_tab,
+                    EVENT_BLOCKED,
+                    "A pop-up was closed: too many tabs are open.",
+                )
+            await self._close_page(page)
+            return
+        tab = self._register_tab(page, owner)
+        if opener_tab is not None:
+            tab.opener_id = opener_tab.id
+            if self.viewed_tab_id == opener_tab.id:
+                self.viewed_tab_id = tab.id  # like a browser focusing a new tab
+        if owner is not None:
+            self._owner_current[owner] = tab.id
+            tab.touch_agent()
+            self._agent_notice(
+                tab,
+                EVENT_POPUP,
+                f"The page opened a new tab (index {self._tab_index(tab)}); your next actions use "
+                "it. Switch back or close it with mini_browser_tabs.",
+            )
+        await self._setup_page(tab)
+        self.spawn(self._stream.sync())
+        self._schedule_state()
+
+    def _tab_index(self, tab: Tab) -> Optional[int]:
+        for index, tab_id in enumerate(self.tabs):
+            if tab_id == tab.id:
+                return index
+        return None
+
+    def _retire_secrets(self, tab: Tab) -> None:
+        if tab.filled_secrets:
+            self._retired_secrets.extend(tab.filled_secrets)
+            del self._retired_secrets[:-RETIRED_SECRETS]
+
+    def _secrets(self) -> List[str]:
+        found = list(self._retired_secrets)
+        for tab in self.tabs.values():
+            found.extend(tab.filled_secrets)
+        return found
+
+    # ── navigation ───────────────────────────────────────────────────────────
+
+    def _resolve(self, text: Any, *, allow_search: bool) -> urls.Target:
+        return urls.resolve(
+            text if isinstance(text, str) else "",
+            allow_history=False,
+            allow_search=allow_search,
+            search_url=self.settings.search_url,
+            allow_file=self.settings.allow_file_urls,
+            ui_origins=self.ui_origins(),
+        )
+
+    async def _goto(self, tab: Tab, url: str) -> None:
+        """Navigate and wait for the DOM. Raises MiniBrowserError."""
+        try:
+            await asyncio.wait_for(
+                tab.page.goto(
+                    url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS
+                ),
+                NAVIGATION_TIMEOUT_MS / 1000 + 5,
+            )
+        except Exception as exc:
+            self._raise_navigation_error(exc, tab, url)
+        finally:
+            self._schedule_nav_refresh(tab)
+
+    def _raise_navigation_error(self, exc: BaseException, tab: Tab, url: str) -> None:
+        if (
+            isinstance(exc, asyncio.TimeoutError)
+            or type(exc).__name__ == "TimeoutError"
+        ):
+            raise MiniBrowserError(
+                "MINI_BROWSER_TIMEOUT",
+                what="Loading the page",
+                seconds=NAVIGATION_TIMEOUT_MS // 1000,
+            ) from None
+        line = first_line(exc)
+        if _is_benign_navigation(line):
+            return
+        self._note_failure(exc, tab.page)
+        raise MiniBrowserError(
+            "MINI_BROWSER_NAVIGATION_FAILED",
+            url=_clip(url, 200),
+            detail=_clip(_API_PREFIX_RE.sub("", line), 200),
+        ) from None
+
+    async def _stop_loading(self, tab: Tab) -> None:
+        """Stop a tab's page load (CDP Page.stopLoading, else window.stop())."""
+        if tab.cdp is not None:
+            if (
+                await self._cdp_send(
+                    tab.cdp, "Page.stopLoading", timeout=STOP_LOADING_TIMEOUT_S
+                )
+                is not None
+            ):
+                self._schedule_nav_refresh(tab)
+                return
+        try:
+            await asyncio.wait_for(
+                tab.page.evaluate("window.stop()"), STOP_LOADING_TIMEOUT_S
+            )
+        except Exception:
+            pass
+        self._schedule_nav_refresh(tab)
+
+    def _on_frame_navigated(self, page: Any, frame: Any) -> None:
+        tab = self._page_tabs.get(page)
+        if tab is None:
+            return
+        try:
+            if frame.parent_frame is not None:
+                return
+            url = frame.url
+        except Exception:
+            return
+        if isinstance(url, str) and url and not url.startswith("chrome-error:"):
+            tab.url = url
+        self._bump_nav(tab)
+        self._schedule_nav_refresh(tab)
+        self._schedule_state()
+
+    def _bump_nav(self, tab: Tab) -> None:
+        self._nav_seq[tab.id] = self._nav_seq.get(tab.id, 0) + 1
+
+    def _on_page_load(self, page: Any) -> None:
+        tab = self._page_tabs.get(page)
+        if tab is not None:
+            self._schedule_nav_refresh(tab)
+
+    def _on_request(self, page: Any, params: Any) -> None:
+        """CDP Network.requestWillBeSent: a main-frame document starts loading."""
+        tab = self._page_tabs.get(page)
+        if (
+            tab is None
+            or not isinstance(params, dict)
+            or params.get("type") != "Document"
+        ):
+            return
+        if params.get("frameId") != self._main_frames.get(tab.id):
+            return
+        self._pending_docs[tab.id] = params.get("requestId")
+        self._bump_nav(tab)
+        if not tab.loading:
+            tab.loading = True
+            self._schedule_state()
+
+    def _on_request_done(self, page: Any, params: Any) -> None:
+        tab = self._page_tabs.get(page)
+        if tab is None or not isinstance(params, dict):
+            return
+        if (
+            tab.id in self._pending_docs
+            and params.get("requestId") == self._pending_docs[tab.id]
+        ):
+            del self._pending_docs[tab.id]
+            self._schedule_nav_refresh(tab)
+
+    def _schedule_nav_refresh(self, tab: Tab) -> None:
+        """Refresh a tab's url/title/loading/history soon (coalesced per tab)."""
+        if self.tabs.get(tab.id) is not tab:
+            return
+        running = self._nav_refresh.get(tab.id)
+        if running is not None and not running.done():
+            self._nav_dirty.add(tab.id)
+            return
+        try:
+            self._nav_refresh[tab.id] = self.spawn(self._nav_refresh_loop(tab))
+        except RuntimeError:
+            pass  # no running loop (teardown)
+
+    async def _nav_refresh_loop(self, tab: Tab) -> None:
+        try:
+            while True:
+                self._nav_dirty.discard(tab.id)
+                await self._refresh_nav(tab)
+                if tab.id not in self._nav_dirty or self.tabs.get(tab.id) is not tab:
+                    return
+        finally:
+            if self._nav_refresh.get(tab.id) is asyncio.current_task():
+                del self._nav_refresh[tab.id]
+
+    async def _refresh_nav(self, tab: Tab) -> None:
+        page = tab.page
+        try:
+            if tab.crashed or page.is_closed():
+                return
+        except Exception:
+            return
+        seq = self._nav_seq.get(tab.id, 0)
+        entry_url = None
+        if tab.cdp is not None:
+            history = await self._cdp_send(
+                tab.cdp, "Page.getNavigationHistory", timeout=TITLE_TIMEOUT_S
+            )
+            if isinstance(history, dict):
+                entries = history.get("entries") or []
+                index = history.get("currentIndex", -1)
+                if isinstance(index, int) and 0 <= index < len(entries):
+                    tab.can_go_back = index > 0
+                    tab.can_go_forward = index < len(entries) - 1
+                    entry_url = entries[index].get("url") or None
+        title, ready = await asyncio.gather(_page_title(page), _ready_state(page))
+        if tab.page is not page or self.tabs.get(tab.id) is not tab:
+            return
+        if self._nav_seq.get(tab.id, 0) != seq:
+            return  # a newer navigation happened meanwhile: its refresh decides
+        url = page.url or ""
+        # A failed navigation shows Chromium's error page; the tab shows the
+        # address that failed, as a browser does.
+        error_page = url.startswith("chrome-error:")
+        shown = entry_url if error_page and entry_url else url
+        if shown:
+            tab.url = shown
+        if title is not None:
+            tab.title = _clip(title, 300)
+        pending = tab.id in self._pending_docs
+        tab.loading = pending or (tab.loading if ready is None else ready != "complete")
+        reason = urls.blocked_reason(
+            tab.url,
+            allow_file=self.settings.allow_file_urls,
+            ui_origins=self.ui_origins(),
+        )
+        if reason and tab.url != "about:blank":
+            self._report_block(tab, tab.url, reason)
+            # Blocked requests never load (an error page shows instead); only a
+            # page that really loaded is sent away, never during a newer navigation.
+            if not error_page and not pending:
+                await self._leave_page(tab)
+        self._schedule_state()
+
+    def _report_block(self, tab: Tab, url: str, reason: str) -> None:
+        """One notice per blocked navigation (refreshes repeat)."""
+        key = (self._nav_seq.get(tab.id, 0), url)
+        if self._blocks_reported.get(tab.id) == key:
+            return
+        self._blocks_reported[tab.id] = key
+        self.add_event(
+            tab,
+            EVENT_BLOCKED,
+            f"Blocked {_clip(url, 120)}: {reason}.",
+            url=_clip(url, 300),
+        )
+        logger.info(f"[MiniBrowser] Blocked a navigation in {tab.id}: {reason}")
+
+    async def _leave_page(self, tab: Tab) -> None:
+        """Main-frame guard: a page that must not be shown goes to about:blank."""
+        try:
+            await asyncio.wait_for(
+                tab.page.goto("about:blank"), PAGE_CALL_TIMEOUT_S * 2
+            )
+        except Exception as exc:
+            logger.debug(
+                f"[MiniBrowser] Could not blank {tab.id}: {type(exc).__name__}"
+            )
+        tab.url = "about:blank"
+        tab.title = ""
+
+    # ── dialogs & downloads ──────────────────────────────────────────────────
+
+    async def _handle_dialog(self, page: Any, dialog: Any) -> None:
+        """Answer every dialog at once (an open dialog blocks the page).
+
+        alert / beforeunload / confirm are accepted, prompt is dismissed; the
+        agent and the UI are told.
+        """
+        try:
+            kind = str(dialog.type)
+        except Exception:
+            kind = "dialog"
+        try:
+            message = _clip(str(dialog.message or ""), 300)
+        except Exception:
+            message = ""
+        accept = kind != "prompt"
+        try:
+            if accept:
+                await asyncio.wait_for(dialog.accept(), PAGE_CALL_TIMEOUT_S)
+            else:
+                await asyncio.wait_for(dialog.dismiss(), PAGE_CALL_TIMEOUT_S)
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] Dialog answer: {type(exc).__name__}")
+        tab = self._page_tabs.get(page)
+        if tab is not None:
+            verb = "accepted" if accept else "dismissed"
+            text = f"The page showed a {kind} dialog, which was {verb}"
+            self.add_event(
+                tab,
+                EVENT_DIALOG,
+                f"{text}: {message}" if message else f"{text}.",
+                dialog=kind,
+            )
+
+    async def _handle_download(self, page: Any, download: Any) -> None:
+        """Save a download into the owner's workspace ``downloads`` folder."""
+        tab = self._page_tabs.get(page)
+        owner = tab.owner if tab is not None else None
+        self._downloads_active += 1
+        path: Optional[Path] = None
+        try:
+            name = _safe_filename(getattr(download, "suggested_filename", "") or "")
+            path = await asyncio.to_thread(
+                _reserve_download_path, config.downloads_dir(owner), name
+            )
+            await asyncio.wait_for(download.save_as(str(path)), DOWNLOAD_TIMEOUT_S)
+            size = await asyncio.to_thread(os.path.getsize, path)
+            if tab is not None:
+                self.add_event(
+                    tab,
+                    EVENT_DOWNLOAD,
+                    f"Downloaded {path.name} ({_human_size(size)}) to {path}",
+                    path=str(path),
+                )
+            logger.info(f"[MiniBrowser] Download saved: {path.name}")
+        except Exception as exc:
+            if path is not None:
+                await asyncio.to_thread(_remove_quietly, path)
+            if tab is not None:
+                self.add_event(
+                    tab,
+                    EVENT_ERROR,
+                    f"A download failed: {_clip(first_line(exc), 200)}",
+                )
+            logger.warning(f"[MiniBrowser] Download failed: {type(exc).__name__}")
+        finally:
+            self._downloads_active -= 1
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Network rules (ads + CraftBot's own UI)
+    # ═════════════════════════════════════════════════════════════════════════
+
+    async def refresh_network_rules(self) -> None:
+        """Re-apply blocking after the ad-block setting or the UI origins changed."""
+        self._compute_patterns()
+        if self._context is None:
+            return
+        await self._apply_ui_guard()
+        await asyncio.gather(
+            *(
+                self._cdp_send(
+                    tab.cdp, "Network.setBlockedURLs", {"urls": self._blocked_patterns}
+                )
+                for tab in list(self.tabs.values())
+                if tab.cdp is not None
+            )
+        )
+
+    def _compute_patterns(self) -> None:
+        origins = self.ui_origins()
+        self._blocked_patterns = adblock.blocked_url_patterns(
+            self.settings.adblock, origins
+        )
+        self._fetch_patterns = adblock.ui_fetch_patterns(origins)
+
+    async def _apply_ui_guard(self) -> None:
+        """Block CraftBot's UI origins browser-wide, navigations and popups included.
+
+        ``Network.setBlockedURLs`` (per page) misses main-frame navigations and
+        a popup's first load, so requests to the UI origins are also failed
+        through browser-level ``Fetch`` interception. Only matching requests
+        are intercepted, so the HTTP cache stays on.
+        """
+        context = self._context
+        if context is None:
+            return
+        if self._browser_cdp is None:
+            browser = getattr(context, "browser", None)
+            if browser is not None:
+                try:
+                    session = await asyncio.wait_for(
+                        browser.new_browser_cdp_session(), CDP_TIMEOUT_S
+                    )
+                    session.on(
+                        "Fetch.requestPaused",
+                        _safely(functools.partial(self._on_fetch_paused, session)),
+                    )
+                    self._browser_cdp = session
+                except Exception as exc:
+                    logger.warning(
+                        f"[MiniBrowser] Browser-wide UI guard unavailable: {type(exc).__name__}"
+                    )
+        if self._browser_cdp is not None:
+            if self._fetch_patterns:
+                params = {
+                    "patterns": [
+                        {"urlPattern": pattern, "requestStage": "Request"}
+                        for pattern in self._fetch_patterns
+                    ]
+                }
+                done = await self._cdp_send(self._browser_cdp, "Fetch.enable", params)
+            else:
+                done = await self._cdp_send(self._browser_cdp, "Fetch.disable")
+            if done is not None:
+                return
+        await self._install_guard_script()
+
+    def _on_fetch_paused(self, session: Any, params: Any) -> None:
+        self._spawn_safe(self._answer_paused(session, params))
+
+    async def _answer_paused(self, session: Any, params: Any) -> None:
+        if not isinstance(params, dict) or not params.get("requestId"):
+            return
+        url = str((params.get("request") or {}).get("url") or "")
+        if urls.is_ui_origin(url, self.ui_origins()):
+            await self._cdp_send(
+                session,
+                "Fetch.failRequest",
+                {"requestId": params["requestId"], "errorReason": "BlockedByClient"},
+            )
+        else:  # patterns changed meanwhile: let it through
+            await self._cdp_send(
+                session, "Fetch.continueRequest", {"requestId": params["requestId"]}
+            )
+
+    async def _install_guard_script(self) -> None:
+        origins = self.ui_origins()
+        context = self._context
+        if context is None or not origins or origins <= self._guard_script_origins:
+            return
+        hosts = set()
+        for origin in origins:
+            host, port = urls.split_origin(origin)
+            if not host:
+                continue
+            if port is None or port in (80, 443):
+                hosts.add(host)
+            if port is not None:
+                hosts.add(f"{host}:{port}")
+        try:
+            await asyncio.wait_for(
+                context.add_init_script(_UI_GUARD_JS % json.dumps(sorted(hosts))),
+                CDP_TIMEOUT_S,
+            )
+            self._guard_script_origins = self._guard_script_origins | origins
+        except Exception as exc:
+            logger.warning(
+                f"[MiniBrowser] UI guard script not installed: {type(exc).__name__}"
+            )
+
+    @staticmethod
+    async def _cdp_send(
+        session: Any,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        timeout: float = CDP_TIMEOUT_S,
+    ) -> Optional[Dict[str, Any]]:
+        """``session.send`` with a timeout; None on any failure, the result otherwise."""
+        try:
+            result = await asyncio.wait_for(session.send(method, params or {}), timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] CDP {method} failed: {type(exc).__name__}")
+            return None
+        return result if isinstance(result, dict) else {}
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Housekeeping
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _touch(self) -> None:
+        self._last_activity = time.monotonic()
+
+    async def _watchdog(self) -> None:
+        """Every couple of seconds: keep the live view in sync, refresh titles
+        while someone watches, and close an idle browser."""
+        while True:
+            await asyncio.sleep(WATCHDOG_INTERVAL_S)
+            if self._context is None or self.status != "ready":
+                continue
+            try:
+                await self._stream.sync()
+                now = time.monotonic()
+                if bridge.has_viewers():
+                    self._last_activity = now
+                    if now - self._last_title_refresh >= TITLE_REFRESH_S:
+                        self._last_title_refresh = now
+                        for tab in list(self.tabs.values()):
+                            self._schedule_nav_refresh(tab)
+                elif self._idle_expired(now):
+                    minutes = self.settings.idle_shutdown_minutes
+                    logger.info(
+                        f"[MiniBrowser] Closing Chromium after {minutes} idle minute(s)"
+                    )
+                    self.spawn(self.close())
+                    return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug(f"[MiniBrowser] Watchdog: {type(exc).__name__}")
+
+    def _idle_expired(self, now: float) -> bool:
+        minutes = self.settings.idle_shutdown_minutes
+        return (
+            minutes > 0
+            and not self._agent_busy()
+            and self._downloads_active == 0
+            and now - self._last_activity >= minutes * 60
+        )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Module helpers
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class _ProfileLock:
+    """Exclusive, cross-process lock next to the profile: one browser per profile.
+
+    Chromium's own singleton lock is not reliable here (the headless shell
+    happily starts a second instance on a profile in use). Blocking I/O: call
+    ``acquire`` / ``release`` from a worker thread.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._handle: Any = None
+
+    def acquire(self) -> bool:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(self._path, "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return False
+        self._handle = handle
+        return True
+
+    def release(self) -> None:
+        handle, self._handle = self._handle, None
+        if handle is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        finally:
+            handle.close()
+
+
+async def _acquire_profile_lock(lock: _ProfileLock) -> bool:
+    """``lock.acquire()`` in a worker thread, safe against cancellation.
+
+    If the caller is cancelled while the thread is still acquiring, a lock it
+    then obtains is released again instead of being held forever.
+    """
+    loop = asyncio.get_running_loop()
+    attempt = loop.run_in_executor(None, lock.acquire)
+    try:
+        return await asyncio.shield(attempt)
+    except asyncio.CancelledError:
+
+        def release_if_acquired(done: "asyncio.Future[bool]") -> None:
+            if not done.cancelled() and done.exception() is None and done.result():
+                loop.run_in_executor(None, lock.release)
+
+        attempt.add_done_callback(release_if_acquired)
+        raise
+
+
+def _safely(fn: Any) -> Any:
+    """Wrap an event handler so it can never raise into Playwright's dispatcher."""
+
+    def handler(*args: Any) -> None:
+        try:
+            fn(*args)
+        except Exception as exc:
+            logger.debug(f"[MiniBrowser] Event handler failed: {type(exc).__name__}")
+
+    return handler
+
+
+async def _within(awaitable: Awaitable[Any], seconds: float) -> Any:
+    return await asyncio.wait_for(awaitable, seconds)
+
+
+async def _page_title(page: Any) -> Optional[str]:
+    try:
+        title = await asyncio.wait_for(page.title(), TITLE_TIMEOUT_S)
+    except Exception:
+        return None
+    return title if isinstance(title, str) else None
+
+
+async def _ready_state(page: Any) -> Optional[str]:
+    try:
+        state = await asyncio.wait_for(
+            page.evaluate("document.readyState"), TITLE_TIMEOUT_S
+        )
+    except Exception:
+        return None
+    return state if isinstance(state, str) else None
+
+
+def _clip(text: Any, limit: int) -> str:
+    value = text if isinstance(text, str) else ("" if text is None else str(text))
+    return value if len(value) <= limit else value[: max(0, limit - 1)] + "…"
+
+
+def _workspace_relative(path: str) -> str:
+    """``path`` relative to the agent workspace (POSIX separators) when it
+    lies inside it; otherwise ``path`` unchanged. Pure path arithmetic, no
+    filesystem access."""
+    try:
+        from app.config import AGENT_WORKSPACE_ROOT
+
+        rel = os.path.relpath(
+            os.path.abspath(path), os.path.abspath(AGENT_WORKSPACE_ROOT)
+        )
+    except (ImportError, ValueError):  # ValueError: different drive on Windows
+        return path
+    if rel == os.pardir or rel.startswith(os.pardir + os.sep) or os.path.isabs(rel):
+        return path
+    return rel.replace(os.sep, "/")
+
+
+def _clamp_int(value: Any, low: int, high: int, default: int) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number):
+        return default
+    return max(low, min(high, int(round(number))))
+
+
+def _unit(value: Any) -> Optional[float]:
+    """A finite number clamped to 0..1, else None (NaN would kill the driver)."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return _clamp_unit(number) if math.isfinite(number) else None
+
+
+def _clamp_unit(number: float) -> float:
+    return 0.0 if number < 0 else 1.0 if number > 1 else number
+
+
+def _finite(value: Any, limit: float) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(number):
+        return 0.0
+    return max(-limit, min(limit, number))
+
+
+def _key_combo(event: Mapping[str, Any]) -> Optional[str]:
+    """``{key, modifiers}`` -> Playwright's ``"Control+Shift+X"``, None to ignore."""
+    key = event.get("key")
+    if not isinstance(key, str) or not key or len(key) > 32 or not key.isprintable():
+        return None
+    if key in _IGNORED_KEYS:
+        return None
+    modifiers = event.get("modifiers")
+    flags = modifiers if isinstance(modifiers, Mapping) else {}
+    names = [
+        name for flag, name in _MODIFIERS if flags.get(flag) is True and name != key
+    ]
+    return "+".join([*names, key])
+
+
+def _is_missing_executable(exc: BaseException) -> bool:
+    text = str(exc)
+    return "Executable doesn't exist" in text or "is not found at" in text
+
+
+def _is_profile_in_use(exc: BaseException) -> bool:
+    text = str(exc)
+    return any(
+        marker in text
+        for marker in (
+            "Target page, context or browser has been closed",
+            "ProcessSingleton",
+            "profile appears to be in use",
+            "user data directory is already in use",
+            "SingletonLock",
+        )
+    )
+
+
+def _is_benign_navigation(line: str) -> bool:
+    """Navigation "errors" that are not failures (superseded, became a download)."""
+    return any(
+        marker in line
+        for marker in (
+            "interrupted by another navigation",
+            "Download is starting",
+            "net::ERR_ABORTED",
+        )
+    )
+
+
+def _bundled_chromium_version() -> Optional[str]:
+    """Version of Playwright's bundled Chromium (its browsers.json). Blocking I/O."""
+    try:
+        import playwright
+
+        path = Path(playwright.__file__).parent / "driver" / "package" / "browsers.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for browser in data.get("browsers", []):
+            if browser.get("name") == "chromium":
+                return str(browser.get("browserVersion") or "") or None
+    except Exception:
+        return None
+    return None
+
+
+def _reduced_user_agent(version: Optional[str]) -> Optional[str]:
+    """Chrome's reduced desktop UA for ``version`` (major.0.0.0, no "Headless")."""
+    major = (version or "").split(".")[0]
+    if not major.isdigit():
+        return None
+    if sys.platform == "win32":
+        platform = "Windows NT 10.0; Win64; x64"
+    elif sys.platform == "darwin":
+        platform = "Macintosh; Intel Mac OS X 10_15_7"
+    else:
+        platform = "X11; Linux x86_64"
+    return (
+        f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{major}.0.0.0 Safari/537.36"
+    )
+
+
+def _safe_filename(name: str) -> str:
+    """A download name that is safe on every OS (no paths, no reserved names)."""
+    base = re.split(r"[\\/]", str(name or ""))[-1]
+    base = re.sub(r'[\x00-\x1f\x7f<>:"|?*]', "_", base).strip(" .")
+    if not base:
+        return "download"
+    stem, ext = os.path.splitext(base)
+    if len(ext) > 16 or not re.fullmatch(r"\.[A-Za-z0-9_-]+", ext or ".x"):
+        stem, ext = base, ""
+    if stem.split(".")[0].strip().lower() in _RESERVED_FILE_NAMES:
+        stem = f"_{stem}"
+    stem = stem[: 150 - len(ext)].rstrip(" .") or "download"
+    return stem + ext
+
+
+def _reserve_download_path(directory: Path, name: str) -> Path:
+    """Create an empty, not-yet-used file for a download. Blocking I/O."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    stem, ext = os.path.splitext(name)
+    for attempt in range(1000):
+        candidate = directory / (name if attempt == 0 else f"{stem} ({attempt}){ext}")
+        try:
+            handle = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            continue
+        os.close(handle)
+        return candidate
+    raise OSError("No free file name for the download")
+
+
+def _remove_quietly(path: Path) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _human_size(size: int) -> str:
+    value = float(size)
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{int(value)} {unit}" if unit == "bytes" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{size} bytes"

@@ -1,0 +1,221 @@
+/* Shown in place of the page while the browser isn't ready. Scrolls when
+   the panel is short; centred otherwise. */
+.panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: auto;
+  padding: var(--space-6) var(--space-4);
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+}
+
+.inner {
+  margin: auto;
+  display: flex;
+  /* Japanese wraps between phrases, not mid-word (where supported). */
+  word-break: auto-phrase;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 640px;
+  text-align: center;
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+}
+
+.badgeError {
+  color: var(--color-error);
+  background: var(--color-error-subtle);
+}
+
+.title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  line-height: var(--leading-tight);
+}
+
+.body {
+  margin: 0;
+  max-width: 480px;
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+}
+
+.lead {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+}
+
+.hint {
+  margin: 0;
+  max-width: 480px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.detail {
+  margin: 0;
+  max-width: 520px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.spin {
+  color: var(--text-secondary);
+  animation: spin 0.9s linear infinite;
+}
+
+.log {
+  width: 100%;
+  max-height: 220px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  overflow: auto;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 1px;
+}
+
+/* Example prompts that drop into the chat composer. */
+.examples {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  width: 100%;
+}
+
+.examplesLabel {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px var(--space-3);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  text-align: left;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+
+.chip:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 1px;
+}
+
+.chip svg {
+  flex-shrink: 0;
+}
+
+.chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What the Mini Browser does, in three short cards. */
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.features li {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+}
+
+.features svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-primary);
+}
+
+.features li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.features strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+
+.features span {
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}

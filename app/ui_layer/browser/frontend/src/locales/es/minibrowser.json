@@ -1,0 +1,243 @@
+{
+  "page": {
+    "label": "Mininavegador"
+  },
+  "chat": {
+    "placeholder": "Pide al agente que navegue o rellene formularios…",
+    "show": "Mostrar chat",
+    "hide": "Ocultar chat",
+    "loading": "Preparando el chat…"
+  },
+  "toolbar": {
+    "label": "Controles del navegador",
+    "back": "Atrás",
+    "forward": "Adelante",
+    "reload": "Volver a cargar",
+    "stopLoading": "Detener la carga",
+    "address": "Barra de direcciones y búsqueda",
+    "addressPlaceholder": "Busca o escribe una dirección web",
+    "secure": "Conexión segura (HTTPS)",
+    "notSecure": "No segura (HTTP)",
+    "follow": "Seguir al agente",
+    "followOnHint": "Siguiendo al agente: la vista salta a la pestaña en la que esté trabajando un agente",
+    "followOffHint": "Sin seguir: la vista se queda en la pestaña que elegiste",
+    "adblock": "Bloqueador de anuncios",
+    "adblockOnHint": "El bloqueador de anuncios está activado. Haz clic para desactivarlo.",
+    "adblockOffHint": "El bloqueador de anuncios está desactivado. Haz clic para activarlo.",
+    "adblockUnknown": "Comprobando el bloqueador de anuncios…",
+    "adblockPending": "Cambiando el bloqueador de anuncios…",
+    "passwords": "Contraseñas guardadas",
+    "more": "Más",
+    "copyLink": "Copiar enlace",
+    "linkCopied": "Enlace copiado",
+    "copyFailed": "No se pudo copiar al portapapeles",
+    "openExternal": "Abrir en tu navegador",
+    "openExternalHint": "Abre esta página en tu navegador habitual. Las sesiones iniciadas en el Mininavegador no se trasladan.",
+    "closeBrowser": "Cerrar el navegador",
+    "stopAgent": "Detener agente",
+    "stopAgentHint": "Detener el agente que está usando esta pestaña",
+    "stopping": "Deteniendo…",
+    "dismiss": "Descartar"
+  },
+  "tabs": {
+    "label": "Pestañas del navegador",
+    "newTab": "Nueva pestaña",
+    "untitled": "Nueva pestaña",
+    "close": "Cerrar pestaña",
+    "closeNamed": "Cerrar pestaña: {{title}}",
+    "loading": "Cargando",
+    "busy": "Un agente está trabajando en esta pestaña",
+    "crashed": "Esta pestaña ha fallado",
+    "ownerTooltip": "La usa: {{owner}}",
+    "owner": {
+      "you": "Tú",
+      "main": "Chat principal",
+      "miniBrowser": "Este chat",
+      "session": "Chat",
+      "subagent": "Subagente"
+    },
+    "closeBusyTitle": "¿Cerrar esta pestaña?",
+    "closeBusyMessage": "{{owner}} está trabajando en esta pestaña. Si la cierras, se interrumpe lo que el agente está haciendo aquí."
+  },
+  "live": {
+    "label": "Página web en directo",
+    "keyboardHint": "Tus clics y lo que escribas van a la página web. Pulsa Escape dos veces para volver a la barra de direcciones.",
+    "loading": "Cargando la página…",
+    "noTab": "No hay ninguna pestaña abierta.",
+    "agentBrowsing": "{{owner}} está navegando",
+    "takeControl": "Tomar el control",
+    "takeControlHint": "Pausar al agente en esta pestaña para usarla tú",
+    "inControl": "Tienes el control: el agente está en pausa en esta pestaña",
+    "handBack": "Devolver al agente",
+    "handBackHint": "Dejar que el agente continúe en esta pestaña",
+    "reconnecting": "Reconectando…",
+    "reconnectingHint": "La vista en directo se reanudará en cuanto CraftBot vuelva.",
+    "crashedTitle": "Esta pestaña ha fallado",
+    "crashedBody": "Vuelve a cargarla para intentarlo de nuevo.",
+    "reloadTab": "Volver a cargar la pestaña",
+    "showKeyboard": "Mostrar teclado",
+    "copyFailed": "No se pudo copiar la selección al portapapeles",
+    "pasteTruncated": "El texto era demasiado largo, así que solo se pegaron los primeros {{max}} caracteres."
+  },
+  "status": {
+    "connecting": "Conectando con el Mininavegador…",
+    "starting": "Iniciando el navegador…",
+    "installing": "Instalando el navegador…",
+    "installingHint": "Descargando Chromium. Puede tardar unos minutos.",
+    "installLog": "Registro de instalación",
+    "installDone": "Navegador instalado",
+    "errorTitle": "El navegador tuvo un problema",
+    "stoppedTitle": "Navega por la web junto a tu agente",
+    "stoppedBody": "Un navegador real que compartes con tus agentes. Míralos trabajar en directo o toma el control cuando quieras.",
+    "start": "Iniciar navegador",
+    "openSite": "Abrir un sitio",
+    "tryAsking": "Prueba a pedirle al agente",
+    "examples": {
+      "compare": "Compara los precios de unos auriculares con cancelación de ruido en tres tiendas online",
+      "news": "Abre un sitio de noticias y resume las noticias principales de hoy",
+      "research": "Busca la previsión del tiempo en Tokio para este fin de semana"
+    },
+    "featureWatchTitle": "Míralo trabajar",
+    "featureWatchBody": "Cada agente trabaja en su propia pestaña. Sigue cada clic, cada texto y cada desplazamiento.",
+    "featureControlTitle": "Toma el control cuando quieras",
+    "featureControlBody": "Haz clic o escribe en la página y el agente se pausa en esa pestaña hasta que se la devuelvas.",
+    "featureLoginsTitle": "Inicios de sesión guardados",
+    "featureLoginsBody": "Guarda una contraseña una vez y los agentes podrán iniciar sesión por ti sin llegar a verla.",
+    "install": "Instalar navegador",
+    "installAgain": "Volver a instalar",
+    "retry": "Reintentar",
+    "profileInUseHint": "Cierra la otra ventana de CraftBot que está usando el Mininavegador y vuelve a intentarlo."
+  },
+  "events": {
+    "download": "Descargado: {{name}}",
+    "openFile": "Abrir",
+    "showInFolder": "Mostrar en la carpeta",
+    "popup": "La página abrió una pestaña nueva",
+    "dialogGeneric": "La página mostró un cuadro de diálogo, que se respondió automáticamente",
+    "blockedGeneric": "El Mininavegador bloqueó una página que no abre",
+    "crash": "Una pestaña ha fallado. Se volverá a cargar la próxima vez que se use."
+  },
+  "confirm": {
+    "shutdownTitle": "¿Cerrar el navegador?",
+    "shutdownMessage": "Un agente sigue navegando. Si cierras el navegador, se detendrá y se cerrarán todas las pestañas."
+  },
+  "passwords": {
+    "title": "Contraseñas guardadas",
+    "intro": "Los agentes las usan para iniciar sesión por ti. Las contraseñas se cifran en este equipo y nunca se muestran al agente ni se envían de vuelta a esta página.",
+    "protectionDpapi": "Cifradas con tu cuenta de Windows",
+    "protectionFile": "Cifradas con una clave guardada en este equipo",
+    "listLabel": "Inicios de sesión guardados",
+    "count_one": "{{count}} inicio de sesión",
+    "count_other": "{{count}} inicios de sesión",
+    "filter": "Filtrar inicios de sesión",
+    "loading": "Cargando los inicios de sesión guardados…",
+    "empty": "Aún no hay inicios de sesión guardados. Añade uno abajo y luego pide al agente que inicie sesión por ti.",
+    "emptyUnreadable": "Los inicios de sesión no se pueden mostrar hasta que la bóveda vuelva a ser legible.",
+    "noMatches": "Ningún inicio de sesión coincide con el filtro.",
+    "lastUsed": "Último uso: {{date}}",
+    "neverUsed": "Aún no se ha usado",
+    "edit": "Editar",
+    "editNamed": "Editar el inicio de sesión de {{username}} en {{site}}",
+    "delete": "Eliminar",
+    "deleteNamed": "Eliminar el inicio de sesión de {{username}} en {{site}}",
+    "deleteTitle": "¿Eliminar este inicio de sesión?",
+    "deleteMessage": "¿Eliminar el inicio de sesión guardado de {{username}} en {{site}}? Los agentes ya no podrán usarlo para iniciar sesión allí.",
+    "addTitle": "Añadir un inicio de sesión",
+    "editTitle": "Editar inicio de sesión",
+    "site": "Sitio web",
+    "sitePlaceholder": "example.com",
+    "siteHint": "Solo se usa en este sitio y sus subdominios, con una conexión segura (HTTPS).",
+    "username": "Usuario o correo electrónico",
+    "password": "Contraseña",
+    "passwordKeep": "Déjala en blanco para conservar la contraseña actual",
+    "label": "Etiqueta (opcional)",
+    "labelPlaceholder": "p. ej., Cuenta del trabajo",
+    "showPassword": "Mostrar contraseña",
+    "hidePassword": "Ocultar contraseña",
+    "save": "Guardar inicio de sesión",
+    "update": "Guardar cambios",
+    "cancelEdit": "Cancelar",
+    "saved": "Inicio de sesión guardado",
+    "updated": "Inicio de sesión actualizado",
+    "deleted": "Inicio de sesión eliminado",
+    "required": "Obligatorio",
+    "invalidSite": "Escribe un sitio web como example.com",
+    "tooLong": "Demasiado largo (máximo {{max}} caracteres)",
+    "willReplace": "Ya tienes un inicio de sesión de {{username}} en {{site}}. Al guardar, se sustituirá su contraseña.",
+    "notConnected": "No hay conexión con CraftBot. Inténtalo de nuevo en un momento.",
+    "timeout": "CraftBot no respondió a tiempo. Revisa la lista e inténtalo de nuevo.",
+    "error": "Algo salió mal. Inténtalo de nuevo.",
+    "unreadableTitle": "No se puede leer la bóveda de contraseñas",
+    "unreadableBody": "Tus inicios de sesión guardados siguen ahí, pero no se pueden descifrar en este equipo (por ejemplo, porque cambió la clave de cifrado). No se sobrescribió nada. Restablece la bóveda para empezar de nuevo; el archivo ilegible se conserva como copia de seguridad.",
+    "reset": "Restablecer bóveda",
+    "resetTitle": "¿Restablecer la bóveda de contraseñas?",
+    "resetMessage": "Se creará una bóveda nueva y vacía. El archivo de la bóveda ilegible se conserva como copia de seguridad.",
+    "resetDone": "Bóveda de contraseñas restablecida"
+  },
+  "errors": {
+    "MINI_BROWSER_PLAYWRIGHT_MISSING": {
+      "title": "Motor del navegador no instalado",
+      "message": "El Mininavegador necesita su motor de navegador (Playwright), que aún no está instalado."
+    },
+    "MINI_BROWSER_CHROMIUM_MISSING": {
+      "title": "Navegador no instalado",
+      "message": "El Chromium del Mininavegador aún no está instalado. Puedes instalarlo aquí; solo hay que descargarlo una vez."
+    },
+    "MINI_BROWSER_PROFILE_IN_USE": {
+      "title": "Perfil del navegador en uso",
+      "message": "Otra ventana de CraftBot ya está usando el perfil del Mininavegador."
+    },
+    "MINI_BROWSER_LAUNCH_FAILED": {
+      "title": "El navegador no se inició",
+      "message": "No se pudo iniciar Chromium. Inténtalo de nuevo y, si sigue fallando, vuelve a instalar el navegador."
+    },
+    "MINI_BROWSER_NOT_RUNNING": {
+      "title": "El navegador no está en ejecución",
+      "message": "El Mininavegador no está en ejecución. Inícialo para continuar."
+    },
+    "MINI_BROWSER_NAVIGATION_FAILED": {
+      "title": "La página no cargó",
+      "message": "No se pudo abrir la página. Revisa la dirección y tu conexión a internet."
+    },
+    "MINI_BROWSER_BLOCKED_URL": {
+      "title": "Dirección bloqueada",
+      "message": "El Mininavegador no abre este tipo de direcciones."
+    },
+    "MINI_BROWSER_INVALID_INPUT": {
+      "title": "Solicitud no válida",
+      "message": "La solicitud no era válida."
+    },
+    "MINI_BROWSER_PAGE_UNRESPONSIVE": {
+      "title": "La página no responde",
+      "message": "La página no respondió a tiempo. Inténtalo de nuevo, vuelve a cargarla o abre otra pestaña."
+    },
+    "MINI_BROWSER_TAB_NOT_FOUND": {
+      "title": "Pestaña no encontrada",
+      "message": "Esa pestaña ya no está abierta."
+    },
+    "MINI_BROWSER_TIMEOUT": {
+      "title": "Se agotó el tiempo",
+      "message": "Tardó demasiado. Inténtalo de nuevo."
+    },
+    "MINI_BROWSER_VAULT_UNREADABLE": {
+      "title": "Bóveda de contraseñas ilegible",
+      "message": "La bóveda de contraseñas guardadas no se puede descifrar en este equipo. No se sobrescribió nada; puedes restablecerla en Contraseñas guardadas."
+    },
+    "MINI_BROWSER_VAULT_INVALID": {
+      "title": "Revisa los datos de inicio de sesión",
+      "message": "Algunos datos de inicio de sesión no son válidos."
+    },
+    "MINI_BROWSER_VAULT_IO": {
+      "title": "No se pudo guardar la bóveda",
+      "message": "No se pudo escribir la bóveda de contraseñas en el disco."
+    },
+    "MINI_BROWSER_INSTALL_FAILED": {
+      "title": "Error en la instalación",
+      "message": "La instalación de Chromium no terminó. Revisa tu conexión a internet e inténtalo de nuevo."
+    },
+    "MINI_BROWSER_INTERNAL": {
+      "title": "Algo salió mal",
+      "message": "El Mininavegador tuvo un problema inesperado."
+    }
+  }
+}

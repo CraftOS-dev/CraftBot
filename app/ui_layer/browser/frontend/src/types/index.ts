@@ -49,7 +49,10 @@ export const QUESTION_DISMISSED = '__dismissed__'
 // Session Types
 // ─────────────────────────────────────────────────────────────────────
 
-export type SessionType = 'main' | 'chat' | 'agent_app'
+// 'mini_browser' is the dedicated chat behind the Mini Browser page. Like
+// 'agent_app' it never appears in the sidebar's chat list (that list keeps
+// only type 'chat').
+export type SessionType = 'main' | 'chat' | 'agent_app' | 'mini_browser'
 
 export interface SessionInfo {
   id: string
@@ -130,17 +133,35 @@ export type WSMessageType =
   | 'footage_update'
   | 'footage_clear'
   | 'footage_visibility'
-  | 'browser_frame'
-  | 'browser_nav'
-  | 'browser_user_input'
-  | 'browser_resize'
-  | 'browser_tab'
-  | 'browser_tabs'
-  | 'browser_adblock'
-  | 'vault_list'
-  | 'vault_add'
-  | 'vault_update'
-  | 'vault_delete'
+  // Mini Browser (client → server)
+  | 'mini_browser_subscribe'
+  | 'mini_browser_unsubscribe'
+  | 'mini_browser_start'
+  | 'mini_browser_shutdown'
+  | 'mini_browser_install'
+  | 'mini_browser_navigate'
+  | 'mini_browser_history'
+  | 'mini_browser_input'
+  | 'mini_browser_resize'
+  | 'mini_browser_tab'
+  | 'mini_browser_view'
+  | 'mini_browser_control'
+  | 'mini_browser_adblock'
+  | 'mini_browser_copy'
+  | 'mini_browser_vault_add'
+  | 'mini_browser_vault_update'
+  | 'mini_browser_vault_delete'
+  | 'mini_browser_vault_reset'
+  // Mini Browser (server → client; mini_browser_vault_list goes both ways)
+  | 'mini_browser_state'
+  | 'mini_browser_frame'
+  | 'mini_browser_pointer'
+  | 'mini_browser_event'
+  | 'mini_browser_install_progress'
+  | 'mini_browser_nav_result'
+  | 'mini_browser_clipboard'
+  | 'mini_browser_vault_list'
+  | 'mini_browser_vault_result'
   | 'state_update'
   | 'dashboard_metrics'
   | 'dashboard_metrics_filter'
@@ -881,3 +902,170 @@ export interface AgentAppDeleteResponse {
   projectId?: string
   error?: string
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Mini Browser — a real Chromium shared by the user and every agent.
+// Wire contract: spec §7 / app/mini_browser/ws.py. Frames and agent pointer
+// moves are high-frequency and never enter Redux (see pages/MiniBrowser).
+// ─────────────────────────────────────────────────────────────────────
+
+/** Browser lifecycle, from `mini_browser_state.status`. */
+export type MiniBrowserStatus = 'stopped' | 'starting' | 'ready' | 'installing' | 'error'
+
+/** Who a tab belongs to; 'user' is a tab the user opened themselves. */
+export type MiniBrowserOwnerKind = 'user' | 'main' | 'session' | 'mini_browser' | 'subagent'
+
+/** A user-presentable backend error (`errors.ui_error`). */
+export interface MiniBrowserError {
+  code: string
+  title: string
+  message: string
+}
+
+export interface MiniBrowserTab {
+  id: string
+  url: string
+  title: string
+  loading: boolean
+  /** Owning session id; null for a tab the user opened. */
+  owner: string | null
+  /** Human label for the owner (session title, sub-agent name, …). */
+  ownerLabel: string
+  ownerKind: MiniBrowserOwnerKind
+  /** Parent session of a sub-agent owner, when the backend reports it. */
+  parentOwner: string | null
+  /** The owner's run is in flight, so an agent may act on this tab. */
+  busy: boolean
+  /** The user took control: agents are paused on this tab until handed back. */
+  userControl: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  crashed: boolean
+}
+
+export interface MiniBrowserViewport {
+  width: number
+  height: number
+}
+
+export interface MiniBrowserSettings {
+  humanlike: boolean
+  showCursor: boolean
+}
+
+/** Payload of `mini_browser_state`. */
+export interface MiniBrowserStatePayload {
+  status: MiniBrowserStatus
+  error: MiniBrowserError | null
+  /** The dedicated chat session behind the page. */
+  sessionId: string | null
+  /** null until the backend has reported it. */
+  adblock: boolean | null
+  viewedTabId: string | null
+  /** The view jumps to whichever tab an agent is working in. */
+  follow: boolean
+  viewport: MiniBrowserViewport | null
+  tabs: MiniBrowserTab[]
+  settings: MiniBrowserSettings
+}
+
+/** Payload of `mini_browser_frame` (latest-wins; never stored in Redux). */
+export interface MiniBrowserFrame {
+  tabId: string
+  /** `data:image/jpeg;base64,…` */
+  image: string
+  /** CSS px of the page viewport the frame shows. */
+  width: number
+  height: number
+  seq: number
+}
+
+export type MiniBrowserPointerKind = 'move' | 'down' | 'up' | 'click'
+
+/** Payload of `mini_browser_pointer`: the agent's mouse, 0..1 of the frame. */
+export interface MiniBrowserPointer {
+  tabId: string
+  x: number
+  y: number
+  kind: MiniBrowserPointerKind
+}
+
+export type MiniBrowserEventLevel = 'info' | 'warning' | 'error'
+
+/** Payload of `mini_browser_event`: dialogs, downloads, blocked pages, crashes… */
+export interface MiniBrowserEvent {
+  kind: string
+  level: MiniBrowserEventLevel
+  message: string
+  tabId?: string
+  /** Saved file for downloads. */
+  path?: string
+  /** For a failed request: the error code and title (see MiniBrowserError). */
+  code?: string
+  title?: string
+}
+
+/** Payload of `mini_browser_install_progress`. */
+export interface MiniBrowserInstallProgress {
+  line?: string
+  done?: boolean
+  ok?: boolean
+  error?: MiniBrowserError | string
+}
+
+/** Payload of `mini_browser_nav_result` (address bar requests only). */
+export interface MiniBrowserNavResult {
+  ok: boolean
+  error?: MiniBrowserError
+}
+
+/** One saved login. Passwords never travel to the UI. */
+export interface MiniBrowserVaultEntry {
+  id: string
+  site: string
+  username: string
+  label: string
+  createdAt: string | number | null
+  updatedAt: string | number | null
+  lastUsedAt: string | number | null
+}
+
+export interface MiniBrowserVaultStatus {
+  ok: boolean
+  /** The vault exists but can't be decrypted; writes are refused until reset. */
+  unreadable: boolean
+  protection: 'dpapi' | 'file'
+}
+
+export type MiniBrowserVaultOp = 'add' | 'update' | 'delete' | 'reset'
+
+/** Payload of `mini_browser_vault_result`. */
+export interface MiniBrowserVaultResult {
+  op: string
+  ok: boolean
+  error?: MiniBrowserError
+}
+
+export type MiniBrowserMouseButton = 'left' | 'middle' | 'right'
+
+export interface MiniBrowserKeyModifiers {
+  shift: boolean
+  ctrl: boolean
+  alt: boolean
+  meta: boolean
+}
+
+/** The `event` of a `mini_browser_input` message. Coordinates are 0..1 of
+ *  the frame the user saw; wheel deltas are CSS px. */
+export type MiniBrowserInputEvent =
+  | {
+      kind: 'mouse'
+      action: 'down' | 'up' | 'move'
+      x: number
+      y: number
+      button?: MiniBrowserMouseButton
+      clickCount?: number
+    }
+  | { kind: 'wheel'; x: number; y: number; dx: number; dy: number }
+  | { kind: 'key'; key: string; modifiers?: MiniBrowserKeyModifiers }
+  | { kind: 'text'; text: string }

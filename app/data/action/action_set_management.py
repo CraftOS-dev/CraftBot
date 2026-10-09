@@ -14,8 +14,9 @@ from agent_core import action
     description=(
         "Load additional action sets from the capability catalog to expand the "
         "actions available in this session. Use this when you need capabilities "
-        "not currently loaded (e.g. document_processing, image, an integration). "
-        "The catalog in your system prompt lists every available set."
+        "not currently loaded (e.g. document_processing, image, mini_browser for "
+        "using websites, an integration). The catalog in your system prompt lists "
+        "every available set; unknown names are reported back, not loaded."
     ),
     default=False,
     mode="ALL",
@@ -25,17 +26,17 @@ from agent_core import action
         "action_sets": {
             "type": "array",
             "items": {"type": "string"},
-            "example": ["file_operations", "shell"],
+            "example": ["mini_browser"],
             "description": (
-                "List of action set names to add. "
-                "Use 'list_action_sets' to see available options."
+                "List of action set names to add, exactly as in the capability "
+                "catalog. Use 'list_action_sets' to see available options."
             ),
         },
     },
     output_schema={
         "success": {
             "type": "boolean",
-            "description": "Whether the operation succeeded.",
+            "description": "False only when none of the requested sets could be loaded.",
         },
         "current_sets": {
             "type": "array",
@@ -48,6 +49,14 @@ from agent_core import action
         "total_actions": {
             "type": "integer",
             "description": "Total number of actions now available.",
+        },
+        "unknown_sets": {
+            "type": "array",
+            "description": "Requested names that are not action sets (nothing was loaded for them).",
+        },
+        "hint": {
+            "type": "string",
+            "description": "How to fix unknown set names (closest matches, skills to load with use_skill).",
         },
     },
     test_payload={
@@ -207,10 +216,9 @@ def list_action_sets(input_data: dict) -> dict:
             "available_sets": {
                 "core": "Essential actions (always included)",
                 "file_operations": "File and folder manipulation",
-                "web_research": "Web search and browsing",
                 "document_processing": "PDF and document handling",
-                "clipboard": "Clipboard operations",
-                "shell": "Command line execution",
+                "image": "Image viewing, analysis, and OCR",
+                "mini_browser": "Mini Browser: operate websites in a live Chromium",
             },
             "current_sets": ["core", "file_operations"],
         }

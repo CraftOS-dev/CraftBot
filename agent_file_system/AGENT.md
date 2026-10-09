@@ -21,6 +21,7 @@ use an integration      → ## Integrations  (and grep its INTEGRATION.md)
 switch model            → ## Models
 set API key             → ## Models
 delegate web research    → ## Sub-Agents
+use a website / sign in → ## Action Sets  (mini_browser), ## Skills (mini-browser)
 lock the deliverable spec→ ## Runs  (set_requirement)
 generate document       → ## Documents
 build Agent App         → ## Agent App
@@ -244,7 +245,7 @@ All four recompile the action list and rebuild the LLM caches; the new actions a
 ```
 Times must include `am`/`pm`. Freeform like "daily at", "weekly", "every morning", "every weekday" are NOT accepted.
 
-One-time scheduled tasks are auto-removed after firing. Recurring schedules persist in [app/config/scheduler_config.json](app/config/scheduler_config.json). There is no `mode` parameter.
+One-time scheduled tasks are auto-removed after firing. Recurring schedules persist in [app/config/scheduler_config.json](app/config/scheduler_config.json). There is no `mode` parameter. Pass the `action_sets` / `skills` the run will need — e.g. `action_sets=["mini_browser"]` for work on a website — and they load when it fires.
 
 ### Lock the deliverable spec: `set_requirement`
 
@@ -318,6 +319,12 @@ sounds like something an app of yours already    Agent App. agent_app_list_proje
 does                                             agent_app_usage + the agent-app CLI/ops to read its data
                                                  or perform the operation instead of redoing the
                                                  work by hand.
+
+needs a website USED, not just read: sign in,    Mini Browser. add_action_sets(["mini_browser"]) (or
+forms, shopping/booking, an account page on a    use_skill("mini-browser")): a real browser with the
+site with no connected integration               user's saved logins (mini_browser_login fills them
+                                                 from the password vault). Plain reading of public
+                                                 pages stays web_search / web_fetch.
 ```
 
 Hard rule: "I don't have that context" / "I can't access that" may only be sent AFTER the matching check came back empty or disconnected.
@@ -332,11 +339,12 @@ On any turn you can delegate a self-contained chunk of work to a sub-agent with 
 
 ```
 Online research (search the web, fetch pages, gather facts)  → spawn_subagent("research_agent", ...)
+Interactive web task, e.g. one per shop when comparing       → spawn_subagent("browser_agent", ...)
 Agent App browser verification                               → walk_verify (usually via agent_app_walk_verify)
 Local work (read files, grep the repo, memory_search)        → do it yourself, don't delegate
 ```
 
-Registered types today: `research_agent` (gathers source-cited facts and returns a brief — it does not interpret or make decisions) and `walk_verify` (drives a running Agent App app in a headless browser). The `agent_type` enum is built dynamically from the registry; if a type is rejected, it isn't registered — do the work yourself or ask the user. Sub-agents run with iteration and wall-clock caps and end themselves via their own `sub_task_end` action.
+Registered types today: `research_agent` (gathers source-cited facts and returns a brief — it does not interpret or make decisions), `browser_agent` (drives its own Mini Browser tab for one interactive web task; it cannot sign in with saved passwords, so do logins yourself first) and `walk_verify` (drives a running Agent App app in a headless browser). The `agent_type` enum is built dynamically from the registry; if a type is rejected, it isn't registered — do the work yourself or ask the user. Sub-agents run with iteration and wall-clock caps and end themselves via their own `sub_task_end` action.
 
 ### How to write a good `query`
 
@@ -1438,6 +1446,12 @@ content_creation         generate_image, generate_video
 
 image / video            image analysis and generation / understand_video, generate_video
 
+mini_browser             mini_browser_navigate, mini_browser_read, mini_browser_click,
+                         mini_browser_type, mini_browser_press_key, mini_browser_select_option,
+                         mini_browser_hover, mini_browser_scroll, mini_browser_wait,
+                         mini_browser_upload_file, mini_browser_login, mini_browser_screenshot,
+                         mini_browser_tabs
+
 proactive / scheduler    schedule_task, scheduled_task_list, schedule_task_toggle,
                          remove_scheduled_task, recurring_add, recurring_read,
                          recurring_update_task, recurring_remove
@@ -1497,12 +1511,16 @@ To list every set currently visible to the runtime, call the `list_action_sets` 
 
 ### Built-in sets (with curated descriptions)
 
-`DEFAULT_SET_DESCRIPTIONS` has explicit descriptions for these eight sets:
+`DEFAULT_SET_DESCRIPTIONS` has explicit descriptions for these sets:
 
 ```
 core                  Essential actions, always available
 file_operations       File and folder manipulation
 web_research          Internet search and browsing
+mini_browser          Mini Browser: a live Chromium with the user's saved logins; each
+                      agent drives its own tab, the user can watch and take control
+mcp_playwright-mcp    Headless, invisible Playwright over MCP for automated app
+                      verification (present while that MCP server is connected)
 document_processing   PDF and document handling
 image                 Image viewing, analysis, OCR
 video                 Video analysis
@@ -1545,9 +1563,9 @@ You cannot opt out of `core`, and `core` now carries the everyday surface: messa
 
 ### How sets are loaded
 
-1. **Automatically per run** — workflow runs (memory, proactive, skill slash commands) and `schedule_task(action_sets=[...])` pre-load the sets a run needs. `core` is always added.
-2. **Mid-run** — call `add_action_sets(action_sets=[...])` or `remove_action_sets(action_sets=[...])`. The action list is recompiled, caches rebuild, and the new actions appear in the next turn's prompt.
-3. **Via skill selection** — if a skill's `SKILL.md` frontmatter has `action-sets: [...]`, those sets are auto-loaded when the skill is loaded (`use_skill`) and unloaded with it (`unload_skill`). See `## Skills`.
+1. **Automatically per run** — workflow runs (memory, proactive, skill slash commands) and `schedule_task(action_sets=[...])` pre-load the sets a run needs. A user skill picked for the run (`/<skill>` or `schedule_task(skills=[...])`) also brings the sets its SKILL.md declares. `core` is always added.
+2. **Mid-run** — call `add_action_sets(action_sets=[...])` or `remove_action_sets(action_sets=[...])`. The action list is recompiled, caches rebuild, and the new actions appear in the next turn's prompt. Names are matched leniently (case, `-` vs `_`, the old name `web_agent` → `mini_browser`); a name that matches no set is NOT loaded and comes back in `unknown_sets` with a `hint`.
+3. **Via skill selection** — if a skill's `SKILL.md` frontmatter has `action-sets: [...]`, those sets are auto-loaded when the skill is loaded (`use_skill`). They stay loaded after `unload_skill`; drop them with `remove_action_sets` when no longer needed. See `## Skills`.
 
 After loading, the new actions ARE in your prompt the next turn. You do not need to re-fetch or refresh anything.
 
@@ -1557,6 +1575,8 @@ After loading, the new actions ARE in your prompt the next turn. You do not need
 
 ```
 Document generation               document_processing
+Operate a website (sign in,       mini_browser  (the user can watch live; saved logins
+forms, shopping, account pages)                 via mini_browser_login; skill: mini-browser)
 Image / video generation          content_creation (or image / video)
 Agent App work                    agent_app
 Recurring / proactive setup       proactive
@@ -1570,14 +1590,14 @@ Loading every set bloats the prompt and slows action selection — add only what
 
 Two ways to know what is currently active:
 1. The current prompt's action list (always authoritative).
-2. The `list_action_sets` action returns `{ available_sets, current_sets, current_actions }`.
+2. The `list_action_sets` action returns `{ available_sets, current_sets }`.
 
 If you suspect a set was supposed to be loaded but isn't (an action you expect to see is missing), call `list_action_sets` to confirm before assuming you have to manually add it with `add_action_sets`.
 
 ### Set lifecycle
 
 - Loaded sets belong to the session and persist across turns of a run.
-- `add_action_sets` / `remove_action_sets` mutate the selection at any time; workflow-loaded sets are removed automatically at run end.
+- `add_action_sets` / `remove_action_sets` mutate the selection at any time. Sets loaded for a workflow run stay loaded after it ends (only its workflow skills unload); remove sets you no longer need.
 - Skills load and unload mid-run via `use_skill` / `unload_skill` — no need to end anything to switch skills.
 
 See `## Runs` for how runs work and `## Runtime` for how the action list reaches your prompt each turn.
@@ -2130,10 +2150,12 @@ The shipped `mcp_config.json` contains roughly 158 server entries (most `enabled
 
 ```
 filesystem            @modelcontextprotocol/server-filesystem      file ops on cwd
-playwright-mcp        @playwright/mcp                              browser automation
+playwright-mcp        @playwright/mcp                              headless browser automation
 amadeus-hotels-mcp    travel API                                    hotels search
 github-mcp            @modelcontextprotocol/server-github           GitHub API
 ```
+
+`playwright-mcp` runs headless and invisible, in its own profile without the user's logins: it is for scripted checks such as Agent App verification (walk_verify). To browse or act on websites for the user, use the built-in Mini Browser (`mini_browser` set) instead.
 
 Categories present in the shipped config: filesystem, browser automation, calendar/email/notes, finance/markets/crypto, productivity, OS integrations, fitness, search, media, AI/image, e-commerce, dev tools, security, design, analytics, real estate. To enumerate: `grep_files '"name":' app/config/mcp_config.json` returns the full list.
 
@@ -2392,8 +2414,10 @@ If the skill is selected by the LLM mid-task (not via slash invocation), argumen
    scans <project_skills_dir>/<name>/SKILL.md files
    parses frontmatter + body via FRONTMATTER_PATTERN
 2. for each parsed skill:
-     if name in disabled_skills (skills_config.json)  -> enabled=false
-     else                                             -> enabled=true
+     system skill (user-invocable: false)             -> always enabled
+     name in disabled_skills (skills_config.json)     -> enabled=false
+     enabled_skills non-empty and name not in it      -> enabled=false (whitelist)
+     otherwise                                        -> enabled=true
 3. enabled skills are presented to the LLM each task turn for selection
 4. user-invocable + enabled skills are registered as /<name> slash commands
 ```
@@ -2427,7 +2451,7 @@ When `allowed-tools` is non-empty in the frontmatter, the action filter narrows 
 
 ### `action-sets` auto-loading
 
-When a skill is loaded, every name in its `action-sets` is added to the session's loaded action sets (and removed again when the skill unloads):
+When a skill is loaded, every name in its `action-sets` is added to the session's loaded action sets (they stay loaded after the skill unloads):
 
 ```
 final_action_sets = dedup(current_sets + skill.action_sets)
@@ -2485,7 +2509,9 @@ A skill's enabled state is governed by its presence in `enabled_skills` vs `disa
 ```
 enabled_skills:    [<name>, ...]    skills available for LLM selection / slash invocation
 disabled_skills:   [<name>, ...]    explicitly OFF (loaded but invisible)
-not in either:                       loaded as enabled if auto_load=true (default)
+not in either:                       enabled only while enabled_skills is empty — a
+                                     non-empty enabled_skills (the shipped config has one)
+                                     is a whitelist, so add new skills to it
 ```
 
 Toggle via `stream_edit` on `skills_config.json`, OR via the user-side commands `/skill enable <name>` / `/skill disable <name>`. Both go through the same hot-reload path.
@@ -2535,7 +2561,8 @@ craftbot-skill-improve       refining an existing skill
 predict-stock-next-week      stock prediction workflow
 docx, pptx, xlsx, pdf        document generation per file format
 file-format                  format normalization
-playwright-mcp               browser automation steering
+mini-browser                 operate websites in the Mini Browser (live, user's logins)
+playwright-mcp               headless Playwright MCP (scripted checks, app verification)
 agent-app-creator,
 agent-app-modify,
 agent-app-manager            Agent App project lifecycle

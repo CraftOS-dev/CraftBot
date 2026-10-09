@@ -16,6 +16,7 @@ import type activity from '../locales/en/activity.json'
 import type errors from '../locales/en/errors.json'
 import type memory from '../locales/en/memory.json'
 import type tour from '../locales/en/tour.json'
+import type minibrowser from '../locales/en/minibrowser.json'
 
 declare module 'i18next' {
   interface CustomTypeOptions {
@@ -34,6 +35,7 @@ declare module 'i18next' {
       errors: typeof errors
       memory: typeof memory
       tour: typeof tour
+      minibrowser: typeof minibrowser
     }
   }
 }

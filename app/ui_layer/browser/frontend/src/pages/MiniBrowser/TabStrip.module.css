@@ -1,0 +1,171 @@
+/* Tab strip: always rendered at a fixed height (even with no tabs) so the
+   page area below never changes size — a size change resizes the remote
+   viewport and reflows the page. */
+.strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  height: 36px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 220px;
+  min-width: 104px;
+  max-width: 260px;
+  height: 28px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.tabSelected {
+  color: var(--text-primary);
+  background: var(--bg-selected);
+}
+
+.tabSelected:hover {
+  background: var(--bg-selected-hover);
+}
+
+.tabButton {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 2px 0 var(--space-2);
+  color: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  border-radius: var(--radius-md);
+}
+
+.tabButton:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: -2px;
+}
+
+.tabIcon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.tabTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Who uses the tab. Agents' badges read stronger than the user's own. */
+.owner {
+  flex: 0 1 auto;
+  min-width: 0;
+  /* The title keeps at least half of a narrow tab. */
+  max-width: min(84px, 45%);
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.ownerUser {
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.tabBusy .owner {
+  color: var(--color-info);
+  border-color: var(--color-info-light);
+  background: var(--color-info-subtle);
+}
+
+.close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--space-1);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.tab:hover .close,
+.tabSelected .close {
+  opacity: 1;
+}
+
+.close:hover {
+  color: var(--text-primary);
+  background: var(--bg-selected-hover);
+}
+
+/* No hover on touch screens: keep the close buttons visible. */
+@media (hover: none) {
+  .close {
+    opacity: 1;
+  }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.busyIcon {
+  color: var(--color-info);
+}
+
+.crashedIcon {
+  color: var(--color-warning);
+}
+
+.newTab {
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 2.4s;
+  }
+}

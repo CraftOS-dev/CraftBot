@@ -1,0 +1,104 @@
+/* Mini Browser page: the browser on the left, the Mini Browser chat on the
+   right (ChatPanel). Below 768px the two stack vertically. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.browserPanel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* Its size is the remote viewport. `isolation` keeps the live view's layers
+   from competing with the toolbar's menus. */
+.stageArea {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--bg-primary);
+}
+
+/* Page loading: a thin indeterminate bar on the stage's top edge (an
+   overlay, so the stage never changes size). */
+.loadingBar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.loadingBar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -35%;
+  width: 35%;
+  background: var(--color-info);
+  animation: loadingSlide 1.1s ease-in-out infinite;
+}
+
+@keyframes loadingSlide {
+  from { left: -35%; }
+  to { left: 100%; }
+}
+
+/* Connection lost: the view is frozen and input is off until it's back. */
+.disconnected {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  backdrop-filter: blur(2px);
+  text-align: center;
+  font-size: var(--text-sm);
+}
+
+.disconnected strong {
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+}
+
+/* ── Mobile: the chat (see ChatPanel) stacks under the browser ───────── */
+
+@media (max-width: 768px) {
+  .content {
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingBar::after {
+    animation-duration: 2.4s;
+  }
+}

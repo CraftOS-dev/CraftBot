@@ -1,0 +1,243 @@
+{
+  "page": {
+    "label": "Mini Browser"
+  },
+  "chat": {
+    "placeholder": "Ask the agent to browse, search or fill in a form…",
+    "show": "Show chat",
+    "hide": "Hide chat",
+    "loading": "Getting the chat ready…"
+  },
+  "toolbar": {
+    "label": "Browser controls",
+    "back": "Back",
+    "forward": "Forward",
+    "reload": "Reload",
+    "stopLoading": "Stop loading",
+    "address": "Address and search bar",
+    "addressPlaceholder": "Search or type a web address",
+    "secure": "Secure connection (HTTPS)",
+    "notSecure": "Not secure (HTTP)",
+    "follow": "Follow the agent",
+    "followOnHint": "Following the agent: the view jumps to whichever tab an agent is working in",
+    "followOffHint": "Not following: the view stays on the tab you chose",
+    "adblock": "Ad blocker",
+    "adblockOnHint": "Ad blocker is on. Click to turn it off.",
+    "adblockOffHint": "Ad blocker is off. Click to turn it on.",
+    "adblockUnknown": "Checking the ad blocker…",
+    "adblockPending": "Updating the ad blocker…",
+    "passwords": "Saved passwords",
+    "more": "More",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied",
+    "copyFailed": "Couldn't copy to the clipboard",
+    "openExternal": "Open in your browser",
+    "openExternalHint": "Opens this page in your usual browser. Logins from the Mini Browser don't carry over.",
+    "closeBrowser": "Close browser",
+    "stopAgent": "Stop agent",
+    "stopAgentHint": "Stop the agent that is using this tab",
+    "stopping": "Stopping…",
+    "dismiss": "Dismiss"
+  },
+  "tabs": {
+    "label": "Browser tabs",
+    "newTab": "New tab",
+    "untitled": "New tab",
+    "close": "Close tab",
+    "closeNamed": "Close tab: {{title}}",
+    "loading": "Loading",
+    "busy": "An agent is working in this tab",
+    "crashed": "This tab crashed",
+    "ownerTooltip": "Used by: {{owner}}",
+    "owner": {
+      "you": "You",
+      "main": "Main chat",
+      "miniBrowser": "This chat",
+      "session": "Chat",
+      "subagent": "Sub-agent"
+    },
+    "closeBusyTitle": "Close this tab?",
+    "closeBusyMessage": "{{owner}} is working in this tab. Closing it stops what the agent is doing here."
+  },
+  "live": {
+    "label": "Live web page",
+    "keyboardHint": "Your clicks and typing go to the web page. Press Escape twice to return to the address bar.",
+    "loading": "Loading the page…",
+    "noTab": "No tab is open.",
+    "agentBrowsing": "{{owner}} is browsing",
+    "takeControl": "Take control",
+    "takeControlHint": "Pause the agent on this tab so you can use it yourself",
+    "inControl": "You're in control — the agent is paused on this tab",
+    "handBack": "Hand back",
+    "handBackHint": "Let the agent continue on this tab",
+    "reconnecting": "Reconnecting…",
+    "reconnectingHint": "The live view resumes as soon as CraftBot is back.",
+    "crashedTitle": "This tab crashed",
+    "crashedBody": "Reload it to try again.",
+    "reloadTab": "Reload tab",
+    "showKeyboard": "Show keyboard",
+    "copyFailed": "Couldn't copy the selection to your clipboard",
+    "pasteTruncated": "The text was too long, so only the first {{max}} characters were pasted."
+  },
+  "status": {
+    "connecting": "Connecting to the Mini Browser…",
+    "starting": "Starting the browser…",
+    "installing": "Installing the browser…",
+    "installingHint": "Downloading Chromium. This can take a few minutes.",
+    "installLog": "Install log",
+    "installDone": "Browser installed",
+    "errorTitle": "The browser ran into a problem",
+    "stoppedTitle": "Browse the web together with your agent",
+    "stoppedBody": "A real browser you share with your agents. Watch them work live, or step in whenever you like.",
+    "start": "Start browser",
+    "openSite": "Open a site",
+    "tryAsking": "Try asking the agent",
+    "examples": {
+      "compare": "Compare prices for noise-cancelling headphones on three shopping sites",
+      "news": "Open a news site and summarize today's top stories",
+      "research": "Look up the weather forecast for Tokyo this weekend"
+    },
+    "featureWatchTitle": "Watch it work",
+    "featureWatchBody": "Each agent works in its own tab. Follow along as it clicks, types and scrolls.",
+    "featureControlTitle": "Take over anytime",
+    "featureControlBody": "Click or type in the page and the agent pauses on that tab until you hand it back.",
+    "featureLoginsTitle": "Saved logins",
+    "featureLoginsBody": "Save a password once and agents can sign in for you, without ever seeing it.",
+    "install": "Install browser",
+    "installAgain": "Try installing again",
+    "retry": "Try again",
+    "profileInUseHint": "Close the other CraftBot window that is using the Mini Browser, then try again."
+  },
+  "events": {
+    "download": "Downloaded {{name}}",
+    "openFile": "Open",
+    "showInFolder": "Show in folder",
+    "popup": "The page opened a new tab",
+    "dialogGeneric": "The page showed a dialog, which was answered automatically",
+    "blockedGeneric": "The Mini Browser blocked a page it doesn't open",
+    "crash": "A tab crashed. It reloads the next time it's used."
+  },
+  "confirm": {
+    "shutdownTitle": "Close the browser?",
+    "shutdownMessage": "An agent is still browsing. Closing the browser stops it and closes every tab."
+  },
+  "passwords": {
+    "title": "Saved passwords",
+    "intro": "Agents use these to sign in for you. Passwords are encrypted on this computer and are never shown to the agent or sent back to this page.",
+    "protectionDpapi": "Encrypted with your Windows account",
+    "protectionFile": "Encrypted with a key stored on this computer",
+    "listLabel": "Saved logins",
+    "count_one": "{{count}} login",
+    "count_other": "{{count}} logins",
+    "filter": "Filter logins",
+    "loading": "Loading saved logins…",
+    "empty": "No saved logins yet. Add one below, then ask the agent to sign you in.",
+    "emptyUnreadable": "Saved logins can't be shown until the vault can be read again.",
+    "noMatches": "No logins match the filter.",
+    "lastUsed": "Last used {{date}}",
+    "neverUsed": "Not used yet",
+    "edit": "Edit",
+    "editNamed": "Edit the login for {{username}} on {{site}}",
+    "delete": "Delete",
+    "deleteNamed": "Delete the login for {{username}} on {{site}}",
+    "deleteTitle": "Delete this login?",
+    "deleteMessage": "Delete the saved login for {{username}} on {{site}}? Agents won't be able to sign in there with it anymore.",
+    "addTitle": "Add a login",
+    "editTitle": "Edit login",
+    "site": "Website",
+    "sitePlaceholder": "example.com",
+    "siteHint": "Used only on this site and its subdomains, over a secure (HTTPS) connection.",
+    "username": "Username or email",
+    "password": "Password",
+    "passwordKeep": "Leave blank to keep the current password",
+    "label": "Label (optional)",
+    "labelPlaceholder": "e.g. Work account",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "save": "Save login",
+    "update": "Save changes",
+    "cancelEdit": "Cancel",
+    "saved": "Login saved",
+    "updated": "Login updated",
+    "deleted": "Login deleted",
+    "required": "Required",
+    "invalidSite": "Enter a website like example.com",
+    "tooLong": "Too long (up to {{max}} characters)",
+    "willReplace": "You already have a login for {{username}} on {{site}}. Saving replaces its password.",
+    "notConnected": "Not connected to CraftBot. Try again in a moment.",
+    "timeout": "CraftBot didn't answer in time. Check the list and try again.",
+    "error": "Something went wrong. Try again.",
+    "unreadableTitle": "The password vault can't be read",
+    "unreadableBody": "Your saved logins are still there, but they can't be decrypted on this computer (for example, because the encryption key changed). Nothing was overwritten. Reset the vault to start over; the unreadable file is kept as a backup.",
+    "reset": "Reset vault",
+    "resetTitle": "Reset the password vault?",
+    "resetMessage": "This starts a new, empty vault. The unreadable vault file is kept as a backup.",
+    "resetDone": "Password vault reset"
+  },
+  "errors": {
+    "MINI_BROWSER_PLAYWRIGHT_MISSING": {
+      "title": "Browser engine not installed",
+      "message": "The Mini Browser needs its browser engine (Playwright), which isn't installed yet."
+    },
+    "MINI_BROWSER_CHROMIUM_MISSING": {
+      "title": "Browser not installed",
+      "message": "The Mini Browser's Chromium isn't installed yet. You can install it here; it's a one-time download."
+    },
+    "MINI_BROWSER_PROFILE_IN_USE": {
+      "title": "Browser profile in use",
+      "message": "Another CraftBot window is already using the Mini Browser's profile."
+    },
+    "MINI_BROWSER_LAUNCH_FAILED": {
+      "title": "The browser didn't start",
+      "message": "Chromium couldn't be launched. Try again; if it keeps failing, reinstall the browser."
+    },
+    "MINI_BROWSER_NOT_RUNNING": {
+      "title": "Browser not running",
+      "message": "The Mini Browser isn't running. Start it to continue."
+    },
+    "MINI_BROWSER_NAVIGATION_FAILED": {
+      "title": "Page didn't load",
+      "message": "The page couldn't be opened. Check the address and your internet connection."
+    },
+    "MINI_BROWSER_BLOCKED_URL": {
+      "title": "Address blocked",
+      "message": "The Mini Browser doesn't open this kind of address."
+    },
+    "MINI_BROWSER_INVALID_INPUT": {
+      "title": "Invalid request",
+      "message": "That request wasn't valid."
+    },
+    "MINI_BROWSER_PAGE_UNRESPONSIVE": {
+      "title": "Page not responding",
+      "message": "The page didn't respond in time. Try again, reload it, or open another tab."
+    },
+    "MINI_BROWSER_TAB_NOT_FOUND": {
+      "title": "Tab not found",
+      "message": "That tab is no longer open."
+    },
+    "MINI_BROWSER_TIMEOUT": {
+      "title": "Timed out",
+      "message": "That took too long. Try again."
+    },
+    "MINI_BROWSER_VAULT_UNREADABLE": {
+      "title": "Password vault unreadable",
+      "message": "The saved-password vault can't be decrypted on this computer. Nothing was overwritten; you can reset it under Saved passwords."
+    },
+    "MINI_BROWSER_VAULT_INVALID": {
+      "title": "Check the login details",
+      "message": "Some of the login details aren't valid."
+    },
+    "MINI_BROWSER_VAULT_IO": {
+      "title": "Couldn't save the vault",
+      "message": "The password vault couldn't be written to disk."
+    },
+    "MINI_BROWSER_INSTALL_FAILED": {
+      "title": "Install failed",
+      "message": "Installing Chromium didn't finish. Check your internet connection and try again."
+    },
+    "MINI_BROWSER_INTERNAL": {
+      "title": "Something went wrong",
+      "message": "The Mini Browser ran into an unexpected problem."
+    }
+  }
+}

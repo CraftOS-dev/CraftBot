@@ -74,6 +74,14 @@ schedule_task(
 )
 ```
 
+### Tasks That Operate a Website (Mini Browser)
+
+Reading public pages works with `web_search` / `web_fetch`. A task that must USE a site — sign in, open an account page, click through, fill a form — needs the Mini Browser (action set `mini_browser`, a real browser with the user's saved logins):
+
+- **Quick check on one page** → INLINE: `add_action_sets(["mini_browser"])`, then the `mini_browser_*` actions next turn (`mini_browser_navigate`, then act on the numbered elements each result returns; `mini_browser_login` signs in with a saved login). Unload with `remove_action_sets(["mini_browser"])` when done.
+- **Multi-step work** → SCHEDULED: `schedule_task(..., schedule="immediate", action_sets=["mini_browser"], skills=["mini-browser"], ...)`.
+- Never wait for the user inside a heartbeat. A login that isn't saved, a CAPTCHA or a 2FA prompt → record the outcome as failed (`success: false`, say what is needed) and notify the user (tier 1).
+
 ---
 
 ## Tiered Permission Model
@@ -226,7 +234,7 @@ For each task that passes evaluation, determine HOW to execute it:
      name="Weekly Code Review",
      instruction="Perform weekly code review. IMPORTANT: Before ending this task, you MUST call recurring_update_task(task_id='weekly_code_review', add_outcome={'result': '[what was done]', 'success': true/false}) to record the outcome.",
      schedule="immediate",
-     action_sets=["code_analysis", "file_operations"],
+     action_sets=["file_operations"],
      skills=[],
      payload={"source": "proactive", "task_id": "weekly_code_review"}
    )
@@ -284,14 +292,14 @@ All recurring proactive tasks use tier 0 or tier 1:
 1. Read tasks: `recurring_read(frequency="all", enabled_only=true)`
 2. Find: `weekly_code_review` (weekly, tier 1, enabled, today is Sunday, due now)
 3. Score: Impact=4, Risk=5, Cost=3, Urgency=2, Confidence=4 = 18 (execute)
-4. Execution type: **SCHEDULED** (complex multi-step analysis, needs code_analysis action set)
+4. Execution type: **SCHEDULED** (complex multi-step analysis)
 5. Schedule:
    ```
    schedule_task(
      name="Weekly Code Review",
      instruction="Review code changes from the past week. Analyze for patterns, issues, and improvements. IMPORTANT: Before ending, call recurring_update_task(task_id='weekly_code_review', add_outcome={'result': '[summary of findings]', 'success': true/false}).",
      schedule="immediate",
-     action_sets=["code_analysis", "file_operations"],
+     action_sets=["file_operations"],
      payload={"source": "proactive", "task_id": "weekly_code_review"}
    )
    ```
@@ -302,7 +310,9 @@ All recurring proactive tasks use tier 0 or tier 1:
 
 `recurring_read`, `recurring_update_task`, `send_message`, `memory_search`,
 `read_file`, `web_search`, `web_fetch`, `schedule_task`,
-`update_todos`, `end_turn`
+`update_todos`, `end_turn`, and for website tasks `add_action_sets` /
+`remove_action_sets` with the `mini_browser_*` actions (see "Tasks That
+Operate a Website")
 
 ## Forbidden Actions
 

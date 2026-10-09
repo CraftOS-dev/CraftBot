@@ -152,6 +152,15 @@ export const RESOURCES = {
     request: (send) => send({ type: 'slow_mode_get' }),
   },
 
+  // ── Mini Browser ──
+  /** Saved logins (never passwords) for the Passwords dialog. The reply goes
+   *  to the requesting tab only, so every open dialog asks for itself. */
+  miniBrowserVault: {
+    key: 'miniBrowserVault',
+    resource: 'mini_browser_vault',
+    request: (send) => send({ type: 'mini_browser_vault_list' }),
+  },
+
   // ── Static catalogs: refreshed after a reconnect ──
   playbooks: {
     key: 'playbooks',

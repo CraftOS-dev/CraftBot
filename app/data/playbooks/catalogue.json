@@ -85,6 +85,7 @@
           "brave-search",
           "firecrawl",
           "playwright-mcp",
+          "mini-browser",
           "ai-news-collectors"
         ],
         "mcp_servers": [
@@ -309,6 +310,7 @@
           "brave-search",
           "firecrawl",
           "playwright-mcp",
+          "mini-browser",
           "concise-planning"
         ],
         "mcp_servers": [
@@ -644,6 +646,7 @@
           "brave-search",
           "firecrawl",
           "playwright-mcp",
+          "mini-browser",
           "concise-planning"
         ],
         "mcp_servers": [
@@ -1199,6 +1202,7 @@
         "skills": [
           "brave-search",
           "playwright-mcp",
+          "mini-browser",
           "concise-planning"
         ],
         "mcp_servers": [
@@ -1229,6 +1233,7 @@
         "skills": [
           "firecrawl",
           "playwright-mcp",
+          "mini-browser",
           "concise-planning"
         ],
         "mcp_servers": [

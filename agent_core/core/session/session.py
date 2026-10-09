@@ -25,8 +25,12 @@ class SessionType:
     MAIN = "main"
     CHAT = "chat"
     AGENT_APP = "agent_app"
+    # The dedicated chat behind the Mini Browser page (app/mini_browser). It
+    # behaves like a chat, but the backend creates it (browser actions
+    # preloaded) and it is not listed with the sidebar's chats.
+    MINI_BROWSER = "mini_browser"
 
-    ALL = (MAIN, CHAT, AGENT_APP)
+    ALL = (MAIN, CHAT, AGENT_APP, MINI_BROWSER)
 
 
 # The singleton main session id. All ambient input (integrations, scheduler,
@@ -41,7 +45,7 @@ class Session:
 
     Attributes:
         id: Unique identifier (``main`` for the main session).
-        type: One of SessionType.ALL — main | chat | agent_app.
+        type: One of SessionType.ALL — main | chat | agent_app | mini_browser.
         title: Human-readable title shown in the sidebar (auto-generated
             for chat sessions after the first exchange, renamable).
         created_at: ISO timestamp when the session was created.

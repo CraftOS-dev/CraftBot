@@ -47,6 +47,13 @@ _TYPE_LANES = {
     "command_list": "skills",
     "create_skill_from_session": "skills",
     "reset": "reset",
+    # Mini Browser: page loads never hold up the live view's input (which
+    # stays in one lane to keep keystrokes in order), and a Chromium install
+    # (minutes) never holds up anything.
+    "mini_browser_navigate": "mini_browser_nav",
+    "mini_browser_history": "mini_browser_nav",
+    "mini_browser_tab": "mini_browser_nav",
+    "mini_browser_install": "mini_browser_install",
 }
 
 # Message-type prefix → lane; first match wins.
@@ -73,6 +80,9 @@ _PREFIX_LANES = (
     ("dashboard_", "dashboard"),
     ("subscribe_dashboard_", "dashboard"),
     ("unsubscribe_dashboard_", "dashboard"),
+    # The password vault before the general Mini Browser prefix.
+    ("mini_browser_vault_", "mini_browser_vault"),
+    ("mini_browser_", "mini_browser"),
 )
 
 GENERAL_LANE = "general"

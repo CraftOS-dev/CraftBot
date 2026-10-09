@@ -19,13 +19,30 @@ DEFAULT_SET_DESCRIPTIONS: Dict[str, str] = {
     "core": "Essential actions always available (send_message, task management, set management)",
     "file_operations": "File and folder manipulation (read, write, search, edit)",
     "web_research": "Internet search and browsing (web search, fetch URLs)",
-    "web_agent": "Drive a real web browser — navigate, read pages, click, type, and scroll to complete interactive web tasks (logging in, searching, filling forms, online shopping). Use when the task needs live interaction with a site, not just reading it.",
+    "mini_browser": (
+        "Mini Browser: a live Chromium with the user's saved logins and cookies; "
+        "each agent drives its own tab while the user can watch and take control. "
+        "USE it to operate websites: logging in, filling and submitting forms, "
+        "searching inside a site, shopping/booking, JavaScript-heavy or "
+        "login-walled pages, anything web_fetch could not read. NOT for plain "
+        "lookups (web_search / web_fetch are faster)."
+    ),
+    "mcp_playwright-mcp": (
+        "Headless, invisible Playwright browser over MCP (separate profile "
+        "without the user's logins) for automated app verification such as "
+        "walk_verify. To browse or act on websites for the user, use "
+        "mini_browser instead."
+    ),
     "document_processing": "PDF and document handling (read, create, convert)",
     "image": "Image viewing, analysis, and OCR (screenshots, photos, diagrams)",
     "video": "Video analysis and understanding — describe, summarise, or answer questions about video files (MP4, AVI, MOV)",
     "clipboard": "Clipboard read/write operations",
     "shell": "Command line and Python execution",
 }
+
+# Renamed sets: old name -> current name. Sessions and schedules persist set
+# names, so an old name must keep compiling to the renamed set's actions.
+SET_ALIASES: Dict[str, str] = {"web_agent": "mini_browser"}
 
 
 class ActionSetManager:
@@ -63,8 +80,9 @@ class ActionSetManager:
         """
         from agent_core import registry_instance, PLATFORM_ALL
 
-        # Always include core set
-        required_sets: Set[str] = set(selected_sets) | {"core"}
+        # Always include core set; renamed sets resolve to their new name.
+        required_sets: Set[str] = {SET_ALIASES.get(s, s) for s in selected_sets}
+        required_sets.add("core")
         compiled: List[str] = []
 
         # Get current platform for implementation lookup

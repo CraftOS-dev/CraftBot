@@ -37,6 +37,7 @@ class Resource(str, Enum):
     AGENT_FILES = "agent_files"  # ids = USER.md / AGENT.md / SOUL.md
     GENERAL_SETTINGS = "general_settings"
     MODEL_SETTINGS = "model_settings"
+    MINI_BROWSER_VAULT = "mini_browser_vault"  # saved logins (never passwords)
 
 
 class ResourceChangeNotifier:

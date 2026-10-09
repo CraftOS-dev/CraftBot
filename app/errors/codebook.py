@@ -99,6 +99,40 @@ _CODEBOOK: Dict[str, _Spec] = {
 }
 
 
+def _register_mini_browser_errors() -> None:
+    """Add every Mini Browser code to the codebook.
+
+    ``app/mini_browser/errors.py`` ``ERROR_SPECS`` is the single source of
+    truth for those codes; registering them here makes ``make_error`` work for
+    them like for any other app error. A broken Mini Browser package must not
+    take the whole codebook down with it (Mini Browser errors then fall back
+    to formatting their spec directly, see app/mini_browser/errors.py).
+    """
+    try:
+        from app.mini_browser.errors import ERROR_SPECS
+    except Exception:
+        return
+
+    for code, (category, severity, title, template) in ERROR_SPECS.items():
+        try:
+            spec_category = ErrorCategory(category)
+        except ValueError:
+            spec_category = ErrorCategory.INTERNAL
+        try:
+            spec_severity = Severity(severity)
+        except ValueError:
+            spec_severity = Severity.ERROR
+        _CODEBOOK[code] = _Spec(
+            category=spec_category,
+            severity=spec_severity,
+            title=title,
+            message_template=template,
+        )
+
+
+_register_mini_browser_errors()
+
+
 def make_error(code: str, **fmt_kwargs) -> ErrorInfo:
     """Build a structured `ErrorInfo` from a codebook entry.
 

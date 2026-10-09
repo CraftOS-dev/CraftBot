@@ -1,0 +1,242 @@
+{
+  "page": {
+    "label": "Peramban Mini"
+  },
+  "chat": {
+    "placeholder": "Minta agen menjelajah web atau mengisi formulir…",
+    "show": "Tampilkan obrolan",
+    "hide": "Sembunyikan obrolan",
+    "loading": "Menyiapkan obrolan…"
+  },
+  "toolbar": {
+    "label": "Kontrol peramban",
+    "back": "Kembali",
+    "forward": "Maju",
+    "reload": "Muat ulang",
+    "stopLoading": "Hentikan pemuatan",
+    "address": "Bilah alamat dan pencarian",
+    "addressPlaceholder": "Cari atau ketik alamat web",
+    "secure": "Koneksi aman (HTTPS)",
+    "notSecure": "Tidak aman (HTTP)",
+    "follow": "Ikuti agen",
+    "followOnHint": "Mengikuti agen: tampilan berpindah ke tab tempat agen sedang bekerja",
+    "followOffHint": "Tidak mengikuti: tampilan tetap di tab yang Anda pilih",
+    "adblock": "Pemblokir iklan",
+    "adblockOnHint": "Pemblokir iklan aktif. Klik untuk menonaktifkan.",
+    "adblockOffHint": "Pemblokir iklan nonaktif. Klik untuk mengaktifkan.",
+    "adblockUnknown": "Memeriksa pemblokir iklan…",
+    "adblockPending": "Mengubah pemblokir iklan…",
+    "passwords": "Kata sandi tersimpan",
+    "more": "Lainnya",
+    "copyLink": "Salin tautan",
+    "linkCopied": "Tautan disalin",
+    "copyFailed": "Tidak dapat menyalin ke papan klip",
+    "openExternal": "Buka di peramban Anda",
+    "openExternalHint": "Membuka halaman ini di peramban yang biasa Anda pakai. Status masuk dari Peramban Mini tidak ikut terbawa.",
+    "closeBrowser": "Tutup peramban",
+    "stopAgent": "Hentikan agen",
+    "stopAgentHint": "Hentikan agen yang sedang memakai tab ini",
+    "stopping": "Menghentikan…",
+    "dismiss": "Tutup"
+  },
+  "tabs": {
+    "label": "Tab peramban",
+    "newTab": "Tab baru",
+    "untitled": "Tab baru",
+    "close": "Tutup tab",
+    "closeNamed": "Tutup tab: {{title}}",
+    "loading": "Memuat",
+    "busy": "Agen sedang bekerja di tab ini",
+    "crashed": "Tab ini mogok",
+    "ownerTooltip": "Dipakai oleh: {{owner}}",
+    "owner": {
+      "you": "Anda",
+      "main": "Obrolan utama",
+      "miniBrowser": "Obrolan ini",
+      "session": "Obrolan",
+      "subagent": "Subagen"
+    },
+    "closeBusyTitle": "Tutup tab ini?",
+    "closeBusyMessage": "{{owner}} sedang bekerja di tab ini. Menutupnya akan menghentikan pekerjaan agen di tab ini."
+  },
+  "live": {
+    "label": "Halaman web langsung",
+    "keyboardHint": "Klik dan ketikan Anda dikirim ke halaman web. Tekan Escape dua kali untuk kembali ke bilah alamat.",
+    "loading": "Memuat halaman…",
+    "noTab": "Tidak ada tab yang terbuka.",
+    "agentBrowsing": "{{owner}} sedang menjelajah",
+    "takeControl": "Ambil alih",
+    "takeControlHint": "Jeda agen di tab ini agar Anda bisa memakainya sendiri",
+    "inControl": "Anda yang mengendalikan — agen dijeda di tab ini",
+    "handBack": "Kembalikan ke agen",
+    "handBackHint": "Biarkan agen melanjutkan di tab ini",
+    "reconnecting": "Menyambungkan ulang…",
+    "reconnectingHint": "Tampilan langsung akan berlanjut begitu CraftBot tersambung kembali.",
+    "crashedTitle": "Tab ini mogok",
+    "crashedBody": "Muat ulang untuk mencoba lagi.",
+    "reloadTab": "Muat ulang tab",
+    "showKeyboard": "Tampilkan keyboard",
+    "copyFailed": "Tidak dapat menyalin pilihan ke papan klip",
+    "pasteTruncated": "Teks terlalu panjang, jadi hanya {{max}} karakter pertama yang ditempel."
+  },
+  "status": {
+    "connecting": "Menyambung ke Peramban Mini…",
+    "starting": "Memulai peramban…",
+    "installing": "Memasang peramban…",
+    "installingHint": "Mengunduh Chromium. Ini bisa memakan waktu beberapa menit.",
+    "installLog": "Log pemasangan",
+    "installDone": "Peramban terpasang",
+    "errorTitle": "Peramban mengalami masalah",
+    "stoppedTitle": "Jelajahi web bersama agen Anda",
+    "stoppedBody": "Peramban sungguhan yang Anda gunakan bersama agen. Saksikan mereka bekerja secara langsung, atau ambil alih kapan saja.",
+    "start": "Mulai peramban",
+    "openSite": "Buka situs",
+    "tryAsking": "Coba minta agen",
+    "examples": {
+      "compare": "Bandingkan harga headphone peredam bising di tiga situs belanja",
+      "news": "Buka situs berita dan rangkum berita utama hari ini",
+      "research": "Cari prakiraan cuaca Tokyo untuk akhir pekan ini"
+    },
+    "featureWatchTitle": "Saksikan kerjanya",
+    "featureWatchBody": "Setiap agen bekerja di tab-nya sendiri. Ikuti setiap klik, ketikan, dan guliran.",
+    "featureControlTitle": "Ambil alih kapan saja",
+    "featureControlBody": "Klik atau ketik di halaman, dan agen di tab itu dijeda sampai Anda mengembalikannya.",
+    "featureLoginsTitle": "Info masuk tersimpan",
+    "featureLoginsBody": "Simpan kata sandi sekali, dan agen bisa masuk untuk Anda tanpa pernah melihatnya.",
+    "install": "Pasang peramban",
+    "installAgain": "Pasang ulang",
+    "retry": "Coba lagi",
+    "profileInUseHint": "Tutup jendela CraftBot lain yang sedang memakai Peramban Mini, lalu coba lagi."
+  },
+  "events": {
+    "download": "{{name}} telah diunduh",
+    "openFile": "Buka",
+    "showInFolder": "Tampilkan di folder",
+    "popup": "Halaman membuka tab baru",
+    "dialogGeneric": "Halaman menampilkan dialog, yang dijawab secara otomatis",
+    "blockedGeneric": "Peramban Mini memblokir halaman yang tidak boleh dibuka",
+    "crash": "Sebuah tab mogok. Tab akan dimuat ulang saat dipakai lagi."
+  },
+  "confirm": {
+    "shutdownTitle": "Tutup peramban?",
+    "shutdownMessage": "Agen masih menjelajah. Menutup peramban akan menghentikannya dan menutup semua tab."
+  },
+  "passwords": {
+    "title": "Kata sandi tersimpan",
+    "intro": "Agen memakainya untuk masuk atas nama Anda. Kata sandi dienkripsi di komputer ini dan tidak pernah ditampilkan kepada agen atau dikirim kembali ke halaman ini.",
+    "protectionDpapi": "Dienkripsi dengan akun Windows Anda",
+    "protectionFile": "Dienkripsi dengan kunci yang disimpan di komputer ini",
+    "listLabel": "Info masuk tersimpan",
+    "count_other": "{{count}} info masuk",
+    "filter": "Saring info masuk",
+    "loading": "Memuat info masuk tersimpan…",
+    "empty": "Belum ada info masuk yang tersimpan. Tambahkan di bawah, lalu minta agen untuk masuk atas nama Anda.",
+    "emptyUnreadable": "Info masuk tidak bisa ditampilkan sampai brankas dapat dibaca lagi.",
+    "noMatches": "Tidak ada info masuk yang cocok dengan saringan.",
+    "lastUsed": "Terakhir dipakai {{date}}",
+    "neverUsed": "Belum pernah dipakai",
+    "edit": "Edit",
+    "editNamed": "Edit info masuk {{username}} di {{site}}",
+    "delete": "Hapus",
+    "deleteNamed": "Hapus info masuk {{username}} di {{site}}",
+    "deleteTitle": "Hapus info masuk ini?",
+    "deleteMessage": "Hapus info masuk tersimpan untuk {{username}} di {{site}}? Agen tidak akan bisa memakainya lagi untuk masuk ke situs itu.",
+    "addTitle": "Tambahkan info masuk",
+    "editTitle": "Edit info masuk",
+    "site": "Situs web",
+    "sitePlaceholder": "example.com",
+    "siteHint": "Hanya dipakai di situs ini dan subdomainnya, melalui koneksi aman (HTTPS).",
+    "username": "Nama pengguna atau email",
+    "password": "Kata sandi",
+    "passwordKeep": "Biarkan kosong untuk mempertahankan kata sandi saat ini",
+    "label": "Label (opsional)",
+    "labelPlaceholder": "mis. Akun kantor",
+    "showPassword": "Tampilkan kata sandi",
+    "hidePassword": "Sembunyikan kata sandi",
+    "save": "Simpan info masuk",
+    "update": "Simpan perubahan",
+    "cancelEdit": "Batal",
+    "saved": "Info masuk disimpan",
+    "updated": "Info masuk diperbarui",
+    "deleted": "Info masuk dihapus",
+    "required": "Wajib diisi",
+    "invalidSite": "Masukkan situs web seperti example.com",
+    "tooLong": "Terlalu panjang (maksimal {{max}} karakter)",
+    "willReplace": "Anda sudah punya info masuk untuk {{username}} di {{site}}. Menyimpan akan mengganti kata sandinya.",
+    "notConnected": "Tidak tersambung ke CraftBot. Coba lagi sebentar lagi.",
+    "timeout": "CraftBot tidak menjawab tepat waktu. Periksa daftarnya dan coba lagi.",
+    "error": "Terjadi masalah. Coba lagi.",
+    "unreadableTitle": "Brankas kata sandi tidak dapat dibaca",
+    "unreadableBody": "Info masuk tersimpan Anda masih ada, tetapi tidak dapat didekripsi di komputer ini (misalnya karena kunci enkripsinya berubah). Tidak ada yang ditimpa. Atur ulang brankas untuk memulai dari awal; berkas yang tidak terbaca disimpan sebagai cadangan.",
+    "reset": "Atur ulang brankas",
+    "resetTitle": "Atur ulang brankas kata sandi?",
+    "resetMessage": "Ini membuat brankas baru yang kosong. Berkas brankas yang tidak terbaca disimpan sebagai cadangan.",
+    "resetDone": "Brankas kata sandi diatur ulang"
+  },
+  "errors": {
+    "MINI_BROWSER_PLAYWRIGHT_MISSING": {
+      "title": "Mesin peramban belum terpasang",
+      "message": "Peramban Mini memerlukan mesin perambannya (Playwright), yang belum terpasang."
+    },
+    "MINI_BROWSER_CHROMIUM_MISSING": {
+      "title": "Peramban belum terpasang",
+      "message": "Chromium untuk Peramban Mini belum terpasang. Anda bisa memasangnya di sini; cukup diunduh sekali."
+    },
+    "MINI_BROWSER_PROFILE_IN_USE": {
+      "title": "Profil peramban sedang dipakai",
+      "message": "Jendela CraftBot lain sudah memakai profil Peramban Mini."
+    },
+    "MINI_BROWSER_LAUNCH_FAILED": {
+      "title": "Peramban gagal dimulai",
+      "message": "Chromium tidak dapat dijalankan. Coba lagi; jika terus gagal, pasang ulang peramban."
+    },
+    "MINI_BROWSER_NOT_RUNNING": {
+      "title": "Peramban tidak berjalan",
+      "message": "Peramban Mini tidak sedang berjalan. Mulai dulu untuk melanjutkan."
+    },
+    "MINI_BROWSER_NAVIGATION_FAILED": {
+      "title": "Halaman gagal dimuat",
+      "message": "Halaman tidak dapat dibuka. Periksa alamatnya dan koneksi internet Anda."
+    },
+    "MINI_BROWSER_BLOCKED_URL": {
+      "title": "Alamat diblokir",
+      "message": "Peramban Mini tidak membuka alamat jenis ini."
+    },
+    "MINI_BROWSER_INVALID_INPUT": {
+      "title": "Permintaan tidak valid",
+      "message": "Permintaan itu tidak valid."
+    },
+    "MINI_BROWSER_PAGE_UNRESPONSIVE": {
+      "title": "Halaman tidak merespons",
+      "message": "Halaman tidak merespons tepat waktu. Coba lagi, muat ulang, atau buka tab lain."
+    },
+    "MINI_BROWSER_TAB_NOT_FOUND": {
+      "title": "Tab tidak ditemukan",
+      "message": "Tab itu sudah tidak terbuka."
+    },
+    "MINI_BROWSER_TIMEOUT": {
+      "title": "Waktu habis",
+      "message": "Prosesnya terlalu lama. Coba lagi."
+    },
+    "MINI_BROWSER_VAULT_UNREADABLE": {
+      "title": "Brankas kata sandi tidak dapat dibaca",
+      "message": "Brankas kata sandi tersimpan tidak dapat didekripsi di komputer ini. Tidak ada yang ditimpa; Anda bisa mengatur ulang di Kata sandi tersimpan."
+    },
+    "MINI_BROWSER_VAULT_INVALID": {
+      "title": "Periksa info masuk",
+      "message": "Sebagian info masuk tidak valid."
+    },
+    "MINI_BROWSER_VAULT_IO": {
+      "title": "Brankas tidak dapat disimpan",
+      "message": "Brankas kata sandi tidak dapat ditulis ke disk."
+    },
+    "MINI_BROWSER_INSTALL_FAILED": {
+      "title": "Pemasangan gagal",
+      "message": "Pemasangan Chromium tidak selesai. Periksa koneksi internet Anda dan coba lagi."
+    },
+    "MINI_BROWSER_INTERNAL": {
+      "title": "Terjadi masalah",
+      "message": "Peramban Mini mengalami masalah yang tidak terduga."
+    }
+  }
+}

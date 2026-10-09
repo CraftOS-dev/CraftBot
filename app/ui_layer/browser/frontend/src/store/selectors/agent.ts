@@ -9,9 +9,6 @@ export const selectAgentProfilePictureHasCustom = (state: RootState) =>
 export const selectAgentStatus = (state: RootState) => state.agent.status
 export const selectGuiMode = (state: RootState) => state.agent.guiMode
 export const selectFootageUrl = (state: RootState) => state.agent.footageUrl
-export const selectBrowserFrame = (state: RootState) => state.agent.browserFrame
-export const selectBrowserUrl = (state: RootState) => state.agent.browserUrl
-export const selectBrowserTitle = (state: RootState) => state.agent.browserTitle
 export const selectSkillMeta = (state: RootState) => state.agent.skillMeta
 export const selectSessionRunState = (
   state: RootState,
